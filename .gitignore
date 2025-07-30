@@ -1,0 +1,10 @@
+---
+
+## FILE: .gitignore
+```gitignore
+/target
+**/*.contract
+**/Cargo.lock
+.idea/
+.vscode/
+.DS_Store
