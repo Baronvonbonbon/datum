@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "contracts/campaign_registry",
+    "contracts/reward_vault",
+    "contracts/impression_logger",
+]
+resolver = "2"
