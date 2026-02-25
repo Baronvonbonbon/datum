@@ -1,0 +1,27 @@
+{
+  "name": "datum-poc",
+  "version": "0.1.0",
+  "description": "DATUM PoC Solidity contracts for PolkaVM validation",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "compile:polkavm": "npx hardhat compile --network polkadotHub",
+    "test": "npx hardhat test",
+    "test:coverage": "npx hardhat coverage",
+    "deploy:local": "npx hardhat run scripts/deploy.ts --network hardhat",
+    "deploy:polkavm": "npx hardhat run scripts/deploy.ts --network polkadotHub"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@parity/hardhat-polkadot": "^0.2.7",
+    "@parity/hardhat-polkadot-node": "^0.2.5",
+    "@parity/hardhat-polkadot-resolc": "^0.2.3",
+    "@parity/resolc": "*",
+    "hardhat": "^2.22.0",
+    "solc": "0.8.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}
