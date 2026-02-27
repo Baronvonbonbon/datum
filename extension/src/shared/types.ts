@@ -1,0 +1,89 @@
+// Shared types mirroring IDatumSettlement.sol and IDatumCampaigns.sol structs
+
+export interface Claim {
+  campaignId: bigint;
+  publisher: string;
+  impressionCount: bigint;
+  clearingCpmPlanck: bigint;
+  nonce: bigint;
+  previousClaimHash: string; // bytes32 hex
+  claimHash: string;         // bytes32 hex
+  zkProof: string;           // bytes hex, "0x" in MVP
+}
+
+export interface ClaimBatch {
+  user: string;
+  campaignId: bigint;
+  claims: Claim[];
+}
+
+export interface SignedClaimBatch extends ClaimBatch {
+  deadline: number;    // block number
+  signature: string;   // 65-byte EIP-712 signature hex
+}
+
+export interface SettlementResult {
+  settledCount: bigint;
+  rejectedCount: bigint;
+  totalPaid: bigint;
+}
+
+export interface Campaign {
+  id: bigint;
+  advertiser: string;
+  publisher: string;
+  budget: bigint;           // planck
+  remainingBudget: bigint;  // planck
+  dailyCap: bigint;         // planck
+  bidCpmPlanck: bigint;
+  snapshotTakeRateBps: number;
+  status: CampaignStatus;
+  pendingExpiryBlock: bigint;
+  terminationBlock: bigint;
+}
+
+export enum CampaignStatus {
+  Pending = 0,
+  Active = 1,
+  Paused = 2,
+  Completed = 3,
+  Terminated = 4,
+  Expired = 5,
+}
+
+export interface Impression {
+  campaignId: bigint;
+  publisherAddress: string;
+  userAddress: string;
+  timestamp: number;
+  url: string;
+  category: string;
+}
+
+// Per-(userAddress, campaignId) claim chain state persisted in chrome.storage.local
+export interface ClaimChainState {
+  userAddress: string;
+  campaignId: string;  // bigint as string for JSON serialization
+  lastNonce: number;
+  lastClaimHash: string; // bytes32 hex
+}
+
+export interface StoredSettings {
+  rpcUrl: string;
+  network: NetworkName;
+  publisherAddress: string;
+  autoSubmit: boolean;
+  autoSubmitIntervalMinutes: number;
+  contractAddresses: ContractAddresses;
+}
+
+export type NetworkName = "local" | "westend" | "kusama" | "polkadotHub";
+
+export interface ContractAddresses {
+  campaigns: string;
+  publishers: string;
+  governanceVoting: string;
+  governanceRewards: string;
+  settlement: string;
+  relay: string;
+}
