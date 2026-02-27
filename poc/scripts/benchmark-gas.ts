@@ -104,7 +104,7 @@ async function main() {
   const BUDGET = parseDOT("50");
   const DAILY_CAP = parseDOT("10");
   const IMPRESSIONS_1 = 1000n;
-  const IMPRESSIONS_10 = 100n; // 10 claims × 100 impressions
+  const IMPRESSIONS_5 = 200n; // 5 claims × 200 impressions
 
   const PubFactory = await ethers.getContractFactory("DatumPublishers");
   const publishers: DatumPublishers = await PubFactory.deploy(TAKE_RATE_DELAY);
@@ -254,12 +254,12 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. settleClaims — 10 claims
+  // 5. settleClaims — 5 claims (MAX_CLAIMS_PER_BATCH)
   // ---------------------------------------------------------------------------
-  console.log("5. settleClaims (10 claims)");
-  const claims10 = buildClaimChain(cidSettle10, publisher.address, user.address, 10, BID_CPM, IMPRESSIONS_10);
-  await measure("settleClaims (10 claims)", settlement.connect(user).settleClaims([
-    { user: user.address, campaignId: cidSettle10, claims: claims10 }
+  console.log("5. settleClaims (5 claims)");
+  const claims5 = buildClaimChain(cidSettle10, publisher.address, user.address, 5, BID_CPM, IMPRESSIONS_5);
+  await measure("settleClaims (5 claims)", settlement.connect(user).settleClaims([
+    { user: user.address, campaignId: cidSettle10, claims: claims5 }
   ]));
 
   // ---------------------------------------------------------------------------
@@ -299,15 +299,11 @@ async function main() {
     console.log(`${r.label.padEnd(30)} | ${r.gasUsed.toString().padEnd(22)} | ${cost}`);
   }
 
-  // Scale factor: 10 claims / 1 claim
+  // Scale factor: 5 claims / 1 claim
   const settle1 = results.find(r => r.label === "settleClaims (1 claim)")!.gasUsed;
-  const settle10 = results.find(r => r.label === "settleClaims (10 claims)")!.gasUsed;
-  console.log(`\nsettleClaims scale: 10-claim / 1-claim = ${(Number(settle10) / Number(settle1)).toFixed(2)}x`);
-  if (settle10 > settle1 * 5n) {
-    console.log("WARNING: settleClaims gas scales badly — consider MAX_CLAIMS_PER_BATCH guard");
-  } else {
-    console.log("OK: settleClaims gas scaling is acceptable");
-  }
+  const settle5 = results.find(r => r.label === "settleClaims (5 claims)")!.gasUsed;
+  console.log(`\nsettleClaims scale: 5-claim / 1-claim = ${(Number(settle5) / Number(settle1)).toFixed(2)}x`);
+  console.log(`Per-claim cost in 5-batch: ${(Number(settle5) / 5).toFixed(0)} vs single: ${Number(settle1)}`);
 
   // ---------------------------------------------------------------------------
   // Emit markdown
@@ -320,7 +316,8 @@ async function main() {
     const cost = r.gasUsed * gasPrice;
     console.log(`| \`${r.label}\` | ${r.gasUsed} | ${gasPrice} | ${cost} |`);
   }
-  console.log(`\n_Measured ${date} on pallet-revive dev chain (chainId 420420420)_`);
+  const netName = substrate ? "pallet-revive dev chain (chainId 420420420)" : `Hardhat EVM (chainId ${net.chainId})`;
+  console.log(`\n_Measured ${date} on ${netName}_`);
 }
 
 main().catch(console.error);
