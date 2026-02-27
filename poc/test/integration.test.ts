@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumPublishers, DatumCampaigns, DatumGovernanceVoting, DatumGovernanceRewards, DatumSettlement } from "../typechain-types";
+import { DatumPublishers, DatumCampaigns, DatumGovernanceVoting, DatumGovernanceRewards, DatumSettlement, DatumRelay } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { mineBlocks, isSubstrate, fundSigners } from "./helpers/mine";
@@ -8,6 +8,7 @@ import { mineBlocks, isSubstrate, fundSigners } from "./helpers/mine";
 // Integration tests: Scenarios A-E
 // A: Happy path (create → aye activate → settle claims → complete → claim aye rewards)
 // B: Termination path (create → activate → nay terminate → distribute slash → verify pull payments)
+// F: Publisher relay — full flow with EIP-712 signature via DatumRelay
 // C: Pending expiry (create → never vote → expire → budget returned)
 // D: Nonce gap (batch gap at claim 5 of 10 → only 1-4 settle)
 // E: Take rate snapshot (register at 30% → create → update to 80% → settle → verify 30%)
@@ -21,6 +22,7 @@ describe("Integration", function () {
   let voting: DatumGovernanceVoting;
   let rewards: DatumGovernanceRewards;
   let settlement: DatumSettlement;
+  let relay: DatumRelay;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -126,9 +128,14 @@ describe("Integration", function () {
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await campaigns.getAddress());
 
+    // Deploy relay
+    const RelayFactory = await ethers.getContractFactory("DatumRelay");
+    relay = await RelayFactory.deploy(await settlement.getAddress());
+
     // Wire contracts
     await campaigns.setGovernanceContract(await voting.getAddress());
     await campaigns.setSettlementContract(await settlement.getAddress());
+    await settlement.setRelayContract(await relay.getAddress());
 
     // Register publisher
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
@@ -289,6 +296,85 @@ describe("Integration", function () {
     // Note: publisher balance accumulates across tests (shared deployment)
     // Just verify it increased by the expected amount
     // For this test, we check the nonce state which is per-campaign
+  });
+
+  // Scenario F: Publisher relay — full flow with EIP-712 signature
+  it("F: Publisher relay — full flow with signature", async function () {
+    const campaignId = await createTestCampaign();
+
+    // Activate via aye vote
+    await voting.connect(voter1).voteAye(campaignId, 0, { value: ACTIVATION_THRESHOLD });
+    expect((await campaigns.getCampaign(campaignId)).status).to.equal(1); // Active
+
+    // Build claims
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 3, cpm, impressions);
+
+    // User signs batch off-chain (domain is the relay contract)
+    const domain = {
+      name: "DatumRelay",
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: await relay.getAddress(),
+    };
+    const types = {
+      ClaimBatch: [
+        { name: "user", type: "address" },
+        { name: "campaignId", type: "uint256" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+    const deadline = (await ethers.provider.getBlockNumber()) + 200;
+    const value = {
+      user: user.address,
+      campaignId,
+      firstNonce: claims[0].nonce,
+      lastNonce: claims[claims.length - 1].nonce,
+      claimCount: claims.length,
+      deadline,
+    };
+    const signature = await user.signTypedData(domain, types, value);
+
+    // Publisher relays the signed batch
+    const signedBatch = {
+      user: user.address,
+      campaignId,
+      claims,
+      deadline,
+      signature,
+    };
+
+    // Record balances before relay settlement
+    const pubBalBefore = await settlement.publisherBalance(publisher.address);
+    const userBalBefore = await settlement.userBalance(user.address);
+    const protoBalBefore = await settlement.protocolBalance();
+
+    const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+    expect(result.settledCount).to.equal(3n);
+    expect(result.rejectedCount).to.equal(0n);
+
+    await relay.connect(publisher).settleClaimsFor([signedBatch]);
+
+    // Verify 3-way split for 3 claims (delta, not absolute — shared deployment)
+    const totalPayment = (cpm * impressions) / 1000n * 3n;
+    const pubPmt = (totalPayment * 5000n) / 10000n;
+    const remainder = totalPayment - pubPmt;
+    const userPmt = (remainder * 7500n) / 10000n;
+    const protFee = remainder - userPmt;
+
+    expect(await settlement.publisherBalance(publisher.address) - pubBalBefore).to.equal(pubPmt);
+    expect(await settlement.userBalance(user.address) - userBalBefore).to.equal(userPmt);
+    expect(await settlement.protocolBalance() - protoBalBefore).to.equal(protFee);
+
+    // Publisher withdraws
+    const pubBalContract = await settlement.publisherBalance(publisher.address);
+    expect(pubBalContract).to.be.gt(0n);
+    await settlement.connect(publisher).withdrawPublisher();
+    expect(await settlement.publisherBalance(publisher.address)).to.equal(0n);
   });
 
   // Scenario E: Take rate snapshot

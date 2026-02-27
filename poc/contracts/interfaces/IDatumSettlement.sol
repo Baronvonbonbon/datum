@@ -28,6 +28,15 @@ interface IDatumSettlement {
         Claim[] claims;
     }
 
+    /// @notice A claim batch signed by the user for publisher relay settlement
+    struct SignedClaimBatch {
+        address user;
+        uint256 campaignId;
+        Claim[] claims;
+        uint256 deadline;       // Block number after which signature expires
+        bytes signature;        // EIP-712 signature from user
+    }
+
     /// @notice Result summary from a settleClaims() call
     struct SettlementResult {
         uint256 settledCount;   // Number of claims successfully settled
@@ -81,7 +90,7 @@ interface IDatumSettlement {
     // Settlement
     // -------------------------------------------------------------------------
 
-    /// @notice Settle a batch of claims; must be called by batch.user
+    /// @notice Settle a batch of claims; must be called by batch.user or authorized relay
     /// @dev Processes claims in nonce order; stops at first gap; hash chain verified
     /// @param batches Array of per-user claim batches
     /// @return result Summary of settled vs rejected counts and total paid

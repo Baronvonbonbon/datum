@@ -1,18 +1,20 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumSettlement, MockCampaigns } from "../typechain-types";
+import { DatumSettlement, DatumRelay, MockCampaigns } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { fundSigners, isSubstrate } from "./helpers/mine";
 
 // Settlement tests: S1-S8
 // Plus: gap-at-claim-5, genesis-hash, take-rate-snapshot
+// Plus: R1-R6 relay tests (DatumRelay)
 //
 // On substrate, contract deployments are very slow (>5 min for large PVM bytecodes).
 // Contracts are deployed once in `before`. Each test uses a unique campaign ID.
 
 describe("DatumSettlement", function () {
   let settlement: DatumSettlement;
+  let relay: DatumRelay;
   let mock: MockCampaigns;
   let owner: HardhatEthersSigner;
   let user: HardhatEthersSigner;
@@ -89,7 +91,12 @@ describe("DatumSettlement", function () {
     const SettlementFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementFactory.deploy(await mock.getAddress());
 
-    // Set settlement address on mock
+    // Deploy DatumRelay
+    const RelayFactory = await ethers.getContractFactory("DatumRelay");
+    relay = await RelayFactory.deploy(await settlement.getAddress());
+
+    // Wire: settlement authorizes relay, mock authorizes settlement
+    await settlement.setRelayContract(await relay.getAddress());
     await mock.setSettlementContract(await settlement.getAddress());
   });
 
@@ -152,15 +159,15 @@ describe("DatumSettlement", function () {
     expect(await settlement.protocolBalance() - protoBalBefore).to.equal(protocolFee);
   });
 
-  // S3: Issue 7 — caller must be batch.user
-  it("S3: caller must be batch.user", async function () {
+  // S3: Issue 7 — caller must be batch.user or relay
+  it("S3: unauthorized caller reverts", async function () {
     const cid = await createTestCampaign();
     const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
     const batch = { user: user.address, campaignId: cid, claims };
 
     await expect(
       settlement.connect(other).settleClaims([batch])
-    ).to.be.revertedWith("Caller must be claim owner");
+    ).to.be.revertedWith("E32");
   });
 
   // S4: Issue 2 — CPM exceeding bidCpmPlanck is rejected
@@ -369,5 +376,201 @@ describe("DatumSettlement", function () {
       expect(await settlement.protocolBalance()).to.equal(0n);
     }
     expect(await settlement.protocolBalance()).to.equal(0n);
+  });
+
+  // -----------------------------------------------------------------------
+  // Publisher Relay Settlement (DatumRelay.settleClaimsFor) — R1-R6
+  // -----------------------------------------------------------------------
+
+  describe("Publisher Relay (DatumRelay)", function () {
+    // EIP-712 domain and types for signing (verifyingContract is the relay)
+    async function getEIP712Domain() {
+      return {
+        name: "DatumRelay",
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await relay.getAddress(),
+      };
+    }
+
+    const eip712Types = {
+      ClaimBatch: [
+        { name: "user", type: "address" },
+        { name: "campaignId", type: "uint256" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+
+    async function signBatch(
+      signer: HardhatEthersSigner,
+      campaignId: bigint,
+      claims: any[],
+      deadline: number
+    ) {
+      const domain = await getEIP712Domain();
+      const value = {
+        user: signer.address,
+        campaignId,
+        firstNonce: claims[0].nonce,
+        lastNonce: claims[claims.length - 1].nonce,
+        claimCount: claims.length,
+        deadline,
+      };
+      return signer.signTypedData(domain, eip712Types, value);
+    }
+
+    // R1: publisher can relay settlement for user with valid EIP-712 signature
+    it("R1: publisher can relay settlement with valid signature", async function () {
+      const cid = await createTestCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, cpm, impressions);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+      };
+
+      const pubBalBefore = await settlement.publisherBalance(publisher.address);
+      const userBalBefore = await settlement.userBalance(user.address);
+      const protoBalBefore = await settlement.protocolBalance();
+
+      const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await relay.connect(publisher).settleClaimsFor([signedBatch]);
+
+      // Verify 3-way split
+      const totalPayment = (cpm * impressions) / 1000n;
+      const publisherPmt = (totalPayment * BigInt(TAKE_RATE_BPS)) / 10000n;
+      const remainder = totalPayment - publisherPmt;
+      const userPmt = (remainder * 7500n) / 10000n;
+      const protocolFee = remainder - userPmt;
+
+      expect(await settlement.publisherBalance(publisher.address) - pubBalBefore).to.equal(publisherPmt);
+      expect(await settlement.userBalance(user.address) - userBalBefore).to.equal(userPmt);
+      expect(await settlement.protocolBalance() - protoBalBefore).to.equal(protocolFee);
+    });
+
+    // R2: relay with expired deadline reverts
+    it("R2: relay with expired deadline reverts E29", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      // Deadline in the past
+      const deadline = (await ethers.provider.getBlockNumber()) - 1;
+      const signature = await signBatch(user, cid, claims, deadline);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E29");
+    });
+
+    // R3: relay with invalid signature reverts
+    it("R3: relay with tampered signature reverts E31", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+
+      // Tamper with the signature
+      const sigBytes = ethers.getBytes(signature);
+      sigBytes[64] = sigBytes[64] === 0x1b ? 0x1c : 0x1b; // flip v
+      sigBytes[0] ^= 0xff; // corrupt r
+      const tamperedSig = ethers.hexlify(sigBytes);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature: tamperedSig,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E31");
+    });
+
+    // R4: relay with wrong signer reverts
+    it("R4: relay with wrong signer reverts E31", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      // Sign with `other` instead of `user`
+      const signature = await signBatch(other, cid, claims, deadline);
+
+      const signedBatch = {
+        user: user.address,  // batch says user, but signature is from other
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E31");
+    });
+
+    // R5: replay of settled batch — claims rejected on nonce
+    it("R5: replay of settled batch rejects all claims", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 200;
+      const signature = await signBatch(user, cid, claims, deadline);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+      };
+
+      // First submission succeeds
+      await relay.connect(publisher).settleClaimsFor([signedBatch]);
+      expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+
+      // Replay: same claims, same signature — nonce already consumed
+      const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(result.settledCount).to.equal(0n);
+      expect(result.rejectedCount).to.equal(1n);
+    });
+
+    // R6: direct settleClaims still works unchanged (regression)
+    it("R6: direct settleClaims still works after relay addition", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = { user: user.address, campaignId: cid, claims };
+
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await settlement.connect(user).settleClaims([batch]);
+      expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+    });
   });
 });

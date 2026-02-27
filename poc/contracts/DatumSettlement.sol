@@ -15,7 +15,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///   Issue 3:  Stop-on-first-gap: process nonces in order; reject gap and all subsequent.
 ///   Issue 5:  Settlement reads snapshotTakeRateBps from campaign struct (not live publisher rate).
 ///   Issue 6:  Hash chain validated inline; genesis requires previousClaimHash=0.
-///   Issue 7:  Per-batch require(msg.sender == batch.user).
+///   Issue 7:  Per-batch require(msg.sender == batch.user) or authorized relay contract.
 ///   Issue 4:  Pull payment for all parties; ReentrancyGuard.
 ///   Pausable removed (PVM size); Ownable kept for protocol withdraw access control.
 ///
@@ -39,6 +39,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     // -------------------------------------------------------------------------
 
     IDatumCampaigns public campaigns;
+
+    /// @dev Authorized relay contract that can call settleClaims on behalf of users
+    address public relayContract;
 
     // -------------------------------------------------------------------------
     // Pull payment balances (Issue 4)
@@ -68,11 +71,20 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     }
 
     // -------------------------------------------------------------------------
+    // Admin
+    // -------------------------------------------------------------------------
+
+    /// @notice Set the authorized relay contract address
+    function setRelayContract(address _relay) external onlyOwner {
+        relayContract = _relay;
+    }
+
+    // -------------------------------------------------------------------------
     // Settlement (Issue 3, 6, 7)
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumSettlement
-    /// @dev Issue 7: Each batch must be called by batch.user.
+    /// @dev Issue 7: Each batch must be called by batch.user or the authorized relay contract.
     ///      Issue 3: Stop-on-first-gap; settledCount + rejectedCount = total in batch.
     function settleClaims(ClaimBatch[] calldata batches)
         external
@@ -82,26 +94,33 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
 
-            // Issue 7: caller must be the claim owner
-            require(msg.sender == batch.user, "Caller must be claim owner");
+            // Issue 7: caller must be the claim owner or authorized relay
+            require(
+                msg.sender == batch.user || msg.sender == relayContract,
+                "E32"
+            );
 
-            _processBatch(batch, result);
+            _processBatch(batch.user, batch.campaignId, batch.claims, result);
         }
     }
 
     /// @dev Process one user's claims in a batch.
-    ///      A4 fix: all claims must match batch.campaignId.
+    ///      A4 fix: all claims must match batch-level campaignId.
     ///      A3 fix: campaign is fetched once in _validateClaim and passed through.
-    function _processBatch(ClaimBatch calldata batch, SettlementResult memory result) internal {
-        require(batch.claims.length <= MAX_CLAIMS_PER_BATCH, "E28");
-        address user = batch.user;
+    function _processBatch(
+        address user,
+        uint256 campaignId,
+        Claim[] calldata claims,
+        SettlementResult memory result
+    ) internal {
+        require(claims.length <= MAX_CLAIMS_PER_BATCH, "E28");
         bool gapFound = false;
 
-        for (uint256 i = 0; i < batch.claims.length; i++) {
-            Claim calldata claim = batch.claims[i];
+        for (uint256 i = 0; i < claims.length; i++) {
+            Claim calldata claim = claims[i];
 
             // A4 fix: reject claims that don't match the batch-level campaignId
-            if (claim.campaignId != batch.campaignId) {
+            if (claim.campaignId != campaignId) {
                 result.rejectedCount++;
                 emit ClaimRejected(claim.campaignId, user, claim.nonce, 0);
                 continue;
