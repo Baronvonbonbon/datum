@@ -1,6 +1,6 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 1.3
+**Version:** 1.4
 **Date:** 2026-02-24
 **Last updated:** 2026-02-27 — Phase 1.4+1.5 COMPLETE. Gas benchmarks recorded in BENCHMARKS.md. zkProof field present. MAX_CLAIMS_PER_BATCH guard added (5.30x scaling). Gate G1 ✅ ALL criteria met.
 **Scope:** Full three-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
@@ -22,7 +22,7 @@ The MVP consists of four deliverables:
 | Item | Reason |
 |------|---------|
 | ZK proof of auction outcome | `zkProof` field reserved in Claim struct; circuit work separate track |
-| KILT KYB identity | MVP uses T1 allowlist; KILT is a post-MVP upgrade |
+| Decentralized KYB identity | MVP uses T1 allowlist; identity verification (KILT, zkMe, or Polkadot PoP) is a post-MVP upgrade |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing is post-MVP |
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
 | Taxonomy on-chain governance | Hardcoded taxonomy in MVP |
@@ -216,6 +216,45 @@ Techniques applied:
 - [x] `npx hardhat test --network substrate` — 44/46 pass, 2 skipped (L7 daily-cap + minReviewerStake) ✅
 - [x] `BENCHMARKS.md` exists with all six key function values ✅
 
+#### 1.6 — Publisher relay settlement (gas cost optimization)
+
+**Problem:** `settleClaims` costs ~0.78 DOT per claim on the dev chain. The user's 37.5% share of a typical settlement may not cover their gas cost, especially for low-CPM campaigns. If only the user can call `settleClaims`, the protocol is uneconomical for most users.
+
+**Solution:** Allow publishers to batch-submit claims on behalf of multiple users in a single transaction. The publisher absorbs the gas cost and recoups it from their take rate (which is typically 50% of total payment — much larger than the user's share).
+
+**Design: `settleClaimsFor()` with EIP-712 signatures**
+
+The current contract enforces `require(msg.sender == batch.user)`. To allow publisher relay, add a second entry point that accepts a user's off-chain signature instead:
+
+```
+function settleClaimsFor(SignedClaimBatch[] calldata batches) external nonReentrant
+```
+
+Each `SignedClaimBatch` contains:
+- The existing `ClaimBatch` fields (user, campaignId, claims)
+- `bytes signature` — EIP-712 typed signature from `batch.user` over the batch hash
+- `uint256 deadline` — signature expiry block (prevents replay after a window)
+
+The contract verifies `ecrecover(batchDigest, signature) == batch.user` instead of checking `msg.sender`. The publisher (or any relayer) can then call `settleClaimsFor()` and submit claims for many users in one tx.
+
+**Why EIP-712:** Structured typed data signing is supported by Polkadot.js extension and SubWallet. The user sees a human-readable "Approve settlement of N claims for campaign X" prompt, not an opaque hex blob.
+
+**Economics:** For a publisher with 100 users, settling 5 claims per user at ~0.78 DOT each would cost 100 × 0.78 = 78 DOT in gas if each user submits individually. With publisher relay, 100 batches in ~20 transactions (5 batches per tx) costs ~20 × 4 DOT ≈ 80 DOT total gas — similar total, but the publisher pays it once and recoups from their 50% take. Users pay zero gas and still receive their 37.5% share via pull-payment withdrawal.
+
+At mainnet gas prices (orders of magnitude lower than dev chain), this becomes strongly economical.
+
+**Tasks:**
+- [ ] Add `SignedClaimBatch` struct to `IDatumSettlement.sol`: extends `ClaimBatch` with `bytes signature` and `uint256 deadline`
+- [ ] Add EIP-712 domain separator and batch type hash constants to `DatumSettlement.sol`
+- [ ] Implement `settleClaimsFor()`: verify signature, then delegate to existing `_processBatch()`
+- [ ] Add `nonces` mapping (per-user nonce for replay protection) and `DOMAIN_SEPARATOR` to settlement contract
+- [ ] Verify PVM bytecode size still under 49,152 bytes after additions (if over, extract signature verification to a separate `DatumRelayer` contract)
+- [ ] Write tests: publisher relays for user (happy path), expired deadline reverts, invalid signature reverts, replay reverts, mixed direct + relayed settlement
+- [ ] Update benchmark script to measure `settleClaimsFor()` gas cost vs `settleClaims()`
+- [ ] Verify all tests pass on Hardhat EVM and substrate
+
+**Fallback:** If EIP-712 adds too much bytecode (49 KB is tight), a simpler alternative is `settleClaimsFor(ClaimBatch[] batches, address[] users, bytes[] signatures)` using `ecrecover` with plain `keccak256` message hashes. Less user-friendly signing UX but smaller contract footprint.
+
 ---
 
 ## Phase 2 — Browser Extension
@@ -305,10 +344,12 @@ extension/
 
 #### 2.7 — Manual submit mode
 - [ ] Popup `ClaimQueue.tsx`: list pending claims grouped by campaign (campaignId, impression count, estimated payment in DOT)
-- [ ] "Submit All" button: calls `walletBridge.ts` → `settlement.settleClaims([batch])` with the full queue
+- [ ] "Submit All" button: calls `walletBridge.ts` → `settlement.settleClaims([batch])` with the full queue (user pays gas)
+- [ ] "Sign for Publisher" button: signs claim batch via EIP-712 and stores signed batch for publisher relay pickup (user pays zero gas)
 - [ ] On success: display `settledCount` / `rejectedCount`; remove settled claims from queue
 - [ ] On rejection or nonce mismatch: rebuild claim chain from on-chain `lastNonce` and `lastClaimHash`, then allow re-submit
 - [ ] Display pending estimated earnings (sum of `userPayment` for all queued claims)
+- [ ] Display estimated gas cost next to "Submit All" so user can compare against their payout
 
 #### 2.8 — Auto submit mode
 - [ ] Settings toggle: "Auto submit" on/off; interval selector (5 min / 10 min / 30 min / 1 hour)
@@ -489,7 +530,12 @@ Common expected issues:
 After G4-P, the following items become the next development cycle in priority order:
 
 1. **ZK proof of auction outcome** — custom circuit, in-browser WASM prover, `zkProof` field validation in `_validateClaim()`; must be prototyped before this cycle starts
-2. **KILT KYB identity** — T2/T3 identity tiers in settlement; per-advertiser and per-publisher credential verification
+2. **Decentralized KYB/KYC identity** — T2/T3 identity tiers in settlement; per-advertiser and per-publisher credential verification. Candidate systems:
+   - **KILT Protocol** — Polkadot-native verifiable credential issuance; active parachain on coretime; used by Deloitte for shipping logistics; issues W3C-compliant credentials that can be verified on-chain
+   - **Polkadot Proof of Personhood (Project Individuality)** — Gavin Wood's Sybil-resistant identity primitive launching 2025–2026; ZK proofs only (no PII on-chain); good for user verification but may not cover business KYB
+   - **zkMe** — ZK identity oracles; FATF-compliant KYC/KYB/AML; cross-chain; the only decentralized solution currently doing full KYB with ZK proofs
+   - **Blockpass** — Web3 compliance suite with reusable on-chain KYC; less decentralized but production-ready
+   - **Recommendation:** Evaluate zkMe for advertiser/publisher KYB (business verification) and Polkadot PoP for user Sybil resistance (prevents fake impression farms). KILT remains viable for verifiable credential storage if a W3C VC standard is needed.
 3. **HydraDX XCM fee routing** — protocol fee accumulation → XCM send → HydraDX swap; requires XCM retry queue
 4. **Viewability dispute mechanism** — 7-day challenge window, advertiser bond, oracle-based sampling audit
 5. **Revenue split governance** — make 75/25 user/protocol split a governance parameter
@@ -541,11 +587,11 @@ After G4-P, the following items become the next development cycle in priority or
 |----------|--------|-----------|
 | Denomination | Planck (10^10 per DOT) | Native PolkaVM path; no REVM scaling layer |
 | Claim hash | `keccak256(abi.encodePacked(...))` — no zkProof in hash | zkProof is a carrier; changing the hash would break all existing chains |
-| Wallet signing | User wallet via Polkadot.js/SubWallet + ethers BrowserProvider | Satisfies `msg.sender == batch.user`; no relayer complexity |
+| Wallet signing | User wallet via Polkadot.js/SubWallet + ethers BrowserProvider | Direct submit: `msg.sender == batch.user`; Relay: EIP-712 typed signature verified via `ecrecover` |
 | Extension manifest | MV3 | Required for Chrome Web Store; service worker replaces background page |
-| Settlement caller | User (not publisher, not relayer) | Enforced on-chain; user signs their own claims |
+| Settlement caller | User direct (`settleClaims`) or publisher relay (`settleClaimsFor` with EIP-712 signature) | Direct: user pays gas; Relay: publisher pays gas, user signs off-chain |
 | clearingCpmPlanck | Equals bidCpmPlanck in MVP | No auction in MVP; ZK proof deferred |
-| Batch size limit | TBD — set after Phase 1 gas benchmarks | Must be enforced on-chain before testnet |
+| Batch size limit | MAX_CLAIMS_PER_BATCH = 5 | settleClaims scales 5.3x for 10 claims; enforced on-chain (E28) |
 | Block time constants | 6s/block (Polkadot Hub) | 24h = 14,400 blocks; 7d = 100,800; 365d = 5,256,000 |
 | PVM bytecode limit | < 48 KB per contract (EIP-3860) | resolc mode `z`; contracts split to fit |
 | Contract count | 5 (was 3) | Split for PVM size: Campaigns, Publishers, GovernanceVoting, GovernanceRewards, Settlement |
