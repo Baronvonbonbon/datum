@@ -2,7 +2,7 @@
 
 **Version:** 1.3
 **Date:** 2026-02-24
-**Last updated:** 2026-02-27 — Phase 1.3 COMPLETE: 44/46 substrate (2 skipped), 46/46 Hardhat EVM. Three root causes fixed: signer funding, eth-rpc denomination rounding, `.call{value}` for Settlement withdraws.
+**Last updated:** 2026-02-27 — Phase 1.4+1.5 COMPLETE. Gas benchmarks recorded in BENCHMARKS.md. zkProof field present. MAX_CLAIMS_PER_BATCH guard added (5.30x scaling). Gate G1 ✅ ALL criteria met.
 **Scope:** Full three-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -183,28 +183,38 @@ Techniques applied:
 4. **Slow deploys**: PVM contract deployment takes 60-120s. Tests must use `before()` (not `beforeEach()`) for deployment.
 
 #### 1.4 — gas benchmarks
-- [ ] Instrument test suite to capture gas used for each key function on the substrate node
-- [ ] Record baseline values for: `createCampaign`, `voteAye`, `voteNay`, `settleClaims` (1 claim), `settleClaims` (10 claims), `withdrawPublisher()`
-- [ ] If `settleClaims` gas scales dangerously with batch size, add `require(batch.claims.length <= MAX_CLAIMS_PER_BATCH, "Batch too large")` guard to `DatumSettlement.sol` and update tests
-- [ ] Document benchmarks in `/poc/BENCHMARKS.md`
+- [x] Instrument test suite to capture gas used for each key function on the substrate node
+- [x] Record baseline values for: `createCampaign`, `voteAye`, `voteNay`, `settleClaims` (1 claim), `settleClaims` (10 claims), `withdrawPublisher()`
+- [x] `settleClaims` scales 5.30x for 10 claims — added `MAX_CLAIMS_PER_BATCH = 5` guard to `DatumSettlement.sol`
+- [x] Document benchmarks in `/poc/BENCHMARKS.md`
+
+**Benchmark results (2026-02-27, pallet-revive dev chain, gasPrice=1000):**
+
+| Function | gasUsed (weight) | Est. cost (DOT) |
+|----------|-----------------|-----------------|
+| `createCampaign` | 2,657,538,331,671,666 | ~0.266 DOT |
+| `voteAye` | 2,304,998,733,791,666 | ~0.230 DOT |
+| `voteNay` | 2,283,167,806,290,833 | ~0.228 DOT |
+| `settleClaims` (1 claim) | 7,843,683,326,872,500 | ~0.784 DOT |
+| `settleClaims` (10 claims) | 41,545,711,111,520,000 | ~4.155 DOT |
+| `withdrawPublisher` | 1,471,147,848,773,333 | ~0.147 DOT |
 
 #### 1.5 — zkProof field in Claim struct
-- [ ] Add `bytes zkProof` field to `Claim` struct in `contracts/interfaces/IDatumSettlement.sol`
-- [ ] Add `zkProof` field to `Claim` struct in `contracts/DatumSettlement.sol`
-- [ ] In `_validateClaim()`: accept field, do not validate — add comment `// ZK verification: not implemented in MVP`
-- [ ] Update `computeClaimHash()`: do NOT include `zkProof` in the hash (proof is a carrier field, not part of the claim identity)
-- [ ] Update all claim-building helpers in test files: `buildClaimChain()` and `buildClaims()` — add `zkProof: "0x"` to each claim literal
-- [ ] Re-run full test suite — all 40 must still pass
-- [ ] Update `MockCampaigns.sol` if it references the Claim struct directly
+- [x] `bytes zkProof` field in `Claim` struct in `contracts/interfaces/IDatumSettlement.sol`
+- [x] `zkProof` field in `Claim` struct in `contracts/DatumSettlement.sol`
+- [x] `_validateClaim()` accepts field, does not validate — `// ZK verification: not implemented in MVP`
+- [x] `computeClaimHash()` does NOT include `zkProof` in the hash
+- [x] All claim-building helpers use `zkProof: "0x"` — all 46 tests pass
+- [x] `MockCampaigns.sol` updated
 
-#### Gate G1 checklist
+#### Gate G1 checklist ✅ COMPLETE
 - [x] `npm run compile:polkavm` exits 0 with resolc optimizer mode `z`
 - [x] All PVM contract bytecodes < 48 KB (49,152 bytes) — verified per-contract (2026-02-25)
 - [x] Contract split complete: DatumGovernanceVoting + DatumGovernanceRewards, DatumCampaigns + DatumPublishers, DatumSettlement reduced
-- [x] `zkProof` field present in `IDatumSettlement.sol` Claim struct (already present)
+- [x] `zkProof` field present in `IDatumSettlement.sol` Claim struct
 - [x] No test files reference `clearingCpmWei` or `budgetWei` — all planck-denominated
 - [x] `npx hardhat test --network substrate` — 44/46 pass, 2 skipped (L7 daily-cap + minReviewerStake) ✅
-- [ ] `BENCHMARKS.md` exists and contains values for all six key functions
+- [x] `BENCHMARKS.md` exists with all six key function values ✅
 
 ---
 

@@ -258,33 +258,33 @@ describe("Integration", function () {
     expect(advBalAfter - advBalBefore).to.equal(BUDGET);
   });
 
-  // Scenario D: Nonce gap at claim 5
-  it("D: Gap at claim 5 of 10 — only 1-4 settle", async function () {
+  // Scenario D: Nonce gap at claim 3 (within MAX_CLAIMS_PER_BATCH=5)
+  it("D: Gap at claim 3 of 5 — only 1-2 settle", async function () {
     const campaignId = await createTestCampaign();
     await voting.connect(voter1).voteAye(campaignId, 0, { value: ACTIVATION_THRESHOLD });
 
     const impressions = 100n;
     const cpm = BID_CPM;
-    const all10 = buildClaims(campaignId, publisher.address, user.address, 10, cpm, impressions);
+    const all5 = buildClaims(campaignId, publisher.address, user.address, 5, cpm, impressions);
 
-    // Introduce gap: skip nonce 5 (replace index 4 with wrong nonce)
-    const gapped = [...all10];
-    // Mutate nonce to create a gap (nonce 5 becomes 6)
-    gapped[4] = { ...gapped[4], nonce: 6n };
+    // Introduce gap: skip nonce 3 (replace index 2 with wrong nonce)
+    const gapped = [...all5];
+    // Mutate nonce to create a gap (nonce 3 becomes 4)
+    gapped[2] = { ...gapped[2], nonce: 4n };
 
     const batch = { user: user.address, campaignId, claims: gapped };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
 
-    expect(result.settledCount).to.equal(4n);
-    expect(result.rejectedCount).to.equal(6n);
+    expect(result.settledCount).to.equal(2n);
+    expect(result.rejectedCount).to.equal(3n);
 
     await settlement.connect(user).settleClaims([batch]);
 
-    // Only 4 claims settled: verify nonce state
-    expect(await settlement.lastNonce(user.address, campaignId)).to.equal(4n);
+    // Only 2 claims settled: verify nonce state
+    expect(await settlement.lastNonce(user.address, campaignId)).to.equal(2n);
 
-    // Verify payment for 4 claims
-    const totalPayment = (cpm * impressions) / 1000n * 4n;
+    // Verify payment for 2 claims
+    const totalPayment = (cpm * impressions) / 1000n * 2n;
     const pubPmt = (totalPayment * 5000n) / 10000n;
     // Note: publisher balance accumulates across tests (shared deployment)
     // Just verify it increased by the expected amount

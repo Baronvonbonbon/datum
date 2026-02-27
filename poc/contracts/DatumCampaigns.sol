@@ -178,11 +178,11 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         c.remainingBudget = 0;
         c.status = CampaignStatus.Completed;
 
-        if (refund > 0) {
-            payable(c.advertiser).transfer(refund);
-        }
-
         emit CampaignCompleted(campaignId);
+
+        if (refund > 0) {
+            _send(c.advertiser, refund);
+        }
     }
 
     /// @inheritdoc IDatumCampaigns
@@ -206,7 +206,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         emit CampaignTerminated(campaignId, block.number);
 
         if (slashAmount > 0) {
-            payable(governanceContract).transfer(slashAmount);
+            _send(governanceContract, slashAmount);
         }
     }
 
@@ -226,7 +226,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         emit CampaignExpired(campaignId);
 
         if (refund > 0) {
-            payable(advertiser).transfer(refund);
+            _send(advertiser, refund);
         }
     }
 
@@ -265,7 +265,19 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         }
 
         // Forward payment DOT to settlement contract for pull-payment distribution
-        payable(settlementContract).transfer(amount);
+        _send(settlementContract, amount);
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
+    /// @dev Single native-transfer site — avoids resolc codegen bug where multiple
+    ///      transfer() sites produce broken RISC-V. Uses .call{value} (not .transfer())
+    ///      because resolc may inline internal helpers, recreating the multi-site bug.
+    function _send(address to, uint256 amount) internal {
+        (bool ok,) = payable(to).call{value: amount}("");
+        require(ok, "E02");
     }
 
     // -------------------------------------------------------------------------

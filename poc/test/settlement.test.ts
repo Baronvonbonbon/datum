@@ -279,21 +279,21 @@ describe("DatumSettlement", function () {
     expect(result.settledCount).to.equal(0n);
   });
 
-  // Gap-at-claim-5: only claims 1-4 settle; 5 and beyond rejected
-  it("Gap: gap at nonce 5 of 10 — only 1-4 settle", async function () {
+  // Gap-at-claim-3: only claims 1-2 settle; 3 and beyond rejected (within MAX_CLAIMS_PER_BATCH=5)
+  it("Gap: gap at nonce 3 of 5 — only 1-2 settle", async function () {
     const cid = await createTestCampaign();
-    // Build 10 claims but skip nonce 5 (set nonce 5 to 6, creating a gap)
-    const all10 = buildClaimChain(cid, publisher.address, user.address, 10, BID_CPM, 100n);
+    // Build 5 claims but skip nonce 3 (set nonce 3 to 4, creating a gap)
+    const all5 = buildClaimChain(cid, publisher.address, user.address, 5, BID_CPM, 100n);
 
-    // Introduce gap: replace claim at index 4 (nonce 5) with wrong nonce
-    const gapped = [...all10];
-    gapped[4] = { ...gapped[4], nonce: 6n }; // skip nonce 5
+    // Introduce gap: replace claim at index 2 (nonce 3) with wrong nonce
+    const gapped = [...all5];
+    gapped[2] = { ...gapped[2], nonce: 4n }; // skip nonce 3
 
     const batch = { user: user.address, campaignId: cid, claims: gapped };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
 
-    expect(result.settledCount).to.equal(4n);
-    expect(result.rejectedCount).to.equal(6n); // 5 gapped + 6,7,8,9,10 rejected too
+    expect(result.settledCount).to.equal(2n);
+    expect(result.rejectedCount).to.equal(3n); // 3 gapped + 4,5 rejected too
   });
 
   // Take rate snapshot test

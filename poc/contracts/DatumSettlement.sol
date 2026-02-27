@@ -28,6 +28,13 @@ import "./interfaces/IDatumCampaigns.sol";
 ///   All amounts in planck (1 DOT = 10^10 planck)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+
+    /// @dev Maximum claims per batch. settleClaims scales at ~5.3x per 10x claims.
+    uint256 public constant MAX_CLAIMS_PER_BATCH = 5;
+
+    // -------------------------------------------------------------------------
     // Cross-contract references
     // -------------------------------------------------------------------------
 
@@ -86,6 +93,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     ///      A4 fix: all claims must match batch.campaignId.
     ///      A3 fix: campaign is fetched once in _validateClaim and passed through.
     function _processBatch(ClaimBatch calldata batch, SettlementResult memory result) internal {
+        require(batch.claims.length <= MAX_CLAIMS_PER_BATCH, "E28");
         address user = batch.user;
         bool gapFound = false;
 
