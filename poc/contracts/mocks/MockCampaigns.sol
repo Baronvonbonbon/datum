@@ -142,8 +142,7 @@ contract MockCampaigns is IDatumCampaigns {
         emit CampaignTerminated(campaignId, block.number);
         // Transfer slash amount to caller (governance)
         if (slash > 0) {
-            (bool ok,) = msg.sender.call{value: slash}("");
-            require(ok, "Slash transfer failed");
+            payable(msg.sender).transfer(slash);
         }
     }
 
@@ -177,8 +176,7 @@ contract MockCampaigns is IDatumCampaigns {
 
         // Forward DOT to settlement contract (mirrors DatumCampaigns behavior)
         if (amount > 0) {
-            (bool ok,) = msg.sender.call{value: amount}("");
-            require(ok, "DOT forward to settlement failed");
+            payable(msg.sender).transfer(amount);
         }
     }
 

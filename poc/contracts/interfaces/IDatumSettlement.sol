@@ -92,14 +92,14 @@ interface IDatumSettlement {
     // -------------------------------------------------------------------------
 
     /// @notice Withdraw accumulated publisher payments
-    function withdrawPublisherPayment() external;
+    function withdrawPublisher() external;
 
     /// @notice Withdraw accumulated user payments
-    function withdrawUserPayment() external;
+    function withdrawUser() external;
 
     /// @notice Withdraw accumulated protocol fees (owner only)
     /// @param recipient Address to send fees to
-    function withdrawProtocolFee(address recipient) external;
+    function withdrawProtocol(address recipient) external;
 
     // -------------------------------------------------------------------------
     // Views

@@ -17,7 +17,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///   Issue 6:  Hash chain validated inline; genesis requires previousClaimHash=0.
 ///   Issue 7:  Per-batch require(msg.sender == batch.user).
 ///   Issue 4:  Pull payment for all parties; ReentrancyGuard.
-///   Pausable removed (PVM size); Ownable kept for withdrawProtocolFee access control.
+///   Pausable removed (PVM size); Ownable kept for protocol withdraw access control.
 ///
 /// Revenue formula (Issue 1):
 ///   totalPayment    = (clearingCpmPlanck * impressionCount) / 1000
@@ -229,39 +229,41 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumSettlement
-    function withdrawPublisherPayment() external nonReentrant {
+    /// @dev Uses _send() internal helper — single transfer() call in the contract
+    ///      to work around resolc codegen bug with multiple transfer() sites.
+    function withdrawPublisher() external nonReentrant {
         uint256 amount = _publisherBalance[msg.sender];
         require(amount > 0, "E03");
         _publisherBalance[msg.sender] = 0;
-
         emit PublisherWithdrawal(msg.sender, amount);
-
-        (bool ok,) = msg.sender.call{value: amount}("");
-        require(ok, "E02");
+        _send(msg.sender, amount);
     }
 
     /// @inheritdoc IDatumSettlement
-    function withdrawUserPayment() external nonReentrant {
+    function withdrawUser() external nonReentrant {
         uint256 amount = _userBalance[msg.sender];
         require(amount > 0, "E03");
         _userBalance[msg.sender] = 0;
-
         emit UserWithdrawal(msg.sender, amount);
-
-        (bool ok,) = msg.sender.call{value: amount}("");
-        require(ok, "E02");
+        _send(msg.sender, amount);
     }
 
     /// @inheritdoc IDatumSettlement
-    function withdrawProtocolFee(address recipient) external onlyOwner nonReentrant {
+    function withdrawProtocol(address recipient) external onlyOwner nonReentrant {
         require(recipient != address(0), "E00");
         uint256 amount = _protocolBalance;
         require(amount > 0, "E03");
         _protocolBalance = 0;
-
         emit ProtocolWithdrawal(recipient, amount);
+        _send(recipient, amount);
+    }
 
-        (bool ok,) = recipient.call{value: amount}("");
+    /// @dev Single native-transfer site using .call{value} — avoids resolc codegen bug
+    ///      where multiple transfer() sites produce broken RISC-V code.
+    ///      Using .call{value} instead of .transfer() because resolc's transfer heuristic
+    ///      may inline _send() back into each caller, recreating the multi-site bug.
+    function _send(address to, uint256 amount) internal {
+        (bool ok,) = payable(to).call{value: amount}("");
         require(ok, "E02");
     }
 

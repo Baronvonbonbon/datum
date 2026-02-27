@@ -93,7 +93,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         require(msg.value > 0, "E11");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
         require(pub.registered, "E17");
-        require(bidCpmPlanck >= minimumCpmFloor, "Bid below minimum CPM floor"); // keep: tested by name
+        require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
 
         uint16 snapshot = pub.takeRateBps;
@@ -129,10 +129,10 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
 
     /// @inheritdoc IDatumCampaigns
     function activateCampaign(uint256 campaignId) external nonReentrant {
-        require(msg.sender == governanceContract, "Governance only");
+        require(msg.sender == governanceContract, "E19");
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
-        require(c.status == CampaignStatus.Pending, "Not Pending");
+        require(c.status == CampaignStatus.Pending, "E20");
 
         c.status = CampaignStatus.Active;
         emit CampaignActivated(campaignId);
@@ -142,8 +142,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     function pauseCampaign(uint256 campaignId) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
-        require(msg.sender == c.advertiser, "Advertiser only");
-        require(c.status == CampaignStatus.Active, "Not Active");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Active, "E22");
 
         c.status = CampaignStatus.Paused;
         emit CampaignPaused(campaignId);
@@ -153,8 +153,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     function resumeCampaign(uint256 campaignId) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
-        require(msg.sender == c.advertiser, "Advertiser only");
-        require(c.status == CampaignStatus.Paused, "Not Paused");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Paused, "E23");
 
         c.status = CampaignStatus.Active;
         emit CampaignResumed(campaignId);
@@ -179,8 +179,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         c.status = CampaignStatus.Completed;
 
         if (refund > 0) {
-            (bool ok,) = c.advertiser.call{value: refund}("");
-            require(ok, "E02");
+            payable(c.advertiser).transfer(refund);
         }
 
         emit CampaignCompleted(campaignId);
@@ -189,7 +188,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     /// @inheritdoc IDatumCampaigns
     /// @dev Issue 4 fix: terminationBlock recorded; governance slashes escrow via separate mechanism.
     function terminateCampaign(uint256 campaignId) external nonReentrant {
-        require(msg.sender == governanceContract, "Governance only");
+        require(msg.sender == governanceContract, "E19");
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
         require(
@@ -207,8 +206,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         emit CampaignTerminated(campaignId, block.number);
 
         if (slashAmount > 0) {
-            (bool ok,) = governanceContract.call{value: slashAmount}("");
-            require(ok, "E02");
+            payable(governanceContract).transfer(slashAmount);
         }
     }
 
@@ -217,8 +215,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     function expirePendingCampaign(uint256 campaignId) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
-        require(c.status == CampaignStatus.Pending, "Not Pending");
-        require(block.number > c.pendingExpiryBlock, "Expiry block not reached");
+        require(c.status == CampaignStatus.Pending, "E20");
+        require(block.number > c.pendingExpiryBlock, "E24");
 
         address advertiser = c.advertiser;
         uint256 refund = c.remainingBudget;
@@ -228,8 +226,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         emit CampaignExpired(campaignId);
 
         if (refund > 0) {
-            (bool ok,) = advertiser.call{value: refund}("");
-            require(ok, "E02");
+            payable(advertiser).transfer(refund);
         }
     }
 
@@ -241,7 +238,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     /// @dev Daily cap uses block.timestamp / 86400 as the day index.
     ///      Note: timestamp manipulation is an accepted PoC risk.
     function deductBudget(uint256 campaignId, uint256 amount) external nonReentrant {
-        require(msg.sender == settlementContract, "Settlement only");
+        require(msg.sender == settlementContract, "E25");
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
         require(c.status == CampaignStatus.Active, "E15");
@@ -254,7 +251,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
             c.lastSpendDay = today;
         }
 
-        require(c.dailySpent + amount <= c.dailyCapPlanck, "Daily cap exceeded"); // keep: tested by name
+        require(c.dailySpent + amount <= c.dailyCapPlanck, "E26");
 
         c.dailySpent += amount;
         c.remainingBudget -= amount;
@@ -268,8 +265,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         }
 
         // Forward payment DOT to settlement contract for pull-payment distribution
-        (bool ok,) = settlementContract.call{value: amount}("");
-        require(ok, "E02");
+        payable(settlementContract).transfer(amount);
     }
 
     // -------------------------------------------------------------------------

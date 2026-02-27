@@ -113,6 +113,9 @@ contract DatumGovernanceRewards is IDatumGovernanceRewards {
     }
 
     /// @inheritdoc IDatumGovernanceRewards
+    /// @dev Routes transfer through voting.rewardsAction(0,...) to avoid resolc codegen bug
+    ///      with multiple functions containing transfer(). DOT is forwarded to voting contract
+    ///      first, then voting transfers to the claimer.
     function claimAyeReward(uint256 campaignId) external {
         uint256 claimable = _ayeClaimable[campaignId][msg.sender];
         require(claimable > 0, "E03");
@@ -121,8 +124,10 @@ contract DatumGovernanceRewards is IDatumGovernanceRewards {
         require(block.number >= vr.lockedUntilBlock, "E07");
         _ayeClaimable[campaignId][msg.sender] = 0;
         emit AyeRewardClaimed(campaignId, msg.sender, claimable);
-        (bool ok,) = msg.sender.call{value: claimable}("");
+        // Forward DOT to voting contract via call, then have voting transfer to claimer
+        (bool ok,) = payable(address(voting)).call{value: claimable}("");
         require(ok, "E02");
+        voting.rewardsAction(0, campaignId, msg.sender, claimable);
     }
 
     /// @inheritdoc IDatumGovernanceRewards

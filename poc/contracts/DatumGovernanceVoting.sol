@@ -195,8 +195,7 @@ contract DatumGovernanceVoting is IDatumGovernanceVoting, ReentrancyGuard {
     {
         if (action == 0) {
             // transferDOT
-            (bool ok,) = target.call{value: value}("");
-            require(ok, "Transfer failed");
+            payable(target).transfer(value);
             return 0;
         } else if (action == 1) {
             // consumeStake

@@ -60,6 +60,11 @@ const config: HardhatUserConfig = {
       },
     },
   },
+  mocha: {
+    // Substrate tests need long timeouts: real block times (~3s), PVM deploys, and
+    // pallet-revive gas costs are ~1000 DOT per value-transfer tx (slow execution).
+    timeout: 300000, // 5 minutes per test (substrate deploys + transfers are slow)
+  },
   paths: {
     sources: "./contracts",
     tests: "./test",
