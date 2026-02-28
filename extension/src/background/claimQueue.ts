@@ -102,23 +102,10 @@ export const claimQueue = {
     await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
   },
 
-  // Auto-flush called by the alarm.
-  // MV3 service workers cannot access window.ethereum — headless auto-submit
-  // requires an offscreen document (Phase 2.8). For now, record the trigger
-  // time so the popup can display "last flush attempt" and prompt the user.
+  // Kept for backward compatibility — alarm now calls autoFlushViaOffscreen()
+  // in background/index.ts directly.
   async autoFlush(): Promise<void> {
-    const acquired = await this.acquireMutex();
-    if (!acquired) {
-      console.log("[DATUM] Auto-flush skipped — submission already in progress");
-      return;
-    }
-    try {
-      await chrome.storage.local.set({ [LAST_FLUSH_KEY]: Date.now() });
-      // TODO: Phase 2.8 — send message to offscreen document to sign + submit
-      console.log("[DATUM] Auto-flush triggered — offscreen signing not yet implemented");
-    } finally {
-      await this.releaseMutex();
-    }
+    console.log("[DATUM] autoFlush() called — delegated to autoFlushViaOffscreen()");
   },
 };
 

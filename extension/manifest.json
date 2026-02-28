@@ -31,7 +31,8 @@
     "storage",
     "alarms",
     "tabs",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
 
   "host_permissions": [
@@ -42,6 +43,14 @@
     {
       "resources": ["*.chunk.js"],
       "matches": ["<all_urls>"]
+    }
+  ],
+
+  "offscreen_documents": [
+    {
+      "url": "offscreen.html",
+      "reasons": ["DOM_SCRAPING"],
+      "justification": "Access window.ethereum injected by wallet extension for auto-submit signing"
     }
   ],
 

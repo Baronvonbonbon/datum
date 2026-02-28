@@ -20,7 +20,25 @@ export type PopupToBackground =
   | { type: "REMOVE_SETTLED_CLAIMS"; userAddress: string; settledNonces: Record<string, string[]> }
   | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
   | { type: "ACQUIRE_MUTEX" }
-  | { type: "RELEASE_MUTEX" };
+  | { type: "RELEASE_MUTEX" }
+  | { type: "AUTO_SUBMIT_RESULT"; settledCount: number; rejectedCount: number; error?: string };
+
+// Messages sent FROM background TO offscreen document (sign + submit)
+export type BackgroundToOffscreen = {
+  type: "OFFSCREEN_SUBMIT";
+  userAddress: string;
+  batches: import("./types").SerializedClaimBatch[];
+  contractAddresses: import("./types").ContractAddresses;
+  rpcUrl: string;
+};
+
+// Messages sent FROM offscreen document TO background
+export type OffscreenToBackground = {
+  type: "OFFSCREEN_SUBMIT_RESULT";
+  settledCount: number;
+  rejectedCount: number;
+  error?: string;
+};
 
 // Messages sent FROM background TO popup
 export type BackgroundToPopup =

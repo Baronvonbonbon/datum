@@ -17,6 +17,7 @@ const config = (
       background: "./src/background/index.ts",
       content: "./src/content/index.ts",
       popup: "./src/popup/index.tsx",
+      offscreen: "./src/offscreen/offscreen.ts",
     },
 
     output: {
@@ -78,6 +79,13 @@ const config = (
         template: "./src/popup/index.html",
         filename: "popup.html",
         chunks: ["popup"],
+      }),
+
+      new HtmlWebpackPlugin({
+        template: "./src/offscreen/offscreen.html",
+        filename: "offscreen.html",
+        chunks: ["offscreen"],
+        inject: false,  // offscreen.html has its own <script src="offscreen.js">
       }),
 
       new CopyWebpackPlugin({

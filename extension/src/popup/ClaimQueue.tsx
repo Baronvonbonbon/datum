@@ -11,12 +11,20 @@ interface QueueState {
   lastFlush: number | null;
 }
 
+interface AutoFlushResult {
+  settledCount: number;
+  rejectedCount: number;
+  error?: string;
+  timestamp: number;
+}
+
 interface Props {
   address: string | null;
 }
 
 export function ClaimQueue({ address }: Props) {
   const [queueState, setQueueState] = useState<QueueState | null>(null);
+  const [autoFlushResult, setAutoFlushResult] = useState<AutoFlushResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signing, setSigning] = useState(false);
   const [result, setResult] = useState<SettlementResult | null>(null);
@@ -24,8 +32,14 @@ export function ClaimQueue({ address }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const loadState = useCallback(async () => {
-    const response = await chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" });
-    setQueueState(response);
+    const [queueResponse, stored] = await Promise.all([
+      chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" }),
+      chrome.storage.local.get("lastAutoFlushResult"),
+    ]);
+    setQueueState(queueResponse);
+    if (stored.lastAutoFlushResult) {
+      setAutoFlushResult(stored.lastAutoFlushResult as AutoFlushResult);
+    }
   }, []);
 
   useEffect(() => {
@@ -363,9 +377,25 @@ export function ClaimQueue({ address }: Props) {
         </div>
       )}
 
+      {autoFlushResult && (
+        <div style={{ marginTop: 12, padding: 8, background: "#111", borderRadius: 4, fontSize: 11 }}>
+          <span style={{ color: "#555" }}>Auto-submit </span>
+          {autoFlushResult.error ? (
+            <span style={{ color: "#ff6060" }}>failed: {autoFlushResult.error.slice(0, 80)}</span>
+          ) : (
+            <span style={{ color: "#508050" }}>
+              ✓ {autoFlushResult.settledCount} settled · {autoFlushResult.rejectedCount} rejected
+            </span>
+          )}
+          <span style={{ color: "#444", marginLeft: 6 }}>
+            {new Date(autoFlushResult.timestamp).toLocaleTimeString()}
+          </span>
+        </div>
+      )}
+
       {queueState?.lastFlush && (
-        <div style={{ marginTop: 12, color: "#444", fontSize: 11 }}>
-          Last flush: {new Date(queueState.lastFlush).toLocaleTimeString()}
+        <div style={{ marginTop: 4, color: "#444", fontSize: 11 }}>
+          Last auto-flush attempt: {new Date(queueState.lastFlush).toLocaleTimeString()}
         </div>
       )}
     </div>
