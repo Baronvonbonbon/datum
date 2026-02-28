@@ -73,176 +73,83 @@ curl -sf -H "Content-Type: application/json" \
   http://127.0.0.1:8545
 ```
 
-Expected: `{"result":"0x1926354",...}` (chainId 420420420 in hex = `0x1926354`)
+Expected: `{"result":"0x190f1b44",...}` (the devchain chainId — value may vary between restarts)
 
 ---
 
 ## Part 2 — Deploy Contracts
 
-### 2.1 — Fund your SubWallet address on the devchain
+> **Already done for this test session.** The contracts below are deployed and live on the local devchain. Skip to Part 3 if the devchain is still running from the previous step. If you restart the devchain (docker rm / restart), you must re-run Steps 2.3 and 2.4 — the chain state resets on each restart.
 
-The devchain has pre-funded accounts (Alith, Baltathar, etc.) but your SubWallet address needs DOT to pay gas and act as the test user. Run this script to send funds from the Alith dev account to your address:
+### Deployed contract addresses (current session)
+
+| Contract | Address |
+|----------|---------|
+| DatumPublishers | `0xc01Ee7f10EA4aF4673cFff62710E1D7792aBa8f3` |
+| DatumCampaigns | `0x970951a12F975E6762482ACA81E57D5A2A4e73F4` |
+| DatumGovernanceVoting | `0x3ed62137c5DB927cb137c26455969116BF0c23Cb` |
+| DatumGovernanceRewards | `0x962c0940d72E7Db6c9a5F81f1cA87D8DB2B82A23` |
+| DatumSettlement | `0x5CC307268a1393AB9A764A20DACE848AB8275c46` |
+| DatumRelay | `0xeAB4eEBa1FF8504c124D031F6844AD98d07C318f` |
+
+**Campaign ID 2** is Active, bidCPM=0.016 DOT, publisher=Alith (`0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac`).
+
+### 2.1 — Fund your SubWallet address
+
+Your SubWallet EVM address needs DOT for gas. Replace `YOUR_SUBWALLET_ADDRESS` with your address (SubWallet → copy EVM address, starts with `0x`):
 
 ```bash
 cd /home/k/Documents/datum/poc
 ```
 
-Create a one-time funding script. Replace `YOUR_SUBWALLET_ADDRESS` with your actual address (from SubWallet → copy EVM address, starts with `0x`):
+Create `scripts/fund-wallet.ts` with your address substituted in:
 
-```bash
-cat > /tmp/fund.ts << 'EOF'
+```typescript
 import { ethers } from "hardhat";
 async function main() {
   const [alith] = await ethers.getSigners();
-  const target = "YOUR_SUBWALLET_ADDRESS";
-  const tx = await alith.sendTransaction({
-    to: target,
-    value: ethers.parseUnits("1000000", 12), // 100 DOT in planck
-  });
+  const target = "YOUR_SUBWALLET_ADDRESS";  // ← replace this
+  const tx = await alith.sendTransaction({ to: target, value: 1_000_000_000_000n }); // 100 DOT
   await tx.wait();
-  console.log("Funded:", target);
-  const bal = await ethers.provider.getBalance(target);
-  console.log("Balance:", ethers.formatUnits(bal, 12), "DOT");
+  console.log("Balance:", await ethers.provider.getBalance(target));
 }
 main().catch(console.error);
-EOF
 ```
 
-> **Note:** The devchain uses planck (1 DOT = 10^10 planck). Passing `ethers.parseUnits("1000000", 12)` = 10^18 = 100 DOT in planck terms.
-
-Actually, since the devchain denomination is non-standard, use this simpler approach — import the dot helper:
-
 ```bash
-npx hardhat run --network substrate - << 'EOF'
-const { ethers } = require("hardhat");
-async function main() {
-  const [alith] = await ethers.getSigners();
-  const target = "YOUR_SUBWALLET_ADDRESS";
-  // Send 100 DOT = 10^12 planck (value must be multiple of 10^6)
-  const tx = await alith.sendTransaction({ to: target, value: 1_000_000_000_000n });
-  await tx.wait();
-  console.log("Funded. Balance:", await ethers.provider.getBalance(target));
-}
-main().catch(console.error);
-EOF
+npx hardhat run scripts/fund-wallet.ts --network substrate
 ```
 
-Expected: `Funded. Balance: 1000000000000n` (or similar large number)
+Expected: large balance number printed (≥ 1,000,000,000,000).
 
-### 2.2 — Add SubWallet to Hardhat config (one-time)
+### 2.2 — (If redeploying) Deploy all 6 contracts
 
-The deploy script uses the first Hardhat signer (Alith) to deploy. You need your SubWallet private key added so it can be used as `publisher` in tests.
-
-**Skip this for now** — the deployer (Alith) will act as both advertiser and publisher for this walkthrough.
-
-### 2.3 — Deploy all 6 contracts
+Only needed after a devchain restart. Run from `/home/k/Documents/datum/poc/`:
 
 ```bash
-cd /home/k/Documents/datum/poc
 npx hardhat run scripts/deploy.ts --network substrate
 ```
 
-This takes 3–5 minutes on the devchain (each PVM contract deploy = ~60s).
+Takes 3–5 minutes. Copy the 6 addresses printed at the end.
 
-Watch for output like:
-```
-Deploying DATUM contracts with: 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
-[1/6] Deploying DatumPublishers...
-  DatumPublishers: 0x...
-[2/6] Deploying DatumCampaigns...
-  DatumCampaigns: 0x...
-[3/6] Deploying DatumGovernanceVoting...
-  DatumGovernanceVoting: 0x...
-[4/6] Deploying DatumGovernanceRewards...
-  DatumGovernanceRewards: 0x...
-[5/6] Deploying DatumSettlement...
-  DatumSettlement: 0x...
-[6/6] Deploying DatumRelay...
-  DatumRelay: 0x...
-Wiring contracts...
-=== DATUM Deployment Complete ===
-{
-  DatumPublishers: '0x...',
-  DatumCampaigns: '0x...',
-  DatumGovernanceVoting: '0x...',
-  DatumGovernanceRewards: '0x...',
-  DatumSettlement: '0x...',
-  DatumRelay: '0x...'
-}
-```
-
-**Copy all 6 addresses.** You will paste them into the extension Settings in Part 3.
-
-If it fails partway through, check `docker logs eth-rpc` for errors and re-run.
-
-### 2.4 — Create and activate a test campaign
-
-The extension needs at least one **Active** campaign to display. Create one using Hardhat console:
+### 2.3 — (If redeploying) Create and activate a test campaign
 
 ```bash
-cd /home/k/Documents/datum/poc
-npx hardhat console --network substrate
+npx hardhat run scripts/setup-test-campaign.ts --network substrate
 ```
 
-In the console, run these commands one by one. Replace the contract addresses with your actual deployed addresses from Step 2.3:
-
-```javascript
-// Load contracts
-const campaigns = await ethers.getContractAt("DatumCampaigns", "0xCAMPAIGNS_ADDRESS");
-const voting = await ethers.getContractAt("DatumGovernanceVoting", "0xVOTING_ADDRESS");
-const publishers = await ethers.getContractAt("DatumPublishers", "0xPUBLISHERS_ADDRESS");
-const [alith] = await ethers.getSigners();
-
-// Register Alith as publisher (50% take rate = 5000 bps)
-await publishers.connect(alith).registerPublisher(5000);
-console.log("Publisher registered");
-
-// Create a campaign: budget=10 DOT, bidCPM=0.016 DOT, taxonomy="technology", publisherAddr=Alith
-// 10 DOT = 100_000_000_000 planck; bidCPM 0.016 DOT = 160_000_000 planck
-const tx = await campaigns.connect(alith).createCampaign(
-  100_000_000_000n,  // budget: 10 DOT in planck
-  160_000_000n,      // bidCpmPlanck: 0.016 DOT per 1000 impressions
-  "technology",      // taxonomyId
-  alith.address,     // publisherAddress (using Alith as publisher for test)
-  { value: 100_000_000_000n }  // msg.value = budget
-);
-const receipt = await tx.wait();
-console.log("Campaign created, receipt:", receipt.hash);
-
-// Extract campaign ID from CampaignCreated event
-const iface = campaigns.interface;
-let campaignId;
-for (const log of receipt.logs) {
-  try {
-    const parsed = iface.parseLog(log);
-    if (parsed?.name === "CampaignCreated") {
-      campaignId = parsed.args.campaignId;
-      console.log("Campaign ID:", campaignId.toString());
-    }
-  } catch {}
-}
-
-// Vote aye to activate (needs enough stake to meet activationThreshold=100 DOT)
-// Alith has plenty of dev DOT
-await voting.connect(alith).voteAye(
-  campaignId,
-  2,                             // conviction level 2 (4x multiplier)
-  { value: 30_000_000_000n }     // 30 DOT stake × 4 = 120 DOT weighted > 100 DOT threshold
-);
-console.log("Voted aye");
-
-// Check campaign status (1 = Active)
-const campaign = await campaigns.getCampaign(campaignId);
-console.log("Campaign status:", campaign.status.toString(), "(1 = Active)");
+Expected output:
+```
+Campaign ID : 2
+Publisher   : 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
+Status: 1 (Active)
 ```
 
-Expected final output: `Campaign status: 1`
+The campaign ID will be noted in the output — use it when checking the Campaigns tab.
 
-Type `.exit` to leave the console.
+### 2.4 — Note the active campaign ID
 
-### 2.5 — Note the campaign ID
-
-From the output above, note `campaignId` (likely `1`). You'll see it in the extension's Campaigns tab.
+**Campaign ID: 2** (current session). The extension Campaigns tab should show this ID once configured.
 
 ---
 
@@ -302,13 +209,13 @@ Click the **Settings** tab.
 
 1. In the **Network** dropdown, select **local** — this auto-fills the RPC URL as `http://localhost:8545`
 2. Verify the RPC URL field shows `http://localhost:8545`
-3. Fill in the 6 contract address fields with the addresses from Step 2.3:
-   - **Campaigns**: paste DatumCampaigns address
-   - **Publishers**: paste DatumPublishers address
-   - **Governance Voting**: paste DatumGovernanceVoting address
-   - **Governance Rewards**: paste DatumGovernanceRewards address
-   - **Settlement**: paste DatumSettlement address
-   - **Relay**: paste DatumRelay address
+3. Fill in the 6 contract address fields (current session addresses):
+   - **Campaigns**: `0x970951a12F975E6762482ACA81E57D5A2A4e73F4`
+   - **Publishers**: `0xc01Ee7f10EA4aF4673cFff62710E1D7792aBa8f3`
+   - **Governance Voting**: `0x3ed62137c5DB927cb137c26455969116BF0c23Cb`
+   - **Governance Rewards**: `0x962c0940d72E7Db6c9a5F81f1cA87D8DB2B82A23`
+   - **Settlement**: `0x5CC307268a1393AB9A764A20DACE848AB8275c46`
+   - **Relay**: `0xeAB4eEBa1FF8504c124D031F6844AD98d07C318f`
 4. Leave **Publisher address** blank (the extension will use your connected wallet address)
 5. Leave **Auto-submit** unchecked for now
 6. Click **Save Settings**
