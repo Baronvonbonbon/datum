@@ -2,14 +2,16 @@ import { useState, useEffect } from "react";
 import { web3Enable, web3Accounts } from "@polkadot/extension-dapp";
 import { CampaignList } from "./CampaignList";
 import { ClaimQueue } from "./ClaimQueue";
+import { UserPanel } from "./UserPanel";
 import { PublisherPanel } from "./PublisherPanel";
 import { Settings } from "./Settings";
 
-type Tab = "campaigns" | "claims" | "publisher" | "settings";
+type Tab = "campaigns" | "claims" | "user" | "publisher" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
   campaigns: "Campaigns",
   claims: "Claims",
+  user: "Earnings",
   publisher: "Publisher",
   settings: "Settings",
 };
@@ -120,6 +122,7 @@ export function App() {
       <div style={{ flex: 1, overflowY: "auto" }}>
         {tab === "campaigns" && <CampaignList />}
         {tab === "claims" && <ClaimQueue address={address} />}
+        {tab === "user" && <UserPanel address={address} />}
         {tab === "publisher" && <PublisherPanel address={address} />}
         {tab === "settings" && <Settings />}
       </div>

@@ -16,7 +16,11 @@ export type PopupToBackground =
   | { type: "GET_QUEUE_STATE" }
   | { type: "CLEAR_QUEUE" }
   | { type: "SETTINGS_UPDATED"; settings: import("./types").StoredSettings }
-  | { type: "RESET_CHAIN_STATE" };
+  | { type: "RESET_CHAIN_STATE" }
+  | { type: "REMOVE_SETTLED_CLAIMS"; userAddress: string; settledNonces: Record<string, string[]> }
+  | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
+  | { type: "ACQUIRE_MUTEX" }
+  | { type: "RELEASE_MUTEX" };
 
 // Messages sent FROM background TO popup
 export type BackgroundToPopup =

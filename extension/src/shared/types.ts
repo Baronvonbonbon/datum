@@ -68,6 +68,24 @@ export interface ClaimChainState {
   lastClaimHash: string; // bytes32 hex
 }
 
+// Serialized form of ClaimBatch (bigints as strings) used in chrome message passing
+export interface SerializedClaim {
+  campaignId: string;
+  publisher: string;
+  impressionCount: string;
+  clearingCpmPlanck: string;
+  nonce: string;
+  previousClaimHash: string;
+  claimHash: string;
+  zkProof: string;
+}
+
+export interface SerializedClaimBatch {
+  user: string;
+  campaignId: string;
+  claims: SerializedClaim[];
+}
+
 export interface StoredSettings {
   rpcUrl: string;
   network: NetworkName;

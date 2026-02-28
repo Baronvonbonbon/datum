@@ -6,6 +6,7 @@ import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
+import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -131,6 +132,38 @@ async function handleMessage(
       return { ok: true };
     }
 
+    case "ACQUIRE_MUTEX": {
+      const acquired = await claimQueue.acquireMutex();
+      return { acquired };
+    }
+
+    case "RELEASE_MUTEX": {
+      await claimQueue.releaseMutex();
+      return { ok: true };
+    }
+
+    case "REMOVE_SETTLED_CLAIMS": {
+      // Convert serialized nonces (string[]) back to bigint[] per campaign
+      const settledNonces = new Map<string, bigint[]>(
+        Object.entries(msg.settledNonces).map(([cid, nonces]) => [
+          cid,
+          nonces.map((n) => BigInt(n)),
+        ])
+      );
+      await claimQueue.removeSettled(msg.userAddress, settledNonces);
+      return { ok: true };
+    }
+
+    case "SYNC_CHAIN_STATE": {
+      await claimBuilder.syncFromChain(
+        msg.userAddress,
+        msg.campaignId,
+        msg.onChainNonce,
+        msg.onChainHash
+      );
+      return { ok: true };
+    }
+
     case "RESET_CHAIN_STATE": {
       // Wipe all chainState:* keys from storage
       const allKeys = await chrome.storage.local.get(null);
@@ -160,22 +193,7 @@ async function getSettings() {
 }
 
 // ClaimBatch contains bigints — serialize for chrome message passing (JSON)
-function serializeBatches(
-  batches: import("@shared/types").ClaimBatch[]
-): Array<{
-  user: string;
-  campaignId: string;
-  claims: Array<{
-    campaignId: string;
-    publisher: string;
-    impressionCount: string;
-    clearingCpmPlanck: string;
-    nonce: string;
-    previousClaimHash: string;
-    claimHash: string;
-    zkProof: string;
-  }>;
-}> {
+function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
   return batches.map((b) => ({
     user: b.user,
     campaignId: b.campaignId.toString(),

@@ -2,7 +2,7 @@
 
 **Version:** 1.4
 **Date:** 2026-02-24
-**Last updated:** 2026-02-27 — Gate G1 ✅ COMPLETE. Phase 1.1–1.6 done. Gas benchmarks in BENCHMARKS.md. MAX_CLAIMS_PER_BATCH=5. Publisher relay (1.6) implemented: `settleClaimsFor()` with EIP-712 signatures, 53/53 tests passing. Next: Phase 2 Browser Extension.
+**Last updated:** 2026-02-27 — Gate G1 ✅ COMPLETE. Phase 2.1 scaffold + 2.2–2.6 + 2.9–2.10 done. Extension builds clean (`npm run build`). Bug fixes: message handlers, userAddress serialization, chain state reset. Remaining for G2: 2.7 (manual submit wiring), 2.8 (auto-submit), G2 checklist.
 **Scope:** Five-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -353,87 +353,175 @@ extension/
 
 ### Tasks
 
-#### 2.1 — Extension project setup
-- [ ] Create `/home/k/Documents/datum/extension/` directory
-- [ ] Initialise with `package.json`: dependencies include `@polkadot/extension-dapp`, `ethers`, `typescript`, `webpack` or `vite` (MV3-compatible bundler)
-- [ ] Write `manifest.json`: MV3, declare `content_scripts` (all URLs), `background.service_worker`, `action` (popup), permissions: `storage`, `alarms`, `tabs`
-- [ ] Set up TypeScript config and build pipeline — output to `dist/`
-- [ ] Verify extension loads in Chrome (`chrome://extensions`, developer mode) with no console errors
+#### 2.1 — Extension project setup ✅ COMPLETE
+- [x] Create `/home/k/Documents/datum/extension/` directory
+- [x] Initialise with `package.json`: `@polkadot/extension-dapp`, `ethers v6`, `react 18`, `webpack 5`, `webpack-target-webextension`, `node-polyfill-webpack-plugin`
+- [x] Write `manifest.json`: MV3, `content_scripts` (all URLs), `background.service_worker` (type: module), `action` (popup), permissions: `storage`, `alarms`, `tabs`, `activeTab`
+- [x] Set up TypeScript config (strict, JSX react-jsx, bundler moduleResolution) and webpack build pipeline — output to `dist/`
+- [x] Build: popup.js 689KB, background.js 261KB, content.js 4KB. `npm run type-check` clean, `npm run build` clean.
+- [ ] Verify extension loads in Chrome (`chrome://extensions`, developer mode) with no console errors ← **manual verification needed**
 
-#### 2.2 — Wallet integration
-- [ ] `walletBridge.ts`: use `@polkadot/extension-dapp` `web3Enable` / `web3Accounts` to enumerate available wallets (Polkadot.js, SubWallet, Talisman)
-- [ ] Wrap the selected account as an `ethers.Signer` using `ethers.BrowserProvider` against the pallet-revive EVM-compatible RPC
-- [ ] Popup `App.tsx`: "Connect Wallet" button — on click, call `web3Enable`, display connected address and DOT balance
-- [ ] Store selected account address in `chrome.storage.local`; restore on popup open
-- [ ] Handle wallet not installed: show install links for Polkadot.js extension and SubWallet
+**Implementation notes:**
+- Webpack config must use CJS (`require`/`module.exports`) — ts-node invoked by webpack-cli doesn't support ESM imports
+- Use `Eip1193Provider` cast for `window.ethereum` typing (not `Parameters<typeof BrowserProvider>[0]`)
+- `WebExtensionPlugin` uses `serviceWorkerEntry` (not deprecated `entry`+`manifest`)
+- `optimization.splitChunks: false` — content scripts must be single self-contained bundles
+- Placeholder PNG icons generated (16/48/128px)
 
-#### 2.3 — Contract bindings
-- [ ] Copy compiled ABIs from `/poc/artifacts/contracts/` to `extension/shared/abis/`
-- [ ] Write `contracts.ts`: typed factory functions using ethers.js that return contract instances connected to the user's signer or a read-only provider
-- [ ] Read contract addresses from `chrome.storage.local` (user-configured in Settings, or hardcoded for each network)
-- [ ] Add network selector in Settings: `local` / `westend` / `kusama` / `polkadotHub` — each has its own RPC URL and contract addresses
+#### 2.2 — Wallet integration ✅ COMPLETE
+- [x] `App.tsx`: "Connect Wallet" button using `@polkadot/extension-dapp` `web3Enable("DATUM")` / `web3Accounts()`
+- [x] Uses first account from `web3Accounts()` (MVP: no account switcher)
+- [x] Wraps connected account via `ethers.BrowserProvider(window.ethereum)` in popup context for signing
+- [x] Store selected account address in `chrome.storage.local`; restore on popup open
+- [x] Handle wallet not installed: displays error "No Polkadot wallet found. Install Polkadot.js or SubWallet."
+- [x] `WALLET_CONNECTED` / `WALLET_DISCONNECTED` messages to background
 
-#### 2.4 — Campaign poller
-- [ ] `campaignPoller.ts`: on a configurable interval (default 5 minutes), call `campaigns.getCampaign(id)` for IDs 1..N (or listen to `CampaignCreated` events to discover IDs)
-- [ ] Filter for status `Active` and publisher matching the user's configured publisher address (or the connected wallet address if the user is acting as publisher)
-- [ ] Store campaign list in `chrome.storage.local`
-- [ ] Expose `getActiveCampaigns()` as a message-passing API for content scripts
+#### 2.3 — Contract bindings ✅ COMPLETE
+- [x] `scripts/copy-abis.js`: copies ABI arrays from `/poc/artifacts/contracts/` to `extension/src/shared/abis/` (6 contracts)
+- [x] `contracts.ts`: typed factory functions (`getCampaignsContract`, `getPublishersContract`, `getSettlementContract`, `getRelayContract`, etc.) returning ethers `Contract` instances
+- [x] Contract addresses read from `chrome.storage.local` settings (user-configured via Settings panel)
+- [x] `networks.ts`: `NETWORK_CONFIGS` with RPC URLs for local/westend/kusama/polkadotHub, `DEFAULT_SETTINGS`
 
-#### 2.5 — Taxonomy and impression recording
-- [ ] `taxonomy.ts`: define a simple taxonomy map — a flat list of `{ category: string, keywords: string[], domains: string[] }` entries (MVP: hardcode ~10 categories matching PoC spec)
-- [ ] On each page load, content script calls `taxonomy.classifyPage(document.title, window.location.hostname)` — returns matched category or `null`
-- [ ] `adSlot.ts`: if a matched campaign exists for the current page category, inject an ad unit:
-  - Minimum viable ad: a fixed-position banner (bottom of page) with campaign creative (for MVP: static image URL from campaign metadata, or a placeholder)
-  - Ad must be dismissible
-- [ ] Record impression: `{ campaignId, publisherAddress, userAddress, timestamp, url, category }` appended to `chrome.storage.local` impression log
-- [ ] Dedup rules: one impression per (campaignId, url) per page load; one impression per (campaignId) per 30-minute window
-- [ ] Content script → background message: `{ type: "IMPRESSION_RECORDED", campaignId, ... }`
+#### 2.4 — Campaign poller ✅ COMPLETE
+- [x] `campaignPoller.ts`: polls `campaigns.getCampaign(id)` for IDs 1..1000 on 5-minute `chrome.alarms` schedule
+- [x] Stops on 3 consecutive misses (id == 0 or revert). Per-campaign try/catch prevents single failure from aborting poll.
+- [x] Filters for `CampaignStatus.Active` only
+- [x] Serializes campaigns (bigint→string) to `chrome.storage.local` under `activeCampaigns` key
+- [x] Exposes `getCached()` for background message handler; `GET_ACTIVE_CAMPAIGNS` message returns cached list
 
-#### 2.6 — Claim builder
-- [ ] `claimBuilder.ts`: maintains per-(userAddress, campaignId) state in `chrome.storage.local`:
-  - `lastNonce: number`
-  - `lastClaimHash: string` (bytes32 hex)
-- [ ] On `IMPRESSION_RECORDED` message: build a new claim:
-  ```
-  clearingCpmPlanck = campaign.bidCpmPlanck   // MVP: no auction
-  impressionCount   = 1
-  nonce             = lastNonce + 1
-  previousClaimHash = lastNonce === 0 ? ethers.ZeroHash : lastClaimHash
-  claimHash         = computeClaimHashOffChain(...)
-  zkProof           = "0x"
-  ```
-- [ ] Append built claim to `claimQueue` in storage
-- [ ] `claimQueue.ts`: manages the queue — append, read, flush (remove settled claims), rebuild (re-derive chain from on-chain state on mismatch)
+#### 2.5 — Taxonomy and impression recording ✅ COMPLETE
+- [x] `taxonomy.ts`: 10 hardcoded categories (crypto, finance, technology, gaming, news, privacy, open-source, science, environment, health) with keyword + domain matching
+- [x] `content/index.ts`: classifies page on load via `classifyPage(document.title, hostname)`, fetches active campaigns, matches first Active campaign
+- [x] `adSlot.ts`: fixed-position 280px dark-themed banner (bottom-right, z-index max), dismissible, shows campaign ID + category
+- [x] Dedup: per-page-load `Set` + 30-minute `chrome.storage.local` dedup per campaign
+- [x] Content script → background: `IMPRESSION_RECORDED { campaignId, url, category, publisherAddress }` message
 
-#### 2.7 — Manual submit mode
-- [ ] Popup `ClaimQueue.tsx`: list pending claims grouped by campaign (campaignId, impression count, estimated payment in DOT)
-- [ ] "Submit All" button: calls `walletBridge.ts` → `settlement.settleClaims([batch])` with the full queue (user pays gas)
-- [ ] "Sign for Publisher" button: signs claim batch via EIP-712 (domain: DatumRelay) and stores signed batch for publisher relay pickup (user pays zero gas)
-- [ ] On success: display `settledCount` / `rejectedCount`; remove settled claims from queue
-- [ ] On rejection or nonce mismatch: rebuild claim chain from on-chain `lastNonce` and `lastClaimHash`, then allow re-submit
-- [ ] Display pending estimated earnings (sum of `userPayment` for all queued claims)
-- [ ] Display estimated gas cost next to "Submit All" so user can compare against their payout
+#### 2.6 — Claim builder ✅ COMPLETE
+- [x] `claimBuilder.ts`: per-(userAddress, campaignId) hash chain state stored under `chainState:{user}:{campaignId}` key
+- [x] On `IMPRESSION_RECORDED`: builds claim with `impressionCount=1`, `clearingCpmPlanck=bidCpmPlanck`, `nonce=lastNonce+1`, `claimHash=solidityPackedKeccak256(...)`, `zkProof="0x"`
+- [x] `syncFromChain()` method for re-syncing after nonce mismatch (clears stale queued claims)
+- [x] Claims appended to `claimQueue` storage with correct `userAddress` field
+- [x] `claimQueue.ts`: `getState()`, `buildBatches(userAddress)` (groups by campaignId), `removeSettled()`, `clear()`
+- [x] **Bug fix (2026-02-27):** `serializeClaim` was hardcoding `userAddress: ""` — fixed to pass actual address. Without this, `getState().byUser` and `buildBatches()` could never match claims.
 
-#### 2.8 — Auto submit mode
-- [ ] Settings toggle: "Auto submit" on/off; interval selector (5 min / 10 min / 30 min / 1 hour)
-- [ ] When enabled: register a `chrome.alarms` alarm at the selected interval
-- [ ] Background alarm handler: flush claim queue via `settleClaims` automatically
+#### 2.7 — Manual submit mode 🔲 NEXT
+- [x] `ClaimQueue.tsx`: lists pending claims grouped by campaign; shows count per campaign
+- [x] "Submit All" and "Sign for Publisher" buttons present in UI
+- [x] Background `SUBMIT_CLAIMS` handler returns serialized `ClaimBatch[]` from `buildBatches()`
+- [ ] **Wire `submitAll()`**: popup receives batches from background → deserializes bigints → calls `settlement.settleClaims(batches)` via `BrowserProvider` signer → awaits receipt
+- [ ] **Wire `signForRelay()`**: popup receives batches → builds EIP-712 typed data (domain: `"DatumRelay"`, verifyingContract: relay address) → calls `signer.signTypedData(domain, types, value)` → stores `SignedClaimBatch` for publisher pickup
+- [ ] On success: parse `SettlementResult` from return value; display `settledCount`/`rejectedCount`; call `claimQueue.removeSettled()` via background message
+- [ ] On nonce mismatch / rejection: read on-chain `lastNonce`/`lastClaimHash` for the user+campaign → send `SYNC_CHAIN_STATE` message to background → `claimBuilder.syncFromChain()` → allow re-submit
+- [ ] Display pending estimated earnings (sum of `(clearingCpmPlanck × impressionCount / 1000) × 7500 / 10000` for queued claims)
+- [ ] Display estimated gas cost next to "Submit All" via `settlement.settleClaims.estimateGas(batches)`
+
+**Implementation details for `submitAll()`:**
+```typescript
+// 1. Get batches from background (already serialized)
+const response = await chrome.runtime.sendMessage({ type: "SUBMIT_CLAIMS", userAddress: address });
+const batches = response.batches;  // SerializedClaimBatch[]
+
+// 2. Deserialize bigints for contract call
+const contractBatches = batches.map(b => ({
+  user: b.user,
+  campaignId: BigInt(b.campaignId),
+  claims: b.claims.map(c => ({
+    campaignId: BigInt(c.campaignId),
+    publisher: c.publisher,
+    impressionCount: BigInt(c.impressionCount),
+    clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+    nonce: BigInt(c.nonce),
+    previousClaimHash: c.previousClaimHash,
+    claimHash: c.claimHash,
+    zkProof: c.zkProof,
+  })),
+}));
+
+// 3. Submit via signer
+const settlement = getSettlementContract(settings.contractAddresses, signer);
+const tx = await settlement.settleClaims(contractBatches);
+const receipt = await tx.wait();
+
+// 4. Parse result from return value or events
+// settleClaims returns SettlementResult — use staticCall to get return value,
+// then send actual tx. Or parse ClaimSettled/ClaimRejected events from receipt.
+```
+
+**Implementation details for `signForRelay()`:**
+```typescript
+const domain = {
+  name: "DatumRelay",
+  version: "1",
+  chainId: (await provider.getNetwork()).chainId,
+  verifyingContract: settings.contractAddresses.relay,
+};
+const types = {
+  ClaimBatch: [
+    { name: "user", type: "address" },
+    { name: "campaignId", type: "uint256" },
+    { name: "firstNonce", type: "uint256" },
+    { name: "lastNonce", type: "uint256" },
+    { name: "claimCount", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+};
+// For each batch:
+const value = {
+  user: address,
+  campaignId: batch.campaignId,
+  firstNonce: batch.claims[0].nonce,
+  lastNonce: batch.claims[batch.claims.length - 1].nonce,
+  claimCount: batch.claims.length,
+  deadline: (await provider.getBlockNumber()) + 100,  // ~10 min expiry
+};
+const signature = await signer.signTypedData(domain, types, value);
+// Store SignedClaimBatch for publisher relay pickup
+```
+
+#### 2.8 — Auto submit mode 🔲
+- [x] Settings toggle UI: "Auto submit" checkbox + interval input (minutes)
+- [x] `chrome.alarms.create(ALARM_FLUSH_CLAIMS)` registered when `autoSubmit=true`
+- [x] `SETTINGS_UPDATED` message handler reconfigures alarms on save
+- [ ] **Implement `autoFlush()`**: currently a console.log stub. MV3 service workers can't access `window.ethereum`, so true headless auto-submit requires one of:
+  1. **Offscreen document** (Chrome 109+): create a hidden page that can access `window.ethereum` and sign transactions. Background triggers it via `chrome.offscreen.createDocument()` → sends message → offscreen signs and submits.
+  2. **Session key pattern**: user pre-signs a batch of claim authorizations (EIP-712 signatures with future deadlines) during a popup session. Background stores them and auto-submits as a publisher relay call. Requires a funded relayer address.
+  3. **Notification-based**: on alarm, send `chrome.notifications` prompting user to open popup and submit. Not truly automatic but zero-trust.
+- [ ] **Recommended: Offscreen document approach** — simplest to implement, wallet-native signing, no pre-signing needed. Add `offscreen` permission to manifest, create `offscreen.html` + `offscreen.ts`.
 - [ ] Show last auto-submit result in popup (timestamp, settled count)
-- [ ] Graceful failure: on error, log to storage and retry at next interval (do not show error to user unless 3 consecutive failures)
+- [ ] Graceful failure: log errors to `chrome.storage.local`; retry at next interval; surface to popup after 3 consecutive failures
 
-#### 2.9 — Publisher panel
-- [ ] Popup `PublisherPanel.tsx`: visible when connected wallet address matches a registered publisher
-- [ ] Display `settlement.publisherBalance(address)` in DOT
-- [ ] "Withdraw" button: calls `settlement.withdrawPublisher()`; shows tx result
-- [ ] Display `campaigns.getPublisher(address)` — registered status, current take rate, pending take rate if any
+#### 2.9 — Publisher panel ✅ COMPLETE
+- [x] `PublisherPanel.tsx`: queries `settlement.publisherBalance(address)` and `publishers.getPublisher(address)` via read-only provider
+- [x] Displays withdrawable balance in DOT, registration status (Active/Inactive), take rate, pending take rate + effective block
+- [x] "Withdraw" button: creates `BrowserProvider` signer → calls `settlement.withdrawPublisher()` → awaits receipt → refreshes balance
+- [x] "Refresh" button to reload data
+- [x] Error handling for missing wallet / failed RPC
 
-#### 2.10 — Settings panel
-- [ ] RPC endpoint (text input, saved to storage)
-- [ ] Network selector (local / westend / kusama / polkadotHub) — auto-fills RPC and contract addresses
-- [ ] Publisher address (defaults to connected wallet)
-- [ ] Auto-submit toggle + interval
-- [ ] "Clear claim queue" button (with confirmation)
-- [ ] "Reset chain state" button — wipes local nonce/hash state, re-syncs from on-chain
+#### 2.10 — Settings panel ✅ COMPLETE
+- [x] Network selector (local / westend / kusama / polkadotHub) — auto-fills RPC URL and contract addresses from `NETWORK_CONFIGS`
+- [x] RPC endpoint (text input, saved to storage)
+- [x] Per-contract address fields (campaigns, publishers, governanceVoting, governanceRewards, settlement, relay)
+- [x] Publisher address override (defaults to connected wallet if blank)
+- [x] Auto-submit toggle + interval (minutes)
+- [x] Save button persists to `chrome.storage.local` + sends `SETTINGS_UPDATED` to background
+- [x] "Clear claim queue" button with confirmation dialog → sends `CLEAR_QUEUE` message
+- [x] "Reset chain state" button with confirmation → sends `RESET_CHAIN_STATE` message (background enumerates and removes all `chainState:*` keys + clears queue)
+- [x] **Bug fix (2026-02-27):** `resetChainState` was removing non-existent `"claimChainState"` key. Fixed to delegate entirely to background handler which uses correct `chainState:` prefix enumeration.
+
+#### 2.11 — User withdrawal panel 🔲
+(Identified as gap D6 in Appendix review — users earn 75% but extension had no withdrawal UI)
+- [ ] Add `UserPanel.tsx` popup component
+- [ ] Display `settlement.userBalance(address)` in DOT
+- [ ] "Withdraw" button: calls `settlement.withdrawUser()` via `BrowserProvider` signer
+- [ ] Show tx result (hash, confirmation)
+- [ ] Add "User" tab to App.tsx tab bar (between "Claims" and "Publisher")
+
+#### 2.12 — Submission mutex (race condition prevention) 🔲
+(Identified as gap D5 in Appendix review)
+- [ ] Add `submitting` flag to `chrome.storage.local` — set before any submit, cleared on tx confirm/fail
+- [ ] Both manual submit (popup) and auto-submit (background) check flag before starting
+- [ ] If flag is stale (set > 5 minutes ago), force-clear and allow new submission
+- [ ] Prevents double-submission of overlapping claim queues that would cause nonce mismatch
 
 #### Gate G2 checklist
 - [ ] Extension installs in Chrome with no manifest errors
@@ -443,7 +531,37 @@ extension/
 - [ ] Manual submit: claim is submitted, `settledCount >= 1`, balance visible in publisher panel
 - [ ] Auto submit: submits without user interaction at configured interval
 - [ ] Publisher withdraw: balance transfers to wallet
+- [ ] User withdraw: balance transfers to wallet
 - [ ] Settings persists across popup close/open
+
+#### Phase 2 — Explicit next steps (priority order)
+
+**Step A — Wire manual claim submission (2.7)**
+1. In `ClaimQueue.tsx` `submitAll()`: call `SUBMIT_CLAIMS` → deserialize batches → `settlement.settleClaims(contractBatches)` via signer → parse result → `removeSettled()` via background message
+2. In `ClaimQueue.tsx` `signForRelay()`: build EIP-712 domain/types/value per batch → `signer.signTypedData()` → store `SignedClaimBatch` in `chrome.storage.local` for publisher pickup
+3. Add nonce mismatch recovery: on rejection, read on-chain state → `claimBuilder.syncFromChain()`
+4. Add estimated earnings and gas cost display
+
+**Step B — Add user withdrawal (2.11)**
+1. Create `UserPanel.tsx` (mirrors `PublisherPanel.tsx` but calls `settlement.userBalance` / `withdrawUser`)
+2. Add "User" tab to `App.tsx`
+
+**Step C — Add submission mutex (2.12)**
+1. Implement `submitting` storage flag with staleness timeout
+2. Guard both popup manual submit and background auto-flush
+
+**Step D — Wire auto-submit (2.8)**
+1. Add `offscreen` permission to manifest
+2. Create `offscreen.html` + `offscreen.ts` — receives sign+submit messages from background
+3. `autoFlush()`: creates offscreen document → sends batches → offscreen signs via `window.ethereum` → submits tx → returns result
+4. Error logging + retry + popup display of last result
+
+**Step E — Chrome verification (G2 gate)**
+1. Load `dist/` as unpacked extension in Chrome
+2. Walk through G2 checklist with local devchain running
+3. Fix any runtime errors (CSP, missing polyfills, service worker lifecycle issues)
+
+**Estimated remaining effort for G2:** Steps A–E, roughly in that order. Step A is the critical path — once manual submit works end-to-end, the system is functionally complete for user testing.
 
 ---
 
@@ -610,36 +728,63 @@ After G4-P, the following items become the next development cycle in priority or
 
 ```
 /home/k/Documents/datum/
-├── ref/                                 Spec documents
+├── ref/                                   Spec documents
 │   ├── DATUM-Architecture-Specification-v0.3.docx
 │   └── DATUM-PoC-Compendium-v1.0.docx
-├── poc/                                 Contracts + tests
+├── poc/                                   Contracts + tests
 │   ├── contracts/
-│   │   ├── DatumCampaigns.sol           Campaign lifecycle + budget
-│   │   ├── DatumPublishers.sol          Publisher registry + take rates
-│   │   ├── DatumGovernanceVoting.sol    Voting + activation/termination
-│   │   ├── DatumGovernanceRewards.sol   Rewards + stake withdrawal
-│   │   ├── DatumSettlement.sol          Claim processing + payment split
+│   │   ├── DatumCampaigns.sol             Campaign lifecycle + budget
+│   │   ├── DatumPublishers.sol            Publisher registry + take rates
+│   │   ├── DatumGovernanceVoting.sol      Voting + activation/termination
+│   │   ├── DatumGovernanceRewards.sol     Rewards + stake withdrawal
+│   │   ├── DatumSettlement.sol            Claim processing + payment split
+│   │   ├── DatumRelay.sol                 EIP-712 signature relay
 │   │   ├── interfaces/
 │   │   └── mocks/
 │   ├── test/
 │   ├── scripts/
 │   │   ├── deploy.ts
-│   │   └── e2e-smoke.ts               (added in Phase 3)
-│   ├── deployments/                   (added in Phase 3)
-│   │   ├── testnet.json
-│   │   ├── kusama.json
-│   │   └── polkadot-hub.json
-│   ├── BENCHMARKS.md                  (added in Phase 1)
+│   │   ├── benchmark-gas.ts
+│   │   └── e2e-smoke.ts                 (Phase 3)
+│   ├── deployments/                     (Phase 3)
+│   ├── BENCHMARKS.md
 │   └── hardhat.config.ts
-├── extension/                         (added in Phase 2)
-│   ├── manifest.json
-│   ├── background/
-│   ├── content/
-│   ├── popup/
-│   └── shared/
+├── extension/                             Browser extension (Phase 2)
+│   ├── manifest.json                      MV3 manifest
+│   ├── package.json                       ethers v6, @polkadot/extension-dapp, webpack 5
+│   ├── tsconfig.json                      strict, bundler moduleResolution
+│   ├── webpack.config.ts                  3 entry points (background, content, popup)
+│   ├── scripts/copy-abis.js               Copies ABI JSON from poc/artifacts/
+│   ├── icons/                             Placeholder PNGs (16/48/128)
+│   ├── dist/                              Build output (gitignored)
+│   └── src/
+│       ├── background/
+│       │   ├── index.ts                   Service worker: alarms, message routing
+│       │   ├── campaignPoller.ts           5-min poll of DatumCampaigns contract
+│       │   ├── claimBuilder.ts            Hash chain state + claim construction
+│       │   ├── claimQueue.ts              Queue management + batch building
+│       │   └── walletBridge.ts            Connected address storage
+│       ├── content/
+│       │   ├── index.ts                   Page classification + impression recording
+│       │   ├── taxonomy.ts                10-category keyword+domain classifier
+│       │   └── adSlot.ts                  Dismissible ad banner injection
+│       ├── popup/
+│       │   ├── index.html                 360px dark theme popup shell
+│       │   ├── index.tsx                  React mount point
+│       │   ├── App.tsx                    Tab router + wallet connect (web3Enable)
+│       │   ├── CampaignList.tsx           Active campaigns display
+│       │   ├── ClaimQueue.tsx             Pending claims + submit/relay buttons
+│       │   ├── PublisherPanel.tsx          Balance + withdraw + registration status
+│       │   └── Settings.tsx               Network, RPC, addresses, auto-submit, danger zone
+│       └── shared/
+│           ├── types.ts                   Claim, Campaign, StoredSettings, etc.
+│           ├── messages.ts                Typed message unions (Content↔Background↔Popup)
+│           ├── contracts.ts               ethers Contract factory functions (6 contracts)
+│           ├── networks.ts                RPC URLs + contract address configs per network
+│           ├── dot.ts                     parseDOT / formatDOT (planck denomination)
+│           └── abis/                      6 ABI JSON files (copied from poc/artifacts/)
 ├── REVIEW.md
-└── MVP.md                             (this document)
+└── MVP.md                                 (this document)
 ```
 
 ---
@@ -652,12 +797,14 @@ After G4-P, the following items become the next development cycle in priority or
 | Claim hash | `keccak256(abi.encodePacked(...))` — no zkProof in hash | zkProof is a carrier; changing the hash would break all existing chains |
 | Wallet signing | User wallet via Polkadot.js/SubWallet + ethers BrowserProvider | Direct submit: `msg.sender == batch.user`; Relay: EIP-712 typed signature verified via `ecrecover` |
 | Extension manifest | MV3 | Required for Chrome Web Store; service worker replaces background page |
+| Extension bundler | Webpack 5 + webpack-target-webextension | Handles MV3 service worker chunk loading; NodePolyfillPlugin for ethers crypto |
+| Extension signing context | Popup only (not service worker) | MV3 service workers have no `window`/DOM — wallet signing requires popup or offscreen document |
 | Settlement caller | User direct (`DatumSettlement.settleClaims`) or publisher relay (`DatumRelay.settleClaimsFor` with EIP-712 signature) | Direct: user pays gas; Relay: publisher pays gas, user signs off-chain |
 | clearingCpmPlanck | Equals bidCpmPlanck in MVP | No auction in MVP; ZK proof deferred |
 | Batch size limit | MAX_CLAIMS_PER_BATCH = 5 | settleClaims scales 5.3x for 10 claims; enforced on-chain (E28) |
 | Block time constants | 6s/block (Polkadot Hub) | 24h = 14,400 blocks; 7d = 100,800; 365d = 5,256,000 |
 | PVM bytecode limit | < 48 KB per contract (EIP-3860) | resolc mode `z`; contracts split to fit |
-| Contract count | 5 (was 3) | Split for PVM size: Campaigns, Publishers, GovernanceVoting, GovernanceRewards, Settlement |
+| Contract count | 5+1 (was 3) | Split for PVM size: Campaigns, Publishers, GovernanceVoting, GovernanceRewards, Settlement + Relay |
 | Settlement withdraw API | `withdrawPublisher()`, `withdrawUser()`, `withdrawProtocol(recipient)` via `_send()` | Single `transfer()` call site to work around resolc codegen bug |
 | resolc optimizer | mode `z` (optimize for size) | mode `3` produces 40–47% larger bytecodes |
 
