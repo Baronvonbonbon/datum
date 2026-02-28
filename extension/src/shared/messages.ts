@@ -1,6 +1,4 @@
-// Chrome extension message types for background ↔ popup ↔ content communication
-
-import { Claim, SettlementResult, StoredSettings } from "./types";
+// Chrome extension message types for background ↔ popup ↔ content ↔ offscreen communication
 
 // Messages sent FROM content script TO background
 export type ContentToBackground =
@@ -20,8 +18,7 @@ export type PopupToBackground =
   | { type: "REMOVE_SETTLED_CLAIMS"; userAddress: string; settledNonces: Record<string, string[]> }
   | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
   | { type: "ACQUIRE_MUTEX" }
-  | { type: "RELEASE_MUTEX" }
-  | { type: "AUTO_SUBMIT_RESULT"; settledCount: number; rejectedCount: number; error?: string };
+  | { type: "RELEASE_MUTEX" };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {
@@ -39,15 +36,3 @@ export type OffscreenToBackground = {
   rejectedCount: number;
   error?: string;
 };
-
-// Messages sent FROM background TO popup
-export type BackgroundToPopup =
-  | { type: "QUEUE_UPDATED"; pendingCount: number; pendingEarningsPlanck: string }
-  | { type: "SUBMIT_RESULT"; result: SettlementResult }
-  | { type: "SIGN_REQUEST"; claims: Claim[]; campaignId: string; deadline: number }
-  | { type: "ERROR"; message: string };
-
-// Generic sendMessage wrapper for type safety
-export function sendToBackground(msg: ContentToBackground | PopupToBackground): void {
-  chrome.runtime.sendMessage(msg);
-}

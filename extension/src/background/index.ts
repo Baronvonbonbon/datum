@@ -269,6 +269,17 @@ async function autoFlushViaOffscreen() {
       contractAddresses: settings.contractAddresses,
       rpcUrl: settings.rpcUrl,
     });
+
+    // Safety timeout: if offscreen crashes without sending OFFSCREEN_SUBMIT_RESULT,
+    // the mutex would stay held until the 5-min staleness timeout. Force cleanup after 2 min.
+    setTimeout(() => {
+      chrome.storage.local.get("submitting").then((stored) => {
+        if (stored.submitting) {
+          console.warn("[DATUM] Auto-flush safety timeout — forcing mutex release");
+          closeOffscreen();
+        }
+      });
+    }, 120_000);
   } catch (err) {
     console.error("[DATUM] autoFlushViaOffscreen error:", err);
     await claimQueue.releaseMutex();

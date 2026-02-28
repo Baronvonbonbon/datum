@@ -19,7 +19,7 @@ async function main() {
   const MAX_LOCKUP_DURATION = 5256000n;               // ~365 days in blocks at 6s/block
 
   // 1. Deploy DatumPublishers
-  console.log("\n[1/5] Deploying DatumPublishers...");
+  console.log("\n[1/6] Deploying DatumPublishers...");
   const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
   const publishers = await PublishersFactory.deploy(TAKE_RATE_UPDATE_DELAY);
   await publishers.waitForDeployment();
@@ -27,7 +27,7 @@ async function main() {
   console.log("  DatumPublishers:", publishersAddr);
 
   // 2. Deploy DatumCampaigns
-  console.log("[2/5] Deploying DatumCampaigns...");
+  console.log("[2/6] Deploying DatumCampaigns...");
   const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
   const campaigns = await CampaignsFactory.deploy(
     MIN_CPM_FLOOR,
@@ -39,7 +39,7 @@ async function main() {
   console.log("  DatumCampaigns:", campaignsAddr);
 
   // 3. Deploy DatumGovernanceVoting
-  console.log("[3/5] Deploying DatumGovernanceVoting...");
+  console.log("[3/6] Deploying DatumGovernanceVoting...");
   const VotingFactory = await ethers.getContractFactory("DatumGovernanceVoting");
   const voting = await VotingFactory.deploy(
     campaignsAddr,
@@ -54,7 +54,7 @@ async function main() {
   console.log("  DatumGovernanceVoting:", votingAddr);
 
   // 4. Deploy DatumGovernanceRewards
-  console.log("[4/5] Deploying DatumGovernanceRewards...");
+  console.log("[4/6] Deploying DatumGovernanceRewards...");
   const RewardsFactory = await ethers.getContractFactory("DatumGovernanceRewards");
   const rewards = await RewardsFactory.deploy(votingAddr, campaignsAddr);
   await rewards.waitForDeployment();
@@ -62,14 +62,22 @@ async function main() {
   console.log("  DatumGovernanceRewards:", rewardsAddr);
 
   // 5. Deploy DatumSettlement
-  console.log("[5/5] Deploying DatumSettlement...");
+  console.log("[5/6] Deploying DatumSettlement...");
   const SettleFactory = await ethers.getContractFactory("DatumSettlement");
   const settlement = await SettleFactory.deploy(campaignsAddr);
   await settlement.waitForDeployment();
   const settlementAddr = await settlement.getAddress();
   console.log("  DatumSettlement:", settlementAddr);
 
-  // 6. Wire contracts
+  // 6. Deploy DatumRelay
+  console.log("[6/6] Deploying DatumRelay...");
+  const RelayFactory = await ethers.getContractFactory("DatumRelay");
+  const relay = await RelayFactory.deploy(settlementAddr);
+  await relay.waitForDeployment();
+  const relayAddr = await relay.getAddress();
+  console.log("  DatumRelay:", relayAddr);
+
+  // 7. Wire contracts
   console.log("\nWiring contracts...");
   await voting.setRewardsContract(rewardsAddr);
   console.log("  Rewards wired to voting:", rewardsAddr);
@@ -79,6 +87,9 @@ async function main() {
   console.log("  Voting (governance) wired to campaigns:", votingAddr);
   console.log("  Settlement wired to campaigns:", settlementAddr);
 
+  await settlement.setRelayContract(relayAddr);
+  console.log("  Relay wired to settlement:", relayAddr);
+
   console.log("\n=== DATUM Deployment Complete ===");
   console.log({
     DatumPublishers: publishersAddr,
@@ -86,6 +97,7 @@ async function main() {
     DatumGovernanceVoting: votingAddr,
     DatumGovernanceRewards: rewardsAddr,
     DatumSettlement: settlementAddr,
+    DatumRelay: relayAddr,
   });
 }
 

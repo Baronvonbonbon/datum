@@ -289,9 +289,6 @@ export function ClaimQueue({ address }: Props) {
   const pendingCount = queueState?.pendingCount ?? 0;
   const userClaims = address ? queueState?.byUser?.[address] : null;
 
-  // Estimate earnings for queued claims
-  const estimatedEarnings = estimateEarnings(userClaims ?? {});
-
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -317,12 +314,6 @@ export function ClaimQueue({ address }: Props) {
               </span>
             </div>
           ))}
-
-          {estimatedEarnings > 0n && (
-            <div style={{ color: "#60c060", fontSize: 12, marginTop: 4, marginBottom: 8 }}>
-              Est. earnings: {formatDOT(estimatedEarnings)} DOT
-            </div>
-          )}
 
           {address ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
@@ -430,15 +421,6 @@ async function resyncFromChain(
       // If we can't read on-chain state, leave local state as-is
     }
   }
-}
-
-// Rough earnings estimate from queue state (no campaign CPM available in popup)
-// Returns 0n unless we can compute — used only for display
-function estimateEarnings(userClaims: Record<string, number>): bigint {
-  // Without per-campaign CPM data in the popup, we can't compute exact earnings.
-  // Return 0n — the actual value will be shown post-settlement.
-  void userClaims;
-  return 0n;
 }
 
 // Extend Window to include ethereum

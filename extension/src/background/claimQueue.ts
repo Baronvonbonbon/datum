@@ -101,12 +101,6 @@ export const claimQueue = {
 
     await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
   },
-
-  // Kept for backward compatibility — alarm now calls autoFlushViaOffscreen()
-  // in background/index.ts directly.
-  async autoFlush(): Promise<void> {
-    console.log("[DATUM] autoFlush() called — delegated to autoFlushViaOffscreen()");
-  },
 };
 
 function deserializeClaim(c: SerializedClaim): Claim {

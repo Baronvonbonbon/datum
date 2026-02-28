@@ -17,7 +17,7 @@ export const TAXONOMY: TaxonomyEntry[] = [
   {
     category: "finance",
     keywords: ["stock", "investing", "portfolio", "market", "trading", "equity", "fund", "etf", "savings"],
-    domains: ["bloomberg.com", "ft.com", "wsj.com", "reuters.com", "yahoo.com/finance"],
+    domains: ["bloomberg.com", "ft.com", "wsj.com", "reuters.com", "finance.yahoo.com"],
   },
   {
     category: "technology",
@@ -70,8 +70,8 @@ export function classifyPage(title: string, hostname: string): string | null {
   const hostLower = hostname.toLowerCase();
 
   for (const entry of TAXONOMY) {
-    // Domain match (highest confidence)
-    if (entry.domains.some((d) => hostLower.includes(d))) {
+    // Domain match (highest confidence) — suffix check to prevent fake-domain.com spoofing
+    if (entry.domains.some((d) => hostLower === d || hostLower.endsWith("." + d))) {
       return entry.category;
     }
     // Keyword match in page title
