@@ -15,8 +15,7 @@
   },
 
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
 
   "content_scripts": [
@@ -37,21 +36,6 @@
 
   "host_permissions": [
     "<all_urls>"
-  ],
-
-  "web_accessible_resources": [
-    {
-      "resources": ["*.chunk.js"],
-      "matches": ["<all_urls>"]
-    }
-  ],
-
-  "offscreen_documents": [
-    {
-      "url": "offscreen.html",
-      "reasons": ["DOM_SCRAPING"],
-      "justification": "Access window.ethereum injected by wallet extension for auto-submit signing"
-    }
   ],
 
   "icons": {

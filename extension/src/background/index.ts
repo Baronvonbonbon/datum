@@ -32,6 +32,9 @@ chrome.runtime.onStartup.addListener(async () => {
 async function initAlarms() {
   const settings = await getSettings();
 
+  // Clear before recreating — chrome.alarms.create throws if name already exists
+  await chrome.alarms.clear(ALARM_POLL_CAMPAIGNS);
+
   // Campaign polling: always active (read-only, no wallet needed)
   await chrome.alarms.create(ALARM_POLL_CAMPAIGNS, {
     periodInMinutes: 5,
@@ -40,6 +43,7 @@ async function initAlarms() {
 
   // Claim flushing: only when auto-submit is enabled
   if (settings.autoSubmit) {
+    await chrome.alarms.clear(ALARM_FLUSH_CLAIMS);
     await chrome.alarms.create(ALARM_FLUSH_CLAIMS, {
       periodInMinutes: settings.autoSubmitIntervalMinutes,
     });
