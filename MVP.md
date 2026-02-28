@@ -2,7 +2,7 @@
 
 **Version:** 1.4
 **Date:** 2026-02-24
-**Last updated:** 2026-02-27 — Gate G1 ✅ COMPLETE. Phase 2.1–2.12 all complete. Extension builds clean. Phase 2.7 (manual submit + relay signing), 2.8 (auto-submit via offscreen document), 2.11 (UserPanel/user withdraw), 2.12 (submission mutex) all implemented. Only Step E (Chrome verification/G2 checklist) remains.
+**Last updated:** 2026-02-28 — Gate G1 ✅ COMPLETE. Phase 2 implementation complete (2.1–2.12). Post-review fixes applied: deploy script now deploys DatumRelay (was missing), manifest bugs fixed (service worker type, invalid offscreen_documents key, alarm recreation), dead code removed (walletBridge.ts, estimateEarnings, dead message types), taxonomy domain spoofing fixed. 53/53 EVM tests pass. Only Gate G2 step remaining: manual Chrome verification.
 **Scope:** Five-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
