@@ -14,7 +14,9 @@ export type PopupToBackground =
   | { type: "SUBMIT_CLAIMS"; userAddress: string }
   | { type: "SIGN_FOR_RELAY"; userAddress: string; campaignId: string }
   | { type: "GET_QUEUE_STATE" }
-  | { type: "CLEAR_QUEUE" };
+  | { type: "CLEAR_QUEUE" }
+  | { type: "SETTINGS_UPDATED"; settings: import("./types").StoredSettings }
+  | { type: "RESET_CHAIN_STATE" };
 
 // Messages sent FROM background TO popup
 export type BackgroundToPopup =

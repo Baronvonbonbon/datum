@@ -110,11 +110,40 @@ async function handleMessage(
       return { ok: true };
     }
 
-    case "SUBMIT_CLAIMS":
-    case "SIGN_FOR_RELAY":
-      // These require a signer — popup handles the wallet interaction
-      // and calls settleClaims directly via walletBridge in popup context.
-      return { ok: true, note: "handled in popup" };
+    case "SUBMIT_CLAIMS": {
+      // Build batches from queue and return them to popup for signing
+      const batches = await claimQueue.buildBatches(msg.userAddress);
+      return { batches: serializeBatches(batches) };
+    }
+
+    case "SIGN_FOR_RELAY": {
+      // Build batches for a specific campaign for relay signing
+      const allBatches = await claimQueue.buildBatches(msg.userAddress);
+      const filtered = allBatches.filter(
+        (b) => b.campaignId.toString() === msg.campaignId
+      );
+      return { batches: serializeBatches(filtered) };
+    }
+
+    case "SETTINGS_UPDATED": {
+      // Re-configure alarms with new settings
+      await initAlarms();
+      return { ok: true };
+    }
+
+    case "RESET_CHAIN_STATE": {
+      // Wipe all chainState:* keys from storage
+      const allKeys = await chrome.storage.local.get(null);
+      const chainStateKeys = Object.keys(allKeys).filter((k) =>
+        k.startsWith("chainState:")
+      );
+      if (chainStateKeys.length > 0) {
+        await chrome.storage.local.remove(chainStateKeys);
+      }
+      // Also clear the claim queue (claims depend on chain state)
+      await claimQueue.clear();
+      return { ok: true, cleared: chainStateKeys.length };
+    }
 
     default:
       return { error: "unknown message type" };
@@ -128,4 +157,37 @@ async function handleMessage(
 async function getSettings() {
   const stored = await chrome.storage.local.get("settings");
   return stored.settings ?? DEFAULT_SETTINGS;
+}
+
+// ClaimBatch contains bigints — serialize for chrome message passing (JSON)
+function serializeBatches(
+  batches: import("@shared/types").ClaimBatch[]
+): Array<{
+  user: string;
+  campaignId: string;
+  claims: Array<{
+    campaignId: string;
+    publisher: string;
+    impressionCount: string;
+    clearingCpmPlanck: string;
+    nonce: string;
+    previousClaimHash: string;
+    claimHash: string;
+    zkProof: string;
+  }>;
+}> {
+  return batches.map((b) => ({
+    user: b.user,
+    campaignId: b.campaignId.toString(),
+    claims: b.claims.map((c) => ({
+      campaignId: c.campaignId.toString(),
+      publisher: c.publisher,
+      impressionCount: c.impressionCount.toString(),
+      clearingCpmPlanck: c.clearingCpmPlanck.toString(),
+      nonce: c.nonce.toString(),
+      previousClaimHash: c.previousClaimHash,
+      claimHash: c.claimHash,
+      zkProof: c.zkProof,
+    })),
+  }));
 }

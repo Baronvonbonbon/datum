@@ -45,7 +45,7 @@ export function Settings() {
   }
 
   async function resetChainState() {
-    await chrome.storage.local.remove(["claimChainState", "claimQueue"]);
+    // Background handles clearing all chainState:* keys and the claim queue
     await chrome.runtime.sendMessage({ type: "RESET_CHAIN_STATE" });
     setResetConfirm(false);
   }

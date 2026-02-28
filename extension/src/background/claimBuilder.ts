@@ -66,7 +66,7 @@ export const claimBuilder = {
     });
 
     // Append claim to queue
-    await appendToQueue(claim);
+    await appendToQueue(claim, userAddress);
   },
 
   // Re-sync chain state from on-chain after a nonce mismatch
@@ -122,10 +122,10 @@ interface SerializedClaim {
   userAddress: string;
 }
 
-async function appendToQueue(claim: Claim & { userAddress?: string }): Promise<void> {
+async function appendToQueue(claim: Claim, userAddress: string): Promise<void> {
   const stored = await chrome.storage.local.get(QUEUE_KEY);
   const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
-  queue.push(serializeClaim(claim));
+  queue.push(serializeClaim(claim, userAddress));
   await chrome.storage.local.set({ [QUEUE_KEY]: queue });
 }
 
@@ -138,7 +138,7 @@ async function clearQueueForCampaign(userAddress: string, campaignId: string): P
   await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
 }
 
-function serializeClaim(claim: Claim): SerializedClaim {
+function serializeClaim(claim: Claim, userAddress: string): SerializedClaim {
   return {
     campaignId: claim.campaignId.toString(),
     publisher: claim.publisher,
@@ -148,6 +148,6 @@ function serializeClaim(claim: Claim): SerializedClaim {
     previousClaimHash: claim.previousClaimHash,
     claimHash: claim.claimHash,
     zkProof: claim.zkProof,
-    userAddress: "",
+    userAddress,
   };
 }
