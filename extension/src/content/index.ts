@@ -12,8 +12,12 @@ async function main() {
   const category = classifyPage(document.title, window.location.hostname);
   if (!category) return;
 
-  // Ask background for active campaigns
-  const response = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" });
+  // Fetch active campaigns and configured publisher address in parallel
+  const [response, settingsStored] = await Promise.all([
+    chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
+    chrome.storage.local.get("settings"),
+  ]);
+
   const campaigns: Array<{
     id: string;
     publisher: string;
@@ -21,9 +25,16 @@ async function main() {
     bidCpmPlanck: string;
   }> = response?.campaigns ?? [];
 
-  // Find a matching active campaign for this category
-  // MVP: match any active campaign (no per-category campaign metadata yet)
-  const match = campaigns.find((c) => c.status === 1 /* Active */);
+  const publisherAddress: string = settingsStored.settings?.publisherAddress ?? "";
+
+  // Prefer a campaign whose publisher matches the configured publisher address.
+  // Fall back to any active campaign (MVP: no per-category filtering yet).
+  const activeCampaigns = campaigns.filter((c) => c.status === 1 /* Active */);
+  const match = publisherAddress
+    ? (activeCampaigns.find(
+        (c) => c.publisher.toLowerCase() === publisherAddress.toLowerCase()
+      ) ?? activeCampaigns[0])
+    : activeCampaigns[0];
   if (!match) return;
 
   const dedupeKey = `${match.id}:${window.location.href}`;

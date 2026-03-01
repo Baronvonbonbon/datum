@@ -353,6 +353,20 @@ describe("DatumSettlement", function () {
     }
   });
 
+  // Double-withdrawal: second call with zero balance should revert
+  it("Double-withdraw: withdrawUser with zero balance reverts E03", async function () {
+    const cid = await createTestCampaign();
+    const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+
+    // First withdrawal drains balance
+    await settlement.connect(user).withdrawUser();
+    expect(await settlement.userBalance(user.address)).to.equal(0n);
+
+    // Second withdrawal — nothing to send
+    await expect(settlement.connect(user).withdrawUser()).to.be.revertedWith("E03");
+  });
+
   // Protocol fee withdrawal (owner only)
   it("Protocol fee: only owner can withdraw; recipient receives correct amount", async function () {
     const cid = await createTestCampaign();

@@ -11,6 +11,12 @@ interface QueueState {
   lastFlush: number | null;
 }
 
+// Minimal campaign info we need for earnings estimate
+interface CampaignMeta {
+  id: string;
+  bidCpmPlanck: string;
+}
+
 interface AutoFlushResult {
   settledCount: number;
   rejectedCount: number;
@@ -25,6 +31,7 @@ interface Props {
 export function ClaimQueue({ address }: Props) {
   const [queueState, setQueueState] = useState<QueueState | null>(null);
   const [autoFlushResult, setAutoFlushResult] = useState<AutoFlushResult | null>(null);
+  const [campaigns, setCampaigns] = useState<Record<string, CampaignMeta>>({});
   const [submitting, setSubmitting] = useState(false);
   const [signing, setSigning] = useState(false);
   const [result, setResult] = useState<SettlementResult | null>(null);
@@ -34,11 +41,19 @@ export function ClaimQueue({ address }: Props) {
   const loadState = useCallback(async () => {
     const [queueResponse, stored] = await Promise.all([
       chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" }),
-      chrome.storage.local.get("lastAutoFlushResult"),
+      chrome.storage.local.get(["lastAutoFlushResult", "activeCampaigns"]),
     ]);
     setQueueState(queueResponse);
     if (stored.lastAutoFlushResult) {
       setAutoFlushResult(stored.lastAutoFlushResult as AutoFlushResult);
+    }
+    // Build a lookup map by campaign id string
+    if (stored.activeCampaigns) {
+      const map: Record<string, CampaignMeta> = {};
+      for (const c of stored.activeCampaigns as CampaignMeta[]) {
+        map[c.id] = c;
+      }
+      setCampaigns(map);
     }
   }, []);
 
@@ -306,14 +321,27 @@ export function ClaimQueue({ address }: Props) {
         </div>
       ) : (
         <>
-          {userClaims && Object.entries(userClaims).map(([cid, count]) => (
-            <div key={cid} style={claimRowStyle}>
-              <span style={{ color: "#a0a0ff" }}>Campaign #{cid}</span>
-              <span style={{ color: "#888", marginLeft: 8 }}>
-                {count} impression{count !== 1 ? "s" : ""}
-              </span>
-            </div>
-          ))}
+          {userClaims && Object.entries(userClaims).map(([cid, count]) => {
+            const meta = campaigns[cid];
+            const estPlanck = meta
+              ? (BigInt(meta.bidCpmPlanck) * BigInt(count) * 7500n) / (1000n * 10000n)
+              : null;
+            return (
+              <div key={cid} style={claimRowStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#a0a0ff" }}>Campaign #{cid}</span>
+                  <span style={{ color: "#888", fontSize: 12 }}>
+                    {count} impression{count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                {estPlanck !== null && (
+                  <div style={{ color: "#60c060", fontSize: 11, marginTop: 2 }}>
+                    ~{formatDOT(estPlanck)} DOT est. earnings
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {address ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>

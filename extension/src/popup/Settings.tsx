@@ -112,6 +112,12 @@ export function Settings() {
           style={{ ...inputStyle, fontFamily: "monospace" }}
           placeholder="Leave blank to use connected wallet"
         />
+        {!settings.publisherAddress && (
+          <div style={{ color: "#888060", fontSize: 11, marginTop: 4 }}>
+            ⚠ No publisher address set — ad matching uses your connected wallet.
+            Set this if you're not the publisher for active campaigns.
+          </div>
+        )}
       </div>
 
       {/* Auto-submit */}
