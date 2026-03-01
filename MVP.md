@@ -1,8 +1,8 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** 2026-02-24
-**Last updated:** 2026-02-28 — Gate G1 ✅ COMPLETE. Phase 2 implementation complete (2.1–2.12). Post-review fixes applied: deploy script now deploys DatumRelay (was missing), manifest bugs fixed (service worker type, invalid offscreen_documents key, alarm recreation), dead code removed (walletBridge.ts, estimateEarnings, dead message types), taxonomy domain spoofing fixed. 53/53 EVM tests pass. Only Gate G2 step remaining: manual Chrome verification.
+**Last updated:** 2026-03-01 — Phase 2 code review audit complete. Identified critical gaps: no campaign metadata/creative CID, no publisher SDK for campaign creation, no per-campaign taxonomy targeting, placeholder-only ad display. Added Phase 2B (2.13–2.17) to address all gaps. 54/54 EVM tests pass. Gate G2 requires both Chrome verification and creative/metadata support.
 **Scope:** Five-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -25,9 +25,10 @@ The MVP consists of four deliverables:
 | Decentralized KYB identity | MVP uses T1 allowlist; identity verification (KILT, zkMe, or Polkadot PoP) is a post-MVP upgrade |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing is post-MVP |
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
-| Taxonomy on-chain governance | Hardcoded taxonomy in MVP |
+| Taxonomy on-chain governance | Hardcoded taxonomy in MVP; per-campaign category targeting is MVP scope |
 | Publisher quality scoring | Excluded from settlement math in MVP |
 | Revenue split governance | 75/25 hardcoded; governance upgrade post-MVP |
+| Rich media ad rendering | MVP renders text banner with campaign title/description; image/video rendering post-MVP |
 
 ---
 
@@ -38,7 +39,7 @@ Each phase has a binary gate. Nothing in the next phase begins until all gate cr
 | Gate | Criteria |
 |------|----------|
 | **G1** | All 53 tests pass on Hardhat EVM; 44/46 core pass on substrate (2 skipped by design). resolc compiles all five contracts under 49,152-byte PVM limit. `zkProof` field present in Claim struct. Gas benchmarks recorded in BENCHMARKS.md. Publisher relay (`settleClaimsFor`) implemented with EIP-712 signatures. |
-| **G2** | Extension installs in Chrome without errors. User can connect a Polkadot.js or SubWallet wallet. Campaign list loads from a local or testnet node. At least one impression is recorded and one claim is submitted successfully (manual mode). Auto mode submits without user interaction. |
+| **G2** | Extension installs in Chrome without errors. User can connect a Polkadot.js or SubWallet wallet. Campaign list loads from a local or testnet node with creative metadata (title, description, IPFS CID). At least one impression is recorded and one claim is submitted successfully (manual mode). Auto mode submits without user interaction. Publisher can create a campaign and upload creative metadata via the extension UI. |
 | **G3** | All five contracts deployed to Westend or Paseo. Full E2E smoke test passes: campaign created → governance activates → extension records impressions → claims submitted → publisher withdraws. No hardcoded addresses or test values remain in extension. |
 | **G4-K** | Contracts deployed to Kusama. At least one real campaign created and activated by a real third-party advertiser (not the deployer). Ownership transferred to multisig. |
 | **G4-P** | Contracts deployed to Polkadot Hub mainnet. Extension published to Chrome Web Store. |
@@ -503,7 +504,218 @@ extension/
 7. Open Earnings tab — verify `userBalance` shows, withdraw succeeds
 8. Fix any runtime errors (CSP violations, missing polyfills, service worker lifecycle issues)
 
-**All implementation complete. G2 is blocked only on manual Chrome verification.**
+**Phase 2A implementation complete. G2 also requires Phase 2B (metadata/creative/SDK) below.**
+
+---
+
+### Phase 2B — Campaign Metadata, Creative Display, and Publisher SDK
+
+**Audit finding (2026-03-01):** The extension records impressions and submits claims correctly, but has no mechanism for campaigns to carry metadata (creative content, description, category targeting). Publishers cannot create campaigns or manage creatives from the extension. The ad slot displays placeholder text. These gaps block meaningful G2 testing.
+
+**PVM bytecode constraint:** DatumCampaigns is at 48,044 bytes (1,108 spare). Adding a `string metadataUri` field to the Campaign struct would push it well over the 49,152 limit (string storage + ABI encoding adds ~4-8 KB of PVM bytecode). Solution: **off-chain metadata via IPFS with an on-chain event anchor.**
+
+**Architecture decision: Off-chain metadata with on-chain event commitment**
+
+Campaigns emit a `CampaignMetadataSet(campaignId, metadataUri)` event at creation time. The `metadataUri` is an IPFS CID pointing to a JSON blob with the campaign's creative, description, and category. The event is not stored on-chain (no storage slot = no PVM bloat), but is indexable by the extension via `queryFilter` or by a future indexer. The publisher SDK uploads metadata to IPFS, then includes the CID in the `createCampaign` call (emitted as event data).
+
+**Why events instead of storage:** An `emit` with a `string` costs ~200-400 bytes of PVM vs ~4-8 KB for string storage + getter. DatumCampaigns has only 1,108 bytes spare — events fit, storage doesn't.
+
+**Metadata JSON schema (hosted on IPFS):**
+```json
+{
+  "title": "Campaign title",
+  "description": "Short ad copy (max 140 chars)",
+  "category": "crypto",
+  "creative": {
+    "type": "text",
+    "text": "Trade smarter with XYZ — zero fees for your first month",
+    "cta": "Learn More",
+    "ctaUrl": "https://example.com/landing"
+  },
+  "version": 1
+}
+```
+
+Post-MVP, `creative.type` can expand to `"image"` (with `imageUrl` pointing to IPFS-hosted PNG/WebP) or `"video"`.
+
+#### 2.13 — Campaign metadata event (contract change)
+
+Add a `CampaignMetadataSet` event to `IDatumCampaigns.sol` and emit it in `createCampaign()`. No new storage — just calldata → event log. Also add `setMetadata()` for advertiser to update metadata post-creation.
+
+**Contract changes:**
+
+```solidity
+// IDatumCampaigns.sol — new event
+event CampaignMetadataSet(uint256 indexed campaignId, string metadataUri);
+
+// DatumCampaigns.sol — in createCampaign(), after emit CampaignCreated:
+// metadataUri is optional calldata parameter; emit if non-empty
+// New function:
+function setMetadata(uint256 campaignId, string calldata metadataUri) external;
+```
+
+Since `createCampaign` already has 3 parameters and adding a 4th `string` changes the ABI, we add metadata via a separate `setMetadata(campaignId, uri)` call (advertiser-only). This avoids changing the existing `createCampaign` ABI signature and keeps the function's PVM bytecode minimal.
+
+**Tasks:**
+- [ ] Add `event CampaignMetadataSet(uint256 indexed campaignId, string metadataUri)` to `IDatumCampaigns.sol`
+- [ ] Add `setMetadata(uint256 campaignId, string calldata metadataUri)` to `DatumCampaigns.sol` — requires `msg.sender == campaign.advertiser`, emits `CampaignMetadataSet`
+- [ ] Verify PVM bytecode stays under 49,152 bytes (estimate: +200-400 bytes for event emit + string calldata handling)
+- [ ] Add test: advertiser can set metadata; non-advertiser reverts
+- [ ] Update `setup-test-campaign.ts` to call `setMetadata` with a test IPFS CID
+
+**Files:** `poc/contracts/interfaces/IDatumCampaigns.sol`, `poc/contracts/DatumCampaigns.sol`, `poc/test/campaigns.test.ts`
+
+#### 2.14 — Campaign category field (contract change)
+
+Add a `uint8 categoryId` to the Campaign struct to enable on-chain category filtering. This uses a fixed 1-byte field (not a string) to minimize PVM bytecode impact. Category IDs map to the existing 10-category taxonomy (0=uncategorized, 1=crypto, 2=finance, ..., 10=health).
+
+**Why on-chain:** Per-campaign category targeting is the minimum viable targeting feature. Without it, every campaign matches every page equally. A single `uint8` adds ~100-200 bytes to the PVM bytecode (vs ~4-8 KB for a string taxonomy field).
+
+**Contract changes:**
+
+```solidity
+// IDatumCampaigns.sol — Campaign struct addition
+uint8 categoryId;    // 0 = uncategorized (matches all), 1-10 = specific category
+
+// IDatumCampaigns.sol — createCampaign parameter addition
+function createCampaign(
+    address publisher,
+    uint256 dailyCapPlanck,
+    uint256 bidCpmPlanck,
+    uint8 categoryId
+) external payable returns (uint256 campaignId);
+```
+
+**Tasks:**
+- [ ] Add `uint8 categoryId` to `Campaign` struct in `IDatumCampaigns.sol`
+- [ ] Update `createCampaign()` to accept `uint8 categoryId` parameter
+- [ ] Store `categoryId` in campaign; emit in `CampaignCreated` event
+- [ ] Verify PVM bytecode stays under 49,152 bytes
+- [ ] Update all test fixtures and helpers for new `createCampaign` signature
+- [ ] Update `setup-test-campaign.ts` with `categoryId = 1` (crypto)
+- [ ] Update extension `types.ts` Campaign interface with `categoryId` field
+- [ ] Update extension `campaignPoller.ts` to deserialize `categoryId`
+- [ ] Update extension `content/index.ts` to filter campaigns by category match
+- [ ] Update extension `CampaignList.tsx` to display category name
+
+**Category ID mapping (matches taxonomy.ts):**
+| ID | Category |
+|----|----------|
+| 0 | Uncategorized (matches all pages) |
+| 1 | Crypto |
+| 2 | Finance |
+| 3 | Technology |
+| 4 | Gaming |
+| 5 | News |
+| 6 | Privacy |
+| 7 | Open Source |
+| 8 | Science |
+| 9 | Environment |
+| 10 | Health |
+
+**Files:** `poc/contracts/interfaces/IDatumCampaigns.sol`, `poc/contracts/DatumCampaigns.sol`, `poc/test/campaigns.test.ts`, `poc/test/integration.test.ts`, `poc/test/settlement.test.ts`, `poc/scripts/setup-test-campaign.ts`, `extension/src/shared/types.ts`, `extension/src/background/campaignPoller.ts`, `extension/src/content/index.ts`, `extension/src/popup/CampaignList.tsx`
+
+#### 2.15 — IPFS metadata fetch in extension
+
+The extension fetches campaign metadata from IPFS when it discovers new campaigns. Metadata is cached in `chrome.storage.local` alongside the campaign data.
+
+**Architecture:**
+- `campaignPoller.ts` queries `CampaignMetadataSet` events for each discovered campaign ID
+- Fetches JSON from IPFS gateway (e.g. `https://dweb.link/ipfs/{cid}` or configurable gateway)
+- Caches metadata per campaign ID in storage: `metadata:{campaignId}` → JSON blob
+- `CampaignList.tsx` and `adSlot.ts` render creative content from cached metadata
+
+**Tasks:**
+- [ ] Add `ipfsGateway` field to `StoredSettings` (default: `https://dweb.link/ipfs/`)
+- [ ] Add IPFS gateway URL input to `Settings.tsx`
+- [ ] Extend `campaignPoller.ts`: after discovering a new campaign, query `CampaignMetadataSet` event log for its metadata URI
+- [ ] Fetch metadata JSON from IPFS gateway, validate schema, cache in `chrome.storage.local`
+- [ ] Update `CampaignList.tsx` to display title and description from metadata
+- [ ] Update `adSlot.ts` to render creative text, CTA button, and category from metadata (instead of placeholder)
+- [ ] Handle missing metadata gracefully (fall back to current placeholder display)
+- [ ] Add 1-hour cache TTL for metadata (re-fetch if stale)
+
+**Files:** `extension/src/shared/types.ts`, `extension/src/shared/networks.ts`, `extension/src/popup/Settings.tsx`, `extension/src/background/campaignPoller.ts`, `extension/src/popup/CampaignList.tsx`, `extension/src/content/adSlot.ts`
+
+#### 2.16 — Publisher campaign creation UI
+
+Add campaign creation form to the Publisher tab. Publishers can create campaigns, set metadata, and fund them directly from the extension.
+
+**Tasks:**
+- [ ] Add "Create Campaign" form to `PublisherPanel.tsx` (collapsible section below balance info):
+  - Budget (DOT input → converted to planck)
+  - Daily cap (DOT input)
+  - Bid CPM (DOT input, default 0.016)
+  - Category (dropdown, maps to `categoryId` 0-10)
+  - Campaign title (text, stored as metadata)
+  - Campaign description (text, max 140 chars)
+  - CTA text + URL (text inputs)
+- [ ] On submit: call `campaigns.createCampaign(publisher, dailyCap, bidCpm, categoryId, {value: budget})`
+- [ ] After campaign creation: construct metadata JSON, upload to IPFS via gateway API, call `campaigns.setMetadata(campaignId, ipfsCid)`
+- [ ] Display created campaign ID and link to CampaignList
+- [ ] Show pending governance status ("Awaiting governance activation")
+
+**IPFS upload strategy for MVP:**
+- Use a public IPFS pinning gateway (e.g. Pinata free tier, nft.storage, or web3.storage)
+- Alternative: paste an existing IPFS CID if publisher pre-uploaded metadata
+- Extension sends a `POST` to the IPFS HTTP API with JSON metadata
+- Returns CID which is emitted via `setMetadata()`
+
+**Tasks (IPFS upload):**
+- [ ] Add `ipfsPinningUrl` and `ipfsPinningToken` fields to `StoredSettings` (optional; for Pinata/web3.storage API key)
+- [ ] Implement `uploadToIPFS(metadata: CampaignMetadata): Promise<string>` in `shared/ipfs.ts`
+  - If pinning URL configured: POST to pinning API
+  - If not configured: prompt user to paste a CID manually (fallback)
+- [ ] Wire upload into campaign creation flow in `PublisherPanel.tsx`
+
+**Files:** `extension/src/popup/PublisherPanel.tsx`, `extension/src/shared/types.ts`, `extension/src/shared/ipfs.ts` (new), `extension/src/shared/networks.ts`, `extension/src/popup/Settings.tsx`
+
+#### 2.17 — Updated ad slot with creative rendering
+
+Replace the placeholder ad banner with a creative-aware display that shows campaign title, description, and CTA from IPFS metadata.
+
+**Tasks:**
+- [ ] Update `AdSlotConfig` interface to include metadata fields (title, description, ctaText, ctaUrl)
+- [ ] Update `content/index.ts` to pass metadata to `injectAdSlot()` (read from cached `metadata:{campaignId}` storage)
+- [ ] Update `adSlot.ts` to render:
+  - Campaign title (instead of "DATUM")
+  - Description text (instead of "Publisher ad")
+  - CTA button linking to `ctaUrl` (new)
+  - "Powered by DATUM" attribution (small footer)
+  - Category badge
+- [ ] Keep dismiss button and dark theme styling
+- [ ] Graceful fallback: if no metadata, render current placeholder
+
+**Files:** `extension/src/content/adSlot.ts`, `extension/src/content/index.ts`
+
+#### Updated Gate G2 checklist
+- [ ] Extension installs in Chrome with no manifest errors
+- [ ] Wallet connect works with Polkadot.js extension and SubWallet
+- [ ] Campaign list loads from configured RPC with title/description from IPFS metadata
+- [ ] Publisher can create a campaign via extension UI (budget, CPM, category, creative)
+- [ ] Campaign metadata uploaded to IPFS and linked via `setMetadata()` event
+- [ ] Browsing a matching page injects an ad unit with campaign creative (title, description, CTA)
+- [ ] Category targeting: crypto campaign only shows on crypto-classified pages
+- [ ] Manual submit: claim is submitted, `settledCount >= 1`, balance visible
+- [ ] Auto submit: submits without user interaction at configured interval
+- [ ] Publisher withdraw: balance transfers to wallet
+- [ ] User withdraw: balance transfers to wallet
+- [ ] Settings persists across popup close/open
+
+#### Phase 2B — Remaining work
+
+**Step F — Contract metadata + category changes (2.13, 2.14)**
+1. Add `CampaignMetadataSet` event and `setMetadata()` function
+2. Add `categoryId` field to Campaign struct and `createCampaign()`
+3. Update all test fixtures for new ABI; verify PVM size
+4. Run full test suite (target: 56+ tests)
+
+**Step G — Extension metadata integration (2.15, 2.16, 2.17)**
+1. IPFS metadata fetch and caching in campaignPoller
+2. Publisher campaign creation form with IPFS upload
+3. Creative-aware ad slot rendering
+4. Category-filtered campaign matching in content script
+5. Rebuild extension; verify all features in Chrome
 
 ---
 
@@ -687,43 +899,52 @@ After G4-P, the following items become the next development cycle in priority or
 │   ├── scripts/
 │   │   ├── deploy.ts
 │   │   ├── benchmark-gas.ts
+│   │   ├── fund-wallet.ts               Sends DOT from Alith to any target address
+│   │   ├── setup-test-campaign.ts       Creates + activates a test campaign
 │   │   └── e2e-smoke.ts                 (Phase 3)
-│   ├── deployments/                     (Phase 3)
+│   ├── deployments/                     Per-network deployed contract addresses
+│   │   ├── local.json
+│   │   └── README.md
 │   ├── BENCHMARKS.md
 │   └── hardhat.config.ts
 ├── extension/                             Browser extension (Phase 2)
 │   ├── manifest.json                      MV3 manifest
+│   ├── README.md                          Build, load, and config instructions
 │   ├── package.json                       ethers v6, @polkadot/extension-dapp, webpack 5
 │   ├── tsconfig.json                      strict, bundler moduleResolution
-│   ├── webpack.config.ts                  3 entry points (background, content, popup)
+│   ├── webpack.config.ts                  4 entry points (background, content, popup, offscreen)
 │   ├── scripts/copy-abis.js               Copies ABI JSON from poc/artifacts/
 │   ├── icons/                             Placeholder PNGs (16/48/128)
 │   ├── dist/                              Build output (gitignored)
 │   └── src/
 │       ├── background/
-│       │   ├── index.ts                   Service worker: alarms, message routing
-│       │   ├── campaignPoller.ts           5-min poll of DatumCampaigns contract
+│       │   ├── index.ts                   Service worker: alarms, message routing, autoFlush
+│       │   ├── campaignPoller.ts           5-min poll + IPFS metadata fetch (2.15)
 │       │   ├── claimBuilder.ts            Hash chain state + claim construction
-│       │   ├── claimQueue.ts              Queue management + batch building
-│       │   └── walletBridge.ts            Connected address storage
+│       │   └── claimQueue.ts              Queue management + batch building
 │       ├── content/
-│       │   ├── index.ts                   Page classification + impression recording
+│       │   ├── index.ts                   Page classification + category-filtered matching
 │       │   ├── taxonomy.ts                10-category keyword+domain classifier
-│       │   └── adSlot.ts                  Dismissible ad banner injection
+│       │   └── adSlot.ts                  Creative-aware ad banner (2.17)
+│       ├── offscreen/
+│       │   ├── offscreen.html             Minimal HTML shell (wallet extensions inject here)
+│       │   └── offscreen.ts               Auto-submit via offscreen document
 │       ├── popup/
 │       │   ├── index.html                 360px dark theme popup shell
 │       │   ├── index.tsx                  React mount point
 │       │   ├── App.tsx                    Tab router + wallet connect (web3Enable)
-│       │   ├── CampaignList.tsx           Active campaigns display
-│       │   ├── ClaimQueue.tsx             Pending claims + submit/relay buttons
-│       │   ├── PublisherPanel.tsx          Balance + withdraw + registration status
-│       │   └── Settings.tsx               Network, RPC, addresses, auto-submit, danger zone
+│       │   ├── CampaignList.tsx           Active campaigns with metadata display
+│       │   ├── ClaimQueue.tsx             Pending claims + submit/relay + earnings estimate
+│       │   ├── UserPanel.tsx              User balance (DOT) + withdrawUser()
+│       │   ├── PublisherPanel.tsx          Balance + withdraw + campaign creation (2.16)
+│       │   └── Settings.tsx               Network, RPC, addresses, IPFS gateway, auto-submit
 │       └── shared/
-│           ├── types.ts                   Claim, Campaign, StoredSettings, etc.
-│           ├── messages.ts                Typed message unions (Content↔Background↔Popup)
+│           ├── types.ts                   Claim, Campaign, CampaignMetadata, StoredSettings
+│           ├── messages.ts                Typed message unions (Content↔Background↔Popup↔Offscreen)
 │           ├── contracts.ts               ethers Contract factory functions (6 contracts)
 │           ├── networks.ts                RPC URLs + contract address configs per network
 │           ├── dot.ts                     parseDOT / formatDOT (planck denomination)
+│           ├── ipfs.ts                    IPFS metadata upload + fetch helpers (2.16)
 │           └── abis/                      6 ABI JSON files (copied from poc/artifacts/)
 ├── REVIEW.md
 └── MVP.md                                 (this document)
@@ -749,6 +970,10 @@ After G4-P, the following items become the next development cycle in priority or
 | Contract count | 5+1 (was 3) | Split for PVM size: Campaigns, Publishers, GovernanceVoting, GovernanceRewards, Settlement + Relay |
 | Settlement withdraw API | `withdrawPublisher()`, `withdrawUser()`, `withdrawProtocol(recipient)` via `_send()` | Single `transfer()` call site to work around resolc codegen bug |
 | resolc optimizer | mode `z` (optimize for size) | mode `3` produces 40–47% larger bytecodes |
+| Campaign metadata | Off-chain (IPFS CID via event, not storage) | DatumCampaigns has 1,108 B spare; `string` storage would bust PVM limit. Events cost ~200-400 B. |
+| Campaign targeting | `uint8 categoryId` field in Campaign struct | Single byte maps to 10-category taxonomy; minimal PVM cost vs string categories |
+| Creative hosting | IPFS with configurable gateway URL in extension | Decentralized hosting; no backend server; Pinata/web3.storage for pinning |
+| Publisher SDK | Campaign creation + IPFS upload integrated in extension UI | MVP scope is extension-embedded "SDK simulation"; standalone SDK is post-MVP |
 
 ---
 
@@ -840,18 +1065,14 @@ The entire "ETH Flow Architecture" section (lines 272–280), the revenue formul
 
 ### C. Missing Contract Features for MVP
 
-#### C1. No campaign metadata (creative URL, taxonomy, description)
+#### C1. No campaign metadata (creative URL, taxonomy, description) — **ADDRESSED in Phase 2B (2.13–2.17)**
 
 **Severity:** P2 — blocks extension ad display
 **Affects:** Phase 2 tasks 2.4, 2.5
 
 The `Campaign` struct has financial fields only — no `creativeUrl`, `taxonomyId`, `description`, or any metadata the extension needs to decide what ad to show. Phase 2 task 2.5 assumes campaigns have taxonomy/category data, but the contract stores nothing matchable.
 
-**Options:**
-1. Add a `string metadataUri` field to Campaign (IPFS CID pointing to a JSON blob with creative URL, taxonomy, description)
-2. Keep metadata fully off-chain (extension polls a separate metadata service or IPFS index)
-
-Option 2 avoids a contract change but means no on-chain commitment to campaign content.
+**Resolution:** Hybrid approach — `uint8 categoryId` stored on-chain (minimal PVM cost), plus `CampaignMetadataSet` event with IPFS CID for rich metadata (creative text, description, CTA). See Phase 2B tasks 2.13-2.17 for implementation plan. Event-based metadata avoids storage bloat while providing on-chain commitment (event logs are immutable).
 
 #### C2. No upgradeability — contracts are immutable after deployment
 
@@ -902,15 +1123,18 @@ The `dailyClaimCount` mapping (see A5) is tracked but not enforced. A malicious 
 
 Task 2.4 says "call `campaigns.getCampaign(id)` for IDs 1..N" but doesn't address how new campaign IDs are discovered or the O(N) cost. The plan should specify `CampaignCreated` event log filtering as the primary mechanism, with `nextCampaignId()` polling as fallback.
 
-#### D2. No campaign metadata delivery mechanism defined
+#### D2. No campaign metadata delivery mechanism defined — **ADDRESSED in Phase 2B (2.13–2.17)**
 
 **Affects:** Phase 2 tasks 2.4, 2.5
 
 The plan assumes campaigns have taxonomy/category data (task 2.5 matches pages against it) but doesn't define where that data comes from. No contract field, no off-chain service, no IPFS mechanism. This blocks ad display entirely.
 
-**Fix:** Add a plan task to either:
-- Add `metadataUri` to the Campaign struct (contract change in Phase 1)
-- Define an off-chain metadata JSON format and hosting strategy (IPFS or static hosting)
+**Resolution:** Hybrid approach implemented in Phase 2B:
+- `uint8 categoryId` on-chain for targeting (2.14)
+- `CampaignMetadataSet` event with IPFS CID for creative metadata (2.13)
+- Extension fetches metadata from IPFS gateway and caches locally (2.15)
+- Publisher creates campaigns + uploads metadata via extension UI (2.16)
+- Ad slot renders creative content from metadata (2.17)
 
 #### D3. Extension wallet bridge assumes EVM-compatible JSON-RPC availability
 
