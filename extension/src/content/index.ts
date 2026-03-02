@@ -2,7 +2,7 @@
 // Classifies the page, checks for matching campaigns, records impressions,
 // and injects an ad slot when appropriate.
 
-import { classifyPage } from "./taxonomy";
+import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
 import { injectAdSlot } from "./adSlot";
 
 // Dedup: track (campaignId, url) pairs seen this page load
@@ -23,18 +23,23 @@ async function main() {
     publisher: string;
     status: number;
     bidCpmPlanck: string;
+    categoryId: number;
   }> = response?.campaigns ?? [];
 
   const publisherAddress: string = settingsStored.settings?.publisherAddress ?? "";
+  const pageCategoryId = CATEGORY_ID_MAP[category] ?? 0;
 
-  // Prefer a campaign whose publisher matches the configured publisher address.
-  // Fall back to any active campaign (MVP: no per-category filtering yet).
+  // Filter active campaigns; prefer category match, then publisher match, then any.
   const activeCampaigns = campaigns.filter((c) => c.status === 1 /* Active */);
+  const categoryMatched = activeCampaigns.filter(
+    (c) => c.categoryId === pageCategoryId || c.categoryId === 0
+  );
+  const pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
   const match = publisherAddress
-    ? (activeCampaigns.find(
+    ? (pool.find(
         (c) => c.publisher.toLowerCase() === publisherAddress.toLowerCase()
-      ) ?? activeCampaigns[0])
-    : activeCampaigns[0];
+      ) ?? pool[0])
+    : pool[0];
   if (!match) return;
 
   const dedupeKey = `${match.id}:${window.location.href}`;
@@ -50,11 +55,16 @@ async function main() {
   seenThisLoad.add(dedupeKey);
   await chrome.storage.local.set({ [storageKey]: Date.now() });
 
+  // Load cached IPFS metadata for creative rendering
+  const metaKey = `metadata:${match.id}`;
+  const metaStored = await chrome.storage.local.get(metaKey);
+
   // Inject ad unit
   injectAdSlot({
     campaignId: match.id,
     publisherAddress: match.publisher,
     category,
+    metadata: metaStored[metaKey] ?? null,
   });
 
   // Notify background to build a claim

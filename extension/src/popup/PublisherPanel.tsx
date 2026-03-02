@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserProvider, Eip1193Provider } from "ethers";
-import { getSettlementContract, getPublishersContract, getProvider } from "@shared/contracts";
+import { BrowserProvider, Eip1193Provider, parseUnits } from "ethers";
+import { getSettlementContract, getPublishersContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
+import { CATEGORY_NAMES } from "@shared/types";
 
 interface Props {
   address: string | null;
@@ -164,6 +165,111 @@ export function PublisherPanel({ address }: Props) {
           {error}
         </div>
       )}
+
+      {/* Campaign creation form */}
+      <div style={{ marginTop: 16, borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
+        <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 8 }}>Create Campaign</div>
+        <CreateCampaignForm address={address} onCreated={loadData} />
+      </div>
+    </div>
+  );
+}
+
+function CreateCampaignForm({ address, onCreated }: { address: string; onCreated: () => void }) {
+  const [budget, setBudget] = useState("1");
+  const [dailyCap, setDailyCap] = useState("0.1");
+  const [bidCpm, setBidCpm] = useState("0.01");
+  const [categoryId, setCategoryId] = useState(0);
+  const [metadataUri, setMetadataUri] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function create() {
+    setCreating(true);
+    setResult(null);
+    setFormError(null);
+    try {
+      if (!window.ethereum) throw new Error("No EIP-1193 provider found.");
+      const stored = await chrome.storage.local.get("settings");
+      const settings = stored.settings ?? DEFAULT_SETTINGS;
+
+      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
+      const signer = await provider.getSigner();
+      const campaigns = getCampaignsContract(settings.contractAddresses, signer);
+
+      // Convert DOT strings to planck (1 DOT = 10^10 planck)
+      const budgetPlanck = parseUnits(budget, 10);
+      const dailyCapPlanck = parseUnits(dailyCap, 10);
+      const bidCpmPlanck = parseUnits(bidCpm, 10);
+
+      const tx = await campaigns.createCampaign(
+        address, // publisher = self
+        dailyCapPlanck,
+        bidCpmPlanck,
+        categoryId,
+        { value: budgetPlanck }
+      );
+      const receipt = await tx.wait();
+
+      // If metadata URI is provided, set it on the campaign
+      if (metadataUri.trim()) {
+        // Parse campaign ID from receipt events or use nextCampaignId - 1
+        const cid = await campaigns.nextCampaignId() - 1n;
+        const metaTx = await campaigns.setMetadata(cid, metadataUri.trim());
+        await metaTx.wait();
+      }
+
+      setResult("Campaign created! It will appear after governance activation.");
+      onCreated();
+    } catch (err) {
+      setFormError(String(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Budget (DOT)</label>
+        <input type="text" value={budget} onChange={(e) => setBudget(e.target.value)}
+          style={formInput} placeholder="1.0" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Daily Cap (DOT)</label>
+        <input type="text" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)}
+          style={formInput} placeholder="0.1" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Bid CPM (DOT per 1000 impressions)</label>
+        <input type="text" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)}
+          style={formInput} placeholder="0.01" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Category</label>
+        <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}
+          style={{ ...formInput, cursor: "pointer" }}>
+          {Object.entries(CATEGORY_NAMES).map(([id, name]) => (
+            <option key={id} value={id}>{name}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <label style={formLabel}>Metadata URI (IPFS CID or URL, optional)</label>
+        <input type="text" value={metadataUri} onChange={(e) => setMetadataUri(e.target.value)}
+          style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
+          placeholder="ipfs://Qm... or https://..." />
+      </div>
+      <button onClick={create} disabled={creating} style={primaryBtn}>
+        {creating ? "Creating..." : "Create Campaign"}
+      </button>
+      {result && (
+        <div style={{ marginTop: 6, color: "#60c060", fontSize: 12 }}>{result}</div>
+      )}
+      {formError && (
+        <div style={{ marginTop: 6, color: "#ff8080", fontSize: 12 }}>{formError}</div>
+      )}
     </div>
   );
 }
@@ -197,6 +303,24 @@ const secondaryBtn: React.CSSProperties = {
   background: "#1a1a1a",
   color: "#666",
   border: "1px solid #333",
+};
+
+const formLabel: React.CSSProperties = {
+  display: "block",
+  color: "#888",
+  fontSize: 11,
+  marginBottom: 2,
+};
+
+const formInput: React.CSSProperties = {
+  width: "100%",
+  padding: "5px 8px",
+  background: "#1a1a2e",
+  border: "1px solid #2a2a4a",
+  borderRadius: 4,
+  color: "#e0e0e0",
+  fontSize: 12,
+  outline: "none",
 };
 
 const emptyStyle: React.CSSProperties = {

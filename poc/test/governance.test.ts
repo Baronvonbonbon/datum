@@ -41,7 +41,7 @@ describe("DatumGovernance (Voting + Rewards)", function () {
   // Returns the campaign ID from the CampaignCreated event (most reliable on substrate).
   async function createTestCampaign(): Promise<bigint> {
     const tx = await mock.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
     );
     const receipt = await tx.wait();
     // Parse CampaignCreated event to get the actual assigned ID
@@ -367,7 +367,7 @@ describe("DatumGovernance (Voting + Rewards)", function () {
 
     await freshMock.connect(publisher).registerPublisher(TAKE_RATE_BPS);
     await freshMock.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
     );
 
     const cid = 1n;

@@ -58,7 +58,7 @@ describe("DatumCampaigns", function () {
   // Helper: create a campaign and return its ID
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, dailyCap, bidCpm, { value: budget }
+      publisher.address, dailyCap, bidCpm, 0, { value: budget }
     );
     const receipt = await tx.wait();
     // nextCampaignId was incremented, so the new ID is current - 1
@@ -80,7 +80,6 @@ describe("DatumCampaigns", function () {
     expect(c.bidCpmPlanck).to.equal(BID_CPM);
     expect(c.snapshotTakeRateBps).to.equal(TAKE_RATE_BPS);
     expect(c.status).to.equal(0); // Pending
-    expect(c.version).to.equal(1);
     expect(c.terminationBlock).to.equal(0n);
     expect(c.pendingExpiryBlock).to.equal(BigInt(receipt!.blockNumber) + PENDING_TIMEOUT);
   });
@@ -102,14 +101,14 @@ describe("DatumCampaigns", function () {
     const { id } = await createTestCampaign();
     await campaigns.connect(governance).activateCampaign(id);
 
-    await campaigns.connect(advertiser).pauseCampaign(id);
+    await campaigns.connect(advertiser).togglePause(id, true);
     expect((await campaigns.getCampaign(id)).status).to.equal(2); // Paused
 
     await expect(
-      campaigns.connect(other).resumeCampaign(id)
+      campaigns.connect(other).togglePause(id, false)
     ).to.be.revertedWith("E21");
 
-    await campaigns.connect(advertiser).resumeCampaign(id);
+    await campaigns.connect(advertiser).togglePause(id, false);
     expect((await campaigns.getCampaign(id)).status).to.equal(1); // Active
   });
 
@@ -119,7 +118,7 @@ describe("DatumCampaigns", function () {
 
     // Cannot pause a Pending campaign
     await expect(
-      campaigns.connect(advertiser).pauseCampaign(id)
+      campaigns.connect(advertiser).togglePause(id, true)
     ).to.be.revertedWith("E22");
 
     // Cannot activate twice
@@ -129,9 +128,9 @@ describe("DatumCampaigns", function () {
     ).to.be.revertedWith("E20");
 
     // Cannot pause twice
-    await campaigns.connect(advertiser).pauseCampaign(id);
+    await campaigns.connect(advertiser).togglePause(id, true);
     await expect(
-      campaigns.connect(advertiser).pauseCampaign(id)
+      campaigns.connect(advertiser).togglePause(id, true)
     ).to.be.revertedWith("E22");
   });
 
@@ -283,14 +282,18 @@ describe("DatumCampaigns", function () {
   });
 
   // createCampaign with bid below floor reverts
+  // Note: setMinimumCpmFloor removed for PVM size. Floor is set in constructor.
+  // This test uses a fresh DatumCampaigns with a high floor.
   it("createCampaign: reverts if bid below minimumCpmFloor", async function () {
-    await campaigns.setMinimumCpmFloor(parseDOT("0.1"));
+    const HighFloorFactory = await ethers.getContractFactory("DatumCampaigns");
+    const highFloor = await HighFloorFactory.deploy(parseDOT("0.1"), PENDING_TIMEOUT, await publishers.getAddress());
+    await highFloor.setGovernanceContract(governance.address);
+    await highFloor.setSettlementContract(settlement.address);
+
     await expect(
-      campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, parseDOT("0.01"), { value: BUDGET }
+      highFloor.connect(advertiser).createCampaign(
+        publisher.address, DAILY_CAP, parseDOT("0.01"), 0, { value: BUDGET }
       )
     ).to.be.revertedWith("E27");
-    // Reset floor for subsequent tests
-    await campaigns.setMinimumCpmFloor(MIN_CPM);
   });
 });

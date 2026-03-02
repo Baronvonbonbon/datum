@@ -65,6 +65,20 @@ export const TAXONOMY: TaxonomyEntry[] = [
  * Classify the current page against the taxonomy.
  * Returns the matched category name, or null if no match.
  */
+// Reverse map: taxonomy category name → on-chain categoryId
+export const CATEGORY_ID_MAP: Record<string, number> = {
+  crypto: 1,
+  finance: 2,
+  technology: 3,
+  gaming: 4,
+  news: 5,
+  privacy: 6,
+  "open-source": 7,
+  science: 8,
+  environment: 9,
+  health: 10,
+};
+
 export function classifyPage(title: string, hostname: string): string | null {
   const titleLower = title.toLowerCase();
   const hostLower = hostname.toLowerCase();

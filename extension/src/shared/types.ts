@@ -38,8 +38,23 @@ export interface Campaign {
   bidCpmPlanck: bigint;
   snapshotTakeRateBps: number;
   status: CampaignStatus;
+  categoryId: number;       // 0=uncategorized, 1-10 per taxonomy
   pendingExpiryBlock: bigint;
   terminationBlock: bigint;
+}
+
+// Campaign metadata fetched from IPFS
+export interface CampaignMetadata {
+  title: string;
+  description: string;
+  category: string;
+  creative: {
+    type: "text";
+    text: string;
+    cta: string;
+    ctaUrl: string;
+  };
+  version: number;
 }
 
 export enum CampaignStatus {
@@ -50,6 +65,20 @@ export enum CampaignStatus {
   Terminated = 4,
   Expired = 5,
 }
+
+export const CATEGORY_NAMES: Record<number, string> = {
+  0: "Uncategorized",
+  1: "Crypto",
+  2: "Finance",
+  3: "Technology",
+  4: "Gaming",
+  5: "News",
+  6: "Privacy",
+  7: "Open Source",
+  8: "Science",
+  9: "Environment",
+  10: "Health",
+};
 
 export interface Impression {
   campaignId: bigint;
@@ -93,6 +122,7 @@ export interface StoredSettings {
   autoSubmit: boolean;
   autoSubmitIntervalMinutes: number;
   contractAddresses: ContractAddresses;
+  ipfsGateway: string;
 }
 
 export type NetworkName = "local" | "westend" | "kusama" | "polkadotHub";

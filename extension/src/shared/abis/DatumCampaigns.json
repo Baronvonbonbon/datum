@@ -1,646 +1,659 @@
-{
-  "abi": [
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_minimumCpmFloor",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_pendingTimeoutBlocks",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "_publishers",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "nonpayable",
-      "type": "constructor"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableInvalidOwner",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableUnauthorizedAccount",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "ReentrancyGuardReentrantCall",
-      "type": "error"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "remaining",
-          "type": "uint256"
-        }
-      ],
-      "name": "BudgetDeducted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignActivated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignCompleted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "advertiser",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "budgetPlanck",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "dailyCapPlanck",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "bidCpmPlanck",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "snapshotTakeRateBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "CampaignCreated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignExpired",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignPaused",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignResumed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "terminationBlock",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignTerminated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "previousOwner",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnershipTransferred",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "activateCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "completeCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "dailyCapPlanck",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "bidCpmPlanck",
-          "type": "uint256"
-        }
-      ],
-      "name": "createCampaign",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "deductBudget",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "expirePendingCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaign",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "id",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "advertiser",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "publisher",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "budgetPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "remainingBudget",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "dailyCapPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "bidCpmPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "dailySpent",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastSpendDay",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "pendingExpiryBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "terminationBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint16",
-              "name": "snapshotTakeRateBps",
-              "type": "uint16"
-            },
-            {
-              "internalType": "enum IDatumCampaigns.CampaignStatus",
-              "name": "status",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint8",
-              "name": "version",
-              "type": "uint8"
-            }
-          ],
-          "internalType": "struct IDatumCampaigns.Campaign",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaignRemainingBudget",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaignStatus",
-      "outputs": [
-        {
-          "internalType": "enum IDatumCampaigns.CampaignStatus",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "governanceContract",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "minimumCpmFloor",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "nextCampaignId",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "owner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "pauseCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "pendingTimeoutBlocks",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "publishers",
-      "outputs": [
-        {
-          "internalType": "contract IDatumPublishers",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "renounceOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "resumeCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_governance",
-          "type": "address"
-        }
-      ],
-      "name": "setGovernanceContract",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_floor",
-          "type": "uint256"
-        }
-      ],
-      "name": "setMinimumCpmFloor",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_blocks",
-          "type": "uint256"
-        }
-      ],
-      "name": "setPendingTimeoutBlocks",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_settlement",
-          "type": "address"
-        }
-      ],
-      "name": "setSettlementContract",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "settlementContract",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "terminateCampaign",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
-        }
-      ],
-      "name": "transferOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    }
-  ]
-}
+[
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_minimumCpmFloor",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_pendingTimeoutBlocks",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_publishers",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "remaining",
+        "type": "uint256"
+      }
+    ],
+    "name": "BudgetDeducted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignActivated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignCompleted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "advertiser",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "budgetPlanck",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "dailyCapPlanck",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "bidCpmPlanck",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "snapshotTakeRateBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "categoryId",
+        "type": "uint8"
+      }
+    ],
+    "name": "CampaignCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignExpired",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "metadataHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "CampaignMetadataSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignPaused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignResumed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "terminationBlock",
+        "type": "uint256"
+      }
+    ],
+    "name": "CampaignTerminated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "activateCampaign",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "completeCampaign",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "dailyCapPlanck",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bidCpmPlanck",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "categoryId",
+        "type": "uint8"
+      }
+    ],
+    "name": "createCampaign",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "deductBudget",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "expirePendingCampaign",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getCampaign",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "advertiser",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "publisher",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "budgetPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "remainingBudget",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyCapPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "bidCpmPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailySpent",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastSpendDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pendingExpiryBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "terminationBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint16",
+            "name": "snapshotTakeRateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "enum IDatumCampaigns.CampaignStatus",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "categoryId",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct IDatumCampaigns.Campaign",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getCampaignForSettlement",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "status",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bidCpmPlanck",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "remainingBudget",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "snapshotTakeRateBps",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "governanceContract",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "minimumCpmFloor",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextCampaignId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pendingTimeoutBlocks",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "publishers",
+    "outputs": [
+      {
+        "internalType": "contract IDatumPublishers",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_governance",
+        "type": "address"
+      }
+    ],
+    "name": "setGovernanceContract",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "metadataHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "setMetadata",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_settlement",
+        "type": "address"
+      }
+    ],
+    "name": "setSettlementContract",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlementContract",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "terminateCampaign",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "pause",
+        "type": "bool"
+      }
+    ],
+    "name": "togglePause",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

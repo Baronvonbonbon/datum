@@ -58,4 +58,5 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   autoSubmit: false,
   autoSubmitIntervalMinutes: 10,
   contractAddresses: NETWORK_CONFIGS.local.addresses,
+  ipfsGateway: "https://dweb.link/ipfs/",
 };

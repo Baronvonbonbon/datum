@@ -60,7 +60,7 @@ contract MockCampaigns is IDatumCampaigns {
             terminationBlock: 0,
             snapshotTakeRateBps: takeRate,
             status: status,
-            version: 1
+            categoryId: 0
         });
         if (id >= nextCampaignId) nextCampaignId = id + 1;
     }
@@ -89,7 +89,8 @@ contract MockCampaigns is IDatumCampaigns {
     function createCampaign(
         address publisher,
         uint256 dailyCapPlanck,
-        uint256 bidCpmPlanck
+        uint256 bidCpmPlanck,
+        uint8 categoryId
     ) external payable override returns (uint256 campaignId) {
         campaignId = nextCampaignId++;
         _campaigns[campaignId] = Campaign({
@@ -106,9 +107,13 @@ contract MockCampaigns is IDatumCampaigns {
             terminationBlock: 0,
             snapshotTakeRateBps: _publishers[publisher].takeRateBps,
             status: CampaignStatus.Pending,
-            version: 1
+            categoryId: categoryId
         });
-        emit CampaignCreated(campaignId, msg.sender, publisher, msg.value, dailyCapPlanck, bidCpmPlanck, _publishers[publisher].takeRateBps);
+        emit CampaignCreated(campaignId, msg.sender, publisher, msg.value, dailyCapPlanck, bidCpmPlanck, _publishers[publisher].takeRateBps, categoryId);
+    }
+
+    function setMetadata(uint256 campaignId, bytes32 metadataHash) external override {
+        emit CampaignMetadataSet(campaignId, metadataHash);
     }
 
     function activateCampaign(uint256 campaignId) external override {
@@ -117,14 +122,14 @@ contract MockCampaigns is IDatumCampaigns {
         emit CampaignActivated(campaignId);
     }
 
-    function pauseCampaign(uint256 campaignId) external override {
-        _campaigns[campaignId].status = CampaignStatus.Paused;
-        emit CampaignPaused(campaignId);
-    }
-
-    function resumeCampaign(uint256 campaignId) external override {
-        _campaigns[campaignId].status = CampaignStatus.Active;
-        emit CampaignResumed(campaignId);
+    function togglePause(uint256 campaignId, bool pause) external override {
+        if (pause) {
+            _campaigns[campaignId].status = CampaignStatus.Paused;
+            emit CampaignPaused(campaignId);
+        } else {
+            _campaigns[campaignId].status = CampaignStatus.Active;
+            emit CampaignResumed(campaignId);
+        }
     }
 
     function completeCampaign(uint256 campaignId) external override {
@@ -182,6 +187,14 @@ contract MockCampaigns is IDatumCampaigns {
 
     function getCampaign(uint256 campaignId) external view override returns (Campaign memory) {
         return _campaigns[campaignId];
+    }
+
+    function getCampaignForSettlement(uint256 campaignId) external view returns (
+        uint8 status, address publisher, uint256 bidCpmPlanck,
+        uint256 remainingBudget, uint16 snapshotTakeRateBps
+    ) {
+        Campaign storage c = _campaigns[campaignId];
+        return (uint8(c.status), c.publisher, c.bidCpmPlanck, c.remainingBudget, c.snapshotTakeRateBps);
     }
 
     function getCampaignStatus(uint256 campaignId) external view returns (CampaignStatus) {

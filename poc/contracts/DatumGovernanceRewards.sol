@@ -44,12 +44,8 @@ contract DatumGovernanceRewards is IDatumGovernanceRewards {
     /// @dev Owner computes each voter's proportional share off-chain and calls this
     ///      once per eligible voter with msg.value = share amount.
     function creditAyeReward(uint256 campaignId, address voter) external payable onlyOwner {
-        IDatumCampaignsMinimal.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
-        require(
-            status == IDatumCampaignsMinimal.CampaignStatus.Completed ||
-            status == IDatumCampaignsMinimal.CampaignStatus.Terminated,
-            "E04"
-        );
+        (uint8 status,,,,) = campaigns.getCampaignForSettlement(campaignId);
+        require(status == 3 || status == 4, "E04"); // 3=Completed, 4=Terminated
         require(msg.value > 0, "E11");
         _ayeClaimable[campaignId][voter] += msg.value;
     }
@@ -135,8 +131,8 @@ contract DatumGovernanceRewards is IDatumGovernanceRewards {
         IDatumGovernanceVoting.VoteRecord memory vr = voting.getVoteRecord(campaignId, msg.sender);
         require(vr.castAtBlock != 0, "E01");
         require(vr.direction == IDatumGovernanceVoting.VoteDirection.Nay, "E06");
-        IDatumCampaignsMinimal.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
-        require(status == IDatumCampaignsMinimal.CampaignStatus.Completed, "E10");
+        (uint8 status,,,,) = campaigns.getCampaignForSettlement(campaignId);
+        require(status == 3, "E10"); // 3=Completed
         uint256 totalFailed = voting.rewardsAction(3, campaignId, msg.sender, 0);
         emit FailedNayResolved(campaignId, msg.sender, totalFailed);
     }

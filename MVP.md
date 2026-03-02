@@ -1,8 +1,8 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 1.5
+**Version:** 1.6
 **Date:** 2026-02-24
-**Last updated:** 2026-03-01 — Phase 2 code review audit complete. Identified critical gaps: no campaign metadata/creative CID, no publisher SDK for campaign creation, no per-campaign taxonomy targeting, placeholder-only ad display. Added Phase 2B (2.13–2.17) to address all gaps. 54/54 EVM tests pass. Gate G2 requires both Chrome verification and creative/metadata support.
+**Last updated:** 2026-03-02 — Phase 2B contract changes complete (2.13 metadata + 2.14 categoryId). PVM size reduction applied to DatumSettlement (49,508→44,893 B) and DatumCampaigns (49,670→48,169 B). API changes: `pauseCampaign`/`resumeCampaign` merged into `togglePause(id, bool)`, Campaign struct `version` field removed. 54/54 EVM tests pass. All 6 PVM bytecodes under 49,152 B limit.
 **Scope:** Five-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -99,7 +99,7 @@ All PVM bytecodes must be < 48 KB (49,152 bytes). See Appendix G for full detail
 
 #### 1.1c — PVM size reduction (COMPLETE as of 2026-02-25)
 
-**Measured sizes after all fixes (resolc mode `z`, 2026-02-27):**
+**Measured sizes after all fixes (resolc mode `z`, 2026-02-27):** *(superseded by 2.14b measurements after Phase 2B changes)*
 
 | Contract | PVM bytes | Limit | Spare | Status |
 |---|---|---|---|---|
@@ -109,6 +109,17 @@ All PVM bytecodes must be < 48 KB (49,152 bytes). See Appendix G for full detail
 | DatumCampaigns | 48,044 | 49,152 | 1,108 | ✅ (was 49,132; `_send()` pattern reduced size) |
 | DatumGovernanceRewards | 46,962 | 49,152 | 2,190 | ✅ |
 | DatumSettlement | ~46,000 | 49,152 | ~3,100 | ✅ (+ MAX_CLAIMS_PER_BATCH constant) |
+
+**Current sizes (resolc mode `z`, 2026-03-02, after Phase 2B + 2.14b reduction):**
+
+| Contract | PVM bytes | Limit | Spare | Status |
+|---|---|---|---|---|
+| DatumPublishers | 19,247 | 49,152 | 29,905 | ✅ |
+| DatumCampaigns | 48,169 | 49,152 | 983 | ✅ |
+| DatumGovernanceVoting | 47,510 | 49,152 | 1,642 | ✅ |
+| DatumGovernanceRewards | 48,745 | 49,152 | 407 | ✅ (tightest) |
+| DatumSettlement | 44,893 | 49,152 | 4,259 | ✅ (slim interface saved 4.6 KB) |
+| DatumRelay | 33,782 | 49,152 | 15,370 | ✅ |
 
 Techniques applied:
 - [x] **DatumCampaigns**: Remove Pausable + whenNotPaused; shorten revert strings to E-codes
@@ -245,7 +256,7 @@ DATUM targets Polkadot Hub via pallet-revive (PolkaVM / RISC-V), not an EVM-nati
 
 2. **Scaling characteristics differ.** On EVM, `settleClaims(5)` costs only 1.24x of `settleClaims(1)` — marginal per-claim cost is ~11k gas after a 237k base. On PVM, it scales ~2.5x for 5 claims because each cross-contract call (`getCampaign`, `deductBudget`) has much higher fixed overhead in RISC-V context switching. This motivated the `MAX_CLAIMS_PER_BATCH = 5` guard and the publisher relay design (Phase 1.6).
 
-3. **Bytecode size constraint (49,152 bytes).** resolc produces 10-20x larger bytecode than solc. This forced: contract splitting (3 → 5+1 contracts), removal of OpenZeppelin Pausable, short error codes, inlining of hash functions, and `creditAyeReward` replacing a loop-based distribution. The publisher relay (Phase 1.6) had to be extracted into a separate `DatumRelay` contract because inline EIP-712 + ecrecover added ~12 KB to Settlement (pushing it to 58 KB). Every new feature must budget bytecode. The tightest contract (DatumSettlement) has only 50 bytes to spare.
+3. **Bytecode size constraint (49,152 bytes).** resolc produces 10-20x larger bytecode than solc. This forced: contract splitting (3 → 5+1 contracts), removal of OpenZeppelin Pausable, short error codes, inlining of hash functions, `creditAyeReward` replacing a loop-based distribution, and merging functions (e.g. `pauseCampaign`/`resumeCampaign` → `togglePause`). Phase 2B added `categoryId` + `setMetadata()` which pushed DatumSettlement 356 B over the limit (from struct growth inflating ABI decode codegen in a consumer contract). Fix required introducing `IDatumCampaignsSettlement` slim interface (5 primitives instead of 14-field struct) and removing redundant view functions. Every new feature must budget bytecode. The tightest contract (DatumGovernanceRewards) has 407 bytes to spare.
 
 4. **Compiler maturity.** resolc v0.3.0 has a codegen bug where multiple `transfer()` call sites produce broken RISC-V. The workaround (single `_send()` helper per contract using `.call{value}`) is reliable but constrains code structure. The eth-rpc proxy has a denomination rounding bug rejecting values where `amount % 10^6 >= 500_000`. These are early-ecosystem issues that will improve, but they add development friction today.
 
@@ -296,15 +307,15 @@ At mainnet gas prices (orders of magnitude lower than dev chain), this becomes s
 - **EIP-712 domain:** Name is `"DatumRelay"`, `verifyingContract` is the relay address. `DOMAIN_SEPARATOR` is a public immutable on the relay contract.
 - **Risk:** `ecrecover` precompile (0x01) needs verification on pallet-revive substrate chain. If unsupported, relay feature is EVM-only until pallet-revive adds it.
 
-**PVM bytecode sizes (2026-02-27, all 6 contracts under 49,152 B):**
-| Contract | Bytes |
-|----------|-------|
-| DatumPublishers | 19,247 |
-| DatumCampaigns | 48,044 |
-| DatumGovernanceVoting | 48,196 |
-| DatumGovernanceRewards | 48,308 |
-| DatumSettlement | 49,102 |
-| DatumRelay | 33,782 |
+**PVM bytecode sizes (2026-03-02, all 6 contracts under 49,152 B, post Phase 2B):**
+| Contract | Bytes | Margin |
+|----------|-------|--------|
+| DatumPublishers | 19,247 | 29,905 |
+| DatumCampaigns | 48,169 | 983 |
+| DatumGovernanceVoting | 47,510 | 1,642 |
+| DatumGovernanceRewards | 48,745 | 407 |
+| DatumSettlement | 44,893 | 4,259 |
+| DatumRelay | 33,782 | 15,370 |
 
 **Tasks:**
 - [x] Add `SignedClaimBatch` struct to `IDatumSettlement.sol`
@@ -557,11 +568,13 @@ function setMetadata(uint256 campaignId, string calldata metadataUri) external;
 Since `createCampaign` already has 3 parameters and adding a 4th `string` changes the ABI, we add metadata via a separate `setMetadata(campaignId, uri)` call (advertiser-only). This avoids changing the existing `createCampaign` ABI signature and keeps the function's PVM bytecode minimal.
 
 **Tasks:**
-- [ ] Add `event CampaignMetadataSet(uint256 indexed campaignId, string metadataUri)` to `IDatumCampaigns.sol`
-- [ ] Add `setMetadata(uint256 campaignId, string calldata metadataUri)` to `DatumCampaigns.sol` — requires `msg.sender == campaign.advertiser`, emits `CampaignMetadataSet`
-- [ ] Verify PVM bytecode stays under 49,152 bytes (estimate: +200-400 bytes for event emit + string calldata handling)
+- [x] Add `event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash)` to `IDatumCampaigns.sol` (uses `bytes32` hash instead of `string` CID for PVM size — extension maps hash→CID off-chain)
+- [x] Add `setMetadata(uint256 campaignId, bytes32 metadataHash)` to `DatumCampaigns.sol` — requires `msg.sender == campaign.advertiser`, emits `CampaignMetadataSet`
+- [x] Verify PVM bytecode stays under 49,152 bytes (required additional size reduction — see 2.14b below)
 - [ ] Add test: advertiser can set metadata; non-advertiser reverts
 - [ ] Update `setup-test-campaign.ts` to call `setMetadata` with a test IPFS CID
+
+**Implementation note (2026-03-02):** Changed from `string metadataUri` to `bytes32 metadataHash` to avoid string ABI encoding overhead in PVM. The extension maps `keccak256(ipfsCid) → ipfsCid` locally. This saves ~400 B of PVM bytecode vs a string parameter.
 
 **Files:** `poc/contracts/interfaces/IDatumCampaigns.sol`, `poc/contracts/DatumCampaigns.sol`, `poc/test/campaigns.test.ts`
 
@@ -587,16 +600,16 @@ function createCampaign(
 ```
 
 **Tasks:**
-- [ ] Add `uint8 categoryId` to `Campaign` struct in `IDatumCampaigns.sol`
-- [ ] Update `createCampaign()` to accept `uint8 categoryId` parameter
-- [ ] Store `categoryId` in campaign; emit in `CampaignCreated` event
-- [ ] Verify PVM bytecode stays under 49,152 bytes
-- [ ] Update all test fixtures and helpers for new `createCampaign` signature
+- [x] Add `uint8 categoryId` to `Campaign` struct in `IDatumCampaigns.sol`
+- [x] Update `createCampaign()` to accept `uint8 categoryId` parameter
+- [x] Store `categoryId` in campaign; emit in `CampaignCreated` event
+- [x] Verify PVM bytecode stays under 49,152 bytes (required additional size reduction — see 2.14b below)
+- [x] Update all test fixtures and helpers for new `createCampaign` signature (all pass `categoryId: 0`)
 - [ ] Update `setup-test-campaign.ts` with `categoryId = 1` (crypto)
-- [ ] Update extension `types.ts` Campaign interface with `categoryId` field
-- [ ] Update extension `campaignPoller.ts` to deserialize `categoryId`
-- [ ] Update extension `content/index.ts` to filter campaigns by category match
-- [ ] Update extension `CampaignList.tsx` to display category name
+- [x] Update extension `types.ts` Campaign interface with `categoryId` field
+- [x] Update extension `campaignPoller.ts` to deserialize `categoryId`
+- [x] Update extension `content/index.ts` to filter campaigns by category match
+- [x] Update extension `CampaignList.tsx` to display category name
 
 **Category ID mapping (matches taxonomy.ts):**
 | ID | Category |
@@ -614,6 +627,91 @@ function createCampaign(
 | 10 | Health |
 
 **Files:** `poc/contracts/interfaces/IDatumCampaigns.sol`, `poc/contracts/DatumCampaigns.sol`, `poc/test/campaigns.test.ts`, `poc/test/integration.test.ts`, `poc/test/settlement.test.ts`, `poc/scripts/setup-test-campaign.ts`, `extension/src/shared/types.ts`, `extension/src/background/campaignPoller.ts`, `extension/src/content/index.ts`, `extension/src/popup/CampaignList.tsx`
+
+#### 2.14b — PVM size reduction for Phase 2B changes ✅ COMPLETE (2026-03-02)
+
+**Problem:** Adding `categoryId` to the Campaign struct and `setMetadata()` to DatumCampaigns caused:
+- **DatumSettlement:** 49,508 B — **356 bytes OVER** the 49,152 B limit (Settlement itself was not modified — the struct growth inflated ABI decode codegen for `getCampaign()`)
+- **DatumCampaigns:** 49,121 B → 49,670 B after adding `getCampaignForSettlement()` — **518 bytes OVER**
+
+**Root cause:** Settlement calls `campaigns.getCampaign(id)` which returns the full 14-field Campaign struct. resolc generates ~400 extra bytes of ABI decode code per additional struct field. Settlement only uses 5 of the 14 fields. Similarly, DatumCampaigns had too many view functions generating redundant PVM bytecode.
+
+**Solution: Slim interface pattern + function merging**
+
+DatumSettlement:
+- [x] Created `IDatumCampaignsSettlement` slim interface with `getCampaignForSettlement()` returning 5 primitives `(uint8 status, address publisher, uint256 bidCpmPlanck, uint256 remainingBudget, uint16 snapshotTakeRateBps)` instead of the full Campaign struct
+- [x] Settlement uses `IDatumCampaignsSettlement` instead of `IDatumCampaigns` — eliminates full struct from Settlement's PVM bytecode entirely
+- [x] Balance/nonce mappings changed from `private` + manual getters to `public` (auto-generated getters are ABI-compatible)
+- [x] `MAX_CLAIMS_PER_BATCH` public constant replaced with inlined literal `5`
+
+DatumCampaigns:
+- [x] Merged `pauseCampaign()` + `resumeCampaign()` into `togglePause(uint256 campaignId, bool pause)` — one function replaces two
+- [x] Removed `version` field from Campaign struct (was always `2`; no longer needed)
+- [x] Removed `getCampaignStatus()` and `getCampaignRemainingBudget()` view functions — governance contracts now use `getCampaignForSettlement()` with tuple destructuring
+- [x] Added `getCampaignForSettlement()` returning 5 settlement-relevant fields as primitives
+
+Governance:
+- [x] `DatumGovernanceVoting` and `DatumGovernanceRewards` updated to use `getCampaignForSettlement()` instead of individual getters
+- [x] `IDatumCampaignsMinimal` updated to use `getCampaignForSettlement()` instead of `getCampaignStatus()` + `getCampaignRemainingBudget()`
+- [x] Status checks use uint8 literals (0=Pending, 1=Active, 2=Paused, 3=Completed, 4=Terminated)
+
+**PVM bytecode sizes (2026-03-02, all 6 contracts under 49,152 B):**
+
+| Contract | Before | After | Saved | Margin |
+|----------|--------|-------|-------|--------|
+| DatumPublishers | 19,247 | 19,247 | — | 29,905 |
+| DatumCampaigns | 49,670 | 48,169 | 1,501 | **983** |
+| DatumGovernanceVoting | 48,196 | 47,510 | 686 | 1,642 |
+| DatumGovernanceRewards | 48,308 | 48,745 | +437 | **407** |
+| DatumSettlement | 49,508 | 44,893 | **4,615** | 4,259 |
+| DatumRelay | 33,782 | 33,782 | — | 15,370 |
+
+**Note:** DatumGovernanceRewards increased by 437 B because it now calls `getCampaignForSettlement()` (tuple return) instead of `getCampaignStatus()` (single return). The new ABI decode for the 5-field tuple costs more PVM bytes than the single-value getter, but Rewards still has 407 B margin.
+
+**API changes (breaking, affects extension and tests):**
+
+| Change | Impact |
+|--------|--------|
+| `pauseCampaign(id)` / `resumeCampaign(id)` → `togglePause(id, bool)` | Extension must pass `true` to pause, `false` to resume. Tests updated. |
+| `getCampaignStatus(id)` removed from DatumCampaigns | Not called by extension (governance-only). MockCampaigns retains it for test convenience. |
+| `getCampaignRemainingBudget(id)` removed from DatumCampaigns | Not called by extension. MockCampaigns retains it. |
+| `Campaign.version` field removed | Extension and tests no longer reference it. No runtime impact. |
+| Balance/nonce mappings now `public` in DatumSettlement | ABI-compatible (auto-generated getters match old manual getters). No consumer changes needed. |
+| `MAX_CLAIMS_PER_BATCH` constant removed from DatumSettlement | Limit still enforced (inlined as `5`). Extension doesn't read this constant. |
+
+**Security considerations:**
+
+1. **`togglePause(id, bool)`**: Identical access control to the separate functions (advertiser-only, same error codes E21/E22/E23). No new attack surface. A malicious caller still cannot pause or resume someone else's campaign.
+
+2. **Status checks via uint8 literals**: Governance contracts now compare `status == 0` instead of `status == CampaignStatus.Pending`. These are semantically identical at the EVM level (the enum is stored as uint8). Risk: if the CampaignStatus enum order ever changes, the hardcoded literals would break. Mitigation: the enum is defined in the interface and has been stable since contract creation. Any reorder would break far more than just governance.
+
+3. **Public mappings in Settlement**: The `publisherBalance`, `userBalance`, `protocolBalance`, `lastNonce`, and `lastClaimHash` mappings were already exposed via identical view functions. Making them `public` does not leak any new information. Auto-generated getters have the same function signatures and return types.
+
+4. **Slim interface ABI compatibility**: `IDatumCampaignsSettlement` defines `getCampaignForSettlement()` with the same selector as the function in DatumCampaigns. Solidity guarantees function selectors are computed from the signature string, so the slim interface is guaranteed to match the real contract at the ABI level.
+
+5. **Removed `version` field**: This field was informational only (always `2`), never read by any contract logic. Removing it has no security impact.
+
+**Product considerations:**
+
+1. **`togglePause` UX**: Any dapp or script calling `pauseCampaign`/`resumeCampaign` must update to `togglePause(id, true/false)`. The extension ABI has been updated. Third-party integrations would need ABI updates.
+
+2. **Struct change breaks existing deployments**: The Campaign struct layout has changed (no `version` field, added `categoryId`). This is a storage-layout-breaking change. Existing deployed contracts cannot be upgraded in-place — they must be redeployed. This is acceptable at the PoC/pre-mainnet stage.
+
+3. **DatumGovernanceRewards has only 407 B margin**: Any future addition to DatumCampaigns that changes the `getCampaignForSettlement` return type, or any new cross-contract call in Rewards, risks pushing it over the limit. Monitor closely.
+
+**Files changed:**
+- `poc/contracts/DatumSettlement.sol` — slim interface, public mappings, inlined constant
+- `poc/contracts/DatumCampaigns.sol` — togglePause, getCampaignForSettlement, removed getters, removed version
+- `poc/contracts/DatumGovernanceVoting.sol` — tuple destructuring for status/budget
+- `poc/contracts/DatumGovernanceRewards.sol` — tuple destructuring for status
+- `poc/contracts/interfaces/IDatumCampaigns.sol` — togglePause, getCampaignForSettlement, removed version
+- `poc/contracts/interfaces/IDatumCampaignsMinimal.sol` — getCampaignForSettlement replaces individual getters
+- `poc/contracts/interfaces/IDatumCampaignsSettlement.sol` — **new** slim interface for Settlement
+- `poc/contracts/interfaces/IDatumSettlement.sol` — unchanged (auto-generated getters match)
+- `poc/contracts/mocks/MockCampaigns.sol` — togglePause, getCampaignForSettlement, removed version
+- `poc/test/campaigns.test.ts` — togglePause calls, removed version assertion
+- `extension/src/shared/abis/DatumCampaigns.json` — updated ABI
+- `extension/src/shared/abis/DatumSettlement.json` — updated ABI
 
 #### 2.15 — IPFS metadata fetch in extension
 
@@ -704,11 +802,11 @@ Replace the placeholder ad banner with a creative-aware display that shows campa
 
 #### Phase 2B — Remaining work
 
-**Step F — Contract metadata + category changes (2.13, 2.14)**
-1. Add `CampaignMetadataSet` event and `setMetadata()` function
-2. Add `categoryId` field to Campaign struct and `createCampaign()`
-3. Update all test fixtures for new ABI; verify PVM size
-4. Run full test suite (target: 56+ tests)
+**Step F — Contract metadata + category changes (2.13, 2.14, 2.14b) ✅ COMPLETE**
+1. ~~Add `CampaignMetadataSet` event and `setMetadata()` function~~ ✅
+2. ~~Add `categoryId` field to Campaign struct and `createCampaign()`~~ ✅
+3. ~~Update all test fixtures for new ABI; verify PVM size~~ ✅ (required 2.14b size reduction)
+4. ~~Run full test suite~~ ✅ 54/54 pass
 
 **Step G — Extension metadata integration (2.15, 2.16, 2.17)**
 1. IPFS metadata fetch and caching in campaignPoller

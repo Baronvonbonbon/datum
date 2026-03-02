@@ -60,7 +60,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_POLL_CAMPAIGNS) {
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
-      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses);
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {

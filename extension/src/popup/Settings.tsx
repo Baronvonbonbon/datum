@@ -120,6 +120,18 @@ export function Settings() {
         )}
       </div>
 
+      {/* IPFS Gateway */}
+      <div style={sectionStyle}>
+        <label style={labelStyle}>IPFS Gateway</label>
+        <input
+          type="text"
+          value={settings.ipfsGateway}
+          onChange={(e) => setSettings((s) => ({ ...s, ipfsGateway: e.target.value }))}
+          style={inputStyle}
+          placeholder="https://dweb.link/ipfs/"
+        />
+      </div>
+
       {/* Auto-submit */}
       <div style={{ ...sectionStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <label style={labelStyle}>Auto-submit claims</label>

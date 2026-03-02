@@ -1,14 +1,15 @@
 // Polls DatumCampaigns for Active campaigns and caches them in storage.
+// Also fetches IPFS metadata for campaigns that have CampaignMetadataSet events.
 
 import { JsonRpcProvider } from "ethers";
-import { getCampaignsContract, getPublishersContract } from "@shared/contracts";
-import { Campaign, CampaignStatus, ContractAddresses } from "@shared/types";
+import { getCampaignsContract } from "@shared/contracts";
+import { Campaign, CampaignMetadata, CampaignStatus, ContractAddresses } from "@shared/types";
 
 const STORAGE_KEY = "activeCampaigns";
 const MAX_SCAN_ID = 1000; // scan campaign IDs 1..N until two consecutive misses
 
 export const campaignPoller = {
-  async poll(rpcUrl: string, addresses: ContractAddresses): Promise<void> {
+  async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string): Promise<void> {
     try {
       const provider = new JsonRpcProvider(rpcUrl);
       const campaigns: Campaign[] = [];
@@ -21,7 +22,7 @@ export const campaignPoller = {
           const c = await contract.getCampaign(BigInt(id));
           if (c.id === 0n) {
             missCount++;
-            if (missCount >= 3) break; // 3 consecutive misses = end of campaigns
+            if (missCount >= 3) break;
             continue;
           }
           missCount = 0;
@@ -36,6 +37,41 @@ export const campaignPoller = {
 
       await chrome.storage.local.set({ [STORAGE_KEY]: serializeCampaigns(campaigns) });
       console.log(`[DATUM] Polled ${campaigns.length} active campaigns`);
+
+      // Fetch IPFS metadata for campaigns that don't have cached metadata
+      const gateway = ipfsGateway || "https://dweb.link/ipfs/";
+      for (const c of campaigns) {
+        const metaKey = `metadata:${c.id.toString()}`;
+        const existing = await chrome.storage.local.get(metaKey);
+        if (existing[metaKey]) continue; // already cached
+
+        try {
+          // Query CampaignMetadataSet events for this campaign
+          const filter = contract.filters.CampaignMetadataSet(c.id);
+          const events = await contract.queryFilter(filter);
+          if (events.length === 0) continue;
+
+          const lastEvent = events[events.length - 1];
+          const uri = (lastEvent as any).args?.[1] ?? (lastEvent as any).args?.metadataUri;
+          if (!uri) continue;
+
+          // Fetch from IPFS gateway
+          const url = uri.startsWith("ipfs://")
+            ? gateway + uri.slice(7)
+            : uri.startsWith("Qm") || uri.startsWith("bafy")
+            ? gateway + uri
+            : uri; // raw URL fallback
+
+          const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          if (resp.ok) {
+            const meta: CampaignMetadata = await resp.json();
+            await chrome.storage.local.set({ [metaKey]: meta });
+            console.log(`[DATUM] Cached metadata for campaign ${c.id}`);
+          }
+        } catch (err) {
+          console.warn(`[DATUM] Failed to fetch metadata for campaign ${c.id}:`, err);
+        }
+      }
     } catch (err) {
       console.error("[DATUM] campaignPoller.poll failed:", err);
     }
@@ -60,6 +96,7 @@ function normalizeCampaign(raw: {
   bidCpmPlanck: bigint;
   snapshotTakeRateBps: bigint;
   status: bigint;
+  categoryId: bigint;
   pendingExpiryBlock: bigint;
   terminationBlock: bigint;
 }): Campaign {
@@ -73,6 +110,7 @@ function normalizeCampaign(raw: {
     bidCpmPlanck: raw.bidCpmPlanck,
     snapshotTakeRateBps: Number(raw.snapshotTakeRateBps),
     status: Number(raw.status),
+    categoryId: Number(raw.categoryId ?? 0),
     pendingExpiryBlock: raw.pendingExpiryBlock,
     terminationBlock: raw.terminationBlock,
   };
@@ -97,6 +135,7 @@ function deserializeCampaigns(raw: Record<string, string>[]): Campaign[] {
     bidCpmPlanck: BigInt(c.bidCpmPlanck),
     snapshotTakeRateBps: Number(c.snapshotTakeRateBps),
     status: Number(c.status) as CampaignStatus,
+    categoryId: Number(c.categoryId ?? 0),
     pendingExpiryBlock: BigInt(c.pendingExpiryBlock),
     terminationBlock: BigInt(c.terminationBlock),
   }));

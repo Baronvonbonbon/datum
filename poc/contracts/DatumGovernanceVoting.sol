@@ -96,8 +96,8 @@ contract DatumGovernanceVoting is IDatumGovernanceVoting, ReentrancyGuard {
         require(conviction <= MAX_CONVICTION, "Invalid conviction");
         require(msg.value > 0, "Must stake DOT");
 
-        IDatumCampaignsMinimal.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
-        require(status == IDatumCampaignsMinimal.CampaignStatus.Pending, "Campaign not Pending");
+        (uint8 status,,,,) = campaigns.getCampaignForSettlement(campaignId);
+        require(status == 0, "Campaign not Pending"); // 0 = Pending
 
         VoteRecord storage existing = _voteRecords[campaignId][msg.sender];
         require(existing.castAtBlock == 0, "Already voted");
@@ -135,12 +135,8 @@ contract DatumGovernanceVoting is IDatumGovernanceVoting, ReentrancyGuard {
         require(conviction <= MAX_CONVICTION, "Invalid conviction");
         require(msg.value > 0, "Must stake DOT");
 
-        IDatumCampaignsMinimal.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
-        require(
-            status == IDatumCampaignsMinimal.CampaignStatus.Active ||
-            status == IDatumCampaignsMinimal.CampaignStatus.Paused,
-            "Campaign not Active or Paused"
-        );
+        (uint8 status,,,uint256 cRemaining,) = campaigns.getCampaignForSettlement(campaignId);
+        require(status == 1 || status == 2, "Campaign not Active or Paused"); // 1=Active, 2=Paused
 
         VoteRecord storage existing = _voteRecords[campaignId][msg.sender];
         require(existing.castAtBlock == 0, "Already voted");
@@ -171,7 +167,7 @@ contract DatumGovernanceVoting is IDatumGovernanceVoting, ReentrancyGuard {
             cv.terminated = true;
             cv.terminationBlock = block.number;
 
-            _slashPool[campaignId] = campaigns.getCampaignRemainingBudget(campaignId);
+            _slashPool[campaignId] = cRemaining;
 
             campaigns.terminateCampaign(campaignId);
 

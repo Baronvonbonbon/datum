@@ -81,7 +81,7 @@ describe("Integration", function () {
   // Helper: create a campaign and return its ID
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, { value: budget }
+      pub.address, dailyCap, bidCpm, 0, { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;

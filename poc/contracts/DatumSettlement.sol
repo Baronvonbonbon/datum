@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IDatumSettlement.sol";
-import "./interfaces/IDatumCampaigns.sol";
+import "./interfaces/IDatumCampaignsSettlement.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches, validates hash chains, and distributes payments.
@@ -28,38 +28,31 @@ import "./interfaces/IDatumCampaigns.sol";
 ///   All amounts in planck (1 DOT = 10^10 planck)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     // -------------------------------------------------------------------------
-    // Constants
-    // -------------------------------------------------------------------------
-
-    /// @dev Maximum claims per batch. settleClaims scales at ~5.3x per 10x claims.
-    uint256 public constant MAX_CLAIMS_PER_BATCH = 5;
-
-    // -------------------------------------------------------------------------
     // Cross-contract references
     // -------------------------------------------------------------------------
 
-    IDatumCampaigns public campaigns;
+    IDatumCampaignsSettlement public campaigns;
 
     /// @dev Authorized relay contract that can call settleClaims on behalf of users
     address public relayContract;
 
     // -------------------------------------------------------------------------
-    // Pull payment balances (Issue 4)
+    // Pull payment balances (Issue 4) — public mappings replace manual getters
     // -------------------------------------------------------------------------
 
-    mapping(address => uint256) private _publisherBalance;
-    mapping(address => uint256) private _userBalance;
-    uint256 private _protocolBalance;
+    mapping(address => uint256) public publisherBalance;
+    mapping(address => uint256) public userBalance;
+    uint256 public protocolBalance;
 
     // -------------------------------------------------------------------------
-    // Claim tracking per (user, campaignId)
+    // Claim tracking per (user, campaignId) — public mappings replace manual getters
     // -------------------------------------------------------------------------
 
     // user => campaignId => last settled nonce
-    mapping(address => mapping(uint256 => uint256)) private _lastNonce;
+    mapping(address => mapping(uint256 => uint256)) public lastNonce;
 
     // user => campaignId => hash of last settled claim
-    mapping(address => mapping(uint256 => bytes32)) private _lastClaimHash;
+    mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -67,7 +60,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
 
     constructor(address _campaigns) Ownable(msg.sender) {
         require(_campaigns != address(0), "E00");
-        campaigns = IDatumCampaigns(_campaigns);
+        campaigns = IDatumCampaignsSettlement(_campaigns);
     }
 
     // -------------------------------------------------------------------------
@@ -106,14 +99,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
 
     /// @dev Process one user's claims in a batch.
     ///      A4 fix: all claims must match batch-level campaignId.
-    ///      A3 fix: campaign is fetched once in _validateClaim and passed through.
     function _processBatch(
         address user,
         uint256 campaignId,
         Claim[] calldata claims,
         SettlementResult memory result
     ) internal {
-        require(claims.length <= MAX_CLAIMS_PER_BATCH, "E28");
+        require(claims.length <= 5, "E28");
         bool gapFound = false;
 
         for (uint256 i = 0; i < claims.length; i++) {
@@ -133,10 +125,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
                 continue;
             }
 
-            // A3 fix: _validateClaim returns the campaign it fetched to avoid re-fetching
-            (bool ok, uint8 reasonCode, IDatumCampaigns.Campaign memory c) = _validateClaim(claim, user);
+            (bool ok, uint8 reasonCode, uint16 cTakeRate) = _validateClaim(claim, user);
             if (!ok) {
-                // Check if this is a gap (nonce mismatch) vs. other error
                 if (reasonCode == 7) {
                     gapFound = true;
                 }
@@ -145,47 +135,49 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
                 continue;
             }
 
-            // All validations passed — settle this claim using the already-fetched campaign
-            _settleSingleClaim(claim, user, c, result);
+            // All validations passed — settle this claim
+            _settleSingleClaim(claim, user, cTakeRate, result);
         }
     }
 
-    /// @dev Validate a single claim. Returns (true, 0, campaign) on success or (false, reasonCode, empty) on failure.
-    ///      A3 fix: returns the Campaign fetched during validation to avoid a second cross-contract call.
-    ///      Issue 6: claimHash computed inline (computeClaimHash removed as public function for PVM size).
+    /// @dev Validate a single claim. Returns (true, 0, takeRate) on success
+    ///      or (false, reasonCode, 0) on failure.
+    ///      Uses slim getCampaignForSettlement to avoid full Campaign struct ABI decode.
     function _validateClaim(Claim calldata claim, address user)
         internal
         view
-        returns (bool, uint8, IDatumCampaigns.Campaign memory)
+        returns (bool, uint8, uint16)
     {
-        IDatumCampaigns.Campaign memory empty;
-
         // zkProof is accepted as-is; ZK verification: not implemented in MVP
         // A2 fix: Reject zero-impression claims (produce zero payment, pollute hash chain)
-        if (claim.impressionCount == 0) return (false, 2, empty);
+        if (claim.impressionCount == 0) return (false, 2, 0);
 
-        // Campaign must exist and be Active
-        IDatumCampaigns.Campaign memory c = campaigns.getCampaign(claim.campaignId);
-        if (c.id == 0) return (false, 3, empty);
-        if (c.status != IDatumCampaigns.CampaignStatus.Active) return (false, 4, empty);
+        // Fetch only the 5 fields we need (no full struct ABI decode)
+        (uint8 status, address cPublisher, uint256 cBidCpm,
+         uint256 cRemaining, uint16 cTakeRate) = campaigns.getCampaignForSettlement(claim.campaignId);
+
+        // Campaign must exist (id field would be 0 → status defaults to 0 = Pending, publisher = 0)
+        if (cPublisher == address(0)) return (false, 3, 0);
+        // Campaign must be Active (status == 1)
+        if (status != 1) return (false, 4, 0);
 
         // Publisher must match campaign
-        if (claim.publisher != c.publisher) return (false, 5, empty);
+        if (claim.publisher != cPublisher) return (false, 5, 0);
 
         // Issue 2: CPM validation — no floor, just <= bidCpmPlanck
-        if (claim.clearingCpmPlanck > c.bidCpmPlanck) return (false, 6, empty);
+        if (claim.clearingCpmPlanck > cBidCpm) return (false, 6, 0);
 
         // Issue 3: Nonce must be exactly lastNonce + 1
-        uint256 expectedNonce = _lastNonce[user][claim.campaignId] + 1;
-        if (claim.nonce != expectedNonce) return (false, 7, empty);
+        uint256 expectedNonce = lastNonce[user][claim.campaignId] + 1;
+        if (claim.nonce != expectedNonce) return (false, 7, 0);
 
         // Issue 6: Hash chain validation
-        bytes32 expectedPrevHash = _lastClaimHash[user][claim.campaignId];
+        bytes32 expectedPrevHash = lastClaimHash[user][claim.campaignId];
         if (claim.nonce == 1) {
             // Genesis claim: previousClaimHash must be bytes32(0)
-            if (claim.previousClaimHash != bytes32(0)) return (false, 8, empty);
+            if (claim.previousClaimHash != bytes32(0)) return (false, 8, 0);
         } else {
-            if (claim.previousClaimHash != expectedPrevHash) return (false, 9, empty);
+            if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0);
         }
 
         // Verify the claim hash matches the canonical formula (inlined — no external call)
@@ -198,27 +190,25 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
             claim.nonce,
             claim.previousClaimHash
         ));
-        if (claim.claimHash != expectedHash) return (false, 10, empty);
+        if (claim.claimHash != expectedHash) return (false, 10, 0);
 
         // Check budget sufficiency (amounts in planck)
         uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
-        if (totalPayment > c.remainingBudget) return (false, 11, empty);
+        if (totalPayment > cRemaining) return (false, 11, 0);
 
-        return (true, 0, c);
+        return (true, 0, cTakeRate);
     }
 
     /// @dev Execute a validated claim: deduct budget, update state, record balances.
-    ///      A3 fix: accepts pre-fetched Campaign to avoid a second cross-contract call.
-    ///      A5 fix: dailyClaimCount removed — was tracked but never enforced.
     function _settleSingleClaim(
         Claim calldata claim,
         address user,
-        IDatumCampaigns.Campaign memory c,
+        uint16 cTakeRate,
         SettlementResult memory result
     ) internal {
         // Issue 1: Revenue split formula (amounts in planck)
         uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
-        uint256 publisherPayment = (totalPayment * c.snapshotTakeRateBps) / 10000; // Issue 5
+        uint256 publisherPayment = (totalPayment * cTakeRate) / 10000; // Issue 5
         uint256 remainder = totalPayment - publisherPayment;
         uint256 userPayment = (remainder * 7500) / 10000; // 75%
         uint256 protocolFee = remainder - userPayment;    // 25%
@@ -227,13 +217,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         campaigns.deductBudget(claim.campaignId, totalPayment);
 
         // Update hash chain tracking (Issue 6)
-        _lastNonce[user][claim.campaignId] = claim.nonce;
-        _lastClaimHash[user][claim.campaignId] = claim.claimHash;
+        lastNonce[user][claim.campaignId] = claim.nonce;
+        lastClaimHash[user][claim.campaignId] = claim.claimHash;
 
         // Accumulate pull payment balances (Issue 4)
-        _publisherBalance[claim.publisher] += publisherPayment;
-        _userBalance[user] += userPayment;
-        _protocolBalance += protocolFee;
+        publisherBalance[claim.publisher] += publisherPayment;
+        userBalance[user] += userPayment;
+        protocolBalance += protocolFee;
 
         result.settledCount++;
         result.totalPaid += totalPayment;
@@ -259,18 +249,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     /// @dev Uses _send() internal helper — single transfer() call in the contract
     ///      to work around resolc codegen bug with multiple transfer() sites.
     function withdrawPublisher() external nonReentrant {
-        uint256 amount = _publisherBalance[msg.sender];
+        uint256 amount = publisherBalance[msg.sender];
         require(amount > 0, "E03");
-        _publisherBalance[msg.sender] = 0;
+        publisherBalance[msg.sender] = 0;
         emit PublisherWithdrawal(msg.sender, amount);
         _send(msg.sender, amount);
     }
 
     /// @inheritdoc IDatumSettlement
     function withdrawUser() external nonReentrant {
-        uint256 amount = _userBalance[msg.sender];
+        uint256 amount = userBalance[msg.sender];
         require(amount > 0, "E03");
-        _userBalance[msg.sender] = 0;
+        userBalance[msg.sender] = 0;
         emit UserWithdrawal(msg.sender, amount);
         _send(msg.sender, amount);
     }
@@ -278,9 +268,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     /// @inheritdoc IDatumSettlement
     function withdrawProtocol(address recipient) external onlyOwner nonReentrant {
         require(recipient != address(0), "E00");
-        uint256 amount = _protocolBalance;
+        uint256 amount = protocolBalance;
         require(amount > 0, "E03");
-        _protocolBalance = 0;
+        protocolBalance = 0;
         emit ProtocolWithdrawal(recipient, amount);
         _send(recipient, amount);
     }
@@ -300,29 +290,5 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
 
     receive() external payable {
         // DOT (planck) forwarded from campaign escrow; accounted in pull-payment mappings by settleClaims()
-    }
-
-    // -------------------------------------------------------------------------
-    // Views
-    // -------------------------------------------------------------------------
-
-    function publisherBalance(address publisher) external view returns (uint256) {
-        return _publisherBalance[publisher];
-    }
-
-    function userBalance(address user) external view returns (uint256) {
-        return _userBalance[user];
-    }
-
-    function protocolBalance() external view returns (uint256) {
-        return _protocolBalance;
-    }
-
-    function lastNonce(address user, uint256 campaignId) external view returns (uint256) {
-        return _lastNonce[user][campaignId];
-    }
-
-    function lastClaimHash(address user, uint256 campaignId) external view returns (bytes32) {
-        return _lastClaimHash[user][campaignId];
     }
 }

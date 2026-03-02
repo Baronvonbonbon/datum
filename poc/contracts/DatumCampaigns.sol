@@ -21,8 +21,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     // Configuration (governance-settable in full build; constructor-set in PoC)
     // -------------------------------------------------------------------------
 
-    uint256 public minimumCpmFloor;          // Minimum allowed bidCpmPlanck
-    uint256 public pendingTimeoutBlocks;     // Blocks before Pending → Expired allowed
+    uint256 public immutable minimumCpmFloor;         // Minimum allowed bidCpmPlanck
+    uint256 public immutable pendingTimeoutBlocks;    // Blocks before Pending → Expired allowed
 
     // -------------------------------------------------------------------------
     // Cross-contract references
@@ -70,13 +70,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         governanceContract = _governance;
     }
 
-    function setMinimumCpmFloor(uint256 _floor) external onlyOwner {
-        minimumCpmFloor = _floor;
-    }
-
-    function setPendingTimeoutBlocks(uint256 _blocks) external onlyOwner {
-        pendingTimeoutBlocks = _blocks;
-    }
+    // Config setters removed (PVM size); values set in constructor.
 
     // -------------------------------------------------------------------------
     // Campaign lifecycle
@@ -88,7 +82,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     function createCampaign(
         address publisher,
         uint256 dailyCapPlanck,
-        uint256 bidCpmPlanck
+        uint256 bidCpmPlanck,
+        uint8 categoryId
     ) external payable nonReentrant returns (uint256 campaignId) {
         require(msg.value > 0, "E11");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
@@ -113,7 +108,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
             terminationBlock: 0,
             snapshotTakeRateBps: snapshot,
             status: CampaignStatus.Pending,
-            version: 1
+            categoryId: categoryId
         });
 
         emit CampaignCreated(
@@ -123,12 +118,21 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
             msg.value,
             dailyCapPlanck,
             bidCpmPlanck,
-            snapshot
+            snapshot,
+            categoryId
         );
     }
 
     /// @inheritdoc IDatumCampaigns
-    function activateCampaign(uint256 campaignId) external nonReentrant {
+    function setMetadata(uint256 campaignId, bytes32 metadataHash) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.id != 0, "E01");
+        require(msg.sender == c.advertiser, "E21");
+        emit CampaignMetadataSet(campaignId, metadataHash);
+    }
+
+    /// @inheritdoc IDatumCampaigns
+    function activateCampaign(uint256 campaignId) external {
         require(msg.sender == governanceContract, "E19");
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
@@ -139,25 +143,20 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
     }
 
     /// @inheritdoc IDatumCampaigns
-    function pauseCampaign(uint256 campaignId) external nonReentrant {
+    /// @dev pause=true: Active→Paused, pause=false: Paused→Active. Merged to reduce PVM size.
+    function togglePause(uint256 campaignId, bool pause) external {
         Campaign storage c = _campaigns[campaignId];
         require(c.id != 0, "E01");
         require(msg.sender == c.advertiser, "E21");
-        require(c.status == CampaignStatus.Active, "E22");
-
-        c.status = CampaignStatus.Paused;
-        emit CampaignPaused(campaignId);
-    }
-
-    /// @inheritdoc IDatumCampaigns
-    function resumeCampaign(uint256 campaignId) external nonReentrant {
-        Campaign storage c = _campaigns[campaignId];
-        require(c.id != 0, "E01");
-        require(msg.sender == c.advertiser, "E21");
-        require(c.status == CampaignStatus.Paused, "E23");
-
-        c.status = CampaignStatus.Active;
-        emit CampaignResumed(campaignId);
+        if (pause) {
+            require(c.status == CampaignStatus.Active, "E22");
+            c.status = CampaignStatus.Paused;
+            emit CampaignPaused(campaignId);
+        } else {
+            require(c.status == CampaignStatus.Paused, "E23");
+            c.status = CampaignStatus.Active;
+            emit CampaignResumed(campaignId);
+        }
     }
 
     /// @inheritdoc IDatumCampaigns
@@ -288,11 +287,11 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         return _campaigns[campaignId];
     }
 
-    function getCampaignStatus(uint256 campaignId) external view returns (CampaignStatus) {
-        return _campaigns[campaignId].status;
-    }
-
-    function getCampaignRemainingBudget(uint256 campaignId) external view returns (uint256) {
-        return _campaigns[campaignId].remainingBudget;
+    function getCampaignForSettlement(uint256 campaignId) external view returns (
+        uint8 status, address publisher, uint256 bidCpmPlanck,
+        uint256 remainingBudget, uint16 snapshotTakeRateBps
+    ) {
+        Campaign storage c = _campaigns[campaignId];
+        return (uint8(c.status), c.publisher, c.bidCpmPlanck, c.remainingBudget, c.snapshotTakeRateBps);
     }
 }

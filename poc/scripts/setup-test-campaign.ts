@@ -19,14 +19,15 @@ async function main() {
   }
 
   // Create campaign: 10 DOT budget, daily cap = budget, 0.016 DOT bidCPM
-  // signature: createCampaign(publisher, dailyCapPlanck, bidCpmPlanck) payable
+  // signature: createCampaign(publisher, dailyCapPlanck, bidCpmPlanck, categoryId) payable
   // All amounts are multiples of 10^6 planck (required by eth-rpc denomination rounding)
   const BUDGET    = 100_000_000_000n; // 10 DOT in planck (msg.value = budget)
   const DAILY_CAP = 100_000_000_000n; // daily cap = budget (no sub-daily cap)
   const BID_CPM   =     160_000_000n; // 0.016 DOT per 1000 impressions
+  const CATEGORY  = 1;                // 1 = crypto
   console.log("Creating campaign...");
   const tx = await campaigns.connect(alith).createCampaign(
-    alith.address, DAILY_CAP, BID_CPM,
+    alith.address, DAILY_CAP, BID_CPM, CATEGORY,
     { value: BUDGET }
   );
   const receipt = await tx.wait();
