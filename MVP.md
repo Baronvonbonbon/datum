@@ -989,18 +989,314 @@ Common expected issues:
 
 ## Post-MVP Upgrade Track
 
-After G4-P, the following items become the next development cycle in priority order:
+After G4-P, the following items become the next development cycle. Organized into three tiers by criticality: items that must be resolved before the protocol can claim trustlessness (Tier 1), items that significantly improve decentralization (Tier 2), and items that complete the feature set (Tier 3).
 
-1. **ZK proof of auction outcome** — custom circuit, in-browser WASM prover, `zkProof` field validation in `_validateClaim()`; must be prototyped before this cycle starts
-2. **Decentralized KYB/KYC identity** — T2/T3 identity tiers in settlement; per-advertiser and per-publisher credential verification. Candidate systems:
-   - **Polkadot Proof of Personhood (Project Individuality)** — Gavin Wood's Sybil-resistant identity primitive launching 2025–2026; ZK proofs only (no PII on-chain); good for user verification but may not cover business KYB
-   - **zkMe** — ZK identity oracles; FATF-compliant KYC/KYB/AML; cross-chain; the only decentralized solution currently doing full KYB with ZK proofs
-   - **Blockpass** — Web3 compliance suite with reusable on-chain KYC; less decentralized but production-ready
-   - **Recommendation:** Evaluate zkMe for advertiser/publisher KYB (business verification) and Polkadot PoP for user Sybil resistance (prevents fake impression farms).
-3. **HydraDX XCM fee routing** — protocol fee accumulation → XCM send → HydraDX swap; requires XCM retry queue
-4. **Viewability dispute mechanism** — 7-day challenge window, advertiser bond, oracle-based sampling audit
-5. **Revenue split governance** — make 75/25 user/protocol split a governance parameter
-6. **Taxonomy on-chain governance** — conviction referendum for taxonomy changes
+### Tier 1 — Trust Assumption Removal (required for trustless operation)
+
+These items address critical gaps where the MVP relies on trust in the extension code or the contract owner. Each is a prerequisite for the protocol to function as a credibly neutral marketplace.
+
+#### P1. Impression attestation (publisher co-signature)
+
+**Problem:** Impression counts are entirely self-reported by the extension. A modified extension can fabricate unlimited claims at max CPM, draining advertiser escrow with zero ad views.
+
+**Implementation plan:**
+
+1. **Contract changes:**
+   - Add `bytes publisherSig` field to the `Claim` struct in `IDatumSettlement.sol`
+   - In `_validateClaim()`, recover signer from `publisherSig` using `ecrecover` and verify it matches `campaign.publisher`
+   - The publisher signs `keccak256(abi.encodePacked(user, campaignId, impressionCount, nonce, timestamp))` — attesting they served the ad to this user
+   - Claims without a valid publisher signature are rejected (new error code E33)
+   - PVM size impact: `ecrecover` is already used in DatumRelay; the precompile call pattern is proven. May require splitting a new field out of the Claim struct or further size optimization
+
+2. **Publisher SDK / ad server:**
+   - Publisher runs a lightweight signing endpoint (or serverless function) that receives impression notifications from the content script and returns a signature
+   - The content script calls the publisher endpoint when it renders an ad slot, receives the signature, and attaches it to the claim
+   - Fallback: if the publisher endpoint is unreachable, the impression is recorded but marked as unattested (claimable only in a degraded-trust mode, or held until the publisher comes back online)
+
+3. **Extension changes:**
+   - `claimBuilder.ts`: include `publisherSig` in the `ClaimData` type and hash chain
+   - `content/adSlot.ts`: after rendering, POST to publisher's attestation endpoint, receive signature
+   - `contracts.ts`: update ABI to include `publisherSig` in settlement calls
+
+4. **Testing:**
+   - New test: settlement rejects claims without valid publisher signature (E33)
+   - New test: settlement accepts claims with valid publisher signature
+   - New test: signature from wrong publisher is rejected
+   - Integration test: full flow with publisher attestation endpoint (mock HTTP in test)
+
+5. **Future evolution:** Publisher co-signature is the minimum viable attestation. Longer-term paths:
+   - TEE attestation: extension runs in a trusted execution environment, signs impressions with a hardware-backed key
+   - ZK proof of DOM state: extension generates a ZK proof that specific content was rendered in a specific viewport
+   - Random oracle sampling: a fraction of impressions are spot-checked by an independent oracle network
+
+#### P2. Clearing CPM auction mechanism
+
+**Problem:** `clearingCpmPlanck` is set unilaterally by the claim submitter (extension hardcodes `bidCpmPlanck`). Every impression extracts max price. There is no market mechanism, no competitive pressure, no price discovery.
+
+**Implementation plan:**
+
+1. **Off-chain epoch auction (Phase 1):**
+   - Define auction epochs (e.g., 1 hour or 2400 blocks on Polkadot Hub)
+   - Within each epoch, the extension collects impressions but does not assign a clearing CPM
+   - At epoch end, an off-chain aggregator collects all impression claims for each campaign and computes a clearing CPM using second-price logic: the clearing price is the highest bid that would still fill the available supply
+   - The clearing CPM for the epoch is published (e.g., via an on-chain oracle or a signed message from the aggregator)
+   - Claims submitted for that epoch must use the published clearing CPM
+
+2. **Contract changes:**
+   - Add `uint256 epochId` to the Claim struct
+   - Add an oracle/aggregator role that can publish `epochClearingCpm[campaignId][epochId]`
+   - `_validateClaim()` verifies `claim.clearingCpmPlanck == epochClearingCpm[campaignId][claim.epochId]`
+   - Fallback: if no clearing price is published for an epoch, claims for that epoch use `bidCpmPlanck * discountBps / 10000` (e.g., 70% of bid)
+
+3. **ZK proof of auction integrity (Phase 2):**
+   - Custom ZK circuit that proves the clearing CPM was computed correctly from sealed bids
+   - In-browser WASM prover generates proof; on-chain verifier validates
+   - `zkProof` field in Claim struct (already reserved) carries the proof
+   - Proving time target: < 5 seconds per batch in-browser (Groth16 or PLONK)
+
+4. **Testing:**
+   - Test: claims with incorrect epoch clearing CPM are rejected
+   - Test: claims with correct epoch clearing CPM settle normally
+   - Integration test: full epoch cycle with mock aggregator
+
+#### P3. Admin timelock
+
+**Problem:** `setSettlementContract()` and `setGovernanceContract()` on DatumCampaigns are callable by the owner immediately. A compromised owner key can redirect all funds with no warning.
+
+**Implementation plan:**
+
+1. **Contract changes — `DatumCampaigns.sol`:**
+   - Add `pendingSettlement`, `pendingGovernance`, `pendingTimestamp` storage variables
+   - `proposeSettlementContract(address)` / `proposeGovernanceContract(address)`: owner-only, sets pending + records `block.timestamp`
+   - `applySettlementContract()` / `applyGovernanceContract()`: callable by anyone after 48-hour delay, applies the pending change
+   - `cancelProposal()`: owner-only, cancels pending change
+   - Emit `ContractChangeProposed(role, newAddress, effectiveTimestamp)` and `ContractChangeApplied(role, newAddress)` events
+   - PVM size concern: adds ~3 storage slots and 4 small functions. May require removing another function or further size optimization. Consider a generic `proposeChange(uint8 role, address addr)` / `applyChange(uint8 role)` pattern to minimize function count
+
+2. **Contract changes — `DatumSettlement.sol`:**
+   - Same pattern for `setRelayContract()`
+   - Same 48-hour delay
+
+3. **Extension changes:**
+   - `campaignPoller.ts`: monitor for `ContractChangeProposed` events; surface in popup as a warning ("Contract change proposed — funds may be at risk if you disagree")
+   - `Settings.tsx`: show active proposals with countdown timer
+
+4. **Testing:**
+   - Test: immediate `apply` before delay reverts
+   - Test: apply after delay succeeds
+   - Test: cancel clears pending state
+   - Test: old settlement/governance still works during delay period
+
+#### P4. On-chain aye reward computation
+
+**Problem:** `creditAyeReward()` is owner-only with no on-chain verification. Owner can allocate rewards arbitrarily. Slash rewards are correctly computed on-chain; aye rewards should follow the same pattern.
+
+**Implementation plan:**
+
+1. **Contract changes — `DatumGovernanceRewards.sol`:**
+   - Add `distributeAyeRewards(uint256 campaignId)` public payable function (analogous to existing `distributeSlashRewards`)
+   - Reads aye voter list from `voting.getAyeVoters(campaignId)`
+   - For each aye voter who voted before `terminationBlock` (or all voters if campaign completed normally): compute proportional share weighted by `lockAmount * 2^conviction`
+   - Set `_ayeClaimable[campaignId][voter] += share`
+   - Remove or deprecate `creditAyeReward()` (keep as owner fallback during transition)
+   - PVM size concern: this was originally removed because the voter-loop exceeded the 49,152 B limit. Mitigation options:
+     - Batch processing: `distributeAyeRewards(campaignId, startIndex, count)` processes a slice of voters per call
+     - Off-chain Merkle proof: compute shares off-chain, publish a Merkle root on-chain, voters claim with proof
+     - Wait for resolc improvements / PVM limit increase
+
+2. **Funding source:**
+   - Define what funds the aye reward pool: recommend a percentage of `protocolFee` per settled claim, accumulated in a dedicated `ayeRewardPool` mapping per campaign
+   - Alternative: the advertiser optionally funds a governance reward pool at campaign creation (separate from budget)
+
+3. **Testing:**
+   - Test: `distributeAyeRewards` allocates proportionally by conviction-weighted stake
+   - Test: voters after terminationBlock receive nothing
+   - Test: batch processing across multiple calls produces correct totals
+
+### Tier 2 — Decentralization Improvements (significant trust reduction)
+
+These items move the protocol from bilateral deals toward an open marketplace and improve user sovereignty.
+
+#### P5. Multi-publisher campaigns
+
+**Problem:** Each campaign is bound to a single publisher at creation. An advertiser wanting reach across N publishers needs N campaigns with N escrows. This is a bilateral deal system, not a permissionless marketplace.
+
+**Implementation plan:**
+
+1. **Contract changes — `DatumCampaigns.sol`:**
+   - Remove `publisher` from `Campaign` struct (or make it `address(0)` to indicate "open")
+   - Add `mapping(uint256 => mapping(address => bool)) private _campaignPublishers` — approved publisher set per campaign
+   - `addPublisher(campaignId, publisher)` / `removePublisher(campaignId, publisher)` — advertiser-only
+   - Alternative: open campaigns have no publisher allowlist; any registered publisher can serve them. Campaign specifies only `categoryId` and bid parameters
+   - `snapshotTakeRateBps` moves from campaign creation to claim time: each claim's publisher payment uses that publisher's rate at the time of impression (or a snapshot at publisher opt-in)
+
+2. **Contract changes — `DatumSettlement.sol`:**
+   - `_validateClaim()`: verify `claim.publisher` is in the campaign's publisher set (or any registered publisher if open)
+   - Revenue split uses the serving publisher's take rate, not a campaign-level snapshot
+   - `publisherBalance` already per-publisher — no change needed
+
+3. **Extension changes:**
+   - `campaignPoller.ts`: campaigns no longer filter by publisher; match by category only
+   - `content/adSlot.ts`: the serving publisher is the current page's publisher (detected from domain or meta tag)
+   - `claimBuilder.ts`: `claim.publisher` is set to the page's publisher, not the campaign's publisher
+
+4. **Migration:** Existing single-publisher campaigns continue to work (publisher set contains one address). New campaigns can be created as open.
+
+5. **Testing:**
+   - Test: open campaign accepts claims from any registered publisher
+   - Test: restricted campaign rejects claims from unapproved publisher
+   - Test: revenue split uses serving publisher's take rate
+
+#### P6. Claim state portability
+
+**Problem:** Pending claims exist only in `chrome.storage.local`. Clearing browser data destroys unsubmitted claims and the DOT they represent.
+
+**Implementation plan:**
+
+1. **Encrypted export/import (Phase 1):**
+   - `ClaimQueue` tab in popup: add "Export Claims" button → encrypts claim queue state with a user-provided password or wallet signature → downloads as `.datum-claims` file
+   - "Import Claims" button → decrypts and merges with current state
+   - Encryption: AES-256-GCM with key derived from wallet signature of a fixed message (user doesn't need to remember a password)
+   - Export format: JSON with `{ version, userAddress, chains: { [campaignId]: ClaimChainState }, queue: ClaimData[], exportTimestamp }`
+
+2. **Deterministic recovery (Phase 2):**
+   - Derive claim chain state deterministically from on-chain data + a user-held seed
+   - On-chain: `lastNonce[user][campaignId]` is already stored — this is the recovery anchor
+   - User seed: a BIP-39 mnemonic (separate from wallet mnemonic) that deterministically generates the hash chain from nonce 1 through lastNonce
+   - `syncFromChain` already exists; extend it to reconstruct the full chain state from the seed + on-chain nonce
+
+3. **Testing:**
+   - Manual test: export claims, clear browser data, import claims, submit successfully
+   - Unit test: export/import round-trip preserves claim chain integrity
+
+#### P7. Contract upgrade path
+
+**Problem:** Settlement holds real user balances with no migration function, no proxy, no emergency withdrawal. A bug or key loss permanently locks funds.
+
+**Implementation plan:**
+
+1. **Emergency withdrawal (Phase 1):**
+   - Add `emergencyWithdraw()` to `DatumSettlement.sol`: callable only after a governance-approved timelock (e.g., 7-day delay after proposal)
+   - Transfers all balances to a pre-registered recovery address (set at deployment, changeable via timelock)
+   - This is a circuit breaker, not an upgrade mechanism
+
+2. **Transparent proxy (Phase 2):**
+   - Deploy Settlement behind an ERC-1967 transparent proxy
+   - Admin (timelock-gated multisig) can upgrade the implementation contract
+   - Storage layout must be carefully managed (append-only, no reordering)
+   - PVM compatibility: verify that the proxy pattern works correctly on pallet-revive (delegate calls, storage slots)
+
+3. **State migration (alternative to proxy):**
+   - New contract reads balances from old contract via view functions
+   - Users call `migrateBalance()` on the new contract, which pulls their balance from the old contract via an approved migration interface
+   - Old contract has `approveMigration(newContract)` — owner-only with timelock
+
+4. **Testing:**
+   - Test: emergency withdrawal transfers correct balances
+   - Test: proxy upgrade preserves storage state
+   - Test: migration transfers balances correctly
+
+### Tier 3 — Feature Completion (full marketplace functionality)
+
+#### P8. Advanced governance game theory
+
+**Problem:** MVP uses a simple 10% slash cap. More sophisticated models reduce griefing and improve governance quality.
+
+**Implementation plan:**
+
+1. **Symmetric risk (nay voters lose stake on failure):**
+   - If a campaign that received nay votes completes successfully (budget exhausted or advertiser-completed), nay voters forfeit a percentage of their stake to the advertiser
+   - Contract change: `resolveFailedNay` already tracks failed nays; extend to slash a portion of `lockAmount`
+   - Percentage: governance parameter (e.g., 5% of nay stake on completion)
+
+2. **Time-delayed termination:**
+   - When nay threshold is crossed, campaign enters a "termination pending" state for N blocks (e.g., 14,400 = 24 hours)
+   - During the delay, additional aye votes can be cast to counter the nay threshold
+   - If aye weight exceeds nay weight at delay end, termination is cancelled
+   - Contract change: new `CampaignStatus.TerminationPending` enum value; `terminateCampaign` becomes two-step
+
+3. **Dispute bonds:**
+   - Nay voters post an additional bond (separate from stake) that is forfeited if the campaign completes successfully
+   - Bond amount: proportional to campaign remaining budget (e.g., 1% of remaining budget per nay voter)
+   - If termination succeeds: bond returned. If campaign completes: bond distributed to advertiser
+
+4. **Graduated slash:**
+   - Slash percentage scales with evidence severity (governance parameter table):
+     - Minor violation (content mismatch): 5% slash
+     - Moderate violation (misleading claims): 10% slash (current default)
+     - Severe violation (malware, illegal content): 25% slash
+   - Requires on-chain evidence categorization (governance vote on severity, not just aye/nay)
+
+#### P9. ZK proof of auction outcome
+
+**Problem:** The `zkProof` field in the Claim struct is reserved but empty. Without it, clearing CPM cannot be verified on-chain.
+
+**Implementation plan:**
+
+1. Custom ZK circuit for second-price auction clearing
+2. In-browser WASM prover (target: Groth16 or PLONK, < 5s proving time per batch)
+3. On-chain verifier contract (separate from Settlement for PVM size)
+4. `_validateClaim()` calls verifier if `zkProof` is non-empty
+5. **Prerequisite:** P2 (auction mechanism) must be implemented first — the ZK proof proves integrity of something that must exist
+
+#### P10. Decentralized KYB/KYC identity
+
+T2/T3 identity tiers in settlement; per-advertiser and per-publisher credential verification. Candidate systems:
+- **Polkadot Proof of Personhood (Project Individuality)** — Sybil-resistant identity primitive; ZK proofs only (no PII on-chain); good for user verification but may not cover business KYB
+- **zkMe** — ZK identity oracles; FATF-compliant KYC/KYB/AML; cross-chain; full KYB with ZK proofs
+- **Blockpass** — Web3 compliance suite with reusable on-chain KYC; less decentralized but production-ready
+- **Recommendation:** zkMe for advertiser/publisher KYB (business verification); Polkadot PoP for user Sybil resistance (prevents fake impression farms)
+
+#### P11. HydraDX XCM fee routing
+
+Protocol fee accumulation → XCM send → HydraDX swap. Requires:
+- XCM retry queue with idempotency keys and bounded retries
+- Handling of partial failures (some swaps succeed, some fail)
+- Recovery path for tokens stuck in sovereign account
+
+#### P12. Viewability dispute mechanism
+
+7-day challenge window; advertiser bonds 10% of payment; sampling audit via oracle or ZK verification; loser forfeits bond. Requires P1 (impression attestation) as a prerequisite — cannot dispute viewability of an impression that was never attested.
+
+#### P13. Revenue split governance
+
+Make the 75/25 user/protocol split a governance parameter. Requires on-chain governance mechanism (OpenGov integration or custom conviction vote). Change procedure: proposal → 7-day voting period → 48-hour enactment delay.
+
+#### P14. Taxonomy on-chain governance
+
+Conviction referendum for taxonomy changes. 7-day delay before enactment. Must define retroactive effect on active campaigns (campaigns keep their creation-time category; new taxonomy applies only to new campaigns).
+
+#### P15. Campaign selection fairness
+
+**Problem:** Content script always selects the first matching campaign (lowest ID). No rotation or bidding.
+
+**Implementation plan:**
+
+1. **Weighted random selection:** when multiple campaigns match a category, select with probability proportional to `bidCpmPlanck * remainingBudget`. Higher-bidding campaigns with more budget get proportionally more impressions
+2. **Extension change:** `content/adSlot.ts` replaces `pool[0]` with weighted random pick
+3. **Optional on-chain mechanism:** campaigns declare a priority fee; extension sorts by priority; settlement validates priority fee was paid
+
+### Implementation order
+
+The tiers define criticality but not strict ordering. Recommended sequencing based on dependencies:
+
+```
+P3 (admin timelock)          — no dependencies; smallest change; do first
+P6 (claim portability)       — no dependencies; extension-only
+P1 (impression attestation)  — foundational for P2, P9, P12
+P4 (on-chain aye rewards)    — no dependencies; unlocks trustless governance
+P5 (multi-publisher)         — architectural change; do before auction
+P2 (clearing CPM auction)    — requires P1 (attestation) for meaningful price discovery
+P7 (contract upgrade path)   — required before mainnet (G4-P gate)
+P15 (campaign selection)     — extension-only; quick win
+P8 (governance game theory)  — can be incremental (one model at a time)
+P9 (ZK proof)                — requires P2 (auction) as prerequisite
+P10 (KYB identity)           — independent track; external dependency
+P11 (XCM fee routing)        — independent track; requires HydraDX integration
+P12 (viewability disputes)   — requires P1 (attestation)
+P13 (revenue split gov)      — requires governance framework
+P14 (taxonomy governance)    — requires governance framework
+```
 
 ---
 
