@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { BrowserProvider, Eip1193Provider, parseUnits } from "ethers";
 import { getSettlementContract, getPublishersContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
+import { cidToBytes32 } from "@shared/ipfs";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { CATEGORY_NAMES } from "@shared/types";
 
@@ -180,7 +181,7 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.01");
   const [categoryId, setCategoryId] = useState(0);
-  const [metadataUri, setMetadataUri] = useState("");
+  const [metadataCid, setMetadataCid] = useState("");
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -212,11 +213,20 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
       );
       const receipt = await tx.wait();
 
-      // If metadata URI is provided, set it on the campaign
-      if (metadataUri.trim()) {
-        // Parse campaign ID from receipt events or use nextCampaignId - 1
-        const cid = await campaigns.nextCampaignId() - 1n;
-        const metaTx = await campaigns.setMetadata(cid, metadataUri.trim());
+      // If metadata CID is provided, encode to bytes32 and set on-chain
+      if (metadataCid.trim()) {
+        // Parse campaign ID from CampaignCreated event in receipt
+        let campaignId: bigint | undefined;
+        for (const log of receipt.logs) {
+          try {
+            const parsed = campaigns.interface.parseLog({ topics: log.topics as string[], data: log.data });
+            if (parsed?.name === "CampaignCreated") campaignId = parsed.args.campaignId;
+          } catch { /* log from different contract */ }
+        }
+        if (campaignId === undefined) throw new Error("Could not parse campaign ID from receipt");
+
+        const metadataHash = cidToBytes32(metadataCid.trim());
+        const metaTx = await campaigns.setMetadata(campaignId, metadataHash);
         await metaTx.wait();
       }
 
@@ -256,10 +266,13 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
         </select>
       </div>
       <div style={{ marginBottom: 8 }}>
-        <label style={formLabel}>Metadata URI (IPFS CID or URL, optional)</label>
-        <input type="text" value={metadataUri} onChange={(e) => setMetadataUri(e.target.value)}
+        <label style={formLabel}>Metadata CID (IPFS CIDv0, optional)</label>
+        <input type="text" value={metadataCid} onChange={(e) => setMetadataCid(e.target.value)}
           style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
-          placeholder="ipfs://Qm... or https://..." />
+          placeholder="QmXyz..." />
+        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
+          Pin JSON with title, description, category, creative fields to IPFS
+        </div>
       </div>
       <button onClick={create} disabled={creating} style={primaryBtn}>
         {creating ? "Creating..." : "Create Campaign"}

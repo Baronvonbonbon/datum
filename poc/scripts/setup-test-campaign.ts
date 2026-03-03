@@ -1,4 +1,5 @@
 import { ethers } from "hardhat";
+import { keccak256, toUtf8Bytes } from "ethers";
 
 async function main() {
   const [alith] = await ethers.getSigners();
@@ -61,6 +62,13 @@ async function main() {
   const STATUS = ["Pending", "Active", "Paused", "Completed", "Terminated"];
   console.log("  Status:", campaign.status.toString(), `(${STATUS[Number(campaign.status)]})`);
   if (Number(campaign.status) !== 1) throw new Error("Campaign did not activate");
+
+  // Set metadata hash so the extension's event query path is exercised
+  // Uses a synthetic hash (won't resolve on IPFS but exercises the on-chain event flow)
+  console.log("Setting metadata hash...");
+  const syntheticHash = keccak256(toUtf8Bytes("test-metadata-" + campaignId.toString()));
+  await (await campaigns.connect(alith).setMetadata(campaignId, syntheticHash)).wait();
+  console.log("  Metadata hash:", syntheticHash);
 
   console.log("\n=== Setup Complete ===");
   console.log("Campaign ID :", campaignId.toString());

@@ -3,6 +3,7 @@
 
 import { JsonRpcProvider } from "ethers";
 import { getCampaignsContract } from "@shared/contracts";
+import { metadataUrl } from "@shared/ipfs";
 import { Campaign, CampaignMetadata, CampaignStatus, ContractAddresses } from "@shared/types";
 
 const STORAGE_KEY = "activeCampaigns";
@@ -52,15 +53,12 @@ export const campaignPoller = {
           if (events.length === 0) continue;
 
           const lastEvent = events[events.length - 1];
-          const uri = (lastEvent as any).args?.[1] ?? (lastEvent as any).args?.metadataUri;
-          if (!uri) continue;
+          const hash: string = (lastEvent as any).args?.[1] ?? (lastEvent as any).args?.metadataHash;
+          if (!hash) continue;
 
-          // Fetch from IPFS gateway
-          const url = uri.startsWith("ipfs://")
-            ? gateway + uri.slice(7)
-            : uri.startsWith("Qm") || uri.startsWith("bafy")
-            ? gateway + uri
-            : uri; // raw URL fallback
+          // Decode bytes32 → CID → gateway URL
+          const url = metadataUrl(hash, gateway);
+          if (!url) continue;
 
           const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
           if (resp.ok) {

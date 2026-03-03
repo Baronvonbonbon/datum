@@ -1,0 +1,12 @@
+{
+  "title": "DOT Staking Rewards",
+  "description": "Earn up to 15% APY staking DOT on Polkadot. Non-custodial, secure, and decentralized.",
+  "category": "crypto",
+  "creative": {
+    "type": "text",
+    "text": "Stake DOT, earn rewards. Up to 15% APY with non-custodial staking.",
+    "cta": "Start Staking",
+    "ctaUrl": "https://example.com/staking"
+  },
+  "version": 1
+}

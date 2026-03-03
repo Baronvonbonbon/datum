@@ -1,8 +1,8 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-02-24
-**Last updated:** 2026-03-02 — Phase 2B contract changes complete (2.13 metadata + 2.14 categoryId). PVM size reduction applied to DatumSettlement (49,508→44,893 B) and DatumCampaigns (49,670→48,169 B). API changes: `pauseCampaign`/`resumeCampaign` merged into `togglePause(id, bool)`, Campaign struct `version` field removed. 54/54 EVM tests pass. All 6 PVM bytecodes under 49,152 B limit.
+**Last updated:** 2026-03-02 — Phase 2B Steps F+G complete. CID↔bytes32 encoding utilities added (`extension/src/shared/ipfs.ts`, `poc/scripts/lib/ipfs.ts`). Fixed broken `campaignPoller.ts` (bytes32→CID→gateway URL) and `PublisherPanel.tsx` (CID input + proper encoding). Developer CLI `upload-metadata.ts` and sample metadata files added. `setup-test-campaign.ts` now calls `setMetadata`. Extension builds cleanly; 54/54 EVM tests pass. **All code paths complete — remaining work is Step H: manual Chrome E2E testing on local devnet.**
 **Scope:** Five-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -572,7 +572,7 @@ Since `createCampaign` already has 3 parameters and adding a 4th `string` change
 - [x] Add `setMetadata(uint256 campaignId, bytes32 metadataHash)` to `DatumCampaigns.sol` — requires `msg.sender == campaign.advertiser`, emits `CampaignMetadataSet`
 - [x] Verify PVM bytecode stays under 49,152 bytes (required additional size reduction — see 2.14b below)
 - [ ] Add test: advertiser can set metadata; non-advertiser reverts
-- [ ] Update `setup-test-campaign.ts` to call `setMetadata` with a test IPFS CID
+- [x] Update `setup-test-campaign.ts` to call `setMetadata` with a synthetic hash (exercises on-chain event flow)
 
 **Implementation note (2026-03-02):** Changed from `string metadataUri` to `bytes32 metadataHash` to avoid string ABI encoding overhead in PVM. The extension maps `keccak256(ipfsCid) → ipfsCid` locally. This saves ~400 B of PVM bytecode vs a string parameter.
 
@@ -605,7 +605,7 @@ function createCampaign(
 - [x] Store `categoryId` in campaign; emit in `CampaignCreated` event
 - [x] Verify PVM bytecode stays under 49,152 bytes (required additional size reduction — see 2.14b below)
 - [x] Update all test fixtures and helpers for new `createCampaign` signature (all pass `categoryId: 0`)
-- [ ] Update `setup-test-campaign.ts` with `categoryId = 1` (crypto)
+- [x] Update `setup-test-campaign.ts` with `categoryId = 1` (crypto) — was already in place
 - [x] Update extension `types.ts` Campaign interface with `categoryId` field
 - [x] Update extension `campaignPoller.ts` to deserialize `categoryId`
 - [x] Update extension `content/index.ts` to filter campaigns by category match
@@ -724,13 +724,13 @@ The extension fetches campaign metadata from IPFS when it discovers new campaign
 - `CampaignList.tsx` and `adSlot.ts` render creative content from cached metadata
 
 **Tasks:**
-- [ ] Add `ipfsGateway` field to `StoredSettings` (default: `https://dweb.link/ipfs/`)
-- [ ] Add IPFS gateway URL input to `Settings.tsx`
-- [ ] Extend `campaignPoller.ts`: after discovering a new campaign, query `CampaignMetadataSet` event log for its metadata URI
-- [ ] Fetch metadata JSON from IPFS gateway, validate schema, cache in `chrome.storage.local`
-- [ ] Update `CampaignList.tsx` to display title and description from metadata
-- [ ] Update `adSlot.ts` to render creative text, CTA button, and category from metadata (instead of placeholder)
-- [ ] Handle missing metadata gracefully (fall back to current placeholder display)
+- [x] Add `ipfsGateway` field to `StoredSettings` (default: `https://dweb.link/ipfs/`) — already in types.ts and networks.ts
+- [x] Add IPFS gateway URL input to `Settings.tsx` — already present
+- [x] Extend `campaignPoller.ts`: query `CampaignMetadataSet` events, decode bytes32→CID→gateway URL via `metadataUrl()` — fixed in Step G
+- [x] Fetch metadata JSON from IPFS gateway, validate schema, cache in `chrome.storage.local` — already implemented (fetch + cache)
+- [x] Update `CampaignList.tsx` to display title and description from metadata — already rendering `meta.title` and `meta.description`
+- [x] Update `adSlot.ts` to render creative text, CTA button, and category from metadata — already implemented with fallback
+- [x] Handle missing metadata gracefully (fall back to current placeholder display) — fallback path present
 - [ ] Add 1-hour cache TTL for metadata (re-fetch if stale)
 
 **Files:** `extension/src/shared/types.ts`, `extension/src/shared/networks.ts`, `extension/src/popup/Settings.tsx`, `extension/src/background/campaignPoller.ts`, `extension/src/popup/CampaignList.tsx`, `extension/src/content/adSlot.ts`
@@ -740,17 +740,15 @@ The extension fetches campaign metadata from IPFS when it discovers new campaign
 Add campaign creation form to the Publisher tab. Publishers can create campaigns, set metadata, and fund them directly from the extension.
 
 **Tasks:**
-- [ ] Add "Create Campaign" form to `PublisherPanel.tsx` (collapsible section below balance info):
-  - Budget (DOT input → converted to planck)
-  - Daily cap (DOT input)
-  - Bid CPM (DOT input, default 0.016)
-  - Category (dropdown, maps to `categoryId` 0-10)
-  - Campaign title (text, stored as metadata)
-  - Campaign description (text, max 140 chars)
-  - CTA text + URL (text inputs)
-- [ ] On submit: call `campaigns.createCampaign(publisher, dailyCap, bidCpm, categoryId, {value: budget})`
-- [ ] After campaign creation: construct metadata JSON, upload to IPFS via gateway API, call `campaigns.setMetadata(campaignId, ipfsCid)`
-- [ ] Display created campaign ID and link to CampaignList
+- [x] Add "Create Campaign" form to `PublisherPanel.tsx` (section below balance info):
+  - Budget (DOT input → converted to planck) ✅
+  - Daily cap (DOT input) ✅
+  - Bid CPM (DOT input, default 0.01) ✅
+  - Category (dropdown, maps to `categoryId` 0-10) ✅
+  - Metadata CID (optional IPFS CIDv0 input) ✅ (replaces inline metadata fields — publisher pre-uploads JSON to IPFS)
+- [x] On submit: call `campaigns.createCampaign(publisher, dailyCap, bidCpm, categoryId, {value: budget})`
+- [x] After campaign creation: encode CID→bytes32 via `cidToBytes32()`, call `campaigns.setMetadata(campaignId, hash)` — fixed in Step G (was passing raw string, now encodes properly; parses campaignId from CampaignCreated event)
+- [ ] Display created campaign ID in result message
 - [ ] Show pending governance status ("Awaiting governance activation")
 
 **IPFS upload strategy for MVP:**
@@ -759,46 +757,46 @@ Add campaign creation form to the Publisher tab. Publishers can create campaigns
 - Extension sends a `POST` to the IPFS HTTP API with JSON metadata
 - Returns CID which is emitted via `setMetadata()`
 
-**Tasks (IPFS upload):**
-- [ ] Add `ipfsPinningUrl` and `ipfsPinningToken` fields to `StoredSettings` (optional; for Pinata/web3.storage API key)
-- [ ] Implement `uploadToIPFS(metadata: CampaignMetadata): Promise<string>` in `shared/ipfs.ts`
-  - If pinning URL configured: POST to pinning API
-  - If not configured: prompt user to paste a CID manually (fallback)
-- [ ] Wire upload into campaign creation flow in `PublisherPanel.tsx`
+**IPFS upload approach (revised):**
 
-**Files:** `extension/src/popup/PublisherPanel.tsx`, `extension/src/shared/types.ts`, `extension/src/shared/ipfs.ts` (new), `extension/src/shared/networks.ts`, `extension/src/popup/Settings.tsx`
+The MVP uses a "paste CID" workflow: the publisher creates metadata JSON (matching `CampaignMetadata` schema), pins it to IPFS via any method (CLI `ipfs add`, Pinata, web3.storage), and pastes the resulting CIDv0 into the extension UI. The `cidToBytes32()` encoding handles the on-chain commitment.
+
+A `poc/scripts/upload-metadata.ts` developer CLI tool validates metadata JSON and sets the hash on-chain. Sample metadata files in `poc/metadata/` provide templates.
+
+Direct IPFS pinning from the extension (Pinata API integration) is deferred to post-MVP — it requires API key management and CSP configuration that adds complexity without blocking E2E testing.
+
+**Files:** `extension/src/popup/PublisherPanel.tsx`, `extension/src/shared/ipfs.ts` (CID↔bytes32 utilities), `poc/scripts/upload-metadata.ts`, `poc/scripts/lib/ipfs.ts`, `poc/metadata/sample-crypto.json`, `poc/metadata/sample-privacy.json`
 
 #### 2.17 — Updated ad slot with creative rendering
 
 Replace the placeholder ad banner with a creative-aware display that shows campaign title, description, and CTA from IPFS metadata.
 
 **Tasks:**
-- [ ] Update `AdSlotConfig` interface to include metadata fields (title, description, ctaText, ctaUrl)
-- [ ] Update `content/index.ts` to pass metadata to `injectAdSlot()` (read from cached `metadata:{campaignId}` storage)
-- [ ] Update `adSlot.ts` to render:
-  - Campaign title (instead of "DATUM")
-  - Description text (instead of "Publisher ad")
-  - CTA button linking to `ctaUrl` (new)
-  - "Powered by DATUM" attribution (small footer)
-  - Category badge
-- [ ] Keep dismiss button and dark theme styling
-- [ ] Graceful fallback: if no metadata, render current placeholder
+- [x] Update `AdSlotConfig` interface to include metadata fields — `CampaignCreative` interface with title, description, creative, category
+- [x] Update `content/index.ts` to pass metadata to `injectAdSlot()` — reads from cached `metadata:{campaignId}` storage
+- [x] Update `adSlot.ts` to render:
+  - Campaign title (from metadata) ✅
+  - Creative text (from metadata.creative.text) ✅
+  - CTA button linking to `ctaUrl` ✅
+  - Campaign ID + "Privacy-preserving · Polkadot Hub" footer ✅
+- [x] Keep dismiss button and dark theme styling ✅
+- [x] Graceful fallback: if no metadata, render placeholder with category badge ✅
 
 **Files:** `extension/src/content/adSlot.ts`, `extension/src/content/index.ts`
 
 #### Updated Gate G2 checklist
-- [ ] Extension installs in Chrome with no manifest errors
-- [ ] Wallet connect works with Polkadot.js extension and SubWallet
-- [ ] Campaign list loads from configured RPC with title/description from IPFS metadata
-- [ ] Publisher can create a campaign via extension UI (budget, CPM, category, creative)
-- [ ] Campaign metadata uploaded to IPFS and linked via `setMetadata()` event
-- [ ] Browsing a matching page injects an ad unit with campaign creative (title, description, CTA)
-- [ ] Category targeting: crypto campaign only shows on crypto-classified pages
-- [ ] Manual submit: claim is submitted, `settledCount >= 1`, balance visible
-- [ ] Auto submit: submits without user interaction at configured interval
-- [ ] Publisher withdraw: balance transfers to wallet
-- [ ] User withdraw: balance transfers to wallet
-- [ ] Settings persists across popup close/open
+- [ ] Extension installs in Chrome with no manifest errors ← **Step H (manual)**
+- [ ] Wallet connect works with Polkadot.js extension or SubWallet ← **Step H (manual)**
+- [ ] Campaign list loads from configured RPC with title/description from IPFS metadata ← **Step H (requires deployed contracts + pinned metadata)**
+- [ ] Publisher can create a campaign via extension UI (budget, CPM, category, CID) — *code complete, needs runtime test*
+- [ ] Campaign metadata encoded via `cidToBytes32()` and set via `setMetadata()` — *code complete, needs runtime test*
+- [ ] Browsing a matching page injects an ad unit with campaign creative (title, description, CTA) — *code complete, needs runtime test*
+- [ ] Category targeting: crypto campaign only shows on crypto-classified pages — *code complete, needs runtime test*
+- [ ] Manual submit: claim is submitted, `settledCount >= 1`, balance visible ← **Step H**
+- [ ] Auto submit: submits without user interaction at configured interval ← **Step H**
+- [ ] Publisher withdraw: balance transfers to wallet ← **Step H**
+- [ ] User withdraw: balance transfers to wallet ← **Step H**
+- [ ] Settings persists across popup close/open ← **Step H**
 
 #### Phase 2B — Remaining work
 
@@ -808,12 +806,34 @@ Replace the placeholder ad banner with a creative-aware display that shows campa
 3. ~~Update all test fixtures for new ABI; verify PVM size~~ ✅ (required 2.14b size reduction)
 4. ~~Run full test suite~~ ✅ 54/54 pass
 
-**Step G — Extension metadata integration (2.15, 2.16, 2.17)**
-1. IPFS metadata fetch and caching in campaignPoller
-2. Publisher campaign creation form with IPFS upload
-3. Creative-aware ad slot rendering
-4. Category-filtered campaign matching in content script
-5. Rebuild extension; verify all features in Chrome
+**Step G — CID↔bytes32 encoding + developer metadata workflow ✅ COMPLETE (2026-03-02)**
+1. ~~`extension/src/shared/ipfs.ts` — `cidToBytes32()`, `bytes32ToCid()`, `metadataUrl()` utilities~~ ✅
+2. ~~`poc/scripts/lib/ipfs.ts` — same utilities for hardhat scripts~~ ✅
+3. ~~Fix `campaignPoller.ts` — decode bytes32→CID→gateway URL (was treating bytes32 as URI string)~~ ✅
+4. ~~Fix `PublisherPanel.tsx` — CID input + `cidToBytes32()` encoding + event-based campaignId parsing~~ ✅
+5. ~~`poc/scripts/upload-metadata.ts` — developer CLI (`--file` validates schema; `--cid`+`--campaign` sets on-chain)~~ ✅
+6. ~~`poc/scripts/setup-test-campaign.ts` — now calls `setMetadata` with synthetic hash after activation~~ ✅
+7. ~~`poc/metadata/sample-crypto.json` + `sample-privacy.json` — sample metadata files~~ ✅
+8. ~~Extension builds cleanly; 54/54 tests pass~~ ✅
+
+**Step H — Local devnet E2E testing** ← NEXT
+This is the final step before the G2 gate can be fully evaluated. Requires a running local devnet.
+
+1. Start substrate-contracts-node + eth-rpc adapter (`docker compose up`)
+2. Deploy contracts: `npx hardhat run scripts/deploy.ts --network substrate`
+3. Run `setup-test-campaign.ts --network substrate` — verify campaign + metadata hash on-chain
+4. Load extension in Chrome, configure Settings with local RPC + deployed addresses
+5. Browse a crypto-related page → verify ad banner appears with campaign match
+6. Submit claims manually → verify settlement success
+7. Enable auto-submit → verify auto-flush
+8. Test publisher withdraw + user withdraw
+9. Fix any runtime issues (CSP, polyfills, service worker lifecycle, wallet integration)
+
+**Current blockers for Step H:**
+- Need Docker containers running (`substrate` + `eth-rpc` on ports 9944/8545)
+- Need Chrome with SubWallet or Polkadot.js extension installed
+- IPFS metadata fetch will fail for synthetic hashes (expected — exercises the fallback path)
+- Real IPFS metadata test: pin `poc/metadata/sample-crypto.json` to IPFS, then `upload-metadata.ts --cid <CID> --campaign <ID>`
 
 ---
 
