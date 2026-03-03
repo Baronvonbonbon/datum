@@ -224,9 +224,9 @@ describe("Integration", function () {
     // Distribute slash rewards (separate step in split architecture)
     await rewards.distributeSlashRewards(campaignId);
 
-    // Slash claimable should be the remaining budget at termination
+    // Slash claimable should be 10% of remaining budget (partial slash; 90% refunded to advertiser)
     const slashClaimable = await voting.nayClaimable(campaignId, voter2.address);
-    expect(slashClaimable).to.equal(BUDGET); // Full budget since no claims were settled
+    expect(slashClaimable).to.equal(BUDGET / 10n);
 
     // Mine past lockup
     const vr = await voting.getVoteRecord(campaignId, voter2.address);

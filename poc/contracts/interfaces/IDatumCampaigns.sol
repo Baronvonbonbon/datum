@@ -14,7 +14,7 @@ interface IDatumCampaigns {
         Active,     // Activated by governance; accepting claims
         Paused,     // Temporarily halted by advertiser
         Completed,  // Budget exhausted or manually completed
-        Terminated, // Governance nay vote passed; escrow slashed
+        Terminated, // Governance nay vote passed; 10% escrow slashed, 90% refunded to advertiser
         Expired     // Pending timeout elapsed; budget returned
     }
 
@@ -96,7 +96,9 @@ interface IDatumCampaigns {
     /// @param campaignId Campaign to complete
     function completeCampaign(uint256 campaignId) external;
 
-    /// @notice Terminate a campaign via governance nay vote (governance only)
+    /// @notice Terminate a campaign via governance nay vote (governance only).
+    ///         10% of remaining budget goes to governance (nay voter rewards),
+    ///         90% refunded to the advertiser.
     /// @param campaignId Campaign to terminate
     function terminateCampaign(uint256 campaignId) external;
 

@@ -134,15 +134,17 @@ describe("DatumCampaigns", function () {
     ).to.be.revertedWith("E22");
   });
 
-  // L5: terminateCampaign records terminationBlock and transfers escrow to governance
-  it("L5: terminateCampaign records terminationBlock and slashes escrow", async function () {
+  // L5: terminateCampaign records terminationBlock; 10% slash to governance, 90% refund to advertiser
+  it("L5: terminateCampaign slashes 10% to governance and refunds 90% to advertiser", async function () {
     const { id } = await createTestCampaign();
     await campaigns.connect(governance).activateCampaign(id);
 
-    const balBefore = await ethers.provider.getBalance(governance.address);
+    const govBalBefore = await ethers.provider.getBalance(governance.address);
+    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
     const tx = await campaigns.connect(governance).terminateCampaign(id);
     const receipt = await tx.wait();
-    const balAfter = await ethers.provider.getBalance(governance.address);
+    const govBalAfter = await ethers.provider.getBalance(governance.address);
+    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
 
     const c = await campaigns.getCampaign(id);
     expect(c.status).to.equal(4); // Terminated
@@ -153,7 +155,10 @@ describe("DatumCampaigns", function () {
     // gasUsed * gasPrice ≈ 10^18 planck — dwarfing the actual cost. Skip native balance check.
     if (!(await isSubstrate())) {
       const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-      expect(balAfter - balBefore + gasUsed).to.equal(BUDGET);
+      // Governance receives 10% slash (minus gas)
+      expect(govBalAfter - govBalBefore + gasUsed).to.equal(BUDGET / 10n);
+      // Advertiser receives 90% refund
+      expect(advBalAfter - advBalBefore).to.equal(BUDGET - BUDGET / 10n);
     }
   });
 

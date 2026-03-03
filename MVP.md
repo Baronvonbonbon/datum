@@ -29,6 +29,8 @@ The MVP consists of four deliverables:
 | Publisher quality scoring | Excluded from settlement math in MVP |
 | Revenue split governance | 75/25 hardcoded; governance upgrade post-MVP |
 | Rich media ad rendering | MVP renders text banner with campaign title/description; image/video rendering post-MVP |
+| Advanced governance game theory | MVP uses 10% slash cap; post-MVP models: symmetric risk (nay voters lose stake if campaign succeeds), time-delayed termination (grace period before slash), dispute bonds (nay voters post bonds forfeited on failure), graduated response (escalating slash based on evidence severity) |
+| Contract ownership transfer | DatumCampaigns uses manual owner pattern (no OZ Ownable) for PVM size; add `transferOwnership()` for multisig migration pre-mainnet |
 
 ---
 

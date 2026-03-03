@@ -141,13 +141,18 @@ contract MockCampaigns is IDatumCampaigns {
         lastTerminated = campaignId;
         Campaign storage c = _campaigns[campaignId];
         c.terminationBlock = block.number;
-        uint256 slash = c.remainingBudget;
+        uint256 remaining = c.remainingBudget;
         c.remainingBudget = 0;
         c.status = CampaignStatus.Terminated;
         emit CampaignTerminated(campaignId, block.number);
-        // Transfer slash amount to caller (governance)
-        if (slash > 0) {
-            payable(msg.sender).transfer(slash);
+        // 10% slash to caller (governance); 90% refund to advertiser
+        uint256 slashAmount = remaining / 10;
+        uint256 refund = remaining - slashAmount;
+        if (slashAmount > 0) {
+            payable(msg.sender).transfer(slashAmount);
+        }
+        if (refund > 0) {
+            payable(c.advertiser).transfer(refund);
         }
     }
 

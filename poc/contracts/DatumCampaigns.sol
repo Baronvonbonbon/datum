@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
 
@@ -16,10 +15,17 @@ import "./interfaces/IDatumPublishers.sol";
 ///   - Publisher management extracted to DatumPublishers for PVM bytecode size limits.
 ///   - Only governance can activate/terminate; only settlement can deductBudget.
 ///   - Pausable removed (PVM size); emergency pause achieved by renouncing governance/settlement.
-contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
+contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard {
     // -------------------------------------------------------------------------
     // Configuration (governance-settable in full build; constructor-set in PoC)
     // -------------------------------------------------------------------------
+
+    address public owner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
 
     uint256 public immutable minimumCpmFloor;         // Minimum allowed bidCpmPlanck
     uint256 public immutable pendingTimeoutBlocks;    // Blocks before Pending → Expired allowed
@@ -48,7 +54,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         uint256 _minimumCpmFloor,
         uint256 _pendingTimeoutBlocks,
         address _publishers
-    ) Ownable(msg.sender) {
+    ) {
+        owner = msg.sender;
         require(_publishers != address(0), "E00");
         minimumCpmFloor = _minimumCpmFloor;
         pendingTimeoutBlocks = _pendingTimeoutBlocks;
@@ -84,7 +91,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
         uint8 categoryId
-    ) external payable nonReentrant returns (uint256 campaignId) {
+    ) external payable returns (uint256 campaignId) {
         require(msg.value > 0, "E11");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
         require(pub.registered, "E17");
@@ -198,14 +205,20 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable {
         c.terminationBlock = block.number;
         c.status = CampaignStatus.Terminated;
 
-        // Transfer remaining escrow to governance for slash distribution
-        uint256 slashAmount = c.remainingBudget;
+        uint256 remaining = c.remainingBudget;
         c.remainingBudget = 0;
+
+        // 10% slash to governance for nay voter rewards; 90% refund to advertiser
+        uint256 slashAmount = remaining / 10;
+        uint256 refund = remaining - slashAmount;
 
         emit CampaignTerminated(campaignId, block.number);
 
         if (slashAmount > 0) {
             _send(governanceContract, slashAmount);
+        }
+        if (refund > 0) {
+            _send(c.advertiser, refund);
         }
     }
 

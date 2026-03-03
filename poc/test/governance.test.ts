@@ -194,8 +194,8 @@ describe("DatumGovernance (Voting + Rewards)", function () {
     // Distribute slash rewards (separate step in split architecture)
     await rewards.distributeSlashRewards(cid);
 
-    // Slash amount = BUDGET (full remaining budget)
-    expect(await voting.nayClaimable(cid, voter2.address)).to.equal(BUDGET);
+    // Slash amount = 10% of BUDGET (partial slash; 90% refunded to advertiser)
+    expect(await voting.nayClaimable(cid, voter2.address)).to.equal(BUDGET / 10n);
 
     // Cannot claim before lockup
     await expect(
@@ -219,7 +219,7 @@ describe("DatumGovernance (Voting + Rewards)", function () {
     // gasUsed * gasPrice dwarfs actual cost. Check contract state instead.
     if (!(await isSubstrate())) {
       const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-      expect(balAfter - balBefore + gasUsed).to.equal(BUDGET);
+      expect(balAfter - balBefore + gasUsed).to.equal(BUDGET / 10n);
     }
     // On all networks, verify contract state zeroed (transfer succeeded)
     expect(await voting.nayClaimable(cid, voter2.address)).to.equal(0n);

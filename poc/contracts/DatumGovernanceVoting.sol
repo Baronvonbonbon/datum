@@ -167,7 +167,7 @@ contract DatumGovernanceVoting is IDatumGovernanceVoting, ReentrancyGuard {
             cv.terminated = true;
             cv.terminationBlock = block.number;
 
-            _slashPool[campaignId] = cRemaining;
+            _slashPool[campaignId] = cRemaining / 10;
 
             campaigns.terminateCampaign(campaignId);
 
