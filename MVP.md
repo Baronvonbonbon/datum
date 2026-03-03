@@ -936,29 +936,91 @@ Improve `classifyPage()` from keyword/domain matching to a multi-signal classifi
 - [ ] Update interest profile with all matched categories weighted by confidence (a page scoring `{ crypto: 0.8, finance: 0.3 }` updates both categories, crypto 2.7x more than finance)
 - [ ] Backward compatible: campaign matching uses the highest-confidence category for primary selection; secondary categories contribute to profile building
 
-#### 2.21 — Publisher attestation handshake point (preparation for P1)
+#### 2.21 — Publisher co-signature verification in DatumRelay (anti-fraud)
 
-Prepare the extension's content script for the future publisher co-signature flow (P1 in post-MVP). No publisher endpoint exists yet — this step adds the extension-side plumbing so that P1 is a publisher-side addition, not an extension rewrite.
+**Rationale:** Impression counts are entirely self-reported. A modified extension can fabricate unlimited claims. Publisher co-signature creates two-party attestation — both the user and publisher must agree an impression occurred. This is the single most important trust-reduction step before mainnet.
 
-**Files changed:**
-- Modified: `extension/src/content/index.ts`
-- New: `extension/src/content/publisherAttestation.ts`
+**Architecture decision: verify in Relay, not Settlement.** DatumRelay already does `ecrecover` for user signatures and has 15,370 B PVM headroom. DatumSettlement has only 4,259 B spare and should remain focused on settlement math. The Relay becomes the attestation gateway — all signature verification happens there, Settlement stays clean.
 
-**Implementation:**
-- [ ] `publisherAttestation.ts`: `requestAttestation(campaignId, publisherAddress, timestamp)` — attempts to call publisher's attestation endpoint at `https://<publisher-domain>/.well-known/datum-attest` (POST)
-- [ ] If endpoint exists and responds: include publisher signature in the `IMPRESSION_RECORDED` message
-- [ ] If endpoint does not exist (404/timeout): proceed without attestation (MVP behavior, degraded trust mode)
-- [ ] The `IMPRESSION_RECORDED` message gains an optional `publisherSig` field — claim builder stores it but current settlement ignores it
-- [ ] This is forward-compatible: when P1 contract changes land, the extension already has the attestation plumbing. Publishers who deploy the attestation endpoint get higher-trust impressions immediately
+For direct user submission (without relay), attestation is not enforced on-chain. This is the "degraded trust mode" — acceptable for MVP but flaggable by indexers/dashboards. Post-MVP: a separate `DatumAttestationVerifier` contract can wrap `settlement.settleClaims()` with publisher sig checks for direct submissions.
+
+**Contract changes:**
+
+*a) `IDatumSettlement.sol` — add `publisherSig` to `SignedClaimBatch`:*
+- [ ] Add `bytes publisherSig` field to `SignedClaimBatch` struct (publisher's attestation signature for the batch)
+- [ ] No changes to `Claim` struct or `ClaimBatch` — publisher sig is batch-level, not per-claim (one attestation covers the batch)
+
+*b) `DatumRelay.sol` — verify publisher co-signature:*
+- [ ] Define `PUBLISHER_ATTESTATION_TYPEHASH` for EIP-712: `PublisherAttestation(address publisher,address user,uint256 campaignId,uint256 firstNonce,uint256 lastNonce,uint256 claimCount,uint256 deadline)`
+- [ ] In `settleClaimsFor()`, after verifying user signature: recover publisher signer from `publisherSig` using same EIP-712 domain
+- [ ] Verify recovered address matches `claims[0].publisher` (all claims in a batch share the same publisher)
+- [ ] New error codes: E33 (invalid publisher sig length), E34 (wrong publisher signer)
+- [ ] If `publisherSig` is empty (length 0): skip verification (degraded trust mode — backward compatible with existing tests until publishers deploy attestation endpoints)
+- [ ] PVM size impact: ~1,000-1,500 B additional. DatumRelay at 33,782 B has 15,370 B spare — fits easily
+
+*c) Tests:*
+- [ ] New test: relay with valid publisher co-signature settles normally
+- [ ] New test: relay with invalid publisher signature reverts E34
+- [ ] New test: relay with empty publisher signature settles (degraded trust mode)
+- [ ] New test: relay with publisher sig from wrong publisher reverts E34
+- [ ] Existing R1-R6 tests: pass empty `publisherSig` — backward compatible
+
+**Extension changes (preparation for publishers who deploy attestation endpoints):**
+
+*d) `extension/src/content/publisherAttestation.ts` (new):*
+- [ ] `requestAttestation(campaignId, publisherAddress, userAddress, nonce, deadline)` — POST to `https://<publisher-domain>/.well-known/datum-attest`
+- [ ] Publisher endpoint returns `{ signature }` — EIP-712 `PublisherAttestation` signed by publisher's wallet
+- [ ] If endpoint returns 404/timeout: return empty bytes (degraded trust mode)
+- [ ] Timeout: 3 seconds max — attestation failure must not block impression recording
+
+*e) `extension/src/background/claimBuilder.ts`:*
+- [ ] `ClaimData` type gains optional `publisherSig: string` field
+- [ ] When building a relay batch (`signForRelay`), include `publisherSig` if available
+
+*f) `extension/src/popup/ClaimQueue.tsx`:*
+- [ ] Display attestation status per claim: "Attested" (has publisher sig) vs "Unattested"
+- [ ] Tooltip: "Attested claims have been co-signed by the publisher, providing stronger fraud protection"
+
+#### 2.22 — ZK verifier architecture (stub contract + test circuit)
+
+**Rationale:** The `zkProof` field in the Claim struct is reserved but empty. A ZK verifier is too large for any existing contract (~30,000-80,000+ B PVM for a Groth16 verifier). It must be a separate contract. This step deploys a stub verifier and wires it to Settlement, proving the architecture works on PolkaVM without committing to a specific circuit.
+
+**Architecture:** Three-phase approach to ZK integration:
+1. **Phase 1 (this step):** Stub verifier contract + Settlement wiring. Proves the cross-contract call pattern works on PolkaVM. Stub always returns true.
+2. **Phase 2 (post-MVP P9):** Real Groth16/PLONK verifier for second-price auction clearing proof. Requires P2 (auction mechanism) first.
+3. **Phase 3 (research):** ZK impression proof. DOM state hashing in-circuit. Years from practical in-browser proving. Monitor browser TEE developments (Intel SGX in WebAssembly) as alternative.
+
+**Contract changes:**
+
+*a) New: `poc/contracts/DatumZKVerifier.sol` (stub):*
+- [ ] Standalone contract, no inheritance
+- [ ] `function verify(bytes calldata proof, bytes32 publicInputsHash) external pure returns (bool)` — returns `proof.length > 0` (stub: any non-empty proof passes)
+- [ ] Immutable `version` field for future upgrade tracking
+- [ ] PVM size: trivial (~2,000-5,000 B) — no size pressure
+
+*b) Modified: `DatumSettlement.sol` — optional verifier call:*
+- [ ] Add `address public zkVerifier` storage variable
+- [ ] Add `setZKVerifier(address)` owner-only setter
+- [ ] In `_validateClaim()`, after existing checks: if `zkVerifier != address(0) && claim.zkProof.length > 0`, call `DatumZKVerifier(zkVerifier).verify(claim.zkProof, claimHash)` — new error code E35 (ZK verification failed)
+- [ ] If `zkVerifier == address(0)` or `claim.zkProof` is empty: skip (MVP behavior, backward compatible)
+- [ ] PVM size impact: ~300-500 B (one external call + one address comparison + one length check). Settlement at 44,893 B has 4,259 B spare — fits
+
+*c) Tests:*
+- [ ] New test: settlement with stub verifier accepts claims with non-empty zkProof
+- [ ] New test: settlement with stub verifier accepts claims with empty zkProof (backward compat)
+- [ ] New test: settlement without verifier set ignores zkProof field entirely
+- [ ] Existing tests: unaffected (zkProof is `"0x"` / empty in all existing claims)
 
 #### Phase 2C gate criteria
 - [ ] Interest profile accumulates across page visits and persists across browser restarts
 - [ ] Campaign selection uses weighted random proportional to score (not `pool[0]`)
 - [ ] Settings panel shows interest profile with category weights; reset clears all data
 - [ ] Enhanced classifier assigns multi-category soft probabilities to pages
-- [ ] Publisher attestation request is attempted; failure does not block impression recording
+- [ ] Publisher co-signature verified in DatumRelay when provided; empty sig accepted in degraded trust mode
+- [ ] Stub ZK verifier deployed and wired to Settlement; existing tests unaffected
+- [ ] All contract PVM bytecodes remain under 49,152 B limit
+- [ ] Extension builds cleanly; publisher attestation failure does not block impression recording
 - [ ] No user data leaves the browser at any point in the flow
-- [ ] Extension builds cleanly; existing 54/54 contract tests unaffected
 
 ---
 
@@ -1111,39 +1173,25 @@ After G4-P, the following items become the next development cycle. Organized int
 
 These items address critical gaps where the MVP relies on trust in the extension code or the contract owner. Each is a prerequisite for the protocol to function as a credibly neutral marketplace.
 
-#### P1. Impression attestation (publisher co-signature)
+#### P1. Impression attestation — advanced modes (beyond publisher co-signature)
 
-**Problem:** Impression counts are entirely self-reported by the extension. A modified extension can fabricate unlimited claims at max CPM, draining advertiser escrow with zero ad views.
+**MVP scope (Phase 2C, step 2.21):** Publisher co-signature verification in DatumRelay. Provides two-party attestation — both user and publisher must agree an impression occurred. Degraded trust mode (empty sig) accepted for backward compatibility.
 
-**Implementation plan:**
+**Post-MVP enhancements:**
 
-1. **Contract changes:**
-   - Add `bytes publisherSig` field to the `Claim` struct in `IDatumSettlement.sol`
-   - In `_validateClaim()`, recover signer from `publisherSig` using `ecrecover` and verify it matches `campaign.publisher`
-   - The publisher signs `keccak256(abi.encodePacked(user, campaignId, impressionCount, nonce, timestamp))` — attesting they served the ad to this user
-   - Claims without a valid publisher signature are rejected (new error code E33)
-   - PVM size impact: `ecrecover` is already used in DatumRelay; the precompile call pattern is proven. May require splitting a new field out of the Claim struct or further size optimization
+1. **Mandatory attestation mode:** Settlement rejects claims without publisher co-signature (no degraded trust mode). Requires all publishers to deploy attestation endpoints. Activate via governance vote.
 
-2. **Publisher SDK / ad server:**
-   - Publisher runs a lightweight signing endpoint (or serverless function) that receives impression notifications from the content script and returns a signature
-   - The content script calls the publisher endpoint when it renders an ad slot, receives the signature, and attaches it to the claim
-   - Fallback: if the publisher endpoint is unreachable, the impression is recorded but marked as unattested (claimable only in a degraded-trust mode, or held until the publisher comes back online)
+2. **DatumAttestationVerifier contract:** For direct user submissions (not via relay), a wrapper contract that verifies publisher sigs before calling `settlement.settleClaims()`. Eliminates the direct-submission trust gap.
 
-3. **Extension changes:**
-   - `claimBuilder.ts`: include `publisherSig` in the `ClaimData` type and hash chain
-   - `content/adSlot.ts`: after rendering, POST to publisher's attestation endpoint, receive signature
-   - `contracts.ts`: update ABI to include `publisherSig` in settlement calls
+3. **TEE attestation:** Extension runs in a trusted execution environment (Intel SGX via WebAssembly). Impressions are signed with a hardware-backed key that cannot be extracted or spoofed. Requires browser TEE support to mature.
 
-4. **Testing:**
-   - New test: settlement rejects claims without valid publisher signature (E33)
-   - New test: settlement accepts claims with valid publisher signature
-   - New test: signature from wrong publisher is rejected
-   - Integration test: full flow with publisher attestation endpoint (mock HTTP in test)
+4. **ZK proof of DOM state:** Extension generates a ZK proof that specific ad content was rendered in a specific viewport at a specific time. Requires:
+   - DOM snapshot hashing in-circuit (expensive)
+   - CSS layout modeling in-circuit (to prove visibility)
+   - In-browser prover: likely 30-120 seconds per proof (research-grade)
+   - This is the "holy grail" but years from practical deployment
 
-5. **Future evolution:** Publisher co-signature is the minimum viable attestation. Longer-term paths:
-   - TEE attestation: extension runs in a trusted execution environment, signs impressions with a hardware-backed key
-   - ZK proof of DOM state: extension generates a ZK proof that specific content was rendered in a specific viewport
-   - Random oracle sampling: a fraction of impressions are spot-checked by an independent oracle network
+5. **Random oracle sampling:** A fraction of impressions are spot-checked by an independent oracle network. Oracle requests a screenshot or DOM hash from the extension at random intervals. Failed checks trigger slashing of the user's pending claims. Lower overhead than full ZK but introduces oracle trust.
 
 #### P2. Clearing CPM auction mechanism
 
@@ -1347,12 +1395,14 @@ These items move the protocol from bilateral deals toward an open marketplace an
 
 **Problem:** The `zkProof` field in the Claim struct is reserved but empty. Without it, clearing CPM cannot be verified on-chain.
 
-**Implementation plan:**
+**MVP foundation (Phase 2C, step 2.22):** Stub `DatumZKVerifier` contract deployed and wired to Settlement. Cross-contract `verify()` call pattern proven on PolkaVM. Stub accepts any non-empty proof.
 
-1. Custom ZK circuit for second-price auction clearing
-2. In-browser WASM prover (target: Groth16 or PLONK, < 5s proving time per batch)
-3. On-chain verifier contract (separate from Settlement for PVM size)
-4. `_validateClaim()` calls verifier if `zkProof` is non-empty
+**Post-MVP implementation:**
+
+1. Replace stub with real Groth16/PLONK verifier generated by circom/snarkjs
+2. Custom ZK circuit for second-price auction clearing: inputs are sealed bid commitments + revealed bids; output is clearing CPM
+3. In-browser WASM prover (target: < 5s proving time per batch of 10-50 bids)
+4. Verifier contract size: 3,000-8,000 bytes Solidity → 30,000-80,000+ B PVM. Deployed as standalone contract (already architected in step 2.22)
 5. **Prerequisite:** P2 (auction mechanism) must be implemented first — the ZK proof proves integrity of something that must exist
 
 #### P10. Decentralized KYB/KYC identity
