@@ -19,7 +19,7 @@ This project was inspired by the Basic Attention Token and by early conversation
 ## How it works
 
 1. **Advertisers** create campaigns by depositing DOT into the DatumCampaigns contract, specifying a bid CPM, category target, and publisher.
-2. **Governance reviewers** stake DOT to vote on campaign quality. Campaigns activate when aye votes cross a threshold; nay votes can terminate bad campaigns and distribute slashed funds to reviewers.
+2. **Governance reviewers** stake DOT to vote on campaign quality. Campaigns activate when aye votes cross a threshold; nay votes can terminate bad campaigns, slashing 10% of remaining budget to reviewers and refunding 90% to the advertiser.
 3. **Users** browse the web with the DATUM Chrome extension. The extension classifies pages locally, matches against active campaigns, and records impressions as hash-chain claims -- all on-device.
 4. **Settlement** happens when claims are submitted on-chain. The contract validates the hash chain, deducts from campaign budget, and splits payment three ways: publisher, user, and protocol.
 
@@ -184,6 +184,13 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc, cross-
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing is post-MVP |
 | Rich media ad rendering | MVP renders text creatives; image/video support post-MVP |
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
+| Advanced governance game theory | MVP uses 10% slash cap; symmetric risk, dispute bonds, graduated response post-MVP |
+| Contract ownership transfer | Manual owner pattern for PVM size; add `transferOwnership()` for multisig migration pre-mainnet |
+| Impression attestation | MVP self-reports; post-MVP: publisher co-signature, then ZK/TEE |
+| Clearing CPM auction | MVP fixed-price (`clearingCpm = bidCpm`); post-MVP: batch auction with second-price clearing |
+| Admin timelock | MVP admin setters immediate; post-MVP: 48-hour timelock with on-chain exit window |
+| Multi-publisher campaigns | MVP single publisher per campaign; post-MVP: open publisher pool |
+| Contract upgrade path | MVP non-upgradeable; post-MVP: proxy or migration for Settlement |
 
 ## License
 

@@ -31,6 +31,13 @@ The MVP consists of four deliverables:
 | Rich media ad rendering | MVP renders text banner with campaign title/description; image/video rendering post-MVP |
 | Advanced governance game theory | MVP uses 10% slash cap; post-MVP models: symmetric risk (nay voters lose stake if campaign succeeds), time-delayed termination (grace period before slash), dispute bonds (nay voters post bonds forfeited on failure), graduated response (escalating slash based on evidence severity) |
 | Contract ownership transfer | DatumCampaigns uses manual owner pattern (no OZ Ownable) for PVM size; add `transferOwnership()` for multisig migration pre-mainnet |
+| Impression attestation | MVP self-reports impressions via extension; post-MVP: publisher co-signature on impression batches, then ZK/TEE attestation |
+| Clearing CPM auction mechanism | MVP uses `clearingCpm = bidCpm` (fixed price); post-MVP: off-chain batch auction per epoch with second-price clearing |
+| Admin timelock | MVP admin setters are immediate; post-MVP: 48-hour timelock on `setSettlementContract`/`setGovernanceContract` with on-chain event for user exit window |
+| On-chain aye reward computation | MVP computes aye reward shares off-chain (`creditAyeReward` is owner-only); post-MVP: on-chain proportional distribution when PVM bytecode limits relax |
+| Multi-publisher campaigns | MVP binds campaign to single publisher; post-MVP: open publisher pool with category-based matching, payment to serving publisher |
+| Claim state portability | MVP stores claim queue in `chrome.storage.local`; post-MVP: encrypted export/import or deterministic derivation from on-chain state + user seed |
+| Contract upgrade path | MVP contracts are non-upgradeable; post-MVP: proxy pattern or migration function for Settlement (holds user balances) |
 
 ---
 

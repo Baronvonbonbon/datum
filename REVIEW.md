@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. 40/40 tests pass.
+**Status:** All 11 issues resolved. 54/54 tests pass (46 core + 6 relay + 1 integration F + 1 double-withdraw).
 
 ---
 
@@ -85,10 +85,11 @@ Interpretations 1 and 3 allow partial replay attacks. Interpretation 2 is the on
 
 **Fix adopted:** Pull payment pattern for all reward distribution. At termination time:
 - Read `campaign.remainingBudget` before calling `campaigns.terminateCampaign()` (which zeroes it).
-- After `terminateCampaign()` transfers DOT to governance, populate `_nayClaimable[campaignId][voter]` mappings proportionally.
+- `terminateCampaign()` sends 10% of remaining budget to governance (slash pool) and refunds 90% to the advertiser. The 10% cap prevents griefing where competitors vote nay to steal an advertiser's full budget.
+- After `terminateCampaign()` transfers the 10% slash to governance, populate `_nayClaimable[campaignId][voter]` mappings proportionally.
 - Voters call `claimSlashReward(campaignId)` to withdraw after their lockup expires.
 - Same pull pattern for aye rewards via `_ayeClaimable[campaignId][voter]`.
-- `ReentrancyGuard` applied to all state-mutating functions in all three contracts.
+- `ReentrancyGuard` applied to all state-mutating functions in all contracts.
 
 **Before:** Inline DOT transfer during `voteNay()` — reentrancy possible.
 **After:** Two-step: populate mapping → separate `claimSlashReward()` call. Validated by G7 (lockup-gated claim) and Integration B.
@@ -193,7 +194,78 @@ if (msg.value >= minReviewerStake) {
 
 ---
 
-## Design Gaps (Not Blocking PoC — Decisions Required Before Full Build)
+## Web3 Philosophy Alignment (2026-03-03 Addendum)
+
+An analysis of the protocol against core web3 principles: trustlessness, permissionlessness, censorship resistance, self-sovereignty, credible neutrality, and verifiability. Items already captured in the deferred table or design gaps above are not repeated here. This section identifies **critical missing steps** not previously documented.
+
+### Critical: Impression attestation is entirely self-reported
+
+The entire revenue flow starts with the extension self-reporting impression counts. The settlement contract verifies the hash chain is internally consistent but has no mechanism to verify that an impression actually occurred. A modified extension or raw contract call can fabricate unlimited impressions at max CPM, draining advertiser escrow.
+
+The deferred "ZK proof of auction outcome" and "viewability dispute mechanism" are adjacent but distinct problems. Neither addresses the fundamental gap: **there is no proof of impression**.
+
+**Minimum viable mitigation:** Publisher co-signature on each impression batch. The publisher's ad-serving infrastructure signs `(user, campaignId, impressionCount, timestamp)` and the user's claim includes this signature. The contract verifies both. This creates two-party attestation (user saw it, publisher served it) that is dramatically harder to forge than a single-party self-report.
+
+**Longer-term paths:** TEE attestation (extension runs in trusted execution environment), ZK proof of DOM state (extension proves it rendered specific content), or random sampling with oracle verification.
+
+### Critical: No price discovery mechanism
+
+`clearingCpmPlanck` is chosen unilaterally by the claim submitter (the extension hardcodes it to `bidCpmPlanck`). The only constraint is `clearingCpm <= bidCpm`. Every impression extracts the maximum possible amount. There is no auction, no second-price logic, no competitive pressure. This is a fixed-price payment system, not an exchange.
+
+The deferred "ZK proof of auction outcome" assumes an auction exists. It does not. An auction mechanism must be designed before a ZK proof of its integrity has meaning.
+
+**Minimum viable mitigation:** Off-chain batch auction per campaign per epoch. Multiple users submit sealed bids (or the extension submits at a system-determined clearing rate). The clearing CPM for the epoch is the second-highest bid or a supply/demand equilibrium. The clearing rate is published and verifiable.
+
+### Critical: Owner can redirect settlement and governance without timelock
+
+`DatumCampaigns.setSettlementContract()` and `setGovernanceContract()` are callable by the owner at any time with no timelock, no multisig, no event that would alert users. An owner who calls `setSettlementContract(malicious)` can drain all campaign escrows via `deductBudget`. An owner who calls `setGovernanceContract(malicious)` can terminate any campaign and extract the 10% slash.
+
+The deferred "contract ownership transfer" addresses who holds the key, not what the key can do. Even with a multisig, unilateral contract-reference changes without a timelock are incompatible with censorship resistance.
+
+**Minimum viable mitigation:** Timelock on all admin setters (e.g., 48-hour delay with on-chain event). Users can exit (withdraw, complete campaigns) during the delay if they disagree with the change. Post-MVP: governance approval required for contract reference changes.
+
+### Critical: Aye reward distribution is owner-computed off-chain
+
+`creditAyeReward()` is `onlyOwner` with no on-chain verification of proportional correctness. The owner can allocate 100% of rewards to a single address. This undermines the economic incentive for honest governance review. Slash rewards (`distributeSlashRewards`) are correctly computed on-chain; aye rewards should follow the same pattern.
+
+**Current reason:** PVM bytecode size limits prevent an on-chain voter-loop. As resolc/PVM matures and bytecode limits relax, this should move on-chain. Until then, document the trust assumption explicitly and publish the off-chain computation for independent verification.
+
+### High: Campaign-publisher binding prevents open marketplace
+
+Each campaign is bound to a single publisher at creation. An advertiser wanting reach across 100 publishers must create 100 separate campaigns with 100 separate escrows. This is a bilateral deal system, not a permissionless marketplace.
+
+**Post-MVP path:** Campaign creation specifies category and bid parameters without a fixed publisher. Any registered publisher matching the category can serve the campaign. Payment flows to whichever publisher actually served the impression (identified in the claim).
+
+### High: Claim chain state is non-portable
+
+The user's pending (unsubmitted) claims exist only in `chrome.storage.local`. Clearing browser data, reinstalling the extension, or switching devices permanently destroys unsubmitted claims. The `syncFromChain` function can recover the last settled nonce, but all queued claims are lost.
+
+**Minimum viable mitigation:** Encrypted export/import of claim queue state. Longer-term: deterministic claim derivation from on-chain state plus a user-held seed.
+
+### Medium: Campaign selection favors lowest ID
+
+The content script's matching algorithm always selects the first campaign in the list (lowest ID) when multiple campaigns match a category. There is no randomization, auction, or rotation. The first advertiser in a category captures all traffic until their budget is depleted.
+
+**Post-MVP path:** Weighted random selection proportional to bid CPM, or a per-impression micro-auction.
+
+### Medium: No contract upgrade or migration path
+
+The Settlement contract holds real user balances but has no proxy pattern, no migration function, and no emergency withdrawal. If the owner key is lost, `protocolBalance` is permanently locked. There is no path to move state to a new contract version.
+
+### Summary: Trust Assumptions in Current MVP
+
+| Component | Trust assumption | Path to trustlessness |
+|-----------|-----------------|----------------------|
+| Impression count | Trust extension code | Publisher co-signature; then ZK/TEE |
+| Clearing CPM | Trust extension code | Auction mechanism; then ZK proof of clearing |
+| Aye reward amounts | Trust contract owner | On-chain proportional computation |
+| Contract references | Trust contract owner | Timelock + governance approval |
+| Claim state persistence | Trust browser storage | Encrypted export; deterministic derivation |
+| Campaign-publisher match | Trust extension code | On-chain category matching; open publisher pool |
+
+The MVP is honest about being a PoC. The trust assumptions above are acceptable for testnet validation but each must have a concrete remediation plan before mainnet deployment.
+
+---
 
 | Gap | Recommendation |
 |-----|----------------|
@@ -270,12 +342,13 @@ The following items must be resolved and documented in a v0.4 architecture speci
 ## Implementation Notes
 
 ### DOT Flow Architecture
-The PoC uses a three-contract DOT flow:
+The PoC uses a six-contract DOT flow:
 1. Advertiser deposits full budget into `DatumCampaigns` at `createCampaign()`.
 2. At `deductBudget()`, `DatumCampaigns` forwards the deducted amount to `DatumSettlement`.
 3. `DatumSettlement` maintains pull-payment balances (`publisherBalance`, `userBalance`, `protocolBalance`).
-4. At termination, `DatumCampaigns` forwards remaining escrow to `DatumGovernance`.
-5. `DatumGovernance` maintains `_nayClaimable` and `_ayeClaimable` pull-payment mappings.
+4. At termination, `DatumCampaigns` sends 10% of remaining escrow to `DatumGovernanceVoting` (slash pool) and refunds 90% to the advertiser.
+5. `DatumGovernanceVoting` holds staked DOT and slash funds; `DatumGovernanceRewards` manages reward claims routed through voting.
+6. `DatumRelay` accepts EIP-712 signed batches from publishers, forwarding to `DatumSettlement` (gasless user settlement).
 
 All DOT exits the system via explicit withdrawal calls, never inline transfers after state-changing operations.
 
@@ -301,23 +374,40 @@ The 50-batch target in the plan spec (~500–800k gas) should be achievable. Pol
 ```
 poc/
 ├── contracts/
-│   ├── DatumCampaigns.sol          Campaign lifecycle; publisher registry; budget escrow
-│   ├── DatumGovernance.sol         Conviction voting; slash/reward pull payments
-│   ├── DatumSettlement.sol         Claim validation; hash chain; revenue split
+│   ├── DatumPublishers.sol         Publisher registry + take-rate management
+│   ├── DatumCampaigns.sol          Campaign lifecycle; budget escrow; 10% slash / 90% refund
+│   ├── DatumGovernanceVoting.sol   Conviction voting; activation/termination; stake + slash custody
+│   ├── DatumGovernanceRewards.sol  Reward claims; stake withdrawal; aye reward crediting
+│   ├── DatumSettlement.sol         Hash-chain validation; claim processing; 3-way payment split
+│   ├── DatumRelay.sol              EIP-712 signature verification; publisher-relayed settlement
 │   ├── interfaces/
 │   │   ├── IDatumCampaigns.sol
-│   │   ├── IDatumGovernance.sol
+│   │   ├── IDatumCampaignsMinimal.sol
+│   │   ├── IDatumCampaignsSettlement.sol
+│   │   ├── IDatumGovernanceVoting.sol
+│   │   ├── IDatumPublishers.sol
 │   │   └── IDatumSettlement.sol
 │   └── mocks/
 │       └── MockCampaigns.sol       Test double for isolated governance/settlement tests
 ├── test/
-│   ├── campaigns.test.ts           L1–L8 + snapshot + publisher validation
-│   ├── settlement.test.ts          S1–S8 + gap + genesis + snapshot + hash
-│   ├── governance.test.ts          G1–G8 + lockup cap + reviewer stake + issue 9
-│   └── integration.test.ts         Scenarios A–E (full three-contract integration)
+│   ├── campaigns.test.ts           L1–L8 + snapshot + publisher validation + CPM floor
+│   ├── settlement.test.ts          S1–S8 + gap + genesis + snapshot + hash + relay R1–R6
+│   ├── governance.test.ts          G1–G8 + lockup cap + reviewer stake + issue 9 + A1
+│   └── integration.test.ts         Scenarios A–F (full six-contract integration)
 ├── scripts/
-│   └── deploy.ts                   Production deployment script
+│   ├── deploy.ts                   Production deployment script
+│   └── upload-metadata.ts          IPFS metadata validation + on-chain CID setter
+├── metadata/                       Sample campaign metadata JSON files
 └── hardhat.config.ts
+
+extension/
+├── src/
+│   ├── background/                 Campaign poller, claim builder, claim queue, auto-submit
+│   ├── content/                    Page classification, ad slot injection
+│   ├── popup/                      React UI: campaigns, claims, publisher panel, settings
+│   ├── offscreen/                  Offscreen document for auto-submit signing
+│   └── shared/                     Types, ABIs, contract factories, CID encoding, networks
+└── webpack.config.js
 ```
 
-**Test results: 40/40 pass.**
+**Test results: 54/54 pass.**
