@@ -20,6 +20,7 @@ export interface ClaimBatch {
 export interface SignedClaimBatch extends ClaimBatch {
   deadline: number;    // block number
   signature: string;   // 65-byte EIP-712 signature hex
+  publisherSig: string; // publisher EIP-712 attestation hex (empty "0x" = degraded trust)
 }
 
 export interface SettlementResult {

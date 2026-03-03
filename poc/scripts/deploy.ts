@@ -72,7 +72,7 @@ async function main() {
   // 6. Deploy DatumRelay
   console.log("[6/6] Deploying DatumRelay...");
   const RelayFactory = await ethers.getContractFactory("DatumRelay");
-  const relay = await RelayFactory.deploy(settlementAddr);
+  const relay = await RelayFactory.deploy(settlementAddr, campaignsAddr);
   await relay.waitForDeployment();
   const relayAddr = await relay.getAddress();
   console.log("  DatumRelay:", relayAddr);

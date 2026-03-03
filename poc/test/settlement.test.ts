@@ -8,6 +8,7 @@ import { fundSigners, isSubstrate } from "./helpers/mine";
 // Settlement tests: S1-S8
 // Plus: gap-at-claim-5, genesis-hash, take-rate-snapshot
 // Plus: R1-R6 relay tests (DatumRelay)
+// Plus: R7-R10 publisher co-signature tests
 //
 // On substrate, contract deployments are very slow (>5 min for large PVM bytecodes).
 // Contracts are deployed once in `before`. Each test uses a unique campaign ID.
@@ -93,7 +94,7 @@ describe("DatumSettlement", function () {
 
     // Deploy DatumRelay
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
-    relay = await RelayFactory.deploy(await settlement.getAddress());
+    relay = await RelayFactory.deploy(await settlement.getAddress(), await mock.getAddress());
 
     // Wire: settlement authorizes relay, mock authorizes settlement
     await settlement.setRelayContract(await relay.getAddress());
@@ -452,6 +453,7 @@ describe("DatumSettlement", function () {
         claims,
         deadline,
         signature,
+        publisherSig: "0x",
       };
 
       const pubBalBefore = await settlement.publisherBalance(publisher.address);
@@ -491,6 +493,7 @@ describe("DatumSettlement", function () {
         claims,
         deadline,
         signature,
+        publisherSig: "0x",
       };
 
       await expect(
@@ -518,6 +521,7 @@ describe("DatumSettlement", function () {
         claims,
         deadline,
         signature: tamperedSig,
+        publisherSig: "0x",
       };
 
       await expect(
@@ -540,6 +544,7 @@ describe("DatumSettlement", function () {
         claims,
         deadline,
         signature,
+        publisherSig: "0x",
       };
 
       await expect(
@@ -561,6 +566,7 @@ describe("DatumSettlement", function () {
         claims,
         deadline,
         signature,
+        publisherSig: "0x",
       };
 
       // First submission succeeds
@@ -571,6 +577,142 @@ describe("DatumSettlement", function () {
       const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
       expect(result.settledCount).to.equal(0n);
       expect(result.rejectedCount).to.equal(1n);
+    });
+
+    // -----------------------------------------------------------------------
+    // Publisher co-signature tests — R7-R10
+    // -----------------------------------------------------------------------
+
+    const publisherAttestationTypes = {
+      PublisherAttestation: [
+        { name: "campaignId", type: "uint256" },
+        { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+      ],
+    };
+
+    async function signPublisherAttestation(
+      signer: HardhatEthersSigner,
+      campaignId: bigint,
+      userAddr: string,
+      claims: any[]
+    ) {
+      const domain = await getEIP712Domain();
+      const value = {
+        campaignId,
+        user: userAddr,
+        firstNonce: claims[0].nonce,
+        lastNonce: claims[claims.length - 1].nonce,
+        claimCount: claims.length,
+      };
+      return signer.signTypedData(domain, publisherAttestationTypes, value);
+    }
+
+    // R7: publisher co-signed relay settles successfully
+    it("R7: publisher co-signed relay settles successfully", async function () {
+      const cid = await createTestCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, cpm, impressions);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+      const publisherSig = await signPublisherAttestation(publisher, cid, user.address, claims);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+        publisherSig,
+      };
+
+      const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await relay.connect(publisher).settleClaimsFor([signedBatch]);
+      expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+    });
+
+    // R8: publisher co-sig with wrong signer reverts E34
+    it("R8: publisher co-sig with wrong signer reverts E34", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+      // Sign publisher attestation with `other` — not the campaign's publisher
+      const publisherSig = await signPublisherAttestation(other, cid, user.address, claims);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+        publisherSig,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E34");
+    });
+
+    // R9: publisher co-sig with invalid sig length reverts E33
+    it("R9: publisher co-sig with invalid sig length reverts E33", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+      // 32-byte sig — wrong length (must be 65)
+      const publisherSig = ethers.hexlify(ethers.randomBytes(32));
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+        publisherSig,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E33");
+    });
+
+    // R10: publisher co-sig with tampered signature reverts E34
+    it("R10: publisher co-sig with tampered signature reverts E34", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 100;
+      const signature = await signBatch(user, cid, claims, deadline);
+      const validPubSig = await signPublisherAttestation(publisher, cid, user.address, claims);
+
+      // Tamper with the publisher signature
+      const sigBytes = ethers.getBytes(validPubSig);
+      sigBytes[0] ^= 0xff;
+      sigBytes[64] = sigBytes[64] === 0x1b ? 0x1c : 0x1b;
+      const tamperedPubSig = ethers.hexlify(sigBytes);
+
+      const signedBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline,
+        signature,
+        publisherSig: tamperedPubSig,
+      };
+
+      await expect(
+        relay.connect(publisher).settleClaimsFor([signedBatch])
+      ).to.be.revertedWith("E34");
     });
 
     // R6: direct settleClaims still works unchanged (regression)

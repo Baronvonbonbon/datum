@@ -6,6 +6,11 @@
           "internalType": "address",
           "name": "_settlement",
           "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_campaigns",
+          "type": "address"
         }
       ],
       "stateMutability": "nonpayable",
@@ -19,6 +24,19 @@
           "internalType": "bytes32",
           "name": "",
           "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "campaigns",
+      "outputs": [
+        {
+          "internalType": "contract IDatumCampaignsSettlement",
+          "name": "",
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -93,6 +111,11 @@
             {
               "internalType": "bytes",
               "name": "signature",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "publisherSig",
               "type": "bytes"
             }
           ],

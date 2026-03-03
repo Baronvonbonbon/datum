@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. 54/54 tests pass (46 core + 6 relay + 1 integration F + 1 double-withdraw).
+**Status:** All 11 issues resolved. 58/58 tests pass (46 core + 6 relay R1-R6 + 4 publisher co-sig R7-R10 + 1 integration F + 1 double-withdraw).
 
 ---
 
@@ -198,13 +198,15 @@ if (msg.value >= minReviewerStake) {
 
 An analysis of the protocol against core web3 principles: trustlessness, permissionlessness, censorship resistance, self-sovereignty, credible neutrality, and verifiability. Items already captured in the deferred table or design gaps above are not repeated here. This section identifies **critical missing steps** not previously documented.
 
-### Critical: Impression attestation is entirely self-reported
+### Critical: Impression attestation is entirely self-reported — PARTIALLY ADDRESSED
 
 The entire revenue flow starts with the extension self-reporting impression counts. The settlement contract verifies the hash chain is internally consistent but has no mechanism to verify that an impression actually occurred. A modified extension or raw contract call can fabricate unlimited impressions at max CPM, draining advertiser escrow.
 
 The deferred "ZK proof of auction outcome" and "viewability dispute mechanism" are adjacent but distinct problems. Neither addresses the fundamental gap: **there is no proof of impression**.
 
-**Minimum viable mitigation:** Publisher co-signature on each impression batch. The publisher's ad-serving infrastructure signs `(user, campaignId, impressionCount, timestamp)` and the user's claim includes this signature. The contract verifies both. This creates two-party attestation (user saw it, publisher served it) that is dramatically harder to forge than a single-party self-report.
+**Minimum viable mitigation — IMPLEMENTED (2026-03-03):** Publisher co-signature verification in DatumRelay. `SignedClaimBatch` carries an optional `bytes publisherSig` field. When present, the relay verifies an EIP-712 `PublisherAttestation(uint256 campaignId, address user, uint256 firstNonce, uint256 lastNonce, uint256 claimCount)` signature against the campaign's registered publisher (resolved via `campaigns.getCampaignForSettlement()`). This creates two-party attestation: the user attests they saw the ad, the publisher attests they served it. When `publisherSig` is empty, the relay operates in degraded trust mode (backward compatible). Error codes: E33 (invalid sig length), E34 (wrong publisher signer). Tests R7-R10 validate the happy path and three failure modes.
+
+**Remaining gaps:** (1) Publisher attestation endpoint (`.well-known/datum-attest`) not yet implemented — publishers cannot yet produce co-signatures in practice. (2) Direct user submission (without relay) has no attestation enforcement; a separate `DatumAttestationVerifier` wrapper is post-MVP. (3) Degraded trust mode means co-signatures are optional, not mandatory.
 
 **Longer-term paths:** TEE attestation (extension runs in trusted execution environment), ZK proof of DOM state (extension proves it rendered specific content), or random sampling with oracle verification.
 
@@ -256,7 +258,7 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 
 | Component | Trust assumption | Path to trustlessness |
 |-----------|-----------------|----------------------|
-| Impression count | Trust extension code | Publisher co-signature; then ZK/TEE |
+| Impression count | Trust extension code (partially mitigated: publisher co-sig in DatumRelay, 2026-03-03) | Publisher attestation endpoint; mandatory attestation mode; then ZK/TEE |
 | Clearing CPM | Trust extension code | Auction mechanism; then ZK proof of clearing |
 | Aye reward amounts | Trust contract owner | On-chain proportional computation |
 | Contract references | Trust contract owner | Timelock + governance approval |
@@ -348,7 +350,7 @@ The PoC uses a six-contract DOT flow:
 3. `DatumSettlement` maintains pull-payment balances (`publisherBalance`, `userBalance`, `protocolBalance`).
 4. At termination, `DatumCampaigns` sends 10% of remaining escrow to `DatumGovernanceVoting` (slash pool) and refunds 90% to the advertiser.
 5. `DatumGovernanceVoting` holds staked DOT and slash funds; `DatumGovernanceRewards` manages reward claims routed through voting.
-6. `DatumRelay` accepts EIP-712 signed batches from publishers, forwarding to `DatumSettlement` (gasless user settlement).
+6. `DatumRelay` accepts EIP-712 signed batches from publishers, verifies user signatures and optional publisher co-signatures (via `campaigns.getCampaignForSettlement()`), and forwards to `DatumSettlement` (gasless user settlement).
 
 All DOT exits the system via explicit withdrawal calls, never inline transfers after state-changing operations.
 
@@ -379,7 +381,7 @@ poc/
 │   ├── DatumGovernanceVoting.sol   Conviction voting; activation/termination; stake + slash custody
 │   ├── DatumGovernanceRewards.sol  Reward claims; stake withdrawal; aye reward crediting
 │   ├── DatumSettlement.sol         Hash-chain validation; claim processing; 3-way payment split
-│   ├── DatumRelay.sol              EIP-712 signature verification; publisher-relayed settlement
+│   ├── DatumRelay.sol              EIP-712 user + publisher co-signature verification; relayed settlement
 │   ├── interfaces/
 │   │   ├── IDatumCampaigns.sol
 │   │   ├── IDatumCampaignsMinimal.sol
@@ -391,7 +393,7 @@ poc/
 │       └── MockCampaigns.sol       Test double for isolated governance/settlement tests
 ├── test/
 │   ├── campaigns.test.ts           L1–L8 + snapshot + publisher validation + CPM floor
-│   ├── settlement.test.ts          S1–S8 + gap + genesis + snapshot + hash + relay R1–R6
+│   ├── settlement.test.ts          S1–S8 + gap + genesis + snapshot + hash + relay R1–R6 + co-sig R7–R10
 │   ├── governance.test.ts          G1–G8 + lockup cap + reviewer stake + issue 9 + A1
 │   └── integration.test.ts         Scenarios A–F (full six-contract integration)
 ├── scripts/
@@ -410,4 +412,4 @@ extension/
 └── webpack.config.js
 ```
 
-**Test results: 54/54 pass.**
+**Test results: 58/58 pass.**

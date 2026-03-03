@@ -35,6 +35,7 @@ interface IDatumSettlement {
         Claim[] claims;
         uint256 deadline;       // Block number after which signature expires
         bytes signature;        // EIP-712 signature from user
+        bytes publisherSig;     // EIP-712 attestation from publisher (empty = degraded trust)
     }
 
     /// @notice Result summary from a settleClaims() call

@@ -50,7 +50,7 @@ Six contracts deployed to Polkadot Hub via pallet-revive:
 | `DatumGovernanceVoting` | Stake-weighted conviction voting; activates or terminates campaigns |
 | `DatumGovernanceRewards` | Reward claims and stake withdrawal for governance reviewers |
 | `DatumSettlement` | Hash-chain validation, claim processing, 3-way payment split |
-| `DatumRelay` | EIP-712 signature verification for publisher-relayed settlement (users pay zero gas) |
+| `DatumRelay` | EIP-712 user + publisher co-signature verification for relayed settlement (users pay zero gas) |
 
 All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcode limit using resolc with optimizer mode `z`.
 
@@ -72,7 +72,7 @@ The extension processes all browsing data locally. Page classification, campaign
 ```
 poc/
   contracts/          Solidity source (6 contracts + interfaces + mocks)
-  test/               Hardhat test suite (54 tests)
+  test/               Hardhat test suite (58 tests)
   scripts/            Deployment, benchmarking, campaign setup, metadata tools
   metadata/           Sample campaign metadata JSON files
   BENCHMARKS.md       Gas measurements on pallet-revive dev chain
@@ -103,7 +103,7 @@ cd poc
 npm install
 
 # Run tests (Hardhat EVM)
-npm test                  # 54/54 pass
+npm test                  # 58/58 pass
 
 # Compile for PolkaVM
 npm run compile:polkavm   # requires @parity/resolc
@@ -152,15 +152,16 @@ npx hardhat run scripts/upload-metadata.ts -- --cid QmXyz... --campaign 1
 ## Status
 
 - [x] **Phase 1** -- Local substrate validation (Gate G1 complete)
-  - 54 tests on Hardhat EVM, 44/46 on pallet-revive (2 skipped by design)
+  - 58 tests on Hardhat EVM, 44/46 on pallet-revive (2 skipped by design)
   - All 6 contracts under 49,152-byte PVM initcode limit
-  - Publisher relay with EIP-712 signatures
+  - Publisher relay with EIP-712 user signatures + optional publisher co-signatures
   - Gas benchmarks recorded
 - [x] **Phase 2** -- Browser extension (code complete, runtime testing in progress)
   - Full popup UI: campaigns, claims, earnings, publisher panel, settings
   - Campaign poller, claim builder, hash-chain management
   - Manual submit, sign-for-relay, auto-submit via offscreen
   - IPFS metadata pipeline: CID encoding, creative rendering, developer CLI
+  - Publisher co-signature verification in DatumRelay (two-party impression attestation)
 - [ ] **Phase 3** -- Testnet deployment (Paseo or Westend)
 - [ ] **Phase 4** -- Mainnet (Kusama -> Polkadot Hub)
 
@@ -186,7 +187,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc, cross-
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
 | Advanced governance game theory | MVP uses 10% slash cap; symmetric risk, dispute bonds, graduated response post-MVP |
 | Contract ownership transfer | Manual owner pattern for PVM size; add `transferOwnership()` for multisig migration pre-mainnet |
-| Impression attestation | MVP self-reports; post-MVP: publisher co-signature, then ZK/TEE |
+| Impression attestation | Publisher co-signature verification implemented in DatumRelay (degraded trust mode when absent); post-MVP: mandatory attestation mode, publisher attestation endpoints, then ZK/TEE |
 | Clearing CPM auction | MVP fixed-price (`clearingCpm = bidCpm`); post-MVP: batch auction with second-price clearing |
 | Admin timelock | MVP admin setters immediate; post-MVP: 48-hour timelock with on-chain exit window |
 | Multi-publisher campaigns | MVP single publisher per campaign; post-MVP: open publisher pool |

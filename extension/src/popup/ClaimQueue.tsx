@@ -281,6 +281,7 @@ export function ClaimQueue({ address }: Props) {
           claims: b.claims,
           deadline,
           signature,
+          publisherSig: "0x",
         });
       }
 

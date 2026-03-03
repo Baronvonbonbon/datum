@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumSettlement.sol";
+import "./interfaces/IDatumCampaignsSettlement.sol";
 
 /// @title DatumRelay
 /// @notice Publisher relay for claim settlement via EIP-712 user signatures.
@@ -16,20 +17,27 @@ contract DatumRelay {
         "ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,uint256 lastNonce,uint256 claimCount,uint256 deadline)"
     );
 
+    bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
+        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,uint256 lastNonce,uint256 claimCount)"
+    );
+
     // -------------------------------------------------------------------------
     // Immutables
     // -------------------------------------------------------------------------
 
     IDatumSettlement public immutable settlement;
+    IDatumCampaignsSettlement public immutable campaigns;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _settlement) {
+    constructor(address _settlement, address _campaigns) {
         require(_settlement != address(0), "E00");
+        require(_campaigns != address(0), "E00");
         settlement = IDatumSettlement(_settlement);
+        campaigns = IDatumCampaignsSettlement(_campaigns);
         DOMAIN_SEPARATOR = keccak256(abi.encode(
             keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
             keccak256("DatumRelay"),
@@ -86,6 +94,38 @@ contract DatumRelay {
             }
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
+
+            // Publisher co-signature verification (degraded trust if empty)
+            if (sb.publisherSig.length > 0) {
+                (, address cPublisher,,,) = campaigns.getCampaignForSettlement(sb.campaignId);
+
+                bytes32 pubStructHash = keccak256(abi.encode(
+                    PUBLISHER_ATTESTATION_TYPEHASH,
+                    sb.campaignId,
+                    sb.user,
+                    sb.claims[0].nonce,
+                    sb.claims[sb.claims.length - 1].nonce,
+                    sb.claims.length
+                ));
+                bytes32 pubDigest = keccak256(abi.encodePacked(
+                    "\x19\x01",
+                    DOMAIN_SEPARATOR,
+                    pubStructHash
+                ));
+
+                bytes calldata pubSig = sb.publisherSig;
+                require(pubSig.length == 65, "E33");
+                bytes32 pr;
+                bytes32 ps;
+                uint8 pv;
+                assembly {
+                    pr := calldataload(pubSig.offset)
+                    ps := calldataload(add(pubSig.offset, 32))
+                    pv := byte(0, calldataload(add(pubSig.offset, 64)))
+                }
+                address pubSigner = ecrecover(pubDigest, pv, pr, ps);
+                require(pubSigner != address(0) && pubSigner == cPublisher, "E34");
+            }
 
             // Build ClaimBatch for forwarding — copy claims to memory
             IDatumSettlement.Claim[] memory memoryClaims = new IDatumSettlement.Claim[](sb.claims.length);

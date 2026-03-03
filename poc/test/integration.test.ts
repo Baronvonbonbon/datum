@@ -130,7 +130,7 @@ describe("Integration", function () {
 
     // Deploy relay
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
-    relay = await RelayFactory.deploy(await settlement.getAddress());
+    relay = await RelayFactory.deploy(await settlement.getAddress(), await campaigns.getAddress());
 
     // Wire contracts
     await campaigns.setGovernanceContract(await voting.getAddress());
@@ -346,6 +346,7 @@ describe("Integration", function () {
       claims,
       deadline,
       signature,
+      publisherSig: "0x",
     };
 
     // Record balances before relay settlement
