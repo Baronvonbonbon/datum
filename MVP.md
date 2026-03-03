@@ -48,7 +48,7 @@ Each phase has a binary gate. Nothing in the next phase begins until all gate cr
 | Gate | Criteria |
 |------|----------|
 | **G1** | All 53 tests pass on Hardhat EVM; 44/46 core pass on substrate (2 skipped by design). resolc compiles all five contracts under 49,152-byte PVM limit. `zkProof` field present in Claim struct. Gas benchmarks recorded in BENCHMARKS.md. Publisher relay (`settleClaimsFor`) implemented with EIP-712 signatures. |
-| **G2** | Extension installs in Chrome without errors. User can connect a Polkadot.js or SubWallet wallet. Campaign list loads from a local or testnet node with creative metadata (title, description, IPFS CID). At least one impression is recorded and one claim is submitted successfully (manual mode). Auto mode submits without user interaction. Publisher can create a campaign and upload creative metadata via the extension UI. |
+| **G2** | Extension installs in Chrome without errors. User can connect a Polkadot.js or SubWallet wallet. Campaign list loads from a local or testnet node with creative metadata (title, description, IPFS CID). At least one impression is recorded and one claim is submitted successfully (manual mode). Auto mode submits without user interaction. Publisher can create a campaign and upload creative metadata via the extension UI. Local interest profile accumulates across visits; campaign selection uses weighted scoring (not first-match). Settings shows interest profile with reset option. |
 | **G3** | All five contracts deployed to Westend or Paseo. Full E2E smoke test passes: campaign created → governance activates → extension records impressions → claims submitted → publisher withdraws. No hardcoded addresses or test values remain in extension. |
 | **G4-K** | Contracts deployed to Kusama. At least one real campaign created and activated by a real third-party advertiser (not the deployer). Ownership transferred to multisig. |
 | **G4-P** | Contracts deployed to Polkadot Hub mainnet. Extension published to Chrome Web Store. |
@@ -846,6 +846,122 @@ This is the final step before the G2 gate can be fully evaluated. Requires a run
 
 ---
 
+### Phase 2C — Local Interest Model and Campaign Matching
+
+**Prerequisite:** Phase 2B code complete (Steps F+G done, Step H in progress or complete)
+**Scope:** Extension-only changes — no contract modifications. Replaces the naive "first matching campaign" selection with a privacy-preserving local interest model. All computation happens on-device; no profile data ever leaves the browser.
+
+**Design principle:** DATUM inverts the traditional adtech model. In conventional programmatic advertising, the ad server profiles users and decides which ad to show. In DATUM, the user's extension runs the ad decision engine. The publisher provides supply (page inventory), the advertiser provides demand (campaign + budget), and the user's device matches them. Only the user knows why a particular ad was selected.
+
+#### 2.18 — Local interest profile (weighted interest vector)
+
+Replace the single per-page category match with a persistent local interest vector that accumulates browsing signals over time.
+
+**Files changed:**
+- New: `extension/src/background/interestProfile.ts`
+- Modified: `extension/src/content/index.ts` (send category signal to background)
+- Modified: `extension/src/background/index.ts` (handle `UPDATE_INTEREST` message)
+- Modified: `extension/src/popup/Settings.tsx` (interest profile viewer + reset button)
+
+**Data model:**
+```typescript
+// Stored in chrome.storage.local — never leaves the device
+interface UserInterestProfile {
+  weights: Record<string, number>;    // category → 0.0–1.0 (decayed)
+  visits: Record<string, number>;     // category → total visit count
+  recentVisits: Array<{               // rolling window for decay calculation
+    category: string;
+    timestamp: number;
+  }>;
+  lastUpdated: number;
+}
+```
+
+**Implementation:**
+- [x] `interestProfile.ts`: `updateProfile(category)` — appends to `recentVisits`, prunes entries older than 30 days, recomputes `weights` using exponential decay (half-life: 7 days)
+- [ ] Weight formula: `weight[cat] = sum(0.5^((now - visitTime) / halfLife))` for all recent visits in that category, normalized so max weight = 1.0
+- [ ] `getProfile()` — returns current profile from storage (never exposes outside the extension)
+- [ ] `resetProfile()` — clears all interest data (user-initiated from Settings)
+- [ ] Content script: after `classifyPage()`, send `{ type: "UPDATE_INTEREST", category }` to background
+- [ ] Background handler: call `updateProfile(category)` on receipt
+- [ ] Settings panel: "Your Interest Profile" section showing category weights as a horizontal bar chart. "Reset Profile" button clears all data. Explanatory text: "This data never leaves your browser."
+
+#### 2.19 — Interest-weighted campaign matching
+
+Replace `pool[0]` (first match) with scored selection using the interest profile.
+
+**Files changed:**
+- Modified: `extension/src/content/index.ts` (request score-based match from background)
+- New: `extension/src/background/campaignMatcher.ts`
+
+**Scoring function:**
+```typescript
+function scoreCampaign(
+  campaign: CampaignInfo,
+  profile: UserInterestProfile,
+  pageCategory: string
+): number {
+  const catName = CATEGORY_NAME_MAP[campaign.categoryId] ?? "";
+  const interestWeight = profile.weights[catName] ?? 0;
+  const confidence = Math.min((profile.visits[catName] ?? 0), 20) / 20;
+  const pageBoost = catName === pageCategory ? 1.5 : 1.0;
+  const bidWeight = Number(campaign.bidCpmPlanck);
+
+  return interestWeight * confidence * pageBoost * bidWeight;
+}
+```
+
+**Implementation:**
+- [ ] `campaignMatcher.ts`: `selectCampaign(campaigns, profile, pageCategory)` — scores all matching campaigns, selects using weighted random (probability proportional to score, not winner-take-all)
+- [ ] Weighted random: prevents one high-bid campaign from capturing all impressions. A campaign with 2x the score gets 2x the impressions, not 100%
+- [ ] Fallback: if profile is empty (new user, just reset), fall back to contextual-only matching (current `pageCategory` match + random from pool)
+- [ ] Content script update: instead of directly picking `pool[0]`, send `{ type: "SELECT_CAMPAIGN", campaigns: pool, pageCategory }` to background, receive the scored selection
+
+#### 2.20 — Enhanced page classification
+
+Improve `classifyPage()` from keyword/domain matching to a multi-signal classifier that produces soft probabilities.
+
+**Files changed:**
+- Modified: `extension/src/content/taxonomy.ts`
+
+**Implementation:**
+- [ ] `classifyPage()` returns `Record<string, number>` (category → confidence) instead of `string | null`
+- [ ] Signal sources (all on-page, no network calls):
+  1. Domain match: 0.9 confidence for known domains (existing list)
+  2. Title keyword match: 0.6 confidence per keyword hit, max 0.8
+  3. Meta description keywords: 0.4 confidence per hit, max 0.6
+  4. `<meta name="keywords">` tag: 0.5 confidence per match
+  5. Aggregate: take max confidence per category across all signals
+- [ ] Return all categories with confidence > 0.3 (a page can match multiple categories)
+- [ ] Update interest profile with all matched categories weighted by confidence (a page scoring `{ crypto: 0.8, finance: 0.3 }` updates both categories, crypto 2.7x more than finance)
+- [ ] Backward compatible: campaign matching uses the highest-confidence category for primary selection; secondary categories contribute to profile building
+
+#### 2.21 — Publisher attestation handshake point (preparation for P1)
+
+Prepare the extension's content script for the future publisher co-signature flow (P1 in post-MVP). No publisher endpoint exists yet — this step adds the extension-side plumbing so that P1 is a publisher-side addition, not an extension rewrite.
+
+**Files changed:**
+- Modified: `extension/src/content/index.ts`
+- New: `extension/src/content/publisherAttestation.ts`
+
+**Implementation:**
+- [ ] `publisherAttestation.ts`: `requestAttestation(campaignId, publisherAddress, timestamp)` — attempts to call publisher's attestation endpoint at `https://<publisher-domain>/.well-known/datum-attest` (POST)
+- [ ] If endpoint exists and responds: include publisher signature in the `IMPRESSION_RECORDED` message
+- [ ] If endpoint does not exist (404/timeout): proceed without attestation (MVP behavior, degraded trust mode)
+- [ ] The `IMPRESSION_RECORDED` message gains an optional `publisherSig` field — claim builder stores it but current settlement ignores it
+- [ ] This is forward-compatible: when P1 contract changes land, the extension already has the attestation plumbing. Publishers who deploy the attestation endpoint get higher-trust impressions immediately
+
+#### Phase 2C gate criteria
+- [ ] Interest profile accumulates across page visits and persists across browser restarts
+- [ ] Campaign selection uses weighted random proportional to score (not `pool[0]`)
+- [ ] Settings panel shows interest profile with category weights; reset clears all data
+- [ ] Enhanced classifier assigns multi-category soft probabilities to pages
+- [ ] Publisher attestation request is attempted; failure does not block impression recording
+- [ ] No user data leaves the browser at any point in the flow
+- [ ] Extension builds cleanly; existing 54/54 contract tests unaffected
+
+---
+
 ## Phase 3 — Testnet Deployment
 
 **Gate:** G3
@@ -1270,11 +1386,13 @@ Conviction referendum for taxonomy changes. 7-day delay before enactment. Must d
 
 **Problem:** Content script always selects the first matching campaign (lowest ID). No rotation or bidding.
 
-**Implementation plan:**
+**MVP scope (Phase 2C):** Weighted random selection using local interest profile scores (bid CPM × interest weight × confidence). Implemented in steps 2.18–2.19. This eliminates the first-match bias and gives higher-bidding campaigns proportionally more impressions.
 
-1. **Weighted random selection:** when multiple campaigns match a category, select with probability proportional to `bidCpmPlanck * remainingBudget`. Higher-bidding campaigns with more budget get proportionally more impressions
-2. **Extension change:** `content/adSlot.ts` replaces `pool[0]` with weighted random pick
-3. **Optional on-chain mechanism:** campaigns declare a priority fee; extension sorts by priority; settlement validates priority fee was paid
+**Post-MVP enhancements:**
+
+1. **On-device topic model (Phase 2):** Replace keyword/domain matching with a bundled lightweight topic classifier (quantized DistilBERT or TF-IDF + logistic regression, ~2-5 MB). Produces soft multi-category probabilities per page. Inference in Web Worker, < 50ms per page. Model is bundled (deterministic, auditable), not a remote API
+2. **On-chain priority fee:** campaigns declare a priority fee; settlement validates priority fee was paid; extension factors priority into scoring
+3. **Budget-aware rotation:** factor `remainingBudget` into scoring so campaigns near exhaustion naturally reduce their impression share
 
 ### Implementation order
 
