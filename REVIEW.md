@@ -228,13 +228,13 @@ When settlement distributes protocol fees to HydraDX via XCM, a dropped message 
 
 Each scenario requires a different recovery path. An XCM retry queue with idempotency keys and bounded retries is essential.
 
-### 3. KILT KYB Integration — High Risk
-KILT is a live service with potential:
+### 3. KYB Identity Integration — High Risk
+Any external identity service introduces:
 - Revocation of credentials mid-campaign (what happens to Active campaigns?)
-- Jurisdiction coverage gaps (KILT may not cover all required jurisdictions)
+- Jurisdiction coverage gaps (provider may not cover all required jurisdictions)
 - Latency in credential verification (per-claim overhead)
 
-Recommend: treat KILT verification as a one-time onboarding check, not per-claim. Cache credential status with a TTL; revocation marks advertiser as suspended, not retroactively invalid.
+Recommend: treat identity verification as a one-time onboarding check, not per-claim. Cache credential status with a TTL; revocation marks advertiser as suspended, not retroactively invalid.
 
 ### 4. Extension Version Hash Update Coordination — Medium Risk
 The gap between an extension release and the corresponding version hash being registered on-chain causes claim rejections for users on the new version. This creates user-visible failures with no clear error message.
@@ -259,7 +259,7 @@ The following items must be resolved and documented in a v0.4 architecture speci
 1. **Revenue split formula** — PoC formula is canonical. Confirm and document with test vectors.
 2. **PoC Compendium forward reference** — PoC Compendium v1.0 references "arch spec v0.4" which does not exist. Either update the reference or publish v0.4.
 3. **Graduated nay lockup absolute cap** — 365 days in blocks (2,628,000 at 12s/block). Document the conversion assumption.
-4. **Identity tier requirements in settlement** — Tier 1 base rate = allowlist in PoC. Full tiers (T2 KILT Basic, T3 KYB) must be defined before the Substrate build.
+4. **Identity tier requirements in settlement** — Tier 1 base rate = allowlist in PoC. Full identity tiers (T2/T3 KYB) must be defined before the Substrate build.
 5. **Campaign creation deposit vs. full budget escrow** — Current implementation escrows full budget at creation. Clarify if a smaller deposit with a top-up mechanism is intended.
 6. **Quality score in settlement math** — Explicitly out of scope for PoC. Document where it inserts in the full build formula.
 7. **Aye reward pool funding source** — Undefined. Recommend documenting that a percentage of protocol fees fund the pool.

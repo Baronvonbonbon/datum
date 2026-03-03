@@ -22,7 +22,7 @@ The MVP consists of four deliverables:
 | Item | Reason |
 |------|---------|
 | ZK proof of auction outcome | `zkProof` field reserved in Claim struct; circuit work separate track |
-| Decentralized KYB identity | MVP uses T1 allowlist; identity verification (KILT, zkMe, or Polkadot PoP) is a post-MVP upgrade |
+| Decentralized KYB identity | MVP uses T1 allowlist; identity verification (zkMe or Polkadot PoP) is a post-MVP upgrade |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing is post-MVP |
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
 | Taxonomy on-chain governance | Hardcoded taxonomy in MVP; per-campaign category targeting is MVP scope |
@@ -248,7 +248,7 @@ DATUM targets Polkadot Hub via pallet-revive (PolkaVM / RISC-V), not an EVM-nati
 
 3. **XCM interoperability.** Post-MVP features (HydraDX fee routing, cross-chain governance) become native XCM calls rather than bridge transactions. Polkadot Hub is the canonical origin for XCM messages.
 
-4. **Ecosystem alignment.** Polkadot's identity primitives (KILT, Proof of Personhood), governance tooling (OpenGov), and treasury funding are directly accessible. An EVM deployment would need to bridge into these.
+4. **Ecosystem alignment.** Polkadot's identity primitives (Proof of Personhood), governance tooling (OpenGov), and treasury funding are directly accessible. An EVM deployment would need to bridge into these.
 
 **What PVM costs (measured tradeoffs)**
 
@@ -984,11 +984,10 @@ After G4-P, the following items become the next development cycle in priority or
 
 1. **ZK proof of auction outcome** — custom circuit, in-browser WASM prover, `zkProof` field validation in `_validateClaim()`; must be prototyped before this cycle starts
 2. **Decentralized KYB/KYC identity** — T2/T3 identity tiers in settlement; per-advertiser and per-publisher credential verification. Candidate systems:
-   - **KILT Protocol** — Polkadot-native verifiable credential issuance; active parachain on coretime; used by Deloitte for shipping logistics; issues W3C-compliant credentials that can be verified on-chain
    - **Polkadot Proof of Personhood (Project Individuality)** — Gavin Wood's Sybil-resistant identity primitive launching 2025–2026; ZK proofs only (no PII on-chain); good for user verification but may not cover business KYB
    - **zkMe** — ZK identity oracles; FATF-compliant KYC/KYB/AML; cross-chain; the only decentralized solution currently doing full KYB with ZK proofs
    - **Blockpass** — Web3 compliance suite with reusable on-chain KYC; less decentralized but production-ready
-   - **Recommendation:** Evaluate zkMe for advertiser/publisher KYB (business verification) and Polkadot PoP for user Sybil resistance (prevents fake impression farms). KILT remains viable for verifiable credential storage if a W3C VC standard is needed.
+   - **Recommendation:** Evaluate zkMe for advertiser/publisher KYB (business verification) and Polkadot PoP for user Sybil resistance (prevents fake impression farms).
 3. **HydraDX XCM fee routing** — protocol fee accumulation → XCM send → HydraDX swap; requires XCM retry queue
 4. **Viewability dispute mechanism** — 7-day challenge window, advertiser bond, oracle-based sampling audit
 5. **Revenue split governance** — make 75/25 user/protocol split a governance parameter

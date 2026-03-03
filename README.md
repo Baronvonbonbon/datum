@@ -171,7 +171,7 @@ DATUM targets Polkadot Hub via pallet-revive rather than an EVM chain. This is d
 - **Native DOT settlement** -- campaign escrow, governance stakes, and payments are all in native DOT with no bridges or wrapped tokens
 - **Shared security** -- contracts execute on Polkadot Hub directly, inheriting relay chain security
 - **XCM interoperability** -- future cross-chain features (fee routing via HydraDX, cross-chain governance) become native XCM calls
-- **Ecosystem alignment** -- Polkadot identity primitives (Proof of Personhood, KILT), OpenGov tooling, and treasury funding are directly accessible
+- **Ecosystem alignment** -- Polkadot identity primitives (Proof of Personhood), OpenGov tooling, and treasury funding are directly accessible
 
 The tradeoffs are real: resolc produces 10-20x larger bytecode than solc, cross-contract calls are more expensive, and the toolchain is still maturing. The 49,152-byte initcode limit forced splitting from 3 contracts to 6 and required aggressive size optimization. But the Solidity source is portable -- if pallet-revive doesn't mature, deployment to an EVM parachain remains viable.
 
@@ -180,7 +180,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc, cross-
 | Item | Status |
 |------|--------|
 | ZK proof of auction outcome | `zkProof` field reserved in Claim struct; circuit work is a separate track |
-| Decentralized KYB identity | MVP uses T1 allowlist; evaluating zkMe, KILT, Polkadot PoP for post-MVP |
+| Decentralized KYB identity | MVP uses T1 allowlist; evaluating zkMe and Polkadot PoP for post-MVP |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing is post-MVP |
 | Rich media ad rendering | MVP renders text creatives; image/video support post-MVP |
 | Viewability dispute mechanism | Requires oracle or ZK; post-MVP |
