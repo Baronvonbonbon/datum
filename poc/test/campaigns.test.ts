@@ -286,6 +286,35 @@ describe("DatumCampaigns", function () {
     ).to.be.revertedWithCustomError(publishers, "OwnableUnauthorizedAccount");
   });
 
+  // M1: advertiser can set metadata hash
+  it("M1: advertiser can set campaign metadata", async function () {
+    const { id } = await createTestCampaign();
+    const metadataHash = ethers.keccak256(ethers.toUtf8Bytes("ipfs://QmTest123"));
+
+    await expect(
+      campaigns.connect(advertiser).setMetadata(id, metadataHash)
+    ).to.emit(campaigns, "CampaignMetadataSet").withArgs(id, metadataHash);
+  });
+
+  // M2: non-advertiser cannot set metadata
+  it("M2: non-advertiser cannot set campaign metadata", async function () {
+    const { id } = await createTestCampaign();
+    const metadataHash = ethers.keccak256(ethers.toUtf8Bytes("ipfs://QmTest123"));
+
+    await expect(
+      campaigns.connect(other).setMetadata(id, metadataHash)
+    ).to.be.revertedWith("E21");
+  });
+
+  // M3: setMetadata reverts for non-existent campaign
+  it("M3: setMetadata reverts for non-existent campaign", async function () {
+    const metadataHash = ethers.keccak256(ethers.toUtf8Bytes("ipfs://QmTest123"));
+
+    await expect(
+      campaigns.connect(advertiser).setMetadata(99999n, metadataHash)
+    ).to.be.revertedWith("E01");
+  });
+
   // createCampaign with bid below floor reverts
   // Note: setMinimumCpmFloor removed for PVM size. Floor is set in constructor.
   // This test uses a fresh DatumCampaigns with a high floor.

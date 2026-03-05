@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. 58/58 tests pass (46 core + 6 relay R1-R6 + 4 publisher co-sig R7-R10 + 1 integration F + 1 double-withdraw).
+**Status:** All 11 issues resolved. 64/64 tests pass (46 core + 6 relay R1-R6 + 4 publisher co-sig R7-R10 + 3 ZK verifier Z1-Z3 + 3 metadata M1-M3 + 1 integration F + 1 double-withdraw).
 
 ---
 
@@ -208,7 +208,9 @@ The deferred "ZK proof of auction outcome" and "viewability dispute mechanism" a
 
 **Remaining gaps:** (1) Publisher attestation endpoint (`.well-known/datum-attest`) not yet implemented — publishers cannot yet produce co-signatures in practice. (2) Direct user submission (without relay) has no attestation enforcement; a separate `DatumAttestationVerifier` wrapper is post-MVP. (3) Degraded trust mode means co-signatures are optional, not mandatory.
 
-**Longer-term paths:** TEE attestation (extension runs in trusted execution environment), ZK proof of DOM state (extension proves it rendered specific content), or random sampling with oracle verification.
+**Behavioral analytics commitment (P16 — planned):** On-device engagement metrics (dwell time, scroll depth, tab focus, IAB viewability) captured per impression and committed via an append-only behavior hash chain. Each claim includes a `bytes32 behaviorCommit` binding the user's engagement evidence to the claim chain. Raw metrics never leave the device; selective disclosure allows users to prove specific metrics (e.g., "average dwell >5s") during disputes without revealing full browsing data. Natural upgrade path to ZK behavior proofs (prove engagement properties in-circuit without revealing raw data).
+
+**Longer-term paths:** TEE attestation (extension runs in trusted execution environment), ZK proof of DOM state (extension proves it rendered specific content), random sampling with oracle verification, or ZK behavior proofs (prove engagement metrics satisfy thresholds without revealing raw data).
 
 ### Critical: No price discovery mechanism
 
@@ -259,6 +261,7 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 | Component | Trust assumption | Path to trustlessness |
 |-----------|-----------------|----------------------|
 | Impression count | Trust extension code (partially mitigated: publisher co-sig in DatumRelay, 2026-03-03) | Publisher attestation endpoint; mandatory attestation mode; then ZK/TEE |
+| Engagement quality | No evidence user actually engaged with ad content | On-device behavior hash chain with `behaviorCommit` in claims (P16); selective disclosure; ZK behavior proofs |
 | Clearing CPM | Trust extension code | Auction mechanism; then ZK proof of clearing |
 | Aye reward amounts | Trust contract owner | On-chain proportional computation |
 | Contract references | Trust contract owner | Timelock + governance approval |
@@ -412,4 +415,4 @@ extension/
 └── webpack.config.js
 ```
 
-**Test results: 58/58 pass.**
+**Test results: 64/64 pass.**

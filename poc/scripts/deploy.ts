@@ -70,14 +70,22 @@ async function main() {
   console.log("  DatumSettlement:", settlementAddr);
 
   // 6. Deploy DatumRelay
-  console.log("[6/6] Deploying DatumRelay...");
+  console.log("[6/7] Deploying DatumRelay...");
   const RelayFactory = await ethers.getContractFactory("DatumRelay");
   const relay = await RelayFactory.deploy(settlementAddr, campaignsAddr);
   await relay.waitForDeployment();
   const relayAddr = await relay.getAddress();
   console.log("  DatumRelay:", relayAddr);
 
-  // 7. Wire contracts
+  // 7. Deploy DatumZKVerifier (stub)
+  console.log("[7/7] Deploying DatumZKVerifier (stub)...");
+  const ZKFactory = await ethers.getContractFactory("DatumZKVerifier");
+  const zkVerifier = await ZKFactory.deploy();
+  await zkVerifier.waitForDeployment();
+  const zkVerifierAddr = await zkVerifier.getAddress();
+  console.log("  DatumZKVerifier:", zkVerifierAddr);
+
+  // 8. Wire contracts
   console.log("\nWiring contracts...");
   await voting.setRewardsContract(rewardsAddr);
   console.log("  Rewards wired to voting:", rewardsAddr);
@@ -90,6 +98,9 @@ async function main() {
   await settlement.setRelayContract(relayAddr);
   console.log("  Relay wired to settlement:", relayAddr);
 
+  await settlement.setZKVerifier(zkVerifierAddr);
+  console.log("  ZK verifier wired to settlement:", zkVerifierAddr);
+
   console.log("\n=== DATUM Deployment Complete ===");
   console.log({
     DatumPublishers: publishersAddr,
@@ -98,6 +109,7 @@ async function main() {
     DatumGovernanceRewards: rewardsAddr,
     DatumSettlement: settlementAddr,
     DatumRelay: relayAddr,
+    DatumZKVerifier: zkVerifierAddr,
   });
 }
 

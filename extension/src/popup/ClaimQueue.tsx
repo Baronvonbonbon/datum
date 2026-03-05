@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserProvider, Eip1193Provider } from "ethers";
 import { getSettlementContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
+import { getSigner, getUnlockedWallet } from "@shared/walletManager";
 
 interface QueueState {
   pendingCount: number;
@@ -85,9 +85,7 @@ export function ClaimQueue({ address }: Props) {
         throw new Error("Settlement contract address not configured. Check Settings.");
       }
 
-      if (!window.ethereum) throw new Error("No EIP-1193 provider found. Install SubWallet.");
-      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      const signer = await provider.getSigner();
+      const signer = getSigner(settings.rpcUrl);
 
       // Get batches from background (serialized — bigints as strings)
       const batchesResponse = await chrome.runtime.sendMessage({
@@ -221,9 +219,8 @@ export function ClaimQueue({ address }: Props) {
         throw new Error("Relay contract address not configured. Check Settings.");
       }
 
-      if (!window.ethereum) throw new Error("No EIP-1193 provider found.");
-      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      const signer = await provider.getSigner();
+      const signer = getSigner(settings.rpcUrl);
+      const provider = signer.provider!;
       const network = await provider.getNetwork();
       const currentBlock = await provider.getBlockNumber();
       // Signature valid for ~10 minutes (100 blocks at 6s each)
@@ -275,13 +272,32 @@ export function ClaimQueue({ address }: Props) {
 
         const signature = await signer.signTypedData(domain, types, value);
 
+        // Attempt publisher attestation (degraded trust if unavailable)
+        let publisherSig = "0x";
+        try {
+          const attestResponse = await chrome.runtime.sendMessage({
+            type: "REQUEST_PUBLISHER_ATTESTATION",
+            publisherAddress: b.claims[0]?.publisher ?? "",
+            campaignId: b.campaignId,
+            userAddress: b.user,
+            firstNonce: b.claims[0].nonce,
+            lastNonce: b.claims[claimsLen - 1].nonce,
+            claimCount: claimsLen,
+          });
+          if (attestResponse?.signature) {
+            publisherSig = attestResponse.signature;
+          }
+        } catch {
+          // Attestation unavailable — degraded trust mode
+        }
+
         signedBatches.push({
           user: b.user,
           campaignId: b.campaignId,
           claims: b.claims,
           deadline,
           signature,
-          publisherSig: "0x",
+          publisherSig,
         });
       }
 
@@ -388,6 +404,7 @@ export function ClaimQueue({ address }: Props) {
           <div style={{ color: "#888", fontSize: 11, marginTop: 2 }}>
             The publisher will submit these on your behalf.
           </div>
+          <AttestationBadges />
         </div>
       )}
 
@@ -423,6 +440,57 @@ export function ClaimQueue({ address }: Props) {
 }
 
 // -------------------------------------------------------------------------
+// Attestation status badges
+// -------------------------------------------------------------------------
+
+function AttestationBadges() {
+  const [batches, setBatches] = useState<Array<{ campaignId: string; publisherSig: string }>>([]);
+
+  useEffect(() => {
+    chrome.storage.local.get("signedBatches", (stored) => {
+      if (stored.signedBatches?.batches) {
+        setBatches(stored.signedBatches.batches.map((b: any) => ({
+          campaignId: b.campaignId,
+          publisherSig: b.publisherSig ?? "0x",
+        })));
+      }
+    });
+  }, []);
+
+  if (batches.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      {batches.map((b, i) => {
+        const attested = b.publisherSig && b.publisherSig !== "0x" && b.publisherSig.length > 2;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, fontSize: 11 }}>
+            <span style={{ color: "#888" }}>Campaign #{b.campaignId}</span>
+            <span
+              style={{
+                padding: "1px 6px",
+                borderRadius: 3,
+                fontSize: 10,
+                fontWeight: 600,
+                background: attested ? "#0a2a0a" : "#2a1a0a",
+                color: attested ? "#60c060" : "#c09060",
+                border: `1px solid ${attested ? "#2a4a2a" : "#4a3a2a"}`,
+              }}
+              title={attested
+                ? "Publisher co-signed this batch — stronger fraud protection"
+                : "No publisher attestation — degraded trust mode"
+              }
+            >
+              {attested ? "Attested" : "Unattested"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
 
@@ -449,13 +517,6 @@ async function resyncFromChain(
     } catch {
       // If we can't read on-chain state, leave local state as-is
     }
-  }
-}
-
-// Extend Window to include ethereum
-declare global {
-  interface Window {
-    ethereum?: unknown;
   }
 }
 

@@ -729,4 +729,89 @@ describe("DatumSettlement", function () {
       expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // ZK Verifier (DatumZKVerifier stub) — Z1-Z3
+  // -----------------------------------------------------------------------
+
+  describe("ZK Verifier (DatumZKVerifier)", function () {
+    // Z1: settlement accepts non-empty zkProof when stub verifier is wired
+    it("Z1: non-empty zkProof accepted with stub verifier", async function () {
+      const ZKFactory = await ethers.getContractFactory("DatumZKVerifier");
+      const zkVerifier = await ZKFactory.deploy();
+      await settlement.setZKVerifier(await zkVerifier.getAddress());
+
+      const cid = await createTestCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+
+      // Build claim with non-empty zkProof
+      const nonce = 1n;
+      const hash = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, impressions, cpm, nonce, ethers.ZeroHash]
+      );
+      const claims = [{
+        campaignId: cid,
+        publisher: publisher.address,
+        impressionCount: impressions,
+        clearingCpmPlanck: cpm,
+        nonce,
+        previousClaimHash: ethers.ZeroHash,
+        claimHash: hash,
+        zkProof: "0x1234",
+      }];
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      // Clean up: reset zkVerifier to avoid affecting other tests
+      await settlement.setZKVerifier(ethers.ZeroAddress);
+    });
+
+    // Z2: empty zkProof is accepted even with verifier wired (skips verification)
+    it("Z2: empty zkProof accepted with stub verifier (skips verification)", async function () {
+      const ZKFactory = await ethers.getContractFactory("DatumZKVerifier");
+      const zkVerifier = await ZKFactory.deploy();
+      await settlement.setZKVerifier(await zkVerifier.getAddress());
+
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // claims[0].zkProof is "0x" (empty) from buildClaimChain
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await settlement.setZKVerifier(ethers.ZeroAddress);
+    });
+
+    // Z3: settlement ignores zkProof when no verifier is set
+    it("Z3: zkProof ignored when no verifier set", async function () {
+      // Ensure no verifier is set
+      expect(await settlement.zkVerifier()).to.equal(ethers.ZeroAddress);
+
+      const cid = await createTestCampaign();
+      const nonce = 1n;
+      const hash = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, ethers.ZeroHash]
+      );
+      const claims = [{
+        campaignId: cid,
+        publisher: publisher.address,
+        impressionCount: 1000n,
+        clearingCpmPlanck: BID_CPM,
+        nonce,
+        previousClaimHash: ethers.ZeroHash,
+        claimHash: hash,
+        zkProof: "0xdeadbeef",
+      }];
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+    });
+  });
 });

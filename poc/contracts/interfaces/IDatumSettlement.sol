@@ -61,6 +61,7 @@ interface IDatumSettlement {
     // 9 = invalid previousClaimHash
     // 10 = invalid claimHash
     // 11 = insufficient budget
+    // 12 = ZK verification failed
 
     // -------------------------------------------------------------------------
     // Events

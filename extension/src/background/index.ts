@@ -1,12 +1,17 @@
 // DATUM background service worker entry point
 // Handles alarms, message routing, and scheduled tasks.
 
+import { Wallet, JsonRpcProvider, Contract } from "ethers";
 import { campaignPoller } from "./campaignPoller";
 import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
-import { ContentToBackground, PopupToBackground, OffscreenToBackground } from "@shared/messages";
+import { interestProfile } from "./interestProfile";
+import { selectCampaign } from "./campaignMatcher";
+import { requestPublisherAttestation } from "./publisherAttestation";
+import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
+import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -64,7 +69,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
-    await autoFlushViaOffscreen();
+    await autoFlushDirect();
   }
 });
 
@@ -73,13 +78,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // -------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener(
-  (msg: ContentToBackground | PopupToBackground | OffscreenToBackground, _sender, sendResponse) => {
-    if (msg.type === "OFFSCREEN_SUBMIT_RESULT") {
-      handleOffscreenResult(msg);
-      sendResponse({ ok: true });
-      return false;
-    }
-    handleMessage(msg as ContentToBackground | PopupToBackground)
+  (msg: ContentToBackground | PopupToBackground, _sender, sendResponse) => {
+    handleMessage(msg)
       .then(sendResponse)
       .catch((err) => {
         console.error("[DATUM background] message error:", err);
@@ -189,6 +189,39 @@ async function handleMessage(
       return { ok: true, cleared: chainStateKeys.length };
     }
 
+    case "UPDATE_INTEREST": {
+      await interestProfile.updateProfile(msg.category);
+      return { ok: true };
+    }
+
+    case "SELECT_CAMPAIGN": {
+      const profile = await interestProfile.getProfile();
+      const selected = selectCampaign(msg.campaigns, profile, msg.pageCategory);
+      return { selected };
+    }
+
+    case "GET_INTEREST_PROFILE": {
+      const profile = await interestProfile.getProfile();
+      return { profile };
+    }
+
+    case "RESET_INTEREST_PROFILE": {
+      await interestProfile.resetProfile();
+      return { ok: true };
+    }
+
+    case "REQUEST_PUBLISHER_ATTESTATION": {
+      const sig = await requestPublisherAttestation(
+        msg.publisherAddress,
+        msg.campaignId,
+        msg.userAddress,
+        msg.firstNonce,
+        msg.lastNonce,
+        msg.claimCount
+      );
+      return { signature: sig || undefined };
+    }
+
     default:
       return { error: "unknown message type" };
   }
@@ -204,31 +237,17 @@ async function getSettings() {
 }
 
 // -------------------------------------------------------------------------
-// Offscreen document management (Phase 2.8 auto-submit)
+// Auto-submit: direct signing in background (no offscreen needed)
 // -------------------------------------------------------------------------
 
-const OFFSCREEN_URL = chrome.runtime.getURL("offscreen.html");
 // Stores the last auto-flush result for display in popup
 const AUTO_FLUSH_RESULT_KEY = "lastAutoFlushResult";
+// Storage key for the encrypted wallet (must match walletManager.ts)
+const WALLET_STORAGE_KEY = "datumEncryptedWallet";
+// Storage key for the auto-submit password (set by popup when user opts in)
+const AUTO_SUBMIT_KEY_KEY = "autoSubmitKey";
 
-function handleOffscreenResult(msg: OffscreenToBackground) {
-  const result = {
-    settledCount: msg.settledCount,
-    rejectedCount: msg.rejectedCount,
-    error: msg.error,
-    timestamp: Date.now(),
-  };
-  chrome.storage.local.set({ [AUTO_FLUSH_RESULT_KEY]: result });
-  if (msg.error) {
-    console.error("[DATUM] Auto-flush error:", msg.error);
-  } else {
-    console.log(`[DATUM] Auto-flush: settled=${msg.settledCount} rejected=${msg.rejectedCount}`);
-  }
-  // Close offscreen document after result received
-  closeOffscreen();
-}
-
-async function autoFlushViaOffscreen() {
+async function autoFlushDirect() {
   const acquired = await claimQueue.acquireMutex();
   if (!acquired) {
     console.log("[DATUM] Auto-flush skipped — submission already in progress");
@@ -242,10 +261,12 @@ async function autoFlushViaOffscreen() {
       return;
     }
 
-    const stored = await chrome.storage.local.get("connectedAddress");
+    const stored = await chrome.storage.local.get(["connectedAddress", AUTO_SUBMIT_KEY_KEY]);
     const userAddress: string | undefined = stored.connectedAddress;
-    if (!userAddress) {
-      console.log("[DATUM] Auto-flush skipped — no connected wallet");
+    const privateKey: string | undefined = stored[AUTO_SUBMIT_KEY_KEY];
+
+    if (!userAddress || !privateKey) {
+      console.log("[DATUM] Auto-flush skipped — no connected wallet or auto-submit key not set");
       await claimQueue.releaseMutex();
       return;
     }
@@ -259,50 +280,78 @@ async function autoFlushViaOffscreen() {
     // Record flush attempt time
     await chrome.storage.local.set({ lastAutoFlush: Date.now() });
 
-    // Create offscreen document and send submit request
-    // Mutex is released by handleOffscreenResult (via closeOffscreen) or on error
-    await ensureOffscreen();
-    chrome.runtime.sendMessage({
-      type: "OFFSCREEN_SUBMIT",
-      userAddress,
-      batches: serializeBatches(batches),
-      contractAddresses: settings.contractAddresses,
-      rpcUrl: settings.rpcUrl,
-    });
+    // Sign and submit directly using ethers.Wallet (no DOM needed)
+    const provider = new JsonRpcProvider(settings.rpcUrl);
+    const wallet = new Wallet(privateKey, provider);
+    const settlement = new Contract(
+      settings.contractAddresses.settlement,
+      DatumSettlementAbi.abi,
+      wallet
+    );
 
-    // Safety timeout: if offscreen crashes without sending OFFSCREEN_SUBMIT_RESULT,
-    // the mutex would stay held until the 5-min staleness timeout. Force cleanup after 2 min.
-    setTimeout(() => {
-      chrome.storage.local.get("submitting").then((stored) => {
-        if (stored.submitting) {
-          console.warn("[DATUM] Auto-flush safety timeout — forcing mutex release");
-          closeOffscreen();
+    const contractBatches = batches.map((b) => ({
+      user: b.user,
+      campaignId: b.campaignId,
+      claims: b.claims.map((c) => ({
+        campaignId: c.campaignId,
+        publisher: c.publisher,
+        impressionCount: c.impressionCount,
+        clearingCpmPlanck: c.clearingCpmPlanck,
+        nonce: c.nonce,
+        previousClaimHash: c.previousClaimHash,
+        claimHash: c.claimHash,
+        zkProof: c.zkProof,
+      })),
+    }));
+
+    let settledCount = 0;
+    let rejectedCount = 0;
+
+    const tx = await settlement.settleClaims(contractBatches);
+    const receipt = await tx.wait();
+
+    if (receipt?.logs) {
+      const iface = settlement.interface;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = iface.parseLog(log);
+          if (parsed?.name === "ClaimSettled") settledCount++;
+          else if (parsed?.name === "ClaimRejected") rejectedCount++;
+        } catch {
+          // log from different contract
         }
-      });
-    }, 120_000);
+      }
+    }
+
+    // Remove settled claims from queue
+    if (settledCount > 0) {
+      const settledNonces = new Map<string, bigint[]>();
+      for (const b of batches) {
+        const cid = b.campaignId.toString();
+        settledNonces.set(cid, b.claims.map((c) => c.nonce));
+      }
+      await claimQueue.removeSettled(userAddress, settledNonces);
+    }
+
+    const result = {
+      settledCount,
+      rejectedCount,
+      timestamp: Date.now(),
+    };
+    await chrome.storage.local.set({ [AUTO_FLUSH_RESULT_KEY]: result });
+    console.log(`[DATUM] Auto-flush: settled=${settledCount} rejected=${rejectedCount}`);
   } catch (err) {
-    console.error("[DATUM] autoFlushViaOffscreen error:", err);
+    console.error("[DATUM] Auto-flush error:", err);
+    const result = {
+      settledCount: 0,
+      rejectedCount: 0,
+      error: String(err),
+      timestamp: Date.now(),
+    };
+    await chrome.storage.local.set({ [AUTO_FLUSH_RESULT_KEY]: result });
+  } finally {
     await claimQueue.releaseMutex();
-    closeOffscreen();
   }
-}
-
-async function ensureOffscreen() {
-  const existing = await chrome.offscreen.hasDocument?.();
-  if (!existing) {
-    await chrome.offscreen.createDocument({
-      url: OFFSCREEN_URL,
-      reasons: [chrome.offscreen.Reason.DOM_SCRAPING],
-      justification: "Auto-submit claim signing via wallet extension",
-    });
-  }
-}
-
-function closeOffscreen() {
-  chrome.offscreen.closeDocument?.().catch(() => {
-    // Document may already be closed
-  });
-  claimQueue.releaseMutex();
 }
 
 // ClaimBatch contains bigints — serialize for chrome message passing (JSON)

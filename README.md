@@ -41,7 +41,7 @@ All amounts are in planck (1 DOT = 10^10 planck).
 
 ### Smart contracts (Solidity on PolkaVM)
 
-Six contracts deployed to Polkadot Hub via pallet-revive:
+Seven contracts deployed to Polkadot Hub via pallet-revive:
 
 | Contract | Role |
 |----------|------|
@@ -49,8 +49,9 @@ Six contracts deployed to Polkadot Hub via pallet-revive:
 | `DatumCampaigns` | Campaign lifecycle: creation, activation, pausing, termination, expiry |
 | `DatumGovernanceVoting` | Stake-weighted conviction voting; activates or terminates campaigns |
 | `DatumGovernanceRewards` | Reward claims and stake withdrawal for governance reviewers |
-| `DatumSettlement` | Hash-chain validation, claim processing, 3-way payment split |
+| `DatumSettlement` | Hash-chain validation, claim processing, 3-way payment split, optional ZK verification |
 | `DatumRelay` | EIP-712 user + publisher co-signature verification for relayed settlement (users pay zero gas) |
+| `DatumZKVerifier` | Stub ZK proof verifier; wired to Settlement for future Groth16/PLONK proofs |
 
 All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcode limit using resolc with optimizer mode `z`.
 
@@ -58,10 +59,10 @@ All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcod
 
 A Chrome extension that handles the entire user-side flow:
 
-- **Background service worker** -- polls for active campaigns, builds hash-chain claims from impressions, manages auto-submission via offscreen documents
+- **Background service worker** -- polls for active campaigns, builds hash-chain claims from impressions, auto-submit signing directly in background (no offscreen needed with embedded wallet)
 - **Content script** -- classifies pages against a 10-category taxonomy, matches active campaigns by category, injects ad creative, records impressions locally
-- **Popup UI** -- wallet connection, campaign list with IPFS metadata, claim queue management, manual/relay submission, publisher campaign creation, user and publisher withdrawal
-- **Offscreen document** -- enables wallet signing for auto-submit (MV3 service workers have no DOM)
+- **Popup UI** -- embedded wallet (import/generate key, AES-256-GCM encrypted at rest), campaign list with IPFS metadata, claim queue management, manual/relay submission, publisher campaign creation, user and publisher withdrawal
+- **Embedded wallet** -- manages a single EVM private key encrypted with user password; signs transactions directly via ethers.Wallet (no external wallet injection needed in extension context). **Testing only -- do not use with real funds; no independent security audit has been performed. Use at your own risk.**
 
 ### Privacy model
 
@@ -71,8 +72,8 @@ The extension processes all browsing data locally. Page classification, campaign
 
 ```
 poc/
-  contracts/          Solidity source (6 contracts + interfaces + mocks)
-  test/               Hardhat test suite (58 tests)
+  contracts/          Solidity source (7 contracts + interfaces + mocks)
+  test/               Hardhat test suite (64 tests)
   scripts/            Deployment, benchmarking, campaign setup, metadata tools
   metadata/           Sample campaign metadata JSON files
   BENCHMARKS.md       Gas measurements on pallet-revive dev chain
@@ -94,7 +95,7 @@ REVIEW.md             Design review and issue resolution log
 
 - Node.js 18+
 - Docker (for the local substrate devchain)
-- Chrome with [SubWallet](https://subwallet.app/) extension
+- Chrome (the extension has an embedded wallet — no external wallet extension required)
 
 ### Contracts
 
@@ -103,7 +104,7 @@ cd poc
 npm install
 
 # Run tests (Hardhat EVM)
-npm test                  # 58/58 pass
+npm test                  # 64/64 pass
 
 # Compile for PolkaVM
 npm run compile:polkavm   # requires @parity/resolc
@@ -152,9 +153,10 @@ npx hardhat run scripts/upload-metadata.ts -- --cid QmXyz... --campaign 1
 ## Status
 
 - [x] **Phase 1** -- Local substrate validation (Gate G1 complete)
-  - 58 tests on Hardhat EVM, 44/46 on pallet-revive (2 skipped by design)
-  - All 6 contracts under 49,152-byte PVM initcode limit
+  - 64 tests on Hardhat EVM, 44/46 on pallet-revive (2 skipped by design)
+  - All 7 contracts under 49,152-byte PVM initcode limit
   - Publisher relay with EIP-712 user signatures + optional publisher co-signatures
+  - Stub ZK verifier (DatumZKVerifier) deployed and wired to Settlement
   - Gas benchmarks recorded
 - [x] **Phase 2** -- Browser extension (code complete, runtime testing in progress)
   - Full popup UI: campaigns, claims, earnings, publisher panel, settings
@@ -162,6 +164,10 @@ npx hardhat run scripts/upload-metadata.ts -- --cid QmXyz... --campaign 1
   - Manual submit, sign-for-relay, auto-submit via offscreen
   - IPFS metadata pipeline: CID encoding, creative rendering, developer CLI
   - Publisher co-signature verification in DatumRelay (two-party impression attestation)
+  - Local interest profile with exponential-decay category weights
+  - Weighted campaign selection (bid CPM x interest x confidence x contextual boost)
+  - Multi-signal page classifier (domain, title, meta description, meta keywords)
+  - Publisher attestation endpoint integration with degraded trust fallback
 - [ ] **Phase 3** -- Testnet deployment (Paseo or Westend)
 - [ ] **Phase 4** -- Mainnet (Kusama -> Polkadot Hub)
 
@@ -192,6 +198,8 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc, cross-
 | Admin timelock | MVP admin setters immediate; post-MVP: 48-hour timelock with on-chain exit window |
 | Multi-publisher campaigns | MVP single publisher per campaign; post-MVP: open publisher pool |
 | Contract upgrade path | MVP non-upgradeable; post-MVP: proxy or migration for Settlement |
+| Local behavioral analytics | MVP records impressions without engagement proof; post-MVP: on-device engagement metrics (dwell, scroll, viewability) committed via behavior hash chain with `behaviorCommit` in Claim struct; selective disclosure; ZK behavior proofs |
+| External wallet integration | MVP uses embedded wallet (import/generate key, AES-256-GCM encrypted at rest) — **testing only, no security guarantees, do not use with real funds**; post-MVP: WalletConnect v2 or iframe bridge for SubWallet/Talisman/Polkadot.js |
 
 ## License
 

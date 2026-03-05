@@ -36,6 +36,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     /// @dev Authorized relay contract that can call settleClaims on behalf of users
     address public relayContract;
 
+    /// @dev Optional ZK verifier contract (address(0) = skip verification)
+    address public zkVerifier;
+
     // -------------------------------------------------------------------------
     // Pull payment balances (Issue 4) — public mappings replace manual getters
     // -------------------------------------------------------------------------
@@ -70,6 +73,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     /// @notice Set the authorized relay contract address
     function setRelayContract(address _relay) external onlyOwner {
         relayContract = _relay;
+    }
+
+    /// @notice Set the ZK verifier contract address (address(0) disables verification)
+    function setZKVerifier(address _zkVerifier) external onlyOwner {
+        zkVerifier = _zkVerifier;
     }
 
     // -------------------------------------------------------------------------
@@ -195,6 +203,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         // Check budget sufficiency (amounts in planck)
         uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
         if (totalPayment > cRemaining) return (false, 11, 0);
+
+        // ZK proof verification (optional — skip if no verifier set or proof empty)
+        if (zkVerifier != address(0) && claim.zkProof.length > 0) {
+            (bool ok2,bytes memory ret) = zkVerifier.staticcall(
+                abi.encodeWithSignature("verify(bytes,bytes32)", claim.zkProof, expectedHash)
+            );
+            if (!ok2 || (ret.length >= 32 && abi.decode(ret, (bool)) == false)) {
+                return (false, 12, 0);
+            }
+        }
 
         return (true, 0, cTakeRate);
     }

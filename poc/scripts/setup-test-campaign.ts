@@ -5,9 +5,9 @@ async function main() {
   const [alith] = await ethers.getSigners();
   console.log("Using account:", alith.address);
 
-  const publishers = await ethers.getContractAt("DatumPublishers", "0xc01Ee7f10EA4aF4673cFff62710E1D7792aBa8f3");
-  const campaigns  = await ethers.getContractAt("DatumCampaigns",  "0x970951a12F975E6762482ACA81E57D5A2A4e73F4");
-  const voting     = await ethers.getContractAt("DatumGovernanceVoting", "0x3ed62137c5DB927cb137c26455969116BF0c23Cb");
+  const publishers = await ethers.getContractAt("DatumPublishers", "0x294c664f6D63bd1521231a2EeFC26d805ce00a08");
+  const campaigns  = await ethers.getContractAt("DatumCampaigns",  "0x82745827D0B8972eC0583B3100eCb30b81Db0072");
+  const voting     = await ethers.getContractAt("DatumGovernanceVoting", "0xEC69d4f48f4f1740976968FAb9828d645Ad1d77f");
 
   // Register Alith as publisher with 50% take rate (5000 bps) — skip if already registered
   console.log("Registering publisher...");

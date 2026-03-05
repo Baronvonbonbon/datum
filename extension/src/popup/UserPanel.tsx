@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserProvider, Eip1193Provider } from "ethers";
 import { getSettlementContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
+import { getSigner } from "@shared/walletManager";
 
 interface Props {
   address: string | null;
@@ -48,10 +48,8 @@ export function UserPanel({ address }: Props) {
     setTxResult(null);
     setError(null);
     try {
-      if (!window.ethereum) throw new Error("No EIP-1193 provider found.");
       const settings = await getSettings();
-      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      const signer = await provider.getSigner();
+      const signer = getSigner(settings.rpcUrl);
       const settlement = getSettlementContract(settings.contractAddresses, signer);
 
       const tx = await settlement.withdrawUser();
@@ -118,12 +116,6 @@ export function UserPanel({ address }: Props) {
       )}
     </div>
   );
-}
-
-declare global {
-  interface Window {
-    ethereum?: unknown;
-  }
 }
 
 const cardStyle: React.CSSProperties = {

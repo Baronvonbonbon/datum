@@ -12,6 +12,9 @@ async function main() {
   const category = classifyPage(document.title, window.location.hostname);
   if (!category) return;
 
+  // Update local interest profile with page category
+  chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category });
+
   // Fetch active campaigns and configured publisher address in parallel
   const [response, settingsStored] = await Promise.all([
     chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
@@ -35,11 +38,25 @@ async function main() {
     (c) => c.categoryId === pageCategoryId || c.categoryId === 0
   );
   const pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
-  const match = publisherAddress
-    ? (pool.find(
-        (c) => c.publisher.toLowerCase() === publisherAddress.toLowerCase()
-      ) ?? pool[0])
-    : pool[0];
+
+  if (pool.length === 0) return;
+
+  // Use weighted campaign selection via background (interest-aware)
+  const selectionResponse = await chrome.runtime.sendMessage({
+    type: "SELECT_CAMPAIGN",
+    campaigns: pool,
+    pageCategory: category,
+  });
+  let match = selectionResponse?.selected ?? null;
+
+  // Fallback: publisher preference or first in pool
+  if (!match) {
+    match = publisherAddress
+      ? (pool.find(
+          (c) => c.publisher.toLowerCase() === publisherAddress.toLowerCase()
+        ) ?? pool[0])
+      : pool[0];
+  }
   if (!match) return;
 
   const dedupeKey = `${match.id}:${window.location.href}`;

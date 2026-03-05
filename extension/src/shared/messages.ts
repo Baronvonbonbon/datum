@@ -3,7 +3,9 @@
 // Messages sent FROM content script TO background
 export type ContentToBackground =
   | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string }
-  | { type: "GET_ACTIVE_CAMPAIGNS" };
+  | { type: "GET_ACTIVE_CAMPAIGNS" }
+  | { type: "UPDATE_INTEREST"; category: string }
+  | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string };
 
 // Messages sent FROM popup TO background
 export type PopupToBackground =
@@ -18,7 +20,10 @@ export type PopupToBackground =
   | { type: "REMOVE_SETTLED_CLAIMS"; userAddress: string; settledNonces: Record<string, string[]> }
   | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
   | { type: "ACQUIRE_MUTEX" }
-  | { type: "RELEASE_MUTEX" };
+  | { type: "RELEASE_MUTEX" }
+  | { type: "GET_INTEREST_PROFILE" }
+  | { type: "RESET_INTEREST_PROFILE" }
+  | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

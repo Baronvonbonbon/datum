@@ -1,18 +1,47 @@
 import { useState, useEffect } from "react";
 import { StoredSettings, NetworkName, ContractAddresses } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS } from "@shared/networks";
+import { unlock, isConfigured } from "@shared/walletManager";
+
+interface InterestProfileData {
+  weights: Record<string, number>;
+  visitCounts: Record<string, number>;
+}
 
 export function Settings() {
   const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetProfileConfirm, setResetProfileConfirm] = useState(false);
+  const [interestProfile, setInterestProfile] = useState<InterestProfileData | null>(null);
+  const [autoSubmitPassword, setAutoSubmitPassword] = useState("");
+  const [autoSubmitKeySet, setAutoSubmitKeySet] = useState(false);
+  const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    chrome.storage.local.get("settings", (stored) => {
+    chrome.storage.local.get(["settings", "autoSubmitKey"], (stored) => {
       if (stored.settings) setSettings(stored.settings);
+      if (stored.autoSubmitKey) setAutoSubmitKeySet(true);
     });
+    loadInterestProfile();
   }, []);
+
+  async function loadInterestProfile() {
+    const response = await chrome.runtime.sendMessage({ type: "GET_INTEREST_PROFILE" });
+    if (response?.profile) {
+      setInterestProfile({
+        weights: response.profile.weights ?? {},
+        visitCounts: response.profile.visitCounts ?? {},
+      });
+    }
+  }
+
+  async function resetInterestProfile() {
+    await chrome.runtime.sendMessage({ type: "RESET_INTEREST_PROFILE" });
+    setInterestProfile(null);
+    setResetProfileConfirm(false);
+  }
 
   async function save() {
     await chrome.storage.local.set({ settings });
@@ -144,19 +173,70 @@ export function Settings() {
       </div>
 
       {settings.autoSubmit && (
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Auto-submit interval (minutes)</label>
-          <input
-            type="number"
-            value={settings.autoSubmitIntervalMinutes}
-            min={1}
-            max={60}
-            onChange={(e) => setSettings((s) => ({
-              ...s,
-              autoSubmitIntervalMinutes: Math.max(1, parseInt(e.target.value) || 10),
-            }))}
-            style={{ ...inputStyle, width: 80 }}
-          />
+        <div>
+          <div style={sectionStyle}>
+            <label style={labelStyle}>Auto-submit interval (minutes)</label>
+            <input
+              type="number"
+              value={settings.autoSubmitIntervalMinutes}
+              min={1}
+              max={60}
+              onChange={(e) => setSettings((s) => ({
+                ...s,
+                autoSubmitIntervalMinutes: Math.max(1, parseInt(e.target.value) || 10),
+              }))}
+              style={{ ...inputStyle, width: 80 }}
+            />
+          </div>
+          {autoSubmitKeySet ? (
+            <div style={{ ...sectionStyle, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "#60c060", fontSize: 11 }}>Auto-submit key authorized</span>
+              <button
+                onClick={async () => {
+                  await chrome.storage.local.remove("autoSubmitKey");
+                  setAutoSubmitKeySet(false);
+                }}
+                style={{ ...secondaryBtn, width: "auto", padding: "4px 8px", fontSize: 11 }}
+              >
+                Revoke
+              </button>
+            </div>
+          ) : (
+            <div style={sectionStyle}>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+                Enter your wallet password to authorize auto-submit. The decrypted key will be stored locally
+                so the background can sign transactions without your interaction.
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="password"
+                  value={autoSubmitPassword}
+                  onChange={(e) => setAutoSubmitPassword(e.target.value)}
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder="Wallet password"
+                />
+                <button
+                  onClick={async () => {
+                    setAutoSubmitError(null);
+                    try {
+                      const wallet = await unlock(autoSubmitPassword);
+                      await chrome.storage.local.set({ autoSubmitKey: wallet.privateKey });
+                      setAutoSubmitKeySet(true);
+                      setAutoSubmitPassword("");
+                    } catch {
+                      setAutoSubmitError("Wrong password.");
+                    }
+                  }}
+                  style={{ ...primaryBtn, width: "auto", padding: "6px 12px", fontSize: 11 }}
+                >
+                  Authorize
+                </button>
+              </div>
+              {autoSubmitError && (
+                <div style={{ color: "#ff8080", fontSize: 11, marginTop: 4 }}>{autoSubmitError}</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -164,6 +244,56 @@ export function Settings() {
       <button onClick={save} style={{ ...primaryBtn, marginTop: 4, marginBottom: 16 }}>
         {saved ? "Saved ✓" : "Save Settings"}
       </button>
+
+      {/* Interest Profile */}
+      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12, marginBottom: 16 }}>
+        <div style={{ ...labelStyle, fontSize: 13, color: "#a0a0ff", marginBottom: 8, fontWeight: 600 }}>
+          Your Interest Profile
+        </div>
+        <div style={{ color: "#666", fontSize: 11, marginBottom: 8 }}>
+          This data never leaves your browser. It personalizes ad selection based on your browsing.
+        </div>
+        {interestProfile && Object.keys(interestProfile.weights).length > 0 ? (
+          <div>
+            {Object.entries(interestProfile.weights)
+              .sort(([, a], [, b]) => b - a)
+              .map(([cat, weight]) => (
+                <div key={cat} style={{ marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 2 }}>
+                    <span>{cat}</span>
+                    <span>{weight.toFixed(2)} ({interestProfile.visitCounts[cat] ?? 0} visits)</span>
+                  </div>
+                  <div style={{ background: "#1a1a2e", borderRadius: 3, height: 8 }}>
+                    <div style={{
+                      width: `${Math.round(weight * 100)}%`,
+                      background: "#4a4a8a",
+                      height: "100%",
+                      borderRadius: 3,
+                      minWidth: 2,
+                    }} />
+                  </div>
+                </div>
+              ))}
+            {!resetProfileConfirm ? (
+              <button onClick={() => setResetProfileConfirm(true)} style={{ ...secondaryBtn, marginTop: 8, fontSize: 11 }}>
+                Reset Profile
+              </button>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ color: "#ff8080", fontSize: 11, marginBottom: 4 }}>Clear all interest data?</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={resetInterestProfile} style={{ ...dangerBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Yes</button>
+                  <button onClick={() => setResetProfileConfirm(false)} style={{ ...secondaryBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ color: "#555", fontSize: 11, fontStyle: "italic" }}>
+            No browsing data yet. Visit pages matching campaign categories to build your profile.
+          </div>
+        )}
+      </div>
 
       {/* Danger zone */}
       <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>

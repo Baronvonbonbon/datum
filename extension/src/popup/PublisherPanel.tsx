@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserProvider, Eip1193Provider, parseUnits } from "ethers";
+import { parseUnits } from "ethers";
 import { getSettlementContract, getPublishersContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { cidToBytes32 } from "@shared/ipfs";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { CATEGORY_NAMES } from "@shared/types";
+import { getSigner } from "@shared/walletManager";
 
 interface Props {
   address: string | null;
@@ -72,10 +73,8 @@ export function PublisherPanel({ address }: Props) {
     setTxResult(null);
     setError(null);
     try {
-      if (!window.ethereum) throw new Error("No EIP-1193 provider found.");
       const settings = await getSettings();
-      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      const signer = await provider.getSigner();
+      const signer = getSigner(settings.rpcUrl);
       const settlement = getSettlementContract(settings.contractAddresses, signer);
 
       const tx = await settlement.withdrawPublisher();
@@ -191,12 +190,10 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
     setResult(null);
     setFormError(null);
     try {
-      if (!window.ethereum) throw new Error("No EIP-1193 provider found.");
       const stored = await chrome.storage.local.get("settings");
       const settings = stored.settings ?? DEFAULT_SETTINGS;
 
-      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      const signer = await provider.getSigner();
+      const signer = getSigner(settings.rpcUrl);
       const campaigns = getCampaignsContract(settings.contractAddresses, signer);
 
       // Convert DOT strings to planck (1 DOT = 10^10 planck)
@@ -285,12 +282,6 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
       )}
     </div>
   );
-}
-
-declare global {
-  interface Window {
-    ethereum?: unknown;
-  }
 }
 
 const cardStyle: React.CSSProperties = {
