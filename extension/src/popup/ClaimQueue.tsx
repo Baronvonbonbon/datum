@@ -41,7 +41,7 @@ export function ClaimQueue({ address }: Props) {
   const loadState = useCallback(async () => {
     const [queueResponse, stored] = await Promise.all([
       chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" }),
-      chrome.storage.local.get(["lastAutoFlushResult", "activeCampaigns"]),
+      chrome.storage.local.get(["lastAutoFlushResult", "activeCampaigns", "settings"]),
     ]);
     setQueueState(queueResponse);
     if (stored.lastAutoFlushResult) {
@@ -55,7 +55,25 @@ export function ClaimQueue({ address }: Props) {
       }
       setCampaigns(map);
     }
-  }, []);
+
+    // Proactively prune claims already settled on-chain (e.g. publisher submitted via relay)
+    if (address && queueResponse?.pendingCount > 0) {
+      try {
+        const settings = stored.settings ?? DEFAULT_SETTINGS;
+        if (settings.contractAddresses?.settlement) {
+          const userCampaigns = queueResponse.byUser?.[address];
+          if (userCampaigns && Object.keys(userCampaigns).length > 0) {
+            await pruneSettledClaims(address, settings, Object.keys(userCampaigns));
+            // Reload queue state after pruning
+            const refreshed = await chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" });
+            setQueueState(refreshed);
+          }
+        }
+      } catch (err) {
+        console.warn("[DATUM] Failed to prune settled claims:", err);
+      }
+    }
+  }, [address]);
 
   useEffect(() => {
     loadState();
@@ -493,6 +511,44 @@ function AttestationBadges() {
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+// Prune claims that have already been settled on-chain (e.g. publisher submitted via relay).
+// Compares on-chain nonce vs local chain state — only syncs when they differ, meaning
+// something settled externally that the extension doesn't know about.
+async function pruneSettledClaims(
+  userAddress: string,
+  settings: StoredSettings,
+  campaignIds: string[]
+) {
+  const provider = getProvider(settings.rpcUrl);
+  const settlement = getSettlementContract(settings.contractAddresses, provider);
+
+  // Read local chain state for all queued campaigns
+  const chainStateKeys = campaignIds.map((cid) => `chainState:${userAddress}:${cid}`);
+  const localStates = await chrome.storage.local.get(chainStateKeys);
+
+  for (const cid of campaignIds) {
+    try {
+      const localKey = `chainState:${userAddress}:${cid}`;
+      const localNonce: number = localStates[localKey]?.lastNonce ?? 0;
+
+      const onChainNonce = Number(await settlement.lastNonce(userAddress, BigInt(cid)));
+      if (onChainNonce > localNonce) {
+        // On-chain nonce advanced beyond local state — claims were settled externally
+        const onChainHash = await settlement.lastClaimHash(userAddress, BigInt(cid));
+        await chrome.runtime.sendMessage({
+          type: "SYNC_CHAIN_STATE",
+          userAddress,
+          campaignId: cid,
+          onChainNonce,
+          onChainHash: String(onChainHash),
+        });
+      }
+    } catch {
+      // RPC failure — skip this campaign, leave claims as-is
+    }
+  }
+}
 
 // Re-sync chain state from on-chain after nonce mismatch
 async function resyncFromChain(

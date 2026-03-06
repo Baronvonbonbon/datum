@@ -1,13 +1,28 @@
 import { ethers } from "hardhat";
 import { keccak256, toUtf8Bytes } from "ethers";
+import * as fs from "fs";
 
 async function main() {
   const [alith] = await ethers.getSigners();
   console.log("Using account:", alith.address);
 
-  const publishers = await ethers.getContractAt("DatumPublishers", "0x294c664f6D63bd1521231a2EeFC26d805ce00a08");
-  const campaigns  = await ethers.getContractAt("DatumCampaigns",  "0x82745827D0B8972eC0583B3100eCb30b81Db0072");
-  const voting     = await ethers.getContractAt("DatumGovernanceVoting", "0xEC69d4f48f4f1740976968FAb9828d645Ad1d77f");
+  // Load addresses from deploy output (falls back to hardcoded)
+  let addrs: Record<string, string> = {
+    publishers: "0x294c664f6D63bd1521231a2EeFC26d805ce00a08",
+    campaigns: "0x82745827D0B8972eC0583B3100eCb30b81Db0072",
+    governanceVoting: "0xEC69d4f48f4f1740976968FAb9828d645Ad1d77f",
+  };
+  const addrFile = __dirname + "/../deployed-addresses.json";
+  if (fs.existsSync(addrFile)) {
+    addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
+    console.log("Loaded addresses from", addrFile);
+  } else {
+    console.log("No deployed-addresses.json found, using hardcoded addresses");
+  }
+
+  const publishers = await ethers.getContractAt("DatumPublishers", addrs.publishers);
+  const campaigns  = await ethers.getContractAt("DatumCampaigns",  addrs.campaigns);
+  const voting     = await ethers.getContractAt("DatumGovernanceVoting", addrs.governanceVoting);
 
   // Register Alith as publisher with 50% take rate (5000 bps) — skip if already registered
   console.log("Registering publisher...");

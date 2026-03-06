@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { JsonRpcProvider, formatEther } from "ethers";
 import { CampaignList } from "./CampaignList";
 import { ClaimQueue } from "./ClaimQueue";
 import { UserPanel } from "./UserPanel";
 import { PublisherPanel } from "./PublisherPanel";
+import { GovernancePanel } from "./GovernancePanel";
 import { Settings } from "./Settings";
 import {
   isConfigured,
@@ -15,14 +17,16 @@ import {
   getStoredAddress,
 } from "@shared/walletManager";
 import { DEFAULT_SETTINGS } from "@shared/networks";
+import { formatDOT } from "@shared/dot";
 
-type Tab = "campaigns" | "claims" | "user" | "publisher" | "settings";
+type Tab = "campaigns" | "claims" | "user" | "publisher" | "governance" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
   campaigns: "Campaigns",
   claims: "Claims",
   user: "Earnings",
   publisher: "Publisher",
+  governance: "Govern",
   settings: "Settings",
 };
 
@@ -42,9 +46,76 @@ export function App() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Chain heartbeat state
+  const [chainStatus, setChainStatus] = useState<{
+    connected: boolean;
+    blockNumber: number | null;
+    blockHash: string | null;
+    nativeBalance: bigint | null;
+    rpcUrl: string;
+    lastUpdated: number | null;
+    error: string | null;
+  }>({
+    connected: false, blockNumber: null, blockHash: null,
+    nativeBalance: null, rpcUrl: "", lastUpdated: null, error: null,
+  });
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pollChainStatus = useCallback(async () => {
+    try {
+      const stored = await chrome.storage.local.get("settings");
+      const settings = stored.settings ?? DEFAULT_SETTINGS;
+      const rpcUrl = settings.rpcUrl;
+      if (!rpcUrl) return;
+
+      const provider = new JsonRpcProvider(rpcUrl);
+      const block = await provider.getBlock("latest");
+      let nativeBalance: bigint | null = null;
+      if (address) {
+        nativeBalance = await provider.getBalance(address);
+      }
+
+      setChainStatus({
+        connected: true,
+        blockNumber: block?.number ?? null,
+        blockHash: block?.hash ?? null,
+        nativeBalance,
+        rpcUrl,
+        lastUpdated: Date.now(),
+        error: null,
+      });
+    } catch (err) {
+      setChainStatus((prev) => ({
+        ...prev,
+        connected: false,
+        error: String(err).slice(0, 100),
+        lastUpdated: Date.now(),
+      }));
+    }
+  }, [address]);
+
   useEffect(() => {
     initWalletState();
   }, []);
+
+  // Start/stop heartbeat polling when wallet is unlocked
+  useEffect(() => {
+    if (walletState === "unlocked") {
+      pollChainStatus(); // immediate first poll
+      heartbeatRef.current = setInterval(pollChainStatus, 10_000);
+    } else {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    }
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
+  }, [walletState, pollChainStatus]);
 
   async function initWalletState() {
     const configured = await isConfigured();
@@ -347,6 +418,52 @@ export function App() {
         </div>
       </div>
 
+      {/* Chain heartbeat */}
+      <div style={{
+        padding: "4px 16px",
+        background: chainStatus.connected ? "#0a1a0a" : "#2a0a0a",
+        borderBottom: "1px solid #2a2a4a",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        fontSize: 10,
+        fontFamily: "monospace",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%", display: "inline-block",
+            background: chainStatus.connected ? "#40c040" : "#c04040",
+          }} />
+          {chainStatus.connected ? (
+            <span style={{ color: "#608060" }}>
+              #{chainStatus.blockNumber}
+              {chainStatus.blockHash && (
+                <span style={{ color: "#405040", marginLeft: 4 }}>
+                  {chainStatus.blockHash.slice(0, 10)}...
+                </span>
+              )}
+            </span>
+          ) : (
+            <span style={{ color: "#c06060" }}>
+              {chainStatus.error ? "RPC error" : "Disconnected"}
+            </span>
+          )}
+        </div>
+        <div>
+          {chainStatus.nativeBalance !== null ? (
+            <span style={{ color: "#60a060" }}>
+              {formatDOT(chainStatus.nativeBalance)} DOT
+            </span>
+          ) : chainStatus.connected ? (
+            <span style={{ color: "#555" }}>...</span>
+          ) : (
+            <span style={{ color: "#804040", fontSize: 9 }}>
+              {chainStatus.rpcUrl || "No RPC"}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "1px solid #2a2a4a" }}>
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
@@ -376,6 +493,7 @@ export function App() {
         {tab === "claims" && <ClaimQueue address={address} />}
         {tab === "user" && <UserPanel address={address} />}
         {tab === "publisher" && <PublisherPanel address={address} />}
+        {tab === "governance" && <GovernancePanel address={address} />}
         {tab === "settings" && <Settings />}
       </div>
     </div>

@@ -1,8 +1,8 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 1.8
+**Version:** 2.0
 **Date:** 2026-02-24
-**Last updated:** 2026-03-04 — ZK verifier stub (2.22): DatumZKVerifier deployed and wired to Settlement. Campaign metadata tests (M1-M3). Phase 2C extension: local interest profile (2.18), weighted campaign matcher (2.19), multi-signal page classifier (2.20), publisher attestation flow (2.21 ext). 64/64 EVM tests pass. 7 contracts all under 49,152 B PVM limit.
+**Last updated:** 2026-03-06 — Added P18 (Governance V2: symmetric aye/nay slashing, vote stacking, time-delayed termination, publisher reports, advertiser governance deposit) and P19 (interest-weighted second-price auction bidding). Extension: GovernancePanel, relay submit in PublisherPanel, Govern tab. Previous: ZK verifier stub (2.22), Phase 2C extension (2.18-2.22), 64/64 EVM tests, 7 contracts under 49,152 B PVM limit.
 **Scope:** Seven-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -368,11 +368,12 @@ extension/
 │   ├── offscreen.html            Minimal HTML shell (legacy; auto-submit now signs in background)
 │   └── offscreen.ts              Legacy offscreen document (kept for potential future use)
 ├── popup/
-│   ├── App.tsx                   Root: embedded wallet setup/unlock, 5-tab navigation
+│   ├── App.tsx                   Root: embedded wallet setup/unlock, 6-tab navigation
 │   ├── CampaignList.tsx          Active campaigns + match status
 │   ├── ClaimQueue.tsx            Pending claims; submitAll(); signForRelay(); auto-flush result
 │   ├── UserPanel.tsx             User balance (DOT) + withdrawUser() button
-│   ├── PublisherPanel.tsx        Publisher balance + withdrawPublisher() button
+│   ├── PublisherPanel.tsx        Publisher balance + withdraw + relay submit + campaign creation
+│   ├── GovernancePanel.tsx       Vote form (aye/nay), campaign lists, stake withdrawal
 │   └── Settings.tsx              Auto-submit toggle, interval, RPC, contract addresses, danger zone
 └── shared/
     ├── abis/                     ABI JSON files copied from poc/artifacts/ by copy-abis.js
@@ -1039,6 +1040,57 @@ For direct user submission (without relay), attestation is not enforced on-chain
 - [x] Extension builds cleanly; publisher attestation failure does not block impression recording ← **verified (2026-03-04)** 3s timeout + fallback to degraded trust
 - [ ] No user data leaves the browser at any point in the flow ← needs manual Chrome E2E verification
 
+#### 2.23 — Governance voting UI ✅ COMPLETE (2026-03-06)
+
+`GovernancePanel.tsx` — full governance voting interface in the extension popup.
+
+**Implementation:**
+- [x] **Pending/Active campaign lists**: Iterates `0..nextCampaignId` from DatumCampaigns, filters by status (Pending=0 for aye, Active/Paused=1/2 for nay), fetches `getCampaignVote()` for each
+- [x] **Progress bars**: Each campaign row shows progress toward activation threshold (aye total / activationThreshold) or termination threshold (nay total / terminationThreshold) with percentage
+- [x] **Threshold display**: Fetches and shows `activationThreshold`, `terminationThreshold`, `minReviewerStake` from governance contract
+- [x] **Context-aware vote buttons**: Aye enabled only for Pending campaigns, Nay enabled only for Active/Paused campaigns. Status badge next to campaign ID input. Explanatory text for which vote type is valid
+- [x] **Vote form**: Campaign ID (auto-filled by clicking campaign row), DOT stake amount, conviction dropdown (1-6 with multiplier labels), Aye/Nay buttons
+- [x] **Vote status query**: `getCampaignVote()` shows aye/nay totals, reviewer count, activated/terminated status badges
+- [x] **User vote record**: `getVoteRecord()` shows user's existing vote direction, lock amount, conviction, lockup expiry with countdown
+- [x] **Stake withdrawal**: When lockup expired (`lockedUntilBlock <= currentBlock`), shows "Withdraw Stake" button → calls `rewards.withdrawStake(campaignId)`
+- [x] **Govern tab**: Added to App.tsx as 6th tab ("Govern"), between Publisher and Settings
+
+**Contracts used:** `getGovernanceVotingContract()` (voteAye, voteNay, getCampaignVote, getVoteRecord, minReviewerStake, activationThreshold, terminationThreshold), `getGovernanceRewardsContract()` (withdrawStake), `getCampaignsContract()` (nextCampaignId, getCampaign)
+
+**Files:** `extension/src/popup/GovernancePanel.tsx` (new), `extension/src/popup/App.tsx` (modified)
+
+#### 2.24 — Publisher relay submit UI ✅ COMPLETE (2026-03-06)
+
+Added relay submit section to `PublisherPanel.tsx` — publishers can now read and submit signed batches that users created via "Sign for Publisher (zero gas)".
+
+**Implementation:**
+- [x] Reads `signedBatches` from `chrome.storage.local` on component load (alongside existing balance data)
+- [x] Shows batch count, deadline block, and estimated time remaining
+- [x] "Submit Signed Claims" button: deserializes stored batches (BigInt conversion for all numeric fields), calls `relay.settleClaimsFor(batches)`, parses `ClaimSettled`/`ClaimRejected` events from settlement contract interface
+- [x] On success: clears `signedBatches` from storage, shows settled/rejected counts and total paid
+- [x] "Expired" warning when `currentBlock >= deadline` with disabled submit button
+- [x] "Clear" button to discard stale signed batches
+- [x] Fetches current block number to calculate deadline status
+
+**Contracts used:** `getRelayContract()` (settleClaimsFor), `getSettlementContract()` (interface for event parsing)
+
+**Files:** `extension/src/popup/PublisherPanel.tsx` (modified)
+
+#### Extension UX improvement opportunities (future work)
+
+These items were identified during 2.23/2.24 development and are deferred to post-Step H:
+
+| Item | Description | Complexity |
+|------|-------------|------------|
+| **Vote stacking** | Contract enforces one vote per address per campaign (`castAtBlock == 0`). No way to increase stake after voting. Consider: `increaseStake(campaignId)` in governance V2 | Contract change |
+| **Conviction preview** | Show weighted vote power preview before submitting (stake × 2^conviction) and estimated lockup duration | Extension only |
+| **Campaign detail modal** | Click campaign ID in governance list to see full details (advertiser, publisher, budget, metadata) | Extension only |
+| **Vote history** | Track user's votes across campaigns with lockup status dashboard | Extension only |
+| **Batch relay management** | Publisher sees per-user breakdown of signed batches, can submit selectively | Extension only |
+| **Auto-relay** | Publisher background auto-submits signed batches when they appear in storage | Extension + background |
+| **Governance notifications** | Alert when a campaign the user voted on gets activated/terminated | Extension + background |
+| **Multi-address relay** | Publisher collects signed batches from multiple user extensions (requires cross-extension or server coordination) | Architecture change |
+
 ---
 
 ## Phase 3 — Testnet Deployment
@@ -1581,6 +1633,288 @@ Conviction referendum for taxonomy changes. 7-day delay before enactment. Must d
 
 **Dependencies:** None. Extension-only change. The embedded wallet remains as a fallback.
 
+#### P18. Governance V2 — Stakeholder Risk/Reward Rebalancing
+
+**Problem:** The MVP governance model has asymmetric risk that creates misaligned incentives across all four stakeholder groups:
+
+| Stakeholder | Current risk | Current reward | Imbalance |
+|-------------|-------------|----------------|-----------|
+| **Campaign author (advertiser)** | Loses up to 10% of remaining budget on termination (slash) + 90% refund. Zero risk from governance approval — campaign just activates. | Revenue from ads served to users via the campaign budget they deposited. | Low downside (10% max slash) incentivizes low-quality campaigns. Advertiser risks nothing for governance approval — no skin in the game for the review process. |
+| **Publisher** | None from governance. Publisher take rate is snapshotted at campaign creation. | `snapshotTakeRateBps / 10000` of every settled claim. Publisher pays gas for relay submissions. | Publisher has no governance role. No incentive to report bad campaigns. No risk if they serve a terminated campaign's ads. |
+| **Aye voter (reviewer)** | Stake locked for `baseLockup × 2^conviction` blocks. If campaign is terminated, stake is still locked — no slash for being wrong. | Aye reward from `ayeRewardPool` (currently owner-computed off-chain via `creditAyeReward`). Funding source undefined. | No penalty for voting aye on a bad campaign. Rational aye voter stakes dust at conviction 1, collects reward, takes no risk. Vote stacking impossible (one vote per address per campaign). |
+| **Nay voter (challenger)** | Stake locked for `baseLockup × (2^conviction + 2^min(failedNays,4))` blocks (graduated). If campaign completes, `resolveFailedNay` increments `_voterFailedNays` (increases future lockup). | Share of 10% slash pool proportional to conviction-weighted stake. | Nay voters risk increasing future lockup for being wrong, but don't lose DOT. Slash reward (10% of remaining budget) may be small relative to stake. Asymmetric with aye voters who face no penalty. |
+
+**Design: DatumGovernanceV2 contract**
+
+A replacement governance contract that introduces symmetric risk, structured incentives, and an explicit review lifecycle. Deployed alongside existing contracts; migration via `campaigns.setGovernanceContract()` (with timelock from P3).
+
+**1. Symmetric aye slashing (aye voters risk DOT on termination):**
+
+If a campaign is terminated, aye voters who voted before `terminationBlock` forfeit a percentage of their stake:
+```
+ayeSlashPct = governanceParam (default 5%, range 1-20%)
+slashedAmount = voteRecord.lockAmount × ayeSlashPct / 100
+```
+Slashed DOT goes to a combined slash pool shared between nay voters and the protocol (50/50 split, configurable). This creates real cost for careless aye votes. Voters must actually review campaigns before approving.
+
+**2. Aye reward funding from protocol fees:**
+
+Each settled claim contributes a fraction of `protocolFee` to a global governance reward pool:
+```
+governanceRewardBps = 500 (5% of protocol fee → governance pool)
+perClaimReward = protocolFee × governanceRewardBps / 10000
+```
+At campaign completion, the accumulated governance reward is distributed to aye voters proportional to conviction-weighted stake. This replaces the undefined funding source and eliminates the owner-computed `creditAyeReward`.
+
+Contract change: `DatumSettlement` accumulates `governanceRewardPool[campaignId]` per settled claim. At campaign completion, governance contract reads the pool and distributes.
+
+**3. Vote stacking (increase stake after initial vote):**
+
+Replace `require(existing.castAtBlock == 0, "Already voted")` with:
+```solidity
+function increaseStake(uint256 campaignId) external payable {
+    VoteRecord storage vr = _voteRecords[campaignId][msg.sender];
+    require(vr.castAtBlock != 0, "No existing vote");
+    require(msg.value > 0, "Must add DOT");
+    vr.lockAmount += msg.value;
+    // Recalculate weighted total for the campaign
+    CampaignVote storage cv = _campaignVotes[campaignId];
+    if (vr.direction == VoteDirection.Aye) {
+        cv.ayeTotal += msg.value * (1 << vr.conviction);
+    } else {
+        cv.nayTotal += msg.value * (1 << vr.conviction);
+    }
+    // Extend lockup from current block (not from original vote)
+    vr.lockedUntilBlock = block.number + baseLockupBlocks * (1 << vr.conviction);
+}
+```
+This allows voters to increase conviction signaling without creating new addresses. Lockup resets from the increase point.
+
+**4. Time-delayed termination (challenge period):**
+
+When nay threshold is crossed, campaign enters `TerminationPending` (new status 6) for `terminationDelayBlocks` (default 14,400 = 24h on Polkadot Hub):
+```
+voteNay → nayTotal >= threshold → status = TerminationPending, terminationPendingUntil = block.number + delay
+```
+During the delay:
+- Additional aye votes can be cast to counter nay weight
+- Aye voters can increase stake
+- If `ayeTotal > nayTotal` at delay end: termination cancelled, campaign returns to Active
+- If `nayTotal >= ayeTotal` at delay end: `finalizetermination()` callable by anyone → campaign Terminated
+
+This prevents drive-by termination attacks where a whale nay-votes with conviction 6 and immediately terminates.
+
+**5. Publisher attestation bonus for governance:**
+
+Publishers who served a campaign and provided co-signatures (verified via relay) get a small governance voice:
+- Publisher can cast a lightweight "publisher report" (not a vote) flagging campaign quality issues
+- Publisher reports weight toward `nayTotal` at a reduced rate (e.g., 0.5x vs full conviction weight for nay voters)
+- This gives publishers a mechanism to signal bad campaigns without requiring a full stake. They already have economic exposure via gas costs for relay submission.
+
+**6. Nay voter DOT risk (symmetric with aye slash):**
+
+If a nay-voted campaign completes successfully (advertiser's budget fully spent or advertiser-completed):
+```
+naySlashPct = governanceParam (default 3%, range 1-10%)
+slashedAmount = voteRecord.lockAmount × naySlashPct / 100
+```
+Slashed DOT distributed to the advertiser as compensation for attempted disruption. This is the complement of aye slashing — both sides have real DOT at risk.
+
+Combined with the graduated lockup increase (`_voterFailedNays`), serial false-flaggers face compounding penalties.
+
+**7. Advertiser governance deposit:**
+
+At campaign creation, advertiser pays a governance deposit (separate from budget):
+```
+governanceDeposit = budgetPlanck × governanceDepositBps / 10000 (default 200 = 2%)
+```
+- If campaign completes normally: deposit returned to advertiser
+- If campaign is terminated: deposit added to the slash pool (increases nay voter reward, making legitimate challenges more profitable)
+- If campaign expires (pending timeout): deposit returned
+
+This creates advertiser skin-in-the-game for the review process. Low-quality campaigns that get terminated cost the advertiser the deposit on top of the 10% budget slash.
+
+**Contract structure:**
+
+```
+DatumGovernanceV2.sol — Replaces DatumGovernanceVoting
+  - voteAye(), voteNay(), increaseStake()
+  - initiateTermination() (sets TerminationPending)
+  - finalizeTermination() (after delay, callable by anyone)
+  - cancelTermination() (if aye > nay at delay end)
+  - publisherReport()
+  - Symmetric slashing (aye slash on termination, nay slash on completion)
+
+DatumGovernanceRewardsV2.sol — Replaces DatumGovernanceRewards
+  - distributeRewards() — on-chain proportional computation (batch-processed)
+  - claimReward() — pull payment for aye rewards
+  - claimSlashReward() — pull payment for nay rewards
+  - withdrawStake() — with slash deduction
+
+DatumCampaigns changes:
+  - Accept governance deposit at createCampaign()
+  - New status: TerminationPending (6)
+  - Deposit refund/forfeiture logic
+```
+
+**PVM size strategy:**
+- DatumGovernanceV2 replaces DatumGovernanceVoting (48,772 B budget)
+- Vote stacking adds ~1.5 KB, termination delay adds ~2 KB, publisher report adds ~1 KB
+- May need to move some logic to DatumGovernanceRewardsV2 or use a third contract
+- Alternative: batch processing pattern with `startIndex/count` for reward distribution
+
+**Risk/reward summary after V2:**
+
+| Stakeholder | Risk | Reward | Balance |
+|-------------|------|--------|---------|
+| Advertiser | 10% budget slash + 2% governance deposit on termination | Ads served; deposit returned on completion | Meaningful cost for low-quality campaigns |
+| Publisher | Gas costs for relay; publisher report reputation | Take rate from settled claims; governance voice via reports | Aligned: publishers profit from healthy campaigns |
+| Aye voter | 5% stake slash on termination; lockup period | Share of protocol-funded governance reward pool | Must review carefully; careless approval costs DOT |
+| Nay voter | 3% stake slash on completion; graduated lockup increase | Share of 10% budget slash + governance deposit | Must challenge honestly; false challenges cost DOT |
+
+**Dependencies:** P3 (admin timelock — needed for safe contract migration), P4 (on-chain aye rewards — absorbed into V2 design).
+
+**Testing plan:**
+- Test: aye voter slashed on termination, receives less than full stake back
+- Test: nay voter slashed on campaign completion
+- Test: increaseStake adds to existing vote, recalculates weighted total
+- Test: termination delay allows counter-aye, cancellation works
+- Test: publisher report contributes to nay weight at reduced rate
+- Test: governance deposit returned on completion, forfeited on termination
+- Test: aye reward funded from protocol fee accumulation
+- Integration: full lifecycle — create → deposit → vote → activate → settle → complete → rewards
+
+#### P19. Interest-Weighted Second-Price Auction Bidding System
+
+**Problem:** The MVP has no price discovery mechanism. `clearingCpmPlanck` equals `bidCpmPlanck` in every claim — the extension hardcodes full bid price. Every impression extracts the maximum possible payment from the advertiser's budget. This is economically inefficient: advertisers overpay relative to true market clearing, and there's no competitive pressure that would attract more advertisers or optimize for user interest alignment.
+
+**Design: On-device second-price auction with interest-weighted scoring**
+
+The auction runs entirely on-device (in the extension). No centralized aggregator, no off-chain oracle, no server. Each user independently computes their own clearing prices based on the campaigns competing for their attention. The auction combines economic efficiency (second-price clearing) with user interest alignment (attention is the scarce resource).
+
+**Mechanism overview:**
+
+When a page loads and multiple campaigns match the page's category, the extension runs a sealed second-price auction:
+
+1. **Eligible campaigns:** All active campaigns matching the page category (from `campaignPoller`)
+2. **Effective bid:** Each campaign's bid is weighted by the user's interest profile:
+   ```
+   effectiveBid[i] = campaign[i].bidCpmPlanck × interestWeight(campaign[i].categoryId)
+   ```
+   where `interestWeight` is the user's normalized interest score for that category (0.0–1.0 from the exponential-decay model in `interestProfile.ts`).
+3. **Winner selection:** Campaign with highest `effectiveBid` wins the impression
+4. **Clearing price (second-price):** The clearing CPM is determined by the second-highest effective bid:
+   ```
+   clearingCpmPlanck = effectiveBid[second] / interestWeight(winner.categoryId)
+   ```
+   This is the standard Vickrey (second-price) mechanism: the winner pays the minimum amount needed to beat the second-highest bidder, adjusted for the winner's interest weight.
+5. **Floor:** `clearingCpmPlanck >= campaign.bidCpmPlanck × minimumClearingPct / 100` (default 30% — ensures the advertiser gets a meaningful impression even when there's no competition)
+6. **Ceiling:** `clearingCpmPlanck <= campaign.bidCpmPlanck` (existing on-chain constraint)
+7. **Solo campaign:** If only one campaign is eligible, `clearingCpmPlanck = campaign.bidCpmPlanck × soloClearingPct / 100` (default 70%)
+
+**Why second-price works here:**
+
+In a standard second-price (Vickrey) auction, bidding your true value is the dominant strategy — you can never benefit from under-bidding or over-bidding. This property holds in DATUM's context:
+- Advertisers set `bidCpmPlanck` as their true willingness to pay
+- They pay less than their bid when competition is low (second-price discount)
+- They never pay more than their bid (on-chain ceiling: `clearingCpm <= bidCpm`)
+- Interest weighting means a campaign reaches users who are actually interested, improving ROI even at higher CPMs
+
+**Payout maximization for users:**
+
+Users maximize their total payout by browsing naturally — the interest profile reflects genuine browsing patterns, which aligns campaign matching with the user's actual attention:
+```
+userPayout = Σ (clearingCpmPlanck × impressionCount / 1000) × (1 - takeRate) × 0.75
+```
+Interest-weighted scoring means users see campaigns for categories they're genuinely interested in, which:
+- Increases engagement metrics (higher dwell time → better attestation quality → P16)
+- Improves advertiser ROI (interested users engage more → advertiser bids higher in future)
+- Creates a positive feedback loop (more budget → more campaigns → more competition → higher clearing CPMs → higher user payouts)
+
+**Extension implementation:**
+
+```
+extension/src/background/auction.ts (new)
+  - auctionForPage(campaigns, pageCategories, interestProfile) → AuctionResult
+  - AuctionResult: { winner: Campaign, clearingCpmPlanck: bigint, participants: number, mechanism: 'second-price' | 'solo' | 'floor' }
+  - Pure function, no side effects — deterministic from inputs
+  - Called from content/index.ts instead of current weighted-random selection
+
+extension/src/background/interestProfile.ts (modify)
+  - Export getNormalizedWeight(categoryId) → number (0.0–1.0)
+  - Normalization: divide by max weight across all categories
+
+extension/src/content/index.ts (modify)
+  - Replace SELECT_CAMPAIGN message handling to use auction result
+  - Pass clearingCpmPlanck from auction result to claim builder
+
+extension/src/background/claimBuilder.ts (modify)
+  - Accept clearingCpmPlanck from auction result instead of hardcoding bidCpmPlanck
+```
+
+**Auction parameters (governance-configurable in V2):**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `minimumClearingPct` | 30 | Floor as % of bid when second-price produces a very low clearing |
+| `soloClearingPct` | 70 | Clearing % when only one campaign is eligible (no competition) |
+| `interestWeightFloor` | 0.1 | Minimum interest weight (prevents zero-weight categories from excluding campaigns entirely) |
+| `auctionCooldownMs` | 5000 | Minimum time between auctions for the same ad slot |
+
+**On-chain verification (requires P9 ZK proof):**
+
+The clearing CPM is computed on-device. Without verification, a modified extension could claim `clearingCpmPlanck = bidCpmPlanck` (current behavior) regardless of auction outcome. On-chain enforcement requires:
+
+1. **Phase 1 (P19, no ZK):** Extension computes second-price clearing. Settlement validates `clearingCpmPlanck <= bidCpmPlanck` (existing constraint) and `clearingCpmPlanck >= bidCpmPlanck × minimumClearingPct / 100` (new floor constraint). Honest behavior is incentivized but not proven.
+
+2. **Phase 2 (P9 + P19, with ZK):** ZK circuit proves the clearing price was correctly computed from the set of eligible campaigns and interest weights:
+   - Public inputs: `clearingCpmPlanck`, `winnerCampaignId`, `participantCount`
+   - Private inputs: all eligible campaign bids, user interest weights, page category scores
+   - Circuit proves: (a) winner has highest effective bid, (b) clearing price equals second-highest effective bid adjusted for winner's interest weight, (c) floor/ceiling constraints satisfied
+   - Proof included in `zkProof` field of claim struct
+
+**Economic analysis:**
+
+| Scenario | Campaigns | Clearing CPM | User benefit |
+|----------|-----------|-------------|-------------|
+| Monopoly (1 campaign in category) | 1 | 70% of bid | User gets 70% of max price — advertiser saves 30% |
+| Duopoly (2 campaigns, similar bids) | 2 | ~95% of winner's bid | Near full price — efficient competition |
+| Competition (5+ campaigns) | 5+ | Market-clearing rate | True price discovery — highest value campaigns win |
+| Interest-aligned | N | Higher effective bid wins | User sees relevant ads → better engagement → higher future bids |
+| Interest-misaligned | N | Low interest weight penalizes bid | Campaign goes to users who care → better ROI for advertiser |
+
+**Revenue impact modeling:**
+
+Assuming average 3 competing campaigns per category and 70% interest alignment:
+```
+MVP revenue:      100% of bidCpm × impressions (advertiser overpays)
+P19 revenue:      ~75-85% of bidCpm × impressions (second-price discount)
+Net effect:       -15 to -25% per impression, BUT:
+  - More advertisers participate (lower effective CPM)
+  - Higher campaign budgets (better ROI)
+  - More total impressions (competitive ecosystem)
+  - Estimated +40-60% total platform revenue long-term
+```
+
+**Migration from MVP:**
+
+1. Deploy P19 as extension-only change (no contract changes for Phase 1)
+2. Add `minimumClearingPct` floor constraint to `DatumSettlement._validateClaim()` (small contract change)
+3. Extension update: replace weighted-random selection with auction mechanism
+4. Backward compatible: existing claims at full `bidCpmPlanck` are still valid (pass ceiling constraint)
+5. No breaking changes to claim struct, hash chain, or relay signatures
+
+**Dependencies:** P5 (multi-publisher) enhances auction depth. P9 (ZK proof) enables on-chain verification. P15 (campaign selection) is superseded by this — P19 replaces weighted-random with auction.
+
+**Testing plan:**
+- Unit test: second-price clearing with 2, 3, 5, 10 competing campaigns
+- Unit test: interest weighting correctly adjusts effective bids
+- Unit test: solo campaign uses soloClearingPct
+- Unit test: floor and ceiling constraints respected
+- Unit test: deterministic results for same inputs
+- Integration: full auction → claim build → settlement accepts clearing CPM
+- Economic simulation: Monte Carlo with varying campaign distributions and interest profiles
+
 ### Implementation order
 
 The tiers define criticality but not strict ordering. Recommended sequencing based on dependencies:
@@ -1592,17 +1926,19 @@ P1 (impression attestation)  — foundational for P2, P9, P12, P16
 P16 (behavioral analytics)   — no hard dependencies; enhances P1, P12; natural ZK upgrade path
 P17 (external wallets)       — no dependencies; extension-only; important for testnet UX
 P4 (on-chain aye rewards)    — no dependencies; unlocks trustless governance
-P5 (multi-publisher)         — architectural change; do before auction
-P2 (clearing CPM auction)    — requires P1 (attestation) for meaningful price discovery
+P19 (second-price auction)   — extension-only Phase 1; supersedes P15; enhances P2
+P5 (multi-publisher)         — architectural change; do before P2 and P19 Phase 2
+P18 (governance V2)          — requires P3 (timelock); absorbs P4 and P8; new contract
+P2 (clearing CPM auction)    — requires P1 (attestation); enhanced by P19
 P7 (contract upgrade path)   — required before mainnet (G4-P gate)
-P15 (campaign selection)     — extension-only; quick win
-P8 (governance game theory)  — can be incremental (one model at a time)
-P9 (ZK proof)                — requires P2 (auction); P16 behavior proofs in Phase 2
+P15 (campaign selection)     — SUPERSEDED by P19; skip if P19 is implemented
+P8 (governance game theory)  — ABSORBED into P18; incremental if P18 deferred
+P9 (ZK proof)                — requires P2 (auction) + P19 (clearing); P16 behavior proofs in Phase 2
 P10 (KYB identity)           — independent track; external dependency
 P11 (XCM fee routing)        — independent track; requires HydraDX integration
 P12 (viewability disputes)   — requires P1 (attestation); enhanced by P16 (behavior data)
-P13 (revenue split gov)      — requires governance framework
-P14 (taxonomy governance)    — requires governance framework
+P13 (revenue split gov)      — requires P18 (governance V2 framework)
+P14 (taxonomy governance)    — requires P18 (governance V2 framework)
 ```
 
 ---
@@ -1661,11 +1997,12 @@ P14 (taxonomy governance)    — requires governance framework
 │       ├── popup/
 │       │   ├── index.html                 360px dark theme popup shell
 │       │   ├── index.tsx                  React mount point
-│       │   ├── App.tsx                    Embedded wallet setup/unlock + tab router
+│       │   ├── App.tsx                    Embedded wallet setup/unlock + 6-tab router
 │       │   ├── CampaignList.tsx           Active campaigns with metadata display
 │       │   ├── ClaimQueue.tsx             Pending claims + submit/relay + earnings estimate
 │       │   ├── UserPanel.tsx              User balance (DOT) + withdrawUser()
-│       │   ├── PublisherPanel.tsx          Balance + withdraw + campaign creation (2.16)
+│       │   ├── PublisherPanel.tsx          Balance + withdraw + relay submit + campaign creation
+│       │   ├── GovernancePanel.tsx         Governance voting, campaign lists, stake withdrawal
 │       │   └── Settings.tsx               Network, RPC, addresses, IPFS gateway, auto-submit
 │       └── shared/
 │           ├── types.ts                   Claim, Campaign, CampaignMetadata, StoredSettings

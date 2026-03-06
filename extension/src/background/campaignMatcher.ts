@@ -23,9 +23,9 @@ const CATEGORY_NAME_MAP: Record<number, string> = {
 interface CampaignCandidate {
   id: string;
   publisher: string;
-  status: number;
+  status: number | string;
   bidCpmPlanck: string;
-  categoryId: number;
+  categoryId: number | string;
 }
 
 function scoreCampaign(
@@ -33,7 +33,7 @@ function scoreCampaign(
   profile: UserInterestProfile,
   pageCategory: string
 ): number {
-  const catName = CATEGORY_NAME_MAP[campaign.categoryId] ?? "";
+  const catName = CATEGORY_NAME_MAP[Number(campaign.categoryId)] ?? "";
 
   // Interest weight from profile (0.0 if no visits to this category)
   const interestWeight = profile.weights[catName] ?? 0;

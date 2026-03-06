@@ -27,12 +27,61 @@ const ALARM_FLUSH_CLAIMS = "flushClaims";
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[DATUM] Extension installed/updated");
   await initAlarms();
+  // Immediate poll — chrome alarms have a minimum 1-min delay
+  await immediateInitialPoll();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log("[DATUM] Extension started");
   await initAlarms();
+  await immediateInitialPoll();
 });
+
+async function immediateInitialPoll() {
+  try {
+    let settings = await getSettings();
+
+    // Auto-load deployed addresses if settings have empty contract addresses
+    if (!settings.contractAddresses.campaigns) {
+      const loaded = await tryLoadDeployedAddresses();
+      if (loaded) {
+        settings = { ...settings, contractAddresses: { ...settings.contractAddresses, ...loaded } };
+        await chrome.storage.local.set({ settings });
+        console.log("[DATUM] Auto-loaded deployed contract addresses");
+      }
+    }
+
+    if (settings.contractAddresses.campaigns) {
+      console.log("[DATUM] Running immediate campaign poll...");
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
+    } else {
+      console.log("[DATUM] Skipping initial poll — no campaigns contract address configured");
+    }
+  } catch (err) {
+    console.error("[DATUM] Initial poll failed:", err);
+  }
+}
+
+/** Try to load deployed-addresses.json from extension bundle (written by deploy script). */
+async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null> {
+  try {
+    const url = chrome.runtime.getURL("deployed-addresses.json");
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const addrs = await resp.json();
+    // Map deploy script keys to extension ContractAddresses keys
+    return {
+      campaigns: addrs.campaigns ?? "",
+      publishers: addrs.publishers ?? "",
+      governanceVoting: addrs.governanceVoting ?? "",
+      governanceRewards: addrs.governanceRewards ?? "",
+      settlement: addrs.settlement ?? "",
+      relay: addrs.relay ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function initAlarms() {
   const settings = await getSettings();
@@ -66,6 +115,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
       await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
+      // Prune claims for campaigns that are no longer active (withdrawn, terminated, etc.)
+      const active = await campaignPoller.getCachedSerialized();
+      const activeIds = new Set(active.map((c) => c.id));
+      const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
+      if (pruned > 0) console.log(`[DATUM] Pruned ${pruned} stale claims for inactive campaigns`);
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
@@ -98,8 +152,23 @@ async function handleMessage(
       return { ok: true };
 
     case "GET_ACTIVE_CAMPAIGNS": {
-      const cached = await campaignPoller.getCached();
+      // Return serialized form — BigInt is not JSON-safe for chrome messaging
+      const cached = await campaignPoller.getCachedSerialized();
       return { campaigns: cached };
+    }
+
+    case "POLL_CAMPAIGNS": {
+      const s = await getSettings();
+      if (s.contractAddresses.campaigns) {
+        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
+        const refreshed = await campaignPoller.getCachedSerialized();
+        // Prune stale claims after fresh poll
+        const activeIds = new Set(refreshed.map((c) => c.id));
+        const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
+        if (pruned > 0) console.log(`[DATUM] Pruned ${pruned} stale claims after manual poll`);
+        return { campaigns: refreshed, ok: true };
+      }
+      return { campaigns: [], error: "No campaigns contract address configured" };
     }
 
     case "WALLET_CONNECTED": {

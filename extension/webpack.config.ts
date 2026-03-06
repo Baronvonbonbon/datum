@@ -92,6 +92,7 @@ const config = (
         patterns: [
           { from: "manifest.json", to: "manifest.json" },
           { from: "icons", to: "icons", noErrorOnMissing: true },
+          { from: "deployed-addresses.json", to: "deployed-addresses.json", noErrorOnMissing: true },
         ],
       }),
 

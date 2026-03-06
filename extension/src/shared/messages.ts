@@ -21,6 +21,7 @@ export type PopupToBackground =
   | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
   | { type: "ACQUIRE_MUTEX" }
   | { type: "RELEASE_MUTEX" }
+  | { type: "POLL_CAMPAIGNS" }
   | { type: "GET_INTEREST_PROFILE" }
   | { type: "RESET_INTEREST_PROFILE" }
   | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number };

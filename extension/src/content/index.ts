@@ -21,21 +21,16 @@ async function main() {
     chrome.storage.local.get("settings"),
   ]);
 
-  const campaigns: Array<{
-    id: string;
-    publisher: string;
-    status: number;
-    bidCpmPlanck: string;
-    categoryId: number;
-  }> = response?.campaigns ?? [];
+  // Background returns serialized campaigns (all values are strings)
+  const campaigns: Array<Record<string, string>> = response?.campaigns ?? [];
 
   const publisherAddress: string = settingsStored.settings?.publisherAddress ?? "";
   const pageCategoryId = CATEGORY_ID_MAP[category] ?? 0;
 
   // Filter active campaigns; prefer category match, then publisher match, then any.
-  const activeCampaigns = campaigns.filter((c) => c.status === 1 /* Active */);
+  const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1 /* Active */);
   const categoryMatched = activeCampaigns.filter(
-    (c) => c.categoryId === pageCategoryId || c.categoryId === 0
+    (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
   );
   const pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
 
@@ -63,11 +58,11 @@ async function main() {
   if (seenThisLoad.has(dedupeKey)) return;
 
   // Check 30-minute per-campaign dedup in storage
-  const storageKey = `impression:${match.id}`;
+  const storageKey = `impression:${match.id}:${window.location.hostname}`;
   const stored = await chrome.storage.local.get(storageKey);
   const lastSeen: number = stored[storageKey] ?? 0;
-  const thirtyMinutes = 30 * 60 * 1000;
-  if (Date.now() - lastSeen < thirtyMinutes) return;
+  const dedupMinutes = 5 * 60 * 1000;
+  if (Date.now() - lastSeen < dedupMinutes) return;
 
   seenThisLoad.add(dedupeKey);
   await chrome.storage.local.set({ [storageKey]: Date.now() });

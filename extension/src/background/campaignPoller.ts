@@ -12,6 +12,10 @@ const MAX_SCAN_ID = 1000; // scan campaign IDs 1..N until two consecutive misses
 export const campaignPoller = {
   async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string): Promise<void> {
     try {
+      if (!addresses.campaigns || !addresses.campaigns.startsWith("0x")) {
+        console.warn("[DATUM] Skipping poll — no valid campaigns contract address");
+        return;
+      }
       const provider = new JsonRpcProvider(rpcUrl);
       const campaigns: Campaign[] = [];
       const contract = getCampaignsContract(addresses, provider);
@@ -21,13 +25,16 @@ export const campaignPoller = {
       for (let id = 1; id <= MAX_SCAN_ID; id++) {
         try {
           const c = await contract.getCampaign(BigInt(id));
-          if (c.id === 0n) {
+          // ethers v6 returns Result object — id is field 0 (uint256)
+          const cId = BigInt(c.id ?? c[0] ?? 0n);
+          if (cId === 0n) {
             missCount++;
             if (missCount >= 3) break;
             continue;
           }
           missCount = 0;
-          if (c.status === CampaignStatus.Active) {
+          const cStatus = Number(c.status ?? c[12] ?? 0);
+          if (cStatus === CampaignStatus.Active) {
             campaigns.push(normalizeCampaign(c));
           }
         } catch {
@@ -81,36 +88,32 @@ export const campaignPoller = {
     if (!raw) return [];
     return deserializeCampaigns(raw);
   },
+
+  /** Return serialized (string) form for chrome.runtime.sendMessage (BigInt not JSON-safe). */
+  async getCachedSerialized(): Promise<Record<string, string>[]> {
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    return stored[STORAGE_KEY] ?? [];
+  },
 };
 
 // Campaign structs contain bigint — serialize to strings for chrome.storage.local (JSON)
-function normalizeCampaign(raw: {
-  id: bigint;
-  advertiser: string;
-  publisher: string;
-  budget: bigint;
-  remainingBudget: bigint;
-  dailyCap: bigint;
-  bidCpmPlanck: bigint;
-  snapshotTakeRateBps: bigint;
-  status: bigint;
-  categoryId: bigint;
-  pendingExpiryBlock: bigint;
-  terminationBlock: bigint;
-}): Campaign {
+// ethers v6 returns struct fields by their ABI names.
+// The Solidity Campaign struct uses budgetPlanck/dailyCapPlanck, not budget/dailyCap.
+// We accept both for safety (positional access works regardless).
+function normalizeCampaign(raw: any): Campaign {
   return {
-    id: raw.id,
+    id: BigInt(raw.id),
     advertiser: raw.advertiser,
     publisher: raw.publisher,
-    budget: raw.budget,
-    remainingBudget: raw.remainingBudget,
-    dailyCap: raw.dailyCap,
-    bidCpmPlanck: raw.bidCpmPlanck,
-    snapshotTakeRateBps: Number(raw.snapshotTakeRateBps),
-    status: Number(raw.status),
-    categoryId: Number(raw.categoryId ?? 0),
-    pendingExpiryBlock: raw.pendingExpiryBlock,
-    terminationBlock: raw.terminationBlock,
+    budget: BigInt(raw.budgetPlanck ?? raw.budget ?? raw[3] ?? 0n),
+    remainingBudget: BigInt(raw.remainingBudget ?? raw[4] ?? 0n),
+    dailyCap: BigInt(raw.dailyCapPlanck ?? raw.dailyCap ?? raw[5] ?? 0n),
+    bidCpmPlanck: BigInt(raw.bidCpmPlanck ?? raw[6] ?? 0n),
+    snapshotTakeRateBps: Number(raw.snapshotTakeRateBps ?? raw[11] ?? 0),
+    status: Number(raw.status ?? raw[12] ?? 0),
+    categoryId: Number(raw.categoryId ?? raw[13] ?? 0),
+    pendingExpiryBlock: BigInt(raw.pendingExpiryBlock ?? raw[9] ?? 0n),
+    terminationBlock: BigInt(raw.terminationBlock ?? raw[10] ?? 0n),
   };
 }
 

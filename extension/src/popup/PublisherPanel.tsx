@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { parseUnits } from "ethers";
-import { getSettlementContract, getPublishersContract, getCampaignsContract, getProvider } from "@shared/contracts";
+import { getSettlementContract, getPublishersContract, getCampaignsContract, getRelayContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { cidToBytes32 } from "@shared/ipfs";
 import { DEFAULT_SETTINGS } from "@shared/networks";
@@ -23,6 +23,13 @@ export function PublisherPanel({ address }: Props) {
   const [publisherInfo, setPublisherInfo] = useState<PublisherInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [relaySubmitting, setRelaySubmitting] = useState(false);
+  const [signedBatchData, setSignedBatchData] = useState<{
+    batches: any[];
+    signedAt: number;
+    deadline: number;
+  } | null>(null);
+  const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [txResult, setTxResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,12 +48,16 @@ export function PublisherPanel({ address }: Props) {
       const settlement = getSettlementContract(settings.contractAddresses, provider);
       const publishers = getPublishersContract(settings.contractAddresses, provider);
 
-      const [bal, pubData] = await Promise.all([
+      const [bal, pubData, blockNum, stored] = await Promise.all([
         settlement.publisherBalance(address).catch(() => 0n),
         publishers.getPublisher(address).catch(() => null),
+        provider.getBlockNumber().catch(() => null),
+        chrome.storage.local.get("signedBatches"),
       ]);
 
       setBalance(bal as bigint);
+      if (blockNum !== null) setCurrentBlock(blockNum);
+      setSignedBatchData(stored.signedBatches ?? null);
 
       if (pubData) {
         setPublisherInfo({
@@ -85,6 +96,73 @@ export function PublisherPanel({ address }: Props) {
       setError(String(err));
     } finally {
       setWithdrawing(false);
+    }
+  }
+
+  async function relaySubmit() {
+    if (!signedBatchData?.batches?.length) return;
+    setRelaySubmitting(true);
+    setTxResult(null);
+    setError(null);
+    try {
+      const settings = await getSettings();
+      if (!settings.contractAddresses.relay) {
+        throw new Error("Relay contract address not configured. Check Settings.");
+      }
+      const signer = getSigner(settings.rpcUrl);
+      const relay = getRelayContract(settings.contractAddresses, signer);
+      const settlement = getSettlementContract(settings.contractAddresses, signer);
+
+      // Deserialize signed batches (bigints stored as strings/numbers)
+      const contractBatches = signedBatchData.batches.map((b: any) => ({
+        user: b.user,
+        campaignId: BigInt(b.campaignId),
+        claims: b.claims.map((c: any) => ({
+          campaignId: BigInt(c.campaignId),
+          publisher: c.publisher,
+          impressionCount: BigInt(c.impressionCount),
+          clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+          nonce: BigInt(c.nonce),
+          previousClaimHash: c.previousClaimHash,
+          claimHash: c.claimHash,
+          zkProof: c.zkProof,
+        })),
+        deadline: BigInt(b.deadline),
+        signature: b.signature,
+        publisherSig: b.publisherSig ?? "0x",
+      }));
+
+      const tx = await relay.settleClaimsFor(contractBatches);
+      const receipt = await tx.wait();
+
+      // Parse ClaimSettled/ClaimRejected events from settlement interface
+      let settledCount = 0;
+      let rejectedCount = 0;
+      let totalPaid = 0n;
+      if (receipt?.logs) {
+        const iface = settlement.interface;
+        for (const log of receipt.logs) {
+          try {
+            const parsed = iface.parseLog(log);
+            if (parsed?.name === "ClaimSettled") {
+              settledCount++;
+              totalPaid += BigInt(parsed.args.totalPayment ?? parsed.args.userPayment ?? 0);
+            } else if (parsed?.name === "ClaimRejected") {
+              rejectedCount++;
+            }
+          } catch { /* log from different contract */ }
+        }
+      }
+
+      // Clear signed batches from storage
+      await chrome.storage.local.remove("signedBatches");
+      setSignedBatchData(null);
+      setTxResult(`Relay submitted: ${settledCount} settled, ${rejectedCount} rejected. Total paid: ${formatDOT(totalPaid)} DOT`);
+      loadData();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRelaySubmitting(false);
     }
   }
 
@@ -151,6 +229,46 @@ export function PublisherPanel({ address }: Props) {
           <button onClick={loadData} style={{ ...secondaryBtn, marginTop: 8 }}>
             Refresh
           </button>
+
+          {/* Relay Submit Section */}
+          {signedBatchData && signedBatchData.batches.length > 0 && (
+            <div style={{ marginTop: 12, padding: 10, background: "#0a1a2a", borderRadius: 6, border: "1px solid #1a2a4a" }}>
+              <div style={{ color: "#60a0ff", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+                Signed Batches for Relay
+              </div>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>
+                {signedBatchData.batches.length} batch{signedBatchData.batches.length !== 1 ? "es" : ""} pending
+                {" · "}Deadline block: {signedBatchData.deadline}
+              </div>
+              {currentBlock !== null && signedBatchData.deadline <= currentBlock ? (
+                <div style={{ color: "#ff8080", fontSize: 12, marginBottom: 6 }}>
+                  Expired (current block: {currentBlock}). User must re-sign.
+                </div>
+              ) : currentBlock !== null ? (
+                <div style={{ color: "#508050", fontSize: 11, marginBottom: 6 }}>
+                  ~{Math.max(0, (signedBatchData.deadline - currentBlock) * 6)} seconds remaining
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={relaySubmit}
+                  disabled={relaySubmitting || (currentBlock !== null && signedBatchData.deadline <= currentBlock)}
+                  style={{ ...relayBtn, flex: 1 }}
+                >
+                  {relaySubmitting ? "Submitting..." : "Submit Signed Claims"}
+                </button>
+                <button
+                  onClick={async () => {
+                    await chrome.storage.local.remove("signedBatches");
+                    setSignedBatchData(null);
+                  }}
+                  style={{ ...secondaryBtn, flex: 0, padding: "8px 12px", width: "auto" }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -325,6 +443,13 @@ const formInput: React.CSSProperties = {
   color: "#e0e0e0",
   fontSize: 12,
   outline: "none",
+};
+
+const relayBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: "#0a2a3a",
+  color: "#60a0ff",
+  border: "1px solid #1a3a5a",
 };
 
 const emptyStyle: React.CSSProperties = {

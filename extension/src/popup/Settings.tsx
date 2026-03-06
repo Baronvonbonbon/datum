@@ -114,7 +114,35 @@ export function Settings() {
 
       {/* Contract addresses */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{ ...labelStyle, marginBottom: 6 }}>Contract Addresses</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={labelStyle}>Contract Addresses</div>
+          <button
+            onClick={async () => {
+              try {
+                const url = chrome.runtime.getURL("deployed-addresses.json");
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error("No deployed-addresses.json found in extension bundle");
+                const addrs = await resp.json();
+                setSettings((s) => ({
+                  ...s,
+                  contractAddresses: {
+                    campaigns: addrs.campaigns ?? "",
+                    publishers: addrs.publishers ?? "",
+                    governanceVoting: addrs.governanceVoting ?? "",
+                    governanceRewards: addrs.governanceRewards ?? "",
+                    settlement: addrs.settlement ?? "",
+                    relay: addrs.relay ?? "",
+                  },
+                }));
+              } catch (err) {
+                alert("Could not load deployed addresses. Run deploy.ts first, then rebuild the extension.");
+              }
+            }}
+            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer" }}
+          >
+            Load Deployed
+          </button>
+        </div>
         {(Object.keys(settings.contractAddresses) as (keyof ContractAddresses)[]).map((key) => (
           <div key={key} style={{ marginBottom: 6 }}>
             <label style={{ ...labelStyle, fontSize: 11, color: "#555", fontFamily: "monospace" }}>

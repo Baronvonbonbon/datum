@@ -87,6 +87,20 @@ export const claimQueue = {
     }));
   },
 
+  // Remove claims for campaigns that are no longer active (e.g. withdrawn, terminated)
+  async pruneInactiveCampaigns(activeCampaignIds: Set<string>): Promise<number> {
+    const stored = await chrome.storage.local.get(QUEUE_KEY);
+    const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
+    if (queue.length === 0) return 0;
+
+    const filtered = queue.filter((c) => activeCampaignIds.has(c.campaignId));
+    const pruned = queue.length - filtered.length;
+    if (pruned > 0) {
+      await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
+    }
+    return pruned;
+  },
+
   // Remove successfully settled claims from the queue
   async removeSettled(userAddress: string, settledNonces: Map<string, bigint[]>): Promise<void> {
     const stored = await chrome.storage.local.get(QUEUE_KEY);

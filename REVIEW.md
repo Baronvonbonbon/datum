@@ -1,6 +1,6 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-06 (extension UI addendum)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
 **Status:** All 11 issues resolved. 64/64 tests pass (46 core + 6 relay R1-R6 + 4 publisher co-sig R7-R10 + 3 ZK verifier Z1-Z3 + 3 metadata M1-M3 + 1 integration F + 1 double-withdraw).
 
@@ -416,3 +416,43 @@ extension/
 ```
 
 **Test results: 64/64 pass.**
+
+---
+
+## Extension UI Addendum (2026-03-06)
+
+### Governance Voting UI — GovernancePanel.tsx
+
+The extension now includes a Governance tab ("Govern") with:
+
+- **Campaign listing:** Fetches all campaigns from `DatumCampaigns.nextCampaignId()`, filters for Pending (status 0), Active (status 1), and Paused (status 2). Displays in two sections with activation/termination threshold progress bars.
+- **Aye voting:** Available only for Pending campaigns. DOT amount (sent as `msg.value`) + conviction (1–6, showing weighted multiplier 2x–64x). Calls `voting.voteAye(campaignId, conviction, { value })`.
+- **Nay voting:** Available only for Active/Paused campaigns. Same DOT + conviction UI. Calls `voting.voteNay(campaignId, conviction, { value })`.
+- **Vote status:** Queries `voting.getCampaignVote(campaignId)` (ayeTotal, nayTotal, uniqueReviewers) and `voting.getVoteRecord(campaignId, address)` (user's existing vote direction, lockAmount, conviction, lockedUntilBlock).
+- **Stake withdrawal:** After lockup expires (`lockedUntilBlock < currentBlock`), shows "Withdraw Stake" button calling `rewards.withdrawStake(campaignId)`.
+- **Threshold display:** Shows `activationThreshold`, `terminationThreshold`, and `minReviewerStake` from the voting contract.
+
+**Limitation identified:** Contract enforces one vote per address per campaign (`require(existing.castAtBlock == 0, "Already voted")`). No mechanism to increase stake after voting. Documented as future improvement (Governance V2).
+
+### Publisher Relay Submit — PublisherPanel.tsx
+
+The Publisher tab now includes a relay submit section:
+
+- Reads `signedBatches` from `chrome.storage.local` (created by `ClaimQueue.tsx` when a user clicks "Sign for Publisher").
+- Shows batch count, deadline block, and expiry status (compares against current block number).
+- "Submit Signed Claims" button: deserializes stored batches (BigInt conversion for numeric fields), calls `relay.settleClaimsFor(contractBatches)`, parses `ClaimSettled`/`ClaimRejected` events from the settlement interface, clears storage on success.
+- Publisher pays gas; users receive payouts from campaign budget.
+- "Clear Batches" button for removing expired/unwanted signed batches.
+
+### Extension Build Size
+
+popup.js: 545 KB | background.js: 346 KB | content.js: 6.6 KB (post-governance additions)
+
+### Trust Assumptions Updated
+
+| Component | Status |
+|-----------|--------|
+| Governance voting | On-chain via DatumGovernanceVoting — trustless (aye/nay with conviction, activation/termination thresholds) |
+| Aye reward distribution | Still owner-computed off-chain (`creditAyeReward` is `onlyOwner`). See P4. |
+| Relay submission | Publisher submits EIP-712 signed batches via DatumRelay — user signs off-chain, publisher pays gas |
+| Vote stacking | Not supported — one vote per address per campaign. Governance V2 planned. |

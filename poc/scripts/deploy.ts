@@ -1,5 +1,6 @@
 import { ethers } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
+import * as fs from "fs";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -101,16 +102,31 @@ async function main() {
   await settlement.setZKVerifier(zkVerifierAddr);
   console.log("  ZK verifier wired to settlement:", zkVerifierAddr);
 
+  // Write deployed addresses to JSON for extension and scripts
+  const addresses = {
+    publishers: publishersAddr,
+    campaigns: campaignsAddr,
+    governanceVoting: votingAddr,
+    governanceRewards: rewardsAddr,
+    settlement: settlementAddr,
+    relay: relayAddr,
+    zkVerifier: zkVerifierAddr,
+  };
+
+  const outPath = __dirname + "/../deployed-addresses.json";
+  fs.writeFileSync(outPath, JSON.stringify(addresses, null, 2) + "\n");
+  console.log(`\nAddresses written to ${outPath}`);
+
+  // Also write to the extension's artifacts directory for easy loading
+  const extPath = __dirname + "/../../extension/deployed-addresses.json";
+  fs.writeFileSync(extPath, JSON.stringify(addresses, null, 2) + "\n");
+  console.log(`Addresses written to ${extPath}`);
+
   console.log("\n=== DATUM Deployment Complete ===");
-  console.log({
-    DatumPublishers: publishersAddr,
-    DatumCampaigns: campaignsAddr,
-    DatumGovernanceVoting: votingAddr,
-    DatumGovernanceRewards: rewardsAddr,
-    DatumSettlement: settlementAddr,
-    DatumRelay: relayAddr,
-    DatumZKVerifier: zkVerifierAddr,
-  });
+  console.log(addresses);
+
+  console.log("\nTo configure the extension, paste these addresses in Settings,");
+  console.log("or they will auto-load on next extension reload.");
 }
 
 main().catch((error) => {
