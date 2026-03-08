@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-06 (extension UI addendum)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. 64/64 tests pass (46 core + 6 relay R1-R6 + 4 publisher co-sig R7-R10 + 3 ZK verifier Z1-Z3 + 3 metadata M1-M3 + 1 integration F + 1 double-withdraw).
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 100/100 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, and current contract architecture (5+1+1+1+1 contracts).
 
 ---
 

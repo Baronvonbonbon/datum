@@ -1,0 +1,12 @@
+{
+  "title": "Private Browsing VPN",
+  "description": "Browse privately with zero-log VPN. No tracking, no ads, no compromises.",
+  "category": "privacy",
+  "creative": {
+    "type": "text",
+    "text": "Zero-log VPN for truly private browsing. Protect your data from trackers.",
+    "cta": "Try Free",
+    "ctaUrl": "https://example.com/vpn"
+  },
+  "version": 1
+}

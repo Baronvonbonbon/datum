@@ -4,5 +4,12 @@ poc/cache/
 poc/typechain-types/
 extension/node_modules/
 extension/dist/
+alpha/node_modules/
+alpha/artifacts/
+alpha/cache/
+alpha/typechain-types/
+alpha/deployments/
+alpha-extension/node_modules/
+alpha-extension/dist/
 ref/
 TESTING.md

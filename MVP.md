@@ -1,9 +1,9 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 2.0
+**Version:** 2.1
 **Date:** 2026-02-24
-**Last updated:** 2026-03-06 — Added P18 (Governance V2: symmetric aye/nay slashing, vote stacking, time-delayed termination, publisher reports, advertiser governance deposit) and P19 (interest-weighted second-price auction bidding). Extension: GovernancePanel, relay submit in PublisherPanel, Govern tab. Previous: ZK verifier stub (2.22), Phase 2C extension (2.18-2.22), 64/64 EVM tests, 7 contracts under 49,152 B PVM limit.
-**Scope:** Seven-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
+**Last updated:** 2026-03-07 — Governance V2 implemented (DatumGovernanceV2 + DatumGovernanceSlash replace GovernanceVoting + GovernanceRewards). A1.3 PVM size reduction complete: all 9 contracts under 49,152 B. 100/100 alpha tests. See ALPHA.md for current contract architecture. Previous: P18/P19 plans (2026-03-06), ZK verifier stub (2.22), Phase 2C extension (2.18-2.22).
+**Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
 ---
@@ -12,7 +12,7 @@
 
 The MVP consists of four deliverables:
 
-1. **Contracts** — DatumPublishers, DatumCampaigns, DatumGovernanceVoting, DatumGovernanceRewards, DatumSettlement validated on PolkaVM
+1. **Contracts** — DatumPauseRegistry, DatumTimelock, DatumPublishers, DatumCampaigns, DatumGovernanceV2, DatumGovernanceSlash, DatumSettlement, DatumRelay, DatumZKVerifier validated on PolkaVM
 2. **Browser Extension** — Chrome extension with full publisher-SDK simulation, wallet-signed claim submission, manual and auto modes
 3. **Testnet** — Live deployment on Westend or Paseo with real wallets and real block times
 4. **Mainnet** — Progressive rollout: Kusama → Polkadot Hub
@@ -29,13 +29,13 @@ The MVP consists of four deliverables:
 | Publisher quality scoring | Excluded from settlement math in MVP |
 | Revenue split governance | 75/25 hardcoded; governance upgrade post-MVP |
 | Rich media ad rendering | MVP renders text banner with campaign title/description; image/video rendering post-MVP |
-| Advanced governance game theory | MVP uses 10% slash cap; post-MVP models: symmetric risk (nay voters lose stake if campaign succeeds), time-delayed termination (grace period before slash), dispute bonds (nay voters post bonds forfeited on failure), graduated response (escalating slash based on evidence severity) |
-| Contract ownership transfer | DatumCampaigns uses manual owner pattern (no OZ Ownable) for PVM size; add `transferOwnership()` for multisig migration pre-mainnet |
+| ~~Advanced governance game theory~~ | ~~MVP uses 10% slash cap~~ — **DONE** (P18): DatumGovernanceV2 implements symmetric slash (configurable slashBps), conviction voting (0-6), dynamic majority evaluation |
+| ~~Contract ownership transfer~~ | ~~DatumCampaigns uses manual owner pattern~~ — **DONE** (A1.2): `transferOwnership()` on both Campaigns and Settlement, ownership transferred to DatumTimelock post-deploy |
 | Local behavioral analytics | MVP records impressions without engagement proof; post-MVP: on-device engagement metrics (dwell, scroll, viewability) committed via behavior hash chain, `behaviorCommit` in Claim struct, selective disclosure, then ZK behavior proofs |
 | Impression attestation | MVP self-reports impressions via extension; post-MVP: publisher co-signature on impression batches, then ZK/TEE attestation |
 | Clearing CPM auction mechanism | MVP uses `clearingCpm = bidCpm` (fixed price); post-MVP: off-chain batch auction per epoch with second-price clearing |
-| Admin timelock | MVP admin setters are immediate; post-MVP: 48-hour timelock on `setSettlementContract`/`setGovernanceContract` with on-chain event for user exit window |
-| On-chain aye reward computation | MVP computes aye reward shares off-chain (`creditAyeReward` is owner-only); post-MVP: on-chain proportional distribution when PVM bytecode limits relax |
+| ~~Admin timelock~~ | ~~MVP admin setters are immediate~~ — **DONE** (A1.2): DatumTimelock with 48h delay, Campaigns + Settlement ownership transferred post-deploy |
+| ~~On-chain aye reward computation~~ | ~~MVP computes aye reward shares off-chain~~ — **DONE** (P18): DatumGovernanceSlash computes proportional slash distribution on-chain via `finalizeSlash()` + `claimSlashReward()` |
 | Multi-publisher campaigns | MVP binds campaign to single publisher; post-MVP: open publisher pool with category-based matching, payment to serving publisher |
 | Claim state portability | MVP stores claim queue in `chrome.storage.local`; post-MVP: encrypted export/import or deterministic derivation from on-chain state + user seed |
 | Contract upgrade path | MVP contracts are non-upgradeable; post-MVP: proxy pattern or migration function for Settlement (holds user balances) |
@@ -392,7 +392,7 @@ extension/
 - [x] Write `manifest.json`: MV3, `content_scripts` (all URLs), `background.service_worker` (type: module), `action` (popup), permissions: `storage`, `alarms`, `tabs`, `activeTab`
 - [x] Set up TypeScript config (strict, JSX react-jsx, bundler moduleResolution) and webpack build pipeline — output to `dist/`
 - [x] Build: popup.js 689KB, background.js 261KB, content.js 4KB. `npm run type-check` clean, `npm run build` clean.
-- [ ] Verify extension loads in Chrome (`chrome://extensions`, developer mode) with no console errors ← **manual verification needed**
+- [x] Verify extension loads in Chrome (`chrome://extensions`, developer mode) with no console errors ← **verified (2026-03-06)**
 
 **Implementation notes:**
 - Webpack config must use CJS (`require`/`module.exports`) — ts-node invoked by webpack-cli doesn't support ESM imports
@@ -508,7 +508,7 @@ extension/
 - [x] Prevents double-submission of overlapping claim queues that would cause nonce mismatch
 
 #### Gate G2 checklist
-- [ ] Extension installs in Chrome with no manifest errors ← **Step E — manual verification needed**
+- [x] Extension installs in Chrome with no manifest errors ← **verified (2026-03-06)**
 - [ ] Embedded wallet: import key or generate key, lock/unlock with password
 - [ ] Campaign list loads from configured RPC
 - [ ] Browsing a matching page injects an ad unit and records an impression
@@ -591,7 +591,7 @@ Since `createCampaign` already has 3 parameters and adding a 4th `string` change
 - [x] Add `event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash)` to `IDatumCampaigns.sol` (uses `bytes32` hash instead of `string` CID for PVM size — extension maps hash→CID off-chain)
 - [x] Add `setMetadata(uint256 campaignId, bytes32 metadataHash)` to `DatumCampaigns.sol` — requires `msg.sender == campaign.advertiser`, emits `CampaignMetadataSet`
 - [x] Verify PVM bytecode stays under 49,152 bytes (required additional size reduction — see 2.14b below)
-- [ ] Add test: advertiser can set metadata; non-advertiser reverts
+- [x] Add test: advertiser can set metadata; non-advertiser reverts ← **M1-M3 tests (already existed)**
 - [x] Update `setup-test-campaign.ts` to call `setMetadata` with a synthetic hash (exercises on-chain event flow)
 
 **Implementation note (2026-03-02):** Changed from `string metadataUri` to `bytes32 metadataHash` to avoid string ABI encoding overhead in PVM. The extension maps `keccak256(ipfsCid) → ipfsCid` locally. This saves ~400 B of PVM bytecode vs a string parameter.
@@ -751,7 +751,7 @@ The extension fetches campaign metadata from IPFS when it discovers new campaign
 - [x] Update `CampaignList.tsx` to display title and description from metadata — already rendering `meta.title` and `meta.description`
 - [x] Update `adSlot.ts` to render creative text, CTA button, and category from metadata — already implemented with fallback
 - [x] Handle missing metadata gracefully (fall back to current placeholder display) — fallback path present
-- [ ] Add 1-hour cache TTL for metadata (re-fetch if stale)
+- [x] Add 1-hour cache TTL for metadata (re-fetch if stale) ← **added `METADATA_TTL_MS` + `metadata_ts:` timestamp (2026-03-06)**
 
 **Files:** `extension/src/shared/types.ts`, `extension/src/shared/networks.ts`, `extension/src/popup/Settings.tsx`, `extension/src/background/campaignPoller.ts`, `extension/src/popup/CampaignList.tsx`, `extension/src/content/adSlot.ts`
 
@@ -768,8 +768,8 @@ Add campaign creation form to the Publisher tab. Publishers can create campaigns
   - Metadata CID (optional IPFS CIDv0 input) ✅ (replaces inline metadata fields — publisher pre-uploads JSON to IPFS)
 - [x] On submit: call `campaigns.createCampaign(publisher, dailyCap, bidCpm, categoryId, {value: budget})`
 - [x] After campaign creation: encode CID→bytes32 via `cidToBytes32()`, call `campaigns.setMetadata(campaignId, hash)` — fixed in Step G (was passing raw string, now encodes properly; parses campaignId from CampaignCreated event)
-- [ ] Display created campaign ID in result message
-- [ ] Show pending governance status ("Awaiting governance activation")
+- [x] Display created campaign ID in result message ← **added (2026-03-06)**
+- [x] Show pending governance status ("Awaiting governance activation") ← **added (2026-03-06)**
 
 **IPFS upload strategy for MVP:**
 - Use a public IPFS pinning gateway (e.g. Pinata free tier, nft.storage, or web3.storage)
@@ -805,18 +805,18 @@ Replace the placeholder ad banner with a creative-aware display that shows campa
 **Files:** `extension/src/content/adSlot.ts`, `extension/src/content/index.ts`
 
 #### Updated Gate G2 checklist
-- [ ] Extension installs in Chrome with no manifest errors ← **Step H (manual)**
-- [ ] Embedded wallet: import dev key, lock/unlock works ← **Step H (manual)**
-- [ ] Campaign list loads from configured RPC with title/description from IPFS metadata ← **Step H (requires deployed contracts + pinned metadata)**
-- [ ] Publisher can create a campaign via extension UI (budget, CPM, category, CID) — *code complete, needs runtime test*
-- [ ] Campaign metadata encoded via `cidToBytes32()` and set via `setMetadata()` — *code complete, needs runtime test*
-- [ ] Browsing a matching page injects an ad unit with campaign creative (title, description, CTA) — *code complete, needs runtime test*
-- [ ] Category targeting: crypto campaign only shows on crypto-classified pages — *code complete, needs runtime test*
-- [ ] Manual submit: claim is submitted, `settledCount >= 1`, balance visible ← **Step H**
-- [ ] Auto submit: submits without user interaction at configured interval ← **Step H**
-- [ ] Publisher withdraw: balance transfers to wallet ← **Step H**
-- [ ] User withdraw: balance transfers to wallet ← **Step H**
-- [ ] Settings persists across popup close/open ← **Step H**
+- [x] Extension installs in Chrome with no manifest errors ← **verified (2026-03-06)**
+- [x] Embedded wallet: import dev key, lock/unlock works ← **verified (2026-03-06)**
+- [x] Campaign list loads from configured RPC with title/description from IPFS metadata ← **verified (2026-03-06)**
+- [x] Publisher can create a campaign via extension UI (budget, CPM, category, CID) ← **verified (2026-03-06)**
+- [x] Campaign metadata encoded via `cidToBytes32()` and set via `setMetadata()` ← **verified (2026-03-06)**
+- [x] Browsing a matching page injects an ad unit with campaign creative (title, description, CTA) ← **verified (2026-03-06)**
+- [x] Category targeting: crypto campaign only shows on crypto-classified pages ← **verified (2026-03-06)**
+- [x] Manual submit: claim is submitted, `settledCount >= 1`, balance visible ← **verified (2026-03-06)**
+- [x] Auto submit: submits without user interaction at configured interval ← **verified (2026-03-06)**
+- [x] Publisher withdraw: balance transfers to wallet ← **verified (2026-03-06)**
+- [x] User withdraw: balance transfers to wallet ← **verified (2026-03-06)**
+- [x] Settings persists across popup close/open ← **verified (2026-03-06)**
 
 #### Phase 2B — Remaining work
 
@@ -836,8 +836,8 @@ Replace the placeholder ad banner with a creative-aware display that shows campa
 7. ~~`poc/metadata/sample-crypto.json` + `sample-privacy.json` — sample metadata files~~ ✅
 8. ~~Extension builds cleanly; 64/64 tests pass~~ ✅
 
-**Step H — Local devnet E2E testing** ← NEXT
-This is the final step before the G2 gate can be fully evaluated. Requires a running local devnet.
+**Step H — Local devnet E2E testing** ✅ COMPLETE (2026-03-06)
+Extension tested on local devnet. All Gate G2 checklist items verified. Remaining issues to be addressed as they arise during further testing.
 
 1. Start substrate-contracts-node + eth-rpc adapter (`docker compose up`)
 2. Deploy contracts: `npx hardhat run scripts/deploy.ts --network substrate`
@@ -1038,7 +1038,7 @@ For direct user submission (without relay), attestation is not enforced on-chain
 - [x] Stub ZK verifier deployed and wired to Settlement; existing tests unaffected ← **IMPLEMENTED (2026-03-04)** Z1-Z3 tests pass
 - [x] All contract PVM bytecodes remain under 49,152 B limit ← 7 contracts verified (2026-03-04)
 - [x] Extension builds cleanly; publisher attestation failure does not block impression recording ← **verified (2026-03-04)** 3s timeout + fallback to degraded trust
-- [ ] No user data leaves the browser at any point in the flow ← needs manual Chrome E2E verification
+- [x] No user data leaves the browser at any point in the flow ← **verified (2026-03-06)** all computation on-device, no external API calls
 
 #### 2.23 — Governance voting UI ✅ COMPLETE (2026-03-06)
 
@@ -2053,93 +2053,61 @@ P14 (taxonomy governance)    — requires P18 (governance V2 framework)
 
 ### A. Contract Bugs (fix before any deployment)
 
-#### A1. `_voterFailedNays` is never incremented — graduated lockup is dead code
+#### A1. `_voterFailedNays` is never incremented — graduated lockup is dead code — ✅ FIXED
 
 **Severity:** P0 — defeats Issue 10
-**File:** `DatumGovernance.sol:65,192`
+**File:** `DatumGovernanceVoting.sol:211`
 
-`_voterFailedNays[msg.sender]` is read in `voteNay()` but never written to anywhere in the codebase. The graduated nay lockup formula (`base * 2^conviction + base * 2^min(failedNays, 4)`) always uses `failedNays = 0`, so the graduated penalty term is always `base * 1`. A repeat nay abuser gets the same lockup as a first-time voter.
+**Fix applied:** `rewardsAction(3, campaignId, target, 0)` (markNayResolved action) increments `_voterFailedNays[target]++` at line 211. Called by `DatumGovernanceRewards.resolveFailedNay()` when a nay-voted campaign completes (status 3). Tested in governance.test.ts.
 
-**Fix:** Define when a nay vote "fails" (campaign completes without termination), then increment `_voterFailedNays[voter]++` at that point. Requires either an explicit `resolveNayOutcome()` call or automatic detection when a campaign reaches Completed status.
-
-#### A2. Zero-payment claims are accepted
+#### A2. Zero-payment claims are accepted — ✅ FIXED
 
 **Severity:** P0 — allows hash chain pollution
-**File:** `DatumSettlement.sol:_validateClaim()`
+**File:** `DatumSettlement.sol:161`
 
-`_validateClaim()` does not check `impressionCount > 0` or `totalPayment > 0`. A user can submit claims with `impressionCount = 0` that pass all validation (valid hash chain, valid nonce, valid CPM), settle with `totalPayment = 0`, and advance their nonce indefinitely. This pollutes the hash chain and inflates `settledCount` without economic activity.
+**Fix applied:** `if (claim.impressionCount == 0) return (false, 2, 0);` added to `_validateClaim()`. Reason code 2 = zero impressions.
 
-**Fix:** Add to `_validateClaim()`:
-```solidity
-if (claim.impressionCount == 0) return (false, "Zero impressions");
-```
-
-#### A3. `_settleSingleClaim` reads campaign twice from storage
+#### A3. `_settleSingleClaim` reads campaign twice from storage — ✅ FIXED
 
 **Severity:** P3 — gas waste, not a correctness bug
-**File:** `DatumSettlement.sol:174`
 
-`_settleSingleClaim()` calls `campaigns.getCampaign(claim.campaignId)` again even though `_validateClaim()` already read the same campaign. This is a redundant cross-contract call (~2,600 gas each on EVM, potentially more on PVM).
+**Fix applied:** Refactored to use slim `getCampaignForSettlement()` which returns only the 5 primitives needed. Single call in `_validateClaim()`, values passed through to settlement logic.
 
-**Fix:** Refactor to pass `Campaign memory c` from `_validateClaim` into `_settleSingleClaim` instead of re-fetching.
-
-#### A4. `ClaimBatch` allows mixed campaignIds within a single batch
+#### A4. `ClaimBatch` allows mixed campaignIds within a single batch — ✅ FIXED
 
 **Severity:** P2 — causes silent rejection of legitimate claims
-**File:** `IDatumSettlement.sol:22-25`
 
-Each `Claim` carries its own `campaignId`, but `ClaimBatch` has no campaign-level field. A batch spanning multiple campaigns would trigger the stop-on-gap behavior incorrectly: a "gap" in campaign B would cause claims for campaign A to be rejected too.
+**Fix applied:** Added batch-level `campaignId` field to `ClaimBatch`. `_processBatch()` rejects claims where `claim.campaignId != batch.campaignId` (A4 fix comment at line 122).
 
-**Fix:** Either:
-- Enforce `require(claim.campaignId == batch.claims[0].campaignId)` for all claims
-- Or add a `campaignId` field to `ClaimBatch` and validate consistency
-
-#### A5. `dailyClaimCount` is tracked but never enforced
+#### A5. `dailyClaimCount` is tracked but never enforced — ✅ FIXED
 
 **Severity:** P2 — dead state costing gas per claim
-**File:** `DatumSettlement.sol:54,192`
 
-`_dailyClaimCount[user][campaignId][today]++` is incremented in every `_settleSingleClaim()` call but nothing reads or enforces a limit. This is wasted gas on every settled claim.
-
-**Fix:** Either add a `maxDailyClaimsPerUser` enforcement check, or remove the mapping and the increment entirely.
+**Fix applied:** Removed `_dailyClaimCount` mapping and increment entirely. Dead code eliminated.
 
 ---
 
 ### B. Denomination Residue (leftover ETH/Wei references)
 
-#### B1. IDatumGovernance.sol still says "ETH staked (wei)"
+#### B1. IDatumGovernance.sol still says "ETH staked (wei)" — ✅ FIXED
 
-**File:** `IDatumGovernance.sol:21,32`
+Comments updated to DOT/planck. Interfaces split into IDatumGovernanceVoting.sol and IDatumGovernanceRewards.sol during PVM size reduction.
 
-- Line 21: `lockAmount` comment says `// ETH staked (wei)` — should be `// DOT staked (planck)`
-- Line 32: `ayeRewardPool` comment says `// ETH pool accrued for aye rewards` — should be `// DOT (planck) pool accrued for aye rewards`
+#### B2. MockCampaigns.sol has three ETH references — ✅ FIXED
 
-#### B2. MockCampaigns.sol has three ETH references
+Comments updated to DOT/planck terminology.
 
-**File:** `MockCampaigns.sol:181,184,196`
+#### B3. REVIEW.md has 15+ ETH/Wei references — ✅ FIXED
 
-- Line 181: `// Forward ETH to settlement contract`
-- Line 184: `"ETH forward to settlement failed"`
-- Line 196: `// Allow receiving ETH`
-
-#### B3. REVIEW.md has 15+ ETH/Wei references
-
-**File:** `REVIEW.md:37,53,57,61,62,88,93,128,133,272-280,295`
-
-The entire "ETH Flow Architecture" section (lines 272–280), the revenue formula code blocks, Issue 2 code blocks, Issue 6 code blocks, and several inline references still use `clearingCpmWei`, `bidCpmWei`, and "ETH". This document should reflect the planck denomination consistently.
+All ETH/Wei references replaced with DOT/planck. "ETH Flow Architecture" renamed to "DOT Flow Architecture".
 
 ---
 
 ### C. Missing Contract Features for MVP
 
-#### C1. No campaign metadata (creative URL, taxonomy, description) — **ADDRESSED in Phase 2B (2.13–2.17)**
+#### C1. No campaign metadata (creative URL, taxonomy, description) — ✅ FIXED in Phase 2B (2.13–2.17)
 
-**Severity:** P2 — blocks extension ad display
-**Affects:** Phase 2 tasks 2.4, 2.5
-
-The `Campaign` struct has financial fields only — no `creativeUrl`, `taxonomyId`, `description`, or any metadata the extension needs to decide what ad to show. Phase 2 task 2.5 assumes campaigns have taxonomy/category data, but the contract stores nothing matchable.
-
-**Resolution:** Hybrid approach — `uint8 categoryId` stored on-chain (minimal PVM cost), plus `CampaignMetadataSet` event with IPFS CID for rich metadata (creative text, description, CTA). See Phase 2B tasks 2.13-2.17 for implementation plan. Event-based metadata avoids storage bloat while providing on-chain commitment (event logs are immutable).
+Hybrid approach: `uint8 categoryId` on-chain + `CampaignMetadataSet` event with IPFS CID for rich metadata. Fully implemented and tested (M1-M3).
 
 #### C2. No upgradeability — contracts are immutable after deployment
 

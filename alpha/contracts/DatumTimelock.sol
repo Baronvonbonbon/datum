@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/// @title DatumTimelock
+/// @notice Standalone 48-hour timelock for admin changes on DATUM contracts.
+///         Owner proposes a call (target + calldata), waits 48h, then anyone can execute.
+///         Contracts whose ownership is transferred to this timelock gain 48h delay protection.
+contract DatumTimelock {
+    address public owner;
+
+    uint256 public constant TIMELOCK_DELAY = 172800; // 48 hours in seconds
+
+    address public pendingTarget;
+    bytes public pendingData;
+    uint256 public pendingTimestamp;
+
+    event ChangeProposed(address indexed target, bytes data, uint256 effectiveTime);
+    event ChangeExecuted(address indexed target, bytes data);
+    event ChangeCancelled(address indexed target);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    /// @notice Propose a delayed call to `target` with `data`.
+    function propose(address target, bytes calldata data) external onlyOwner {
+        require(target != address(0), "E00");
+        pendingTarget = target;
+        pendingData = data;
+        pendingTimestamp = block.timestamp;
+        emit ChangeProposed(target, data, block.timestamp + TIMELOCK_DELAY);
+    }
+
+    /// @notice Execute the pending call after 48h delay. Anyone can call.
+    function execute() external {
+        require(pendingTarget != address(0), "E36");
+        require(block.timestamp >= pendingTimestamp + TIMELOCK_DELAY, "E37");
+
+        address target = pendingTarget;
+        bytes memory data = pendingData;
+
+        // Clear pending state before external call
+        pendingTarget = address(0);
+        pendingData = "";
+        pendingTimestamp = 0;
+
+        (bool ok,) = target.call(data);
+        require(ok, "E02");
+
+        emit ChangeExecuted(target, data);
+    }
+
+    /// @notice Cancel the pending call. Owner only.
+    function cancel() external onlyOwner {
+        address target = pendingTarget;
+        pendingTarget = address(0);
+        pendingData = "";
+        pendingTimestamp = 0;
+        emit ChangeCancelled(target);
+    }
+
+    /// @notice Transfer ownership of this timelock.
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "E00");
+        owner = newOwner;
+    }
+}
