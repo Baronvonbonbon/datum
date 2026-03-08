@@ -3,6 +3,7 @@ import { getSettlementContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
+import { BehaviorChainState } from "@shared/types";
 
 interface Props {
   address: string | null;
@@ -14,6 +15,7 @@ export function UserPanel({ address }: Props) {
   const [withdrawing, setWithdrawing] = useState(false);
   const [txResult, setTxResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [behaviorChains, setBehaviorChains] = useState<BehaviorChainState[]>([]);
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -38,9 +40,24 @@ export function UserPanel({ address }: Props) {
     }
   }, [address]);
 
+  const loadBehaviorChains = useCallback(async () => {
+    if (!address) return;
+    // Read all behaviorChain:address:* keys from storage
+    const all = await chrome.storage.local.get(null);
+    const prefix = `behaviorChain:${address}:`;
+    const chains: BehaviorChainState[] = [];
+    for (const [key, value] of Object.entries(all)) {
+      if (key.startsWith(prefix)) {
+        chains.push(value as BehaviorChainState);
+      }
+    }
+    setBehaviorChains(chains);
+  }, [address]);
+
   useEffect(() => {
     loadBalance();
-  }, [loadBalance]);
+    loadBehaviorChains();
+  }, [loadBalance, loadBehaviorChains]);
 
   async function withdraw() {
     if (!address) return;
@@ -67,6 +84,12 @@ export function UserPanel({ address }: Props) {
     return <div style={emptyStyle}>Connect wallet to view your earnings.</div>;
   }
 
+  // Aggregate engagement stats
+  const totalEvents = behaviorChains.reduce((s, c) => s + c.eventCount, 0);
+  const totalDwell = behaviorChains.reduce((s, c) => s + c.cumulativeDwellMs, 0);
+  const totalViewable = behaviorChains.reduce((s, c) => s + c.cumulativeViewableMs, 0);
+  const totalIabViewable = behaviorChains.reduce((s, c) => s + c.iabViewableCount, 0);
+
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12 }}>
@@ -74,13 +97,13 @@ export function UserPanel({ address }: Props) {
       </div>
 
       {loading ? (
-        <div style={{ color: "#555", fontSize: 13 }}>Loading…</div>
+        <div style={{ color: "#555", fontSize: 13 }}>Loading...</div>
       ) : (
         <>
           <div style={cardStyle}>
             <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
             <div style={{ color: "#e0e0e0", fontSize: 18, fontWeight: 600 }}>
-              {balance !== null ? formatDOT(balance) : "—"} DOT
+              {balance !== null ? formatDOT(balance) : "--"} DOT
             </div>
             <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
               75% of settled impressions
@@ -93,7 +116,7 @@ export function UserPanel({ address }: Props) {
               disabled={withdrawing}
               style={{ ...primaryBtn, marginTop: 12 }}
             >
-              {withdrawing ? "Withdrawing…" : `Withdraw ${formatDOT(balance)} DOT`}
+              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(balance)} DOT`}
             </button>
           )}
 
@@ -101,6 +124,66 @@ export function UserPanel({ address }: Props) {
             Refresh
           </button>
         </>
+      )}
+
+      {/* Engagement Stats */}
+      {totalEvents > 0 && (
+        <div style={{ marginTop: 16, borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
+          <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+            Engagement
+          </div>
+
+          <div style={{ ...cardStyle, marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#888", fontSize: 12 }}>Total impressions tracked</span>
+              <span style={{ color: "#e0e0e0", fontSize: 12 }}>{totalEvents}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#888", fontSize: 12 }}>Avg dwell time</span>
+              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+                {totalEvents > 0 ? (totalDwell / totalEvents / 1000).toFixed(1) : "0"}s
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#888", fontSize: 12 }}>Avg viewable time</span>
+              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+                {totalEvents > 0 ? (totalViewable / totalEvents / 1000).toFixed(1) : "0"}s
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "#888", fontSize: 12 }}>Viewability rate</span>
+              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+                {totalEvents > 0 ? ((totalIabViewable / totalEvents) * 100).toFixed(1) : "0"}%
+              </span>
+            </div>
+          </div>
+
+          {/* Per-campaign breakdown */}
+          {behaviorChains.length > 1 && (
+            <div style={{ maxHeight: 120, overflowY: "auto" }}>
+              {behaviorChains.map((c) => (
+                <div key={c.campaignId} style={{
+                  padding: "4px 8px", background: "#111122", borderRadius: 3,
+                  marginBottom: 2, fontSize: 11, color: "#888",
+                  display: "flex", justifyContent: "space-between",
+                }}>
+                  <span>Campaign #{c.campaignId}</span>
+                  <span>
+                    {c.eventCount} events &middot;
+                    {(c.eventCount > 0 ? c.cumulativeDwellMs / c.eventCount / 1000 : 0).toFixed(1)}s avg
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Behavior chain head hash */}
+          {behaviorChains.length > 0 && (
+            <div style={{ color: "#555", fontSize: 10, marginTop: 4, fontFamily: "monospace", wordBreak: "break-all" }}>
+              Chain head: {behaviorChains[0].headHash.slice(0, 18)}...
+            </div>
+          )}
+        </div>
       )}
 
       {txResult && (

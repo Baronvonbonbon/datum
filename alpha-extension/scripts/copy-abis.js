@@ -1,18 +1,21 @@
 #!/usr/bin/env node
-// Copies ABI arrays from poc/artifacts into extension/src/shared/abis/
+// Copies ABI arrays from alpha/artifacts into extension/src/shared/abis/
 const fs = require("fs");
 const path = require("path");
 
 const contracts = [
   "DatumCampaigns",
   "DatumPublishers",
-  "DatumGovernanceVoting",
-  "DatumGovernanceRewards",
+  "DatumGovernanceV2",
+  "DatumGovernanceSlash",
   "DatumSettlement",
   "DatumRelay",
+  "DatumPauseRegistry",
+  "DatumTimelock",
+  "DatumZKVerifier",
 ];
 
-const srcDir = path.resolve(__dirname, "../../poc/artifacts/contracts");
+const srcDir = path.resolve(__dirname, "../../alpha/artifacts/contracts");
 const destDir = path.resolve(__dirname, "../src/shared/abis");
 fs.mkdirSync(destDir, { recursive: true });
 

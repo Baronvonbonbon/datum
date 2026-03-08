@@ -9,27 +9,22 @@
         },
         {
           "internalType": "uint256",
-          "name": "_activationThreshold",
+          "name": "_quorum",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_terminationThreshold",
+          "name": "_slashBps",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_minReviewerStake",
+          "name": "_baseLockup",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_baseLockupBlocks",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_maxLockupDuration",
+          "name": "_maxLockup",
           "type": "uint256"
         }
       ],
@@ -37,11 +32,6 @@
       "type": "constructor"
     },
     {
-      "inputs": [],
-      "name": "ReentrancyGuardReentrantCall",
-      "type": "error"
-    },
-    {
       "anonymous": false,
       "inputs": [
         {
@@ -52,37 +42,12 @@
         },
         {
           "indexed": false,
-          "internalType": "uint256",
-          "name": "ayeTotal",
-          "type": "uint256"
+          "internalType": "uint8",
+          "name": "result",
+          "type": "uint8"
         }
       ],
-      "name": "CampaignActivatedByGovernance",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "nayTotal",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "terminationBlock",
-          "type": "uint256"
-        }
-      ],
-      "name": "CampaignTerminatedByGovernance",
+      "name": "CampaignEvaluated",
       "type": "event"
     },
     {
@@ -102,14 +67,14 @@
         },
         {
           "indexed": false,
-          "internalType": "enum IDatumGovernanceVoting.VoteDirection",
-          "name": "direction",
-          "type": "uint8"
+          "internalType": "bool",
+          "name": "aye",
+          "type": "bool"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "lockAmount",
+          "name": "amount",
           "type": "uint256"
         },
         {
@@ -117,15 +82,40 @@
           "internalType": "uint8",
           "name": "conviction",
           "type": "uint8"
+        }
+      ],
+      "name": "VoteCast",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "voter",
+          "type": "address"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "lockedUntilBlock",
+          "name": "returned",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "slashed",
           "type": "uint256"
         }
       ],
-      "name": "VoteCast",
+      "name": "VoteWithdrawn",
       "type": "event"
     },
     {
@@ -142,8 +132,14 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "activationThreshold",
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "ayeWeighted",
       "outputs": [
         {
           "internalType": "uint256",
@@ -172,7 +168,7 @@
       "name": "campaigns",
       "outputs": [
         {
-          "internalType": "contract IDatumCampaignsMinimal",
+          "internalType": "address",
           "name": "",
           "type": "address"
         }
@@ -188,85 +184,9 @@
           "type": "uint256"
         }
       ],
-      "name": "getAyeVoters",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "",
-          "type": "address[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaignVote",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "ayeTotal",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "nayTotal",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "uniqueReviewers",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "terminationBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bool",
-              "name": "activated",
-              "type": "bool"
-            },
-            {
-              "internalType": "bool",
-              "name": "terminated",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct IDatumGovernanceVoting.CampaignVote",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getNayVoters",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "",
-          "type": "address[]"
-        }
-      ],
-      "stateMutability": "view",
+      "name": "evaluateCampaign",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -282,56 +202,26 @@
           "type": "address"
         }
       ],
-      "name": "getVoteRecord",
+      "name": "getVote",
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "voter",
-              "type": "address"
-            },
-            {
-              "internalType": "enum IDatumGovernanceVoting.VoteDirection",
-              "name": "direction",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lockAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint8",
-              "name": "conviction",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lockedUntilBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "castAtBlock",
-              "type": "uint256"
-            }
-          ],
-          "internalType": "struct IDatumGovernanceVoting.VoteRecord",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "maxLockupDuration",
-      "outputs": [
+          "internalType": "uint8",
+          "name": "direction",
+          "type": "uint8"
+        },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "lockAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint8",
+          "name": "conviction",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "lockedUntilBlock",
           "type": "uint256"
         }
       ],
@@ -340,7 +230,7 @@
     },
     {
       "inputs": [],
-      "name": "minReviewerStake",
+      "name": "maxLockupBlocks",
       "outputs": [
         {
           "internalType": "uint256",
@@ -355,16 +245,11 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "campaignId",
+          "name": "",
           "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "voter",
-          "type": "address"
         }
       ],
-      "name": "nayClaimable",
+      "name": "nayWeighted",
       "outputs": [
         {
           "internalType": "uint256",
@@ -373,6 +258,64 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "quorumWeighted",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "resolved",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_slash",
+          "type": "address"
+        }
+      ],
+      "name": "setSlashContract",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -384,7 +327,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "campaignId",
+          "name": "",
           "type": "uint256"
         },
         {
@@ -398,7 +341,14 @@
           "type": "uint256"
         }
       ],
-      "name": "rewardsAction",
+      "name": "slashAction",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "slashBps",
       "outputs": [
         {
           "internalType": "uint256",
@@ -406,12 +356,31 @@
           "type": "uint256"
         }
       ],
-      "stateMutability": "nonpayable",
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "slashCollected",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [],
-      "name": "rewardsContract",
+      "name": "slashContract",
       "outputs": [
         {
           "internalType": "address",
@@ -425,82 +394,37 @@
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "_rewards",
-          "type": "address"
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "aye",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint8",
+          "name": "conviction",
+          "type": "uint8"
         }
       ],
-      "name": "setRewardsContract",
+      "name": "vote",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdraw",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "slashPool",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "terminationThreshold",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "conviction",
-          "type": "uint8"
-        }
-      ],
-      "name": "voteAye",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "conviction",
-          "type": "uint8"
-        }
-      ],
-      "name": "voteNay",
-      "outputs": [],
-      "stateMutability": "payable",
       "type": "function"
     },
     {

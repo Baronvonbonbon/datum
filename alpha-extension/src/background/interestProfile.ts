@@ -78,4 +78,9 @@ export const interestProfile = {
   async resetProfile(): Promise<void> {
     await chrome.storage.local.remove(STORAGE_KEY);
   },
+
+  /** Get normalized weight for a single category (0.0 if not visited) */
+  getNormalizedWeight(profile: UserInterestProfile, categoryName: string): number {
+    return profile.weights[categoryName] ?? 0;
+  },
 };

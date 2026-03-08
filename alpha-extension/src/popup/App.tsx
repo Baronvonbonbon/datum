@@ -4,6 +4,7 @@ import { CampaignList } from "./CampaignList";
 import { ClaimQueue } from "./ClaimQueue";
 import { UserPanel } from "./UserPanel";
 import { PublisherPanel } from "./PublisherPanel";
+import { AdvertiserPanel } from "./AdvertiserPanel";
 import { GovernancePanel } from "./GovernancePanel";
 import { Settings } from "./Settings";
 import {
@@ -19,13 +20,14 @@ import {
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 
-type Tab = "campaigns" | "claims" | "user" | "publisher" | "governance" | "settings";
+type Tab = "campaigns" | "claims" | "user" | "publisher" | "advertiser" | "governance" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
   campaigns: "Campaigns",
   claims: "Claims",
   user: "Earnings",
   publisher: "Publisher",
+  advertiser: "My Ads",
   governance: "Govern",
   settings: "Settings",
 };
@@ -493,6 +495,7 @@ export function App() {
         {tab === "claims" && <ClaimQueue address={address} />}
         {tab === "user" && <UserPanel address={address} />}
         {tab === "publisher" && <PublisherPanel address={address} />}
+        {tab === "advertiser" && <AdvertiserPanel address={address} />}
         {tab === "governance" && <GovernancePanel address={address} />}
         {tab === "settings" && <Settings />}
       </div>

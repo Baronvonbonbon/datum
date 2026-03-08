@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-06 (extension UI addendum)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-08 (extension UI addendum, V2 overhaul, P6/P16/P19 complete)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 100/100 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, and current contract architecture (5+1+1+1+1 contracts).
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 100/100 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, and current contract architecture (5+1+1+1+1 contracts). All alpha-scope code COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
 
 ---
 
@@ -261,12 +261,12 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 | Component | Trust assumption | Path to trustlessness |
 |-----------|-----------------|----------------------|
 | Impression count | Trust extension code (partially mitigated: publisher co-sig in DatumRelay, 2026-03-03) | Publisher attestation endpoint; mandatory attestation mode; then ZK/TEE |
-| Engagement quality | No evidence user actually engaged with ad content | On-device behavior hash chain with `behaviorCommit` in claims (P16); selective disclosure; ZK behavior proofs |
-| Clearing CPM | Trust extension code | Auction mechanism; then ZK proof of clearing |
-| Aye reward amounts | Trust contract owner | On-chain proportional computation |
-| Contract references | Trust contract owner | Timelock + governance approval |
-| Claim state persistence | Trust browser storage | Encrypted export; deterministic derivation |
-| Campaign-publisher match | Trust extension code | On-chain category matching; open publisher pool |
+| Engagement quality | On-device behavior hash chain (P16 implemented 2026-03-08) — IAB metrics captured, committed via behaviorCommit | Selective disclosure; ZK behavior proofs (P9) |
+| Clearing CPM | On-device Vickrey auction (P19 implemented 2026-03-08) — deterministic from inputs | ZK proof of auction outcome (P9) |
+| Aye reward amounts | Symmetric slash replaces V1 aye rewards (GovernanceV2 2026-03-07) — slash pool distribution on-chain via GovernanceSlash | Fully trustless |
+| Contract references | 48h admin timelock (DatumTimelock, A1.2 2026-03-06) | Governance approval for reference changes |
+| Claim state persistence | Trust browser storage | Encrypted export/import (P6 complete — AES-256-GCM, HKDF from wallet sig, merge on import); deterministic derivation post-alpha |
+| Campaign-publisher match | Trust extension code (improved: user preferences filter, P19 auction) | On-chain category matching; open publisher pool |
 
 The MVP is honest about being a PoC. The trust assumptions above are acceptable for testnet validation but each must have a concrete remediation plan before mainnet deployment.
 
@@ -347,13 +347,15 @@ The following items must be resolved and documented in a v0.4 architecture speci
 ## Implementation Notes
 
 ### DOT Flow Architecture
-The PoC uses a six-contract DOT flow:
-1. Advertiser deposits full budget into `DatumCampaigns` at `createCampaign()`.
+The alpha uses a nine-contract DOT flow (5+1+1+1+1):
+1. Advertiser deposits full budget into `DatumCampaigns` at `createCampaign()`. Campaign creation, activation, termination check `DatumPauseRegistry.paused()`.
 2. At `deductBudget()`, `DatumCampaigns` forwards the deducted amount to `DatumSettlement`.
-3. `DatumSettlement` maintains pull-payment balances (`publisherBalance`, `userBalance`, `protocolBalance`).
-4. At termination, `DatumCampaigns` sends 10% of remaining escrow to `DatumGovernanceVoting` (slash pool) and refunds 90% to the advertiser.
-5. `DatumGovernanceVoting` holds staked DOT and slash funds; `DatumGovernanceRewards` manages reward claims routed through voting.
-6. `DatumRelay` accepts EIP-712 signed batches from publishers, verifies user signatures and optional publisher co-signatures (via `campaigns.getCampaignForSettlement()`), and forwards to `DatumSettlement` (gasless user settlement).
+3. `DatumSettlement` maintains pull-payment balances (`publisherBalance`, `userBalance`, `protocolBalance`). Optional ZK verification via `DatumZKVerifier`.
+4. At termination, `DatumCampaigns` sends 10% of remaining escrow to `DatumGovernanceV2` (slash pool) and refunds 90% to the advertiser.
+5. `DatumGovernanceV2` holds staked DOT; evaluateCampaign() transitions state; symmetric slash deducted inline on withdraw(). `DatumGovernanceSlash` manages slash pool finalization and winner claims.
+6. `DatumRelay` accepts EIP-712 signed batches from publishers, verifies user signatures and optional publisher co-signatures, and forwards to `DatumSettlement` (gasless user settlement). Checks pause registry.
+7. `DatumTimelock` provides 48h admin delay. Campaigns + Settlement ownership transferred to Timelock post-deploy. Admin changes: `propose(target, calldata)` → 48h → `execute()`.
+8. `DatumPauseRegistry` provides global emergency pause circuit breaker. Owner-only `pause()`/`unpause()`.
 
 All DOT exits the system via explicit withdrawal calls, never inline transfers after state-changing operations.
 
@@ -419,40 +421,91 @@ extension/
 
 ---
 
-## Extension UI Addendum (2026-03-06)
+## Extension UI Addendum (2026-03-08, updated for V2 overhaul)
 
-### Governance Voting UI — GovernancePanel.tsx
+### V2 Extension Architecture (7 tabs, 559 KB popup.js)
 
-The extension now includes a Governance tab ("Govern") with:
+The alpha extension was overhauled to full V2 feature parity across all roles: user, publisher, advertiser, and governance participant.
 
-- **Campaign listing:** Fetches all campaigns from `DatumCampaigns.nextCampaignId()`, filters for Pending (status 0), Active (status 1), and Paused (status 2). Displays in two sections with activation/termination threshold progress bars.
-- **Aye voting:** Available only for Pending campaigns. DOT amount (sent as `msg.value`) + conviction (1–6, showing weighted multiplier 2x–64x). Calls `voting.voteAye(campaignId, conviction, { value })`.
-- **Nay voting:** Available only for Active/Paused campaigns. Same DOT + conviction UI. Calls `voting.voteNay(campaignId, conviction, { value })`.
-- **Vote status:** Queries `voting.getCampaignVote(campaignId)` (ayeTotal, nayTotal, uniqueReviewers) and `voting.getVoteRecord(campaignId, address)` (user's existing vote direction, lockAmount, conviction, lockedUntilBlock).
-- **Stake withdrawal:** After lockup expires (`lockedUntilBlock < currentBlock`), shows "Withdraw Stake" button calling `rewards.withdrawStake(campaignId)`.
-- **Threshold display:** Shows `activationThreshold`, `terminationThreshold`, and `minReviewerStake` from the voting contract.
+**Key changes from V1:**
+- ABIs sourced from `alpha/artifacts/` (9 contracts), V1 ABIs removed
+- ContractAddresses: 9 keys (governanceV2/governanceSlash replace governanceVoting/governanceRewards, added pauseRegistry/timelock/zkVerifier)
+- Campaign struct: `id` and `budget` fields removed (A1.3), tracked externally
+- 7 tabs (added "My Ads" for advertiser controls)
 
-**Limitation identified:** Contract enforces one vote per address per campaign (`require(existing.castAtBlock == 0, "Already voted")`). No mechanism to increase stake after voting. Documented as future improvement (Governance V2).
+### Governance V2 — GovernancePanel.tsx
+
+Completely rewritten for V2 API:
+
+- **Voting:** `v2.vote(campaignId, aye, conviction, { value })` — both Aye and Nay allowed on Pending AND Active campaigns
+- **Conviction 0-6:** Weight = lockAmount × 2^conviction, lockup = baseLockupBlocks × 2^conviction (capped at maxLockupBlocks). Conviction 0 = no lockup multiplier.
+- **Vote status:** `v2.ayeWeighted(cid)` + `v2.nayWeighted(cid)` + `v2.resolved(cid)` + `v2.getVote(cid, addr)` returns (direction, lockAmount, conviction, lockedUntilBlock)
+- **Majority progress:** Aye% vs Nay% bars (replaces threshold progress bars). Quorum bar shows totalWeighted vs quorumWeighted.
+- **Evaluate Campaign:** `v2.evaluateCampaign(cid)` — Pending→Active (aye>50% + quorum met), Active→Terminated (nay≥50%), Completed/Terminated→resolved. Button shown contextually on campaign rows.
+- **Slash warning:** "Losing side pays {slashBps/100}% of stake"
+- **Withdrawal:** `v2.withdraw(cid)` — parses VoteWithdrawn event for returned/slashed amounts
+- **Slash finalization:** `slash.finalizeSlash(cid)` — snapshots winning side weight after resolution
+- **Slash reward claiming:** `slash.claimSlashReward(cid)` — winner claims proportional share of slashCollected. Shows claimable amount from `slash.getClaimable(cid, address)`.
+
+### Advertiser Controls — AdvertiserPanel.tsx (NEW)
+
+Campaign owner controls:
+
+- **My Campaigns:** Scans `nextCampaignId` range, filters by `getCampaignAdvertiser(id) == address`
+- **Pause/Resume:** `campaigns.togglePause(campaignId, true/false)` — Active ↔ Paused
+- **Complete:** `campaigns.completeCampaign(campaignId)` — Active/Paused → Completed (refunds remaining budget). Confirmation dialog.
+- **Expire:** `campaigns.expirePendingCampaign(campaignId)` — Pending → Expired (after timeout)
+- **Campaign creation:** Moved from PublisherPanel. Creates campaign with IPFS CID, category, bid CPM, daily cap.
+
+### User Ad Controls — CampaignList.tsx + userPreferences.ts (NEW)
+
+- **Block/Unblock:** Per-campaign block button, blocked campaigns collapsible section
+- **Category filter:** Dropdown to filter campaign list by category
+- **Campaign info:** Expandable details (advertiser, publisher, budget, take rate, status, category)
+- **Silenced categories:** Toggle categories user doesn't want to see ads from
+- **Rate limiting:** Max ads per hour (1-30, default 12)
+- **Minimum CPM:** Floor CPM user will accept
+
+### Second-Price Auction — auction.ts (NEW, P19)
+
+Vickrey second-price auction integrated into campaign selection:
+
+- `effectiveBid = bidCpmPlanck × interestWeight` (interestWeight from exponential-decay profile, floor 0.1)
+- Solo campaign: clearing CPM = bidCpm × 70%
+- 2+ campaigns: clearing CPM = secondEffectiveBid / winnerInterestWeight, clamped to [30%, 100%] of bidCpm
+- Floor: clearing CPM >= bidCpm × 30%
+- Result includes: winner, clearingCpmPlanck, participants, mechanism ('second-price' | 'solo' | 'floor')
+- Falls back to legacy campaignMatcher.ts when auction has insufficient data
+
+### Behavioral Analytics — engagement.ts + behaviorChain.ts (NEW, P16)
+
+On-device engagement capture per impression:
+
+- **IntersectionObserver** (50% threshold) for viewport tracking → `viewableMs`, `iabViewable` (≥50% visible ≥1s)
+- **document.visibilitychange** for tab focus → `tabFocusMs`
+- **window.scroll** for scroll depth → `scrollDepthPct`
+- **Minimum 500ms tracking duration** (ignore accidental closes)
+- **Behavior hash chain:** per-(userAddress, campaignId) append-only keccak256 chain. Storage key: `behaviorChain:{user}:{campaign}`
+- **Behavior commitment:** single bytes32 = keccak256(headHash, eventCount, avgDwell, avgViewable, viewabilityRate, campaignId)
+- **ZK proof stub:** `0x01` + commitment (satisfies DatumZKVerifier stub). Real Groth16 in P9.
+- **UserPanel engagement stats:** Total impressions, avg dwell, avg viewable, IAB viewability rate, per-campaign breakdown, chain head hash
 
 ### Publisher Relay Submit — PublisherPanel.tsx
 
-The Publisher tab now includes a relay submit section:
-
-- Reads `signedBatches` from `chrome.storage.local` (created by `ClaimQueue.tsx` when a user clicks "Sign for Publisher").
-- Shows batch count, deadline block, and expiry status (compares against current block number).
-- "Submit Signed Claims" button: deserializes stored batches (BigInt conversion for numeric fields), calls `relay.settleClaimsFor(contractBatches)`, parses `ClaimSettled`/`ClaimRejected` events from the settlement interface, clears storage on success.
-- Publisher pays gas; users receive payouts from campaign budget.
-- "Clear Batches" button for removing expired/unwanted signed batches.
+Unchanged from V1. Campaign creation moved to AdvertiserPanel.
 
 ### Extension Build Size
 
-popup.js: 545 KB | background.js: 346 KB | content.js: 6.6 KB (post-governance additions)
+popup.js: 559 KB | background.js: 363 KB | content.js: 9.5 KB (post-V2 overhaul)
 
 ### Trust Assumptions Updated
 
 | Component | Status |
 |-----------|--------|
-| Governance voting | On-chain via DatumGovernanceVoting — trustless (aye/nay with conviction, activation/termination thresholds) |
-| Aye reward distribution | Still owner-computed off-chain (`creditAyeReward` is `onlyOwner`). See P4. |
+| Governance voting | On-chain via DatumGovernanceV2 — trustless (vote with conviction 0-6, evaluateCampaign for state transitions, symmetric slash) |
+| Slash distribution | On-chain via DatumGovernanceSlash — trustless (finalizeSlash, claimSlashReward proportional to weighted stake) |
 | Relay submission | Publisher submits EIP-712 signed batches via DatumRelay — user signs off-chain, publisher pays gas |
-| Vote stacking | Not supported — one vote per address per campaign. Governance V2 planned. |
+| Clearing CPM | On-device Vickrey auction (P19) — deterministic from inputs, not hardcoded to bidCpm. ZK proof of outcome deferred to P9. |
+| Engagement quality | On-device behavior hash chain (P16) — IAB-standard metrics captured, committed via behaviorCommit, ZK proof deferred to P9 |
+| Ad delivery control | User preferences — block campaigns, silence categories, rate limit, minimum CPM. All client-side. |
+| Campaign management | Advertiser controls — pause/resume/complete/expire via DatumCampaigns contract calls |

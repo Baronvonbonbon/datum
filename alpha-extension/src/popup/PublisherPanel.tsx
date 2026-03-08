@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { parseUnits } from "ethers";
-import { getSettlementContract, getPublishersContract, getCampaignsContract, getRelayContract, getProvider } from "@shared/contracts";
+import { getSettlementContract, getPublishersContract, getRelayContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
-import { cidToBytes32 } from "@shared/ipfs";
 import { DEFAULT_SETTINGS } from "@shared/networks";
-import { CATEGORY_NAMES } from "@shared/types";
 import { getSigner } from "@shared/walletManager";
 
 interface Props {
@@ -284,121 +281,6 @@ export function PublisherPanel({ address }: Props) {
         </div>
       )}
 
-      {/* Campaign creation form */}
-      <div style={{ marginTop: 16, borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
-        <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 8 }}>Create Campaign</div>
-        <CreateCampaignForm address={address} onCreated={loadData} />
-      </div>
-    </div>
-  );
-}
-
-function CreateCampaignForm({ address, onCreated }: { address: string; onCreated: () => void }) {
-  const [budget, setBudget] = useState("1");
-  const [dailyCap, setDailyCap] = useState("0.1");
-  const [bidCpm, setBidCpm] = useState("0.01");
-  const [categoryId, setCategoryId] = useState(0);
-  const [metadataCid, setMetadataCid] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  async function create() {
-    setCreating(true);
-    setResult(null);
-    setFormError(null);
-    try {
-      const stored = await chrome.storage.local.get("settings");
-      const settings = stored.settings ?? DEFAULT_SETTINGS;
-
-      const signer = getSigner(settings.rpcUrl);
-      const campaigns = getCampaignsContract(settings.contractAddresses, signer);
-
-      // Convert DOT strings to planck (1 DOT = 10^10 planck)
-      const budgetPlanck = parseUnits(budget, 10);
-      const dailyCapPlanck = parseUnits(dailyCap, 10);
-      const bidCpmPlanck = parseUnits(bidCpm, 10);
-
-      const tx = await campaigns.createCampaign(
-        address, // publisher = self
-        dailyCapPlanck,
-        bidCpmPlanck,
-        categoryId,
-        { value: budgetPlanck }
-      );
-      const receipt = await tx.wait();
-
-      // Parse campaign ID from CampaignCreated event in receipt
-      let campaignId: bigint | undefined;
-      for (const log of receipt.logs) {
-        try {
-          const parsed = campaigns.interface.parseLog({ topics: log.topics as string[], data: log.data });
-          if (parsed?.name === "CampaignCreated") campaignId = parsed.args.campaignId;
-        } catch { /* log from different contract */ }
-      }
-
-      // If metadata CID is provided, encode to bytes32 and set on-chain
-      if (metadataCid.trim()) {
-        if (campaignId === undefined) throw new Error("Could not parse campaign ID from receipt");
-        const metadataHash = cidToBytes32(metadataCid.trim());
-        const metaTx = await campaigns.setMetadata(campaignId, metadataHash);
-        await metaTx.wait();
-      }
-
-      const idStr = campaignId !== undefined ? ` (ID: ${campaignId})` : "";
-      setResult(`Campaign created${idStr}. Status: Pending — awaiting governance activation (aye votes needed).`);
-      onCreated();
-    } catch (err) {
-      setFormError(String(err));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Budget (DOT)</label>
-        <input type="text" value={budget} onChange={(e) => setBudget(e.target.value)}
-          style={formInput} placeholder="1.0" />
-      </div>
-      <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Daily Cap (DOT)</label>
-        <input type="text" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)}
-          style={formInput} placeholder="0.1" />
-      </div>
-      <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Bid CPM (DOT per 1000 impressions)</label>
-        <input type="text" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)}
-          style={formInput} placeholder="0.01" />
-      </div>
-      <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Category</label>
-        <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}
-          style={{ ...formInput, cursor: "pointer" }}>
-          {Object.entries(CATEGORY_NAMES).map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
-          ))}
-        </select>
-      </div>
-      <div style={{ marginBottom: 8 }}>
-        <label style={formLabel}>Metadata CID (IPFS CIDv0, optional)</label>
-        <input type="text" value={metadataCid} onChange={(e) => setMetadataCid(e.target.value)}
-          style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
-          placeholder="QmXyz..." />
-        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
-          Pin JSON with title, description, category, creative fields to IPFS
-        </div>
-      </div>
-      <button onClick={create} disabled={creating} style={primaryBtn}>
-        {creating ? "Creating..." : "Create Campaign"}
-      </button>
-      {result && (
-        <div style={{ marginTop: 6, color: "#60c060", fontSize: 12 }}>{result}</div>
-      )}
-      {formError && (
-        <div style={{ marginTop: 6, color: "#ff8080", fontSize: 12 }}>{formError}</div>
-      )}
     </div>
   );
 }
@@ -426,24 +308,6 @@ const secondaryBtn: React.CSSProperties = {
   background: "#1a1a1a",
   color: "#666",
   border: "1px solid #333",
-};
-
-const formLabel: React.CSSProperties = {
-  display: "block",
-  color: "#888",
-  fontSize: 11,
-  marginBottom: 2,
-};
-
-const formInput: React.CSSProperties = {
-  width: "100%",
-  padding: "5px 8px",
-  background: "#1a1a2e",
-  border: "1px solid #2a2a4a",
-  borderRadius: 4,
-  color: "#e0e0e0",
-  fontSize: 12,
-  outline: "none",
 };
 
 const relayBtn: React.CSSProperties = {

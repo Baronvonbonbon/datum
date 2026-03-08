@@ -16,15 +16,15 @@
           "internalType": "address",
           "name": "_publishers",
           "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pauseRegistry",
+          "type": "address"
         }
       ],
       "stateMutability": "nonpayable",
       "type": "constructor"
-    },
-    {
-      "inputs": [],
-      "name": "ReentrancyGuardReentrantCall",
-      "type": "error"
     },
     {
       "anonymous": false,
@@ -308,84 +308,12 @@
           "type": "uint256"
         }
       ],
-      "name": "getCampaign",
+      "name": "getCampaignAdvertiser",
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "id",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "advertiser",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "publisher",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "budgetPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "remainingBudget",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "dailyCapPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "bidCpmPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "dailySpent",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastSpendDay",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "pendingExpiryBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "terminationBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint16",
-              "name": "snapshotTakeRateBps",
-              "type": "uint16"
-            },
-            {
-              "internalType": "enum IDatumCampaigns.CampaignStatus",
-              "name": "status",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint8",
-              "name": "categoryId",
-              "type": "uint8"
-            }
-          ],
-          "internalType": "struct IDatumCampaigns.Campaign",
+          "internalType": "address",
           "name": "",
-          "type": "tuple"
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -425,6 +353,44 @@
           "internalType": "uint16",
           "name": "snapshotTakeRateBps",
           "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignRemainingBudget",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignStatus",
+      "outputs": [
+        {
+          "internalType": "enum IDatumCampaigns.CampaignStatus",
+          "name": "",
+          "type": "uint8"
         }
       ],
       "stateMutability": "view",
@@ -484,6 +450,19 @@
     },
     {
       "inputs": [],
+      "name": "pauseRegistry",
+      "outputs": [
+        {
+          "internalType": "contract IDatumPauseRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "pendingTimeoutBlocks",
       "outputs": [
         {
@@ -512,7 +491,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_governance",
+          "name": "addr",
           "type": "address"
         }
       ],
@@ -543,7 +522,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_settlement",
+          "name": "addr",
           "type": "address"
         }
       ],
@@ -592,6 +571,19 @@
         }
       ],
       "name": "togglePause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

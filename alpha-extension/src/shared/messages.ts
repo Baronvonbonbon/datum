@@ -1,11 +1,13 @@
-// Chrome extension message types for background ↔ popup ↔ content ↔ offscreen communication
+// Chrome extension message types for background <-> popup <-> content <-> offscreen communication
 
 // Messages sent FROM content script TO background
 export type ContentToBackground =
-  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string }
+  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmPlanck?: string }
   | { type: "GET_ACTIVE_CAMPAIGNS" }
   | { type: "UPDATE_INTEREST"; category: string }
-  | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string };
+  | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string }
+  | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
+  | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean };
 
 // Messages sent FROM popup TO background
 export type PopupToBackground =
@@ -24,7 +26,14 @@ export type PopupToBackground =
   | { type: "POLL_CAMPAIGNS" }
   | { type: "GET_INTEREST_PROFILE" }
   | { type: "RESET_INTEREST_PROFILE" }
-  | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number };
+  | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number }
+  | { type: "EVALUATE_CAMPAIGN"; campaignId: string }
+  | { type: "FINALIZE_SLASH"; campaignId: string }
+  | { type: "CLAIM_SLASH_REWARD"; campaignId: string }
+  | { type: "GET_USER_PREFERENCES" }
+  | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
+  | { type: "BLOCK_CAMPAIGN"; campaignId: string }
+  | { type: "UNBLOCK_CAMPAIGN"; campaignId: string };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { StoredSettings, NetworkName, ContractAddresses } from "@shared/types";
+import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS } from "@shared/networks";
 import { unlock, isConfigured } from "@shared/walletManager";
 
@@ -19,13 +19,34 @@ export function Settings() {
   const [autoSubmitKeySet, setAutoSubmitKeySet] = useState(false);
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
 
+  // User preferences
+  const [prefs, setPrefs] = useState<UserPreferences>({
+    blockedCampaigns: [],
+    silencedCategories: [],
+    maxAdsPerHour: 12,
+    minBidCpm: "0",
+  });
+  const [prefsSaved, setPrefsSaved] = useState(false);
+
   useEffect(() => {
     chrome.storage.local.get(["settings", "autoSubmitKey"], (stored) => {
       if (stored.settings) setSettings(stored.settings);
       if (stored.autoSubmitKey) setAutoSubmitKeySet(true);
     });
     loadInterestProfile();
+    loadPreferences();
   }, []);
+
+  async function loadPreferences() {
+    const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
+    if (response?.preferences) setPrefs(response.preferences);
+  }
+
+  async function savePreferences() {
+    await chrome.runtime.sendMessage({ type: "UPDATE_USER_PREFERENCES", preferences: prefs });
+    setPrefsSaved(true);
+    setTimeout(() => setPrefsSaved(false), 2000);
+  }
 
   async function loadInterestProfile() {
     const response = await chrome.runtime.sendMessage({ type: "GET_INTEREST_PROFILE" });
@@ -56,7 +77,6 @@ export function Settings() {
       ...s,
       network,
       rpcUrl: config.rpcUrl,
-      // Only overwrite addresses if the user hasn't customised them
       contractAddresses: config.addresses,
     }));
   }
@@ -74,9 +94,41 @@ export function Settings() {
   }
 
   async function resetChainState() {
-    // Background handles clearing all chainState:* keys and the claim queue
     await chrome.runtime.sendMessage({ type: "RESET_CHAIN_STATE" });
     setResetConfirm(false);
+  }
+
+  // Category hierarchy for collapsible silencing
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [profileExpanded, setProfileExpanded] = useState(false);
+  const categoryHierarchy = buildCategoryHierarchy();
+
+  function toggleGroup(id: number) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function isGroupSilenced(group: CategoryGroup): "all" | "some" | "none" {
+    const names = [group.name, ...group.children.map((c) => c.name)];
+    const silenced = names.filter((n) => prefs.silencedCategories.includes(n));
+    if (silenced.length === 0) return "none";
+    if (silenced.length === names.length) return "all";
+    return "some";
+  }
+
+  function toggleGroupSilence(group: CategoryGroup) {
+    const names = [group.name, ...group.children.map((c) => c.name)];
+    const state = isGroupSilenced(group);
+    setPrefs((p) => ({
+      ...p,
+      silencedCategories: state === "all"
+        ? p.silencedCategories.filter((c) => !names.includes(c))
+        : [...p.silencedCategories.filter((c) => !names.includes(c)), ...names],
+    }));
   }
 
   return (
@@ -94,6 +146,7 @@ export function Settings() {
           style={selectStyle}
         >
           <option value="local">Local (dev)</option>
+          <option value="paseo">Paseo Asset Hub</option>
           <option value="westend">Westend Asset Hub</option>
           <option value="kusama">Kusama Asset Hub</option>
           <option value="polkadotHub">Polkadot Hub</option>
@@ -128,10 +181,13 @@ export function Settings() {
                   contractAddresses: {
                     campaigns: addrs.campaigns ?? "",
                     publishers: addrs.publishers ?? "",
-                    governanceVoting: addrs.governanceVoting ?? "",
-                    governanceRewards: addrs.governanceRewards ?? "",
+                    governanceV2: addrs.governanceV2 ?? "",
+                    governanceSlash: addrs.governanceSlash ?? "",
                     settlement: addrs.settlement ?? "",
                     relay: addrs.relay ?? "",
+                    pauseRegistry: addrs.pauseRegistry ?? "",
+                    timelock: addrs.timelock ?? "",
+                    zkVerifier: addrs.zkVerifier ?? "",
                   },
                 }));
               } catch (err) {
@@ -153,7 +209,7 @@ export function Settings() {
               value={settings.contractAddresses[key]}
               onChange={(e) => handleAddressChange(key, e.target.value)}
               style={{ ...inputStyle, fontFamily: "monospace", fontSize: 11 }}
-              placeholder="0x…"
+              placeholder="0x..."
             />
           </div>
         ))}
@@ -169,12 +225,6 @@ export function Settings() {
           style={{ ...inputStyle, fontFamily: "monospace" }}
           placeholder="Leave blank to use connected wallet"
         />
-        {!settings.publisherAddress && (
-          <div style={{ color: "#888060", fontSize: 11, marginTop: 4 }}>
-            ⚠ No publisher address set — ad matching uses your connected wallet.
-            Set this if you're not the publisher for active campaigns.
-          </div>
-        )}
       </div>
 
       {/* IPFS Gateway */}
@@ -232,8 +282,7 @@ export function Settings() {
           ) : (
             <div style={sectionStyle}>
               <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
-                Enter your wallet password to authorize auto-submit. The decrypted key will be stored locally
-                so the background can sign transactions without your interaction.
+                Enter your wallet password to authorize auto-submit.
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
@@ -270,55 +319,201 @@ export function Settings() {
 
       {/* Save */}
       <button onClick={save} style={{ ...primaryBtn, marginTop: 4, marginBottom: 16 }}>
-        {saved ? "Saved ✓" : "Save Settings"}
+        {saved ? "Saved" : "Save Settings"}
       </button>
 
-      {/* Interest Profile */}
+      {/* Ad Preferences */}
       <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12, marginBottom: 16 }}>
         <div style={{ ...labelStyle, fontSize: 13, color: "#a0a0ff", marginBottom: 8, fontWeight: 600 }}>
-          Your Interest Profile
+          Ad Preferences
         </div>
-        <div style={{ color: "#666", fontSize: 11, marginBottom: 8 }}>
-          This data never leaves your browser. It personalizes ad selection based on your browsing.
+
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Max ads per hour</label>
+          <input
+            type="range"
+            min={1} max={30}
+            value={prefs.maxAdsPerHour}
+            onChange={(e) => setPrefs((p) => ({ ...p, maxAdsPerHour: Number(e.target.value) }))}
+            style={{ width: "100%" }}
+          />
+          <div style={{ color: "#888", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerHour} / hour</div>
         </div>
-        {interestProfile && Object.keys(interestProfile.weights).length > 0 ? (
-          <div>
-            {Object.entries(interestProfile.weights)
-              .sort(([, a], [, b]) => b - a)
-              .map(([cat, weight]) => (
-                <div key={cat} style={{ marginBottom: 4 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 2 }}>
-                    <span>{cat}</span>
-                    <span>{weight.toFixed(2)} ({interestProfile.visitCounts[cat] ?? 0} visits)</span>
+
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Minimum bid CPM (DOT)</label>
+          <input
+            type="text"
+            value={prefs.minBidCpm === "0" ? "" : prefs.minBidCpm}
+            onChange={(e) => setPrefs((p) => ({ ...p, minBidCpm: e.target.value || "0" }))}
+            style={inputStyle}
+            placeholder="0 (accept all)"
+          />
+        </div>
+
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Silenced categories ({prefs.silencedCategories.length} silenced)</label>
+          <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid #2a2a4a", borderRadius: 4, padding: 4 }}>
+            {categoryHierarchy.map((group) => {
+              const groupState = isGroupSilenced(group);
+              const isOpen = expandedGroups.has(group.id);
+              return (
+                <div key={group.id} style={{ marginBottom: 2 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    {group.children.length > 0 && (
+                      <button
+                        onClick={() => toggleGroup(group.id)}
+                        style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 10, padding: "0 2px", width: 14 }}
+                      >{isOpen ? "v" : ">"}</button>
+                    )}
+                    {group.children.length === 0 && <span style={{ width: 14 }} />}
+                    <button
+                      onClick={() => toggleGroupSilence(group)}
+                      style={{
+                        background: groupState === "all" ? "#2a0a0a" : groupState === "some" ? "#1a0a1a" : "#1a1a2e",
+                        color: groupState === "all" ? "#ff8080" : groupState === "some" ? "#c080c0" : "#aaa",
+                        border: `1px solid ${groupState !== "none" ? "#4a1a1a" : "#2a2a4a"}`,
+                        borderRadius: 3, padding: "1px 6px", fontSize: 10, cursor: "pointer", flex: 1, textAlign: "left",
+                      }}
+                    >
+                      {groupState === "all" ? "x " : groupState === "some" ? "- " : ""}{group.name}
+                    </button>
                   </div>
-                  <div style={{ background: "#1a1a2e", borderRadius: 3, height: 8 }}>
-                    <div style={{
-                      width: `${Math.round(weight * 100)}%`,
-                      background: "#4a4a8a",
-                      height: "100%",
-                      borderRadius: 3,
-                      minWidth: 2,
-                    }} />
-                  </div>
+                  {isOpen && group.children.length > 0 && (
+                    <div style={{ marginLeft: 18, marginTop: 2 }}>
+                      {group.children.map((child) => {
+                        const silenced = prefs.silencedCategories.includes(child.name);
+                        return (
+                          <button
+                            key={child.id}
+                            onClick={() => {
+                              setPrefs((p) => ({
+                                ...p,
+                                silencedCategories: silenced
+                                  ? p.silencedCategories.filter((c) => c !== child.name)
+                                  : [...p.silencedCategories, child.name],
+                              }));
+                            }}
+                            style={{
+                              display: "block", width: "100%", textAlign: "left", marginBottom: 1,
+                              background: silenced ? "#2a0a0a" : "#111122",
+                              color: silenced ? "#ff8080" : "#888",
+                              border: `1px solid ${silenced ? "#4a1a1a" : "#1a1a2e"}`,
+                              borderRadius: 2, padding: "1px 6px", fontSize: 9, cursor: "pointer",
+                            }}
+                          >
+                            {silenced ? "x " : ""}{child.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {prefs.blockedCampaigns.length > 0 && (
+          <div style={sectionStyle}>
+            <label style={labelStyle}>Blocked campaigns</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {prefs.blockedCampaigns.map((id) => (
+                <span key={id} style={{
+                  background: "#2a0a0a", color: "#ff8080", fontSize: 10,
+                  padding: "2px 6px", borderRadius: 3, display: "inline-flex", alignItems: "center", gap: 4,
+                }}>
+                  #{id}
+                  <button
+                    onClick={() => setPrefs((p) => ({
+                      ...p,
+                      blockedCampaigns: p.blockedCampaigns.filter((c) => c !== id),
+                    }))}
+                    style={{ background: "none", border: "none", color: "#ff8080", cursor: "pointer", fontSize: 10, padding: 0 }}
+                  >x</button>
+                </span>
               ))}
-            {!resetProfileConfirm ? (
-              <button onClick={() => setResetProfileConfirm(true)} style={{ ...secondaryBtn, marginTop: 8, fontSize: 11 }}>
-                Reset Profile
-              </button>
+            </div>
+          </div>
+        )}
+
+        <button onClick={savePreferences} style={{ ...secondaryBtn, fontSize: 12 }}>
+          {prefsSaved ? "Saved" : "Save Ad Preferences"}
+        </button>
+
+        <button
+          onClick={() => {
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" });
+            chrome.runtime.sendMessage({
+              type: "UPDATE_USER_PREFERENCES",
+              preferences: { blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" },
+            });
+          }}
+          style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}
+        >
+          Reset all preferences
+        </button>
+      </div>
+
+      {/* Interest Profile — collapsible */}
+      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12, marginBottom: 16 }}>
+        <button
+          onClick={() => setProfileExpanded(!profileExpanded)}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%" }}
+        >
+          <span style={{ color: "#666", fontSize: 10 }}>{profileExpanded ? "v" : ">"}</span>
+          <span style={{ fontSize: 13, color: "#a0a0ff", fontWeight: 600 }}>
+            Your Interest Profile
+          </span>
+          <span style={{ color: "#555", fontSize: 11, marginLeft: "auto" }}>
+            {interestProfile ? Object.keys(interestProfile.weights).length : 0} categories
+          </span>
+        </button>
+        {profileExpanded && (
+          <div>
+            <div style={{ color: "#666", fontSize: 11, marginBottom: 8 }}>
+              This data never leaves your browser. It personalizes ad selection based on your browsing.
+            </div>
+            {interestProfile && Object.keys(interestProfile.weights).length > 0 ? (
+              <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                {Object.entries(interestProfile.weights)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([cat, weight]) => (
+                    <div key={cat} style={{ marginBottom: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 2 }}>
+                        <span>{cat}</span>
+                        <span>{weight.toFixed(2)} ({interestProfile.visitCounts[cat] ?? 0} visits)</span>
+                      </div>
+                      <div style={{ background: "#1a1a2e", borderRadius: 3, height: 8 }}>
+                        <div style={{
+                          width: `${Math.round(weight * 100)}%`,
+                          background: "#4a4a8a",
+                          height: "100%",
+                          borderRadius: 3,
+                          minWidth: 2,
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                {!resetProfileConfirm ? (
+                  <button onClick={() => setResetProfileConfirm(true)} style={{ ...secondaryBtn, marginTop: 8, fontSize: 11 }}>
+                    Reset Profile
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ color: "#ff8080", fontSize: 11, marginBottom: 4 }}>Clear all interest data?</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={resetInterestProfile} style={{ ...dangerBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Yes</button>
+                      <button onClick={() => setResetProfileConfirm(false)} style={{ ...secondaryBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ color: "#ff8080", fontSize: 11, marginBottom: 4 }}>Clear all interest data?</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={resetInterestProfile} style={{ ...dangerBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Yes</button>
-                  <button onClick={() => setResetProfileConfirm(false)} style={{ ...secondaryBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Cancel</button>
-                </div>
+              <div style={{ color: "#555", fontSize: 11, fontStyle: "italic" }}>
+                No browsing data yet. Visit pages matching campaign categories to build your profile.
               </div>
             )}
-          </div>
-        ) : (
-          <div style={{ color: "#555", fontSize: 11, fontStyle: "italic" }}>
-            No browsing data yet. Visit pages matching campaign categories to build your profile.
           </div>
         )}
       </div>

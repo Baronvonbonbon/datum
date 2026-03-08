@@ -11,6 +11,11 @@
           "internalType": "address",
           "name": "_campaigns",
           "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pauseRegistry",
+          "type": "address"
         }
       ],
       "stateMutability": "nonpayable",
@@ -35,6 +40,19 @@
       "outputs": [
         {
           "internalType": "contract IDatumCampaignsSettlement",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pauseRegistry",
+      "outputs": [
+        {
+          "internalType": "contract IDatumPauseRegistry",
           "name": "",
           "type": "address"
         }

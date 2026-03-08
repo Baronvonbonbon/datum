@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { parseUnits } from "ethers";
-import { getGovernanceVotingContract, getGovernanceRewardsContract, getCampaignsContract, getProvider } from "@shared/contracts";
+import { getGovernanceV2Contract, getGovernanceSlashContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { CATEGORY_NAMES } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
@@ -10,38 +10,27 @@ interface Props {
   address: string | null;
 }
 
-interface CampaignVote {
-  ayeTotal: bigint;
-  nayTotal: bigint;
-  uniqueReviewers: bigint;
-  terminationBlock: bigint;
-  activated: boolean;
-  terminated: boolean;
+interface GovernableCampaign {
+  id: string;
+  status: number;
+  advertiser: string;
+  bidCpmPlanck: bigint;
+  categoryId: number;
+  ayeWeighted: bigint;
+  nayWeighted: bigint;
+  resolved: boolean;
+  remainingBudget: bigint;
 }
 
 interface VoteRecord {
-  voter: string;
   direction: number; // 0=None, 1=Aye, 2=Nay
   lockAmount: bigint;
   conviction: number;
   lockedUntilBlock: bigint;
-  castAtBlock: bigint;
-}
-
-interface GovernableCampaign {
-  id: string;
-  status: number; // 0=Pending, 1=Active, 2=Paused
-  advertiser: string;
-  publisher: string;
-  budget: bigint;
-  bidCpmPlanck: bigint;
-  categoryId: number;
-  ayeTotal: bigint;
-  nayTotal: bigint;
-  reviewers: bigint;
 }
 
 const CONVICTION_LABELS: Record<number, string> = {
+  0: "0x (no lockup multiplier)",
   1: "1x (base lockup)",
   2: "2x (2x lockup)",
   3: "4x (4x lockup)",
@@ -54,6 +43,9 @@ const STATUS_NAMES: Record<number, string> = {
   0: "Pending",
   1: "Active",
   2: "Paused",
+  3: "Completed",
+  4: "Terminated",
+  5: "Expired",
 };
 
 export function GovernancePanel({ address }: Props) {
@@ -67,22 +59,28 @@ export function GovernancePanel({ address }: Props) {
 
   // Query state
   const [queryCampaignId, setQueryCampaignId] = useState("");
-  const [campaignVote, setCampaignVote] = useState<CampaignVote | null>(null);
   const [myVote, setMyVote] = useState<VoteRecord | null>(null);
-  const [minStake, setMinStake] = useState<bigint | null>(null);
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [querying, setQuerying] = useState(false);
 
   // Campaign lists
   const [campaigns, setCampaigns] = useState<GovernableCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [activationThreshold, setActivationThreshold] = useState<bigint | null>(null);
-  const [terminationThreshold, setTerminationThreshold] = useState<bigint | null>(null);
 
-  // Withdraw
+  // V2 params
+  const [quorumWeighted, setQuorumWeighted] = useState<bigint | null>(null);
+  const [slashBps, setSlashBps] = useState<number | null>(null);
+
+  // Actions
   const [withdrawing, setWithdrawing] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
-  // Derived: selected campaign status (from campaigns list)
+  // Slash info per queried campaign
+  const [slashFinalized, setSlashFinalized] = useState(false);
+  const [claimableAmount, setClaimableAmount] = useState<bigint | null>(null);
+
   const selectedCampaign = campaigns.find((c) => c.id === campaignId);
   const selectedStatus = selectedCampaign?.status ?? null;
 
@@ -97,46 +95,46 @@ export function GovernancePanel({ address }: Props) {
       const settings = await getSettings();
       const provider = getProvider(settings.rpcUrl);
       const campaignsContract = getCampaignsContract(settings.contractAddresses, provider);
-      const votingContract = getGovernanceVotingContract(settings.contractAddresses, provider);
+      const v2 = getGovernanceV2Contract(settings.contractAddresses, provider);
 
-      const [nextId, actThresh, termThresh, minStakeVal] = await Promise.all([
+      const [nextId, quorum, slash] = await Promise.all([
         campaignsContract.nextCampaignId(),
-        votingContract.activationThreshold(),
-        votingContract.terminationThreshold(),
-        votingContract.minReviewerStake(),
+        v2.quorumWeighted(),
+        v2.slashBps(),
       ]);
 
-      setActivationThreshold(BigInt(actThresh));
-      setTerminationThreshold(BigInt(termThresh));
-      setMinStake(BigInt(minStakeVal));
+      setQuorumWeighted(BigInt(quorum));
+      setSlashBps(Number(slash));
 
       const count = Number(nextId);
       const governable: GovernableCampaign[] = [];
 
-      // Fetch in parallel batches of up to 10
       for (let i = 0; i < count; i += 10) {
         const batch = Array.from({ length: Math.min(10, count - i) }, (_, j) => i + j);
         const results = await Promise.all(
           batch.map(async (id) => {
             try {
-              const c = await campaignsContract.getCampaign(BigInt(id));
-              const status = Number(c.status);
-              // 0=Pending (can aye), 1=Active (can nay), 2=Paused (can nay)
-              if (status !== 0 && status !== 1 && status !== 2) return null;
-              const vote = await votingContract.getCampaignVote(BigInt(id));
-              // Skip already-terminated via governance
-              if (vote.terminated) return null;
+              const [status, advertiser, remaining, ayeW, nayW, resolved] = await Promise.all([
+                campaignsContract.getCampaignStatus(BigInt(id)),
+                campaignsContract.getCampaignAdvertiser(BigInt(id)),
+                campaignsContract.getCampaignRemainingBudget(BigInt(id)),
+                v2.ayeWeighted(BigInt(id)),
+                v2.nayWeighted(BigInt(id)),
+                v2.resolved(BigInt(id)),
+              ]);
+              const s = Number(status);
+              // Show Pending, Active, Paused, Completed, Terminated for governance
+              if (s > 4) return null;
               return {
                 id: id.toString(),
-                status,
-                advertiser: c.advertiser,
-                publisher: c.publisher,
-                budget: BigInt(c.budgetPlanck ?? c.remainingBudget),
-                bidCpmPlanck: BigInt(c.bidCpmPlanck),
-                categoryId: Number(c.categoryId),
-                ayeTotal: BigInt(vote.ayeTotal),
-                nayTotal: BigInt(vote.nayTotal),
-                reviewers: BigInt(vote.uniqueReviewers),
+                status: s,
+                advertiser,
+                bidCpmPlanck: 0n, // not needed for governance display
+                categoryId: 0,
+                ayeWeighted: BigInt(ayeW),
+                nayWeighted: BigInt(nayW),
+                resolved: resolved as boolean,
+                remainingBudget: BigInt(remaining),
               } as GovernableCampaign;
             } catch {
               return null;
@@ -158,7 +156,7 @@ export function GovernancePanel({ address }: Props) {
     loadCampaigns();
   }, [loadCampaigns]);
 
-  async function castVote(direction: "aye" | "nay") {
+  async function castVote(aye: boolean) {
     if (!address || !campaignId) return;
     setVoting(true);
     setTxResult(null);
@@ -166,18 +164,15 @@ export function GovernancePanel({ address }: Props) {
     try {
       const settings = await getSettings();
       const signer = getSigner(settings.rpcUrl);
-      const votingContract = getGovernanceVotingContract(settings.contractAddresses, signer);
+      const v2 = getGovernanceV2Contract(settings.contractAddresses, signer);
 
       const valuePlanck = parseUnits(dotAmount, 10);
       const cid = BigInt(campaignId);
 
-      const tx = direction === "aye"
-        ? await votingContract.voteAye(cid, conviction, { value: valuePlanck })
-        : await votingContract.voteNay(cid, conviction, { value: valuePlanck });
+      const tx = await v2.vote(cid, aye, conviction, { value: valuePlanck });
       await tx.wait();
 
-      setTxResult(`Vote ${direction.toUpperCase()} cast on campaign #${campaignId} with conviction ${conviction}.`);
-      // Auto-refresh vote status and campaign list
+      setTxResult(`Vote ${aye ? "AYE" : "NAY"} cast on campaign #${campaignId} with conviction ${conviction}.`);
       if (queryCampaignId === campaignId) {
         queryVoteStatus();
       }
@@ -197,34 +192,38 @@ export function GovernancePanel({ address }: Props) {
     try {
       const settings = await getSettings();
       const provider = getProvider(settings.rpcUrl);
-      const votingContract = getGovernanceVotingContract(settings.contractAddresses, provider);
+      const v2 = getGovernanceV2Contract(settings.contractAddresses, provider);
+      const slash = getGovernanceSlashContract(settings.contractAddresses, provider);
 
-      const [voteData, blockNum] = await Promise.all([
-        votingContract.getCampaignVote(BigInt(cid)),
+      const [blockNum] = await Promise.all([
         provider.getBlockNumber(),
       ]);
-
-      setCampaignVote({
-        ayeTotal: BigInt(voteData.ayeTotal),
-        nayTotal: BigInt(voteData.nayTotal),
-        uniqueReviewers: BigInt(voteData.uniqueReviewers),
-        terminationBlock: BigInt(voteData.terminationBlock),
-        activated: voteData.activated,
-        terminated: voteData.terminated,
-      });
       setCurrentBlock(blockNum);
 
       // Query user's own vote record
       if (address) {
-        const record = await votingContract.getVoteRecord(BigInt(cid), address);
+        const record = await v2.getVote(BigInt(cid), address);
         setMyVote({
-          voter: record.voter,
-          direction: Number(record.direction),
-          lockAmount: BigInt(record.lockAmount),
-          conviction: Number(record.conviction),
-          lockedUntilBlock: BigInt(record.lockedUntilBlock),
-          castAtBlock: BigInt(record.castAtBlock),
+          direction: Number(record.direction ?? record[0]),
+          lockAmount: BigInt(record.lockAmount ?? record[1]),
+          conviction: Number(record.conviction ?? record[2]),
+          lockedUntilBlock: BigInt(record.lockedUntilBlock ?? record[3]),
         });
+      }
+
+      // Slash status
+      try {
+        const finalized = await slash.finalized(BigInt(cid));
+        setSlashFinalized(finalized as boolean);
+        if (finalized && address) {
+          const claimable = await slash.getClaimable(BigInt(cid), address);
+          setClaimableAmount(BigInt(claimable));
+        } else {
+          setClaimableAmount(null);
+        }
+      } catch {
+        setSlashFinalized(false);
+        setClaimableAmount(null);
       }
 
       setQueryCampaignId(cid);
@@ -243,16 +242,97 @@ export function GovernancePanel({ address }: Props) {
     try {
       const settings = await getSettings();
       const signer = getSigner(settings.rpcUrl);
-      const rewards = getGovernanceRewardsContract(settings.contractAddresses, signer);
+      const v2 = getGovernanceV2Contract(settings.contractAddresses, signer);
 
-      const tx = await rewards.withdrawStake(BigInt(queryCampaignId));
-      await tx.wait();
-      setTxResult("Stake withdrawn successfully.");
+      const tx = await v2.withdraw(BigInt(queryCampaignId));
+      const receipt = await tx.wait();
+
+      // Parse VoteWithdrawn event for returned/slashed amounts
+      let returned = 0n;
+      let slashed = 0n;
+      if (receipt?.logs) {
+        for (const log of receipt.logs) {
+          try {
+            const parsed = v2.interface.parseLog(log);
+            if (parsed?.name === "VoteWithdrawn") {
+              returned = BigInt(parsed.args.returned ?? parsed.args[3] ?? 0);
+              slashed = BigInt(parsed.args.slashed ?? parsed.args[4] ?? 0);
+            }
+          } catch { /* log from different contract */ }
+        }
+      }
+
+      const msg = slashed > 0n
+        ? `Stake withdrawn: ${formatDOT(returned)} DOT returned, ${formatDOT(slashed)} DOT slashed.`
+        : `Stake withdrawn: ${formatDOT(returned)} DOT returned.`;
+      setTxResult(msg);
       queryVoteStatus();
     } catch (err) {
       setError(String(err));
     } finally {
       setWithdrawing(false);
+    }
+  }
+
+  async function evaluateCampaign(cid: string) {
+    setEvaluating(true);
+    setError(null);
+    setTxResult(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const v2 = getGovernanceV2Contract(settings.contractAddresses, signer);
+
+      const tx = await v2.evaluateCampaign(BigInt(cid));
+      await tx.wait();
+      setTxResult(`Campaign #${cid} evaluated successfully.`);
+      loadCampaigns();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setEvaluating(false);
+    }
+  }
+
+  async function finalizeSlash() {
+    if (!queryCampaignId) return;
+    setFinalizing(true);
+    setError(null);
+    setTxResult(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const slash = getGovernanceSlashContract(settings.contractAddresses, signer);
+
+      const tx = await slash.finalizeSlash(BigInt(queryCampaignId));
+      await tx.wait();
+      setTxResult(`Slash finalized for campaign #${queryCampaignId}.`);
+      queryVoteStatus();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  async function claimSlashReward() {
+    if (!queryCampaignId) return;
+    setClaiming(true);
+    setError(null);
+    setTxResult(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const slash = getGovernanceSlashContract(settings.contractAddresses, signer);
+
+      const tx = await slash.claimSlashReward(BigInt(queryCampaignId));
+      await tx.wait();
+      setTxResult(`Slash reward claimed for campaign #${queryCampaignId}.`);
+      queryVoteStatus();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setClaiming(false);
     }
   }
 
@@ -266,57 +346,73 @@ export function GovernancePanel({ address }: Props) {
 
   const pendingCampaigns = campaigns.filter((c) => c.status === 0);
   const activeCampaigns = campaigns.filter((c) => c.status === 1 || c.status === 2);
-
-  // Can only aye on Pending, nay on Active/Paused
-  const canAye = selectedStatus === 0 || selectedStatus === null;
-  const canNay = selectedStatus === 1 || selectedStatus === 2 || selectedStatus === null;
+  const resolvedCampaigns = campaigns.filter((c) => (c.status === 3 || c.status === 4) && c.resolved);
 
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12 }}>
-        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Governance Voting</span>
+        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Governance V2</span>
       </div>
 
-      {/* Thresholds info */}
-      {activationThreshold !== null && (
+      {/* V2 params info */}
+      {quorumWeighted !== null && (
         <div style={{ marginBottom: 10, padding: "6px 10px", background: "#111", borderRadius: 4, fontSize: 11, color: "#666" }}>
-          Activation: {formatDOT(activationThreshold)} DOT weighted aye
-          {terminationThreshold !== null && (
-            <span> &middot; Termination: {formatDOT(terminationThreshold)} DOT weighted nay</span>
+          Quorum: {formatDOT(quorumWeighted)} DOT weighted
+          {slashBps !== null && (
+            <span> &middot; Slash: {(slashBps / 100).toFixed(1)}%</span>
           )}
-          {minStake !== null && (
-            <span> &middot; Min stake: {formatDOT(minStake)} DOT</span>
-          )}
+          <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
+            V2: majority model (aye &gt; 50% + quorum to activate, nay &ge; 50% to terminate)
+          </div>
         </div>
       )}
 
-      {/* Pending Campaigns — need Aye votes to activate */}
+      {/* Pending Campaigns */}
       <CampaignSection
-        title="Pending Activation"
-        subtitle="Vote Aye to activate"
+        title="Pending Campaigns"
+        subtitle="Vote to activate or block"
         campaigns={pendingCampaigns}
         loading={loadingCampaigns}
-        threshold={activationThreshold}
-        thresholdField="ayeTotal"
+        quorum={quorumWeighted}
         selectedId={campaignId}
         onSelect={setCampaignId}
         onRefresh={loadCampaigns}
+        onEvaluate={evaluateCampaign}
+        evaluating={evaluating}
         emptyText="No campaigns pending activation."
       />
 
-      {/* Active Campaigns — can receive Nay votes to terminate */}
+      {/* Active Campaigns */}
       <CampaignSection
         title="Active Campaigns"
-        subtitle="Vote Nay to terminate"
+        subtitle="Vote to keep or terminate"
         campaigns={activeCampaigns}
         loading={loadingCampaigns}
-        threshold={terminationThreshold}
-        thresholdField="nayTotal"
+        quorum={quorumWeighted}
         selectedId={campaignId}
         onSelect={setCampaignId}
         onRefresh={loadCampaigns}
+        onEvaluate={evaluateCampaign}
+        evaluating={evaluating}
         emptyText="No active campaigns."
       />
+
+      {/* Resolved Campaigns */}
+      {resolvedCampaigns.length > 0 && (
+        <CampaignSection
+          title="Resolved"
+          subtitle="Finalize slash / claim rewards"
+          campaigns={resolvedCampaigns}
+          loading={loadingCampaigns}
+          quorum={quorumWeighted}
+          selectedId={campaignId}
+          onSelect={(id) => { setCampaignId(id); setQueryCampaignId(id); }}
+          onRefresh={loadCampaigns}
+          onEvaluate={evaluateCampaign}
+          evaluating={evaluating}
+          emptyText=""
+        />
+      )}
 
       {/* Vote Form */}
       <div style={cardStyle}>
@@ -333,9 +429,9 @@ export function GovernancePanel({ address }: Props) {
             {selectedStatus !== null && (
               <span style={{
                 fontSize: 10, padding: "2px 6px", borderRadius: 3, whiteSpace: "nowrap",
-                background: selectedStatus === 0 ? "#1a1a0a" : "#0a2a0a",
-                color: selectedStatus === 0 ? "#c0c060" : "#60c060",
-                border: `1px solid ${selectedStatus === 0 ? "#3a3a2a" : "#2a4a2a"}`,
+                background: selectedStatus === 0 ? "#1a1a0a" : selectedStatus === 1 ? "#0a2a0a" : "#1a1a2e",
+                color: selectedStatus === 0 ? "#c0c060" : selectedStatus === 1 ? "#60c060" : "#888",
+                border: `1px solid ${selectedStatus === 0 ? "#3a3a2a" : selectedStatus === 1 ? "#2a4a2a" : "#2a2a4a"}`,
               }}>
                 {STATUS_NAMES[selectedStatus]}
               </span>
@@ -364,31 +460,30 @@ export function GovernancePanel({ address }: Props) {
             ))}
           </select>
         </div>
+        {slashBps !== null && slashBps > 0 && (
+          <div style={{ color: "#c09060", fontSize: 10, marginBottom: 6, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
+            Losing side pays {(slashBps / 100).toFixed(1)}% of stake on withdrawal
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={() => castVote("aye")}
-            disabled={voting || !campaignId || !canAye}
-            style={{ ...ayeBtn, flex: 1, opacity: canAye ? 1 : 0.4 }}
-            title={!canAye ? "Aye only for Pending campaigns" : ""}
+            onClick={() => castVote(true)}
+            disabled={voting || !campaignId}
+            style={{ ...ayeBtn, flex: 1 }}
           >
             {voting ? "Voting..." : "Vote Aye"}
           </button>
           <button
-            onClick={() => castVote("nay")}
-            disabled={voting || !campaignId || !canNay}
-            style={{ ...nayBtn, flex: 1, opacity: canNay ? 1 : 0.4 }}
-            title={!canNay ? "Nay only for Active/Paused campaigns" : ""}
+            onClick={() => castVote(false)}
+            disabled={voting || !campaignId}
+            style={{ ...nayBtn, flex: 1 }}
           >
             {voting ? "Voting..." : "Vote Nay"}
           </button>
         </div>
-        {selectedStatus !== null && (
-          <div style={{ color: "#555", fontSize: 10, marginTop: 4, textAlign: "center" }}>
-            {selectedStatus === 0
-              ? "Pending campaign — only Aye votes accepted"
-              : "Active campaign — only Nay votes accepted"}
-          </div>
-        )}
+        <div style={{ color: "#555", fontSize: 10, marginTop: 4, textAlign: "center" }}>
+          V2: Aye and Nay allowed on both Pending and Active campaigns
+        </div>
       </div>
 
       {/* Query Vote Status */}
@@ -402,36 +497,63 @@ export function GovernancePanel({ address }: Props) {
         </button>
       </div>
 
-      {/* Campaign Vote Display */}
-      {campaignVote && (
-        <div style={{ ...cardStyle, marginTop: 10 }}>
-          <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-            Campaign #{queryCampaignId}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ color: "#60c060", fontSize: 12 }}>
-              Aye: {formatDOT(campaignVote.ayeTotal)} DOT
-            </span>
-            <span style={{ color: "#ff8080", fontSize: 12 }}>
-              Nay: {formatDOT(campaignVote.nayTotal)} DOT
-            </span>
-          </div>
-          <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>
-            Reviewers: {campaignVote.uniqueReviewers.toString()}
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {campaignVote.activated && (
-              <span style={statusBadge("#0a2a0a", "#60c060", "#2a4a2a")}>Activated</span>
+      {/* Campaign vote totals for queried campaign */}
+      {queryCampaignId && (() => {
+        const qc = campaigns.find((c) => c.id === queryCampaignId);
+        if (!qc) return null;
+        const total = qc.ayeWeighted + qc.nayWeighted;
+        const ayePct = total > 0n ? Number((qc.ayeWeighted * 100n) / total) : 0;
+        const nayPct = total > 0n ? 100 - ayePct : 0;
+        return (
+          <div style={{ ...cardStyle, marginTop: 10 }}>
+            <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              Campaign #{queryCampaignId}
+            </div>
+            {/* Majority bar */}
+            <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{ width: `${ayePct}%`, background: "#2a6a2a", transition: "width 0.3s" }} />
+              <div style={{ width: `${nayPct}%`, background: "#6a2a2a", transition: "width 0.3s" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#60c060", fontSize: 12 }}>
+                Aye: {formatDOT(qc.ayeWeighted)} DOT ({ayePct}%)
+              </span>
+              <span style={{ color: "#ff8080", fontSize: 12 }}>
+                Nay: {formatDOT(qc.nayWeighted)} DOT ({nayPct}%)
+              </span>
+            </div>
+            {quorumWeighted !== null && (
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+                Total: {formatDOT(total)} / {formatDOT(quorumWeighted)} DOT quorum
+                {total >= quorumWeighted
+                  ? <span style={{ color: "#60c060", marginLeft: 6 }}>Met</span>
+                  : <span style={{ color: "#c09060", marginLeft: 6 }}>Not met</span>
+                }
+              </div>
             )}
-            {campaignVote.terminated && (
-              <span style={statusBadge("#2a0a0a", "#ff8080", "#4a1a1a")}>Terminated</span>
-            )}
-            {!campaignVote.activated && !campaignVote.terminated && (
-              <span style={statusBadge("#1a1a0a", "#c0c060", "#3a3a2a")}>Pending</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <span style={statusBadge(
+                qc.resolved ? "#0a2a0a" : "#1a1a0a",
+                qc.resolved ? "#60c060" : "#c0c060",
+                qc.resolved ? "#2a4a2a" : "#3a3a2a",
+              )}>
+                {qc.resolved ? "Resolved" : STATUS_NAMES[qc.status] ?? "Unknown"}
+              </span>
+            </div>
+
+            {/* Evaluate button */}
+            {!qc.resolved && (
+              <button
+                onClick={() => evaluateCampaign(queryCampaignId)}
+                disabled={evaluating}
+                style={{ ...primaryBtn, marginTop: 8, fontSize: 12, padding: "6px 12px" }}
+              >
+                {evaluating ? "Evaluating..." : "Evaluate Campaign"}
+              </button>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* User's Vote Record */}
       {myVote && myVote.direction > 0 && (
@@ -460,7 +582,7 @@ export function GovernancePanel({ address }: Props) {
             )}
           </div>
 
-          {/* Withdraw stake button — show when lockup expired */}
+          {/* Withdraw stake button */}
           {currentBlock !== null && myVote.lockedUntilBlock <= BigInt(currentBlock) && (
             <button
               onClick={withdrawStake}
@@ -472,6 +594,57 @@ export function GovernancePanel({ address }: Props) {
           )}
         </div>
       )}
+
+      {/* Slash Section */}
+      {queryCampaignId && (() => {
+        const qc = campaigns.find((c) => c.id === queryCampaignId);
+        if (!qc?.resolved) return null;
+        return (
+          <div style={{ ...cardStyle, marginTop: 8, background: "#1a0a1a", border: "1px solid #3a1a3a" }}>
+            <div style={{ color: "#c080c0", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              Slash Pool
+            </div>
+            {!slashFinalized ? (
+              <div>
+                <div style={{ color: "#888", fontSize: 12, marginBottom: 6 }}>
+                  Campaign resolved. Finalize to snapshot winning side weights.
+                </div>
+                <button
+                  onClick={finalizeSlash}
+                  disabled={finalizing}
+                  style={{ ...primaryBtn, background: "#2a1a2a", color: "#c080c0", border: "1px solid #4a2a4a" }}
+                >
+                  {finalizing ? "Finalizing..." : "Finalize Slash"}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ color: "#60c060", fontSize: 12, marginBottom: 4 }}>
+                  Slash finalized.
+                </div>
+                {claimableAmount !== null && claimableAmount > 0n ? (
+                  <div>
+                    <div style={{ color: "#e0e0e0", fontSize: 13, marginBottom: 6 }}>
+                      Claimable: {formatDOT(claimableAmount)} DOT
+                    </div>
+                    <button
+                      onClick={claimSlashReward}
+                      disabled={claiming}
+                      style={{ ...primaryBtn, background: "#0a2a0a", color: "#60c060", border: "1px solid #2a4a2a" }}
+                    >
+                      {claiming ? "Claiming..." : "Claim Slash Reward"}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ color: "#888", fontSize: 12 }}>
+                    {claimableAmount === 0n ? "No claimable reward (losing side or already claimed)." : "Loading..."}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {txResult && (
         <div style={{ marginTop: 8, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13, color: "#60c060" }}>
@@ -489,22 +662,23 @@ export function GovernancePanel({ address }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Campaign list section (reused for Pending and Active)
+// Campaign list section (reused for Pending, Active, Resolved)
 // ---------------------------------------------------------------------------
 
 function CampaignSection({
-  title, subtitle, campaigns, loading, threshold, thresholdField,
-  selectedId, onSelect, onRefresh, emptyText,
+  title, subtitle, campaigns, loading, quorum,
+  selectedId, onSelect, onRefresh, onEvaluate, evaluating, emptyText,
 }: {
   title: string;
   subtitle: string;
   campaigns: GovernableCampaign[];
   loading: boolean;
-  threshold: bigint | null;
-  thresholdField: "ayeTotal" | "nayTotal";
+  quorum: bigint | null;
   selectedId: string;
   onSelect: (id: string) => void;
   onRefresh: () => void;
+  onEvaluate: (id: string) => void;
+  evaluating: boolean;
   emptyText: string;
 }) {
   return (
@@ -521,14 +695,18 @@ function CampaignSection({
       {loading && campaigns.length === 0 ? (
         <div style={{ color: "#555", fontSize: 12, padding: 8 }}>Loading...</div>
       ) : campaigns.length === 0 ? (
-        <div style={{ color: "#555", fontSize: 12, padding: "4px 8px" }}>{emptyText}</div>
+        emptyText ? <div style={{ color: "#555", fontSize: 12, padding: "4px 8px" }}>{emptyText}</div> : null
       ) : (
         <div style={{ maxHeight: 140, overflowY: "auto" }}>
           {campaigns.map((c) => {
-            const progress = threshold && threshold > 0n ? c[thresholdField] : 0n;
-            const pct = threshold && threshold > 0n
-              ? Math.min(100, Number((progress * 100n) / threshold))
-              : 0;
+            const total = c.ayeWeighted + c.nayWeighted;
+            const ayePct = total > 0n ? Number((c.ayeWeighted * 100n) / total) : 0;
+            // Can evaluate?
+            const canEvaluate = !c.resolved && (
+              (c.status === 0 && ayePct > 50 && quorum !== null && total >= quorum) ||
+              (c.status === 1 && ayePct <= 50) ||
+              ((c.status === 3 || c.status === 4) && !c.resolved)
+            );
             return (
               <div
                 key={c.id}
@@ -541,36 +719,28 @@ function CampaignSection({
               >
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
                   <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>#{c.id}</span>
-                  <span style={{ color: "#666", fontSize: 10 }}>
-                    {CATEGORY_NAMES[c.categoryId] ?? "Unknown"}
+                  <span style={{ fontSize: 10, color: c.resolved ? "#60c060" : "#c0c060" }}>
+                    {c.resolved ? "Resolved" : STATUS_NAMES[c.status]}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
-                  <span style={{ color: "#888" }}>
-                    {formatDOT(c.budget)} DOT &middot; {formatDOT(c.bidCpmPlanck)} CPM
-                  </span>
-                  <span style={{ color: "#888" }}>
-                    {c.reviewers.toString()} voter{c.reviewers !== 1n ? "s" : ""}
-                  </span>
+                {/* Majority bar */}
+                <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", marginBottom: 2 }}>
+                  <div style={{ width: `${ayePct}%`, background: "#2a6a2a", transition: "width 0.3s" }} />
+                  <div style={{ width: `${100 - ayePct}%`, background: "#6a2a2a", transition: "width 0.3s" }} />
                 </div>
-                {/* Progress bar toward threshold */}
-                {threshold && threshold > 0n && (
-                  <div style={{ position: "relative", height: 4, background: "#1a1a2e", borderRadius: 2, overflow: "hidden" }}>
-                    <div style={{
-                      position: "absolute", top: 0, left: 0, height: "100%",
-                      width: `${pct}%`,
-                      background: thresholdField === "ayeTotal" ? "#2a6a2a" : "#6a2a2a",
-                      borderRadius: 2,
-                      transition: "width 0.3s",
-                    }} />
-                  </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                  <span style={{ color: "#60c060" }}>Aye {ayePct}%</span>
+                  <span style={{ color: "#ff8080" }}>Nay {100 - ayePct}%</span>
+                </div>
+                {canEvaluate && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEvaluate(c.id); }}
+                    disabled={evaluating}
+                    style={{ ...evalBtn, marginTop: 4 }}
+                  >
+                    {evaluating ? "..." : c.status === 0 ? "Activate" : c.status === 1 ? "Terminate" : "Resolve"}
+                  </button>
                 )}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 2 }}>
-                  <span style={{ color: thresholdField === "ayeTotal" ? "#60c060" : "#ff8080" }}>
-                    {formatDOT(progress)} / {threshold ? formatDOT(threshold) : "?"} DOT
-                  </span>
-                  <span style={{ color: "#555" }}>{pct}%</span>
-                </div>
               </div>
             );
           })}
@@ -634,6 +804,17 @@ const nayBtn: React.CSSProperties = {
   color: "#ff8080",
   border: "1px solid #4a1a1a",
   width: "auto",
+};
+
+const evalBtn: React.CSSProperties = {
+  background: "#1a1a3a",
+  color: "#a0a0ff",
+  border: "1px solid #3a3a6a",
+  borderRadius: 3,
+  padding: "2px 8px",
+  fontSize: 10,
+  cursor: "pointer",
+  width: "100%",
 };
 
 const formLabel: React.CSSProperties = {

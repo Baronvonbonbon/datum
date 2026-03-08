@@ -19,6 +19,8 @@ export interface AdSlotConfig {
   publisherAddress: string;
   category: string;
   metadata: CampaignCreative | null;
+  auctionMechanism?: "second-price" | "solo" | "floor";
+  clearingCpmPlanck?: string;
 }
 
 const SLOT_ID = "datum-ad-slot";
@@ -29,9 +31,28 @@ function escapeHtml(s: string): string {
   return div.innerHTML;
 }
 
-export function injectAdSlot(config: AdSlotConfig): void {
+function formatCpm(planckStr?: string): string {
+  if (!planckStr) return "?";
+  try {
+    const planck = BigInt(planckStr);
+    const dot = Number(planck) / 1e10;
+    if (dot >= 0.01) return dot.toFixed(2);
+    if (dot >= 0.001) return dot.toFixed(3);
+    return dot.toFixed(4);
+  } catch {
+    return "?";
+  }
+}
+
+const MECHANISM_LABELS: Record<string, { label: string; color: string }> = {
+  "second-price": { label: "2nd Price", color: "#60a0ff" },
+  "solo": { label: "Solo", color: "#c09060" },
+  "floor": { label: "Floor", color: "#888" },
+};
+
+export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   // Don't inject twice
-  if (document.getElementById(SLOT_ID)) return;
+  if (document.getElementById(SLOT_ID)) return null;
 
   const slot = document.createElement("div");
   slot.id = SLOT_ID;
@@ -52,9 +73,17 @@ export function injectAdSlot(config: AdSlotConfig): void {
   `;
 
   const meta = config.metadata;
+  const mech = config.auctionMechanism ? MECHANISM_LABELS[config.auctionMechanism] : null;
+
+  // Earning footer
+  const earningHtml = config.clearingCpmPlanck
+    ? `<div style="color:#60a060;font-size:10px;margin-top:4px;">
+         Earning: ${formatCpm(config.clearingCpmPlanck)} DOT/1000 views
+         ${mech ? `<span style="color:${mech.color};margin-left:4px;border:1px solid ${mech.color}33;padding:0 4px;border-radius:2px;font-size:9px;">${mech.label}</span>` : ""}
+       </div>`
+    : "";
 
   if (meta?.creative) {
-    // Render actual creative from IPFS metadata
     const c = meta.creative;
     slot.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -78,9 +107,9 @@ export function injectAdSlot(config: AdSlotConfig): void {
       <div style="color:#555;font-size:10px;margin-top:6px;">
         Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
       </div>
+      ${earningHtml}
     `;
   } else {
-    // Fallback: placeholder creative
     slot.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
@@ -98,6 +127,7 @@ export function injectAdSlot(config: AdSlotConfig): void {
       <div style="color:#555;font-size:10px;margin-top:4px;">
         Privacy-preserving · Polkadot Hub
       </div>
+      ${earningHtml}
     `;
   }
 
@@ -106,6 +136,8 @@ export function injectAdSlot(config: AdSlotConfig): void {
   document.getElementById(`${SLOT_ID}-close`)?.addEventListener("click", () => {
     slot.remove();
   });
+
+  return slot;
 }
 
 export function removeAdSlot(): void {

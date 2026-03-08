@@ -6,6 +6,11 @@
           "internalType": "address",
           "name": "_campaigns",
           "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pauseRegistry",
+          "type": "address"
         }
       ],
       "stateMutability": "nonpayable",
@@ -282,6 +287,19 @@
     },
     {
       "inputs": [],
+      "name": "pauseRegistry",
+      "outputs": [
+        {
+          "internalType": "contract IDatumPauseRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "protocolBalance",
       "outputs": [
         {
@@ -336,7 +354,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_relay",
+          "name": "addr",
           "type": "address"
         }
       ],
@@ -349,7 +367,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_zkVerifier",
+          "name": "addr",
           "type": "address"
         }
       ],

@@ -7,13 +7,29 @@ export const NETWORK_CONFIGS: Record<
   local: {
     rpcUrl: "http://localhost:8545",
     addresses: {
-      // Populated after local deployment — update via Settings
       campaigns: "",
       publishers: "",
-      governanceVoting: "",
-      governanceRewards: "",
+      governanceV2: "",
+      governanceSlash: "",
       settlement: "",
       relay: "",
+      pauseRegistry: "",
+      timelock: "",
+      zkVerifier: "",
+    },
+  },
+  paseo: {
+    rpcUrl: "https://paseo-asset-hub-eth-rpc.polkadot.io",
+    addresses: {
+      campaigns: "",
+      publishers: "",
+      governanceV2: "",
+      governanceSlash: "",
+      settlement: "",
+      relay: "",
+      pauseRegistry: "",
+      timelock: "",
+      zkVerifier: "",
     },
   },
   westend: {
@@ -21,10 +37,13 @@ export const NETWORK_CONFIGS: Record<
     addresses: {
       campaigns: "",
       publishers: "",
-      governanceVoting: "",
-      governanceRewards: "",
+      governanceV2: "",
+      governanceSlash: "",
       settlement: "",
       relay: "",
+      pauseRegistry: "",
+      timelock: "",
+      zkVerifier: "",
     },
   },
   kusama: {
@@ -32,10 +51,13 @@ export const NETWORK_CONFIGS: Record<
     addresses: {
       campaigns: "",
       publishers: "",
-      governanceVoting: "",
-      governanceRewards: "",
+      governanceV2: "",
+      governanceSlash: "",
       settlement: "",
       relay: "",
+      pauseRegistry: "",
+      timelock: "",
+      zkVerifier: "",
     },
   },
   polkadotHub: {
@@ -43,10 +65,13 @@ export const NETWORK_CONFIGS: Record<
     addresses: {
       campaigns: "",
       publishers: "",
-      governanceVoting: "",
-      governanceRewards: "",
+      governanceV2: "",
+      governanceSlash: "",
       settlement: "",
       relay: "",
+      pauseRegistry: "",
+      timelock: "",
+      zkVerifier: "",
     },
   },
 };

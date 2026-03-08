@@ -12,6 +12,8 @@ export const claimBuilder = {
     url: string;
     category: string;
     publisherAddress: string;
+    clearingCpmPlanck?: string; // auction-determined clearing CPM
+    qualityScore?: number;      // engagement quality score (0.0 - 1.0)
   }): Promise<void> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
@@ -20,7 +22,6 @@ export const claimBuilder = {
     const campaignId = BigInt(msg.campaignId);
     const chainState = await getChainState(userAddress, msg.campaignId);
 
-    // MVP: impressionCount=1, clearingCpm=bidCpm (no auction)
     // Fetch bidCpmPlanck from cached campaigns
     const cached = await chrome.storage.local.get("activeCampaigns");
     const campaigns = cached.activeCampaigns ?? [];
@@ -28,7 +29,20 @@ export const claimBuilder = {
     if (!campaign) return; // campaign no longer active
 
     const impressionCount = 1n;
-    const clearingCpmPlanck = BigInt(campaign.bidCpmPlanck);
+    // Use auction clearing CPM if provided, otherwise fall back to bid CPM
+    let clearingCpmPlanck = msg.clearingCpmPlanck
+      ? BigInt(msg.clearingCpmPlanck)
+      : BigInt(campaign.bidCpmPlanck);
+
+    // Engagement-weighted CPM: discount clearing price for low-quality impressions.
+    // Quality score 1.0 = full clearing price, 0.5 = 75% price (floor 50% of clearing).
+    if (msg.qualityScore !== undefined && msg.qualityScore < 1.0) {
+      // Discount formula: effectiveCpm = clearingCpm * (0.5 + 0.5 * qualityScore)
+      // Quality 1.0 → 100%, 0.5 → 75%, 0.0 → 50% (floor)
+      const scaleBps = BigInt(Math.round(5000 + 5000 * Math.min(msg.qualityScore, 1.0)));
+      clearingCpmPlanck = (clearingCpmPlanck * scaleBps) / 10000n;
+      if (clearingCpmPlanck < 1n) clearingCpmPlanck = 1n;
+    }
     const nonce = BigInt(chainState.lastNonce + 1);
     const previousClaimHash =
       chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;

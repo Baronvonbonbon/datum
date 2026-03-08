@@ -7,10 +7,13 @@ import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
 import { interestProfile } from "./interestProfile";
 import { selectCampaign } from "./campaignMatcher";
+import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
+import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
+import { appendEvent } from "./behaviorChain";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
-import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
+import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
 import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
 
 // -------------------------------------------------------------------------
@@ -27,7 +30,6 @@ const ALARM_FLUSH_CLAIMS = "flushClaims";
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[DATUM] Extension installed/updated");
   await initAlarms();
-  // Immediate poll — chrome alarms have a minimum 1-min delay
   await immediateInitialPoll();
 });
 
@@ -69,14 +71,16 @@ async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null
     const resp = await fetch(url);
     if (!resp.ok) return null;
     const addrs = await resp.json();
-    // Map deploy script keys to extension ContractAddresses keys
     return {
       campaigns: addrs.campaigns ?? "",
       publishers: addrs.publishers ?? "",
-      governanceVoting: addrs.governanceVoting ?? "",
-      governanceRewards: addrs.governanceRewards ?? "",
+      governanceV2: addrs.governanceV2 ?? "",
+      governanceSlash: addrs.governanceSlash ?? "",
       settlement: addrs.settlement ?? "",
       relay: addrs.relay ?? "",
+      pauseRegistry: addrs.pauseRegistry ?? "",
+      timelock: addrs.timelock ?? "",
+      zkVerifier: addrs.zkVerifier ?? "",
     };
   } catch {
     return null;
@@ -86,7 +90,7 @@ async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null
 async function initAlarms() {
   const settings = await getSettings();
 
-  // Clear before recreating — chrome.alarms.create throws if name already exists
+  // Clear before recreating — chrome alarms have a minimum 1-min delay
   await chrome.alarms.clear(ALARM_POLL_CAMPAIGNS);
 
   // Campaign polling: always active (read-only, no wallet needed)
@@ -147,12 +151,18 @@ async function handleMessage(
   msg: ContentToBackground | PopupToBackground
 ): Promise<unknown> {
   switch (msg.type) {
-    case "IMPRESSION_RECORDED":
+    case "IMPRESSION_RECORDED": {
+      // Check rate limit before recording
+      const prefs = await getPreferences();
+      const withinLimit = await checkRateLimit(prefs.maxAdsPerHour);
+      if (!withinLimit) return { ok: false, reason: "rate_limited" };
+
+      await recordImpressionTime();
       await claimBuilder.onImpression(msg);
       return { ok: true };
+    }
 
     case "GET_ACTIVE_CAMPAIGNS": {
-      // Return serialized form — BigInt is not JSON-safe for chrome messaging
       const cached = await campaignPoller.getCachedSerialized();
       return { campaigns: cached };
     }
@@ -162,7 +172,6 @@ async function handleMessage(
       if (s.contractAddresses.campaigns) {
         await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
         const refreshed = await campaignPoller.getCachedSerialized();
-        // Prune stale claims after fresh poll
         const activeIds = new Set(refreshed.map((c) => c.id));
         const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
         if (pruned > 0) console.log(`[DATUM] Pruned ${pruned} stale claims after manual poll`);
@@ -192,13 +201,11 @@ async function handleMessage(
     }
 
     case "SUBMIT_CLAIMS": {
-      // Build batches from queue and return them to popup for signing
       const batches = await claimQueue.buildBatches(msg.userAddress);
       return { batches: serializeBatches(batches) };
     }
 
     case "SIGN_FOR_RELAY": {
-      // Build batches for a specific campaign for relay signing
       const allBatches = await claimQueue.buildBatches(msg.userAddress);
       const filtered = allBatches.filter(
         (b) => b.campaignId.toString() === msg.campaignId
@@ -207,7 +214,6 @@ async function handleMessage(
     }
 
     case "SETTINGS_UPDATED": {
-      // Re-configure alarms with new settings
       await initAlarms();
       return { ok: true };
     }
@@ -223,7 +229,6 @@ async function handleMessage(
     }
 
     case "REMOVE_SETTLED_CLAIMS": {
-      // Convert serialized nonces (string[]) back to bigint[] per campaign
       const settledNonces = new Map<string, bigint[]>(
         Object.entries(msg.settledNonces).map(([cid, nonces]) => [
           cid,
@@ -245,7 +250,6 @@ async function handleMessage(
     }
 
     case "RESET_CHAIN_STATE": {
-      // Wipe all chainState:* keys from storage
       const allKeys = await chrome.storage.local.get(null);
       const chainStateKeys = Object.keys(allKeys).filter((k) =>
         k.startsWith("chainState:")
@@ -253,7 +257,6 @@ async function handleMessage(
       if (chainStateKeys.length > 0) {
         await chrome.storage.local.remove(chainStateKeys);
       }
-      // Also clear the claim queue (claims depend on chain state)
       await claimQueue.clear();
       return { ok: true, cleared: chainStateKeys.length };
     }
@@ -264,8 +267,37 @@ async function handleMessage(
     }
 
     case "SELECT_CAMPAIGN": {
+      // Filter through user preferences first
+      const prefs = await getPreferences();
+      const allowed = msg.campaigns.filter((c: any) =>
+        isCampaignAllowed(
+          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck },
+          prefs,
+          CATEGORY_NAMES,
+        )
+      );
+
+      if (allowed.length === 0) return { selected: null };
+
+      // Run auction
       const profile = await interestProfile.getProfile();
-      const selected = selectCampaign(msg.campaigns, profile, msg.pageCategory);
+      const auctionResult = auctionForPage(
+        allowed as CampaignCandidate[],
+        {}, // pageCategories not used in auction directly
+        profile,
+      );
+
+      if (auctionResult) {
+        return {
+          selected: auctionResult.winner,
+          clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
+          mechanism: auctionResult.mechanism,
+          participants: auctionResult.participants,
+        };
+      }
+
+      // Fallback to legacy matcher
+      const selected = selectCampaign(allowed, profile, msg.pageCategory);
       return { selected };
     }
 
@@ -291,6 +323,55 @@ async function handleMessage(
       return { signature: sig || undefined };
     }
 
+    // Governance V2 actions (handled directly in popup via contract calls)
+    case "EVALUATE_CAMPAIGN":
+    case "FINALIZE_SLASH":
+    case "CLAIM_SLASH_REWARD":
+      // These are handled directly by the popup panels via ethers contract calls,
+      // not routed through background. Return ok for compatibility.
+      return { ok: true, note: "Handled in popup" };
+
+    // User preferences
+    case "GET_USER_PREFERENCES": {
+      const preferences = await getPreferences();
+      return { preferences };
+    }
+
+    case "UPDATE_USER_PREFERENCES": {
+      const updated = await updatePreferences(msg.preferences);
+      return { preferences: updated };
+    }
+
+    case "BLOCK_CAMPAIGN": {
+      await blockCampaign(msg.campaignId);
+      const preferences = await getPreferences();
+      return { preferences };
+    }
+
+    case "UNBLOCK_CAMPAIGN": {
+      await unblockCampaign(msg.campaignId);
+      const preferences = await getPreferences();
+      return { preferences };
+    }
+
+    // Engagement tracking
+    case "ENGAGEMENT_RECORDED": {
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const userAddress = stored.connectedAddress;
+      if (userAddress && msg.event) {
+        await appendEvent(userAddress, msg.event);
+      }
+      return { ok: true };
+    }
+
+    // Engagement quality result — log quality score for diagnostics
+    case "ENGAGEMENT_QUALITY_RESULT": {
+      if (!msg.passed) {
+        console.log(`[DATUM] Low-quality impression for campaign ${msg.campaignId} (score: ${msg.qualityScore.toFixed(2)}) — claim still recorded with CPM discount`);
+      }
+      return { ok: true, qualityScore: msg.qualityScore, passed: msg.passed };
+    }
+
     default:
       return { error: "unknown message type" };
   }
@@ -309,11 +390,7 @@ async function getSettings() {
 // Auto-submit: direct signing in background (no offscreen needed)
 // -------------------------------------------------------------------------
 
-// Stores the last auto-flush result for display in popup
 const AUTO_FLUSH_RESULT_KEY = "lastAutoFlushResult";
-// Storage key for the encrypted wallet (must match walletManager.ts)
-const WALLET_STORAGE_KEY = "datumEncryptedWallet";
-// Storage key for the auto-submit password (set by popup when user opts in)
 const AUTO_SUBMIT_KEY_KEY = "autoSubmitKey";
 
 async function autoFlushDirect() {
@@ -328,6 +405,23 @@ async function autoFlushDirect() {
     if (!settings.contractAddresses.settlement || !settings.autoSubmit) {
       await claimQueue.releaseMutex();
       return;
+    }
+
+    // Check global pause before submission
+    if (settings.contractAddresses.pauseRegistry) {
+      try {
+        const provider = new JsonRpcProvider(settings.rpcUrl);
+        const { getPauseRegistryContract } = await import("@shared/contracts");
+        const pauseRegistry = getPauseRegistryContract(settings.contractAddresses, provider);
+        const paused = await pauseRegistry.paused();
+        if (paused) {
+          console.log("[DATUM] Auto-flush skipped — system paused");
+          await claimQueue.releaseMutex();
+          return;
+        }
+      } catch (err) {
+        console.warn("[DATUM] Could not check pause status:", err);
+      }
     }
 
     const stored = await chrome.storage.local.get(["connectedAddress", AUTO_SUBMIT_KEY_KEY]);
@@ -346,10 +440,8 @@ async function autoFlushDirect() {
       return;
     }
 
-    // Record flush attempt time
     await chrome.storage.local.set({ lastAutoFlush: Date.now() });
 
-    // Sign and submit directly using ethers.Wallet (no DOM needed)
     const provider = new JsonRpcProvider(settings.rpcUrl);
     const wallet = new Wallet(privateKey, provider);
     const settlement = new Contract(
@@ -392,7 +484,6 @@ async function autoFlushDirect() {
       }
     }
 
-    // Remove settled claims from queue
     if (settledCount > 0) {
       const settledNonces = new Map<string, bigint[]>();
       for (const b of batches) {

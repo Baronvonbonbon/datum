@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getSettlementContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner, getUnlockedWallet } from "@shared/walletManager";
+import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 
 interface QueueState {
   pendingCount: number;
@@ -37,6 +38,10 @@ export function ClaimQueue({ address }: Props) {
   const [result, setResult] = useState<SettlementResult | null>(null);
   const [signedCount, setSignedCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadState = useCallback(async () => {
     const [queueResponse, stored] = await Promise.all([
@@ -336,6 +341,59 @@ export function ClaimQueue({ address }: Props) {
     }
   }
 
+  async function handleExport() {
+    if (!address) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const blob = await exportClaims(signer);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `datum-claims-${address.slice(0, 8)}-${Date.now()}.dat`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImport(file: File) {
+    if (!address) return;
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+
+      // Build on-chain nonce check function
+      const onChainNonceFn = async (userAddr: string, campaignId: string): Promise<number> => {
+        if (!settings.contractAddresses.settlement) return 0;
+        const provider = getProvider(settings.rpcUrl);
+        const settlement = getSettlementContract(settings.contractAddresses, provider);
+        return Number(await settlement.lastNonce(userAddr, BigInt(campaignId)));
+      };
+
+      const result = await importClaims(file, signer, onChainNonceFn);
+      setImportResult(result);
+      if (result.imported) {
+        await loadState(); // refresh queue display
+      }
+      if (result.error) {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const pendingCount = queueState?.pendingCount ?? 0;
   const userClaims = address ? queueState?.byUser?.[address] : null;
 
@@ -394,6 +452,33 @@ export function ClaimQueue({ address }: Props) {
               >
                 {signing ? "Signing…" : "Sign for Publisher (zero gas)"}
               </button>
+              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                <button
+                  onClick={handleExport}
+                  disabled={exporting || importing}
+                  style={{ ...portabilityBtn, flex: 1 }}
+                >
+                  {exporting ? "Exporting…" : "Export Claims"}
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={exporting || importing}
+                  style={{ ...portabilityBtn, flex: 1 }}
+                >
+                  {importing ? "Importing…" : "Import Claims"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".dat"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImport(file);
+                    e.target.value = ""; // reset for re-import
+                  }}
+                />
+              </div>
             </div>
           ) : (
             <div style={{ color: "#666", fontSize: 12, marginTop: 8 }}>
@@ -423,6 +508,15 @@ export function ClaimQueue({ address }: Props) {
             The publisher will submit these on your behalf.
           </div>
           <AttestationBadges />
+        </div>
+      )}
+
+      {importResult && !importResult.error && (
+        <div style={{ marginTop: 12, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13, color: "#60c060" }}>
+          Import complete: {importResult.chainsImported} chain{importResult.chainsImported !== 1 ? "s" : ""}, {importResult.claimsImported} claim{importResult.claimsImported !== 1 ? "s" : ""} imported
+          {importResult.skippedStale > 0 && (
+            <span style={{ color: "#888" }}> ({importResult.skippedStale} skipped — already settled)</span>
+          )}
         </div>
       )}
 
@@ -600,4 +694,13 @@ const secondaryBtn: React.CSSProperties = {
   background: "#1a2a1a",
   color: "#60c060",
   border: "1px solid #2a4a2a",
+};
+
+const portabilityBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: "#1a1a1a",
+  color: "#888",
+  border: "1px solid #333",
+  padding: "6px 10px",
+  fontSize: 11,
 };

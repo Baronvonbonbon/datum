@@ -1,9 +1,11 @@
 // DATUM content script — runs on every page at document_idle.
-// Classifies the page, checks for matching campaigns, records impressions,
-// and injects an ad slot when appropriate.
+// Classifies the page, checks for matching campaigns, runs auction,
+// records impressions with engagement-weighted CPM, tracks engagement,
+// and injects an ad slot.
 
 import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
 import { injectAdSlot } from "./adSlot";
+import { startTracking, computeQualityScore } from "./engagement";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
@@ -36,13 +38,15 @@ async function main() {
 
   if (pool.length === 0) return;
 
-  // Use weighted campaign selection via background (interest-aware)
+  // Use auction-based campaign selection via background (interest-aware + Vickrey)
   const selectionResponse = await chrome.runtime.sendMessage({
     type: "SELECT_CAMPAIGN",
     campaigns: pool,
     pageCategory: category,
   });
   let match = selectionResponse?.selected ?? null;
+  const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
+  const auctionMechanism: string | undefined = selectionResponse?.mechanism;
 
   // Fallback: publisher preference or first in pool
   if (!match) {
@@ -54,11 +58,12 @@ async function main() {
   }
   if (!match) return;
 
-  const dedupeKey = `${match.id}:${window.location.href}`;
+  const campaignId = match.id ?? match.campaignId;
+  const dedupeKey = `${campaignId}:${window.location.href}`;
   if (seenThisLoad.has(dedupeKey)) return;
 
-  // Check 30-minute per-campaign dedup in storage
-  const storageKey = `impression:${match.id}:${window.location.hostname}`;
+  // Check 5-minute per-campaign dedup in storage
+  const storageKey = `impression:${campaignId}:${window.location.hostname}`;
   const stored = await chrome.storage.local.get(storageKey);
   const lastSeen: number = stored[storageKey] ?? 0;
   const dedupMinutes = 5 * 60 * 1000;
@@ -68,24 +73,34 @@ async function main() {
   await chrome.storage.local.set({ [storageKey]: Date.now() });
 
   // Load cached IPFS metadata for creative rendering
-  const metaKey = `metadata:${match.id}`;
+  const metaKey = `metadata:${campaignId}`;
   const metaStored = await chrome.storage.local.get(metaKey);
 
   // Inject ad unit
-  injectAdSlot({
-    campaignId: match.id,
+  const adElement = injectAdSlot({
+    campaignId,
     publisherAddress: match.publisher,
     category,
     metadata: metaStored[metaKey] ?? null,
+    auctionMechanism: auctionMechanism as any,
+    clearingCpmPlanck,
   });
 
-  // Notify background to build a claim
+  // Start engagement tracking
+  if (adElement) {
+    startTracking(campaignId, adElement);
+  }
+
+  // Notify background to build a claim (with auction clearing CPM)
+  // Impression recorded immediately; engagement quality score will be
+  // sent separately via ENGAGEMENT_QUALITY_RESULT to discount low-quality views.
   chrome.runtime.sendMessage({
     type: "IMPRESSION_RECORDED",
-    campaignId: match.id,
+    campaignId,
     url: window.location.href,
     category,
     publisherAddress: match.publisher,
+    clearingCpmPlanck,
   });
 }
 

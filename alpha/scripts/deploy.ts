@@ -147,7 +147,7 @@ async function main() {
   console.log(`\nAddresses written to ${outPath}`);
 
   // Also write to the extension's artifacts directory for easy loading
-  const extPath = __dirname + "/../../extension/deployed-addresses.json";
+  const extPath = __dirname + "/../../alpha-extension/deployed-addresses.json";
   fs.writeFileSync(extPath, JSON.stringify(addresses, null, 2) + "\n");
   console.log(`Addresses written to ${extPath}`);
 

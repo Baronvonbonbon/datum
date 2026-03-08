@@ -1,0 +1,424 @@
+import { useState, useEffect, useCallback } from "react";
+import { parseUnits } from "ethers";
+import { getCampaignsContract, getProvider } from "@shared/contracts";
+import { formatDOT } from "@shared/dot";
+import { cidToBytes32 } from "@shared/ipfs";
+import { CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
+import { DEFAULT_SETTINGS } from "@shared/networks";
+import { getSigner } from "@shared/walletManager";
+
+interface Props {
+  address: string | null;
+}
+
+interface MyCampaign {
+  id: number;
+  status: CampaignStatus;
+  remainingBudget: bigint;
+  bidCpmPlanck: bigint;
+}
+
+const STATUS_LABELS: Record<number, { label: string; color: string; bg: string }> = {
+  0: { label: "Pending", color: "#c0c060", bg: "#1a1a0a" },
+  1: { label: "Active", color: "#60c060", bg: "#0a2a0a" },
+  2: { label: "Paused", color: "#c09060", bg: "#1a1a0a" },
+  3: { label: "Completed", color: "#60a0ff", bg: "#0a1a2a" },
+  4: { label: "Terminated", color: "#ff8080", bg: "#2a0a0a" },
+  5: { label: "Expired", color: "#888", bg: "#1a1a1a" },
+};
+
+export function AdvertiserPanel({ address }: Props) {
+  const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [txResult, setTxResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ id: number; action: string } | null>(null);
+
+  async function getSettings() {
+    const stored = await chrome.storage.local.get("settings");
+    return stored.settings ?? DEFAULT_SETTINGS;
+  }
+
+  const loadCampaigns = useCallback(async () => {
+    if (!address) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const settings = await getSettings();
+      const provider = getProvider(settings.rpcUrl);
+      const contract = getCampaignsContract(settings.contractAddresses, provider);
+
+      const nextId = Number(await contract.nextCampaignId());
+      const mine: MyCampaign[] = [];
+
+      for (let i = 0; i < nextId; i += 10) {
+        const batch = Array.from({ length: Math.min(10, nextId - i) }, (_, j) => i + j);
+        const results = await Promise.all(
+          batch.map(async (id) => {
+            try {
+              const adv = await contract.getCampaignAdvertiser(BigInt(id));
+              if (adv.toLowerCase() !== address.toLowerCase()) return null;
+              const [status, remaining] = await Promise.all([
+                contract.getCampaignStatus(BigInt(id)),
+                contract.getCampaignRemainingBudget(BigInt(id)),
+              ]);
+              // Read bidCpmPlanck from campaigns mapping
+              const cData = await contract.campaigns(BigInt(id));
+              return {
+                id,
+                status: Number(status) as CampaignStatus,
+                remainingBudget: BigInt(remaining),
+                bidCpmPlanck: BigInt(cData.bidCpmPlanck ?? cData[4] ?? 0n),
+              } as MyCampaign;
+            } catch {
+              return null;
+            }
+          })
+        );
+        for (const r of results) if (r) mine.push(r);
+      }
+
+      setCampaigns(mine);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    loadCampaigns();
+  }, [loadCampaigns]);
+
+  async function doAction(id: number, action: string) {
+    setActionBusy(true);
+    setTxResult(null);
+    setError(null);
+    setConfirmAction(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const contract = getCampaignsContract(settings.contractAddresses, signer);
+
+      let tx;
+      switch (action) {
+        case "pause":
+          tx = await contract.togglePause(BigInt(id), true);
+          break;
+        case "resume":
+          tx = await contract.togglePause(BigInt(id), false);
+          break;
+        case "complete":
+          tx = await contract.completeCampaign(BigInt(id));
+          break;
+        case "expire":
+          tx = await contract.expirePendingCampaign(BigInt(id));
+          break;
+        default:
+          throw new Error(`Unknown action: ${action}`);
+      }
+      await tx.wait();
+      setTxResult(`Campaign #${id}: ${action} successful.`);
+      loadCampaigns();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  if (!address) {
+    return <div style={emptyStyle}>Connect wallet to manage your campaigns.</div>;
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>My Campaigns</span>
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#555", fontSize: 13 }}>Loading...</div>
+      ) : campaigns.length === 0 ? (
+        <div style={{ color: "#555", fontSize: 12, marginBottom: 12 }}>
+          No campaigns found for your address.
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12, maxHeight: 220, overflowY: "auto" }}>
+          {campaigns.map((c) => {
+            const s = STATUS_LABELS[c.status] ?? STATUS_LABELS[5];
+            return (
+              <div key={c.id} style={{ ...rowStyle, marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>#{c.id}</span>
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: s.bg, color: s.color }}>
+                    {s.label}
+                  </span>
+                </div>
+                <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>
+                  Budget: {formatDOT(c.remainingBudget)} DOT remaining
+                </div>
+                <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+                  Bid: {formatDOT(c.bidCpmPlanck)} DOT/1000 views
+                </div>
+
+                {/* Actions based on status */}
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {c.status === CampaignStatus.Active && (
+                    <>
+                      <button onClick={() => setConfirmAction({ id: c.id, action: "pause" })}
+                        disabled={actionBusy} style={actionBtn("#1a1a3a", "#c09060")}>
+                        Pause
+                      </button>
+                      <button onClick={() => setConfirmAction({ id: c.id, action: "complete" })}
+                        disabled={actionBusy} style={actionBtn("#1a0a0a", "#ff8080")}>
+                        Complete
+                      </button>
+                    </>
+                  )}
+                  {c.status === CampaignStatus.Paused && (
+                    <>
+                      <button onClick={() => doAction(c.id, "resume")}
+                        disabled={actionBusy} style={actionBtn("#0a1a0a", "#60c060")}>
+                        Resume
+                      </button>
+                      <button onClick={() => setConfirmAction({ id: c.id, action: "complete" })}
+                        disabled={actionBusy} style={actionBtn("#1a0a0a", "#ff8080")}>
+                        Complete
+                      </button>
+                    </>
+                  )}
+                  {c.status === CampaignStatus.Pending && (
+                    <button onClick={() => doAction(c.id, "expire")}
+                      disabled={actionBusy} style={actionBtn("#1a1a1a", "#888")}>
+                      Expire
+                    </button>
+                  )}
+                </div>
+
+                {/* Confirmation dialog */}
+                {confirmAction?.id === c.id && (
+                  <div style={{ marginTop: 6, padding: 8, background: "#2a1a0a", borderRadius: 4, border: "1px solid #4a2a0a" }}>
+                    <div style={{ color: "#ff9040", fontSize: 11, marginBottom: 6 }}>
+                      {confirmAction.action === "complete"
+                        ? `Complete campaign? This will refund ${formatDOT(c.remainingBudget)} DOT and permanently end this campaign.`
+                        : `Pause campaign #${c.id}?`}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => doAction(c.id, confirmAction.action)}
+                        disabled={actionBusy}
+                        style={{ ...actionBtn("#2a0a0a", "#ff8080"), flex: 1 }}
+                      >
+                        {actionBusy ? "..." : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmAction(null)}
+                        style={{ ...actionBtn("#1a1a1a", "#888"), flex: 1 }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <button onClick={loadCampaigns} disabled={loading} style={{ ...secondaryBtn, marginBottom: 16 }}>
+        {loading ? "Loading..." : "Refresh"}
+      </button>
+
+      {/* Campaign creation form */}
+      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
+        <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 8 }}>Create Campaign</div>
+        <CreateCampaignForm address={address} onCreated={loadCampaigns} />
+      </div>
+
+      {txResult && (
+        <div style={{ marginTop: 8, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13, color: "#60c060" }}>
+          {txResult}
+        </div>
+      )}
+      {error && (
+        <div style={{ marginTop: 8, color: "#ff8080", fontSize: 12 }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+function CreateCampaignForm({ address, onCreated }: { address: string; onCreated: () => void }) {
+  const [budget, setBudget] = useState("1");
+  const [dailyCap, setDailyCap] = useState("0.1");
+  const [bidCpm, setBidCpm] = useState("0.01");
+  const [categoryId, setCategoryId] = useState(0);
+  const [metadataCid, setMetadataCid] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function create() {
+    setCreating(true);
+    setResult(null);
+    setFormError(null);
+    try {
+      const stored = await chrome.storage.local.get("settings");
+      const settings = stored.settings ?? DEFAULT_SETTINGS;
+
+      const signer = getSigner(settings.rpcUrl);
+      const campaigns = getCampaignsContract(settings.contractAddresses, signer);
+
+      const budgetPlanck = parseUnits(budget, 10);
+      const dailyCapPlanck = parseUnits(dailyCap, 10);
+      const bidCpmPlanck = parseUnits(bidCpm, 10);
+
+      const tx = await campaigns.createCampaign(
+        address, // publisher = self
+        dailyCapPlanck,
+        bidCpmPlanck,
+        categoryId,
+        { value: budgetPlanck }
+      );
+      const receipt = await tx.wait();
+
+      let campaignId: bigint | undefined;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = campaigns.interface.parseLog({ topics: log.topics as string[], data: log.data });
+          if (parsed?.name === "CampaignCreated") campaignId = parsed.args.campaignId;
+        } catch { /* log from different contract */ }
+      }
+
+      if (metadataCid.trim()) {
+        if (campaignId === undefined) throw new Error("Could not parse campaign ID from receipt");
+        const metadataHash = cidToBytes32(metadataCid.trim());
+        const metaTx = await campaigns.setMetadata(campaignId, metadataHash);
+        await metaTx.wait();
+      }
+
+      const idStr = campaignId !== undefined ? ` (ID: ${campaignId})` : "";
+      setResult(`Campaign created${idStr}. Status: Pending.`);
+      onCreated();
+    } catch (err) {
+      setFormError(String(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Budget (DOT)</label>
+        <input type="text" value={budget} onChange={(e) => setBudget(e.target.value)}
+          style={formInput} placeholder="1.0" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Daily Cap (DOT)</label>
+        <input type="text" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)}
+          style={formInput} placeholder="0.1" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Bid CPM (DOT per 1000 impressions)</label>
+        <input type="text" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)}
+          style={formInput} placeholder="0.01" />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={formLabel}>Category</label>
+        <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}
+          style={{ ...formInput, cursor: "pointer" }}>
+          <option value={0}>Uncategorized</option>
+          {buildCategoryHierarchy().map((group) => (
+            <optgroup key={group.id} label={group.name}>
+              <option value={group.id}>{group.name} (general)</option>
+              {group.children.map((child) => (
+                <option key={child.id} value={child.id}>{child.name}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <label style={formLabel}>Metadata CID (IPFS CIDv0, optional)</label>
+        <input type="text" value={metadataCid} onChange={(e) => setMetadataCid(e.target.value)}
+          style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
+          placeholder="QmXyz..." />
+        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
+          Pin JSON with title, description, category, creative fields to IPFS
+        </div>
+      </div>
+      <button onClick={create} disabled={creating} style={primaryBtn}>
+        {creating ? "Creating..." : "Create Campaign"}
+      </button>
+      {result && (
+        <div style={{ marginTop: 6, color: "#60c060", fontSize: 12 }}>{result}</div>
+      )}
+      {formError && (
+        <div style={{ marginTop: 6, color: "#ff8080", fontSize: 12 }}>{formError}</div>
+      )}
+    </div>
+  );
+}
+
+const rowStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  background: "#111122",
+  borderRadius: 4,
+  border: "1px solid #1a1a2e",
+};
+
+const primaryBtn: React.CSSProperties = {
+  background: "#2a2a5a",
+  color: "#a0a0ff",
+  border: "1px solid #4a4a8a",
+  borderRadius: 6,
+  padding: "10px 16px",
+  fontSize: 13,
+  cursor: "pointer",
+  width: "100%",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  ...primaryBtn,
+  background: "#1a1a1a",
+  color: "#666",
+  border: "1px solid #333",
+};
+
+const actionBtn = (bg: string, color: string): React.CSSProperties => ({
+  background: bg,
+  color,
+  border: `1px solid ${color}33`,
+  borderRadius: 3,
+  padding: "3px 8px",
+  fontSize: 10,
+  cursor: "pointer",
+});
+
+const formLabel: React.CSSProperties = {
+  display: "block",
+  color: "#888",
+  fontSize: 11,
+  marginBottom: 2,
+};
+
+const formInput: React.CSSProperties = {
+  width: "100%",
+  padding: "5px 8px",
+  background: "#1a1a2e",
+  border: "1px solid #2a2a4a",
+  borderRadius: 4,
+  color: "#e0e0e0",
+  fontSize: 12,
+  outline: "none",
+};
+
+const emptyStyle: React.CSSProperties = {
+  padding: 24,
+  textAlign: "center",
+  color: "#666",
+  fontSize: 13,
+};
