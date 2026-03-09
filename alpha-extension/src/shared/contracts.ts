@@ -6,6 +6,7 @@ import DatumGovernanceSlashAbi from "./abis/DatumGovernanceSlash.json";
 import DatumSettlementAbi from "./abis/DatumSettlement.json";
 import DatumRelayAbi from "./abis/DatumRelay.json";
 import DatumPauseRegistryAbi from "./abis/DatumPauseRegistry.json";
+import DatumTimelockAbi from "./abis/DatumTimelock.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
@@ -36,6 +37,10 @@ export function getRelayContract(addresses: ContractAddresses, provider: Provide
 
 export function getPauseRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.pauseRegistry, DatumPauseRegistryAbi.abi, provider);
+}
+
+export function getTimelockContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.timelock, DatumTimelockAbi.abi, provider);
 }
 
 // Helper: create a read-only provider for the given RPC URL

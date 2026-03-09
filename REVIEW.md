@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-08 (extension UI addendum, V2 overhaul, P6/P16/P19 complete)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 100/100 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, and current contract architecture (5+1+1+1+1 contracts). All alpha-scope code COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 101/101 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
 
 ---
 
@@ -232,7 +232,7 @@ The deferred "contract ownership transfer" addresses who holds the key, not what
 
 `creditAyeReward()` is `onlyOwner` with no on-chain verification of proportional correctness. The owner can allocate 100% of rewards to a single address. This undermines the economic incentive for honest governance review. Slash rewards (`distributeSlashRewards`) are correctly computed on-chain; aye rewards should follow the same pattern.
 
-**Current reason:** PVM bytecode size limits prevent an on-chain voter-loop. As resolc/PVM matures and bytecode limits relax, this should move on-chain. Until then, document the trust assumption explicitly and publish the off-chain computation for independent verification.
+**Resolution (2026-03-07):** GovernanceV2 replaced V1's off-chain aye reward distribution with symmetric slash — both winning and losing sides compute slash/rewards on-chain via GovernanceSlash. `finalizeSlash(cid)` snapshots winning side weight; `claimSlashReward(cid)` distributes pool proportionally. No off-chain computation required. **Fully trustless.**
 
 ### High: Campaign-publisher binding prevents open marketplace
 
@@ -347,7 +347,7 @@ The following items must be resolved and documented in a v0.4 architecture speci
 ## Implementation Notes
 
 ### DOT Flow Architecture
-The alpha uses a nine-contract DOT flow (5+1+1+1+1):
+The alpha uses a nine-contract DOT flow:
 1. Advertiser deposits full budget into `DatumCampaigns` at `createCampaign()`. Campaign creation, activation, termination check `DatumPauseRegistry.paused()`.
 2. At `deductBudget()`, `DatumCampaigns` forwards the deducted amount to `DatumSettlement`.
 3. `DatumSettlement` maintains pull-payment balances (`publisherBalance`, `userBalance`, `protocolBalance`). Optional ZK verification via `DatumZKVerifier`.
@@ -379,51 +379,92 @@ The 50-batch target in the plan spec (~500–800k gas) should be achievable. Pol
 ## File Map
 
 ```
-poc/
+alpha/
 ├── contracts/
+│   ├── DatumPauseRegistry.sol      Global emergency pause circuit breaker
+│   ├── DatumTimelock.sol           48h admin delay for contract reference changes
 │   ├── DatumPublishers.sol         Publisher registry + take-rate management
 │   ├── DatumCampaigns.sol          Campaign lifecycle; budget escrow; 10% slash / 90% refund
-│   ├── DatumGovernanceVoting.sol   Conviction voting; activation/termination; stake + slash custody
-│   ├── DatumGovernanceRewards.sol  Reward claims; stake withdrawal; aye reward crediting
+│   ├── DatumGovernanceV2.sol       Conviction voting; symmetric slash; evaluateCampaign state machine
+│   ├── DatumGovernanceSlash.sol    Slash pool finalization + winner reward claims
 │   ├── DatumSettlement.sol         Hash-chain validation; claim processing; 3-way payment split
 │   ├── DatumRelay.sol              EIP-712 user + publisher co-signature verification; relayed settlement
+│   ├── DatumZKVerifier.sol         Stub ZK verifier (proof.length > 0); real Groth16 in P9
 │   ├── interfaces/
 │   │   ├── IDatumCampaigns.sol
 │   │   ├── IDatumCampaignsMinimal.sol
 │   │   ├── IDatumCampaignsSettlement.sol
-│   │   ├── IDatumGovernanceVoting.sol
 │   │   ├── IDatumPublishers.sol
 │   │   └── IDatumSettlement.sol
 │   └── mocks/
 │       └── MockCampaigns.sol       Test double for isolated governance/settlement tests
 ├── test/
-│   ├── campaigns.test.ts           L1–L8 + snapshot + publisher validation + CPM floor
-│   ├── settlement.test.ts          S1–S8 + gap + genesis + snapshot + hash + relay R1–R6 + co-sig R7–R10
-│   ├── governance.test.ts          G1–G8 + lockup cap + reviewer stake + issue 9 + A1
-│   └── integration.test.ts         Scenarios A–F (full six-contract integration)
+│   ├── campaigns.test.ts           16 tests — L1–L8 + snapshot + publisher validation + CPM floor
+│   ├── settlement.test.ts          29 tests — S1–S8 + gap + genesis + snapshot + hash + relay R1–R10
+│   ├── governance.test.ts          26 tests — G1–G8 + conviction 0-6 + symmetric slash + S1–S6
+│   ├── pause.test.ts               8 tests — pause registry + campaign/settlement/relay integration
+│   ├── timelock.test.ts            15 tests — propose/execute/cancel + delay enforcement
+│   └── integration.test.ts         6 tests — Scenarios A–F (full nine-contract integration)
 ├── scripts/
-│   ├── deploy.ts                   Production deployment script
-│   └── upload-metadata.ts          IPFS metadata validation + on-chain CID setter
+│   ├── deploy.ts                   9-contract deploy with post-wire validation + ownership transfer
+│   ├── setup-test-campaign.ts      Register publisher, create campaign, vote, activate, set metadata
+│   ├── benchmark-gas.ts            Gas benchmarks for 6 key operations
+│   ├── e2e-full-flow.ts            Full E2E test: campaign lifecycle, settlement, governance, timelock
+│   ├── fund-wallet.ts              Fund wallet from deployer
+│   └── check-state.ts              Read on-chain state for debugging
 ├── metadata/                       Sample campaign metadata JSON files
 └── hardhat.config.ts
 
-extension/
+poc/                                Original PoC (64/64 tests, preserved for reference)
+
+alpha-extension/
 ├── src/
-│   ├── background/                 Campaign poller, claim builder, claim queue, auto-submit
-│   ├── content/                    Page classification, ad slot injection
-│   ├── popup/                      React UI: campaigns, claims, publisher panel, settings
-│   ├── offscreen/                  Offscreen document for auto-submit signing
-│   └── shared/                     Types, ABIs, contract factories, CID encoding, networks
+│   ├── background/
+│   │   ├── index.ts                Message router, auto-submit (session-scoped encryption), alarm polling
+│   │   ├── campaignPoller.ts       Poll campaigns + all statuses + timelock events
+│   │   ├── claimBuilder.ts         Hash-chain claim builder with auction clearing CPM
+│   │   ├── claimQueue.ts           Pending claim storage + auto-flush
+│   │   ├── interestProfile.ts      Exponential-decay category interest weights
+│   │   ├── auction.ts              Vickrey second-price auction (P19)
+│   │   ├── behaviorChain.ts        Per-(user,campaign) append-only behavior hash chain (P16)
+│   │   ├── behaviorCommit.ts       Behavior commitment computation (P16)
+│   │   ├── userPreferences.ts      Block/silence/rate-limit/minCPM
+│   │   ├── timelockMonitor.ts      Poll DatumTimelock for pending admin changes
+│   │   └── zkProofStub.ts          Stub ZK proof generator (P16/P9)
+│   ├── content/
+│   │   ├── index.ts                Page classification, campaign selection, ad injection
+│   │   ├── adSlot.ts               Ad unit rendering with auction badge
+│   │   ├── engagement.ts           IAB engagement capture (IntersectionObserver, P16)
+│   │   └── campaignMatcher.ts      Legacy fallback campaign selection
+│   ├── popup/
+│   │   ├── App.tsx                 7-tab shell with wallet setup + timelock warning banner
+│   │   ├── CampaignList.tsx        Campaign browser with block/filter/info controls
+│   │   ├── UserPanel.tsx           Claims + earnings + engagement stats
+│   │   ├── PublisherPanel.tsx      Publisher registration + relay submit
+│   │   ├── AdvertiserPanel.tsx     Campaign creation + management (pause/resume/complete/expire)
+│   │   ├── GovernancePanel.tsx     V2 voting + evaluate + slash + withdraw
+│   │   └── Settings.tsx            Network, wallet, ad preferences, IPFS pinning, auto-submit
+│   └── shared/
+│       ├── types.ts                ContractAddresses (9 keys), Campaign, UserPreferences
+│       ├── contracts.ts            Contract factory functions for all 9 contracts
+│       ├── messages.ts             All message types (popup↔background↔content)
+│       ├── networks.ts             Network configs (local, paseo, westend, kusama, polkadotHub)
+│       ├── walletManager.ts        Embedded wallet (AES-256-GCM + PBKDF2)
+│       ├── claimExport.ts          Encrypted claim export/import (P6)
+│       ├── taxonomy.ts             26 top-level + ~80 subcategories
+│       ├── ipfsPin.ts              Pinata IPFS pinning for campaign metadata
+│       ├── publisherAttestation.ts Publisher co-sig with HTTPS enforcement
+│       └── abis/                   9 contract ABI JSON files
 └── webpack.config.js
 ```
 
-**Test results: 64/64 pass.**
+**Test results: PoC 64/64 pass. Alpha 101/101 pass.**
 
 ---
 
 ## Extension UI Addendum (2026-03-08, updated for V2 overhaul)
 
-### V2 Extension Architecture (7 tabs, 559 KB popup.js)
+### V2 Extension Architecture (7 tabs, 574 KB popup.js)
 
 The alpha extension was overhauled to full V2 feature parity across all roles: user, publisher, advertiser, and governance participant.
 
@@ -496,7 +537,7 @@ Unchanged from V1. Campaign creation moved to AdvertiserPanel.
 
 ### Extension Build Size
 
-popup.js: 559 KB | background.js: 363 KB | content.js: 9.5 KB (post-V2 overhaul)
+popup.js: 574 KB | background.js: 370 KB | content.js: 18.1 KB (post-V2 overhaul + Part 4B fixes)
 
 ### Trust Assumptions Updated
 

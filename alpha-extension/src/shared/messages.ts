@@ -33,7 +33,11 @@ export type PopupToBackground =
   | { type: "GET_USER_PREFERENCES" }
   | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
   | { type: "BLOCK_CAMPAIGN"; campaignId: string }
-  | { type: "UNBLOCK_CAMPAIGN"; campaignId: string };
+  | { type: "UNBLOCK_CAMPAIGN"; campaignId: string }
+  | { type: "AUTHORIZE_AUTO_SUBMIT"; privateKey: string }
+  | { type: "REVOKE_AUTO_SUBMIT" }
+  | { type: "CHECK_AUTO_SUBMIT" }
+  | { type: "GET_TIMELOCK_PENDING" };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

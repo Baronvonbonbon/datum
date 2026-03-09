@@ -3,6 +3,7 @@ import { parseUnits } from "ethers";
 import { getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { cidToBytes32 } from "@shared/ipfs";
+import { pinToIPFS } from "@shared/ipfsPin";
 import { CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
@@ -260,6 +261,44 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
   const [result, setResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // H3: IPFS pinning fields
+  const [metaTitle, setMetaTitle] = useState("");
+  const [metaDescription, setMetaDescription] = useState("");
+  const [metaCreative, setMetaCreative] = useState("");
+  const [pinning, setPinning] = useState(false);
+  const [pinResult, setPinResult] = useState<string | null>(null);
+
+  async function handlePin() {
+    setPinning(true);
+    setPinResult(null);
+    try {
+      const stored = await chrome.storage.local.get("settings");
+      const settings = stored.settings ?? DEFAULT_SETTINGS;
+      if (!settings.pinataApiKey) {
+        setPinResult("No Pinata API key. Add it in Settings.");
+        return;
+      }
+      const catName = CATEGORY_NAMES[categoryId] ?? "Uncategorized";
+      const res = await pinToIPFS(settings.pinataApiKey, {
+        title: metaTitle || "Untitled Campaign",
+        description: metaDescription,
+        category: catName,
+        creative: metaCreative || undefined,
+        advertiser: address,
+      });
+      if (res.ok && res.cid) {
+        setMetadataCid(res.cid);
+        setPinResult(`Pinned: ${res.cid.slice(0, 12)}...`);
+      } else {
+        setPinResult(res.error ?? "Pin failed");
+      }
+    } catch (err) {
+      setPinResult(String(err).slice(0, 100));
+    } finally {
+      setPinning(false);
+    }
+  }
+
   async function create() {
     setCreating(true);
     setResult(null);
@@ -341,14 +380,36 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
           ))}
         </select>
       </div>
+      {/* H3: Metadata + IPFS pinning */}
+      <div style={{ marginBottom: 6, borderTop: "1px solid #1a1a2e", paddingTop: 6 }}>
+        <label style={{ ...formLabel, color: "#a0a0ff", fontSize: 11 }}>Campaign Metadata (optional)</label>
+        <div style={{ marginBottom: 4 }}>
+          <input type="text" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)}
+            style={formInput} placeholder="Campaign title" />
+        </div>
+        <div style={{ marginBottom: 4 }}>
+          <input type="text" value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)}
+            style={formInput} placeholder="Description" />
+        </div>
+        <div style={{ marginBottom: 4 }}>
+          <input type="text" value={metaCreative} onChange={(e) => setMetaCreative(e.target.value)}
+            style={formInput} placeholder="Creative text (shown in ad slot)" />
+        </div>
+        <button onClick={handlePin} disabled={pinning || !metaTitle.trim()}
+          style={{ ...actionBtn("#0a1a2a", "#60a0ff"), marginBottom: 4, padding: "4px 10px", fontSize: 11 }}>
+          {pinning ? "Pinning..." : "Pin to IPFS"}
+        </button>
+        {pinResult && (
+          <div style={{ fontSize: 10, color: pinResult.startsWith("Pinned") ? "#60c060" : "#ff8080", marginBottom: 4 }}>
+            {pinResult}
+          </div>
+        )}
+      </div>
       <div style={{ marginBottom: 8 }}>
-        <label style={formLabel}>Metadata CID (IPFS CIDv0, optional)</label>
+        <label style={formLabel}>Metadata CID (IPFS CIDv0)</label>
         <input type="text" value={metadataCid} onChange={(e) => setMetadataCid(e.target.value)}
           style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
-          placeholder="QmXyz..." />
-        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
-          Pin JSON with title, description, category, creative fields to IPFS
-        </div>
+          placeholder="QmXyz... (auto-filled after pinning)" />
       </div>
       <button onClick={create} disabled={creating} style={primaryBtn}>
         {creating ? "Creating..." : "Create Campaign"}

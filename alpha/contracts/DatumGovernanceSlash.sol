@@ -72,6 +72,7 @@ contract DatumGovernanceSlash {
 
         uint256 voterWeight = lockAmount * (1 << conviction);
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
+        require(winningWeight[campaignId] > 0, "E03");
         uint256 share = pool * voterWeight / winningWeight[campaignId];
         require(share > 0, "E03");
 

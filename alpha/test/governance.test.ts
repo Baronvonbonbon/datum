@@ -475,6 +475,36 @@ describe("DatumGovernanceV2 (Voting + Slash)", function () {
     expect(claimable).to.equal(expectedSlash); // sole nay voter gets all
   });
 
+  it("S6: claimSlashReward reverts when winningWeight is zero (all winners withdrew)", async function () {
+    const cid = await createTestCampaign();
+    const ayeStake = parseDOT("1");
+    const nayStake = parseDOT("2");
+
+    await v2.connect(voter1).vote(cid, true, 0, { value: ayeStake });
+    await mock.setStatus(cid, 1);
+    await v2.connect(voter2).vote(cid, false, 0, { value: nayStake });
+
+    // Terminate (nay wins)
+    await v2.evaluateCampaign(cid);
+
+    // Aye voter (loser) withdraws — generates slash
+    await minePastLockup(cid, voter1.address);
+    await v2.connect(voter1).withdraw(cid);
+
+    // Nay voter (winner) withdraws BEFORE finalization
+    await minePastLockup(cid, voter2.address);
+    await v2.connect(voter2).withdraw(cid);
+
+    // Finalize — winningWeight should be 0 since all nay voters already withdrew
+    await slash.finalizeSlash(cid);
+    expect(await slash.winningWeight(cid)).to.equal(0n);
+
+    // A third voter who somehow tries to claim should get E03
+    // (voter2 already withdrew so direction=0, would get E44 first)
+    // Verify getClaimable returns 0 for withdrawn voter
+    expect(await slash.getClaimable(cid, voter2.address)).to.equal(0n);
+  });
+
   // =========================================================================
   // Dynamic voting tests (D1-D4)
   // =========================================================================

@@ -50,6 +50,13 @@ export async function requestPublisherAttestation(
       return "";
     }
 
+    // M6: Warn on non-HTTPS for non-localhost domains
+    const isLocal = domain === "localhost" || domain.startsWith("localhost:") || domain.startsWith("127.");
+    if (!isLocal && !domain.startsWith("https://")) {
+      console.warn(`[DATUM] Publisher attestation: refusing HTTP for non-local domain ${domain}`);
+      return "";
+    }
+
     const url = `https://${domain}/.well-known/datum-attest`;
     const body: AttestationRequest = {
       campaignId,

@@ -177,6 +177,11 @@ DATUM targets Polkadot Hub via pallet-revive rather than an EVM chain:
 
 The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumCampaigns and DatumSettlement have <400 bytes spare), cross-contract calls are more expensive, and the toolchain is maturing. But the Solidity source is portable -- if pallet-revive doesn't mature, deployment to an EVM parachain remains viable.
 
+## Known limitations
+
+- **Daily cap timestamp:** `DatumCampaigns` uses `block.timestamp / 86400` for daily cap tracking. Block validators can manipulate timestamps by ±15 seconds, which is negligible relative to the 86,400-second daily period (<0.02% error).
+- **Unclaimed slash rewards:** `DatumGovernanceSlash` has no expiry deadline for unclaimed rewards. Unclaimed funds remain locked. A sweep function is planned for beta (M4).
+
 ## Deferred (explicitly out of scope for alpha)
 
 | Item | Status |

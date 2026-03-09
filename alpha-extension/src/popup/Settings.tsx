@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS } from "@shared/networks";
 import { unlock, isConfigured } from "@shared/walletManager";
+import { testPinataKey } from "@shared/ipfsPin";
 
 interface InterestProfileData {
   weights: Record<string, number>;
@@ -18,6 +19,8 @@ export function Settings() {
   const [autoSubmitPassword, setAutoSubmitPassword] = useState("");
   const [autoSubmitKeySet, setAutoSubmitKeySet] = useState(false);
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
+  const [rpcWarning, setRpcWarning] = useState<string | null>(null);
+  const [pinataTestResult, setPinataTestResult] = useState<string | null>(null);
 
   // User preferences
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -29,9 +32,12 @@ export function Settings() {
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   useEffect(() => {
-    chrome.storage.local.get(["settings", "autoSubmitKey"], (stored) => {
+    chrome.storage.local.get("settings", (stored) => {
       if (stored.settings) setSettings(stored.settings);
-      if (stored.autoSubmitKey) setAutoSubmitKeySet(true);
+    });
+    // Check auto-submit authorization via background (B1: encrypted)
+    chrome.runtime.sendMessage({ type: "CHECK_AUTO_SUBMIT" }).then((resp) => {
+      if (resp?.authorized) setAutoSubmitKeySet(true);
     });
     loadInterestProfile();
     loadPreferences();
@@ -65,6 +71,12 @@ export function Settings() {
   }
 
   async function save() {
+    // H4: Warn on non-HTTPS RPC URL for non-local networks
+    if (settings.network !== "local" && settings.rpcUrl.startsWith("http://")) {
+      setRpcWarning("Warning: Using unencrypted HTTP for a production network. Traffic is visible to intermediaries. Consider using HTTPS.");
+    } else {
+      setRpcWarning(null);
+    }
     await chrome.storage.local.set({ settings });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -159,10 +171,16 @@ export function Settings() {
         <input
           type="text"
           value={settings.rpcUrl}
-          onChange={(e) => setSettings((s) => ({ ...s, rpcUrl: e.target.value }))}
+          onChange={(e) => {
+            setSettings((s) => ({ ...s, rpcUrl: e.target.value }));
+            setRpcWarning(null);
+          }}
           style={inputStyle}
           placeholder="http://localhost:8545"
         />
+        {rpcWarning && (
+          <div style={{ color: "#ffb060", fontSize: 11, marginTop: 4 }}>{rpcWarning}</div>
+        )}
       </div>
 
       {/* Contract addresses */}
@@ -239,6 +257,41 @@ export function Settings() {
         />
       </div>
 
+      {/* Pinata API Key (H3: IPFS pinning) */}
+      <div style={sectionStyle}>
+        <label style={labelStyle}>Pinata API Key (JWT)</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            type="password"
+            value={settings.pinataApiKey}
+            onChange={(e) => {
+              setSettings((s) => ({ ...s, pinataApiKey: e.target.value }));
+              setPinataTestResult(null);
+            }}
+            style={{ ...inputStyle, flex: 1 }}
+            placeholder="eyJhbGciOiJ..."
+          />
+          <button
+            onClick={async () => {
+              setPinataTestResult("Testing...");
+              const result = await testPinataKey(settings.pinataApiKey);
+              setPinataTestResult(result.ok ? "Valid" : result.error ?? "Failed");
+            }}
+            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            Test
+          </button>
+        </div>
+        {pinataTestResult && (
+          <div style={{ fontSize: 10, marginTop: 3, color: pinataTestResult === "Valid" ? "#60c060" : pinataTestResult === "Testing..." ? "#888" : "#ff8080" }}>
+            {pinataTestResult}
+          </div>
+        )}
+        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
+          Get a free key at pinata.cloud. Used to pin campaign metadata from My Ads tab.
+        </div>
+      </div>
+
       {/* Auto-submit */}
       <div style={{ ...sectionStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <label style={labelStyle}>Auto-submit claims</label>
@@ -268,10 +321,10 @@ export function Settings() {
           </div>
           {autoSubmitKeySet ? (
             <div style={{ ...sectionStyle, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "#60c060", fontSize: 11 }}>Auto-submit key authorized</span>
+              <span style={{ color: "#60c060", fontSize: 11 }}>Auto-submit authorized (this session)</span>
               <button
                 onClick={async () => {
-                  await chrome.storage.local.remove("autoSubmitKey");
+                  await chrome.runtime.sendMessage({ type: "REVOKE_AUTO_SUBMIT" });
                   setAutoSubmitKeySet(false);
                 }}
                 style={{ ...secondaryBtn, width: "auto", padding: "4px 8px", fontSize: 11 }}
@@ -282,7 +335,7 @@ export function Settings() {
           ) : (
             <div style={sectionStyle}>
               <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
-                Enter your wallet password to authorize auto-submit.
+                Enter your wallet password to authorize auto-submit. Authorization lasts until browser restart.
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
@@ -297,7 +350,7 @@ export function Settings() {
                     setAutoSubmitError(null);
                     try {
                       const wallet = await unlock(autoSubmitPassword);
-                      await chrome.storage.local.set({ autoSubmitKey: wallet.privateKey });
+                      await chrome.runtime.sendMessage({ type: "AUTHORIZE_AUTO_SUBMIT", privateKey: wallet.privateKey });
                       setAutoSubmitKeySet(true);
                       setAutoSubmitPassword("");
                     } catch {

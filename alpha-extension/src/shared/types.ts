@@ -316,6 +316,7 @@ export interface StoredSettings {
   autoSubmitIntervalMinutes: number;
   contractAddresses: ContractAddresses;
   ipfsGateway: string;
+  pinataApiKey: string;
 }
 
 export type NetworkName = "local" | "paseo" | "westend" | "kusama" | "polkadotHub";

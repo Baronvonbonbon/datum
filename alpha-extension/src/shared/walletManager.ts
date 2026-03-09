@@ -157,3 +157,10 @@ export async function clearKey(): Promise<void> {
   unlockedWallet = null;
   await chrome.storage.local.remove([STORAGE_KEY, "connectedAddress"]);
 }
+
+// -------------------------------------------------------------------------
+// Exported encrypt/decrypt for reuse (B1: auto-submit key encryption)
+// -------------------------------------------------------------------------
+
+export { encryptKey as encryptPrivateKey, decryptKey as decryptPrivateKey };
+export type { EncryptedWalletData };

@@ -84,4 +84,5 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   autoSubmitIntervalMinutes: 10,
   contractAddresses: NETWORK_CONFIGS.local.addresses,
   ipfsGateway: "https://dweb.link/ipfs/",
+  pinataApiKey: "",
 };

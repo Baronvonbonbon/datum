@@ -48,6 +48,9 @@ export function App() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // H2: Timelock pending changes
+  const [timelockWarning, setTimelockWarning] = useState<number>(0);
+
   // Chain heartbeat state
   const [chainStatus, setChainStatus] = useState<{
     connected: boolean;
@@ -86,6 +89,12 @@ export function App() {
         lastUpdated: Date.now(),
         error: null,
       });
+
+      // H2: Check timelock pending changes
+      try {
+        const tlResp = await chrome.runtime.sendMessage({ type: "GET_TIMELOCK_PENDING" });
+        setTimelockWarning(tlResp?.pending?.length ?? 0);
+      } catch { /* ignore */ }
     } catch (err) {
       setChainStatus((prev) => ({
         ...prev,
@@ -220,6 +229,28 @@ export function App() {
     return stored.settings ?? DEFAULT_SETTINGS;
   }
 
+  // M3: Password strength indicator
+  function getPasswordStrength(pw: string): { label: string; color: string; level: number } {
+    if (pw.length === 0) return { label: "", color: "#555", level: 0 };
+    if (pw.length < 4) return { label: "Too short", color: "#ff4040", level: 0 };
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^a-zA-Z0-9]/.test(pw)) score++;
+    // Common weak patterns
+    const weak = ["password", "12345678", "qwerty", "abcdef", "datum"];
+    if (weak.some((w) => pw.toLowerCase().includes(w))) score = Math.min(score, 1);
+
+    if (pw.length < 8) return { label: "Weak — use 8+ characters", color: "#ff8040", level: 1 };
+    if (score <= 2) return { label: "Fair", color: "#c0c040", level: 2 };
+    if (score <= 3) return { label: "Good", color: "#60c060", level: 3 };
+    return { label: "Strong", color: "#40c080", level: 4 };
+  }
+
+  const strength = getPasswordStrength(password);
+
   // --- Render ---
 
   // Setup / unlock screens
@@ -306,6 +337,11 @@ export function App() {
               <label style={labelStyle}>Password</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                 style={inputStyle} placeholder="Encrypt key at rest" />
+              {strength.label && (
+                <div style={{ fontSize: 10, color: strength.color, marginTop: 3 }}>
+                  {strength.label}
+                </div>
+              )}
             </div>
             <div style={sectionStyle}>
               <label style={labelStyle}>Confirm Password</label>
@@ -332,6 +368,11 @@ export function App() {
               <label style={labelStyle}>Password</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                 style={inputStyle} placeholder="Encrypt key at rest" />
+              {strength.label && (
+                <div style={{ fontSize: 10, color: strength.color, marginTop: 3 }}>
+                  {strength.label}
+                </div>
+              )}
             </div>
             <div style={sectionStyle}>
               <label style={labelStyle}>Confirm Password</label>
@@ -465,6 +506,17 @@ export function App() {
           )}
         </div>
       </div>
+
+      {/* H2: Timelock pending change warning */}
+      {timelockWarning > 0 && (
+        <div style={{
+          padding: "4px 16px", background: "#2a1a0a", borderBottom: "1px solid #4a2a0a",
+          fontSize: 11, color: "#ff9040", display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <span>!</span>
+          <span>{timelockWarning} pending admin change{timelockWarning > 1 ? "s" : ""} (Timelock)</span>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "1px solid #2a2a4a" }}>

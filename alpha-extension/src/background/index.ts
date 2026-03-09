@@ -1,7 +1,7 @@
 // DATUM background service worker entry point
 // Handles alarms, message routing, and scheduled tasks.
 
-import { Wallet, JsonRpcProvider, Contract } from "ethers";
+import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes } from "ethers";
 import { campaignPoller } from "./campaignPoller";
 import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
@@ -11,10 +11,12 @@ import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
 import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
 import { appendEvent } from "./behaviorChain";
+import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
 import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
+import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -124,6 +126,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       const activeIds = new Set(active.map((c) => c.id));
       const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
       if (pruned > 0) console.log(`[DATUM] Pruned ${pruned} stale claims for inactive campaigns`);
+    }
+    // H2: Poll timelock for pending admin changes
+    if (settings.contractAddresses.timelock) {
+      await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses);
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
@@ -364,6 +370,28 @@ async function handleMessage(
       return { ok: true };
     }
 
+    // B1: Auto-submit key management (encrypted)
+    case "AUTHORIZE_AUTO_SUBMIT": {
+      await authorizeAutoSubmit(msg.privateKey);
+      return { ok: true };
+    }
+
+    case "REVOKE_AUTO_SUBMIT": {
+      await revokeAutoSubmit();
+      return { ok: true };
+    }
+
+    case "CHECK_AUTO_SUBMIT": {
+      const authorized = await isAutoSubmitAuthorized();
+      return { authorized };
+    }
+
+    // H2: Timelock pending changes
+    case "GET_TIMELOCK_PENDING": {
+      const pending = await timelockMonitor.getPending();
+      return { pending };
+    }
+
     // Engagement quality result — log quality score for diagnostics
     case "ENGAGEMENT_QUALITY_RESULT": {
       if (!msg.passed) {
@@ -388,10 +416,54 @@ async function getSettings() {
 
 // -------------------------------------------------------------------------
 // Auto-submit: direct signing in background (no offscreen needed)
+// B1: Private key encrypted at rest with session-scoped password.
+// Session password is held in memory only — lost on service worker restart.
 // -------------------------------------------------------------------------
 
 const AUTO_FLUSH_RESULT_KEY = "lastAutoFlushResult";
-const AUTO_SUBMIT_KEY_KEY = "autoSubmitKey";
+const AUTO_SUBMIT_ENCRYPTED_KEY = "autoSubmitKeyEncrypted";
+
+// Session-scoped password: random, held in memory, lost on SW restart
+let autoSubmitSessionPassword: string | null = null;
+
+/** Authorize auto-submit: encrypt the private key with a random session password. */
+async function authorizeAutoSubmit(walletPrivateKey: string): Promise<void> {
+  // Generate a random session password (32 bytes hex)
+  const sessionBytes = crypto.getRandomValues(new Uint8Array(32));
+  autoSubmitSessionPassword = hexlify(sessionBytes);
+
+  // Encrypt the private key using PBKDF2+AES-256-GCM (same as walletManager)
+  const encrypted = await encryptPrivateKey(walletPrivateKey, autoSubmitSessionPassword);
+  await chrome.storage.local.set({ [AUTO_SUBMIT_ENCRYPTED_KEY]: encrypted });
+}
+
+/** Revoke auto-submit: clear encrypted key and session password. */
+async function revokeAutoSubmit(): Promise<void> {
+  autoSubmitSessionPassword = null;
+  await chrome.storage.local.remove(AUTO_SUBMIT_ENCRYPTED_KEY);
+}
+
+/** Check if auto-submit is currently authorized (session password in memory + encrypted key in storage). */
+async function isAutoSubmitAuthorized(): Promise<boolean> {
+  if (!autoSubmitSessionPassword) return false;
+  const stored = await chrome.storage.local.get(AUTO_SUBMIT_ENCRYPTED_KEY);
+  return !!stored[AUTO_SUBMIT_ENCRYPTED_KEY];
+}
+
+/** Decrypt auto-submit key using in-memory session password. Returns null if unavailable. */
+async function getAutoSubmitKey(): Promise<string | null> {
+  if (!autoSubmitSessionPassword) return null;
+  const stored = await chrome.storage.local.get(AUTO_SUBMIT_ENCRYPTED_KEY);
+  const encrypted: EncryptedWalletData | undefined = stored[AUTO_SUBMIT_ENCRYPTED_KEY];
+  if (!encrypted) return null;
+  try {
+    return await decryptPrivateKey(encrypted, autoSubmitSessionPassword);
+  } catch {
+    // Session password mismatch (shouldn't happen unless storage was tampered)
+    autoSubmitSessionPassword = null;
+    return null;
+  }
+}
 
 async function autoFlushDirect() {
   const acquired = await claimQueue.acquireMutex();
@@ -424,12 +496,12 @@ async function autoFlushDirect() {
       }
     }
 
-    const stored = await chrome.storage.local.get(["connectedAddress", AUTO_SUBMIT_KEY_KEY]);
+    const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
-    const privateKey: string | undefined = stored[AUTO_SUBMIT_KEY_KEY];
+    const privateKey = await getAutoSubmitKey();
 
     if (!userAddress || !privateKey) {
-      console.log("[DATUM] Auto-flush skipped — no connected wallet or auto-submit key not set");
+      console.log("[DATUM] Auto-flush skipped — no connected wallet or auto-submit not authorized (re-authorize after browser restart)");
       await claimQueue.releaseMutex();
       return;
     }
