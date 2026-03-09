@@ -44,6 +44,9 @@ export interface Campaign {
 }
 
 // Campaign metadata fetched from IPFS
+// Field length caps enforced by contentSafety.ts:
+//   title ≤ 128, description ≤ 256, category ≤ 64,
+//   creative.text ≤ 512, creative.cta ≤ 64, creative.ctaUrl ≤ 2048
 export interface CampaignMetadata {
   title: string;
   description: string;

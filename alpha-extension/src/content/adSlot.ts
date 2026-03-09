@@ -1,5 +1,8 @@
 // adSlot — injects an ad banner when a matching campaign is found.
 // Renders creative content from IPFS metadata when available, falls back to placeholder.
+// Uses Shadow DOM for isolation from host page CSS/JS.
+
+import { sanitizeCtaUrl } from "@shared/contentSafety";
 
 export interface CampaignCreative {
   title: string;
@@ -54,13 +57,20 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   // Don't inject twice
   if (document.getElementById(SLOT_ID)) return null;
 
-  const slot = document.createElement("div");
-  slot.id = SLOT_ID;
-  slot.style.cssText = `
+  const host = document.createElement("div");
+  host.id = SLOT_ID;
+  host.style.cssText = `
     position: fixed;
     bottom: 16px;
     right: 16px;
     z-index: 2147483647;
+  `;
+
+  // Shadow DOM: isolates ad content from host page CSS/JS
+  const shadow = host.attachShadow({ mode: "open" }); // upgrade to "closed" post-alpha
+
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = `
     background: #1a1a2e;
     color: #e0e0e0;
     border: 1px solid #4a4a8a;
@@ -85,10 +95,25 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
 
   if (meta?.creative) {
     const c = meta.creative;
-    slot.innerHTML = `
+    const safeUrl = sanitizeCtaUrl(c.ctaUrl);
+
+    // CTA: clickable <a> if URL passes, non-clickable <span> otherwise
+    const ctaHtml = safeUrl
+      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
+          display:inline-block;background:#2a2a5a;color:#a0a0ff;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
+        ">${escapeHtml(c.cta)}</a>`
+      : `<span style="
+          display:inline-block;background:#2a2a5a;color:#888;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:6px 12px;font-size:12px;
+        ">${escapeHtml(c.cta)}</span>`;
+
+    wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
-        <button id="${SLOT_ID}-close" style="
+        <button class="datum-close" style="
           background:none;border:none;color:#888;cursor:pointer;
           font-size:16px;line-height:1;padding:0 2px;
         ">&#x2715;</button>
@@ -99,21 +124,17 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
       <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
         ${escapeHtml(c.text)}
       </div>
-      <a id="${SLOT_ID}-cta" href="${escapeHtml(c.ctaUrl)}" target="_blank" rel="noopener" style="
-        display:inline-block;background:#2a2a5a;color:#a0a0ff;
-        border:1px solid #4a4a8a;border-radius:4px;
-        padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
-      ">${escapeHtml(c.cta)}</a>
+      ${ctaHtml}
       <div style="color:#555;font-size:10px;margin-top:6px;">
         Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
       </div>
       ${earningHtml}
     `;
   } else {
-    slot.innerHTML = `
+    wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
-        <button id="${SLOT_ID}-close" style="
+        <button class="datum-close" style="
           background:none;border:none;color:#888;cursor:pointer;
           font-size:16px;line-height:1;padding:0 2px;
         ">&#x2715;</button>
@@ -131,13 +152,15 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
     `;
   }
 
-  document.body.appendChild(slot);
+  shadow.appendChild(wrapper);
+  document.body.appendChild(host);
 
-  document.getElementById(`${SLOT_ID}-close`)?.addEventListener("click", () => {
-    slot.remove();
+  // Close button via shadow DOM query
+  shadow.querySelector(".datum-close")?.addEventListener("click", () => {
+    host.remove();
   });
 
-  return slot;
+  return host;
 }
 
 export function removeAdSlot(): void {

@@ -23,6 +23,79 @@ DATUM asks: what if the economics worked differently?
 
 No ad server. No tracking pixels. No user profiles leaving the browser.
 
+### Walkthrough — Alice, Bob, Carol, and Dave
+
+Four people use DATUM. **Alice** is a user who browses the web. **Bob** publishes a tech blog. **Carol** is an advertiser selling hardware wallets. **Dave** reviews campaigns as a governance voter.
+
+#### Step 1 — Bob registers as a publisher
+
+Bob opens the DATUM extension, goes to the **Publisher** tab, and registers his address on the DatumPublishers contract. He sets his take rate at 40% (capped between 30-80%). This means Bob keeps 40% of every impression payment that flows through his campaigns.
+
+#### Step 2 — Carol creates a campaign
+
+Carol opens the **My Ads** tab and creates a campaign:
+- Deposits **10 DOT** as the escrow budget
+- Sets a daily cap of **1 DOT** (prevents burning through budget in one day)
+- Bids **0.05 DOT per 1000 impressions** (her maximum CPM)
+- Selects Bob as the publisher and picks the "Computers & Electronics" category
+- Fills out the ad creative: title, body text, CTA button label, and a landing page URL (HTTPS only)
+- Pins the creative metadata to IPFS (the extension validates it against content safety rules before pinning)
+
+The campaign goes on-chain with status **Pending**. Carol's 10 DOT is locked in the DatumCampaigns contract. The creative's IPFS hash is stored as a bytes32 event.
+
+#### Step 3 — Dave votes to activate the campaign
+
+Dave opens the **Govern** tab and sees Carol's campaign in the Pending list. He reads the creative metadata and decides it's legitimate. He votes **Aye** with 0.5 DOT at conviction level 2 (4x weight multiplier, 4-day lockup):
+- His vote weight: 0.5 DOT x 4 = 2.0 DOT effective
+- His stake is locked for ~4 days (57,600 blocks)
+
+Other voters also stake. Once total weighted votes exceed the quorum (100 DOT) and aye votes are above 50%, anyone can call **evaluateCampaign** — the campaign moves to **Active** and Carol's ads start appearing.
+
+If the community had voted Nay instead (nay >= 50%), the campaign would be **Terminated**: 90% of Carol's budget refunded, 10% slashed to reward nay voters. Losing-side voters always pay a 10% slash on their stake.
+
+#### Step 4 — Alice browses the web and sees an ad
+
+Alice visits a tech review site. The DATUM content script (running entirely in her browser):
+
+1. **Classifies the page** against 26 categories using domain, title, and meta tag signals. The tech site scores high for "Computers & Electronics."
+2. **Checks for matching campaigns** — Carol's campaign targets that category and is Active.
+3. **Runs a second-price auction** — if multiple campaigns match, the highest effective bid wins but pays the second-highest price. Solo campaigns pay 70% of their bid. Alice's interest profile weights the bids (tech-interested users make tech campaigns bid higher).
+4. **Injects an ad slot** — Carol's creative appears in a Shadow DOM container (isolated from page CSS/JS) at the bottom-right of Alice's screen, showing the title, body text, and a CTA button.
+5. **Tracks engagement** — an IntersectionObserver measures how long Alice sees the ad (dwell time), whether her tab is focused, scroll depth, and IAB viewability (50% visible for 1+ second). Low-quality views (under 1 second, unfocused tab) are rejected before any claim is built.
+6. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. No data about what Alice browsed leaves her device — only the cryptographic claim.
+
+#### Step 5 — Claims are submitted on-chain
+
+Alice can submit claims herself (paying gas) from the **Claims** tab, or sign them for Bob to relay (Bob pays gas, Alice pays nothing). If Alice enabled auto-submit, the extension submits every few minutes using a session-encrypted key.
+
+The DatumSettlement contract validates each claim:
+- Checks the hash chain is continuous (nonce = lastNonce + 1, previousClaimHash matches)
+- Verifies the clearing CPM doesn't exceed the bid
+- Deducts the payment from Carol's campaign budget via DatumCampaigns
+
+#### Step 6 — Everyone gets paid
+
+For each settled claim, the payment splits three ways:
+
+```
+Total payment: 0.05 DOT per 1000 views (clearing CPM from auction)
+Bob (publisher, 40%):  0.020 DOT per 1000 views
+Alice (user, 75% of remainder): 0.0225 DOT per 1000 views
+Protocol (25% of remainder): 0.0075 DOT per 1000 views
+```
+
+Funds accumulate as pull-payment balances. Bob withdraws from the **Publisher** tab, Alice from the **Earnings** tab. No push payments — everyone claims when they want.
+
+#### Step 7 — Campaign lifecycle completes
+
+Carol's campaign runs until one of these happens:
+- **Budget exhausted** — the last settlement auto-completes the campaign
+- **Carol completes it** — she clicks "Complete" in the My Ads tab, and any remaining budget is refunded
+- **Governance terminates it** — if voters decide the campaign is harmful mid-run, nay votes can terminate it (90% refund to Carol, 10% to nay voters)
+- **Daily cap limits spending** — Carol never spends more than 1 DOT per day
+
+Dave can withdraw his governance stake after his lockup expires. If he voted on the winning side, he gets his full stake back. If he voted on the losing side, he loses 10% — distributed to the winners after slash finalization.
+
 ### Revenue split
 
 ```
@@ -94,6 +167,7 @@ poc/                  PoC MVP (frozen, tagged poc-complete) -- 64/64 tests, 7 co
 extension/            PoC extension (frozen)
 
 ALPHA.md              Alpha build roadmap, checklist, PVM size lessons
+SYSTEM-FLOW.md        Detailed process flows for every role and subsystem
 MVP.md                Phased implementation plan with gate criteria
 REVIEW.md             Design review, 11 issues resolved, trust assumptions
 ```

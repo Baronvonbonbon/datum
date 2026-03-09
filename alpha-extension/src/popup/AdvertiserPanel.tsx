@@ -4,7 +4,8 @@ import { getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { cidToBytes32 } from "@shared/ipfs";
 import { pinToIPFS } from "@shared/ipfsPin";
-import { CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
+import { validateAndSanitize } from "@shared/contentSafety";
+import { CampaignMetadata, CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 
@@ -261,10 +262,12 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
   const [result, setResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // H3: IPFS pinning fields
+  // H3: IPFS pinning fields — full creative
   const [metaTitle, setMetaTitle] = useState("");
   const [metaDescription, setMetaDescription] = useState("");
-  const [metaCreative, setMetaCreative] = useState("");
+  const [creativeText, setCreativeText] = useState("");
+  const [creativeCta, setCreativeCta] = useState("");
+  const [creativeCtaUrl, setCreativeCtaUrl] = useState("");
   const [pinning, setPinning] = useState(false);
   const [pinResult, setPinResult] = useState<string | null>(null);
 
@@ -279,13 +282,27 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
         return;
       }
       const catName = CATEGORY_NAMES[categoryId] ?? "Uncategorized";
-      const res = await pinToIPFS(settings.pinataApiKey, {
+      const raw: CampaignMetadata = {
         title: metaTitle || "Untitled Campaign",
         description: metaDescription,
         category: catName,
-        creative: metaCreative || undefined,
-        advertiser: address,
-      });
+        creative: {
+          type: "text",
+          text: creativeText,
+          cta: creativeCta || "Learn More",
+          ctaUrl: creativeCtaUrl,
+        },
+        version: 1,
+      };
+
+      // Pre-pin validation: schema, URL scheme, blocklist
+      const validated = validateAndSanitize(raw);
+      if (!validated) {
+        setPinResult("Rejected: invalid fields, non-HTTPS URL, or blocked content");
+        return;
+      }
+
+      const res = await pinToIPFS(settings.pinataApiKey, validated);
       if (res.ok && res.cid) {
         setMetadataCid(res.cid);
         setPinResult(`Pinned: ${res.cid.slice(0, 12)}...`);
@@ -380,20 +397,29 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
           ))}
         </select>
       </div>
-      {/* H3: Metadata + IPFS pinning */}
+      {/* H3: Metadata + IPFS pinning — full creative */}
       <div style={{ marginBottom: 6, borderTop: "1px solid #1a1a2e", paddingTop: 6 }}>
-        <label style={{ ...formLabel, color: "#a0a0ff", fontSize: 11 }}>Campaign Metadata (optional)</label>
+        <label style={{ ...formLabel, color: "#a0a0ff", fontSize: 11 }}>Ad Creative (optional — pinned to IPFS)</label>
         <div style={{ marginBottom: 4 }}>
           <input type="text" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)}
-            style={formInput} placeholder="Campaign title" />
+            style={formInput} placeholder="Campaign title" maxLength={128} />
         </div>
         <div style={{ marginBottom: 4 }}>
           <input type="text" value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)}
-            style={formInput} placeholder="Description" />
+            style={formInput} placeholder="Description" maxLength={256} />
         </div>
         <div style={{ marginBottom: 4 }}>
-          <input type="text" value={metaCreative} onChange={(e) => setMetaCreative(e.target.value)}
-            style={formInput} placeholder="Creative text (shown in ad slot)" />
+          <input type="text" value={creativeText} onChange={(e) => setCreativeText(e.target.value)}
+            style={formInput} placeholder="Ad body text (shown in ad slot)" maxLength={512} />
+        </div>
+        <div style={{ marginBottom: 4 }}>
+          <input type="text" value={creativeCta} onChange={(e) => setCreativeCta(e.target.value)}
+            style={formInput} placeholder="CTA button label (e.g. Learn More)" maxLength={64} />
+        </div>
+        <div style={{ marginBottom: 4 }}>
+          <input type="text" value={creativeCtaUrl} onChange={(e) => setCreativeCtaUrl(e.target.value)}
+            style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
+            placeholder="https://example.com (HTTPS only)" maxLength={2048} />
         </div>
         <button onClick={handlePin} disabled={pinning || !metaTitle.trim()}
           style={{ ...actionBtn("#0a1a2a", "#60a0ff"), marginBottom: 4, padding: "4px 10px", fontSize: 11 }}>

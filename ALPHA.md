@@ -36,7 +36,7 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 | DatumRelay | 46,225 B | 2,927 B | EIP-712 user signature + publisher co-sig, gasless settlement |
 | DatumZKVerifier | 1,409 B | 47,743 B | Stub ZK proof verifier (accepts any non-empty proof) |
 
-### Extension (7 tabs, 574 KB popup.js — V2 overhaul + P6 + Part 4B fixes complete)
+### Extension (7 tabs, 574 KB popup.js — V2 overhaul + P6 + Part 4B + content safety complete)
 
 | Tab | Component | Function |
 |-----|-----------|----------|
@@ -495,10 +495,43 @@ Comprehensive code review of all contracts, extension, deploy scripts, tests, an
 #### ~~M3 — Wallet password strength warning~~ ✅ FIXED
 - **Fix applied:** Password strength indicator in App.tsx wallet setup. Checks length, case mix, digits, symbols, common patterns. Shows colored label: Too short / Weak / Fair / Good / Strong.
 
-#### M4 — Unclaimed slash has no expiry deadline
-- **Location:** `alpha/contracts/DatumGovernanceSlash.sol` — `claimSlashReward()` has no time limit
-- **Problem:** Unclaimed slash funds are locked forever in the governance contract
-- **Fix (post-alpha):** Add admin-callable sweep function after a configurable deadline (e.g., 90 days post-resolution)
+#### M4 — Governance sweep of abandoned/dust funds (post-alpha)
+
+Two sources of stuck funds:
+
+1. **Unclaimed slash rewards:** `GovernanceSlash.claimSlashReward()` has no expiry — unclaimed slash pools are locked forever.
+2. **Abandoned campaign budgets:** Completed or Terminated campaigns with non-zero `remainingBudget` (e.g. rounding dust, advertiser lost keys) have no reclaim path.
+
+**Constraint:** DatumCampaigns is at 48,760 B (392 spare). Cannot add a full sweep function without exceeding the 49,152 B PVM limit.
+
+**Design (two-contract pattern):**
+
+*GovernanceSlash* (18,854 B spare) — orchestrator + slash sweep:
+- `sweepSlashPool(uint256 campaignId)` — callable by anyone after `sweepAfterBlocks` (e.g. 1,296,000 blocks / ~90 days) post-resolution. Transfers unclaimed slash pool balance to caller as bounty incentive.
+- New storage: `uint256 public sweepAfterBlocks` (constructor-set or owner-settable via timelock).
+
+*DatumCampaigns* — thin entry point (~400-600 B, requires size savings first):
+- `sweepAbandonedBudget(uint256 campaignId, address recipient) external` — callable by GovernanceSlash only. Requires terminal status (Completed/Terminated/Expired) + `block.number > terminationBlock + sweepAfterBlocks`. Sends `remainingBudget` to `recipient`, zeroes balance.
+- GovernanceSlash calls `campaigns.sweepAbandonedBudget(id, msg.sender)` so the caller receives the dust as a keeper bounty.
+
+**Size budget for Campaigns entry point:**
+- Need ~400-600 B. Current spare: 392 B.
+- Options: (a) wait for resolc optimizer improvements, (b) slim existing code (remove `togglePause` saves ~300-400 B but breaks tests), (c) extract sweep to a separate thin contract that Campaigns authorizes.
+- Recommended: wait for resolc improvements or extract to `DatumSweeper` contract with a `campaigns.setSweepContract(addr)` one-line setter.
+
+**Interface additions (IDatumCampaigns.sol):**
+```solidity
+event CampaignSwept(uint256 indexed campaignId, address indexed recipient, uint256 amount);
+function sweepAbandonedBudget(uint256 campaignId, address recipient) external;
+```
+
+**Interface additions (IDatumGovernanceSlash.sol):**
+```solidity
+event SlashPoolSwept(uint256 indexed campaignId, address indexed sweeper, uint256 amount);
+function sweepSlashPool(uint256 campaignId) external;
+```
+
+**Test plan:** S-sweep1 (slash sweep after deadline), S-sweep2 (slash sweep before deadline reverts), C-sweep1 (campaign sweep after deadline), C-sweep2 (campaign sweep before deadline reverts), C-sweep3 (sweep non-terminal status reverts), C-sweep4 (sweep zero-balance is no-op).
 
 #### ~~M5 — Document daily cap timestamp limitation~~ ✅ FIXED
 - **Fix applied:** Added "Known limitations" table to ALPHA.md (Part 1) and README.md with timestamp and slash expiry notes.
@@ -514,6 +547,17 @@ Comprehensive code review of all contracts, extension, deploy scripts, tests, an
 - [ ] **L4:** Add concurrent settlement test (multiple users settling same block)
 - [x] **L5:** ~~Add test for GovernanceSlash all-winners-withdrew edge case~~ ✅ Added S6 test
 - [ ] **L6:** Add manual test procedure to README for claim export/import (from A2.2 checklist)
+
+### Content Safety Rails (2026-03-09)
+
+Ad creative metadata from IPFS now passes through validation before rendering:
+
+| Layer | File | Protection |
+|-------|------|-----------|
+| Fetch | `campaignPoller.ts` | 10KB metadata size cap (Content-Length + body check), schema + URL + blocklist validation via `validateAndSanitize()` |
+| Storage | `content/index.ts` | Defense-in-depth re-validation of cached metadata before render (catches pre-update cache, storage corruption) |
+| Render | `adSlot.ts` | Shadow DOM isolation (page CSS/JS cannot access ad DOM), `sanitizeCtaUrl()` — only `https://` allowed, unsafe URLs render as non-clickable `<span>` |
+| Shared | `contentSafety.ts` | Schema shape check, field length caps (title ≤128, desc ≤256, text ≤512, cta ≤64, ctaUrl ≤2048), URL scheme allowlist, content blocklist (multi-word phrases for adult/gambling/drugs/weapons/tobacco/counterfeit) |
 
 ### Review Scores
 

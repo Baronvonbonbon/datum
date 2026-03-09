@@ -6,6 +6,7 @@ import { JsonRpcProvider } from "ethers";
 import { getCampaignsContract } from "@shared/contracts";
 import { metadataUrl } from "@shared/ipfs";
 import { Campaign, CampaignMetadata, CampaignStatus, ContractAddresses } from "@shared/types";
+import { validateAndSanitize, MAX_METADATA_BYTES } from "@shared/contentSafety";
 
 const STORAGE_KEY = "activeCampaigns";
 const MAX_SCAN_ID = 1000;
@@ -98,7 +99,26 @@ export const campaignPoller = {
 
           const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
           if (resp.ok) {
-            const meta: CampaignMetadata = await resp.json();
+            // Size cap: check Content-Length header first, then body length
+            const contentLength = resp.headers.get("content-length");
+            if (contentLength && parseInt(contentLength, 10) > MAX_METADATA_BYTES) {
+              console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (Content-Length: ${contentLength}), skipping`);
+              continue;
+            }
+
+            const bodyText = await resp.text();
+            if (bodyText.length > MAX_METADATA_BYTES) {
+              console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (body: ${bodyText.length}), skipping`);
+              continue;
+            }
+
+            const rawMeta = JSON.parse(bodyText);
+            const meta = validateAndSanitize(rawMeta);
+            if (!meta) {
+              console.warn(`[DATUM] Metadata for campaign ${c.id} failed validation, skipping`);
+              continue;
+            }
+
             await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now() });
             console.log(`[DATUM] Cached metadata for campaign ${c.id}`);
           }

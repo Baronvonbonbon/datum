@@ -1,15 +1,9 @@
 // Pinata IPFS pinning utility for campaign metadata.
-// Pins a JSON object to Pinata and returns the CIDv0 string.
+// Pins a CampaignMetadata JSON object to Pinata and returns the CIDv0 string.
+
+import { CampaignMetadata } from "./types";
 
 const PINATA_API_URL = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
-
-export interface CampaignMetadataPayload {
-  title: string;
-  description: string;
-  category: string;
-  creative?: string;
-  advertiser?: string;
-}
 
 export interface PinResult {
   ok: boolean;
@@ -18,14 +12,14 @@ export interface PinResult {
 }
 
 /**
- * Pin a JSON object to Pinata IPFS.
+ * Pin a CampaignMetadata object to Pinata IPFS.
  * @param apiKey Pinata JWT or API key (Bearer token)
- * @param metadata Campaign metadata to pin
+ * @param metadata Campaign metadata matching the CampaignMetadata schema
  * @returns PinResult with CID on success
  */
 export async function pinToIPFS(
   apiKey: string,
-  metadata: CampaignMetadataPayload
+  metadata: CampaignMetadata
 ): Promise<PinResult> {
   if (!apiKey.trim()) {
     return { ok: false, error: "No Pinata API key configured. Add it in Settings." };

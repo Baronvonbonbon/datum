@@ -6,6 +6,7 @@
 import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
 import { injectAdSlot } from "./adSlot";
 import { startTracking, computeQualityScore } from "./engagement";
+import { validateMetadata, passesContentBlocklist, sanitizeCtaUrl } from "@shared/contentSafety";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
@@ -76,12 +77,22 @@ async function main() {
   const metaKey = `metadata:${campaignId}`;
   const metaStored = await chrome.storage.local.get(metaKey);
 
+  // Defense-in-depth: re-validate metadata from storage before rendering
+  let validatedMeta = null;
+  const rawMeta = metaStored[metaKey] ?? null;
+  if (rawMeta) {
+    const result = validateMetadata(rawMeta);
+    if (result.valid && result.data && passesContentBlocklist(result.data)) {
+      validatedMeta = result.data;
+    }
+  }
+
   // Inject ad unit
   const adElement = injectAdSlot({
     campaignId,
     publisherAddress: match.publisher,
     category,
-    metadata: metaStored[metaKey] ?? null,
+    metadata: validatedMeta,
     auctionMechanism: auctionMechanism as any,
     clearingCpmPlanck,
   });
