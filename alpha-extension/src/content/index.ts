@@ -4,9 +4,11 @@
 // and injects an ad slot.
 
 import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
-import { injectAdSlot } from "./adSlot";
+import { injectAdSlot, injectAdSlotInline, injectDefaultAd, injectDefaultAdInline } from "./adSlot";
 import { startTracking, computeQualityScore } from "./engagement";
 import { validateMetadata, passesContentBlocklist, sanitizeCtaUrl } from "@shared/contentSafety";
+import { detectSDK, SDKInfo } from "./sdkDetector";
+import { performHandshake, Attestation } from "./handshake";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
@@ -18,8 +20,9 @@ async function main() {
   // Update local interest profile with page category
   chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category });
 
-  // Fetch active campaigns and configured publisher address in parallel
-  const [response, settingsStored] = await Promise.all([
+  // Detect Publisher SDK (2s timeout) + fetch campaigns in parallel
+  const [sdkInfo, response, settingsStored] = await Promise.all([
+    detectSDK(),
     chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
     chrome.storage.local.get("settings"),
   ]);
@@ -27,17 +30,53 @@ async function main() {
   // Background returns serialized campaigns (all values are strings)
   const campaigns: Array<Record<string, string>> = response?.campaigns ?? [];
 
-  const publisherAddress: string = settingsStored.settings?.publisherAddress ?? "";
+  const publisherAddress: string = sdkInfo?.publisher ?? settingsStored.settings?.publisherAddress ?? "";
   const pageCategoryId = CATEGORY_ID_MAP[category] ?? 0;
 
-  // Filter active campaigns; prefer category match, then publisher match, then any.
+  // Filter active campaigns
   const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1 /* Active */);
-  const categoryMatched = activeCampaigns.filter(
-    (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
-  );
-  const pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
 
-  if (pool.length === 0) return;
+  let pool: Array<Record<string, string>>;
+
+  if (sdkInfo) {
+    // SDK present: filter by category bitmask overlap (campaign category ∩ publisher categories)
+    const sdkCatSet = new Set(sdkInfo.categories);
+    pool = activeCampaigns.filter((c) => {
+      const cCat = Number(c.categoryId);
+      // Open campaigns (publisher=0x0...) or campaigns matching this SDK publisher
+      const publisherMatch = c.publisher === "0x0000000000000000000000000000000000000000" ||
+        c.publisher.toLowerCase() === publisherAddress.toLowerCase();
+      // Category match: campaign uncategorized (0) or in SDK's declared categories
+      const catMatch = cCat === 0 || sdkCatSet.has(cCat);
+      return publisherMatch && catMatch;
+    });
+
+    // Fallback: if no SDK-matched campaigns, try all category-matched
+    if (pool.length === 0) {
+      pool = activeCampaigns.filter(
+        (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
+      );
+    }
+  } else {
+    // No SDK: original behavior — category match, then any
+    const categoryMatched = activeCampaigns.filter(
+      (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
+    );
+    pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
+  }
+
+  if (pool.length === 0) {
+    // No matching campaigns — show default house ad (Polkadot philosophy)
+    if (sdkInfo?.hasAdSlot) {
+      const target = document.getElementById("datum-ad-slot");
+      if (target) {
+        injectDefaultAdInline(target);
+        return;
+      }
+    }
+    injectDefaultAd();
+    return;
+  }
 
   // Use auction-based campaign selection via background (interest-aware + Vickrey)
   const selectionResponse = await chrome.runtime.sendMessage({
@@ -73,6 +112,12 @@ async function main() {
   seenThisLoad.add(dedupeKey);
   await chrome.storage.local.set({ [storageKey]: Date.now() });
 
+  // Perform handshake with SDK if present
+  let attestation: Attestation | null = null;
+  if (sdkInfo) {
+    attestation = await performHandshake(sdkInfo.publisher);
+  }
+
   // Load cached IPFS metadata for creative rendering
   const metaKey = `metadata:${campaignId}`;
   const metaStored = await chrome.storage.local.get(metaKey);
@@ -87,31 +132,46 @@ async function main() {
     }
   }
 
-  // Inject ad unit
-  const adElement = injectAdSlot({
+  // Resolve effective publisher: for open campaigns, use SDK publisher or settings publisher
+  const effectivePublisher = match.publisher === "0x0000000000000000000000000000000000000000"
+    ? publisherAddress
+    : match.publisher;
+
+  const adConfig = {
     campaignId,
-    publisherAddress: match.publisher,
+    publisherAddress: effectivePublisher,
     category,
     metadata: validatedMeta,
     auctionMechanism: auctionMechanism as any,
     clearingCpmPlanck,
-  });
+  };
+
+  // Inject ad: inline into SDK slot if available, overlay otherwise
+  let adElement: HTMLElement | null = null;
+  if (sdkInfo?.hasAdSlot) {
+    const target = document.getElementById("datum-ad-slot");
+    if (target) {
+      adElement = injectAdSlotInline(target, adConfig);
+    }
+  }
+  if (!adElement) {
+    adElement = injectAdSlot(adConfig);
+  }
 
   // Start engagement tracking
   if (adElement) {
     startTracking(campaignId, adElement);
   }
 
-  // Notify background to build a claim (with auction clearing CPM)
-  // Impression recorded immediately; engagement quality score will be
-  // sent separately via ENGAGEMENT_QUALITY_RESULT to discount low-quality views.
+  // Notify background to build a claim (with auction clearing CPM + attestation)
   chrome.runtime.sendMessage({
     type: "IMPRESSION_RECORDED",
     campaignId,
     url: window.location.href,
     category,
-    publisherAddress: match.publisher,
+    publisherAddress: effectivePublisher,
     clearingCpmPlanck,
+    attestation: attestation ?? undefined,
   });
 }
 

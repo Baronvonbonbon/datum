@@ -163,6 +163,208 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   return host;
 }
 
+/**
+ * Inject an ad inline into a publisher-provided target element (e.g. <div id="datum-ad-slot">).
+ * Uses Shadow DOM for isolation. Does not use fixed positioning — renders in-flow.
+ */
+export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): HTMLElement | null {
+  // Don't inject twice
+  if (target.shadowRoot?.querySelector(".datum-inline-wrapper")) return null;
+
+  const shadow = target.shadowRoot ?? target.attachShadow({ mode: "open" });
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "datum-inline-wrapper";
+  wrapper.style.cssText = `
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid #4a4a8a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    max-width: 728px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+
+  const meta = config.metadata;
+  const mech = config.auctionMechanism ? MECHANISM_LABELS[config.auctionMechanism] : null;
+
+  const earningHtml = config.clearingCpmPlanck
+    ? `<div style="color:#60a060;font-size:10px;margin-top:4px;">
+         Earning: ${formatCpm(config.clearingCpmPlanck)} DOT/1000 views
+         ${mech ? `<span style="color:${mech.color};margin-left:4px;border:1px solid ${mech.color}33;padding:0 4px;border-radius:2px;font-size:9px;">${mech.label}</span>` : ""}
+       </div>`
+    : "";
+
+  if (meta?.creative) {
+    const c = meta.creative;
+    const safeUrl = sanitizeCtaUrl(c.ctaUrl);
+    const ctaHtml = safeUrl
+      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
+          display:inline-block;background:#2a2a5a;color:#a0a0ff;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
+        ">${escapeHtml(c.cta)}</a>`
+      : `<span style="
+          display:inline-block;background:#2a2a5a;color:#888;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:6px 12px;font-size:12px;
+        ">${escapeHtml(c.cta)}</span>`;
+
+    wrapper.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+        <span style="color:#555;font-size:10px;">Inline · SDK</span>
+      </div>
+      <div style="color:#e0e0e0;font-size:13px;font-weight:600;margin-bottom:4px;">
+        ${escapeHtml(meta.title)}
+      </div>
+      <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
+        ${escapeHtml(c.text)}
+      </div>
+      ${ctaHtml}
+      <div style="color:#555;font-size:10px;margin-top:6px;">
+        Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
+      </div>
+      ${earningHtml}
+    `;
+  } else {
+    wrapper.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+        <span style="color:#555;font-size:10px;">Inline · SDK</span>
+      </div>
+      <div style="color:#ccc;font-size:12px;margin-bottom:6px;">
+        Earning for browsing: <strong style="color:#a0a0ff;">${escapeHtml(config.category)}</strong>
+      </div>
+      <div style="color:#666;font-size:11px;">
+        Campaign #${escapeHtml(config.campaignId)} · Publisher ad
+      </div>
+      <div style="color:#555;font-size:10px;margin-top:4px;">
+        Privacy-preserving · Polkadot Hub
+      </div>
+      ${earningHtml}
+    `;
+  }
+
+  shadow.appendChild(wrapper);
+  return target;
+}
+
+/**
+ * Inject a default/house ad when no campaigns match.
+ * Points to Polkadot philosophy page. No earning, no campaign tracking.
+ */
+export function injectDefaultAd(): HTMLElement | null {
+  if (document.getElementById(SLOT_ID)) return null;
+
+  const host = document.createElement("div");
+  host.id = SLOT_ID;
+  host.style.cssText = `
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 2147483647;
+  `;
+
+  const shadow = host.attachShadow({ mode: "open" });
+
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = `
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid #4a4a8a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    max-width: 300px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  `;
+
+  wrapper.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+      <button class="datum-close" style="
+        background:none;border:none;color:#888;cursor:pointer;
+        font-size:16px;line-height:1;padding:0 2px;
+      ">&#x2715;</button>
+    </div>
+    <div style="color:#e0e0e0;font-size:13px;font-weight:600;margin-bottom:4px;">
+      A better web is possible
+    </div>
+    <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
+      Polkadot believes in a decentralized, fair internet where users control their data and earn from their attention.
+    </div>
+    <a href="https://polkadot.com/philosophy" target="_blank" rel="noopener" style="
+      display:inline-block;background:#2a2a5a;color:#a0a0ff;
+      border:1px solid #4a4a8a;border-radius:4px;
+      padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
+    ">Learn More</a>
+    <div style="color:#555;font-size:10px;margin-top:6px;">
+      No campaigns available &middot; Powered by DATUM on Polkadot Hub
+    </div>
+  `;
+
+  shadow.appendChild(wrapper);
+  document.body.appendChild(host);
+
+  shadow.querySelector(".datum-close")?.addEventListener("click", () => {
+    host.remove();
+  });
+
+  return host;
+}
+
+/**
+ * Inject a default/house ad inline into a publisher-provided target element.
+ * Points to Polkadot philosophy page. No earning, no campaign tracking.
+ */
+export function injectDefaultAdInline(target: HTMLElement): HTMLElement | null {
+  if (target.shadowRoot?.querySelector(".datum-inline-wrapper")) return null;
+
+  const shadow = target.shadowRoot ?? target.attachShadow({ mode: "open" });
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "datum-inline-wrapper";
+  wrapper.style.cssText = `
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid #4a4a8a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    max-width: 728px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+
+  wrapper.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+      <span style="color:#555;font-size:10px;">Inline &middot; SDK</span>
+    </div>
+    <div style="color:#e0e0e0;font-size:13px;font-weight:600;margin-bottom:4px;">
+      A better web is possible
+    </div>
+    <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
+      Polkadot believes in a decentralized, fair internet where users control their data and earn from their attention.
+    </div>
+    <a href="https://polkadot.com/philosophy" target="_blank" rel="noopener" style="
+      display:inline-block;background:#2a2a5a;color:#a0a0ff;
+      border:1px solid #4a4a8a;border-radius:4px;
+      padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
+    ">Learn More</a>
+    <div style="color:#555;font-size:10px;margin-top:6px;">
+      No campaigns available &middot; Powered by DATUM on Polkadot Hub
+    </div>
+  `;
+
+  shadow.appendChild(wrapper);
+  return target;
+}
+
 export function removeAdSlot(): void {
   document.getElementById(SLOT_ID)?.remove();
 }

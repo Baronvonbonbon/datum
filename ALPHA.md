@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 1.5
-**Date:** 2026-03-09
-**Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration and open multi-account testing
-**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 101/101 tests, 7-tab extension (V2 overhaul + Part 4B fixes complete), local devnet verified
+**Version:** 1.6
+**Date:** 2026-03-10
+**Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, and open multi-account testing
+**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 111/111 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** All contracts, extension code, AND Part 4B pre-launch review fixes COMPLETE. 101/101 Hardhat tests. Extension builds clean (0 webpack errors, 574KB popup.js). **Next step: A3.2 local devnet E2E validation.**
+**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, and open campaigns COMPLETE. 111/111 Hardhat tests. Extension builds clean (0 webpack errors, 580KB popup.js). **Next step: A3.2 local devnet E2E validation.**
 
 ---
 
@@ -28,23 +28,23 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 |----------|----------|-------|---------|
 | DatumPauseRegistry | 4,047 B | 45,105 B | Global emergency pause circuit breaker (A1.1) |
 | DatumTimelock | 17,962 B | 31,190 B | Standalone 48h admin timelock (A1.2) |
-| DatumPublishers | 19,247 B | 29,905 B | Publisher registry + configurable take rates (30-80%) |
-| DatumCampaigns | 48,760 B | 392 B | Campaign lifecycle, budget escrow, manual reentrancy guard (A1.3) |
+| DatumPublishers | 22,614 B | 26,538 B | Publisher registry + configurable take rates (30-80%) + category bitmask |
+| DatumCampaigns | 48,662 B | 490 B | Campaign lifecycle, budget escrow, open campaigns, manual reentrancy guard (A1.3) |
 | DatumGovernanceV2 | 37,677 B | 11,475 B | Dynamic voting + evaluateCampaign() + inline slash (P18) |
 | DatumGovernanceSlash | 30,298 B | 18,854 B | Slash pool finalization + winner claims (P18), H1 div-by-zero guard |
-| DatumSettlement | 48,757 B | 395 B | Hash-chain validation, claim processing, 3-way payment split |
-| DatumRelay | 46,225 B | 2,927 B | EIP-712 user signature + publisher co-sig, gasless settlement |
+| DatumSettlement | 48,820 B | 332 B | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution |
+| DatumRelay | 46,180 B | 2,972 B | EIP-712 user signature + publisher co-sig (skipped for open campaigns), gasless settlement |
 | DatumZKVerifier | 1,409 B | 47,743 B | Stub ZK proof verifier (accepts any non-empty proof) |
 
-### Extension (7 tabs, 574 KB popup.js — V2 overhaul + P6 + Part 4B + content safety complete)
+### Extension (7 tabs, 580 KB popup.js — V2 overhaul + P6 + Part 4B + content safety + Publisher SDK + open campaigns)
 
 | Tab | Component | Function |
 |-----|-----------|----------|
 | Campaigns | CampaignList.tsx | Active campaigns with block/unblock, category filter, campaign info expansion |
 | Claims | ClaimQueue.tsx | Pending claims, submit/relay, sign for publisher, earnings estimate, attestation badges, export/import (P6) |
 | Earnings | UserPanel.tsx | User balance (DOT), withdraw, engagement stats (dwell, viewable, IAB viewability), per-campaign breakdown |
-| Publisher | PublisherPanel.tsx | Balance + withdraw + relay submit + take rate management |
-| My Ads | AdvertiserPanel.tsx | Campaign owner controls: pause/resume/complete/expire, campaign creation with IPFS CID |
+| Publisher | PublisherPanel.tsx | Balance + withdraw + relay submit + take rate management + category checkboxes + SDK embed snippet |
+| My Ads | AdvertiserPanel.tsx | Campaign owner controls: pause/resume/complete/expire, campaign creation (open or publisher-specific) with IPFS CID |
 | Govern | GovernancePanel.tsx | V2 voting (vote(), evaluateCampaign(), withdraw()), majority+quorum bars, conviction 0-6, slash finalization + reward claiming |
 | Settings | Settings.tsx | Network, RPC, 9 contract addresses, IPFS gateway, auto-submit, ad preferences (max ads/hr, min CPM, silenced categories, blocked campaigns), interest profile, danger zone |
 
@@ -319,7 +319,7 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Background index.ts: all new message handlers, global pause check before auto-flush, auction-based selection with legacy fallback
 - [x] campaignPoller.ts: A1.3 slim getters, fetches Pending/Active/Paused campaigns, IPFS metadata caching
 - [x] Content script: auction-based selection + engagement tracking + preference filtering
-- [x] Build output: popup.js 570KB, background.js 366KB, content.js 18.1KB — 0 webpack errors (post P6 + taxonomy expansion)
+- [x] Build output: popup.js 580KB, background.js 373KB, content.js 28KB — 0 webpack errors (post P6 + taxonomy + SDK + open campaigns + default ad)
 
 #### A2.2 — Claim state portability (P6)
 
@@ -573,6 +573,151 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 ---
 
+## Part 4C: Alpha Review Findings (2026-03-09)
+
+Comprehensive audit of all contracts, extension code, tests, and deploy scripts. Findings organized by severity and component.
+
+### Bugs (fix before A3.2 devnet E2E)
+
+#### ~~BUG1~~ — e2e-full-flow.ts nonce = 0 ✅ FIXED
+- **Location:** `alpha/scripts/e2e-full-flow.ts:114`
+- **Problem:** `nonce = 0n` but Settlement requires nonce >= 1 for genesis claims.
+- **Fix applied:** Changed to `const nonce = 1n`.
+
+#### ~~BUG2~~ — e2e-full-flow.ts wrong getter names ✅ FIXED
+- **Location:** `alpha/scripts/e2e-full-flow.ts:158, 159, 174, 175`
+- **Problem:** Calls `publisherBalances`/`userBalances` (plural) but actual mappings are singular.
+- **Fix applied:** Changed all four calls to `publisherBalance`/`userBalance`.
+
+#### BUG3 — Zero-vote termination of Active campaigns
+- **Location:** `alpha/contracts/DatumGovernanceV2.sol:177-179`
+- **Problem:** `evaluateCampaign()` for Active/Paused campaigns checks `nayWeighted * 10000 >= total * 5000`. If total = 0 (no votes), this is `0 >= 0` which passes. Anyone can terminate an Active campaign with zero governance votes, triggering a 10% budget slash.
+- **Fix:** Add `require(total > 0, "E51")` before the nay majority check in the `status == 1 || status == 2` branch.
+
+### Contracts — High Priority (fix before A3.3 Paseo)
+
+#### C-H1 — Missing zero-address checks on contract reference setters
+- **Location:** `DatumCampaigns.sol:81-87`, `DatumSettlement.sol:83-89`
+- **Problem:** `setSettlementContract()`, `setGovernanceContract()`, `setRelayContract()`, `setZKVerifier()` all accept `address(0)` with no validation. A misconfigured timelock proposal could wire a zero address.
+- **Fix:** Add `require(addr != address(0), "E00")` to all four setters. Exception: `setZKVerifier(address(0))` is valid (disables ZK verification), so document rather than block.
+
+#### C-H2 — Missing events on contract reference changes
+- **Location:** `DatumCampaigns.sol:81-87`, `DatumSettlement.sol:83-89`, `DatumCampaigns.sol:89-92`, `DatumTimelock.sol:68-71`
+- **Problem:** `setSettlementContract()`, `setGovernanceContract()`, `setRelayContract()`, `setZKVerifier()`, and `transferOwnership()` make critical state changes with no events. Off-chain monitoring cannot detect wiring changes.
+- **Fix:** Add events: `SettlementContractSet(address)`, `GovernanceContractSet(address)`, `RelayContractSet(address)`, `ZKVerifierSet(address)`, `OwnershipTransferred(address indexed previous, address indexed newOwner)`.
+
+#### C-H3 — ZK proof verification accepts empty return
+- **Location:** `DatumSettlement.sol:217-224`
+- **Problem:** ZK staticcall with `ok2=true` but `ret.length < 32` implicitly passes verification (the decode branch is skipped). A malicious or broken verifier returning empty bytes bypasses ZK checks.
+- **Fix:** Change condition to `if (!ok2 || ret.length < 32 || !abi.decode(ret, (bool)))` — require explicit `true` return.
+
+#### C-H4 — DatumPublishers uses separate pause from PauseRegistry
+- **Location:** `DatumPublishers.sol:56, 75, 90`
+- **Problem:** DatumPublishers inherits OZ `Pausable` (local pause) rather than checking `pauseRegistry.paused()`. Two independent pause mechanisms: global registry could be unpaused while Publishers is locally paused, or vice versa.
+- **Fix (post-alpha):** Replace OZ `Pausable` with `pauseRegistry.paused()` check, or document dual-pause as intentional.
+
+### Contracts — Medium Priority
+
+#### C-M1 — Timelock cancel() doesn't validate pending exists
+- **Location:** `DatumTimelock.sol:59-65`
+- **Problem:** `cancel()` doesn't check `pendingTarget != address(0)`. Calling cancel with no pending proposal emits `ChangeCancelled(address(0))` — misleading for monitors.
+- **Fix:** Add `require(pendingTarget != address(0), "E35")`.
+
+#### C-M2 — Inconsistent error codes reused
+- **Problem:** Error code "E03" is used for three different conditions across GovernanceSlash (winningWeight > 0, share > 0) and Settlement (withdrawal balance > 0).
+- **Fix (post-alpha):** Assign unique codes for each condition.
+
+#### C-M3 — Manual reentrancy guard in Campaigns vs OZ in Settlement
+- **Location:** `DatumCampaigns.sol` (manual `_locked`), `DatumSettlement.sol` (OZ `nonReentrant`)
+- **Problem:** Inconsistent pattern. Manual guard works correctly but is more error-prone when adding new functions.
+- **Note:** Switching to OZ `ReentrancyGuard` in Campaigns would likely exceed the 392 B PVM spare. Document as intentional trade-off.
+
+### Extension — High Priority
+
+#### E-H1 — Claim builder nonce race condition
+- **Location:** `background/claimBuilder.ts:22-83`
+- **Problem:** `getChainState()` → build claim → `setChainState()` is not atomic. Two simultaneous impressions (two tabs loading at once) could both read nonce N and create two claims with nonce N+1. The duplicate nonce gets rejected by Settlement.
+- **Fix:** Add per-(user, campaignId) mutex before reading chain state. Similar to the `claimQueue` mutex pattern.
+
+#### E-H2 — Content script unhandled promise rejections
+- **Location:** `content/index.ts:19, 43, 98-104`, `content/engagement.ts:185, 190, 197`
+- **Problem:** Multiple `chrome.runtime.sendMessage()` calls have no `.catch()`. If the background service worker is inactive or restarting, messages silently fail — lost impressions and engagement data.
+- **Fix:** Wrap all `sendMessage` calls in try-catch. On failure, skip gracefully (no impression recorded is better than a crash).
+
+#### E-H3 — Deployed addresses loaded without network validation
+- **Location:** `popup/Settings.tsx:190-219`
+- **Problem:** "Load Deployed" button loads addresses from `deployed-addresses.json` without checking they match the current network setting. User could load mainnet addresses on testnet or vice versa.
+- **Fix:** Add network field to `deployed-addresses.json` in deploy script, validate on load.
+
+### Extension — Medium Priority
+
+#### E-M1 — Auto-submit deauth not visible in UI
+- **Location:** `background/index.ts:427`, `popup/Settings.tsx:324`
+- **Problem:** Session password is lost on service worker restart. UI shows "authorized (this session)" but doesn't warn that restart deauthorizes. User may believe auto-submit is running when it's not.
+- **Fix:** Ping auto-submit authorization status on Settings mount. Show warning banner if enabled but not authorized.
+
+#### E-M2 — Interest profile storage race
+- **Location:** `background/interestProfile.ts:52-68`
+- **Problem:** `getProfile()` → mutate → `set()` is not atomic. Multiple tabs updating simultaneously can lose profile writes.
+- **Fix:** Use a write mutex or queue-and-flush pattern.
+
+#### E-M3 — Metadata fetch failure not retried
+- **Location:** `background/campaignPoller.ts:105-107`
+- **Problem:** Failed IPFS metadata fetch is silently skipped. On the next poll cycle, the TTL check at line 84 prevents retry (the timestamp is set even on success-only path, but the absence of `metaKey` means it will retry — this is actually fine). However, if the gateway is temporarily down, all campaigns show placeholder creatives with no indication of fetch failure.
+- **Fix:** Track fetch failure count and surface in UI after 3+ consecutive failures.
+
+#### E-M4 — Signed relay batches never auto-expire from storage
+- **Location:** `popup/PublisherPanel.tsx:240-247`
+- **Problem:** Signed batches with expired deadlines remain in `chrome.storage.local` until manually cleared. Stale UI shows expired batches.
+- **Fix:** Add cleanup in campaign poll alarm — remove signed batches where `deadline <= currentBlock`.
+
+#### E-M5 — Category filter not persisted across tab switches
+- **Location:** `popup/CampaignList.tsx:23`
+- **Problem:** `categoryFilter` state resets when switching tabs. Minor UX friction.
+- **Fix:** Persist in `chrome.storage.session`.
+
+#### E-M6 — Governance conviction tooltip missing
+- **Location:** `popup/GovernancePanel.tsx:32-40`
+- **Problem:** `CONVICTION_LABELS` show "1x, 2x, 4x..." but don't explain that conviction multiplies both vote weight AND lock duration. Users could misunderstand lockup commitment.
+- **Fix:** Add tooltip or note: "Multiplies both voting power and lock duration."
+
+### Tests — Missing Coverage
+
+#### T-1 — Zero-vote edge cases
+- Add test: `evaluateCampaign` on Active campaign with 0 votes (currently passes — BUG3).
+- Add test: `evaluateCampaign` on non-existent campaign.
+
+#### T-2 — Settlement edge cases
+- Add test: `deductBudget()` with amount = 0 (should revert or no-op).
+- Add test: `deductBudget()` on Paused campaign (should revert E15).
+- Add test: settle same claim twice (replay with same nonce — should get E07).
+- Add test: claim with `impressionCount` producing rounding-to-zero payment.
+
+#### T-3 — Governance edge cases
+- Add test: `vote()` with `msg.value = 0` (should revert E41).
+- Add test: conviction = 6 produces exactly 64x weight and lockup capped at maxLockupBlocks.
+- Add test: `withdraw()` on Paused campaign before resolution.
+
+#### T-4 — Timelock edge cases
+- Add test: `cancel()` with no pending proposal.
+- Add test: `propose()` overwrites a pending proposal (reset timer).
+- Add test: `execute()` where target call reverts.
+
+#### T-5 — PauseRegistry idempotency
+- Add test: `pause()` when already paused.
+- Add test: `unpause()` when already unpaused.
+
+#### T-6 — Publisher edge cases
+- Add test: `registerPublisher` at exactly min (3000) and max (8000) take rate.
+- Add test: `registerPublisher` called twice (duplicate registration).
+
+#### T-7 — Integration gaps
+- Add test: multiple campaigns from same advertiser with independent states.
+- Add test: multiple batches in single `settleClaims` call (each ≤ 5 claims, total > 5).
+- Add test: revenue split with non-round amounts (rounding validation).
+
+---
+
 ## Part 5: Post-Alpha Track (prioritized for beta)
 
 After Gate GA, these items become the beta development cycle:
@@ -581,10 +726,10 @@ After Gate GA, these items become the beta development cycle:
 |----------|------|-------------|
 | ~~1~~ | ~~**P18: Governance V2**~~ | **✅ COMPLETE** — Implemented in alpha. DatumGovernanceV2 + DatumGovernanceSlash. |
 | 1 | **P7: Contract upgrade path** | UUPS proxy or migration pattern. Required before Kusama mainnet. |
-| 2 | **P21: Publisher SDK** | Lightweight JS tag for web publishers. Declares ad slot positions (publisher-controlled placement instead of extension injection), handles co-signing inline or via `/.well-known/datum-attest`, coordinates with extension via `postMessage`/`CustomEvent`, provides publisher dashboard for category allowlist/blocklist, and enables relay submission on behalf of users. Prerequisite for P1 mandatory attestation. |
-| 3 | **P1: Mandatory attestation** | Publisher co-sig enforcement (no degraded trust mode). Depends on P21 SDK for publisher-side implementation. |
+| ~~2~~ | ~~**P21: Publisher SDK**~~ | **✅ COMPLETE** — `sdk/datum-sdk.js` + `sdk/example-publisher.html`. CustomEvent handshake protocol, inline ad injection, category declaration, extension SDK detection + handshake. |
+| 3 | **P1: Mandatory attestation** | Publisher co-sig enforcement (no degraded trust mode). SDK handshake provides two-party attestation; mandatory mode post-alpha. |
 | 4 | **P17: External wallets** | WalletConnect v2 for Paseo/Kusama. Keep embedded wallet as lite mode. |
-| 5 | **P5: Multi-publisher campaigns** | Open publisher pool per campaign. Major architectural change. |
+| ~~5~~ | ~~**P5: Multi-publisher campaigns**~~ | **✅ COMPLETE** — Open campaigns (`publisher = address(0)`) allow any matching publisher. Category bitmask filtering. Dynamic publisher resolution at impression time. |
 | 6 | **P9: ZK proof Phase 1** | Replace stub verifier with real Groth16 circuit. Requires BN128 pairing precompile. |
 | ~~7~~ | ~~**P16: Behavioral analytics**~~ | **✅ COMPLETE** — Implemented in alpha extension. engagement.ts, behaviorChain.ts, behaviorCommit.ts, zkProofStub.ts. |
 | 8 | **P20: Active campaign inactivity timeout** | Auto-completable by anyone after N blocks with no settlements. Prevents dust-budget lock when advertiser loses key. |
@@ -600,7 +745,7 @@ After Gate GA, these items become the beta development cycle:
 ├── extension/                    PoC extension (frozen)
 ├── alpha/                        Alpha contracts + tests
 │   ├── contracts/                9 contracts (H1: GovernanceSlash div-by-zero guard)
-│   ├── test/                     Extended test suite (101 tests, S6 added)
+│   ├── test/                     Extended test suite (111 tests, + open campaigns OC1-OC4, categories)
 │   ├── scripts/
 │   │   ├── deploy.ts             Deploy with error handling + validation (B2)
 │   │   ├── setup-test-campaign.ts
@@ -628,17 +773,19 @@ After Gate GA, these items become the beta development cycle:
 │       │   ├── userPreferences.ts NEW — block/silence/rate-limit/minCPM
 │       │   └── zkProofStub.ts    NEW — dummy ZK proof generator (P16)
 │       ├── content/
-│       │   ├── adSlot.ts         Modified — auction badge, earning display
+│       │   ├── adSlot.ts         Modified — overlay, inline (SDK), default house ad (polkadot.com/philosophy)
 │       │   ├── engagement.ts     NEW — IntersectionObserver engagement capture (P16)
-│       │   ├── index.ts          Modified — auction + engagement + preferences
+│       │   ├── handshake.ts      NEW — challenge-response attestation with SDK (3s timeout)
+│       │   ├── index.ts          Modified — SDK detection, category filtering, handshake, inline/overlay/default ad
+│       │   ├── sdkDetector.ts    NEW — detect datum-sdk.js via script tag or CustomEvent (2s timeout)
 │       │   └── taxonomy.ts       Multi-signal page classification
 │       ├── popup/
-│       │   ├── AdvertiserPanel.tsx NEW — campaign owner controls
+│       │   ├── AdvertiserPanel.tsx NEW — campaign creation (open/publisher-specific) + owner controls
 │       │   ├── App.tsx           Modified — 7 tabs
 │       │   ├── CampaignList.tsx  Modified — block/filter/info controls
 │       │   ├── ClaimQueue.tsx    Claim management + attestation badges + export/import (P6)
 │       │   ├── GovernancePanel.tsx Modified — V2 API (vote, evaluate, slash)
-│       │   ├── PublisherPanel.tsx Modified — removed campaign creation
+│       │   ├── PublisherPanel.tsx Modified — category checkboxes, SDK embed snippet, removed campaign creation
 │       │   ├── Settings.tsx      Modified — ad preferences, V2 addresses
 │       │   ├── UserPanel.tsx     Modified — engagement stats
 │       │   └── WalletSetup.tsx   Embedded wallet setup
@@ -652,7 +799,10 @@ After Gate GA, these items become the beta development cycle:
 │           ├── types.ts          Modified — V2 types, engagement, preferences, 26 categories + subcategories
 │           ├── walletManager.ts  Modified — exports encryptPrivateKey/decryptPrivateKey (B1)
 │           └── ...
-├── REVIEW.md                     Updated through PoC completion
+├── sdk/                          Publisher SDK
+│   ├── datum-sdk.js              CustomEvent handshake, category declaration (~3KB)
+│   └── example-publisher.html    Demo page with SDK integration
+├── REVIEW.md                     Updated through Publisher SDK overhaul
 ├── MVP.md                        v2.0 — includes P18/P19 plans
 └── ALPHA.md                      This document
 ```
@@ -671,6 +821,9 @@ After Gate GA, these items become the beta development cycle:
 | Claim export encryption | AES-256-GCM, key from wallet signature of fixed message | User doesn't need separate password; key derivation is deterministic from wallet. |
 | IPFS pinning | Pinata free tier for alpha | 100 files / 500 MB sufficient for testing. Evaluate alternatives at beta. |
 | Testnet | Paseo | Closer to Polkadot Hub spec than Westend. Recommended by docs. |
+| Open campaigns | `publisher = address(0)` + 50% snapshot take rate | PVM size constraint: external call to publisher registry too expensive in Settlement (3,105 B over). Publisher registration validated off-chain by extension and Relay. |
+| Publisher SDK | CustomEvent protocol (datum:sdk-ready, datum:challenge, datum:response) | No postMessage (CSP issues), no DOM injection from SDK (isolation). Extension detects SDK, SDK doesn't detect extension — SDK is passive. |
+| Default house ad | polkadot.com/philosophy link when no campaigns match | Prevents blank slot on SDK-enabled pages. No tracking, no claims, no earning. |
 | Account limits | None | Open to all Paseo testnet users. No KYB enforcement for alpha. |
 
 ### PVM Size Lessons Learned

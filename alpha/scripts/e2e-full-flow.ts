@@ -111,7 +111,7 @@ async function main() {
   // Build a simple claim hash chain
   const impressionCount = 10n;
   const clearingCpm = BID_CPM; // clearing = bid for single campaign
-  const nonce = 0n;
+  const nonce = 1n; // Genesis nonce is 1 (0 is invalid)
   const previousHash = "0x" + "0".repeat(64);
 
   // Compute claim hash: keccak256(abi.encodePacked(...))
@@ -155,8 +155,8 @@ async function main() {
   // ===================================================================
   log("3", "--- Withdrawals ---");
 
-  const pubBal = await settlement.publisherBalances(publisher.address);
-  const userBal = await settlement.userBalances(user.address);
+  const pubBal = await settlement.publisherBalance(publisher.address);
+  const userBal = await settlement.userBalance(user.address);
   log("3", `Publisher balance: ${pubBal.toString()} planck`);
   log("3", `User balance: ${userBal.toString()} planck`);
 
@@ -171,8 +171,8 @@ async function main() {
   }
 
   // Verify balances zeroed
-  const pubBalAfter = await settlement.publisherBalances(publisher.address);
-  const userBalAfter = await settlement.userBalances(user.address);
+  const pubBalAfter = await settlement.publisherBalance(publisher.address);
+  const userBalAfter = await settlement.userBalance(user.address);
   assert(pubBalAfter === 0n, "Publisher balance should be 0 after withdrawal");
   assert(userBalAfter === 0n, "User balance should be 0 after withdrawal");
   log("3", "Balances verified zero after withdrawal");

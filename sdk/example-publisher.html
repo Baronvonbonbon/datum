@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Example publisher page demonstrating DATUM SDK integration for privacy-preserving advertising on Polkadot Hub">
+  <meta name="keywords" content="crypto, web3, polkadot, blockchain, decentralized advertising">
+  <title>Example Publisher — DATUM SDK Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a1a;
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 24px; }
+    header {
+      border-bottom: 1px solid #1a1a3a;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    header h1 { color: #a0a0ff; font-size: 22px; }
+    header p { color: #888; font-size: 13px; margin-top: 4px; }
+    article { margin-bottom: 32px; }
+    article h2 { color: #c0c0ff; font-size: 18px; margin-bottom: 8px; }
+    article p { color: #bbb; font-size: 14px; margin-bottom: 12px; }
+    .ad-container {
+      border: 1px dashed #2a2a5a;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 24px 0;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ad-container:empty::after {
+      content: "DATUM Ad Slot — waiting for extension...";
+      color: #555;
+      font-size: 12px;
+    }
+    .status {
+      margin-top: 24px;
+      padding: 12px;
+      background: #111122;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #888;
+    }
+    .status .label { color: #60a0ff; }
+    .status .ok { color: #60c060; }
+    .status .waiting { color: #c0c060; }
+    code {
+      background: #1a1a2e;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+      color: #a0a0ff;
+    }
+    pre {
+      background: #111122;
+      padding: 16px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+      color: #ccc;
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Crypto Daily News</h1>
+      <p>Example publisher page demonstrating DATUM SDK integration</p>
+    </header>
+
+    <article>
+      <h2>Polkadot Hub Launches Privacy-Preserving Ad Network</h2>
+      <p>
+        DATUM, a decentralized advertising protocol built on Polkadot Hub, has launched
+        its alpha testing phase. The protocol uses on-chain settlement with privacy-preserving
+        impression tracking, giving users control over their data while compensating publishers
+        and users for ad engagement.
+      </p>
+      <p>
+        Publishers integrate using a lightweight SDK tag on their site. The SDK establishes
+        a challenge-response handshake with the DATUM browser extension to verify legitimate
+        impressions. Campaigns can target specific publishers or run as open campaigns matched
+        via category overlap.
+      </p>
+    </article>
+
+    <!-- DATUM Ad Slot — the SDK will populate this div -->
+    <div id="datum-ad-slot" class="ad-container"></div>
+
+    <article>
+      <h2>How to Integrate the DATUM SDK</h2>
+      <p>Add the following snippet to your page:</p>
+      <pre>&lt;script src="datum-sdk.js"
+  data-categories="6,26"
+  data-publisher="0xYOUR_ADDRESS"&gt;&lt;/script&gt;
+&lt;div id="datum-ad-slot"&gt;&lt;/div&gt;</pre>
+      <p>
+        The <code>data-categories</code> attribute declares which ad categories your site
+        accepts (comma-separated IDs from the DATUM taxonomy). The
+        <code>data-publisher</code> attribute is your registered on-chain publisher address.
+      </p>
+    </article>
+
+    <!-- SDK Status Panel -->
+    <div class="status" id="sdk-status">
+      <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
+      <div><span class="label">Publisher:</span> <span id="status-publisher">—</span></div>
+      <div><span class="label">Categories:</span> <span id="status-categories">—</span></div>
+      <div><span class="label">Handshake:</span> <span id="status-handshake" class="waiting">Pending</span></div>
+    </div>
+  </div>
+
+  <!-- DATUM SDK — categories: Computers & Electronics (6), Crypto & Web3 (26) -->
+  <script src="datum-sdk.js" data-categories="6,26" data-publisher="0x0000000000000000000000000000000000000001"></script>
+
+  <script>
+    // Status monitoring for demo purposes
+    document.addEventListener("datum:sdk-ready", function (e) {
+      var d = e.detail || {};
+      document.getElementById("status-sdk").textContent = "Ready (v" + d.version + ")";
+      document.getElementById("status-sdk").className = "ok";
+      document.getElementById("status-publisher").textContent = d.publisher || "—";
+      document.getElementById("status-categories").textContent = (d.categories || []).join(", ") || "—";
+    });
+
+    document.addEventListener("datum:response", function (e) {
+      var d = e.detail || {};
+      document.getElementById("status-handshake").textContent = "Complete (sig: " + (d.signature || "").slice(0, 18) + "...)";
+      document.getElementById("status-handshake").className = "ok";
+    });
+  </script>
+</body>
+</html>

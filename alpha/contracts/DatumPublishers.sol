@@ -20,6 +20,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable, Pausable
 
     uint16 public constant MIN_TAKE_RATE_BPS = 3000; // 30%
     uint16 public constant MAX_TAKE_RATE_BPS = 8000; // 80%
+    uint16 public constant DEFAULT_TAKE_RATE_BPS = 5000; // 50% — used for open campaigns
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -65,6 +66,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable, Pausable
             takeRateBps: takeRateBps,
             pendingTakeRateBps: 0,
             takeRateEffectiveBlock: 0,
+            categoryBitmask: 0,
             registered: true
         });
 
@@ -101,10 +103,31 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable, Pausable
     }
 
     // -------------------------------------------------------------------------
+    // Category management
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IDatumPublishers
+    function setCategories(uint256 bitmask) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        _publishers[msg.sender].categoryBitmask = bitmask;
+        emit CategoriesUpdated(msg.sender, bitmask);
+    }
+
+    // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------
 
     function getPublisher(address publisher) external view returns (Publisher memory) {
         return _publishers[publisher];
+    }
+
+    function getCategories(address publisher) external view returns (uint256) {
+        return _publishers[publisher].categoryBitmask;
+    }
+
+    /// @dev Slim getter for settlement: avoids full Publisher struct ABI decode in PVM
+    function isRegisteredWithRate(address publisher) external view returns (bool, uint16) {
+        Publisher storage p = _publishers[publisher];
+        return (p.registered, p.takeRateBps);
     }
 }

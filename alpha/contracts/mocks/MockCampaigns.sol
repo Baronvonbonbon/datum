@@ -63,6 +63,11 @@ contract MockCampaigns is IDatumCampaigns {
         if (id >= nextCampaignId) nextCampaignId = id + 1;
     }
 
+    /// @notice Set campaign publisher address (for open campaign tests)
+    function setPublisher(uint256 campaignId, address publisher) external {
+        _campaigns[campaignId].publisher = publisher;
+    }
+
     function setRemainingBudget(uint256 campaignId, uint256 amount) external {
         _campaigns[campaignId].remainingBudget = amount;
     }

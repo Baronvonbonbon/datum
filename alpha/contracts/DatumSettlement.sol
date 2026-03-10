@@ -41,6 +41,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     /// @dev Optional ZK verifier contract (address(0) = skip verification)
     address public zkVerifier;
 
+
     // -------------------------------------------------------------------------
     // Global pause registry
     // -------------------------------------------------------------------------
@@ -87,6 +88,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     function setZKVerifier(address addr) external onlyOwner {
         zkVerifier = addr;
     }
+
 
     // -------------------------------------------------------------------------
     // Settlement (Issue 3, 6, 7)
@@ -173,13 +175,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         (uint8 status, address cPublisher, uint256 cBidCpm,
          uint256 cRemaining, uint16 cTakeRate) = campaigns.getCampaignForSettlement(claim.campaignId);
 
-        // Campaign must exist (id field would be 0 → status defaults to 0 = Pending, publisher = 0)
-        if (cPublisher == address(0)) return (false, 3, 0);
+        // Campaign must exist (non-existent campaigns have zero bidCpm; real ones have bidCpm >= minimumCpmFloor > 0)
+        if (cBidCpm == 0) return (false, 3, 0);
         // Campaign must be Active (status == 1)
         if (status != 1) return (false, 4, 0);
 
-        // Publisher must match campaign
-        if (claim.publisher != cPublisher) return (false, 5, 0);
+        // Publisher validation: fixed campaigns must match; open campaigns accept any non-zero publisher
+        // (publisher registration check for open campaigns is enforced by DatumRelay before forwarding)
+        if (cPublisher != address(0)) {
+            if (claim.publisher != cPublisher) return (false, 5, 0);
+        } else {
+            if (claim.publisher == address(0)) return (false, 5, 0);
+        }
 
         // Issue 2: CPM validation — no floor, just <= bidCpmPlanck
         if (claim.clearingCpmPlanck > cBidCpm) return (false, 6, 0);

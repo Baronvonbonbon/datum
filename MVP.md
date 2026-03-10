@@ -2,7 +2,7 @@
 
 **Version:** 2.2
 **Date:** 2026-02-24
-**Last updated:** 2026-03-08 — All alpha-scope code COMPLETE. P6 (claim portability), P16 (behavioral analytics), P19 (second-price auction), V2 extension overhaul, 26-category taxonomy with hierarchy, engagement quality scoring all implemented. Extension builds clean (570KB popup, 0 errors). Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment. Previous: Governance V2 (2026-03-07), P18/P19 plans (2026-03-06), ZK verifier stub (2.22), Phase 2C extension (2.18-2.22).
+**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Publisher SDK + open campaigns (P5/P21), default house ad, P6 (claim portability), P16 (behavioral analytics), P19 (second-price auction), V2 extension overhaul. 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 

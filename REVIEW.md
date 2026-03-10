@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 101/101 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 111/111 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
 
 ---
 
@@ -234,11 +234,11 @@ The deferred "contract ownership transfer" addresses who holds the key, not what
 
 **Resolution (2026-03-07):** GovernanceV2 replaced V1's off-chain aye reward distribution with symmetric slash — both winning and losing sides compute slash/rewards on-chain via GovernanceSlash. `finalizeSlash(cid)` snapshots winning side weight; `claimSlashReward(cid)` distributes pool proportionally. No off-chain computation required. **Fully trustless.**
 
-### High: Campaign-publisher binding prevents open marketplace
+### ~~High: Campaign-publisher binding prevents open marketplace~~ — RESOLVED
 
-Each campaign is bound to a single publisher at creation. An advertiser wanting reach across 100 publishers must create 100 separate campaigns with 100 separate escrows. This is a bilateral deal system, not a permissionless marketplace.
+~~Each campaign is bound to a single publisher at creation.~~ **Resolved (2026-03-10):** Campaigns now support an **open** mode where `publisher = address(0)`. Any registered publisher whose category bitmask overlaps with the campaign's category can serve the ad. The publisher is resolved dynamically at impression time (identified in the claim). The extension filters campaigns by SDK category overlap, and settlement accepts any non-zero publisher address for open campaigns.
 
-**Post-MVP path:** Campaign creation specifies category and bid parameters without a fixed publisher. Any registered publisher matching the category can serve the campaign. Payment flows to whichever publisher actually served the impression (identified in the claim).
+**Remaining alpha trade-off:** Open campaigns use a fixed 50% snapshot take rate (DEFAULT_TAKE_RATE_BPS) rather than the serving publisher's actual registered rate. Dynamic per-publisher rates for open campaigns are a post-alpha enhancement (PVM bytecode size constraint).
 
 ### High: Claim chain state is non-portable
 
@@ -266,7 +266,7 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 | Aye reward amounts | Symmetric slash replaces V1 aye rewards (GovernanceV2 2026-03-07) — slash pool distribution on-chain via GovernanceSlash | Fully trustless |
 | Contract references | 48h admin timelock (DatumTimelock, A1.2 2026-03-06) | Governance approval for reference changes |
 | Claim state persistence | Trust browser storage | Encrypted export/import (P6 complete — AES-256-GCM, HKDF from wallet sig, merge on import); deterministic derivation post-alpha |
-| Campaign-publisher match | Trust extension code (improved: user preferences filter, P19 auction) | On-chain category matching; open publisher pool |
+| Campaign-publisher match | Open campaigns with SDK category filtering + handshake attestation (2026-03-10) | On-chain category matching fully trustless; ZK proof of SDK handshake |
 
 The MVP is honest about being a PoC. The trust assumptions above are acceptable for testnet validation but each must have a concrete remediation plan before mainnet deployment.
 
@@ -383,12 +383,12 @@ alpha/
 ├── contracts/
 │   ├── DatumPauseRegistry.sol      Global emergency pause circuit breaker
 │   ├── DatumTimelock.sol           48h admin delay for contract reference changes
-│   ├── DatumPublishers.sol         Publisher registry + take-rate management
-│   ├── DatumCampaigns.sol          Campaign lifecycle; budget escrow; 10% slash / 90% refund
+│   ├── DatumPublishers.sol         Publisher registry + take-rate management + category bitmask
+│   ├── DatumCampaigns.sol          Campaign lifecycle; budget escrow; open campaigns; 10% slash / 90% refund
 │   ├── DatumGovernanceV2.sol       Conviction voting; symmetric slash; evaluateCampaign state machine
 │   ├── DatumGovernanceSlash.sol    Slash pool finalization + winner reward claims
-│   ├── DatumSettlement.sol         Hash-chain validation; claim processing; 3-way payment split
-│   ├── DatumRelay.sol              EIP-712 user + publisher co-signature verification; relayed settlement
+│   ├── DatumSettlement.sol         Hash-chain validation; claim processing; 3-way payment split; open campaign resolution
+│   ├── DatumRelay.sol              EIP-712 user + publisher co-signature verification; open campaign co-sig skip; relayed settlement
 │   ├── DatumZKVerifier.sol         Stub ZK verifier (proof.length > 0); real Groth16 in P9
 │   ├── interfaces/
 │   │   ├── IDatumCampaigns.sol
@@ -399,9 +399,9 @@ alpha/
 │   └── mocks/
 │       └── MockCampaigns.sol       Test double for isolated governance/settlement tests
 ├── test/
-│   ├── campaigns.test.ts           16 tests — L1–L8 + snapshot + publisher validation + CPM floor
-│   ├── settlement.test.ts          29 tests — S1–S8 + gap + genesis + snapshot + hash + relay R1–R10
-│   ├── governance.test.ts          26 tests — G1–G8 + conviction 0-6 + symmetric slash + S1–S6
+│   ├── campaigns.test.ts           22 tests — L1–L8 + snapshot + publisher validation + CPM floor + open campaigns + categories
+│   ├── settlement.test.ts          32 tests — S1–S8 + gap + genesis + snapshot + hash + relay R1–R10 + OC1–OC4
+│   ├── governance.test.ts          28 tests — G1–G8 + conviction 0-6 + symmetric slash + S1–S6
 │   ├── pause.test.ts               8 tests — pause registry + campaign/settlement/relay integration
 │   ├── timelock.test.ts            15 tests — propose/execute/cancel + delay enforcement
 │   └── integration.test.ts         6 tests — Scenarios A–F (full nine-contract integration)
@@ -414,6 +414,10 @@ alpha/
 │   └── check-state.ts              Read on-chain state for debugging
 ├── metadata/                       Sample campaign metadata JSON files
 └── hardhat.config.ts
+
+sdk/
+├── datum-sdk.js                    Publisher SDK: CustomEvent handshake, category declaration
+└── example-publisher.html          Demo page with SDK integration
 
 poc/                                Original PoC (64/64 tests, preserved for reference)
 
@@ -432,16 +436,18 @@ alpha-extension/
 │   │   ├── timelockMonitor.ts      Poll DatumTimelock for pending admin changes
 │   │   └── zkProofStub.ts          Stub ZK proof generator (P16/P9)
 │   ├── content/
-│   │   ├── index.ts                Page classification, campaign selection, ad injection
-│   │   ├── adSlot.ts               Ad unit rendering with auction badge
+│   │   ├── index.ts                SDK detection, campaign selection, handshake, ad injection (inline/overlay/default)
+│   │   ├── adSlot.ts               Ad unit rendering: overlay, inline (SDK), default house ad
+│   │   ├── sdkDetector.ts          Detect Publisher SDK via script tag or CustomEvent (2s timeout)
+│   │   ├── handshake.ts            Challenge-response attestation with SDK (3s timeout)
 │   │   ├── engagement.ts           IAB engagement capture (IntersectionObserver, P16)
 │   │   └── campaignMatcher.ts      Legacy fallback campaign selection
 │   ├── popup/
 │   │   ├── App.tsx                 7-tab shell with wallet setup + timelock warning banner
 │   │   ├── CampaignList.tsx        Campaign browser with block/filter/info controls
 │   │   ├── UserPanel.tsx           Claims + earnings + engagement stats
-│   │   ├── PublisherPanel.tsx      Publisher registration + relay submit
-│   │   ├── AdvertiserPanel.tsx     Campaign creation + management (pause/resume/complete/expire)
+│   │   ├── PublisherPanel.tsx      Publisher registration + relay submit + category checkboxes + SDK embed snippet
+│   │   ├── AdvertiserPanel.tsx     Campaign creation (open/publisher-specific) + management (pause/resume/complete/expire)
 │   │   ├── GovernancePanel.tsx     V2 voting + evaluate + slash + withdraw
 │   │   └── Settings.tsx            Network, wallet, ad preferences, IPFS pinning, auto-submit
 │   └── shared/
@@ -458,7 +464,7 @@ alpha-extension/
 └── webpack.config.js
 ```
 
-**Test results: PoC 64/64 pass. Alpha 101/101 pass.**
+**Test results: PoC 64/64 pass. Alpha 111/111 pass.**
 
 ---
 
@@ -531,13 +537,15 @@ On-device engagement capture per impression:
 - **ZK proof stub:** `0x01` + commitment (satisfies DatumZKVerifier stub). Real Groth16 in P9.
 - **UserPanel engagement stats:** Total impressions, avg dwell, avg viewable, IAB viewability rate, per-campaign breakdown, chain head hash
 
-### Publisher Relay Submit — PublisherPanel.tsx
+### Publisher Panel — PublisherPanel.tsx
 
-Unchanged from V1. Campaign creation moved to AdvertiserPanel.
+Campaign creation moved to AdvertiserPanel. Added:
+- **Category management:** 26 category checkboxes matching the taxonomy. Calls `publishers.setCategories(bitmask)` on save.
+- **SDK embed snippet:** Copy-to-clipboard code for `<script src="datum-sdk.js" ...>` + `<div id="datum-ad-slot">` with publisher's address and selected categories pre-filled.
 
 ### Extension Build Size
 
-popup.js: 574 KB | background.js: 370 KB | content.js: 18.1 KB (post-V2 overhaul + Part 4B fixes)
+popup.js: 580 KB | background.js: 373 KB | content.js: 28 KB (post-V2 overhaul + Part 4B fixes + Publisher SDK + open campaigns)
 
 ### Trust Assumptions Updated
 

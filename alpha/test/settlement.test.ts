@@ -821,4 +821,77 @@ describe("DatumSettlement", function () {
       expect(result.rejectedCount).to.equal(0n);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Open Campaign Settlement Tests — OC1-OC4
+  // -----------------------------------------------------------------------
+
+  describe("Open Campaign Settlement", function () {
+    // Helper: create open campaign (publisher = address(0)) in mock
+    async function createOpenCampaign(budget = BUDGET, dailyCap = DAILY_CAP): Promise<bigint> {
+      const id = nextCampaignId++;
+      await mock.setCampaign(
+        id, advertiserAddr(), ethers.ZeroAddress, budget, dailyCap, BID_CPM, 5000,
+        1 // Active
+      );
+      await owner.sendTransaction({ to: await mock.getAddress(), value: budget });
+      return id;
+    }
+
+    // OC1: settlement with open campaign + any non-zero publisher succeeds
+    it("OC1: open campaign settles with any non-zero publisher", async function () {
+      const cid = await createOpenCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, cpm, impressions);
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+    });
+
+    // OC2: open campaign rejects claim with publisher=address(0)
+    it("OC2: open campaign rejects claim with publisher=address(0)", async function () {
+      const cid = await createOpenCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+
+      const claims = buildClaimChain(cid, ethers.ZeroAddress, user.address, 1, cpm, impressions);
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+
+      expect(result.settledCount).to.equal(0n);
+      expect(result.rejectedCount).to.equal(1n);
+    });
+
+    // OC3: open campaign uses snapshot take rate (DEFAULT_TAKE_RATE_BPS = 50%)
+    it("OC3: open campaign uses snapshot take rate (50%)", async function () {
+      const cid = await createOpenCampaign();
+      const impressions = 1000n;
+      const cpm = BID_CPM;
+
+      const totalPayment = (cpm * impressions) / 1000n;
+      // Snapshot take rate is 5000 bps (50%) — DEFAULT_TAKE_RATE_BPS
+      const expectedPublisherPmt = (totalPayment * 5000n) / 10000n;
+
+      const pubBalBefore = await settlement.publisherBalance(publisher.address);
+
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, cpm, impressions);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+
+      expect(await settlement.publisherBalance(publisher.address) - pubBalBefore).to.equal(expectedPublisherPmt);
+    });
+
+    // OC4: sentinel fix — non-existent campaign (cBidCpm == 0) is rejected
+    it("OC4: sentinel fix — non-existent campaign rejected via cBidCpm==0", async function () {
+      const fakeCid = 99999n;
+      const claims = buildClaimChain(fakeCid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = { user: user.address, campaignId: fakeCid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.rejectedCount).to.equal(1n);
+      expect(result.settledCount).to.equal(0n);
+    });
+  });
 });

@@ -106,12 +106,17 @@ contract DatumCampaigns is IDatumCampaigns {
     ) external payable returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > 0, "E11");
-        IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
-        require(pub.registered, "E17");
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
 
-        uint16 snapshot = pub.takeRateBps;
+        uint16 snapshot;
+        if (publisher != address(0)) {
+            IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
+            require(pub.registered, "E17");
+            snapshot = pub.takeRateBps;
+        } else {
+            snapshot = 5000; // DEFAULT_TAKE_RATE_BPS — hardcoded to save external call PVM size
+        }
         campaignId = nextCampaignId++;
 
         _campaigns[campaignId] = Campaign({

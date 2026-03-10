@@ -24,13 +24,14 @@ Detailed process flows for every participant role and subsystem. For a narrative
 16. [Campaign Lifecycle State Machine](#16-campaign-lifecycle-state-machine)
 17. [Timelock and Pause](#17-timelock-and-pause)
 18. [Claim Portability (Export/Import)](#18-claim-portability-exportimport)
-19. [Wallet and Key Management](#19-wallet-and-key-management)
+19. [Publisher SDK Protocol](#19-publisher-sdk-protocol)
+20. [Wallet and Key Management](#20-wallet-and-key-management)
 
 ---
 
 ## 1. Publisher Flow
 
-**Contract:** DatumPublishers | **Extension tab:** Publisher
+**Contract:** DatumPublishers | **Extension tab:** Publisher | **SDK:** `sdk/datum-sdk.js`
 
 ### Registration
 
@@ -39,18 +40,54 @@ Detailed process flows for every participant role and subsystem. For a narrative
    - Publisher address is recorded as `registered = true`.
 2. The take rate is snapshotted into each campaign at creation time — changing it later only affects new campaigns.
 
+### Category Setup
+
+1. Publisher opens the Publisher tab and selects ad categories from the 26-category taxonomy (checkboxes).
+2. On save, the extension calls `publishers.setCategories(bitmask)` — a `uint256` bitmask where bits 1-26 correspond to top-level categories.
+3. Categories determine which open campaigns can be served on this publisher's site (campaign category must overlap with publisher categories).
+4. Categories are also declared in the SDK tag's `data-categories` attribute for client-side filtering.
+
+### SDK Integration
+
+Publishers embed the DATUM SDK on their site to enable two-party impression attestation and inline ad placement:
+
+```html
+<script src="datum-sdk.js" data-categories="5,24" data-publisher="0xPublisher..."></script>
+<div id="datum-ad-slot"></div>
+```
+
+**SDK protocol:**
+
+1. On page load, the SDK dispatches `datum:sdk-ready` CustomEvent with `{ publisher, categories, version }`.
+2. The DATUM extension content script listens for this event (2s timeout) or detects the SDK `<script>` tag.
+3. When a campaign matches, the extension dispatches `datum:challenge` with a random 32-byte challenge.
+4. The SDK computes `SHA-256(publisher + challenge + nonce)` and responds via `datum:response`.
+5. The extension stores the attestation for inclusion with the claim — creating two-party proof that the publisher's page was actually rendering the ad.
+
+**Ad injection modes:**
+
+| Mode | Condition | Behavior |
+|------|-----------|----------|
+| **Inline (SDK)** | SDK detected + `<div id="datum-ad-slot">` exists | Ad renders inside the publisher's div via Shadow DOM |
+| **Overlay** | No SDK or no ad slot div | Ad renders fixed at bottom-right of viewport |
+| **Default house ad** | No campaigns match | Polkadot philosophy link, inline or overlay depending on SDK presence |
+
 ### Take Rate Updates
 
-1. Publisher calls `requestTakeRateChange(newBps)` — sets a pending rate with an effective block.
-2. After the delay period passes, publisher calls `applyTakeRateChange()` — updates the live rate.
+1. Publisher calls `updateTakeRate(newBps)` — sets a pending rate with an effective block.
+2. After the delay period passes, publisher calls `applyTakeRateUpdate()` — updates the live rate.
 3. Pending changes are visible in the Publisher tab UI.
+
+### Take Rate for Open Campaigns
+
+Open campaigns (publisher = `address(0)`) snapshot a default take rate of 50% (DEFAULT_TAKE_RATE_BPS) at creation time. The snapshot is used for settlement regardless of the serving publisher's actual registered rate. This is an alpha trade-off for PVM bytecode size constraints — dynamic publisher-specific rates for open campaigns are a post-alpha enhancement.
 
 ### Relay Settlement
 
 1. Users sign claim batches via EIP-712 and send the signed data to the publisher.
 2. Publisher opens the Publisher tab, sees pending signed batches with deadline countdown.
 3. Publisher clicks "Submit Signed Claims" — calls `DatumRelay.settleClaimsFor(batches)`.
-4. Relay verifies user's EIP-712 signature + optional publisher co-signature, then forwards to Settlement.
+4. Relay verifies user's EIP-712 signature. For publisher-specific campaigns, also verifies optional publisher co-signature. For open campaigns (`cPublisher == address(0)`), co-signature verification is skipped — attestation is handled off-chain by the SDK handshake.
 5. Publisher pays gas; user pays nothing.
 
 ### Withdrawal
@@ -72,7 +109,8 @@ Detailed process flows for every participant role and subsystem. For a narrative
    - **Daily cap** (DOT) — maximum spend per 24-hour period
    - **Bid CPM** (DOT per 1000 impressions) — maximum willingness to pay
    - **Category** — one of 26 top-level categories (+ subcategories)
-   - **Publisher** — address of a registered publisher
+   - **Open Campaign toggle** — when enabled, `publisher = address(0)` and any publisher whose categories overlap can serve the ad. Take rate is snapshotted at 50% (DEFAULT_TAKE_RATE_BPS).
+   - **Publisher** (if not open) — address of a registered publisher. Take rate snapshotted from the publisher's registered rate.
 2. Advertiser fills the creative form:
    - **Title** (max 128 chars)
    - **Description** (max 256 chars)
@@ -170,9 +208,12 @@ The Govern tab shows progress bars for aye/nay percentages and quorum threshold.
 
 1. User installs extension and sets up an embedded wallet (password-encrypted).
 2. User browses the web normally. On each page load, the content script:
+   - Detects Publisher SDK if present (see [Section 19](#19-publisher-sdk-protocol))
    - Classifies the page (see [Section 5](#5-page-classification))
-   - Fetches active campaigns and runs an auction (see [Section 6](#6-auction-mechanism))
-   - Injects an ad slot if a campaign matches (Shadow DOM isolated)
+   - Filters campaigns by SDK category overlap (if SDK present) or page classification
+   - Runs an auction on matching campaigns (see [Section 6](#6-auction-mechanism))
+   - Performs SDK handshake for two-party attestation (if SDK present)
+   - Injects an ad: inline into publisher's `<div>` (SDK), overlay (no SDK), or default house ad (no campaigns)
    - Tracks engagement signals (see [Section 7](#7-engagement-tracking))
    - Builds a hash-chain claim if engagement quality passes (see [Section 8](#8-claim-building-hash-chain))
 3. All processing happens on-device. The only data leaving the browser is the cryptographic claim submitted to the blockchain.
@@ -334,9 +375,9 @@ For each claim in a batch (max 5 claims per batch):
 | Step | Check | Rejection reason |
 |------|-------|-----------------|
 | 1 | `impressionCount > 0` | Reason 2 |
-| 2 | Campaign exists (publisher != 0) | Reason 3 |
+| 2 | Campaign exists (`bidCpmPlanck != 0` — all real campaigns have bidCpm >= minimumCpmFloor > 0) | Reason 3 |
 | 3 | Campaign is Active (status == 1) | Reason 4 |
-| 4 | Claim publisher matches campaign publisher | Reason 5 |
+| 4 | Publisher match: fixed campaigns require exact match; open campaigns (`cPublisher == address(0)`) accept any non-zero publisher | Reason 5 |
 | 5 | `clearingCpmPlanck <= bidCpmPlanck` | Reason 6 |
 | 6 | `nonce == lastNonce + 1` (sequential) | Reason 7 (gap — all subsequent rejected) |
 | 7 | Genesis: previousClaimHash must be zero | Reason 8 |
@@ -395,7 +436,7 @@ Funds accumulate as pull-payment balances. Each party withdraws independently:
 3. **Publisher submits:** `relay.settleClaimsFor(signedBatches)`.
 4. **Relay verifies:**
    - EIP-712 user signature recovery — must match `batch.user`.
-   - Publisher co-signature recovery (if non-empty) — must match campaign's publisher.
+   - Publisher co-signature recovery (if non-empty AND campaign has a fixed publisher) — must match campaign's publisher. Open campaigns (`cPublisher == address(0)`) skip co-signature verification — attestation is handled off-chain by the SDK handshake.
    - Deadline check: `block.number <= batch.deadline`.
 5. **Relay calls:** `settlement.settleClaims(batches)` as `msg.sender = relayContract` (authorized caller).
 
@@ -653,7 +694,55 @@ Moving claim state between browsers/devices without losing the hash chain positi
 
 ---
 
-## 19. Wallet and Key Management
+## 19. Publisher SDK Protocol
+
+**Files:** `sdk/datum-sdk.js`, `content/sdkDetector.ts`, `content/handshake.ts`
+
+### SDK Lifecycle
+
+1. Publisher embeds `<script src="datum-sdk.js" data-categories="1,5,12" data-publisher="0x...">` on their page.
+2. On load, the SDK dispatches `datum:sdk-ready` CustomEvent on `document`:
+   ```
+   detail: { publisher: "0x...", categories: [1, 5, 12], version: "1.0.0" }
+   ```
+3. The DATUM extension content script detects the SDK via:
+   - Checking for `<script>` tags with `datum-sdk` in the `src` attribute
+   - Listening for `datum:sdk-ready` event (2-second timeout)
+4. SDK info (`SDKInfo`) includes: publisher address, categories array, SDK version, and whether `<div id="datum-ad-slot">` exists.
+
+### Challenge-Response Handshake
+
+After a campaign is selected via auction, the extension performs a handshake with the SDK:
+
+1. Extension generates 32 random bytes + 16-byte nonce via `crypto.getRandomValues()`.
+2. Extension dispatches `datum:challenge` CustomEvent: `{ challenge, nonce, timestamp }`.
+3. SDK computes `SHA-256(publisher + challenge + nonce)` and responds via `datum:response`: `{ publisher, challenge, nonce, signature, timestamp }`.
+4. Extension verifies the response (publisher match, challenge match, 3-second timeout).
+5. Attestation stored for inclusion with the impression claim.
+
+### Category Matching
+
+When the SDK is detected, campaign filtering uses category bitmask overlap:
+
+```
+eligible = (campaignCategoryId ∈ sdkInfo.categories) AND
+           (campaign is open OR campaign.publisher == sdkInfo.publisher)
+```
+
+If no SDK-filtered campaigns match, fallback to page-classification-based category matching (same as sites without SDK).
+
+### Default House Ad
+
+When no campaigns match (pool is empty), the extension injects a default house ad:
+
+- **Content:** "A better web is possible" — links to https://polkadot.com/philosophy
+- **Inline mode:** Renders in `<div id="datum-ad-slot">` if SDK is present
+- **Overlay mode:** Fixed position bottom-right if no SDK
+- No impression tracking, no claim building, no earning — purely informational
+
+---
+
+## 20. Wallet and Key Management
 
 **File:** `shared/walletManager.ts`
 

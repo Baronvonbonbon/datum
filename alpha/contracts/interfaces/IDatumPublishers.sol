@@ -14,6 +14,7 @@ interface IDatumPublishers {
         uint16 takeRateBps;           // Current take rate (basis points, 3000-8000)
         uint16 pendingTakeRateBps;    // Queued rate update
         uint256 takeRateEffectiveBlock; // Block at which pending rate becomes current
+        uint256 categoryBitmask;      // Bitmask of allowed ad categories (bits 1-26)
         bool registered;
     }
 
@@ -24,6 +25,7 @@ interface IDatumPublishers {
     event PublisherRegistered(address indexed publisher, uint16 takeRateBps);
     event PublisherTakeRateQueued(address indexed publisher, uint16 newTakeRateBps, uint256 effectiveBlock);
     event PublisherTakeRateApplied(address indexed publisher, uint16 newTakeRateBps);
+    event CategoriesUpdated(address indexed publisher, uint256 bitmask);
 
     // -------------------------------------------------------------------------
     // Publisher management
@@ -40,10 +42,16 @@ interface IDatumPublishers {
     /// @notice Apply a queued take rate update if the delay has elapsed
     function applyTakeRateUpdate() external;
 
+    /// @notice Set category bitmask for ad matching (bits 1-26)
+    /// @param bitmask Bitfield of allowed categories
+    function setCategories(uint256 bitmask) external;
+
     // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------
 
     function getPublisher(address publisher) external view returns (Publisher memory);
+    function getCategories(address publisher) external view returns (uint256);
     function takeRateUpdateDelayBlocks() external view returns (uint256);
+    function DEFAULT_TAKE_RATE_BPS() external view returns (uint16);
 }

@@ -12,14 +12,15 @@ DATUM asks: what if the economics worked differently?
 
 - **Users** earn DOT for viewing ads. Their browsing data stays on their device. The only information that leaves is a cryptographic attestation that they participated in an ad campaign.
 - **Advertisers** get verifiable impressions backed by hash-chain proofs, settled transparently on-chain with no intermediary markup.
-- **Publishers** set their own take rates and receive payment directly through smart contract settlement.
+- **Publishers** embed a lightweight SDK on their sites, set their own take rates and content categories, and receive payment directly through smart contract settlement.
 
 ## How it works
 
-1. **Advertisers** create campaigns by depositing DOT into the DatumCampaigns contract, specifying a bid CPM, category target, and publisher.
+1. **Advertisers** create campaigns by depositing DOT into the DatumCampaigns contract, specifying a bid CPM and category target. Campaigns can target a specific publisher or be **open** (any matching publisher can serve them).
 2. **Governance reviewers** stake DOT to vote on campaign quality with conviction multipliers (0-6x). Campaigns activate when aye votes cross a majority threshold with quorum; nay votes can terminate bad campaigns. Losing-side voters pay a symmetric slash (10% of stake), distributed to winning-side voters.
-3. **Users** browse the web with the DATUM Chrome extension. The extension classifies pages against a 26-category taxonomy, runs a second-price auction across matching campaigns, and records impressions as hash-chain claims -- all on-device.
-4. **Settlement** happens when claims are submitted on-chain. The contract validates the hash chain, deducts from campaign budget, and splits payment three ways: publisher (configurable 30-80%), user (75% of remainder), and protocol (25% of remainder).
+3. **Publishers** embed the DATUM SDK (`<script src="datum-sdk.js">`) on their sites, declaring ad categories and providing a `<div id="datum-ad-slot">` placement. The SDK performs a challenge-response handshake with the extension for two-party impression attestation.
+4. **Users** browse the web with the DATUM Chrome extension. The extension detects the SDK, filters campaigns by category overlap, runs a second-price auction, and records impressions as hash-chain claims -- all on-device. When no campaigns match, a default house ad appears linking to the Polkadot philosophy.
+5. **Settlement** happens when claims are submitted on-chain. The contract validates the hash chain, deducts from campaign budget, and splits payment three ways: publisher (configurable 30-80%), user (75% of remainder), and protocol (25% of remainder).
 
 No ad server. No tracking pixels. No user profiles leaving the browser.
 
@@ -27,9 +28,20 @@ No ad server. No tracking pixels. No user profiles leaving the browser.
 
 Four people use DATUM. **Alice** is a user who browses the web. **Bob** publishes a tech blog. **Carol** is an advertiser selling hardware wallets. **Dave** reviews campaigns as a governance voter.
 
-#### Step 1 — Bob registers as a publisher
+#### Step 1 — Bob registers as a publisher and sets up the SDK
 
 Bob opens the DATUM extension, goes to the **Publisher** tab, and registers his address on the DatumPublishers contract. He sets his take rate at 40% (capped between 30-80%). This means Bob keeps 40% of every impression payment that flows through his campaigns.
+
+Bob then sets his **content categories** — he checks "Computers & Electronics" and "Science" from the 26-category taxonomy. The extension calls `setCategories(bitmask)` on-chain, recording which ad categories Bob's site accepts.
+
+Finally, Bob copies the **SDK embed snippet** from the Publisher tab and adds it to his site:
+
+```html
+<script src="datum-sdk.js" data-categories="5,24" data-publisher="0xBob..."></script>
+<div id="datum-ad-slot"></div>
+```
+
+The SDK tag declares Bob's categories and publisher address. The `<div>` is where ads will render inline on Bob's page. When a DATUM user visits, the SDK performs a challenge-response handshake with their extension — creating a two-party attestation that the impression is real.
 
 #### Step 2 — Carol creates a campaign
 
@@ -37,11 +49,12 @@ Carol opens the **My Ads** tab and creates a campaign:
 - Deposits **10 DOT** as the escrow budget
 - Sets a daily cap of **1 DOT** (prevents burning through budget in one day)
 - Bids **0.05 DOT per 1000 impressions** (her maximum CPM)
-- Selects Bob as the publisher and picks the "Computers & Electronics" category
+- Toggles **"Open Campaign"** — this means any publisher matching her category can serve the ad. (Alternatively, she could select Bob specifically as the publisher.)
+- Picks the "Computers & Electronics" category
 - Fills out the ad creative: title, body text, CTA button label, and a landing page URL (HTTPS only)
 - Pins the creative metadata to IPFS (the extension validates it against content safety rules before pinning)
 
-The campaign goes on-chain with status **Pending**. Carol's 10 DOT is locked in the DatumCampaigns contract. The creative's IPFS hash is stored as a bytes32 event.
+The campaign goes on-chain with status **Pending**. Carol's 10 DOT is locked in the DatumCampaigns contract. The creative's IPFS hash is stored as a bytes32 event. Because Carol chose an open campaign, the on-chain publisher field is `address(0)` — any registered publisher matching the category can serve it.
 
 #### Step 3 — Dave votes to activate the campaign
 
@@ -55,14 +68,16 @@ If the community had voted Nay instead (nay >= 50%), the campaign would be **Ter
 
 #### Step 4 — Alice browses the web and sees an ad
 
-Alice visits a tech review site. The DATUM content script (running entirely in her browser):
+Alice visits Bob's tech blog. The DATUM content script (running entirely in her browser):
 
-1. **Classifies the page** against 26 categories using domain, title, and meta tag signals. The tech site scores high for "Computers & Electronics."
-2. **Checks for matching campaigns** — Carol's campaign targets that category and is Active.
-3. **Runs a second-price auction** — if multiple campaigns match, the highest effective bid wins but pays the second-highest price. Solo campaigns pay 70% of their bid. Alice's interest profile weights the bids (tech-interested users make tech campaigns bid higher).
-4. **Injects an ad slot** — Carol's creative appears in a Shadow DOM container (isolated from page CSS/JS) at the bottom-right of Alice's screen, showing the title, body text, and a CTA button.
-5. **Tracks engagement** — an IntersectionObserver measures how long Alice sees the ad (dwell time), whether her tab is focused, scroll depth, and IAB viewability (50% visible for 1+ second). Low-quality views (under 1 second, unfocused tab) are rejected before any claim is built.
-6. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. No data about what Alice browsed leaves her device — only the cryptographic claim.
+1. **Detects the Publisher SDK** — Bob's page has the DATUM SDK tag. The extension reads his publisher address and declared categories.
+2. **Classifies the page** against 26 categories using domain, title, and meta tag signals. Bob's site scores high for "Computers & Electronics."
+3. **Filters campaigns by category overlap** — Carol's open campaign targets "Computers & Electronics" and Bob's SDK declares that same category. The campaign is eligible.
+4. **Runs a second-price auction** — if multiple campaigns match, the highest effective bid wins but pays the second-highest price. Solo campaigns pay 70% of their bid. Alice's interest profile weights the bids (tech-interested users make tech campaigns bid higher).
+5. **Performs a handshake** — the extension sends a random challenge to the SDK via `CustomEvent`. The SDK responds with a signature, creating a two-party attestation that this impression is real (not fabricated by a modified extension).
+6. **Injects an ad inline** — Carol's creative renders inside Bob's `<div id="datum-ad-slot">` via Shadow DOM (isolated from page CSS/JS). If no SDK slot exists, the ad appears as an overlay at the bottom-right of Alice's screen. If no campaigns matched at all, a default house ad linking to Polkadot's philosophy page appears instead.
+7. **Tracks engagement** — an IntersectionObserver measures how long Alice sees the ad (dwell time), whether her tab is focused, scroll depth, and IAB viewability (50% visible for 1+ second). Low-quality views (under 1 second, unfocused tab) are rejected before any claim is built.
+8. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. The publisher field is Bob's address (resolved dynamically for open campaigns). No data about what Alice browsed leaves her device — only the cryptographic claim.
 
 #### Step 5 — Claims are submitted on-chain
 
@@ -116,12 +131,12 @@ All amounts are in planck (1 DOT = 10^10 planck). Clearing CPM is determined by 
 |----------|----------|------|
 | `DatumPauseRegistry` | 4 KB | Global emergency pause circuit breaker |
 | `DatumTimelock` | 18 KB | 48-hour admin delay for contract reference changes |
-| `DatumPublishers` | 19 KB | Publisher registry and take-rate management (30-80%) |
-| `DatumCampaigns` | 49 KB | Campaign lifecycle: creation, activation, pausing, completion, termination, expiry |
+| `DatumPublishers` | 23 KB | Publisher registry, take-rate management (30-80%), category bitmask (26 categories) |
+| `DatumCampaigns` | 49 KB | Campaign lifecycle: creation (open or publisher-specific), activation, pausing, completion, termination, expiry |
 | `DatumGovernanceV2` | 38 KB | Conviction voting (0-6x), evaluateCampaign(), inline symmetric slash |
 | `DatumGovernanceSlash` | 30 KB | Slash pool finalization and winner reward claims |
-| `DatumSettlement` | 49 KB | Hash-chain validation, claim processing, 3-way payment split, optional ZK |
-| `DatumRelay` | 46 KB | EIP-712 user + publisher co-signature verification for gasless settlement |
+| `DatumSettlement` | 49 KB | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution, optional ZK |
+| `DatumRelay` | 46 KB | EIP-712 user + publisher co-signature verification for gasless settlement, open campaign co-sig skip |
 | `DatumZKVerifier` | 1 KB | Stub ZK proof verifier (wired to Settlement for future Groth16 proofs) |
 
 All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcode limit using resolc v0.3.0 with optimizer mode `z`. DatumCampaigns and DatumSettlement ownership is transferred to DatumTimelock post-deploy for admin safety.
@@ -133,12 +148,15 @@ All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcod
 | Campaigns | Active campaigns with block/unblock, collapsible 26-category filter, campaign info |
 | Claims | Pending claims, submit (you pay gas) or sign for publisher relay (zero gas), export/import |
 | Earnings | User balance in DOT, withdraw, engagement stats (dwell, viewable, viewability rate) |
-| Publisher | Publisher balance, withdraw, relay submit, take rate management |
-| My Ads | Advertiser campaign controls: pause/resume/complete/expire, campaign creation |
+| Publisher | Publisher balance, withdraw, relay submit, take rate management, category checkboxes, SDK embed snippet |
+| My Ads | Advertiser campaign controls: pause/resume/complete/expire, campaign creation (open or publisher-specific) |
 | Govern | Conviction voting (0-6x), evaluateCampaign, withdraw with slash, slash finalization + reward claiming |
 | Settings | Network, RPC, 9 contract addresses, IPFS gateway, auto-submit, ad preferences, interest profile, wallet |
 
 Key subsystems:
+- **Publisher SDK** -- lightweight JS tag (`datum-sdk.js`) with challenge-response handshake for two-party impression attestation; inline ad injection into publisher-provided `<div id="datum-ad-slot">`
+- **Open campaigns** -- campaigns with `publisher = address(0)` are served by any publisher whose categories overlap; publisher resolved dynamically at impression time
+- **Default house ad** -- when no campaigns match, a default ad linking to Polkadot philosophy appears (inline or overlay)
 - **Second-price auction** (P19) -- Vickrey auction: effectiveBid = bidCpm x interestWeight, solo campaigns at 70%, floor at 30%
 - **Behavioral analytics** (P16) -- on-device engagement capture (dwell time, scroll depth, tab focus, viewability), behavior hash chain, quality scoring, engagement-weighted CPM
 - **Claim portability** (P6) -- encrypted export/import of claim state (AES-256-GCM, HKDF key from wallet signature)
@@ -153,15 +171,19 @@ The extension processes all browsing data locally. Page classification, campaign
 ```
 alpha/
   contracts/          Solidity source (9 contracts + interfaces + mocks)
-  test/               Hardhat test suite (100 tests)
+  test/               Hardhat test suite (111 tests)
   scripts/            deploy.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts, etc.
   hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotHub
 
 alpha-extension/
   src/background/     Auction, engagement chain, claim builder, campaign poller, auto-submit
-  src/content/        26-category classifier, ad slot injection, engagement tracking
+  src/content/        SDK detection, handshake, 26-category classifier, ad slot injection (inline + overlay + default), engagement tracking
   src/popup/          React UI: 7 tabs (Campaigns, Claims, Earnings, Publisher, My Ads, Govern, Settings)
   src/shared/         Types, ABIs, contract factories, claim export, wallet manager, networks
+
+sdk/
+  datum-sdk.js        Publisher SDK tag — CustomEvent protocol for handshake + category declaration
+  example-publisher.html  Demo page with SDK integration
 
 poc/                  PoC MVP (frozen, tagged poc-complete) -- 64/64 tests, 7 contracts
 extension/            PoC extension (frozen)
@@ -187,7 +209,7 @@ cd alpha
 npm install
 
 # Run tests (Hardhat EVM)
-npx hardhat test             # 100/100 pass
+npx hardhat test             # 111/111 pass
 
 # Compile for PolkaVM
 npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
@@ -198,7 +220,7 @@ npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
 ```bash
 cd alpha-extension
 npm install
-npm run build                # output in dist/ (popup.js 570KB, background.js 366KB, content.js 18KB)
+npm run build                # output in dist/ (popup.js 580KB, background.js 373KB, content.js 28KB)
 ```
 
 Load in Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> select `alpha-extension/dist/`
@@ -234,8 +256,9 @@ The extension supports encrypted claim state portability (P6):
 ## Status
 
 - [x] **PoC** -- 7 contracts, 64/64 Hardhat tests, local devnet verified (tagged `poc-complete`)
-- [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction), 100/100 tests
-- [x] **Alpha extension** -- V2 overhaul (7 tabs), second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, 0 webpack errors
+- [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 111/111 tests
+- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, 0 webpack errors
+- [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [ ] **Local devnet E2E** -- full runtime validation against substrate-contracts-node (A3.2)
 - [ ] **Paseo testnet** -- deployment and open multi-account testing (A3.3-A3.5)
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
@@ -264,7 +287,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 | Decentralized KYB identity | Permissionless for alpha; evaluating zkMe and Polkadot PoP for beta (P10) |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing post-alpha (P11) |
 | External wallet integration | Embedded wallet only; WalletConnect v2 post-alpha (P17) |
-| Multi-publisher campaigns | Single publisher per campaign; open publisher pool post-alpha (P5) |
+| ~~Multi-publisher campaigns~~ | **Done** — open campaigns (`publisher = address(0)`) allow any matching publisher (P5) |
 | Contract upgrade path | Non-upgradeable; UUPS proxy or migration for beta (P7) |
 | Mandatory publisher attestation | Optional co-signature (degraded trust mode); mandatory post-alpha (P1) |
 | Rich media ad rendering | Text creatives only; image/video post-alpha |

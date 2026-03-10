@@ -322,4 +322,62 @@ describe("DatumCampaigns", function () {
       )
     ).to.be.revertedWith("E27");
   });
+
+  // -----------------------------------------------------------------------
+  // Open campaign tests (publisher = address(0))
+  // -----------------------------------------------------------------------
+
+  it("Open: createCampaign with publisher=address(0) succeeds", async function () {
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+    );
+    const receipt = await tx.wait();
+    const id = await campaigns.nextCampaignId() - 1n;
+
+    expect(await campaigns.getCampaignAdvertiser(id)).to.equal(advertiser.address);
+    expect(await campaigns.getCampaignRemainingBudget(id)).to.equal(BUDGET);
+    expect(await campaigns.getCampaignStatus(id)).to.equal(0); // Pending
+
+    // Verify snapshot take rate is DEFAULT_TAKE_RATE_BPS (50%)
+    const [,,,,takeRate] = await campaigns.getCampaignForSettlement(id);
+    expect(takeRate).to.equal(5000);
+  });
+
+  it("Open: getCampaignForSettlement returns address(0) publisher for open campaign", async function () {
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+    );
+    const id = await campaigns.nextCampaignId() - 1n;
+    const [, pub,,,] = await campaigns.getCampaignForSettlement(id);
+    expect(pub).to.equal(ethers.ZeroAddress);
+  });
+
+  // -----------------------------------------------------------------------
+  // Publisher category bitmask tests
+  // -----------------------------------------------------------------------
+
+  it("Categories: publisher can set and read category bitmask", async function () {
+    // bits 1, 6, 26 = 0b10...01000010 = (1<<1)|(1<<6)|(1<<26) = 67108930
+    const bitmask = (1n << 1n) | (1n << 6n) | (1n << 26n);
+    await publishers.connect(publisher).setCategories(bitmask);
+    expect(await publishers.getCategories(publisher.address)).to.equal(bitmask);
+  });
+
+  it("Categories: setCategories emits CategoriesUpdated event", async function () {
+    const bitmask = (1n << 3n) | (1n << 9n);
+    await expect(
+      publishers.connect(publisher).setCategories(bitmask)
+    ).to.emit(publishers, "CategoriesUpdated").withArgs(publisher.address, bitmask);
+  });
+
+  it("Categories: unregistered address cannot setCategories", async function () {
+    const [,,,,,,unregistered] = await ethers.getSigners();
+    await expect(
+      publishers.connect(unregistered).setCategories(1n)
+    ).to.be.revertedWith("Not registered");
+  });
+
+  it("DEFAULT_TAKE_RATE_BPS is 5000", async function () {
+    expect(await publishers.DEFAULT_TAKE_RATE_BPS()).to.equal(5000);
+  });
 });

@@ -257,6 +257,8 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.01");
   const [categoryId, setCategoryId] = useState(0);
+  const [openCampaign, setOpenCampaign] = useState(false);
+  const [publisherAddr, setPublisherAddr] = useState("");
   const [metadataCid, setMetadataCid] = useState("");
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -331,8 +333,11 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
       const dailyCapPlanck = parseUnits(dailyCap, 10);
       const bidCpmPlanck = parseUnits(bidCpm, 10);
 
+      const publisher = openCampaign
+        ? "0x0000000000000000000000000000000000000000"
+        : (publisherAddr.trim() || address); // default to self if no publisher specified
       const tx = await campaigns.createCampaign(
-        address, // publisher = self
+        publisher,
         dailyCapPlanck,
         bidCpmPlanck,
         categoryId,
@@ -382,6 +387,25 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
         <input type="text" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)}
           style={formInput} placeholder="0.01" />
       </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={{ ...formLabel, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={openCampaign}
+            onChange={(e) => setOpenCampaign(e.target.checked)}
+            style={{ accentColor: "#a0a0ff" }}
+          />
+          <span>Open Campaign <span style={{ color: "#555", fontSize: 10 }}>(any matching publisher)</span></span>
+        </label>
+      </div>
+      {!openCampaign && (
+        <div style={{ marginBottom: 6 }}>
+          <label style={formLabel}>Publisher Address</label>
+          <input type="text" value={publisherAddr} onChange={(e) => setPublisherAddr(e.target.value)}
+            style={{ ...formInput, fontFamily: "monospace", fontSize: 11 }}
+            placeholder="0x... (leave empty to use your own address)" />
+        </div>
+      )}
       <div style={{ marginBottom: 6 }}>
         <label style={formLabel}>Category</label>
         <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}

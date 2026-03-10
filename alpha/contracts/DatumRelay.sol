@@ -106,36 +106,38 @@ contract DatumRelay {
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
 
-            // Publisher co-signature verification (degraded trust if empty)
+            // Publisher co-signature verification (degraded trust if empty; skipped for open campaigns)
             if (sb.publisherSig.length > 0) {
                 (, address cPublisher,,,) = campaigns.getCampaignForSettlement(sb.campaignId);
+                // Open campaigns (cPublisher == address(0)): skip co-sig — attestation handled off-chain by SDK
+                if (cPublisher != address(0)) {
+                    bytes32 pubStructHash = keccak256(abi.encode(
+                        PUBLISHER_ATTESTATION_TYPEHASH,
+                        sb.campaignId,
+                        sb.user,
+                        sb.claims[0].nonce,
+                        sb.claims[sb.claims.length - 1].nonce,
+                        sb.claims.length
+                    ));
+                    bytes32 pubDigest = keccak256(abi.encodePacked(
+                        "\x19\x01",
+                        DOMAIN_SEPARATOR,
+                        pubStructHash
+                    ));
 
-                bytes32 pubStructHash = keccak256(abi.encode(
-                    PUBLISHER_ATTESTATION_TYPEHASH,
-                    sb.campaignId,
-                    sb.user,
-                    sb.claims[0].nonce,
-                    sb.claims[sb.claims.length - 1].nonce,
-                    sb.claims.length
-                ));
-                bytes32 pubDigest = keccak256(abi.encodePacked(
-                    "\x19\x01",
-                    DOMAIN_SEPARATOR,
-                    pubStructHash
-                ));
-
-                bytes calldata pubSig = sb.publisherSig;
-                require(pubSig.length == 65, "E33");
-                bytes32 pr;
-                bytes32 ps;
-                uint8 pv;
-                assembly {
-                    pr := calldataload(pubSig.offset)
-                    ps := calldataload(add(pubSig.offset, 32))
-                    pv := byte(0, calldataload(add(pubSig.offset, 64)))
+                    bytes calldata pubSig = sb.publisherSig;
+                    require(pubSig.length == 65, "E33");
+                    bytes32 pr;
+                    bytes32 ps;
+                    uint8 pv;
+                    assembly {
+                        pr := calldataload(pubSig.offset)
+                        ps := calldataload(add(pubSig.offset, 32))
+                        pv := byte(0, calldataload(add(pubSig.offset, 64)))
+                    }
+                    address pubSigner = ecrecover(pubDigest, pv, pr, ps);
+                    require(pubSigner != address(0) && pubSigner == cPublisher, "E34");
                 }
-                address pubSigner = ecrecover(pubDigest, pv, pr, ps);
-                require(pubSigner != address(0) && pubSigner == cPublisher, "E34");
             }
 
             // Build ClaimBatch for forwarding — copy claims to memory
