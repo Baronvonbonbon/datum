@@ -2,7 +2,7 @@
 
 **Version:** 2.2
 **Date:** 2026-02-24
-**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Publisher SDK + open campaigns (P5/P21), default house ad, P6 (claim portability), P16 (behavioral analytics), P19 (second-price auction), V2 extension overhaul. 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
+**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Publisher SDK + open campaigns (P5/P21), default house ad, P6 (claim portability), P16 (behavioral analytics), P19 (second-price auction), V2 extension overhaul, Polkadot Hub system precompile integration (GovernanceV2 minimumBalance). 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -40,6 +40,9 @@ The MVP consists of four deliverables:
 | Claim state portability | MVP stores claim queue in `chrome.storage.local`; post-MVP: encrypted export/import or deterministic derivation from on-chain state + user seed |
 | Contract upgrade path | MVP contracts are non-upgradeable; post-MVP: proxy pattern or migration function for Settlement (holds user balances) |
 | External wallet integration | MVP uses embedded wallet (import/generate private key, AES-256-GCM encrypted at rest) — **testing only, no security guarantees, do not use with real funds**; post-MVP: WalletConnect v2 or iframe bridge for SubWallet/Talisman/Polkadot.js external wallet support |
+| Blake2-256 claim hashing | System precompile `hashBlake256()` would save gas but adds ~4 KB PVM bytecode to Settlement (only 332 B spare). Deferred until resolc optimizer improves. `ISystem.sol` interface ready. |
+| Batch weight early abort | `weightLeft()` precompile for graceful partial batch processing. Adds ~3.5 KB PVM to Settlement/Relay (exceed limit). Deferred. |
+| Settlement dust prevention | `minimumBalance()` check in Settlement `_send()`. Same PVM size constraint. GovernanceV2 has it; Settlement deferred. |
 
 ---
 

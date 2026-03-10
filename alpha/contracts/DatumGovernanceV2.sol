@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumCampaignsMinimal.sol";
+import "./interfaces/ISystem.sol";
 
 /// @title DatumGovernanceV2
 /// @notice Dynamic conviction-based governance: vote/withdraw/re-vote, campaign evaluation,
@@ -19,6 +20,10 @@ import "./interfaces/IDatumCampaignsMinimal.sol";
 /// the Campaigns level. Sub-threshold votes are harmless.
 contract DatumGovernanceV2 {
     uint8 public constant MAX_CONVICTION = 6;
+
+    // Polkadot Hub system precompile
+    ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
+    address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -146,6 +151,12 @@ contract DatumGovernanceV2 {
 
         uint256 refund = v.lockAmount - slash;
 
+        // Dust prevention: reject refunds below existential deposit
+        if (SYSTEM_ADDR.code.length > 0) {
+            uint256 minBal = SYSTEM.minimumBalance();
+            require(refund >= minBal, "E58");
+        }
+
         // Zero vote (allows re-voting)
         v.direction = 0;
         v.lockAmount = 0;
@@ -201,6 +212,11 @@ contract DatumGovernanceV2 {
     function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external {
         require(msg.sender == slashContract, "E19");
         if (action == 0) {
+            // Dust prevention: reject payouts below existential deposit
+            if (SYSTEM_ADDR.code.length > 0) {
+                uint256 minBal = SYSTEM.minimumBalance();
+                require(value >= minBal, "E58");
+            }
             (bool ok,) = target.call{value: value}("");
             require(ok, "E02");
         }

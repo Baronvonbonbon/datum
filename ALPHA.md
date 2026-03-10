@@ -30,7 +30,7 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 | DatumTimelock | 17,962 B | 31,190 B | Standalone 48h admin timelock (A1.2) |
 | DatumPublishers | 22,614 B | 26,538 B | Publisher registry + configurable take rates (30-80%) + category bitmask |
 | DatumCampaigns | 48,662 B | 490 B | Campaign lifecycle, budget escrow, open campaigns, manual reentrancy guard (A1.3) |
-| DatumGovernanceV2 | 37,677 B | 11,475 B | Dynamic voting + evaluateCampaign() + inline slash (P18) |
+| DatumGovernanceV2 | 39,829 B | 9,323 B | Dynamic voting + evaluateCampaign() + inline slash (P18) + minimumBalance dust prevention |
 | DatumGovernanceSlash | 30,298 B | 18,854 B | Slash pool finalization + winner claims (P18), H1 div-by-zero guard |
 | DatumSettlement | 48,820 B | 332 B | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution |
 | DatumRelay | 46,180 B | 2,972 B | EIP-712 user signature + publisher co-sig (skipped for open campaigns), gasless settlement |
@@ -52,7 +52,7 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 
 - **Denomination:** Planck (10^10 per DOT), native PolkaVM path
 - **Wallet:** Embedded ethers.Wallet with AES-256-GCM encryption (PBKDF2 310k iterations)
-- **Claim hash:** `keccak256(abi.encodePacked(...))` — no zkProof in hash (zkProof is a carrier field)
+- **Claim hash:** `keccak256(abi.encodePacked(...))` — no zkProof in hash (zkProof is a carrier field). Blake2-256 deferred (Settlement 332 B spare, precompile call adds ~4 KB PVM).
 - **Settlement caller:** User direct (`settleClaims`) or publisher relay (`settleClaimsFor` with EIP-712 signature)
 - **Batch size:** MAX_CLAIMS_PER_BATCH = 5 (on-chain enforced)
 - **Campaign selection:** Vickrey second-price auction (P19) — effectiveBid = bidCpm × interestWeight, clearingCpm from 2nd price, solo 70%, floor 30%; fallback to weighted random
@@ -144,16 +144,31 @@ pallet-revive provides ~41 host functions (syscalls) and several precompile cont
 ### Recommended alpha optimizations
 
 1. **Verify ECRecover precompile on Paseo** (blocker — relay breaks without it)
-2. **Use `minimumBalance()` from System precompile** for transfer validation (prevents dust account creation)
+2. ~~**Use `minimumBalance()` from System precompile**~~ **✅ IMPLEMENTED** — DatumGovernanceV2 `withdraw()` and `slashAction()` check `minimumBalance()` before DOT transfers. Error E58 = below existential deposit. Uses `SYSTEM_ADDR.code.length > 0` guard to skip on Hardhat EVM. GovernanceV2 grew 37,677→39,829 B (+2,152 B), still within limit. **Not added to Settlement/Relay** — precompile calls add ~4 KB PVM each, exceeding their tight bytecode budgets.
 3. **Use `has_key()` from Storage precompile** for cheaper existence checks in governance (voted? registered?)
 4. **Document BN128 pairing availability** for future ZK verifier (P9) — if available, Groth16 verification becomes feasible on-chain
 
-### Deferred to post-alpha
+### Deferred to post-alpha (PVM size constraints)
 
-- Blake2-256 for internal hashing (requires claim struct migration)
+- **Blake2-256 for claim hashing** — `hashBlake256()` via system precompile is ~3x cheaper than keccak256. However, adding the precompile call + `SYSTEM_ADDR.code.length > 0` guard + `bytes memory packed` variable adds ~4,177 B to Settlement PVM (only 332 B spare). Requires resolc optimizer improvements or Settlement refactoring. Extension-side Blake2 ready (`@noble/hashes/blake2.js` tested).
+- **weightLeft() batch loop early abort** — Graceful partial settlement when weight runs low mid-loop. Adds ~3,598 B to Relay PVM (only 2,972 B spare). Same issue for Settlement. Deferred until resolc improves.
 - sr25519 signature verification (requires external wallet integration P17)
 - XCM fee routing (requires HydraDX integration P11)
 - ERC-20 precompile for governance token (requires token design)
+
+### ISystem interface (NEW — `alpha/contracts/interfaces/ISystem.sol`)
+
+Solidity interface for the Polkadot Hub system precompile at address `0x0000...0900`:
+
+```solidity
+interface ISystem {
+    function minimumBalance() external view returns (uint256);
+    function weightLeft() external view returns (uint64 refTime, uint64 proofSize);
+    function hashBlake256(bytes memory data) external view returns (bytes32);
+}
+```
+
+**Critical implementation note:** Solidity `try/catch` on precompile calls fails on Hardhat EVM. Address 0x900 has no code, so the call returns empty data, and ABI decoding fails *inside the caller* (not caught by `catch`). The correct guard is `SYSTEM_ADDR.code.length > 0` before calling. On Polkadot Hub, the precompile has code and functions normally.
 
 ---
 
@@ -283,7 +298,7 @@ DatumCampaigns was 52,662 B (3,510 B over PVM limit). Size reduction applied:
 Remaining A1.3 items (deferred to A3.2):
 - [ ] Run gas benchmarks on local substrate-contracts-node
 - [ ] Verify `ecrecover` precompile works on substrate-contracts-node
-- [ ] Add `minimumBalance()` check before DOT transfers (System precompile `0x0900`)
+- [x] Add `minimumBalance()` check before DOT transfers (System precompile `0x0900`) — **Implemented in GovernanceV2 only** (withdraw + slashAction). Settlement/Relay too tight on PVM bytecode (+4 KB per contract for precompile call). New error E58.
 
 ### Phase A2 — Extension Enhancements
 
@@ -745,6 +760,8 @@ After Gate GA, these items become the beta development cycle:
 ├── extension/                    PoC extension (frozen)
 ├── alpha/                        Alpha contracts + tests
 │   ├── contracts/                9 contracts (H1: GovernanceSlash div-by-zero guard)
+│   │   ├── interfaces/
+│   │   │   ├── ISystem.sol       System precompile interface (0x0900) — minimumBalance, weightLeft, hashBlake256
 │   ├── test/                     Extended test suite (111 tests, + open campaigns OC1-OC4, categories)
 │   ├── scripts/
 │   │   ├── deploy.ts             Deploy with error handling + validation (B2)
@@ -822,6 +839,8 @@ After Gate GA, these items become the beta development cycle:
 | IPFS pinning | Pinata free tier for alpha | 100 files / 500 MB sufficient for testing. Evaluate alternatives at beta. |
 | Testnet | Paseo | Closer to Polkadot Hub spec than Westend. Recommended by docs. |
 | Open campaigns | `publisher = address(0)` + 50% snapshot take rate | PVM size constraint: external call to publisher registry too expensive in Settlement (3,105 B over). Publisher registration validated off-chain by extension and Relay. |
+| System precompile usage | GovernanceV2 only (minimumBalance) | Settlement (+3,845 B over) and Relay (+626 B over) have insufficient PVM headroom for precompile calls. GovernanceV2 has 9,323 B spare after adding minimumBalance checks. Blake2-256 and weightLeft deferred to post-alpha. |
+| Claim hash algorithm | keccak256 (not Blake2-256) | Blake2-256 via system precompile would save gas at runtime but adds ~4 KB PVM bytecode to Settlement (only 332 B spare). Keeping keccak256 preserves compatibility and avoids size overflow. Revisit when resolc optimizer improves or Settlement is refactored. |
 | Publisher SDK | CustomEvent protocol (datum:sdk-ready, datum:challenge, datum:response) | No postMessage (CSP issues), no DOM injection from SDK (isolation). Extension detects SDK, SDK doesn't detect extension — SDK is passive. |
 | Default house ad | polkadot.com/philosophy link when no campaigns match | Prevents blank slot on SDK-enabled pages. No tracking, no claims, no earning. |
 | Account limits | None | Open to all Paseo testnet users. No KYB enforcement for alpha. |
@@ -836,6 +855,8 @@ After Gate GA, these items become the beta development cycle:
 6. **OZ modifier patterns can be more efficient than inline code in resolc.** Manual `bool _locked` reentrancy guard (inline `require` at top/bottom of 4 functions) caused DatumSettlement to grow +6,551 B vs OZ's `nonReentrant` modifier. resolc's codegen for modifiers shares code across call sites more effectively than repeated inline statements. Test both approaches and measure PVM output — EVM intuitions don't transfer.
 7. **Removing large struct returns saves significant PVM bytecode.** Replacing `getCampaign()` (14-field struct ABI encode) with 3 scalar getters saved ~800 B. Full struct returns generate expensive ABI encoder codegen in resolc.
 8. **Removing unused struct fields saves PVM bytecode.** Each field in a storage struct adds ABI encoding cost (constructor init, struct literals, any function that returns the struct). Removing `id` and `budgetPlanck` from Campaign struct saved ~800 B combined.
+9. **Precompile staticcalls are extremely expensive in PVM bytecode (~4 KB per contract).** Adding `ISystem(0x900).minimumBalance()` + `ISystem(0x900).weightLeft()` + `ISystem(0x900).hashBlake256()` caused Settlement to exceed the PVM limit by 3,845 B and Relay by 626 B. Even a single precompile call with its interface import, address constant, and `code.length > 0` guard adds ~2 KB. Only add precompile calls to contracts with >5 KB spare PVM headroom.
+10. **Solidity `try/catch` does not work for calls to addresses with no deployed code (e.g., precompiles on Hardhat EVM).** When calling an address with no code, the call returns empty data, and ABI decoding fails *inside* the caller — this revert is not caught by `catch`. Use `addr.code.length > 0` guard checks instead of `try/catch` for precompile calls that may not exist on all chains.
 
 ---
 

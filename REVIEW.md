@@ -137,6 +137,8 @@ function computeClaimHash(
 ```
 Genesis claim (nonce=1) must have `previousClaimHash == bytes32(0)`. Validated by S6, S7, and the `computeClaimHash matches off-chain calculation` test.
 
+**Note (2026-03-10):** Blake2-256 via system precompile (`hashBlake256`) was evaluated as a gas optimization for claim hashing but deferred — adding the precompile staticcall exceeds DatumSettlement's PVM bytecode budget by 3,845 B (only 332 B spare). The claim hash remains `keccak256` for alpha. See ALPHA.md §PVM Size Lessons #9.
+
 ---
 
 ### Issue 7: Settlement Caller Should Be the Claim Owner
@@ -267,6 +269,7 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 | Contract references | 48h admin timelock (DatumTimelock, A1.2 2026-03-06) | Governance approval for reference changes |
 | Claim state persistence | Trust browser storage | Encrypted export/import (P6 complete — AES-256-GCM, HKDF from wallet sig, merge on import); deterministic derivation post-alpha |
 | Campaign-publisher match | Open campaigns with SDK category filtering + handshake attestation (2026-03-10) | On-chain category matching fully trustless; ZK proof of SDK handshake |
+| Dust transfer prevention | GovernanceV2 checks `minimumBalance()` via system precompile (2026-03-10); Settlement/Relay skip due to PVM size | Extend to Settlement when resolc optimizer improves or Settlement is refactored; `ISystem.sol` interface ready |
 
 The MVP is honest about being a PoC. The trust assumptions above are acceptable for testnet validation but each must have a concrete remediation plan before mainnet deployment.
 
@@ -373,6 +376,7 @@ The 50-batch target in the plan spec (~500–800k gas) should be achievable. Pol
 - `block.timestamp` and `block.number` are available in PolkaVM but manipulation risks differ from EVM (Polkadot has 6s slot times, not 12s — adjust `takeRateUpdateDelayBlocks` and `pendingTimeoutBlocks` accordingly).
 - `ReentrancyGuard` from OpenZeppelin is a storage-lock pattern — compatible with PolkaVM.
 - The `receive()` fallback is required on `DatumSettlement` and `DatumGovernance` to accept DOT forwarded from `DatumCampaigns`. PolkaVM supports `receive()`.
+- **System precompile (0x0900):** Available on Polkadot Hub — provides `minimumBalance()`, `weightLeft()`, `hashBlake256()`. Used in GovernanceV2 for dust transfer prevention. Guarded by `addr.code.length > 0` so contracts work on both Hardhat EVM (no precompile) and PolkaVM (precompile present). Note: Solidity `try/catch` does NOT work for this — calls to codeless addresses return empty data, causing ABI decode to fail inside the caller (not caught by catch).
 
 ---
 
@@ -395,7 +399,8 @@ alpha/
 │   │   ├── IDatumCampaignsMinimal.sol
 │   │   ├── IDatumCampaignsSettlement.sol
 │   │   ├── IDatumPublishers.sol
-│   │   └── IDatumSettlement.sol
+│   │   ├── IDatumSettlement.sol
+│   │   └── ISystem.sol              System precompile (0x0900): minimumBalance, weightLeft, hashBlake256
 │   └── mocks/
 │       └── MockCampaigns.sol       Test double for isolated governance/settlement tests
 ├── test/

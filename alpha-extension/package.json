@@ -10,6 +10,7 @@
     "copy-abis": "node scripts/copy-abis.js"
   },
   "dependencies": {
+    "@noble/hashes": "^2.0.1",
     "@polkadot/extension-dapp": "^0.61.7",
     "@polkadot/extension-inject": "^0.61.7",
     "ethers": "^6.13.4",
