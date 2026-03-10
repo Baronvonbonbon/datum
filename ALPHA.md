@@ -578,12 +578,12 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 | Category | Score | Notes |
 |----------|-------|-------|
-| Contract security | 93/100 | H1 div-by-zero fixed. Timestamp daily cap documented. All edge cases tested. |
+| Contract security | 95/100 | H1 div-by-zero fixed. BUG3 zero-vote fixed. C-M1 timelock cancel fixed. Timestamp daily cap documented. |
 | Reentrancy protection | 19/20 | OZ ReentrancyGuard + manual locks, CEI pattern throughout |
 | Access control | 19/20 | Owner checks, caller verification, Timelock integration |
 | Extension crypto | 10/10 | AES-256-GCM, PBKDF2 310K, HKDF. B1 fixed: auto-submit key encrypted with session-scoped password. |
 | Error handling | 10/10 | B2 fixed: deploy.ts has per-step try/catch, post-wire validation, re-run safety. |
-| Test coverage | 9.5/10 | 101/101 tests + S6 slash edge case + E2E full-flow script. Missing: concurrent settlement (L4). |
+| Test coverage | 9.5/10 | 111/111 tests + E2E full-flow script. Missing: concurrent settlement (L4), BUG3 regression test (T1). |
 | Documentation | 10/10 | ALPHA.md, REVIEW.md, MVP.md, README.md internally consistent. Known limitations documented. |
 
 ---
@@ -604,10 +604,10 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 - **Problem:** Calls `publisherBalances`/`userBalances` (plural) but actual mappings are singular.
 - **Fix applied:** Changed all four calls to `publisherBalance`/`userBalance`.
 
-#### BUG3 — Zero-vote termination of Active campaigns
-- **Location:** `alpha/contracts/DatumGovernanceV2.sol:177-179`
+#### ~~BUG3~~ — Zero-vote termination of Active campaigns ✅ FIXED
+- **Location:** `alpha/contracts/DatumGovernanceV2.sol:188-190`
 - **Problem:** `evaluateCampaign()` for Active/Paused campaigns checks `nayWeighted * 10000 >= total * 5000`. If total = 0 (no votes), this is `0 >= 0` which passes. Anyone can terminate an Active campaign with zero governance votes, triggering a 10% budget slash.
-- **Fix:** Add `require(total > 0, "E51")` before the nay majority check in the `status == 1 || status == 2` branch.
+- **Fix applied:** Added `require(total > 0, "E51")` before the nay majority check in the `status == 1 || status == 2` branch.
 
 ### Contracts — High Priority (fix before A3.3 Paseo)
 
@@ -633,10 +633,10 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 
 ### Contracts — Medium Priority
 
-#### C-M1 — Timelock cancel() doesn't validate pending exists
+#### ~~C-M1~~ — Timelock cancel() doesn't validate pending exists ✅ FIXED
 - **Location:** `DatumTimelock.sol:59-65`
 - **Problem:** `cancel()` doesn't check `pendingTarget != address(0)`. Calling cancel with no pending proposal emits `ChangeCancelled(address(0))` — misleading for monitors.
-- **Fix:** Add `require(pendingTarget != address(0), "E35")`.
+- **Fix applied:** Added `require(pendingTarget != address(0), "E35")`.
 
 #### C-M2 — Inconsistent error codes reused
 - **Problem:** Error code "E03" is used for three different conditions across GovernanceSlash (winningWeight > 0, share > 0) and Settlement (withdrawal balance > 0).
@@ -649,20 +649,30 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 
 ### Extension — High Priority
 
-#### E-H1 — Claim builder nonce race condition
+#### ~~E-H1~~ — Claim builder nonce race condition ✅ FIXED
 - **Location:** `background/claimBuilder.ts:22-83`
 - **Problem:** `getChainState()` → build claim → `setChainState()` is not atomic. Two simultaneous impressions (two tabs loading at once) could both read nonce N and create two claims with nonce N+1. The duplicate nonce gets rejected by Settlement.
-- **Fix:** Add per-(user, campaignId) mutex before reading chain state. Similar to the `claimQueue` mutex pattern.
+- **Fix applied:** Added per-(user, campaignId) promise-chain mutex (`withLock()`) that serializes all access to chain state for a given user+campaign pair.
 
-#### E-H2 — Content script unhandled promise rejections
-- **Location:** `content/index.ts:19, 43, 98-104`, `content/engagement.ts:185, 190, 197`
+#### ~~E-H2~~ — Content script unhandled promise rejections ✅ FIXED
+- **Location:** `content/index.ts:19, 43, 98-104`, `content/engagement.ts:185`
 - **Problem:** Multiple `chrome.runtime.sendMessage()` calls have no `.catch()`. If the background service worker is inactive or restarting, messages silently fail — lost impressions and engagement data.
-- **Fix:** Wrap all `sendMessage` calls in try-catch. On failure, skip gracefully (no impression recorded is better than a crash).
+- **Fix applied:** Wrapped all `sendMessage` calls in try-catch. Fire-and-forget messages use inline `try { ... } catch {}`. Awaited messages (`GET_ACTIVE_CAMPAIGNS`, `SELECT_CAMPAIGN`) return early on failure.
 
-#### E-H3 — Deployed addresses loaded without network validation
-- **Location:** `popup/Settings.tsx:190-219`
+#### ~~E-H3~~ — Deployed addresses loaded without network validation ✅ FIXED
+- **Location:** `popup/Settings.tsx:190-219`, `alpha/scripts/deploy.ts`
 - **Problem:** "Load Deployed" button loads addresses from `deployed-addresses.json` without checking they match the current network setting. User could load mainnet addresses on testnet or vice versa.
-- **Fix:** Add network field to `deployed-addresses.json` in deploy script, validate on load.
+- **Fix applied:** `deploy.ts` now writes `network` field to `deployed-addresses.json`. `Settings.tsx` compares against current network and shows confirmation dialog on mismatch.
+
+#### ~~E-H4~~ — SDK handshake spoofing: no signature verification ✅ FIXED
+- **Location:** `content/handshake.ts:35-49`
+- **Problem:** Handshake only checks `detail.challenge === challenge` but does not verify the SHA-256 signature. Any page script can listen for `datum:challenge` events and respond with a matching challenge, spoofing the publisher attestation.
+- **Fix applied:** `handshake.ts` now recomputes the expected SHA-256 hash (`SHA-256(publisher + ":" + challenge + ":" + nonce)`) and verifies it matches `detail.signature`. Also verifies `detail.publisher` matches the expected publisher address. Rejects empty signatures and mismatches.
+
+#### ~~E-H5~~ — Quality score computed in untrusted content script ✅ FIXED
+- **Location:** `content/engagement.ts`, `background/index.ts`, `background/claimBuilder.ts`
+- **Problem:** Quality score was computed in the content script (`computeQualityScore()` in engagement.ts) and sent to background via `ENGAGEMENT_QUALITY_RESULT` message. A malicious page could intercept or forge these messages to inflate quality scores and earn higher CPM payouts. Additionally, the `qualityScore` CPM discount in `claimBuilder.onImpression()` was dead code — never triggered because `qualityScore` was never included in the `IMPRESSION_RECORDED` message.
+- **Fix applied:** (1) Moved `computeQualityScore()` and `meetsQualityThreshold()` to `shared/qualityScore.ts`. (2) Background `ENGAGEMENT_RECORDED` handler now computes quality in trusted context and retroactively removes queued claims that fail the threshold. (3) Removed dead CPM discount code from `claimBuilder.ts`. (4) Content script sends only raw `EngagementEvent` data.
 
 ### Extension — Medium Priority
 
@@ -751,6 +761,84 @@ After Gate GA, these items become the beta development cycle:
 
 ---
 
+## Post-Alpha Optimization Opportunities
+
+Consolidated list of all optimization, improvement, and feature opportunities deferred beyond alpha. Organized by category and priority.
+
+### Gas & Runtime Optimizations
+
+| # | Optimization | Affected contracts | Estimated PVM cost | Blocker | Priority |
+|---|-------------|-------------------|-------------------|---------|----------|
+| O1 | **Blake2-256 claim hashing** — replace `keccak256` with `hashBlake256()` via system precompile. ~3x cheaper per claim on Substrate runtime. | Settlement (+4,177 B), extension claimBuilder.ts | +4,177 B PVM (Settlement has 332 B spare) | resolc optimizer or Settlement refactor | High |
+| O2 | **`weightLeft()` batch loop early abort** — check remaining weight each iteration, break gracefully for partial settlement instead of full revert. | Settlement (+4 KB), Relay (+3,598 B) | ~3.5-4 KB PVM each | resolc optimizer or contract extraction | High |
+| O3 | **`minimumBalance()` in Settlement `_send()`** — prevent dust transfers below existential deposit (already in GovernanceV2). | Settlement (+~2 KB) | ~2 KB PVM (332 B spare) | resolc optimizer or Settlement refactor | Medium |
+| O4 | **Storage precompile `has_key()`** — cheaper existence checks for voted/registered mappings vs full SLOAD. | GovernanceV2 (9,323 spare), Publishers (26,538 spare) | ~1-2 KB PVM each | Delegate-call requirement adds complexity | Low |
+| O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values, batch size validation without full load. | Settlement | ~1-2 KB PVM | Same delegate-call complexity | Low |
+
+### Security & Correctness
+
+| # | Item | Location | Impact | Priority |
+|---|------|----------|--------|----------|
+| ~~S1~~ | ~~**BUG3: Zero-vote campaign termination**~~ | ~~GovernanceV2~~ | ~~Critical~~ | **✅ FIXED** — `require(total > 0, "E51")` added |
+| S2 | **C-H1: Missing zero-address checks on contract reference setters** — `setSettlement/Governance/Relay/ZKVerifier` accept `address(0)`. | Campaigns:81-87, Settlement:83-89 | High — misconfigured timelock proposal bricks contracts | **Fix before A3.3** |
+| S3 | **C-H2: Missing events on contract reference changes** — no events for `setXxxContract()` or `transferOwnership()`. Off-chain monitoring blind to wiring changes. | Campaigns, Settlement, Timelock | High — monitoring gap | **Fix before A3.3** |
+| S4 | **C-H3: ZK verification accepts empty return** — staticcall with `ok2=true` but `ret.length < 32` silently passes. | Settlement:217-224 | High — ZK bypass (mitigated: stub verifier accepts all) | **Fix before mainnet** |
+| S5 | **C-H4: Publishers dual pause** — DatumPublishers uses OZ `Pausable` (local) instead of `pauseRegistry.paused()` (global). Two independent pause states. | Publishers:56,75,90 | Medium — inconsistent pause semantics | Post-alpha |
+| ~~S6~~ | ~~**C-M1: Timelock cancel() no pending check**~~ | ~~Timelock~~ | ~~Low~~ | **✅ FIXED** — `require(pendingTarget != address(0), "E35")` added |
+| S7 | **C-M2: Error code E03 reused** — same code for 3 different conditions across GovernanceSlash and Settlement. | GovernanceSlash, Settlement | Low — debugging confusion | Post-alpha |
+| ~~S8~~ | ~~**E-H1: Claim builder nonce race**~~ | ~~claimBuilder.ts~~ | ~~Medium~~ | **✅ FIXED** — per-(user, campaign) promise-chain mutex |
+| ~~S9~~ | ~~**E-H2: Unhandled promise rejections**~~ | ~~content scripts~~ | ~~Medium~~ | **✅ FIXED** — try-catch on all sendMessage |
+| ~~S10~~ | ~~**E-H3: Deployed addresses network validation**~~ | ~~Settings.tsx~~ | ~~Medium~~ | **✅ FIXED** — network field + mismatch dialog |
+
+### Feature Development
+
+| # | Feature | Description | Dependency | Priority |
+|---|---------|-------------|------------|----------|
+| F1 | **P7: Contract upgrade path** | UUPS proxy or migration pattern for Settlement (holds user balances). Required before mainnet. | None — design decision | 1 (beta) |
+| F2 | **P1: Mandatory publisher attestation** | Enforce publisher co-sig (no degraded trust). SDK handshake provides foundation. | P21 (done) | 2 (beta) |
+| F3 | **P17: External wallets** | WalletConnect v2 for SubWallet/Talisman/Polkadot.js. Keep embedded wallet as lite mode. | None | 3 (beta) |
+| F4 | **P9: ZK proof Phase 1** | Replace stub verifier with real Groth16 circuit for behavioral + auction proofs. | BN128 pairing precompile on Polkadot Hub | 4 (beta) |
+| F5 | **P20: Campaign inactivity timeout** | Auto-complete after N blocks with no settlements. Prevents dust-budget lock. | None | 5 (beta) |
+| F6 | **M4: Governance sweep** | Reclaim abandoned slash pools + campaign dust via `sweepSlashPool()` + `sweepAbandonedBudget()`. Two-contract pattern designed (see Part 4B). | Campaigns PVM headroom (392 B spare) | Post-beta |
+| F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17 (external wallets), sr25519Verify precompile stability | Post-beta |
+| F8 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration (P11) | Post-beta |
+| F9 | **ERC-20 governance token** | Native Asset Hub token via ERC-20 precompile. Enables staking, delegation, fee payment in DATUM token. | Token economics design | Post-beta |
+
+### Extension Improvements
+
+| # | Item | Description | Priority |
+|---|------|-------------|----------|
+| X1 | **E-M1: Auto-submit deauth visibility** — ping auth status on Settings mount, warn if enabled but service worker restarted. | Medium |
+| X2 | **E-M2: Interest profile storage race** — write mutex for concurrent profile updates from multiple tabs. | Medium |
+| X3 | **E-M3: Metadata fetch failure retry** — track consecutive failures, surface in UI after 3+. | Low |
+| X4 | **E-M4: Signed relay batch expiry** — auto-remove expired batches from storage during poll alarm. | Low |
+| X5 | **E-M5: Category filter persistence** — persist across tab switches via `chrome.storage.session`. | Low |
+| X6 | **E-M6: Conviction tooltip** — explain that conviction multiplies both vote weight AND lock duration. | Low |
+
+### Test Coverage Gaps
+
+| # | Area | Tests needed |
+|---|------|-------------|
+| T1 | Zero-vote edges | `evaluateCampaign` with 0 votes reverts E51 (BUG3 regression test); non-existent campaign |
+| T2 | Settlement edges | `deductBudget(0)`; deduct on Paused; replay nonce; rounding-to-zero payment |
+| T3 | Governance edges | `vote()` with 0 value; conviction=6 weight/lockup; withdraw on Paused pre-resolution |
+| T4 | Timelock edges | cancel with no pending; propose overwrites pending; execute with reverting target |
+| T5 | PauseRegistry | pause when paused; unpause when unpaused |
+| T6 | Publisher edges | register at min/max take rate; duplicate registration |
+| T7 | Integration gaps | multi-campaign same advertiser; multi-batch settleClaims; rounding validation |
+
+### Low Priority / Nice-to-Have
+
+| # | Item | Description |
+|---|------|-------------|
+| L1 | `MAX_SCAN_ID` increase | campaignPoller.ts hardcoded to 1000 — may need increase on Polkadot Hub |
+| L2 | Configurable poll interval | 5 min campaign poll interval should be user-settable in Settings |
+| L3 | Two-step ownership transfer | `transferOwnership()` → `acceptOwnership()` pattern instead of immediate transfer |
+| L4 | Concurrent settlement test | Multiple users settling in same block |
+| L6 | Claim export/import manual test | README procedure for P6 encrypted export/import |
+
+---
+
 ## File Structure (alpha)
 
 ```
@@ -791,8 +879,8 @@ After Gate GA, these items become the beta development cycle:
 │       │   └── zkProofStub.ts    NEW — dummy ZK proof generator (P16)
 │       ├── content/
 │       │   ├── adSlot.ts         Modified — overlay, inline (SDK), default house ad (polkadot.com/philosophy)
-│       │   ├── engagement.ts     NEW — IntersectionObserver engagement capture (P16)
-│       │   ├── handshake.ts      NEW — challenge-response attestation with SDK (3s timeout)
+│       │   ├── engagement.ts     NEW — IntersectionObserver engagement capture (P16); quality scoring moved to shared/
+│       │   ├── handshake.ts      NEW — challenge-response with SDK (3s timeout, SHA-256 signature verification)
 │       │   ├── index.ts          Modified — SDK detection, category filtering, handshake, inline/overlay/default ad
 │       │   ├── sdkDetector.ts    NEW — detect datum-sdk.js via script tag or CustomEvent (2s timeout)
 │       │   └── taxonomy.ts       Multi-signal page classification
@@ -813,6 +901,7 @@ After Gate GA, these items become the beta development cycle:
 │           ├── ipfsPin.ts        NEW — Pinata IPFS pin utility (H3)
 │           ├── messages.ts       Modified — V2 + preferences + engagement + auto-submit + timelock types
 │           ├── networks.ts       Modified — V2 address keys + Paseo + pinataApiKey
+│           ├── qualityScore.ts   NEW — engagement quality scoring (pure functions, computed in background)
 │           ├── types.ts          Modified — V2 types, engagement, preferences, 26 categories + subcategories
 │           ├── walletManager.ts  Modified — exports encryptPrivateKey/decryptPrivateKey (B1)
 │           └── ...

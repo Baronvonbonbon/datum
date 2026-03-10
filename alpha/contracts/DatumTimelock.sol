@@ -57,6 +57,7 @@ contract DatumTimelock {
 
     /// @notice Cancel the pending call. Owner only.
     function cancel() external onlyOwner {
+        require(pendingTarget != address(0), "E35");
         address target = pendingTarget;
         pendingTarget = address(0);
         pendingData = "";

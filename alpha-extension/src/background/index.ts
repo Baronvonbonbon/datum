@@ -11,6 +11,7 @@ import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
 import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
 import { appendEvent } from "./behaviorChain";
+import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
@@ -360,12 +361,30 @@ async function handleMessage(
       return { preferences };
     }
 
-    // Engagement tracking
+    // Engagement tracking — quality score computed here (trusted background),
+    // not in content script (untrusted). Low-quality impressions are rejected.
     case "ENGAGEMENT_RECORDED": {
       const stored = await chrome.storage.local.get("connectedAddress");
       const userAddress = stored.connectedAddress;
       if (userAddress && msg.event) {
         await appendEvent(userAddress, msg.event);
+
+        // Compute quality score in trusted background context
+        const qualityScore = computeQualityScore(msg.event);
+        if (!meetsQualityThreshold(msg.event)) {
+          // Remove the queued claim for this campaign (below quality threshold)
+          const qStored = await chrome.storage.local.get("claimQueue");
+          const queue: any[] = qStored.claimQueue ?? [];
+          // Find and remove the most recent claim for this user+campaign
+          const idx = queue.findLastIndex(
+            (c: any) => c.userAddress === userAddress && c.campaignId === msg.event.campaignId
+          );
+          if (idx !== -1) {
+            queue.splice(idx, 1);
+            await chrome.storage.local.set({ claimQueue: queue });
+            console.log(`[DATUM] Rejected low-quality impression for campaign ${msg.event.campaignId} (score: ${qualityScore.toFixed(2)})`);
+          }
+        }
       }
       return { ok: true };
     }
@@ -392,12 +411,10 @@ async function handleMessage(
       return { pending };
     }
 
-    // Engagement quality result — log quality score for diagnostics
+    // Legacy: ENGAGEMENT_QUALITY_RESULT no longer sent by content script.
+    // Quality scoring moved to ENGAGEMENT_RECORDED handler above.
     case "ENGAGEMENT_QUALITY_RESULT": {
-      if (!msg.passed) {
-        console.log(`[DATUM] Low-quality impression for campaign ${msg.campaignId} (score: ${msg.qualityScore.toFixed(2)}) — claim still recorded with CPM discount`);
-      }
-      return { ok: true, qualityScore: msg.qualityScore, passed: msg.passed };
+      return { ok: true };
     }
 
     default:

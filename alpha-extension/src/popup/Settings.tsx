@@ -194,6 +194,11 @@ export function Settings() {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error("No deployed-addresses.json found in extension bundle");
                 const addrs = await resp.json();
+                // Validate network matches current setting
+                if (addrs.network && addrs.network !== "hardhat" && addrs.network !== settings.network) {
+                  const ok = confirm(`Deployed addresses are from "${addrs.network}" but current network is "${settings.network}". Load anyway?`);
+                  if (!ok) return;
+                }
                 setSettings((s) => ({
                   ...s,
                   contractAddresses: {

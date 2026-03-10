@@ -187,6 +187,7 @@ contract DatumGovernanceV2 {
             emit CampaignEvaluated(campaignId, 1);
         } else if (status == 1 || status == 2) {
             // Active/Paused -> Terminated: nay has majority (>=50%)
+            require(total > 0, "E51");
             require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
             IDatumCampaignsMinimal(campaigns).terminateCampaign(campaignId);
             resolved[campaignId] = true;

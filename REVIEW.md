@@ -263,12 +263,12 @@ The Settlement contract holds real user balances but has no proxy pattern, no mi
 | Component | Trust assumption | Path to trustlessness |
 |-----------|-----------------|----------------------|
 | Impression count | Trust extension code (partially mitigated: publisher co-sig in DatumRelay, 2026-03-03) | Publisher attestation endpoint; mandatory attestation mode; then ZK/TEE |
-| Engagement quality | On-device behavior hash chain (P16 implemented 2026-03-08) — IAB metrics captured, committed via behaviorCommit | Selective disclosure; ZK behavior proofs (P9) |
+| Engagement quality | On-device behavior hash chain (P16 implemented 2026-03-08) — IAB metrics captured, committed via behaviorCommit. Quality scoring moved to trusted background context (2026-03-10) — content script sends raw data only, background computes score and rejects low-quality claims | Selective disclosure; ZK behavior proofs (P9) |
 | Clearing CPM | On-device Vickrey auction (P19 implemented 2026-03-08) — deterministic from inputs | ZK proof of auction outcome (P9) |
 | Aye reward amounts | Symmetric slash replaces V1 aye rewards (GovernanceV2 2026-03-07) — slash pool distribution on-chain via GovernanceSlash | Fully trustless |
 | Contract references | 48h admin timelock (DatumTimelock, A1.2 2026-03-06) | Governance approval for reference changes |
 | Claim state persistence | Trust browser storage | Encrypted export/import (P6 complete — AES-256-GCM, HKDF from wallet sig, merge on import); deterministic derivation post-alpha |
-| Campaign-publisher match | Open campaigns with SDK category filtering + handshake attestation (2026-03-10) | On-chain category matching fully trustless; ZK proof of SDK handshake |
+| Campaign-publisher match | Open campaigns with SDK category filtering + handshake attestation (2026-03-10). SDK handshake now verifies SHA-256 signature against publisher address — prevents page-script spoofing | On-chain category matching fully trustless; ZK proof of SDK handshake |
 | Dust transfer prevention | GovernanceV2 checks `minimumBalance()` via system precompile (2026-03-10); Settlement/Relay skip due to PVM size | Extend to Settlement when resolc optimizer improves or Settlement is refactored; `ISystem.sol` interface ready |
 
 The MVP is honest about being a PoC. The trust assumptions above are acceptable for testnet validation but each must have a concrete remediation plan before mainnet deployment.
@@ -461,6 +461,7 @@ alpha-extension/
 │       ├── messages.ts             All message types (popup↔background↔content)
 │       ├── networks.ts             Network configs (local, paseo, westend, kusama, polkadotHub)
 │       ├── walletManager.ts        Embedded wallet (AES-256-GCM + PBKDF2)
+│       ├── qualityScore.ts         Engagement quality scoring (pure functions, computed in background)
 │       ├── claimExport.ts          Encrypted claim export/import (P6)
 │       ├── taxonomy.ts             26 top-level + ~80 subcategories
 │       ├── ipfsPin.ts              Pinata IPFS pinning for campaign metadata

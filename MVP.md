@@ -2,7 +2,7 @@
 
 **Version:** 2.2
 **Date:** 2026-02-24
-**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Publisher SDK + open campaigns (P5/P21), default house ad, P6 (claim portability), P16 (behavioral analytics), P19 (second-price auction), V2 extension overhaul, Polkadot Hub system precompile integration (GovernanceV2 minimumBalance). 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
+**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Bug fixes: BUG3 (zero-vote termination), C-M1 (timelock cancel), E-H1–E-H5 (nonce race, promise handling, network validation, handshake spoofing, quality score trust). Publisher SDK, open campaigns, precompile integration, content safety. 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 

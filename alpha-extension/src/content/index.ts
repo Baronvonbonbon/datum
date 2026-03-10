@@ -18,14 +18,19 @@ async function main() {
   if (!category) return;
 
   // Update local interest profile with page category
-  chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category });
+  try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category }); } catch {}
 
   // Detect Publisher SDK (2s timeout) + fetch campaigns in parallel
-  const [sdkInfo, response, settingsStored] = await Promise.all([
-    detectSDK(),
-    chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
-    chrome.storage.local.get("settings"),
-  ]);
+  let sdkInfo: SDKInfo | null = null;
+  let response: any = null;
+  let settingsStored: Record<string, any> = {};
+  try {
+    [sdkInfo, response, settingsStored] = await Promise.all([
+      detectSDK(),
+      chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
+      chrome.storage.local.get("settings"),
+    ]);
+  } catch { return; } // background inactive — skip this page
 
   // Background returns serialized campaigns (all values are strings)
   const campaigns: Array<Record<string, string>> = response?.campaigns ?? [];
@@ -79,11 +84,14 @@ async function main() {
   }
 
   // Use auction-based campaign selection via background (interest-aware + Vickrey)
-  const selectionResponse = await chrome.runtime.sendMessage({
-    type: "SELECT_CAMPAIGN",
-    campaigns: pool,
-    pageCategory: category,
-  });
+  let selectionResponse: any = null;
+  try {
+    selectionResponse = await chrome.runtime.sendMessage({
+      type: "SELECT_CAMPAIGN",
+      campaigns: pool,
+      pageCategory: category,
+    });
+  } catch { return; } // background inactive
   let match = selectionResponse?.selected ?? null;
   const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
   const auctionMechanism: string | undefined = selectionResponse?.mechanism;
@@ -164,15 +172,17 @@ async function main() {
   }
 
   // Notify background to build a claim (with auction clearing CPM + attestation)
-  chrome.runtime.sendMessage({
-    type: "IMPRESSION_RECORDED",
-    campaignId,
-    url: window.location.href,
-    category,
-    publisherAddress: effectivePublisher,
-    clearingCpmPlanck,
-    attestation: attestation ?? undefined,
-  });
+  try {
+    chrome.runtime.sendMessage({
+      type: "IMPRESSION_RECORDED",
+      campaignId,
+      url: window.location.href,
+      category,
+      publisherAddress: effectivePublisher,
+      clearingCpmPlanck,
+      attestation: attestation ?? undefined,
+    });
+  } catch {}
 }
 
 // Run on page load — wait for DOM to be ready

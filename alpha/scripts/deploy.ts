@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
 import * as fs from "fs";
 
@@ -313,6 +313,7 @@ async function main() {
   // Write deployed-addresses.json (only after full validation)
   // -------------------------------------------------------------------
 
+  addresses.network = network.name;
   const outPath = __dirname + "/../deployed-addresses.json";
   fs.writeFileSync(outPath, JSON.stringify(addresses, null, 2) + "\n");
   console.log(`\nAddresses written to ${outPath}`);

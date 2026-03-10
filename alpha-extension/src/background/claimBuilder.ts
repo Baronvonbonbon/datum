@@ -6,6 +6,16 @@ import { Claim, ClaimChainState, Impression } from "@shared/types";
 const CHAIN_STATE_PREFIX = "chainState:";
 const QUEUE_KEY = "claimQueue";
 
+// Per-(user, campaign) mutex to prevent nonce race conditions
+const locks = new Map<string, Promise<void>>();
+function withLock(key: string, fn: () => Promise<void>): Promise<void> {
+  const prev = locks.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  locks.set(key, next);
+  next.finally(() => { if (locks.get(key) === next) locks.delete(key); });
+  return next;
+}
+
 export const claimBuilder = {
   async onImpression(msg: {
     campaignId: string;
@@ -13,74 +23,67 @@ export const claimBuilder = {
     category: string;
     publisherAddress: string;
     clearingCpmPlanck?: string; // auction-determined clearing CPM
-    qualityScore?: number;      // engagement quality score (0.0 - 1.0)
   }): Promise<void> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
     if (!userAddress) return; // no wallet connected
 
-    const campaignId = BigInt(msg.campaignId);
-    const chainState = await getChainState(userAddress, msg.campaignId);
+    // Serialize per-(user, campaign) to prevent nonce race from concurrent tabs
+    const lockKey = `${userAddress}:${msg.campaignId}`;
+    await withLock(lockKey, async () => {
+      const campaignId = BigInt(msg.campaignId);
+      const chainState = await getChainState(userAddress, msg.campaignId);
 
-    // Fetch bidCpmPlanck from cached campaigns
-    const cached = await chrome.storage.local.get("activeCampaigns");
-    const campaigns = cached.activeCampaigns ?? [];
-    const campaign = campaigns.find((c: { id: string }) => c.id === msg.campaignId);
-    if (!campaign) return; // campaign no longer active
+      // Fetch bidCpmPlanck from cached campaigns
+      const cached = await chrome.storage.local.get("activeCampaigns");
+      const campaigns = cached.activeCampaigns ?? [];
+      const campaign = campaigns.find((c: { id: string }) => c.id === msg.campaignId);
+      if (!campaign) return; // campaign no longer active
 
-    const impressionCount = 1n;
-    // Use auction clearing CPM if provided, otherwise fall back to bid CPM
-    let clearingCpmPlanck = msg.clearingCpmPlanck
-      ? BigInt(msg.clearingCpmPlanck)
-      : BigInt(campaign.bidCpmPlanck);
+      const impressionCount = 1n;
+      // Use auction clearing CPM if provided, otherwise fall back to bid CPM
+      const clearingCpmPlanck = msg.clearingCpmPlanck
+        ? BigInt(msg.clearingCpmPlanck)
+        : BigInt(campaign.bidCpmPlanck);
+      const nonce = BigInt(chainState.lastNonce + 1);
+      const previousClaimHash =
+        chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
-    // Engagement-weighted CPM: discount clearing price for low-quality impressions.
-    // Quality score 1.0 = full clearing price, 0.5 = 75% price (floor 50% of clearing).
-    if (msg.qualityScore !== undefined && msg.qualityScore < 1.0) {
-      // Discount formula: effectiveCpm = clearingCpm * (0.5 + 0.5 * qualityScore)
-      // Quality 1.0 → 100%, 0.5 → 75%, 0.0 → 50% (floor)
-      const scaleBps = BigInt(Math.round(5000 + 5000 * Math.min(msg.qualityScore, 1.0)));
-      clearingCpmPlanck = (clearingCpmPlanck * scaleBps) / 10000n;
-      if (clearingCpmPlanck < 1n) clearingCpmPlanck = 1n;
-    }
-    const nonce = BigInt(chainState.lastNonce + 1);
-    const previousClaimHash =
-      chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
+      const claimHash = solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [
+          campaignId,
+          msg.publisherAddress,
+          userAddress,
+          impressionCount,
+          clearingCpmPlanck,
+          nonce,
+          previousClaimHash,
+        ]
+      );
 
-    const claimHash = solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [
+      const claim: Claim = {
         campaignId,
-        msg.publisherAddress,
-        userAddress,
+        publisher: msg.publisherAddress,
         impressionCount,
         clearingCpmPlanck,
         nonce,
         previousClaimHash,
-      ]
-    );
+        claimHash,
+        zkProof: "0x",
+      };
 
-    const claim: Claim = {
-      campaignId,
-      publisher: msg.publisherAddress,
-      impressionCount,
-      clearingCpmPlanck,
-      nonce,
-      previousClaimHash,
-      claimHash,
-      zkProof: "0x",
-    };
+      // Persist updated chain state
+      await setChainState(userAddress, msg.campaignId, {
+        userAddress,
+        campaignId: msg.campaignId,
+        lastNonce: Number(nonce),
+        lastClaimHash: claimHash,
+      });
 
-    // Persist updated chain state
-    await setChainState(userAddress, msg.campaignId, {
-      userAddress,
-      campaignId: msg.campaignId,
-      lastNonce: Number(nonce),
-      lastClaimHash: claimHash,
+      // Append claim to queue
+      await appendToQueue(claim, userAddress);
     });
-
-    // Append claim to queue
-    await appendToQueue(claim, userAddress);
   },
 
   // Re-sync chain state from on-chain after a nonce mismatch
