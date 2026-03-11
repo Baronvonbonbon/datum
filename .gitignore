@@ -9,6 +9,8 @@ alpha/artifacts/
 alpha/cache/
 alpha/typechain-types/
 alpha/deployments/
+alpha/local-devnet.json
+alpha/test-accounts.json
 alpha-extension/node_modules/
 alpha-extension/dist/
 ref/

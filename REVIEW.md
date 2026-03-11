@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad); 2026-03-11 (A3.2 local devnet E2E passed)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 111/111 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE — pending local devnet E2E validation (A3.2) and Paseo deployment (A3.3).
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 111/111 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE. **A3.2 local devnet E2E PASSED** (9 contracts deployed on pallet-revive, all 6 E2E sections pass). Next: A3.3 Paseo deployment.
 
 ---
 

@@ -12,6 +12,7 @@
 import { ethers } from "hardhat";
 import { keccak256, toUtf8Bytes, AbiCoder, solidityPackedKeccak256 } from "ethers";
 import { parseDOT } from "../test/helpers/dot";
+import { fundSigners } from "../test/helpers/mine";
 import * as fs from "fs";
 
 const STATUS = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
@@ -31,6 +32,12 @@ async function main() {
   log("INIT", `Deployer: ${deployer.address}`);
   log("INIT", `Publisher: ${publisher.address}`);
   log("INIT", `User: ${user.address}`);
+  log("INIT", `Voter2: ${voter2.address}`);
+
+  // Fund unfunded accounts from deployer (devchain only pre-funds Alith/Baltathar)
+  // Pallet-revive gas costs are ~5×10^21 planck per contract call, need 10^24 per signer
+  log("INIT", "Funding signers (pallet-revive needs ~10^24 planck per signer)...");
+  await fundSigners(4);
 
   // Load deployed addresses
   const addrFile = __dirname + "/../deployed-addresses.json";
@@ -62,8 +69,10 @@ async function main() {
   }
 
   // Create campaign
-  const BUDGET = parseDOT("10");
-  const DAILY_CAP = parseDOT("10");
+  // Budget/dailyCap must be large enough that settlement totalPayment and each revenue split
+  // exceed the existential deposit (~1 DOT on devchain). Use 100 DOT budget.
+  const BUDGET = parseDOT("100");
+  const DAILY_CAP = parseDOT("100");
   const BID_CPM = parseDOT("0.016");
   const CATEGORY = 1;
 
@@ -88,10 +97,10 @@ async function main() {
   assert(status === 0, `Expected Pending (0), got ${STATUS[status]}`);
   log("1", `Status: ${STATUS[status]}`);
 
-  // Vote aye to activate
-  const STAKE = parseDOT("30");
+  // Vote aye to activate (quorum is 100 DOT weighted; use 150 DOT with conviction 0)
+  const STAKE = parseDOT("150");
   await (await v2.connect(voter2).vote(campaignId!, true, 0, { value: STAKE })).wait();
-  log("1", "Aye vote cast by voter2");
+  log("1", "Aye vote cast by voter2 (150 DOT)");
 
   await (await v2.evaluateCampaign(campaignId!)).wait();
   status = Number(await campaigns.getCampaignStatus(campaignId!));
@@ -109,7 +118,11 @@ async function main() {
   log("2", "--- Settlement ---");
 
   // Build a simple claim hash chain
-  const impressionCount = 10n;
+  // Note: totalPayment = (cpm * impressions) / 1000, must exceed existential deposit (~1 DOT on devchain)
+  // and each split (publisher 50%, user 37.5%, protocol 12.5%) should also exceed ED for withdrawals.
+  // With 0.016 DOT CPM × 1M impressions / 1000 = 16 DOT total.
+  // Split: publisher ~8 DOT, user ~6 DOT, protocol ~2 DOT — all above ED.
+  const impressionCount = 1_000_000n;
   const clearingCpm = BID_CPM; // clearing = bid for single campaign
   const nonce = 1n; // Genesis nonce is 1 (0 is invalid)
   const previousHash = "0x" + "0".repeat(64);
@@ -117,7 +130,7 @@ async function main() {
   // Compute claim hash: keccak256(abi.encodePacked(...))
   const claimHash = solidityPackedKeccak256(
     ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-    [campaignId!, user.address, publisher.address, impressionCount, clearingCpm, nonce, previousHash]
+    [campaignId!, publisher.address, user.address, impressionCount, clearingCpm, nonce, previousHash]
   );
 
   const claimBatch = [{
@@ -229,9 +242,9 @@ async function main() {
   log("5", "Second campaign activated");
 
   // Vote nay (heavier than aye) to enable termination
-  const NAY_STAKE = parseDOT("50");
+  const NAY_STAKE = parseDOT("200");
   await (await v2.connect(voter2).vote(cid2!, false, 0, { value: NAY_STAKE })).wait();
-  log("5", "Nay vote cast");
+  log("5", "Nay vote cast (200 DOT)");
 
   // Aye voter withdraws to shift majority
   // (deployer voted aye, need to wait for lockup)

@@ -2,7 +2,7 @@
 
 **Version:** 2.2
 **Date:** 2026-02-24
-**Last updated:** 2026-03-10 — All alpha-scope code COMPLETE. Bug fixes: BUG3 (zero-vote termination), C-M1 (timelock cancel), E-H1–E-H5 (nonce race, promise handling, network validation, handshake spoofing, quality score trust). Publisher SDK, open campaigns, precompile integration, content safety. 111/111 tests, 580KB popup, 0 errors. Next: A3.2 local devnet E2E validation → A3.3 Paseo deployment.
+**Last updated:** 2026-03-11 — **A3.2 local devnet E2E PASSED.** 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass (campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. 111/111 Hardhat tests, 580KB popup, 0 errors. Next: A3.2 browser E2E (manual) → A3.3 Paseo deployment.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 

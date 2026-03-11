@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 1.6
-**Date:** 2026-03-10
+**Version:** 1.7
+**Date:** 2026-03-11
 **Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, and open multi-account testing
 **Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 111/111 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, and open campaigns COMPLETE. 111/111 Hardhat tests. Extension builds clean (0 webpack errors, 580KB popup.js). **Next step: A3.2 local devnet E2E validation.**
+**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, and open campaigns COMPLETE. 111/111 Hardhat tests. Extension builds clean (0 webpack errors, 580KB popup.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
 
 ---
 
@@ -27,10 +27,10 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 | Contract | PVM size | Spare | Purpose |
 |----------|----------|-------|---------|
 | DatumPauseRegistry | 4,047 B | 45,105 B | Global emergency pause circuit breaker (A1.1) |
-| DatumTimelock | 17,962 B | 31,190 B | Standalone 48h admin timelock (A1.2) |
+| DatumTimelock | 18,342 B | 30,810 B | Standalone 48h admin timelock (A1.2) |
 | DatumPublishers | 22,614 B | 26,538 B | Publisher registry + configurable take rates (30-80%) + category bitmask |
 | DatumCampaigns | 48,662 B | 490 B | Campaign lifecycle, budget escrow, open campaigns, manual reentrancy guard (A1.3) |
-| DatumGovernanceV2 | 39,829 B | 9,323 B | Dynamic voting + evaluateCampaign() + inline slash (P18) + minimumBalance dust prevention |
+| DatumGovernanceV2 | 39,693 B | 9,459 B | Dynamic voting + evaluateCampaign() + inline slash (P18) + minimumBalance dust prevention |
 | DatumGovernanceSlash | 30,298 B | 18,854 B | Slash pool finalization + winner claims (P18), H1 div-by-zero guard |
 | DatumSettlement | 48,820 B | 332 B | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution |
 | DatumRelay | 46,180 B | 2,972 B | EIP-712 user signature + publisher co-sig (skipped for open campaigns), gasless settlement |
@@ -117,13 +117,6 @@ pallet-revive provides ~41 host functions (syscalls) and several precompile cont
 | `length(key)` | **Optimization** — check data size before reading. Useful for batch size validation without loading the full batch. Cheaper than loading + measuring. |
 | `has_key(key)` | Existence check without reading value. Cheaper than SLOAD for boolean checks (e.g., "has this user voted?"). |
 
-#### ERC-20 precompile (per-asset at deterministic addresses)
-
-| Feature | DATUM relevance |
-|---------|-----------------|
-| Address: `0x[assetId(8hex)]...01200000` | **Future** — if DATUM issues a governance token or reward token via Asset Hub's Assets pallet, contracts can interact via standard ERC-20 interface without deploying a separate token contract. |
-| `transfer()`, `balanceOf()`, `approve()` | Standard token operations against native Asset Hub assets. |
-
 #### XCM precompile (`0x0000...0a0000`)
 
 | Function | DATUM relevance |
@@ -154,7 +147,7 @@ pallet-revive provides ~41 host functions (syscalls) and several precompile cont
 - **weightLeft() batch loop early abort** — Graceful partial settlement when weight runs low mid-loop. Adds ~3,598 B to Relay PVM (only 2,972 B spare). Same issue for Settlement. Deferred until resolc improves.
 - sr25519 signature verification (requires external wallet integration P17)
 - XCM fee routing (requires HydraDX integration P11)
-- ERC-20 precompile for governance token (requires token design)
+
 
 ### ISystem interface (NEW — `alpha/contracts/interfaces/ISystem.sol`)
 
@@ -390,24 +383,26 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Total: **100/100 tests pass** (exceeds 75+ target)
 - [x] Run: `cd alpha && npx hardhat test` — 100 passing, 0 failing, ~4s
 
-#### A3.2 — Local devnet validation
+#### A3.2 — Local devnet validation ✅ COMPLETE (2026-03-11)
 
-- [ ] Start substrate-contracts-node + eth-rpc (Docker)
-- [ ] Deploy alpha contracts via `alpha/scripts/deploy.ts`
-- [ ] Run `alpha/scripts/setup-test-campaign.ts` with real IPFS metadata
-- [ ] Load alpha-extension in Chrome, configure for local devnet
-- [ ] Full E2E test:
-  - Create campaign with IPFS metadata
-  - Governance vote → activation
-  - Browse matching page → ad appears with IPFS creative
-  - Submit claims (manual + auto)
-  - Verify second-price clearing CPM in claim data
-  - Publisher relay submit
-  - Withdraw (publisher + user)
-  - Export claims → clear → import claims → verify integrity
-  - Pause all contracts → verify mutations blocked → unpause
-  - Propose admin change → verify 48h delay → apply
-- [ ] Fix any runtime issues
+- [x] Start substrate-contracts-node + eth-rpc (Docker)
+- [x] Deploy alpha contracts via `alpha/scripts/deploy.ts --network substrate`
+- [x] Run `alpha/scripts/e2e-full-flow.ts --network substrate` — all 6 sections pass:
+  1. Campaign lifecycle: create → vote → activate → metadata ✅
+  2. Settlement: hash chain claim submitted and settled (1M impressions, 16 DOT payment) ✅
+  3. Withdrawals: publisher (8 DOT) + user (6 DOT) balances withdrawn ✅
+  4. Pause/unpause: circuit breaker toggled, settlement blocked while paused ✅
+  5. Governance slash: second campaign → aye vote → nay vote → terminate → finalize slash ✅
+  6. Timelock: propose → execute (correctly reverts, 48h not expired) → cancel ✅
+- [x] Bugs found and fixed during E2E:
+  - Claim hash field order in e2e script (publisher/user swapped vs contract)
+  - Signer funding: pallet-revive needs ~10^24 planck per signer (gas costs ~5×10^21 per call)
+  - Quorum: 30 DOT stake below 100 DOT quorum, bumped to 150 DOT
+  - Existential deposit: 10 impressions produced sub-ED payment, bumped to 1M with 100 DOT budget
+- [x] Test account funding (`fund-test-accounts.ts`): 24 accounts funded — 6 config, 3 advertisers, 3 viewers, 2 publishers, 3 voters, 2 light-funded, 5 ED edge cases
+- [x] **Denomination rounding finding:** The real transfer floor on pallet-revive devchain is NOT the existential deposit — it's the eth-rpc denomination rounding bug. `value % 10^6 >= 500_000` causes rejection. Values of 999k and 500k planck are rejected, but 1M and 1k both succeed. ED on devchain is very low (~1000 planck). All contract value transfers must use clean multiples of 10^6 planck for amounts >= 10^6.
+- [ ] Load alpha-extension in Chrome, configure for local devnet (browser E2E — manual step)
+- [ ] Fix any runtime issues from browser E2E
 
 #### A3.3 — Paseo testnet deployment
 
@@ -592,7 +587,7 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 Comprehensive audit of all contracts, extension code, tests, and deploy scripts. Findings organized by severity and component.
 
-### Bugs (fix before A3.2 devnet E2E)
+### Bugs (all fixed, validated in A3.2 devnet E2E)
 
 #### ~~BUG1~~ — e2e-full-flow.ts nonce = 0 ✅ FIXED
 - **Location:** `alpha/scripts/e2e-full-flow.ts:114`
@@ -802,7 +797,6 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 | F6 | **M4: Governance sweep** | Reclaim abandoned slash pools + campaign dust via `sweepSlashPool()` + `sweepAbandonedBudget()`. Two-contract pattern designed (see Part 4B). | Campaigns PVM headroom (392 B spare) | Post-beta |
 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17 (external wallets), sr25519Verify precompile stability | Post-beta |
 | F8 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration (P11) | Post-beta |
-| F9 | **ERC-20 governance token** | Native Asset Hub token via ERC-20 precompile. Enables staking, delegation, fee payment in DATUM token. | Token economics design | Post-beta |
 
 ### Extension Improvements
 
@@ -854,7 +848,7 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 │   ├── scripts/
 │   │   ├── deploy.ts             Deploy with error handling + validation (B2)
 │   │   ├── setup-test-campaign.ts
-│   │   ├── e2e-full-flow.ts      NEW — full E2E test script (H5)
+│   │   ├── e2e-full-flow.ts      Full E2E test script (H5) — 6 sections, validated on devnet
 │   │   ├── fund-wallet.ts
 │   │   └── check-state.ts
 │   ├── deployments/
@@ -958,6 +952,6 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 - [XCM Precompile](https://docs.polkadot.com/smart-contracts/precompiles/xcm/)
 - [System Precompile](https://docs.polkadot.com/smart-contracts/precompiles/system/)
 - [Storage Precompile](https://docs.polkadot.com/smart-contracts/precompiles/storage/)
-- [ERC-20 Precompile](https://docs.polkadot.com/smart-contracts/precompiles/erc20/)
+
 - [Contracts on AssetHub Roadmap (Forum)](https://forum.polkadot.network/t/contracts-on-assethub-roadmap/9513)
 - [Smart Contracts on Polkadot Hub: Progress Update (Forum)](https://forum.polkadot.network/t/smart-contracts-on-polkadot-hub-progress-update/14596)
