@@ -133,7 +133,7 @@ All amounts are in planck (1 DOT = 10^10 planck). Clearing CPM is determined by 
 | `DatumTimelock` | 18 KB | 48-hour admin delay for contract reference changes |
 | `DatumPublishers` | 23 KB | Publisher registry, take-rate management (30-80%), category bitmask (26 categories) |
 | `DatumCampaigns` | 49 KB | Campaign lifecycle: creation (open or publisher-specific), activation, pausing, completion, termination, expiry |
-| `DatumGovernanceV2` | 38 KB | Conviction voting (0-6x), evaluateCampaign(), inline symmetric slash |
+| `DatumGovernanceV2` | 40 KB | Conviction voting (0-6x), evaluateCampaign(), inline symmetric slash, minimumBalance dust prevention |
 | `DatumGovernanceSlash` | 30 KB | Slash pool finalization and winner reward claims |
 | `DatumSettlement` | 49 KB | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution, optional ZK |
 | `DatumRelay` | 46 KB | EIP-712 user + publisher co-signature verification for gasless settlement, open campaign co-sig skip |
@@ -172,7 +172,7 @@ The extension processes all browsing data locally. Page classification, campaign
 alpha/
   contracts/          Solidity source (9 contracts + interfaces + mocks)
   test/               Hardhat test suite (111 tests)
-  scripts/            deploy.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts, etc.
+  scripts/            deploy.ts, e2e-full-flow.ts, fund-test-accounts.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts
   hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotHub
 
 alpha-extension/
@@ -236,14 +236,19 @@ docker compose up -d
 # Deploy 9 contracts with full wiring + ownership transfer
 npx hardhat run scripts/deploy.ts --network substrate
 
-# Create and activate a test campaign
-npx hardhat run scripts/setup-test-campaign.ts --network substrate
+# Run full E2E flow (campaign lifecycle, settlement, withdrawals, pause, slash, timelock)
+npx hardhat run scripts/e2e-full-flow.ts --network substrate
 
-# Fund a wallet for testing
+# Fund 24 test accounts (advertisers, viewers, publishers, voters, ED edge cases)
+npx hardhat run scripts/fund-test-accounts.ts --network substrate
+
+# Or fund a single wallet
 TARGET=0xYourAddress npx hardhat run scripts/fund-wallet.ts --network substrate
 ```
 
 Deploy script writes `deployed-addresses.json` to both `alpha/` and `alpha-extension/` -- the extension auto-loads addresses on reload.
+
+**Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
 ### Claim export/import
 
@@ -259,7 +264,8 @@ The extension supports encrypted claim state portability (P6):
 - [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 111/111 tests
 - [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, 0 webpack errors
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
-- [ ] **Local devnet E2E** -- full runtime validation against substrate-contracts-node (A3.2)
+- [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
+- [ ] **Browser E2E** -- load extension in Chrome, configure for local devnet, verify full ad display + claim flow (A3.2 manual step)
 - [ ] **Paseo testnet** -- deployment and open multi-account testing (A3.3-A3.5)
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 
@@ -278,6 +284,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 
 - **Daily cap timestamp:** `DatumCampaigns` uses `block.timestamp / 86400` for daily cap tracking. Block validators can manipulate timestamps by ±15 seconds, which is negligible relative to the 86,400-second daily period (<0.02% error).
 - **Unclaimed slash rewards:** `DatumGovernanceSlash` has no expiry deadline for unclaimed rewards. Unclaimed funds remain locked. A sweep function is planned for beta (M4).
+- **Denomination rounding:** The pallet-revive eth-rpc adapter rejects value transfers where `value % 10^6 >= 500_000`. All on-chain payment amounts (settlement splits, governance stakes, withdrawals) must be clean multiples of 10^6 planck. This is a pallet-revive/eth-rpc quirk, not an existential deposit issue.
 
 ## Deferred (explicitly out of scope for alpha)
 
