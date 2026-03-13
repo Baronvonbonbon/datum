@@ -151,7 +151,7 @@ All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcod
 | Publisher | Publisher balance, withdraw, relay submit, take rate management, category checkboxes, SDK embed snippet |
 | My Ads | Advertiser campaign controls: pause/resume/complete/expire, campaign creation (open or publisher-specific) |
 | Govern | Conviction voting (0-6x), evaluateCampaign, withdraw with slash, slash finalization + reward claiming |
-| Settings | Network, RPC, 9 contract addresses, IPFS gateway, auto-submit, ad preferences, interest profile, wallet |
+| Settings | Network, RPC (with connectivity test), 9 contract addresses (with mismatch detection), IPFS gateway, auto-submit (with deauth warning), ad preferences, interest profile |
 
 Key subsystems:
 - **Publisher SDK** -- lightweight JS tag (`datum-sdk.js`) with challenge-response handshake for two-party impression attestation; inline ad injection into publisher-provided `<div id="datum-ad-slot">`
@@ -160,7 +160,7 @@ Key subsystems:
 - **Second-price auction** (P19) -- Vickrey auction: effectiveBid = bidCpm x interestWeight, solo campaigns at 70%, floor at 30%
 - **Behavioral analytics** (P16) -- on-device engagement capture (dwell time, scroll depth, tab focus, viewability), behavior hash chain, quality scoring, engagement-weighted CPM
 - **Claim portability** (P6) -- encrypted export/import of claim state (AES-256-GCM, HKDF key from wallet signature)
-- **Embedded wallet** -- AES-256-GCM encrypted private key with PBKDF2 key derivation; signs all transactions directly
+- **Multi-account wallet** -- AES-256-GCM encrypted private keys with PBKDF2 key derivation; named accounts with switch/rename/delete, legacy migration; signs all transactions directly
 
 ### Privacy model
 
@@ -220,7 +220,7 @@ npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
 ```bash
 cd alpha-extension
 npm install
-npm run build                # output in dist/ (popup.js 580KB, background.js 373KB, content.js 28KB)
+npm run build                # output in dist/ (popup.js 599KB, background.js 375KB, content.js 32KB)
 ```
 
 Load in Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> select `alpha-extension/dist/`
@@ -262,7 +262,7 @@ The extension supports encrypted claim state portability (P6):
 
 - [x] **PoC** -- 7 contracts, 64/64 Hardhat tests, local devnet verified (tagged `poc-complete`)
 - [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 111/111 tests
-- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, 0 webpack errors
+- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
 - [ ] **Browser E2E** -- load extension in Chrome, configure for local devnet, verify full ad display + claim flow (A3.2 manual step)
@@ -293,7 +293,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 | ZK proof of auction/engagement | Stub verifier deployed; real Groth16 requires BN128 pairing precompile (P9) |
 | Decentralized KYB identity | Permissionless for alpha; evaluating zkMe and Polkadot PoP for beta (P10) |
 | HydraDX XCM fee routing | Protocol fees accumulate in contract; XCM routing post-alpha (P11) |
-| External wallet integration | Embedded wallet only; WalletConnect v2 post-alpha (P17) |
+| External wallet integration | Multi-account embedded wallet; WalletConnect v2 post-alpha (P17) |
 | ~~Multi-publisher campaigns~~ | **Done** — open campaigns (`publisher = address(0)`) allow any matching publisher (P5) |
 | Contract upgrade path | Non-upgradeable; UUPS proxy or migration for beta (P7) |
 | Mandatory publisher attestation | Optional co-signature (degraded trust mode); mandatory post-alpha (P1) |

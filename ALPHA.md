@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 1.7
-**Date:** 2026-03-11
-**Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, and open multi-account testing
-**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 111/111 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete), local devnet verified
+**Version:** 1.9
+**Date:** 2026-03-13
+**Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, and open testing
+**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 111/111 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, and open campaigns COMPLETE. 111/111 Hardhat tests. Extension builds clean (0 webpack errors, 580KB popup.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
+**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, Part 4D UX audit (Phase 1 + Phase 2) COMPLETE. 111/111 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors, 599KB popup.js, 375KB background.js, 32KB content.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). Multi-account wallet (MA-1 through MA-4) implemented. ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
 
 ---
 
@@ -36,7 +36,7 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 | DatumRelay | 46,180 B | 2,972 B | EIP-712 user signature + publisher co-sig (skipped for open campaigns), gasless settlement |
 | DatumZKVerifier | 1,409 B | 47,743 B | Stub ZK proof verifier (accepts any non-empty proof) |
 
-### Extension (7 tabs, 580 KB popup.js — V2 overhaul + P6 + Part 4B + content safety + Publisher SDK + open campaigns)
+### Extension (7 tabs, 599 KB popup.js — V2 overhaul + P6 + Part 4B + content safety + Publisher SDK + open campaigns + multi-account + Part 4D UX)
 
 | Tab | Component | Function |
 |-----|-----------|----------|
@@ -51,7 +51,7 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 ### Key design decisions locked in PoC
 
 - **Denomination:** Planck (10^10 per DOT), native PolkaVM path
-- **Wallet:** Embedded ethers.Wallet with AES-256-GCM encryption (PBKDF2 310k iterations)
+- **Wallet:** Embedded ethers.Wallet with AES-256-GCM encryption (PBKDF2 310k iterations). Multi-account support implemented (MA-1 through MA-4): named accounts, switch/rename/delete, legacy migration.
 - **Claim hash:** `keccak256(abi.encodePacked(...))` — no zkProof in hash (zkProof is a carrier field). Blake2-256 deferred (Settlement 332 B spare, precompile call adds ~4 KB PVM).
 - **Settlement caller:** User direct (`settleClaims`) or publisher relay (`settleClaimsFor` with EIP-712 signature)
 - **Batch size:** MAX_CLAIMS_PER_BATCH = 5 (on-chain enforced)
@@ -738,6 +738,318 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 
 ---
 
+## Part 4D: Extension UX Audit & Multi-Account (2026-03-13)
+
+Comprehensive functional review of all 7 popup panels, background service, content script, and ad delivery pipeline. Findings organized by component with severity and implementation effort. Includes multi-account wallet feature for testing.
+
+### Multi-Account Wallet (MA) — New Feature
+
+Support multiple named accounts with import/generate/switch/remove per account. Required for testing (advertiser, publisher, voter, user roles from single browser).
+
+#### MA-1 — Storage layer: multi-wallet support
+- **Location:** `shared/walletManager.ts`
+- **Current:** Single `datumEncryptedWallet` key, single `connectedAddress`, single `unlockedWallet` in memory.
+- **Change:** Replace with `wallets` map (`Record<accountName, EncryptedWalletData>`), `activeWalletName` key, per-account unlock. Each account = one private key = one address.
+- **Storage schema:**
+  ```
+  "wallets": { "Advertiser": EncryptedWalletData, "Publisher": EncryptedWalletData, ... }
+  "activeWalletName": "Advertiser"
+  "connectedAddress": "0x..."
+  ```
+- **New exports:** `listWallets()`, `getWalletAddress(name)`, `setActiveWallet(name)`, `deleteWallet(name)`, `renameWallet(old, new)`. Overload `importKey`/`generateKey`/`unlock` to accept account name.
+- **Effort:** Medium
+
+#### MA-2 — Popup wallet UI: account picker and management
+- **Location:** `popup/App.tsx`
+- **Change:** Add account selector dropdown in header (name + abbreviated address). Account management: "Add Account" (import or generate with name), "Switch Account" (unlock different account), "Rename Account", "Remove Account" (with typed confirmation for funded accounts).
+- **States:** `walletNames: string[]`, `activeWallet: string | null`. Pass through to all child panels via `address` prop (unchanged).
+- **UX:** Lock all accounts on "Lock" button. Switching accounts requires password entry for target account.
+- **Effort:** Medium
+
+#### MA-3 — Background: per-account auto-submit
+- **Location:** `background/index.ts`
+- **Change:** `AUTHORIZE_AUTO_SUBMIT` now includes `accountName`. Session password map: `Map<accountName, string>`. `autoFlushDirect()` uses active account's session key. `WALLET_CONNECTED` message includes `accountName`.
+- **Effort:** Low
+
+#### MA-4 — Migration: single-wallet to multi-wallet
+- **Location:** `shared/walletManager.ts`
+- **Change:** On first load, if `datumEncryptedWallet` exists but `wallets` does not, migrate to `wallets: { "Account 1": <existing data> }` and set `activeWalletName: "Account 1"`. Delete legacy key after migration.
+- **Effort:** Low
+
+### Campaign Lifecycle (CL)
+
+#### CL-1 — Auto-hide resolved campaigns ✅ DONE
+- **Severity:** High | **Effort:** Low
+- **Location:** `popup/CampaignList.tsx`, `popup/AdvertiserPanel.tsx`, `popup/GovernancePanel.tsx`
+- **Problem:** Expired (5), Terminated (4), and Completed (3) campaigns persist in UI indefinitely. No cleanup.
+- **Fix:** Add configurable auto-hide after N blocks (default 14,400 = ~24h). "Show resolved" toggle already exists in GovernancePanel — extend to CampaignList and AdvertiserPanel. Add "Clear resolved" button.
+
+#### CL-2 — Stale claims for dead campaigns ✅ DONE
+- **Severity:** High | **Effort:** Low
+- **Location:** `background/index.ts` (ALARM_POLL_CAMPAIGNS), `popup/ClaimQueue.tsx`
+- **Problem:** Claims queued for terminated/expired campaigns remain in queue indefinitely. `pruneInactiveCampaigns()` runs on poll but user is never notified that claims are unsubmittable.
+- **Fix:** Proactively prune claims for campaigns in terminal states (3/4/5). Show notification in ClaimQueue: "X claims removed — campaign terminated/expired."
+
+#### CL-3 — No expiration visibility ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/CampaignList.tsx`, `popup/AdvertiserPanel.tsx`
+- **Problem:** Pending campaigns have a ~7 day timeout (`pendingExpiryBlock`) but it's not exposed by slim getters. Users can't see when auto-expiry occurs.
+- **Fix:** Show "Expires in ~X days" hint on Pending campaigns (estimate from creation block + 100,800 blocks). Use CampaignCreated event block number as creation reference.
+
+#### CL-4 — Metadata cached beyond campaign death ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `background/campaignPoller.ts`
+- **Problem:** IPFS metadata cached with 1-hour TTL but never cleaned when campaign terminates. Storage grows indefinitely.
+- **Fix:** Delete `metadata:${campaignId}` entries when campaign enters terminal state.
+
+#### CL-5 — Paused campaign status unexplained ✅ DONE
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/CampaignList.tsx`
+- **Problem:** Paused campaigns are returned by poller but filtered out by content script (status !== 1). Users don't understand why a campaign they were seeing stopped delivering.
+- **Fix:** Show "Paused" badge on campaign cards with tooltip: "This campaign is temporarily paused by its advertiser or governance."
+
+### User Preference & Control Gaps (UP)
+
+#### UP-1 — Min CPM threshold has no UI ✅ DONE (already existed in Settings Ad Preferences)
+- **Severity:** High | **Effort:** Low
+- **Location:** `popup/Settings.tsx`
+- **Problem:** `minBidCpm` exists in UserPreferences and is enforced in auction filtering, but Settings panel has no input field. Dead feature — users can't set it.
+- **Fix:** Add "Minimum bid CPM (DOT)" text input next to the maxAdsPerHour slider in Ad Preferences section.
+
+#### UP-2 — No address blocklist management UI ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/Settings.tsx`
+- **Problem:** `phishingList.ts` has `addBlockedAddress`/`removeBlockedAddress` API but no panel exposes it. Users can't manually block a specific advertiser or publisher.
+- **Fix:** Add "Blocked Addresses" section in Settings (below Ad Preferences). List current blocked addresses with remove buttons. Add input + "Block Address" button. Show phishing list status (last fetch time, domain count).
+
+#### UP-3 — Blocked campaigns persist forever ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `shared/userPreferences.ts`
+- **Problem:** Blocking a campaign adds its ID to `blockedCampaigns[]`. IDs for terminated/expired campaigns accumulate without cleanup.
+- **Fix:** On campaign poll, remove blocked IDs for campaigns in terminal states (3/4/5).
+
+#### UP-4 — Silenced categories bypass for uncategorized ⬜
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `background/index.ts` (SELECT_CAMPAIGN), `shared/userPreferences.ts`
+- **Problem:** Campaigns with `categoryId=0` (uncategorized) bypass all category silencing. No way to block uncategorized ads.
+- **Fix:** Add "Uncategorized" as a silenceable option in Settings category tree.
+
+#### UP-5 — No auction transparency ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/CampaignList.tsx` or new panel
+- **Problem:** Users can't see which campaigns competed, why one won, clearing CPM mechanism (solo/second-price/floor), or interest weight contribution.
+- **Fix:** Store last auction result in `chrome.storage.local`. Show in CampaignList or a dedicated "Last Ad" info section: winning campaign, clearing CPM, participant count, mechanism, interest weight.
+
+#### UP-6 — Rate limit counter not visible ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/UserPanel.tsx` or `popup/Settings.tsx`
+- **Problem:** `maxAdsPerHour` enforced but no "X/12 ads shown this hour" display.
+- **Fix:** Show impression count for current hour alongside maxAdsPerHour setting.
+
+#### UP-7 — Per-campaign claim management ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/ClaimQueue.tsx`
+- **Problem:** Only "Submit All" or "Clear All" — can't submit or discard claims for a single campaign.
+- **Fix:** Add per-campaign row actions: "Submit" (single campaign batch) and "Discard" (remove claims for one campaign).
+
+#### UP-8 — No per-campaign frequency cap ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `content/index.ts`, `background/index.ts`
+- **Problem:** `maxAdsPerHour` is global. A single high-bid campaign can dominate all ad slots.
+- **Fix:** Add per-campaign dedup window (already 5 min per campaign+hostname). Consider extending to configurable per-campaign hourly cap.
+
+### Wallet & Security UX (WS)
+
+#### WS-1 — Generated key: no copy button ✅ DONE
+- **Severity:** High | **Effort:** Low
+- **Location:** `popup/App.tsx`
+- **Problem:** Private key shown once during wallet generation with no copy-to-clipboard. Users must manually select text in small popup.
+- **Fix:** Add "Copy to clipboard" button next to generated key display. Clear clipboard after 60 seconds.
+
+#### WS-2 — Password minimum too low ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/App.tsx`
+- **Problem:** 4-character minimum password. Insufficient for production.
+- **Fix:** Increase to 8-character minimum. Keep strength indicator (M3).
+
+#### WS-3 — Auto-submit lost on restart: no warning ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/Settings.tsx`, `background/index.ts`
+- **Problem:** Session password in-memory only. After SW restart, auto-submit silently stops. No notification.
+- **Fix:** On Settings mount, ping `CHECK_AUTO_SUBMIT`. If `autoSubmit=true` but not authorized, show warning: "Auto-submit was interrupted — re-authorize to resume." (Partially addressed by E-M1, but needs UI banner.)
+
+#### WS-4 — Remove Wallet needs stronger confirmation ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/App.tsx`
+- **Problem:** Single confirmation dialog for wallet removal. Losing wallet = losing all funds.
+- **Fix:** Require typed confirmation: "Type DELETE to confirm wallet removal."
+
+### Governance UX (GV)
+
+#### GV-1 — Conviction lockup duration not in human time ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/GovernancePanel.tsx`
+- **Problem:** Dropdown shows "1x (base lockup)" but not "~24 hours" or "~365 days".
+- **Fix:** Extend `CONVICTION_LABELS` with estimated time: `"1x (~24h lockup)"`, `"2x (~48h)"`, ..., `"32x (~365d)"`.
+
+#### GV-2 — No warning before first vote (irreversible) ✅ DONE
+- **Severity:** High | **Effort:** Low
+- **Location:** `popup/GovernancePanel.tsx`
+- **Problem:** Contract prevents re-voting (E42). UI doesn't warn that voting is a one-time, locked commitment per campaign.
+- **Fix:** Add confirmation dialog before `castVote()`: "Voting is permanent — you cannot change your vote on this campaign. Your stake will be locked for [duration]. Continue?"
+
+#### GV-3 — Quorum progress not shown on campaign cards ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/GovernancePanel.tsx`
+- **Problem:** Pending campaigns show aye/nay bar but not "X/100 DOT quorum" progress.
+- **Fix:** Add quorum progress bar or "X/100 DOT" text on each Pending campaign card.
+
+#### GV-4 — Timelock pending changes opaque ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/GovernancePanel.tsx` or `popup/App.tsx` (timelock warning banner)
+- **Problem:** Timelock `ChangeProposed` events show raw hex calldata. Users can't understand what's changing.
+- **Fix:** ABI-decode known function selectors (setSettlementContract, setGovernanceContract, etc.) and display human-readable descriptions: "Settlement contract changing to 0x...1234 in 48 hours."
+
+### Publisher UX (PU)
+
+#### PU-1 — Take rate effective block not shown ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/PublisherPanel.tsx`
+- **Problem:** When publisher sets new take rate, no display of when it becomes effective.
+- **Fix:** If `pendingTakeRateBps !== currentTakeRateBps`, show "New rate effective at block #X (~Y hours)."
+
+#### PU-2 — Relay deadline in blocks, not time ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/PublisherPanel.tsx`, `popup/ClaimQueue.tsx`
+- **Problem:** "Deadline block 12345" is meaningless to users. Needs human-readable time.
+- **Fix:** Convert block delta to estimated time: `(deadlineBlock - currentBlock) × 6s`. Show "~4h remaining" or "Expired."
+
+#### PU-3 — Publisher attestation failures silent ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/ClaimQueue.tsx`
+- **Problem:** If co-signature endpoint is unreachable, batch shows "Unattested" with no error message.
+- **Fix:** Show attestation error reason: "Publisher endpoint unreachable" or "Signature rejected."
+
+#### PU-4 — Zero-category registration allowed ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/PublisherPanel.tsx`
+- **Problem:** Can register with no categories. SDK won't match any campaigns.
+- **Fix:** Warn: "No categories selected — your site won't match any campaigns." Disable "Save Categories" if none selected, or show warning.
+
+### Earnings & Analytics (EA)
+
+#### EA-1 — No earnings history ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/UserPanel.tsx`
+- **Problem:** Only shows current withdrawable balance. No record of past withdrawals or daily earning rate.
+- **Fix:** Track withdrawal events (WithdrawalUser) and settlement events per poll. Store daily totals. Show simple chart or list: "Today: +X DOT, This week: +Y DOT."
+
+#### EA-2 — No per-campaign earnings breakdown ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `popup/UserPanel.tsx`
+- **Problem:** Engagement section shows aggregate. No "Campaign #3 earned you X DOT" view.
+- **Fix:** Compute estimated earnings from `behaviorChain.eventCount × clearingCpm × 0.75`. Show per-campaign in breakdown.
+
+#### EA-3 — Behavior chains never cleaned up ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `background/index.ts`, `popup/UserPanel.tsx`
+- **Problem:** `behaviorChain:address:campaign` keys grow indefinitely in storage.
+- **Fix:** Delete chains for campaigns in terminal states during poll alarm. Or cap at 100 entries per user (remove oldest).
+
+#### EA-4 — Withdrawal minimum not shown ✅ DONE
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/UserPanel.tsx`, `popup/PublisherPanel.tsx`
+- **Problem:** Users may try to withdraw dust and hit denomination rounding (value % 10^6 >= 500k rejected by eth-rpc).
+- **Fix:** Show minimum withdrawal threshold (1M planck = 0.0001 DOT). Disable Withdraw button if balance < minimum.
+
+### Settings & Infrastructure (SI)
+
+#### SI-1 — No RPC connectivity test ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/Settings.tsx`
+- **Problem:** User can set invalid RPC URL with no feedback until operations fail.
+- **Fix:** Add "Test Connection" button next to RPC URL input. Call `provider.getBlockNumber()` and show result or error.
+
+#### SI-2 — Network switch doesn't warn about contract mismatch ✅ DONE
+- **Severity:** Medium | **Effort:** Low
+- **Location:** `popup/Settings.tsx`
+- **Problem:** Switching network without updating contract addresses = silent failures on every operation.
+- **Fix:** On network change, check if stored contract addresses match known addresses for the selected network. Warn if mismatch. Offer to auto-clear or auto-load known addresses.
+
+#### SI-3 — Contract address validation missing ⬜
+- **Severity:** Low | **Effort:** Low
+- **Location:** `popup/Settings.tsx`
+- **Problem:** Accepts any string as contract address. No hex or checksum validation.
+- **Fix:** Validate `0x` prefix + 40 hex chars on save. Show inline error for malformed addresses.
+
+### Content & Ad Delivery (AD)
+
+#### AD-1 — Quality rejection after ad display ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `background/index.ts` (ENGAGEMENT_RECORDED), `content/index.ts`
+- **Problem:** Ad is shown → engagement tracked → quality scored → if below threshold, claim removed. User already saw the ad. Advertiser's budget isn't charged but user saw low-quality placement.
+- **Fix:** Consider pre-scoring based on historical quality for the campaign/site combination. Reject before render if site historically produces low-quality engagements for this campaign.
+
+#### AD-2 — No ad feedback mechanism ⬜
+- **Severity:** Medium | **Effort:** Medium
+- **Location:** `content/adSlot.ts`, `background/index.ts`
+- **Problem:** Users can't report an ad as inappropriate, misleading, or irrelevant from the rendered ad itself. Only recourse is blocking via popup.
+- **Fix:** Add small "Report" or "x" icon on ad overlay/inline. Options: "Not interested", "Inappropriate", "Misleading". Auto-block campaign + record feedback for analytics.
+
+#### AD-3 — Content blocklist naive substring match ⬜
+- **Severity:** Low | **Effort:** Medium
+- **Location:** `shared/contentSafety.ts`
+- **Problem:** "online casino" catches literal match but not obfuscation ("0nline cas1no", "onl ine casino").
+- **Fix:** Post-alpha: normalize unicode, strip non-alpha, add leetspeak dictionary. Current blocklist is sufficient for alpha.
+
+### Summary: Implementation Priority
+
+**Phase 1 — Quick wins (before A3.2 browser E2E): ✅ ALL COMPLETE**
+- MA-1, MA-2, MA-3, MA-4 — Multi-account wallet (testing enabler) ✅
+- WS-1 — Copy button for generated key (60s clipboard auto-clear) ✅
+- GV-2 — Vote permanence warning (confirm dialog with slash info) ✅
+- UP-1 — Min CPM threshold UI (already existed in Settings) ✅
+- CL-1 — Auto-hide resolved campaigns (CampaignList + AdvertiserPanel) ✅
+
+**Phase 2 — Before A3.3 Paseo: ✅ ALL COMPLETE**
+- CL-2 — Prune stale claims + notification (ClaimQueue pruned count display) ✅
+- CL-3 — Pending expiration visibility (tooltip + inline note) ✅
+- CL-5 — Paused campaign tooltip ✅
+- GV-1 — Conviction lockup human time (~24h, ~48h, ..., ~365d) ✅
+- GV-3 — Quorum progress display (X/Y DOT on campaign cards) ✅
+- PU-1 — Take rate effective block (human time with formatBlockDelta) ✅
+- PU-2 — Relay deadline in human time (~Xh remaining) ✅
+- SI-1 — RPC connectivity test (block number + latency) ✅
+- SI-2 — Network/contract mismatch warning (code check + ABI validation) ✅
+- WS-2 — Password minimum increase (4→8 chars) ✅
+- WS-3 — Auto-submit deauth warning (banner when enabled but not authorized) ✅
+- EA-4 — Withdrawal minimum display (1M planck floor, UserPanel) ✅
+
+**Phase 3 — Post-alpha polish:**
+- UP-2 — Address blocklist management UI
+- UP-4 — Silenced "Uncategorized" option
+- UP-5 — Auction transparency
+- UP-7 — Per-campaign claim management
+- UP-8 — Per-campaign frequency cap
+- GV-4 — Timelock ABI decoding
+- EA-1 — Earnings history
+- EA-2 — Per-campaign earnings breakdown
+- AD-1 — Pre-scoring quality rejection
+- AD-2 — In-ad feedback/report mechanism
+
+**Deferred (beta):**
+- AD-3 — Advanced content blocklist (unicode normalization, leetspeak)
+- UP-3 — Auto-cleanup blocked campaign IDs
+- CL-4 — Metadata cache cleanup on terminal state
+- EA-3 — Behavior chain storage cleanup
+- WS-4 — Typed DELETE confirmation
+- SI-3 — Contract address hex validation
+- UP-6 — Ads-per-hour counter display
+- PU-3 — Attestation error display
+- PU-4 — Zero-category registration warning
+
+---
+
 ## Part 5: Post-Alpha Track (prioritized for beta)
 
 After Gate GA, these items become the beta development cycle:
@@ -784,6 +1096,8 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 | ~~S8~~ | ~~**E-H1: Claim builder nonce race**~~ | ~~claimBuilder.ts~~ | ~~Medium~~ | **✅ FIXED** — per-(user, campaign) promise-chain mutex |
 | ~~S9~~ | ~~**E-H2: Unhandled promise rejections**~~ | ~~content scripts~~ | ~~Medium~~ | **✅ FIXED** — try-catch on all sendMessage |
 | ~~S10~~ | ~~**E-H3: Deployed addresses network validation**~~ | ~~Settings.tsx~~ | ~~Medium~~ | **✅ FIXED** — network field + mismatch dialog |
+| ~~S11~~ | ~~**Phishing domain blocking (CTA URLs)**~~ | ~~phishingList.ts, campaignPoller.ts, content/index.ts~~ | ~~High~~ | **✅ DONE** — polkadot.js/phishing deny list, 3-layer defense (poller + content + auction) |
+| S12 | **On-chain publisher/advertiser blocklist** | DatumPublishers (26 KB spare) | Medium — extension-only filtering bypassable by direct contract calls | Post-beta |
 
 ### Feature Development
 
@@ -797,17 +1111,21 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 | F6 | **M4: Governance sweep** | Reclaim abandoned slash pools + campaign dust via `sweepSlashPool()` + `sweepAbandonedBudget()`. Two-contract pattern designed (see Part 4B). | Campaigns PVM headroom (392 B spare) | Post-beta |
 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17 (external wallets), sr25519Verify precompile stability | Post-beta |
 | F8 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration (P11) | Post-beta |
+| F9 | **Phishing address list (H160)** | Populate H160 blocklist from Ethereum-specific phishing feeds (e.g. MetaMask/EthPhishingDetect). SS58 addresses from polkadot.js/phishing `address.json` are not directly useful (different key type). Infrastructure ready (`addBlockedAddress`/`removeBlockedAddress` API). | None | 5 (beta) |
+| F10 | **Settings UI for blocked addresses** | Admin panel to view/add/remove blocked H160 addresses and review phishing deny list status (last fetch, domain count). | F9 | Post-beta |
+| F11 | **On-chain domain blocklist** | Move phishing domain deny list on-chain (DatumPublishers has 26 KB spare) so settlement itself rejects phishing campaigns. Currently extension-only — direct contract callers bypass filtering. | S12, PVM headroom | Post-beta |
 
 ### Extension Improvements
 
 | # | Item | Description | Priority |
 |---|------|-------------|----------|
-| X1 | **E-M1: Auto-submit deauth visibility** — ping auth status on Settings mount, warn if enabled but service worker restarted. | Medium |
+| ~~X1~~ | ~~**E-M1: Auto-submit deauth visibility**~~ — ping auth status on Settings mount, warn if enabled but service worker restarted. | **✅ DONE** (WS-3) |
 | X2 | **E-M2: Interest profile storage race** — write mutex for concurrent profile updates from multiple tabs. | Medium |
 | X3 | **E-M3: Metadata fetch failure retry** — track consecutive failures, surface in UI after 3+. | Low |
 | X4 | **E-M4: Signed relay batch expiry** — auto-remove expired batches from storage during poll alarm. | Low |
 | X5 | **E-M5: Category filter persistence** — persist across tab switches via `chrome.storage.session`. | Low |
 | X6 | **E-M6: Conviction tooltip** — explain that conviction multiplies both vote weight AND lock duration. | Low |
+| X7 | **Phishing list fetch resilience** — retry with exponential backoff on fetch failure; surface stale-cache warning in Settings if deny list is >24h old. | Low |
 
 ### Test Coverage Gaps
 

@@ -18,6 +18,7 @@ import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
 import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
+import { refreshPhishingList, isAddressBlocked } from "@shared/phishingList";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -119,6 +120,7 @@ async function initAlarms() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_POLL_CAMPAIGNS) {
+    await refreshPhishingList();
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
       await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
@@ -286,10 +288,24 @@ async function handleMessage(
 
       if (allowed.length === 0) return { selected: null };
 
+      // Filter out campaigns with blocked advertiser/publisher addresses
+      const safeAllowed: typeof allowed = [];
+      for (const c of allowed) {
+        const advBlocked = await isAddressBlocked(c.advertiser ?? "");
+        const pubBlocked = await isAddressBlocked(c.publisher ?? "");
+        if (advBlocked || pubBlocked) {
+          console.warn(`[DATUM] Campaign ${c.id} filtered — blocked address`);
+          continue;
+        }
+        safeAllowed.push(c);
+      }
+
+      if (safeAllowed.length === 0) return { selected: null };
+
       // Run auction
       const profile = await interestProfile.getProfile();
       const auctionResult = auctionForPage(
-        allowed as CampaignCandidate[],
+        safeAllowed as CampaignCandidate[],
         {}, // pageCategories not used in auction directly
         profile,
       );
@@ -304,7 +320,7 @@ async function handleMessage(
       }
 
       // Fallback to legacy matcher
-      const selected = selectCampaign(allowed, profile, msg.pageCategory);
+      const selected = selectCampaign(safeAllowed, profile, msg.pageCategory);
       return { selected };
     }
 

@@ -7,6 +7,7 @@ import { getCampaignsContract } from "@shared/contracts";
 import { metadataUrl } from "@shared/ipfs";
 import { Campaign, CampaignMetadata, CampaignStatus, ContractAddresses } from "@shared/types";
 import { validateAndSanitize, MAX_METADATA_BYTES } from "@shared/contentSafety";
+import { isUrlPhishing, isAddressBlocked, refreshPhishingList } from "@shared/phishingList";
 
 const STORAGE_KEY = "activeCampaigns";
 const MAX_SCAN_ID = 1000;
@@ -19,6 +20,10 @@ export const campaignPoller = {
         console.warn("[DATUM] Skipping poll — no valid campaigns contract address");
         return;
       }
+
+      // Refresh phishing deny list if stale (>6h)
+      await refreshPhishingList();
+
       const provider = new JsonRpcProvider(rpcUrl);
       const campaigns: SerializedCampaign[] = [];
       const contract = getCampaignsContract(addresses, provider);
@@ -33,32 +38,39 @@ export const campaignPoller = {
       }
 
       // Discover campaigns using A1.3 slim getters
+      // getCampaignForSettlement returns (status, publisher, bidCpmPlanck, remainingBudget, snapshotTakeRateBps)
+      // categoryId, dailyCap, pendingExpiryBlock, terminationBlock not exposed — no room for new getters (490B spare)
       let missCount = 0;
       for (let id = 0; id < Math.min(nextId, MAX_SCAN_ID); id++) {
         try {
-          const status = Number(await contract.getCampaignStatus(BigInt(id)));
+          const [status, advertiser] = await Promise.all([
+            contract.getCampaignStatus(BigInt(id)).then(Number),
+            contract.getCampaignAdvertiser(BigInt(id)),
+          ]);
           // Include Active, Pending, Paused for full visibility
           if (status === CampaignStatus.Active || status === CampaignStatus.Pending || status === CampaignStatus.Paused) {
-            const [advertiser, remaining] = await Promise.all([
-              contract.getCampaignAdvertiser(BigInt(id)),
-              contract.getCampaignRemainingBudget(BigInt(id)),
-            ]);
+            // Skip campaigns from blocked advertisers
+            if (await isAddressBlocked(advertiser)) {
+              console.warn(`[DATUM] Campaign ${id} advertiser flagged: ${advertiser}`);
+              missCount = 0;
+              continue;
+            }
 
-            // Read bidCpmPlanck and other fields from campaigns mapping
-            const cData = await contract.campaigns(BigInt(id));
+            // getCampaignForSettlement: (status, publisher, bidCpmPlanck, remainingBudget, snapshotTakeRateBps)
+            const settlement = await contract.getCampaignForSettlement(BigInt(id));
 
             campaigns.push({
               id: id.toString(),
               advertiser,
-              publisher: cData.publisher ?? "",
-              remainingBudget: BigInt(remaining).toString(),
-              dailyCap: BigInt(cData.dailyCapPlanck ?? cData.dailyCap ?? 0n).toString(),
-              bidCpmPlanck: BigInt(cData.bidCpmPlanck ?? 0n).toString(),
-              snapshotTakeRateBps: Number(cData.snapshotTakeRateBps ?? 0).toString(),
+              publisher: settlement[1] ?? "",
+              remainingBudget: BigInt(settlement[3]).toString(),
+              dailyCap: "0", // not exposed by slim getters (private mapping, 490B spare)
+              bidCpmPlanck: BigInt(settlement[2]).toString(),
+              snapshotTakeRateBps: Number(settlement[4]).toString(),
               status: status.toString(),
-              categoryId: Number(cData.categoryId ?? 0).toString(),
-              pendingExpiryBlock: BigInt(cData.pendingExpiryBlock ?? 0n).toString(),
-              terminationBlock: BigInt(cData.terminationBlock ?? 0n).toString(),
+              categoryId: "0", // not exposed by slim getters
+              pendingExpiryBlock: "0",
+              terminationBlock: "0",
             });
             missCount = 0;
           } else {
@@ -68,6 +80,28 @@ export const campaignPoller = {
         } catch {
           missCount++;
           if (missCount >= 3) break;
+        }
+      }
+
+      // Enrich with categoryId from CampaignCreated events (only exposed via events)
+      if (campaigns.length > 0) {
+        try {
+          const filter = contract.filters.CampaignCreated();
+          const events = await contract.queryFilter(filter);
+          for (const ev of events) {
+            const args = (ev as any).args;
+            if (!args) continue;
+            const cid = args[0]?.toString() ?? args.campaignId?.toString();
+            const cat = Number(args[7] ?? args.categoryId ?? 0);
+            const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0);
+            const camp = campaigns.find((c) => c.id === cid);
+            if (camp) {
+              camp.categoryId = cat.toString();
+              camp.dailyCap = dailyCap.toString();
+            }
+          }
+        } catch (err) {
+          console.warn("[DATUM] Could not enrich campaign categories from events:", err);
         }
       }
 
@@ -116,6 +150,12 @@ export const campaignPoller = {
             const meta = validateAndSanitize(rawMeta);
             if (!meta) {
               console.warn(`[DATUM] Metadata for campaign ${c.id} failed validation, skipping`);
+              continue;
+            }
+
+            // Check CTA URL against phishing deny list
+            if (meta.creative.ctaUrl && await isUrlPhishing(meta.creative.ctaUrl)) {
+              console.warn(`[DATUM] Campaign ${c.id} CTA URL flagged as phishing: ${meta.creative.ctaUrl}`);
               continue;
             }
 

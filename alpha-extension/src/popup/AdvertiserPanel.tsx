@@ -8,6 +8,7 @@ import { validateAndSanitize } from "@shared/contentSafety";
 import { CampaignMetadata, CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
+import { humanizeError } from "@shared/errorCodes";
 
 interface Props {
   address: string | null;
@@ -18,6 +19,9 @@ interface MyCampaign {
   status: CampaignStatus;
   remainingBudget: bigint;
   bidCpmPlanck: bigint;
+  publisher: string;
+  snapshotTakeRateBps: number;
+  metadata?: CampaignMetadata | null;
 }
 
 const STATUS_LABELS: Record<number, { label: string; color: string; bg: string }> = {
@@ -36,6 +40,7 @@ export function AdvertiserPanel({ address }: Props) {
   const [txResult, setTxResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ id: number; action: string } | null>(null);
+  const [hideResolved, setHideResolved] = useState(true); // CL-1
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -61,17 +66,15 @@ export function AdvertiserPanel({ address }: Props) {
             try {
               const adv = await contract.getCampaignAdvertiser(BigInt(id));
               if (adv.toLowerCase() !== address.toLowerCase()) return null;
-              const [status, remaining] = await Promise.all([
-                contract.getCampaignStatus(BigInt(id)),
-                contract.getCampaignRemainingBudget(BigInt(id)),
-              ]);
-              // Read bidCpmPlanck from campaigns mapping
-              const cData = await contract.campaigns(BigInt(id));
+              // getCampaignForSettlement: (status, publisher, bidCpmPlanck, remainingBudget, snapshotTakeRateBps)
+              const settlement = await contract.getCampaignForSettlement(BigInt(id));
               return {
                 id,
-                status: Number(status) as CampaignStatus,
-                remainingBudget: BigInt(remaining),
-                bidCpmPlanck: BigInt(cData.bidCpmPlanck ?? cData[4] ?? 0n),
+                status: Number(settlement[0]) as CampaignStatus,
+                remainingBudget: BigInt(settlement[3]),
+                bidCpmPlanck: BigInt(settlement[2]),
+                publisher: settlement[1] ?? "",
+                snapshotTakeRateBps: Number(settlement[4]),
               } as MyCampaign;
             } catch {
               return null;
@@ -81,9 +84,19 @@ export function AdvertiserPanel({ address }: Props) {
         for (const r of results) if (r) mine.push(r);
       }
 
+      // Load cached IPFS metadata for each campaign
+      if (mine.length > 0) {
+        const metaKeys = mine.map((c) => `metadata:${c.id}`);
+        const stored = await chrome.storage.local.get(metaKeys);
+        for (const c of mine) {
+          const key = `metadata:${c.id}`;
+          if (stored[key]) c.metadata = stored[key] as CampaignMetadata;
+        }
+      }
+
       setCampaigns(mine);
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }
@@ -124,7 +137,7 @@ export function AdvertiserPanel({ address }: Props) {
       setTxResult(`Campaign #${id}: ${action} successful.`);
       loadCampaigns();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setActionBusy(false);
     }
@@ -147,23 +160,64 @@ export function AdvertiserPanel({ address }: Props) {
           No campaigns found for your address.
         </div>
       ) : (
-        <div style={{ marginBottom: 12, maxHeight: 220, overflowY: "auto" }}>
-          {campaigns.map((c) => {
+        <div style={{ marginBottom: 12, maxHeight: 320, overflowY: "auto" }}>
+          {/* CL-1: Toggle for resolved campaigns */}
+          {campaigns.some((c) => c.status >= CampaignStatus.Completed) && (
+            <button
+              onClick={() => setHideResolved(!hideResolved)}
+              style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#888", fontSize: 10, padding: "2px 8px", cursor: "pointer", marginBottom: 6 }}
+            >
+              {hideResolved ? "Show" : "Hide"} resolved ({campaigns.filter((c) => c.status >= CampaignStatus.Completed).length})
+            </button>
+          )}
+          {campaigns.filter((c) => !hideResolved || c.status < CampaignStatus.Completed).map((c) => {
             const s = STATUS_LABELS[c.status] ?? STATUS_LABELS[5];
+            const meta = c.metadata;
             return (
               <div key={c.id} style={{ ...rowStyle, marginBottom: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>#{c.id}</span>
+                  <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>
+                    {meta?.title ? `${meta.title}` : `Campaign #${c.id}`}
+                    <span style={{ color: "#666", fontWeight: 400, marginLeft: 4, fontSize: 10 }}>#{c.id}</span>
+                  </span>
                   <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: s.bg, color: s.color }}>
                     {s.label}
                   </span>
                 </div>
+                {meta?.description && (
+                  <div style={{ color: "#aaa", fontSize: 11, marginBottom: 3 }}>{meta.description}</div>
+                )}
                 <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>
                   Budget: {formatDOT(c.remainingBudget)} DOT remaining
                 </div>
-                <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+                <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>
                   Bid: {formatDOT(c.bidCpmPlanck)} DOT/1000 views
                 </div>
+                {/* Creative preview */}
+                {meta?.creative && (
+                  <div style={{ marginTop: 4, padding: 6, background: "#0a0a1a", borderRadius: 3, border: "1px solid #1a1a2e" }}>
+                    <div style={{ color: "#666", fontSize: 9, marginBottom: 3 }}>CREATIVE PREVIEW</div>
+                    {meta.creative.text && (
+                      <div style={{ color: "#bbb", fontSize: 11, marginBottom: 3 }}>{meta.creative.text}</div>
+                    )}
+                    {meta.creative.ctaUrl && (
+                      <div style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{
+                          padding: "1px 6px", borderRadius: 2,
+                          background: "#1a2a3a", color: "#60a0ff", fontSize: 10,
+                        }}>{meta.creative.cta || "Learn More"}</span>
+                        <span style={{ color: "#555", fontFamily: "monospace", fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
+                          {meta.creative.ctaUrl}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!meta && (
+                  <div style={{ color: "#555", fontSize: 10, fontStyle: "italic", marginTop: 2 }}>
+                    No metadata — pin creative to IPFS and set metadata on-chain
+                  </div>
+                )}
 
                 {/* Actions based on status */}
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -192,10 +246,15 @@ export function AdvertiserPanel({ address }: Props) {
                     </>
                   )}
                   {c.status === CampaignStatus.Pending && (
-                    <button onClick={() => doAction(c.id, "expire")}
-                      disabled={actionBusy} style={actionBtn("#1a1a1a", "#888")}>
-                      Expire
-                    </button>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <button onClick={() => doAction(c.id, "expire")}
+                        disabled={actionBusy} style={actionBtn("#1a1a1a", "#888")}>
+                        Expire
+                      </button>
+                      <span style={{ color: "#555", fontSize: 9 }}>
+                        Available after ~7 day timeout, or vote active via Govern tab
+                      </span>
+                    </div>
                   )}
                 </div>
 

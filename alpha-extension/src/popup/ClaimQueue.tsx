@@ -5,6 +5,7 @@ import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner, getUnlockedWallet } from "@shared/walletManager";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
+import { humanizeError } from "@shared/errorCodes";
 
 interface QueueState {
   pendingCount: number;
@@ -41,6 +42,7 @@ export function ClaimQueue({ address }: Props) {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [stalePruned, setStalePruned] = useState(0); // CL-2: stale claims notification
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadState = useCallback(async () => {
@@ -71,6 +73,8 @@ export function ClaimQueue({ address }: Props) {
             await pruneSettledClaims(address, settings, Object.keys(userCampaigns));
             // Reload queue state after pruning
             const refreshed = await chrome.runtime.sendMessage({ type: "GET_QUEUE_STATE" });
+            const prunedCount = (queueResponse.pendingCount ?? 0) - (refreshed.pendingCount ?? 0);
+            if (prunedCount > 0) setStalePruned(prunedCount); // CL-2
             setQueueState(refreshed);
           }
         }
@@ -192,7 +196,7 @@ export function ClaimQueue({ address }: Props) {
         setError("Claims rejected — chain state resynced. Try submitting again.");
       }
     } catch (err) {
-      const msg = String(err);
+      const msg = humanizeError(err);
       // Detect nonce-related revert and trigger resync
       if (msg.includes("E04") || msg.includes("E05") || msg.includes("nonce")) {
         try {
@@ -335,7 +339,7 @@ export function ClaimQueue({ address }: Props) {
 
       setSignedCount(signedBatches.length);
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setSigning(false);
     }
@@ -356,7 +360,7 @@ export function ClaimQueue({ address }: Props) {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setExporting(false);
     }
@@ -388,7 +392,7 @@ export function ClaimQueue({ address }: Props) {
         setError(result.error);
       }
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setImporting(false);
     }
@@ -539,6 +543,13 @@ export function ClaimQueue({ address }: Props) {
           <span style={{ color: "#444", marginLeft: 6 }}>
             {new Date(autoFlushResult.timestamp).toLocaleTimeString()}
           </span>
+        </div>
+      )}
+
+      {/* CL-2: Stale claims pruned notification */}
+      {stalePruned > 0 && (
+        <div style={{ marginTop: 8, padding: 8, background: "#1a1a0a", borderRadius: 4, fontSize: 11, color: "#c0c060" }}>
+          {stalePruned} claim{stalePruned !== 1 ? "s" : ""} pruned — already settled on-chain (publisher relay or external submission).
         </div>
       )}
 

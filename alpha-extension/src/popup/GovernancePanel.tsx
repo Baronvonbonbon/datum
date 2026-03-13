@@ -5,6 +5,7 @@ import { formatDOT } from "@shared/dot";
 import { CATEGORY_NAMES } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
+import { humanizeError } from "@shared/errorCodes";
 
 interface Props {
   address: string | null;
@@ -29,14 +30,16 @@ interface VoteRecord {
   lockedUntilBlock: bigint;
 }
 
+// GV-1: Conviction labels with human-readable lockup durations
+// Base lockup = 14,400 blocks (~24h at 6s blocks)
 const CONVICTION_LABELS: Record<number, string> = {
-  0: "0x (no lockup multiplier)",
-  1: "1x (base lockup)",
-  2: "2x (2x lockup)",
-  3: "4x (4x lockup)",
-  4: "8x (8x lockup)",
-  5: "16x (16x lockup)",
-  6: "32x (32x lockup)",
+  0: "0x — no lockup",
+  1: "1x — ~24h lockup",
+  2: "2x — ~48h lockup",
+  3: "4x — ~4 day lockup",
+  4: "8x — ~8 day lockup",
+  5: "16x — ~16 day lockup",
+  6: "32x — ~32 day lockup (max ~365d cap)",
 };
 
 const STATUS_NAMES: Record<number, string> = {
@@ -76,6 +79,7 @@ export function GovernancePanel({ address }: Props) {
   const [evaluating, setEvaluating] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [showResolved, setShowResolved] = useState(true);
 
   // Slash info per queried campaign
   const [slashFinalized, setSlashFinalized] = useState(false);
@@ -158,6 +162,15 @@ export function GovernancePanel({ address }: Props) {
 
   async function castVote(aye: boolean) {
     if (!address || !campaignId) return;
+    // GV-2: Vote permanence warning — contract prevents re-voting (E42)
+    const lockDuration = CONVICTION_LABELS[conviction] ?? "unknown duration";
+    const confirmed = confirm(
+      `Voting is permanent — you cannot change your vote on campaign #${campaignId}.\n\n` +
+      `You are voting ${aye ? "AYE" : "NAY"} with ${dotAmount} DOT at conviction ${conviction} (${lockDuration}).\n\n` +
+      `Your stake will be locked and the losing side pays ${slashBps !== null ? (slashBps / 100).toFixed(1) : "?"}% slash on withdrawal.\n\n` +
+      `Continue?`
+    );
+    if (!confirmed) return;
     setVoting(true);
     setTxResult(null);
     setError(null);
@@ -178,7 +191,7 @@ export function GovernancePanel({ address }: Props) {
       }
       loadCampaigns();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setVoting(false);
     }
@@ -228,7 +241,7 @@ export function GovernancePanel({ address }: Props) {
 
       setQueryCampaignId(cid);
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setQuerying(false);
     }
@@ -268,7 +281,7 @@ export function GovernancePanel({ address }: Props) {
       setTxResult(msg);
       queryVoteStatus();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setWithdrawing(false);
     }
@@ -288,7 +301,7 @@ export function GovernancePanel({ address }: Props) {
       setTxResult(`Campaign #${cid} evaluated successfully.`);
       loadCampaigns();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setEvaluating(false);
     }
@@ -309,7 +322,7 @@ export function GovernancePanel({ address }: Props) {
       setTxResult(`Slash finalized for campaign #${queryCampaignId}.`);
       queryVoteStatus();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setFinalizing(false);
     }
@@ -330,7 +343,7 @@ export function GovernancePanel({ address }: Props) {
       setTxResult(`Slash reward claimed for campaign #${queryCampaignId}.`);
       queryVoteStatus();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setClaiming(false);
     }
@@ -346,7 +359,7 @@ export function GovernancePanel({ address }: Props) {
 
   const pendingCampaigns = campaigns.filter((c) => c.status === 0);
   const activeCampaigns = campaigns.filter((c) => c.status === 1 || c.status === 2);
-  const resolvedCampaigns = campaigns.filter((c) => (c.status === 3 || c.status === 4) && c.resolved);
+  const resolvedCampaigns = campaigns.filter((c) => c.status === 3 || c.status === 4);
 
   return (
     <div style={{ padding: 16 }}>
@@ -399,19 +412,32 @@ export function GovernancePanel({ address }: Props) {
 
       {/* Resolved Campaigns */}
       {resolvedCampaigns.length > 0 && (
-        <CampaignSection
-          title="Resolved"
-          subtitle="Finalize slash / claim rewards"
-          campaigns={resolvedCampaigns}
-          loading={loadingCampaigns}
-          quorum={quorumWeighted}
-          selectedId={campaignId}
-          onSelect={(id) => { setCampaignId(id); setQueryCampaignId(id); }}
-          onRefresh={loadCampaigns}
-          onEvaluate={evaluateCampaign}
-          evaluating={evaluating}
-          emptyText=""
-        />
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2, padding: "0 2px" }}>
+            <span />
+            <button
+              onClick={() => setShowResolved(!showResolved)}
+              style={{ ...refreshBtn, fontSize: 9 }}
+            >
+              {showResolved ? "Hide" : "Show"} {resolvedCampaigns.length} resolved
+            </button>
+          </div>
+          {showResolved && (
+            <CampaignSection
+              title="Resolved / Completed"
+              subtitle="Evaluate, finalize slash, claim rewards"
+              campaigns={resolvedCampaigns}
+              loading={loadingCampaigns}
+              quorum={quorumWeighted}
+              selectedId={campaignId}
+              onSelect={(id) => { setCampaignId(id); setQueryCampaignId(id); }}
+              onRefresh={loadCampaigns}
+              onEvaluate={evaluateCampaign}
+              evaluating={evaluating}
+              emptyText=""
+            />
+          )}
+        </div>
       )}
 
       {/* Vote Form */}
@@ -732,6 +758,18 @@ function CampaignSection({
                   <span style={{ color: "#60c060" }}>Aye {ayePct}%</span>
                   <span style={{ color: "#ff8080" }}>Nay {100 - ayePct}%</span>
                 </div>
+                {/* GV-3: Quorum progress on campaign cards */}
+                {quorum !== null && (
+                  <div style={{ color: "#666", fontSize: 9, marginTop: 2 }}>
+                    {formatDOT(total)} / {formatDOT(quorum)} quorum
+                    {total >= quorum
+                      ? <span style={{ color: "#60c060", marginLeft: 4 }}>met</span>
+                      : <span style={{ color: "#c09060", marginLeft: 4 }}>
+                          ({total > 0n ? Math.round(Number((total * 100n) / quorum)) : 0}%)
+                        </span>
+                    }
+                  </div>
+                )}
                 {canEvaluate && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onEvaluate(c.id); }}

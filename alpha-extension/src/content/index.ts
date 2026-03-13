@@ -7,6 +7,7 @@ import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
 import { injectAdSlot, injectAdSlotInline, injectDefaultAd, injectDefaultAdInline } from "./adSlot";
 import { startTracking, computeQualityScore } from "./engagement";
 import { validateMetadata, passesContentBlocklist, sanitizeCtaUrl } from "@shared/contentSafety";
+import { isUrlPhishing } from "@shared/phishingList";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
 
@@ -96,15 +97,15 @@ async function main() {
   const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
   const auctionMechanism: string | undefined = selectionResponse?.mechanism;
 
-  // Fallback: publisher preference or first in pool
+  // If background returned null (all campaigns blocked/filtered), show house ad
   if (!match) {
-    match = publisherAddress
-      ? (pool.find(
-          (c) => c.publisher.toLowerCase() === publisherAddress.toLowerCase()
-        ) ?? pool[0])
-      : pool[0];
+    if (sdkInfo?.hasAdSlot) {
+      const target = document.getElementById("datum-ad-slot");
+      if (target) { injectDefaultAdInline(target); return; }
+    }
+    injectDefaultAd();
+    return;
   }
-  if (!match) return;
 
   const campaignId = match.id ?? match.campaignId;
   const dedupeKey = `${campaignId}:${window.location.href}`;
@@ -136,7 +137,12 @@ async function main() {
   if (rawMeta) {
     const result = validateMetadata(rawMeta);
     if (result.valid && result.data && passesContentBlocklist(result.data)) {
-      validatedMeta = result.data;
+      // Defense-in-depth: check CTA URL against phishing deny list
+      if (result.data.creative.ctaUrl && await isUrlPhishing(result.data.creative.ctaUrl)) {
+        console.warn(`[DATUM] Campaign ${campaignId} CTA URL flagged as phishing, rejecting`);
+      } else {
+        validatedMeta = result.data;
+      }
     }
   }
 

@@ -252,9 +252,33 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   return target;
 }
 
+const HOUSE_AD_MESSAGES: string[] = [
+  "In a world of algorithmic noise, truth should be verifiable — not just asserted. Polkadot builds infrastructure where claims can be proven, not just trusted.",
+  "Sovereignty isn't granted by platforms — it's exercised by individuals. Polkadot is built on the belief that you alone should control your identity, your data, and your choices online.",
+  "Privacy is not a feature. It is the foundation of free thought, free speech, and free society. Polkadot exists to restore it.",
+  "Every click tracked, every preference profiled, every identity harvested. Polkadot is the alternative — a web where you participate on your own terms, verifiably and without compromise.",
+  "When truth becomes optional and trust is manufactured, the only antidote is a system no one controls. Polkadot makes the web provably honest again.",
+  "Your data. Your rules. Your truth. Polkadot builds the web that puts agency back in your hands.",
+  "Freedom requires infrastructure. Individual agency means nothing without systems that enforce it. Polkadot is that infrastructure — resilient, open, and resistant to capture by any single authority.",
+  "The web was built on consent that was never really given. Polkadot is rebuilding it on consent that is cryptographically guaranteed.",
+  "You have the right to know what is true. You have the right to decide who to trust. Polkadot protects both — without asking permission from anyone.",
+  "Surveillance is not security. It is control. Polkadot is built for a world where neither governments nor corporations can surveil their way to power.",
+  "Post-truth is not a philosophy. It is what happens when the infrastructure of trust is owned by those with the most to gain from distorting it. Polkadot changes who owns the infrastructure.",
+  "Resilient societies need resilient systems. Systems that cannot be captured, corrupted, or silenced. That is what Polkadot builds.",
+  "Your attention, your identity, your beliefs — these are not products to be harvested. Polkadot is built on the premise that human dignity is non-negotiable online.",
+  "No single point of control. No single point of failure. No single authority over truth. This is what the web was supposed to be.",
+  "Privacy, sovereignty, and verifiable truth are not radical ideas. They are the original promises of the open web. Polkadot is here to keep them.",
+];
+
+function pickHouseAdMessage(): string {
+  const index = Math.floor(Date.now() / 1000) % HOUSE_AD_MESSAGES.length;
+  return HOUSE_AD_MESSAGES[index];
+}
+
 /**
  * Inject a default/house ad when no campaigns match.
  * Points to Polkadot philosophy page. No earning, no campaign tracking.
+ * Rotates through 15 messages on each page load.
  */
 export function injectDefaultAd(): HTMLElement | null {
   if (document.getElementById(SLOT_ID)) return null;
@@ -295,7 +319,7 @@ export function injectDefaultAd(): HTMLElement | null {
       A better web is possible
     </div>
     <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
-      Polkadot believes in a decentralized, fair internet where users control their data and earn from their attention.
+      ${escapeHtml(pickHouseAdMessage())}
     </div>
     <a href="https://polkadot.com/philosophy" target="_blank" rel="noopener" style="
       display:inline-block;background:#2a2a5a;color:#a0a0ff;
@@ -349,7 +373,7 @@ export function injectDefaultAdInline(target: HTMLElement): HTMLElement | null {
       A better web is possible
     </div>
     <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
-      Polkadot believes in a decentralized, fair internet where users control their data and earn from their attention.
+      ${escapeHtml(pickHouseAdMessage())}
     </div>
     <a href="https://polkadot.com/philosophy" target="_blank" rel="noopener" style="
       display:inline-block;background:#2a2a5a;color:#a0a0ff;

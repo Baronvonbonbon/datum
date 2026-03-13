@@ -1,7 +1,7 @@
 # DATUM Alpha Testing Guide
 
-**Version:** 1.0
-**Date:** 2026-03-12
+**Version:** 1.1
+**Date:** 2026-03-13
 **Prerequisites:** Docker running (substrate + eth-rpc containers), contracts deployed, extension built
 
 ---
@@ -106,14 +106,19 @@ These change every time you redeploy. `deploy.ts` writes them to `alpha/deployed
 
 ### Step 3: Create a Wallet
 
-1. In **Settings**, scroll to the **Wallet** section
+The extension supports **multiple named accounts** (MA-1 through MA-4). You can import several test keys and switch between them without separate Chrome profiles.
+
+1. Click the DATUM extension icon
 2. Click **Import Private Key**
-3. Paste Charleth's key (user/viewer role):
+3. Enter an **Account Name** (e.g., "User - Charleth")
+4. Paste Charleth's key (user/viewer role):
    ```
    0x0b6e18cafb6ed99687ec547bd28139cafdd2bffe70e6b688025de6b445aa5c5b
    ```
-4. Set a password
-5. Verify the address `0x798d4Ba9...` shows as connected
+5. Set a password (minimum 8 characters)
+6. Verify the address `0x798d4Ba9...` shows as connected
+
+**Multi-account workflow:** From the locked screen or header account dropdown, click **Add Account** to import additional keys. Use **Switch** to change active account (requires password re-entry). Each account's private key is encrypted independently.
 
 ### Step 4: Register a Publisher
 
@@ -142,7 +147,7 @@ Go to **My Ads** tab → **Create Campaign**:
 - **Daily cap:** 100 DOT
 - **Bid CPM:** 0.016 DOT
 - **Category:** pick one matching the publisher (e.g., "Computers & Electronics")
-- **Creative:** fill in title, body, CTA label, landing URL (must be HTTPS)
+- **Creative:** fill in title, body, CTA label, landing URL (use HTTPS — non-HTTPS URLs render as non-clickable text)
 
 Submit. Campaign is now **Pending**.
 
@@ -188,10 +193,10 @@ The page has the SDK embed:
 
 With the extension loaded and Charleth's wallet connected, visiting the publisher page should trigger:
 
-1. **SDK detection** — content script finds the `datum-sdk.js` tag
-2. **Handshake** — extension sends `datum:challenge` CustomEvent, SDK responds with SHA-256 signed `datum:response`
-3. **Campaign matching** — extension checks active campaigns against publisher categories
-4. **Auction** — solo campaign pays 70% of bid CPM; multiple campaigns run second-price
+1. **SDK detection** — content script finds the `datum-sdk.js` tag (+ fetches campaigns in parallel)
+2. **Campaign matching** — filters active campaigns by publisher categories (bitmask overlap)
+3. **Auction** — background selects winner: solo campaign pays 70% of bid CPM; multiple campaigns run second-price
+4. **Handshake** — extension sends `datum:challenge` CustomEvent, SDK responds with SHA-256 signed `datum:response`
 5. **Ad injection** — creative renders in `<div id="datum-ad-slot">` via Shadow DOM
 
 **If no campaigns match:** a default house ad (Polkadot philosophy link) appears instead.
@@ -217,8 +222,8 @@ After the ad displays for 1+ second with the tab focused:
 
 From the **Claims** tab:
 
-- **Submit Claims** — sends batch on-chain (you pay gas)
-- **Sign for Relay** — creates EIP-712 signed batch for publisher to relay (zero gas for user)
+- **Submit All (you pay gas)** — sends batch on-chain
+- **Sign for Publisher (zero gas)** — creates EIP-712 signed batch for publisher to relay
 
 After submission:
 - Claims tab shows claims as settled
@@ -271,15 +276,32 @@ Timelock operations require the deployer (Alith), since DatumCampaigns and Datum
 ### Step 15: Auto-Submit (B1)
 
 1. Go to **Settings** → enable **Auto-submit**
-2. Enter your wallet password to create a session-encrypted key
-3. The extension submits claims automatically every few minutes
-4. Session key lives in service worker memory — lost on browser restart
+2. A warning banner appears: "Auto-submit not authorized" (WS-3)
+3. Enter your wallet password to create a session-encrypted key
+4. The extension submits claims automatically every few minutes
+5. Session key lives in service worker memory — lost on browser restart
+6. After browser restart, the warning banner reappears — re-authorize to resume
+
+### Step 16: Settings Connectivity (SI-1, SI-2)
+
+1. Go to **Settings** → click **Test Connection** next to the RPC URL
+2. Should show "Connected — block #N (Xms)" with latency
+3. If campaigns contract is configured, it also validates the contract ABI (SI-2)
+4. If there's a mismatch (wrong network or stale addresses), a warning appears
+5. Try entering an invalid RPC URL → should show the connection error
 
 ---
 
 ## Multi-Account Testing Matrix
 
-For thorough testing, use multiple Chrome profiles simultaneously:
+The extension now supports **multi-account wallets** (MA-1 through MA-4). You can import all test keys into a single browser profile and switch between them. Separate Chrome profiles are no longer required (but still useful for simultaneous browsing as different users).
+
+**Single-profile approach** (recommended for quick testing):
+1. Import all 4 test keys as named accounts: "Advertiser (Alith)", "Publisher (Baltathar)", "User (Charleth)", "Voter (Dorothy)"
+2. Use the header dropdown to switch between accounts
+3. Each switch requires re-entering the target account's password
+
+**Multi-profile approach** (for simultaneous browsing):
 
 | Profile | Wallet | Role | Tests |
 |---------|--------|------|-------|
@@ -325,6 +347,10 @@ For thorough testing, use multiple Chrome profiles simultaneously:
 | No pending claims | Quality too low | Keep tab focused for 1+ second, scroll page, don't minimize |
 | Service worker errors | Devchain restarted, addresses changed | Redeploy and update Settings |
 | Balance shows 0 | Wrong network | Verify Settings → Network is `local` |
+| Auto-submit stopped working | Browser restarted, session key lost | Re-authorize in Settings (WS-3 warning banner) |
+| "Contract not found" warning | Network/address mismatch | Click Test Connection in Settings (SI-1/SI-2) |
+| Can't withdraw small balance | Below denomination rounding floor | Balance must be >= 1M planck (0.0001 DOT) — see EA-4 |
+| Password rejected on import | Too short | Minimum 8 characters required (WS-2) |
 
 ---
 

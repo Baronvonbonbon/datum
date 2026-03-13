@@ -24,6 +24,7 @@ export function CampaignList() {
   const [showBlocked, setShowBlocked] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [hideResolved, setHideResolved] = useState(true); // CL-1: auto-hide resolved
 
   async function loadPrefs() {
     const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
@@ -91,8 +92,10 @@ export function CampaignList() {
   const silencedCats = new Set(prefs?.silencedCategories ?? []);
 
   // Filter campaigns — parent filter matches subcategories too
+  // CL-1: Auto-hide resolved (Completed/Terminated/Expired) campaigns
   let visible = campaigns.filter((c) => {
     if (blockedIds.has(c.id)) return false;
+    if (hideResolved && (c.status === CampaignStatus.Completed || c.status === CampaignStatus.Terminated || c.status === CampaignStatus.Expired)) return false;
     const catName = CATEGORY_NAMES[c.categoryId];
     if (catName && silencedCats.has(catName)) return false;
     if (categoryFilter !== null) {
@@ -100,6 +103,9 @@ export function CampaignList() {
     }
     return true;
   });
+  const resolvedCount = campaigns.filter((c) =>
+    !blockedIds.has(c.id) && (c.status === CampaignStatus.Completed || c.status === CampaignStatus.Terminated || c.status === CampaignStatus.Expired)
+  ).length;
 
   const blockedCampaigns = campaigns.filter((c) => blockedIds.has(c.id));
 
@@ -184,8 +190,23 @@ export function CampaignList() {
                 >x</button>
                 <span style={{
                   fontSize: 11, padding: "2px 6px", borderRadius: 3,
-                  background: "#0a2a0a", color: "#60c060",
-                }}>Active</span>
+                  background: c.status === CampaignStatus.Active ? "#0a2a0a"
+                    : c.status === CampaignStatus.Pending ? "#1a1a0a" : "#1a1a2e",
+                  color: c.status === CampaignStatus.Active ? "#60c060"
+                    : c.status === CampaignStatus.Pending ? "#c0c060" : "#a0a0ff",
+                  ...(c.status === CampaignStatus.Paused ? { background: "#1a1a0a", color: "#c09060" } : {}),
+                  ...(c.status === CampaignStatus.Completed ? { background: "#0a1a2a", color: "#60a0ff" } : {}),
+                  ...(c.status === CampaignStatus.Terminated ? { background: "#2a0a0a", color: "#ff8080" } : {}),
+                  ...(c.status === CampaignStatus.Expired ? { background: "#1a1a1a", color: "#888" } : {}),
+                }}
+                  title={c.status === CampaignStatus.Paused ? "Temporarily paused by advertiser or governance"
+                    : c.status === CampaignStatus.Pending ? "Pending governance vote — expires if not activated within ~7 days" : undefined}
+                >{c.status === CampaignStatus.Active ? "Active"
+                    : c.status === CampaignStatus.Pending ? "Pending"
+                    : c.status === CampaignStatus.Paused ? "Paused"
+                    : c.status === CampaignStatus.Completed ? "Completed"
+                    : c.status === CampaignStatus.Terminated ? "Terminated"
+                    : c.status === CampaignStatus.Expired ? "Expired" : "Unknown"}</span>
               </div>
             </div>
             {meta?.description && (
@@ -203,6 +224,12 @@ export function CampaignList() {
               </span>
               <span style={{ color: "#666", fontSize: 11 }}>{categoryName}</span>
             </div>
+            {/* CL-3: Pending expiration note */}
+            {c.status === CampaignStatus.Pending && (
+              <div style={{ color: "#c0c060", fontSize: 10, marginTop: 4 }}>
+                Awaiting governance vote — expires if not activated within ~7 days
+              </div>
+            )}
 
             {/* Expanded info */}
             {isExpanded && (
@@ -217,6 +244,18 @@ export function CampaignList() {
           </div>
         );
       })}
+
+      {/* CL-1: Show/hide resolved campaigns toggle */}
+      {resolvedCount > 0 && (
+        <div style={{ padding: "4px 16px" }}>
+          <button
+            onClick={() => setHideResolved(!hideResolved)}
+            style={{ ...refreshBtn, width: "100%", textAlign: "left" }}
+          >
+            {hideResolved ? "Show" : "Hide"} {resolvedCount} resolved campaign{resolvedCount !== 1 ? "s" : ""}
+          </button>
+        </div>
+      )}
 
       {/* Blocked campaigns list */}
       {blockedCampaigns.length > 0 && (

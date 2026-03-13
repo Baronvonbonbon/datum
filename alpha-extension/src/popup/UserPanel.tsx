@@ -4,6 +4,7 @@ import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
+import { humanizeError } from "@shared/errorCodes";
 
 interface Props {
   address: string | null;
@@ -34,7 +35,7 @@ export function UserPanel({ address }: Props) {
       const bal = await settlement.userBalance(address);
       setBalance(bal as bigint);
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,7 @@ export function UserPanel({ address }: Props) {
       setTxResult("Withdrawal successful.");
       loadBalance();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setWithdrawing(false);
     }
@@ -110,7 +111,13 @@ export function UserPanel({ address }: Props) {
             </div>
           </div>
 
-          {balance !== null && balance > 0n && (
+          {/* EA-4: Withdrawal minimum display (denomination rounding: value % 10^6 >= 500k rejected) */}
+          {balance !== null && balance > 0n && balance < 1_000_000n && (
+            <div style={{ color: "#c09060", fontSize: 11, marginTop: 8, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
+              Balance below minimum withdrawal (0.0001 DOT / 1M planck).
+            </div>
+          )}
+          {balance !== null && balance >= 1_000_000n && (
             <button
               onClick={withdraw}
               disabled={withdrawing}

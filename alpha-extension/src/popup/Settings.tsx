@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
+import { JsonRpcProvider, Contract } from "ethers";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS } from "@shared/networks";
 import { unlock, isConfigured } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
+import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
 
 interface InterestProfileData {
   weights: Record<string, number>;
@@ -21,6 +23,11 @@ export function Settings() {
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
   const [rpcWarning, setRpcWarning] = useState<string | null>(null);
   const [pinataTestResult, setPinataTestResult] = useState<string | null>(null);
+  // SI-1: RPC connectivity test
+  const [rpcTestResult, setRpcTestResult] = useState<{ ok: boolean; blockNumber?: number; latencyMs?: number; error?: string } | null>(null);
+  const [rpcTesting, setRpcTesting] = useState(false);
+  // SI-2: Network/contract mismatch warning
+  const [contractWarning, setContractWarning] = useState<string | null>(null);
 
   // User preferences
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -68,6 +75,41 @@ export function Settings() {
     await chrome.runtime.sendMessage({ type: "RESET_INTEREST_PROFILE" });
     setInterestProfile(null);
     setResetProfileConfirm(false);
+  }
+
+  // SI-1: Test RPC connectivity
+  async function testRpcConnection() {
+    setRpcTesting(true);
+    setRpcTestResult(null);
+    setContractWarning(null);
+    const start = Date.now();
+    try {
+      const provider = new JsonRpcProvider(settings.rpcUrl);
+      const block = await provider.getBlock("latest");
+      const latencyMs = Date.now() - start;
+      setRpcTestResult({ ok: true, blockNumber: block?.number ?? 0, latencyMs });
+
+      // SI-2: Check if campaigns contract is deployed at configured address
+      if (settings.contractAddresses.campaigns) {
+        try {
+          const code = await provider.getCode(settings.contractAddresses.campaigns);
+          if (!code || code === "0x") {
+            setContractWarning("Campaigns contract not found at configured address. Check network and contract addresses match.");
+          } else {
+            // Try calling nextCampaignId to verify it's the right contract
+            const contract = new Contract(settings.contractAddresses.campaigns, DatumCampaignsAbi.abi, provider);
+            await contract.nextCampaignId();
+            setContractWarning(null);
+          }
+        } catch {
+          setContractWarning("Contract at configured address does not respond as DatumCampaigns. Network/address mismatch?");
+        }
+      }
+    } catch (err) {
+      setRpcTestResult({ ok: false, error: String(err).slice(0, 120) });
+    } finally {
+      setRpcTesting(false);
+    }
   }
 
   async function save() {
@@ -180,6 +222,29 @@ export function Settings() {
         />
         {rpcWarning && (
           <div style={{ color: "#ffb060", fontSize: 11, marginTop: 4 }}>{rpcWarning}</div>
+        )}
+        {/* SI-1: RPC connectivity test */}
+        <div style={{ marginTop: 4 }}>
+          <button
+            onClick={testRpcConnection}
+            disabled={rpcTesting}
+            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer" }}
+          >
+            {rpcTesting ? "Testing..." : "Test Connection"}
+          </button>
+          {rpcTestResult && (
+            <span style={{ fontSize: 10, marginLeft: 6, color: rpcTestResult.ok ? "#60c060" : "#ff8080" }}>
+              {rpcTestResult.ok
+                ? `Connected — block #${rpcTestResult.blockNumber} (${rpcTestResult.latencyMs}ms)`
+                : `Failed: ${rpcTestResult.error}`}
+            </span>
+          )}
+        </div>
+        {/* SI-2: Network/contract mismatch warning */}
+        {contractWarning && (
+          <div style={{ color: "#ff9040", fontSize: 11, marginTop: 4, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
+            {contractWarning}
+          </div>
         )}
       </div>
 
@@ -307,6 +372,15 @@ export function Settings() {
           style={{ width: 16, height: 16 }}
         />
       </div>
+
+      {/* WS-3: Auto-submit deauth warning */}
+      {settings.autoSubmit && !autoSubmitKeySet && (
+        <div style={{ padding: "6px 10px", marginBottom: 8, background: "#2a1a0a", border: "1px solid #4a2a0a", borderRadius: 4 }}>
+          <div style={{ color: "#ff9040", fontSize: 11 }}>
+            Auto-submit not authorized. Claims will queue but not auto-submit until you enter your password below.
+          </div>
+        </div>
+      )}
 
       {settings.autoSubmit && (
         <div>

@@ -4,6 +4,7 @@ import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { CATEGORY_NAMES } from "@shared/types";
+import { humanizeError } from "@shared/errorCodes";
 
 interface Props {
   address: string | null;
@@ -17,6 +18,15 @@ interface PublisherInfo {
   categoryBitmask: bigint;
 }
 
+// Convert block delta to human-readable time (6s per block)
+function formatBlockDelta(blocks: number): string {
+  const secs = blocks * 6;
+  if (secs < 120) return `${secs}s`;
+  if (secs < 7200) return `${Math.round(secs / 60)}m`;
+  if (secs < 172800) return `${Math.round(secs / 3600)}h`;
+  return `${Math.round(secs / 86400)}d`;
+}
+
 export function PublisherPanel({ address }: Props) {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [publisherInfo, setPublisherInfo] = useState<PublisherInfo | null>(null);
@@ -24,6 +34,8 @@ export function PublisherPanel({ address }: Props) {
   const [withdrawing, setWithdrawing] = useState(false);
   const [savingCategories, setSavingCategories] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<number>>(new Set());
+  const [registering, setRegistering] = useState(false);
+  const [regTakeRate, setRegTakeRate] = useState("50.00");
   const [relaySubmitting, setRelaySubmitting] = useState(false);
   const [signedBatchData, setSignedBatchData] = useState<{
     batches: any[];
@@ -63,10 +75,10 @@ export function PublisherPanel({ address }: Props) {
       if (pubData) {
         const bitmask = BigInt(pubData.categoryBitmask ?? 0);
         setPublisherInfo({
-          isRegistered: pubData.isActive ?? false,
+          isRegistered: pubData.registered ?? false,
           takeRateBps: Number(pubData.takeRateBps ?? 0),
           pendingTakeRateBps: pubData.pendingTakeRateBps != null ? Number(pubData.pendingTakeRateBps) : null,
-          pendingEffectiveBlock: pubData.pendingEffectiveBlock != null ? Number(pubData.pendingEffectiveBlock) : null,
+          pendingEffectiveBlock: pubData.takeRateEffectiveBlock != null ? Number(pubData.takeRateEffectiveBlock) : null,
           categoryBitmask: bitmask,
         });
         // Populate selected categories from bitmask
@@ -77,7 +89,7 @@ export function PublisherPanel({ address }: Props) {
         setSelectedCategories(cats);
       }
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }
@@ -102,9 +114,38 @@ export function PublisherPanel({ address }: Props) {
       setTxResult("Withdrawal successful.");
       loadData();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setWithdrawing(false);
+    }
+  }
+
+  async function registerPublisher() {
+    if (!address) return;
+    setRegistering(true);
+    setTxResult(null);
+    setError(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const pubContract = getPublishersContract(settings.contractAddresses, signer);
+
+      // Convert percentage to BPS (e.g. "50.00" → 5000)
+      const bps = Math.round(parseFloat(regTakeRate) * 100);
+      if (isNaN(bps) || bps < 0 || bps > 10000) {
+        setError("Take rate must be between 0% and 100%.");
+        setRegistering(false);
+        return;
+      }
+
+      const tx = await pubContract.registerPublisher(bps);
+      await tx.wait();
+      setTxResult(`Registered as publisher with ${(bps / 100).toFixed(2)}% take rate.`);
+      loadData();
+    } catch (err) {
+      setError(humanizeError(err));
+    } finally {
+      setRegistering(false);
     }
   }
 
@@ -128,7 +169,7 @@ export function PublisherPanel({ address }: Props) {
       setTxResult(`Categories updated (${selectedCategories.size} selected).`);
       loadData();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setSavingCategories(false);
     }
@@ -204,7 +245,7 @@ export function PublisherPanel({ address }: Props) {
       setTxResult(`Relay submitted: ${settledCount} settled, ${rejectedCount} rejected. Total paid: ${formatDOT(totalPaid)} DOT`);
       loadData();
     } catch (err) {
-      setError(String(err));
+      setError(humanizeError(err));
     } finally {
       setRelaySubmitting(false);
     }
@@ -235,6 +276,44 @@ export function PublisherPanel({ address }: Props) {
             </div>
           </div>
 
+          {/* Registration form for unregistered publishers */}
+          {(!publisherInfo || !publisherInfo.isRegistered) && (
+            <div style={{ ...cardStyle, marginTop: 8 }}>
+              <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12, marginBottom: 6 }}>
+                Register as Publisher
+              </div>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 8 }}>
+                Register your address as a DATUM publisher to serve ads and earn revenue.
+              </div>
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ color: "#888", fontSize: 11, display: "block", marginBottom: 2 }}>
+                  Take Rate (%)
+                </label>
+                <input
+                  type="text"
+                  value={regTakeRate}
+                  onChange={(e) => setRegTakeRate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "5px 8px",
+                    background: "#111122", border: "1px solid #2a2a4a",
+                    borderRadius: 4, color: "#e0e0e0", fontSize: 12, outline: "none",
+                  }}
+                  placeholder="50.00"
+                />
+                <div style={{ color: "#666", fontSize: 10, marginTop: 2 }}>
+                  Your share of ad revenue. Default: 50%. Range: contract min–max.
+                </div>
+              </div>
+              <button
+                onClick={registerPublisher}
+                disabled={registering}
+                style={{ ...primaryBtn, fontSize: 12 }}
+              >
+                {registering ? "Registering..." : "Register Publisher"}
+              </button>
+            </div>
+          )}
+
           {publisherInfo && (
             <div style={{ ...cardStyle, marginTop: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -252,9 +331,17 @@ export function PublisherPanel({ address }: Props) {
               <div style={{ color: "#888", fontSize: 12 }}>
                 Take rate: {(publisherInfo.takeRateBps / 100).toFixed(2)}%
               </div>
-              {publisherInfo.pendingTakeRateBps !== null && (
-                <div style={{ color: "#666", fontSize: 11, marginTop: 2 }}>
-                  Pending: {(publisherInfo.pendingTakeRateBps / 100).toFixed(2)}% (block {publisherInfo.pendingEffectiveBlock})
+              {/* PU-1: Show pending take rate with human-readable time estimate */}
+              {publisherInfo.pendingTakeRateBps !== null && publisherInfo.pendingTakeRateBps !== publisherInfo.takeRateBps && (
+                <div style={{ color: "#c09060", fontSize: 11, marginTop: 2 }}>
+                  Pending: {(publisherInfo.pendingTakeRateBps / 100).toFixed(2)}%
+                  {publisherInfo.pendingEffectiveBlock !== null && currentBlock !== null ? (
+                    publisherInfo.pendingEffectiveBlock <= currentBlock
+                      ? <span style={{ color: "#60c060" }}> — effective now</span>
+                      : <span> — effective in ~{formatBlockDelta(publisherInfo.pendingEffectiveBlock - currentBlock)}</span>
+                  ) : publisherInfo.pendingEffectiveBlock !== null ? (
+                    <span> at block #{publisherInfo.pendingEffectiveBlock}</span>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -327,17 +414,17 @@ export function PublisherPanel({ address }: Props) {
               <div style={{ color: "#60a0ff", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
                 Signed Batches for Relay
               </div>
+              {/* PU-2: Relay deadline in human-readable time */}
               <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>
                 {signedBatchData.batches.length} batch{signedBatchData.batches.length !== 1 ? "es" : ""} pending
-                {" · "}Deadline block: {signedBatchData.deadline}
               </div>
               {currentBlock !== null && signedBatchData.deadline <= currentBlock ? (
                 <div style={{ color: "#ff8080", fontSize: 12, marginBottom: 6 }}>
-                  Expired (current block: {currentBlock}). User must re-sign.
+                  Expired. User must re-sign.
                 </div>
               ) : currentBlock !== null ? (
                 <div style={{ color: "#508050", fontSize: 11, marginBottom: 6 }}>
-                  ~{Math.max(0, (signedBatchData.deadline - currentBlock) * 6)} seconds remaining
+                  ~{formatBlockDelta(signedBatchData.deadline - currentBlock)} remaining (block {signedBatchData.deadline})
                 </div>
               ) : null}
               <div style={{ display: "flex", gap: 8 }}>
