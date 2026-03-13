@@ -67,6 +67,9 @@ export function App() {
   // H2: Timelock pending changes
   const [timelockWarning, setTimelockWarning] = useState<number>(0);
 
+  // Refresh key: incremented on login/unlock to force-remount all tab components
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // Chain heartbeat state
   const [chainStatus, setChainStatus] = useState<{
     connected: boolean;
@@ -187,6 +190,7 @@ export function App() {
       await chrome.storage.local.set({ connectedAddress: addr });
       chrome.runtime.sendMessage({ type: "WALLET_CONNECTED", address: addr });
       setWalletState("unlocked");
+      setRefreshKey((k) => k + 1);
       setSetupMode(null);
       setKeyInput("");
       setPassword("");
@@ -213,6 +217,7 @@ export function App() {
       await chrome.storage.local.set({ connectedAddress: result.address });
       chrome.runtime.sendMessage({ type: "WALLET_CONNECTED", address: result.address });
       setWalletState("unlocked");
+      setRefreshKey((k) => k + 1);
       setPassword("");
       setConfirmPassword("");
       setAccountName("");
@@ -236,6 +241,7 @@ export function App() {
       await chrome.storage.local.set({ connectedAddress: wallet.address });
       chrome.runtime.sendMessage({ type: "WALLET_CONNECTED", address: wallet.address });
       setWalletState("unlocked");
+      setRefreshKey((k) => k + 1);
       setPassword("");
       await refreshAccountList();
     } catch {
@@ -795,13 +801,13 @@ export function App() {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {tab === "campaigns" && <CampaignList />}
-        {tab === "claims" && <ClaimQueue address={address} />}
-        {tab === "user" && <UserPanel address={address} />}
-        {tab === "publisher" && <PublisherPanel address={address} />}
-        {tab === "advertiser" && <AdvertiserPanel address={address} />}
-        {tab === "governance" && <GovernancePanel address={address} />}
-        {tab === "settings" && <Settings />}
+        {tab === "campaigns" && <CampaignList key={refreshKey} />}
+        {tab === "claims" && <ClaimQueue key={refreshKey} address={address} />}
+        {tab === "user" && <UserPanel key={refreshKey} address={address} />}
+        {tab === "publisher" && <PublisherPanel key={refreshKey} address={address} />}
+        {tab === "advertiser" && <AdvertiserPanel key={refreshKey} address={address} />}
+        {tab === "governance" && <GovernancePanel key={refreshKey} address={address} />}
+        {tab === "settings" && <Settings key={refreshKey} />}
       </div>
     </div>
   );

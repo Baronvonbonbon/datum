@@ -60,8 +60,8 @@ Publishers embed the DATUM SDK on their site to enable two-party impression atte
 
 1. On page load, the SDK dispatches `datum:sdk-ready` CustomEvent with `{ publisher, categories, version }`.
 2. The DATUM extension content script listens for this event (2s timeout) or detects the SDK `<script>` tag.
-3. When a campaign matches, the extension dispatches `datum:challenge` with a random 32-byte challenge.
-4. The SDK computes `SHA-256(publisher + challenge + nonce)` and responds via `datum:response`.
+3. When a campaign matches, the extension dispatches `datum:challenge` with a random 32-byte challenge + 8-byte nonce: `{ challenge, nonce }`.
+4. The SDK computes `SHA-256(publisher + ":" + challenge + ":" + nonce)` and responds via `datum:response`.
 5. The extension stores the attestation for inclusion with the claim — creating two-party proof that the publisher's page was actually rendering the ad.
 
 **Ad injection modes:**
@@ -139,7 +139,7 @@ Open campaigns (publisher = `address(0)`) snapshot a default take rate of 50% (D
 
 ### Budget Protection
 
-- **Daily cap:** Settlement enforces `dailySpent + amount <= dailyCapPlanck` per day (`block.timestamp / 86400`).
+- **Daily cap:** DatumCampaigns enforces `dailySpent + amount <= dailyCapPlanck` per day (`block.timestamp / 86400`) inside `deductBudget()`, which Settlement calls.
 - **Auto-complete:** When `remainingBudget` hits 0 during settlement, campaign auto-transitions to Completed.
 - **Pending timeout:** If governance doesn't activate within `pendingTimeoutBlocks`, anyone can expire the campaign and the full budget returns to the advertiser.
 
@@ -165,7 +165,7 @@ Open campaigns (publisher = `address(0)`) snapshot a default take rate of 50% (D
    | 3 | 8x | ~8 days |
    | 4 | 16x | ~16 days |
    | 5 | 32x | ~32 days |
-   | 6 | 64x | ~64 days (capped at ~365 days) |
+   | 6 | 64x | ~64 days |
 
 3. Clicks "Vote Aye" or "Vote Nay" — sends `vote(campaignId, aye, conviction)` with staked DOT as `msg.value`.
 4. One vote per address per campaign. Vote is locked until `block.number >= lockedUntilBlock`.
@@ -206,13 +206,13 @@ The Govern tab shows progress bars for aye/nay percentages and quorum threshold.
 
 ### Browsing and Impression Recording
 
-1. User installs extension and sets up an embedded wallet (password-encrypted).
+1. User installs extension and sets up a wallet (multi-account, password-encrypted per account).
 2. User browses the web normally. On each page load, the content script:
-   - Detects Publisher SDK if present (see [Section 19](#19-publisher-sdk-protocol))
    - Classifies the page (see [Section 5](#5-page-classification))
+   - Detects Publisher SDK + fetches active campaigns in parallel (see [Section 19](#19-publisher-sdk-protocol))
    - Filters campaigns by SDK category overlap (if SDK present) or page classification
    - Runs an auction on matching campaigns (see [Section 6](#6-auction-mechanism))
-   - Performs SDK handshake for two-party attestation (if SDK present)
+   - Performs SDK handshake for two-party attestation (if SDK present, after auction)
    - Injects an ad: inline into publisher's `<div>` (SDK), overlay (no SDK), or default house ad (no campaigns)
    - Tracks engagement signals (see [Section 7](#7-engagement-tracking))
    - Builds a hash-chain claim if engagement quality passes (see [Section 8](#8-claim-building-hash-chain))
@@ -229,8 +229,8 @@ The Govern tab shows progress bars for aye/nay percentages and quorum threshold.
 ### Submitting Claims
 
 Three options:
-1. **Manual submit** — Claims tab, "Submit Claims" button. User pays gas.
-2. **Sign for relay** — Claims tab, "Sign for Publisher". User signs EIP-712; publisher submits and pays gas.
+1. **Manual submit** — Claims tab, "Submit All (you pay gas)" button.
+2. **Sign for relay** — Claims tab, "Sign for Publisher (zero gas)". User signs EIP-712; publisher submits and pays gas.
 3. **Auto-submit** — Settings toggle. Extension submits every N minutes using a session-encrypted key (see [Section 12](#12-auto-submit)).
 
 ### Withdrawing Earnings
@@ -245,7 +245,7 @@ Three options:
 
 **File:** `content/taxonomy.ts`
 
-The extension classifies every page against 26 top-level categories (with 60+ subcategories) using four independent signals:
+The extension classifies every page against 26 top-level categories (with 89 subcategories) using four independent signals:
 
 | Signal | Confidence score | Method |
 |--------|-----------------|--------|
@@ -311,20 +311,7 @@ The extension classifies every page against 26 top-level categories (with 60+ su
 
 ### Quality score impact on payment
 
-Claims that pass the threshold but have low quality scores receive a discounted CPM:
-
-```
-scaleBps = 5000 + 5000 * min(qualityScore, 1.0)
-effectiveCpm = clearingCpm * scaleBps / 10000
-```
-
-| Quality score | Payment multiplier |
-|--------------|-------------------|
-| 1.0 (perfect) | 100% |
-| 0.75 | 87.5% |
-| 0.5 | 75% |
-| 0.3 (minimum) | 65% |
-| < 0.3 | Rejected (no claim) |
+Quality gating is **binary**: claims below the 0.3 threshold are rejected entirely; claims above the threshold use the full clearing CPM from the auction with no discount. Proportional CPM scaling based on quality score is a post-alpha enhancement.
 
 ---
 
@@ -374,6 +361,8 @@ For each claim in a batch (max 5 claims per batch):
 
 | Step | Check | Rejection reason |
 |------|-------|-----------------|
+| — | All claims in batch must share same campaignId | Reason 0 |
+| — | If a prior claim in the batch was rejected for nonce gap, all subsequent claims are skipped | Reason 1 |
 | 1 | `impressionCount > 0` | Reason 2 |
 | 2 | Campaign exists (`bidCpmPlanck != 0` — all real campaigns have bidCpm >= minimumCpmFloor > 0) | Reason 3 |
 | 3 | Campaign is Active (status == 1) | Reason 4 |
@@ -563,7 +552,8 @@ AND totalWeighted >= quorumWeighted
 ### Termination condition
 
 ```
-nayWeighted * 10000 >= totalWeighted * 5000   (nay >= 50%)
+totalWeighted > 0                                (E51: at least one vote)
+AND nayWeighted * 10000 >= totalWeighted * 5000   (nay >= 50%)
 ```
 
 ---
@@ -593,11 +583,11 @@ Slashed amounts accumulate in `slashCollected[campaignId]`.
 
 ### Reward distribution
 
-1. **Finalize:** Anyone calls `slash.finalizeSlash(campaignId)` — transfers the slash pool from GovernanceV2 to GovernanceSlash and records `totalSlashPool[campaignId]`.
-2. **Claim:** Each winner calls `slash.claimSlashReward(campaignId)` — receives a share proportional to their vote weight:
+1. **Finalize:** Anyone calls `slash.finalizeSlash(campaignId)` — snapshots the winning side's total weight into `winningWeight[campaignId]`. No funds are transferred at this step.
+2. **Claim:** Each winner calls `slash.claimSlashReward(campaignId)` — reads the slash pool from `GovernanceV2.slashCollected(campaignId)` and transfers the winner's share directly from GovernanceV2 via `slashAction()`:
 
 ```
-reward = totalSlashPool * voterWeight / totalWinningWeight
+reward = slashCollected * voterWeight / winningWeight
 ```
 
 3. One claim per winner per campaign.
@@ -651,10 +641,11 @@ reward = totalSlashPool * voterWeight / totalWinningWeight
 
 ### Admin Timelock (DatumTimelock)
 
-- All admin operations on Campaigns and Settlement flow through a 48-hour delay.
-- **Propose:** `proposeChange(target, calldata)` — queues a call. Emits `ChangeProposed`.
-- **Execute:** `executeChange(changeId)` after 48 hours. Emits `ChangeExecuted`.
-- **Cancel:** `cancelChange(changeId)` — owner only. Emits `ChangeCancelled`.
+- All admin operations on Campaigns and Settlement flow through a 48-hour delay (`TIMELOCK_DELAY = 172800` seconds).
+- Single-slot design: only one pending proposal at a time (no changeId queue).
+- **Propose:** `propose(target, data)` — queues a call. Emits `ChangeProposed`.
+- **Execute:** `execute()` after 48 hours (`block.timestamp >= pendingTimestamp + TIMELOCK_DELAY`). Emits `ChangeExecuted`.
+- **Cancel:** `cancel()` — owner only. Emits `ChangeCancelled`.
 - DatumCampaigns and DatumSettlement ownership is transferred to DatumTimelock post-deploy.
 
 ### Extension Monitoring (H2)
@@ -714,9 +705,9 @@ Moving claim state between browsers/devices without losing the hash chain positi
 
 After a campaign is selected via auction, the extension performs a handshake with the SDK:
 
-1. Extension generates 32 random bytes + 16-byte nonce via `crypto.getRandomValues()`.
-2. Extension dispatches `datum:challenge` CustomEvent: `{ challenge, nonce, timestamp }`.
-3. SDK computes `SHA-256(publisher + challenge + nonce)` and responds via `datum:response`: `{ publisher, challenge, nonce, signature, timestamp }`.
+1. Extension generates 32 random bytes (challenge) + 8-byte nonce via `crypto.getRandomValues()`.
+2. Extension dispatches `datum:challenge` CustomEvent: `{ challenge, nonce }`.
+3. SDK computes `SHA-256(publisher + ":" + challenge + ":" + nonce)` and responds via `datum:response`: `{ publisher, challenge, nonce, signature, timestamp }`.
 4. Extension verifies the response (publisher match, challenge match, 3-second timeout).
 5. Attestation stored for inclusion with the impression claim.
 
@@ -746,21 +737,21 @@ When no campaigns match (pool is empty), the extension injects a default house a
 
 **File:** `shared/walletManager.ts`
 
-### Embedded Wallet
+### Multi-Account Wallet
 
-- Extension generates an `ethers.Wallet` (random private key) on first setup.
-- Private key encrypted at rest: PBKDF2 (310,000 iterations, SHA-256) derives an AES-256-GCM key from the user's password.
-- Encrypted blob stored in `chrome.storage.local`.
+- Supports multiple named accounts stored as `WalletEntry[]` in `chrome.storage.local` (`datumWallets` key).
+- Each account: generate random key (`generateKey`) or import existing private key (`importKey`).
+- Each private key encrypted independently: PBKDF2 (310,000 iterations, SHA-256) derives an AES-256-GCM key from the account's password.
+- Active account tracked by `activeWalletName` in storage. Switch via `switchAccount()` (requires password re-entry).
 - No external wallet extension required — all signing happens inside the DATUM extension.
 
 ### Password Strength (M3)
 
-The wallet setup form shows a real-time strength indicator:
-- **Too short:** < 8 characters
-- **Weak:** Single character class
-- **Fair:** Two character classes
-- **Good:** Three character classes + 10+ characters
-- **Strong:** Four character classes + 12+ characters, no common patterns
+The wallet setup form shows a real-time strength indicator using a cumulative 5-point score: length >= 8 (+1), length >= 12 (+1), mixed case (+1), digits (+1), special chars (+1). Common patterns (password, qwerty, etc.) cap the score at 1.
+- **Too short:** < 8 characters (minimum enforced)
+- **Fair:** score <= 2
+- **Good:** score 3
+- **Strong:** score 4-5
 
 ### Key Operations
 
