@@ -380,4 +380,46 @@ describe("DatumCampaigns", function () {
   it("DEFAULT_TAKE_RATE_BPS is 5000", async function () {
     expect(await publishers.DEFAULT_TAKE_RATE_BPS()).to.equal(5000);
   });
+
+  // =========================================================================
+  // T-6 Publisher edge cases
+  // =========================================================================
+
+  it("T6-1: registerPublisher at exactly min (3000) take rate succeeds", async function () {
+    const signers = await ethers.getSigners();
+    const fresh = signers[8];
+    await publishers.connect(fresh).registerPublisher(3000);
+    expect((await publishers.getPublisher(fresh.address)).takeRateBps).to.equal(3000);
+  });
+
+  it("T6-2: registerPublisher at exactly max (8000) take rate succeeds", async function () {
+    const signers = await ethers.getSigners();
+    const fresh = signers[9];
+    await publishers.connect(fresh).registerPublisher(8000);
+    expect((await publishers.getPublisher(fresh.address)).takeRateBps).to.equal(8000);
+  });
+
+  it("T6-3: registerPublisher called twice reverts", async function () {
+    const signers = await ethers.getSigners();
+    const fresh = signers[10];
+    await publishers.connect(fresh).registerPublisher(5000);
+    await expect(
+      publishers.connect(fresh).registerPublisher(5000)
+    ).to.be.revertedWith("Already registered");
+  });
+
+  // T-7 Integration: multiple campaigns from same advertiser
+  it("T7-2: multiple campaigns from same advertiser with independent states", async function () {
+    const { id: id1 } = await createTestCampaign();
+    const { id: id2 } = await createTestCampaign();
+
+    // Both should be Pending
+    expect(await campaigns.getCampaignStatus(id1)).to.equal(0);
+    expect(await campaigns.getCampaignStatus(id2)).to.equal(0);
+
+    // Activate only one
+    await campaigns.connect(governance).activateCampaign(id1);
+    expect(await campaigns.getCampaignStatus(id1)).to.equal(1); // Active
+    expect(await campaigns.getCampaignStatus(id2)).to.equal(0); // Still Pending
+  });
 });

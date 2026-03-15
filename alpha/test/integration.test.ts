@@ -110,7 +110,9 @@ describe("Integration", function () {
       QUORUM_WEIGHTED,
       SLASH_BPS,
       BASE_LOCKUP,
-      MAX_LOCKUP
+      MAX_LOCKUP,
+      QUORUM_WEIGHTED,  // terminationQuorum = same as activation quorum
+      20n               // terminationGraceBlocks = 20 blocks
     );
 
     // Deploy GovernanceSlash
@@ -226,6 +228,9 @@ describe("Integration", function () {
     // Nay vote with larger weight to gain majority
     const nayStake = QUORUM_WEIGHTED * 2n;
     await v2.connect(voter2).vote(campaignId, false, 0, { value: nayStake });
+
+    // Mine past termination grace period
+    await mineBlocks(20);
 
     // Evaluate to terminate (nay >= 50%)
     await v2.evaluateCampaign(campaignId);

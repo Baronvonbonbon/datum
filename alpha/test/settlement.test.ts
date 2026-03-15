@@ -894,4 +894,64 @@ describe("DatumSettlement", function () {
       expect(result.settledCount).to.equal(0n);
     });
   });
+
+  // =========================================================================
+  // T-2 Settlement edge cases
+  // =========================================================================
+
+  it("T2-1: replay same nonce is rejected", async function () {
+    const cid = await createTestCampaign();
+    const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+    const batch = { user: user.address, campaignId: cid, claims };
+
+    // First submission succeeds
+    await settlement.connect(user).settleClaims([batch]);
+    expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+
+    // Replay with same nonce — rejected (nonce mismatch)
+    const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+    expect(result.settledCount).to.equal(0n);
+    expect(result.rejectedCount).to.equal(1n);
+  });
+
+  it("T2-2: claim with rounding-to-zero payment settles with zero payout", async function () {
+    // Create campaign with very low CPM
+    const lowCpmId = nextCampaignId++;
+    const lowCpm = 1n; // 1 planck per 1000 impressions
+    await mock.setCampaign(
+      lowCpmId, advertiserAddr(), publisher.address, BUDGET, DAILY_CAP, lowCpm, TAKE_RATE_BPS, 1
+    );
+    await owner.sendTransaction({ to: await mock.getAddress(), value: BUDGET });
+
+    // 1 impression at 1 planck CPM = totalPayment = (1 * 1) / 1000 = 0 planck (integer division)
+    const claims = buildClaimChain(lowCpmId, publisher.address, user.address, 1, lowCpm, 1n);
+    const batch = { user: user.address, campaignId: lowCpmId, claims };
+
+    // Contract settles zero-payment claims (impressionCount > 0 passes validation)
+    const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+    expect(result.settledCount).to.equal(1n);
+    expect(result.rejectedCount).to.equal(0n);
+    expect(result.totalPaid).to.equal(0n);
+  });
+
+  // T-7 Integration: multiple batches in single settleClaims call
+  it("T7-1: multiple batches in single settleClaims call", async function () {
+    const cid1 = await createTestCampaign();
+    const cid2 = await createTestCampaign();
+
+    const claims1 = buildClaimChain(cid1, publisher.address, user.address, 3, BID_CPM, 1000n);
+    const claims2 = buildClaimChain(cid2, publisher.address, user.address, 2, BID_CPM, 1000n);
+
+    const batch1 = { user: user.address, campaignId: cid1, claims: claims1 };
+    const batch2 = { user: user.address, campaignId: cid2, claims: claims2 };
+
+    const result = await settlement.connect(user).settleClaims.staticCall([batch1, batch2]);
+    expect(result.settledCount).to.equal(5n);
+    expect(result.rejectedCount).to.equal(0n);
+
+    await settlement.connect(user).settleClaims([batch1, batch2]);
+
+    expect(await settlement.lastNonce(user.address, cid1)).to.equal(3n);
+    expect(await settlement.lastNonce(user.address, cid2)).to.equal(2n);
+  });
 });

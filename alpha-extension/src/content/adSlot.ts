@@ -13,6 +13,7 @@ export interface CampaignCreative {
     text: string;
     cta: string;
     ctaUrl: string;
+    imageUrl?: string;
   };
   version: number;
 }
@@ -24,6 +25,7 @@ export interface AdSlotConfig {
   metadata: CampaignCreative | null;
   auctionMechanism?: "second-price" | "solo" | "floor";
   clearingCpmPlanck?: string;
+  ipfsGateway?: string;
 }
 
 const SLOT_ID = "datum-ad-slot";
@@ -45,6 +47,29 @@ function formatCpm(planckStr?: string): string {
   } catch {
     return "?";
   }
+}
+
+/**
+ * Resolve an image URL for rendering. Accepts:
+ * - Full HTTPS URL: returned as-is
+ * - IPFS CID (Qm...): resolved via gateway
+ * Returns null if URL is unsafe.
+ */
+function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
+  // Full HTTPS URL
+  try {
+    const parsed = new URL(imageUrl);
+    if (parsed.protocol === "https:") return parsed.href;
+  } catch { /* not a full URL */ }
+
+  // IPFS CID (Qm...)
+  if (imageUrl.startsWith("Qm") && imageUrl.length >= 46) {
+    const gw = gateway || "https://dweb.link/ipfs/";
+    const base = gw.endsWith("/") ? gw : gw + "/";
+    return base + imageUrl;
+  }
+
+  return null;
 }
 
 const MECHANISM_LABELS: Record<string, { label: string; color: string }> = {
@@ -96,35 +121,47 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   if (meta?.creative) {
     const c = meta.creative;
     const safeUrl = sanitizeCtaUrl(c.ctaUrl);
+    const imageUrl = c.imageUrl ? resolveImageUrl(c.imageUrl, config.ipfsGateway) : null;
 
     // CTA: clickable <a> if URL passes, non-clickable <span> otherwise
     const ctaHtml = safeUrl
       ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
           display:inline-block;background:#2a2a5a;color:#a0a0ff;
           border:1px solid #4a4a8a;border-radius:4px;
-          padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
-        ">${escapeHtml(c.cta)}</a>`
+          padding:6px 14px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;
+        ">${escapeHtml(c.cta)} &rarr;</a>`
       : `<span style="
           display:inline-block;background:#2a2a5a;color:#888;
           border:1px solid #4a4a8a;border-radius:4px;
-          padding:6px 12px;font-size:12px;
+          padding:6px 14px;font-size:12px;
         ">${escapeHtml(c.cta)}</span>`;
 
+    // Creative image (HTTPS only, max 280px wide, constrained height)
+    const imageHtml = imageUrl
+      ? `<img src="${escapeHtml(imageUrl)}" alt="" style="
+          max-width:100%;max-height:160px;border-radius:4px;margin-bottom:8px;
+          display:block;object-fit:cover;
+        " onerror="this.style.display='none'" />`
+      : "";
+
     wrapper.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;color:#a0a0ff;font-size:11px;letter-spacing:0.5px;">DATUM</span>
         <button class="datum-close" style="
           background:none;border:none;color:#888;cursor:pointer;
           font-size:16px;line-height:1;padding:0 2px;
         ">&#x2715;</button>
       </div>
-      <div style="color:#e0e0e0;font-size:13px;font-weight:600;margin-bottom:4px;">
+      ${imageHtml}
+      <div style="color:#e0e0e0;font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
         ${escapeHtml(meta.title)}
       </div>
-      <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
+      <div style="color:#bbb;font-size:12px;margin-bottom:10px;line-height:1.4;">
         ${escapeHtml(c.text)}
       </div>
-      ${ctaHtml}
+      <div style="margin-bottom:6px;">
+        ${ctaHtml}
+      </div>
       <div style="color:#555;font-size:10px;margin-top:6px;">
         Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
       </div>
@@ -200,30 +237,41 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   if (meta?.creative) {
     const c = meta.creative;
     const safeUrl = sanitizeCtaUrl(c.ctaUrl);
+    const imageUrl = c.imageUrl ? resolveImageUrl(c.imageUrl, config.ipfsGateway) : null;
     const ctaHtml = safeUrl
       ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
           display:inline-block;background:#2a2a5a;color:#a0a0ff;
           border:1px solid #4a4a8a;border-radius:4px;
-          padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
-        ">${escapeHtml(c.cta)}</a>`
+          padding:6px 14px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;
+        ">${escapeHtml(c.cta)} &rarr;</a>`
       : `<span style="
           display:inline-block;background:#2a2a5a;color:#888;
           border:1px solid #4a4a8a;border-radius:4px;
-          padding:6px 12px;font-size:12px;
+          padding:6px 14px;font-size:12px;
         ">${escapeHtml(c.cta)}</span>`;
 
+    const imageHtml = imageUrl
+      ? `<img src="${escapeHtml(imageUrl)}" alt="" style="
+          max-width:100%;max-height:200px;border-radius:4px;margin-bottom:8px;
+          display:block;object-fit:cover;
+        " onerror="this.style.display='none'" />`
+      : "";
+
     wrapper.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;color:#a0a0ff;font-size:11px;letter-spacing:0.5px;">DATUM</span>
         <span style="color:#555;font-size:10px;">Inline · SDK</span>
       </div>
-      <div style="color:#e0e0e0;font-size:13px;font-weight:600;margin-bottom:4px;">
+      ${imageHtml}
+      <div style="color:#e0e0e0;font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
         ${escapeHtml(meta.title)}
       </div>
-      <div style="color:#bbb;font-size:12px;margin-bottom:8px;">
+      <div style="color:#bbb;font-size:12px;margin-bottom:10px;line-height:1.4;">
         ${escapeHtml(c.text)}
       </div>
-      ${ctaHtml}
+      <div style="margin-bottom:6px;">
+        ${ctaHtml}
+      </div>
       <div style="color:#555;font-size:10px;margin-top:6px;">
         Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
       </div>

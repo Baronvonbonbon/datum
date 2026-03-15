@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { parseUnits } from "ethers";
 import { getGovernanceV2Contract, getGovernanceSlashContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
-import { CATEGORY_NAMES } from "@shared/types";
+import { CampaignMetadata, CATEGORY_NAMES } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { humanizeError } from "@shared/errorCodes";
@@ -69,10 +69,13 @@ export function GovernancePanel({ address }: Props) {
   // Campaign lists
   const [campaigns, setCampaigns] = useState<GovernableCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [metadata, setMetadata] = useState<Record<string, CampaignMetadata>>({});
+  const [metadataUrls, setMetadataUrls] = useState<Record<string, string>>({});
 
   // V2 params
   const [quorumWeighted, setQuorumWeighted] = useState<bigint | null>(null);
   const [slashBps, setSlashBps] = useState<number | null>(null);
+  const [pendingTimeout, setPendingTimeout] = useState<number | null>(null); // blocks
 
   // Actions
   const [withdrawing, setWithdrawing] = useState(false);
@@ -101,14 +104,18 @@ export function GovernancePanel({ address }: Props) {
       const campaignsContract = getCampaignsContract(settings.contractAddresses, provider);
       const v2 = getGovernanceV2Contract(settings.contractAddresses, provider);
 
-      const [nextId, quorum, slash] = await Promise.all([
+      const [nextId, quorum, slash, timeout, blockNum] = await Promise.all([
         campaignsContract.nextCampaignId(),
         v2.quorumWeighted(),
         v2.slashBps(),
+        campaignsContract.pendingTimeoutBlocks(),
+        provider.getBlockNumber(),
       ]);
 
       setQuorumWeighted(BigInt(quorum));
       setSlashBps(Number(slash));
+      setPendingTimeout(Number(timeout));
+      setCurrentBlock(blockNum);
 
       const count = Number(nextId);
       const governable: GovernableCampaign[] = [];
@@ -149,6 +156,20 @@ export function GovernancePanel({ address }: Props) {
       }
 
       setCampaigns(governable);
+
+      // Load cached IPFS metadata for campaign titles/links
+      if (governable.length > 0) {
+        const metaKeys = governable.flatMap((c) => [`metadata:${c.id}`, `metadata_url:${c.id}`]);
+        const stored = await chrome.storage.local.get(metaKeys);
+        const meta: Record<string, CampaignMetadata> = {};
+        const urls: Record<string, string> = {};
+        for (const c of governable) {
+          if (stored[`metadata:${c.id}`]) meta[c.id] = stored[`metadata:${c.id}`];
+          if (stored[`metadata_url:${c.id}`]) urls[c.id] = stored[`metadata_url:${c.id}`];
+        }
+        setMetadata(meta);
+        setMetadataUrls(urls);
+      }
     } catch {
       // Silent — non-critical
     } finally {
@@ -301,7 +322,44 @@ export function GovernancePanel({ address }: Props) {
       setTxResult(`Campaign #${cid} evaluated successfully.`);
       loadCampaigns();
     } catch (err) {
-      setError(humanizeError(err));
+      const msg = humanizeError(err);
+      if (msg.includes("E47")) {
+        // Pending campaign with nay majority — explain expiration alternative
+        const timeoutNote = pendingTimeout
+          ? ` Use "Expire" once the pending timeout (~${Math.round((pendingTimeout * 6) / 3600)}h from creation) has passed.`
+          : " Use Expire once the pending timeout has passed.";
+        setError(msg + timeoutNote);
+      } else if (msg.includes("E53") && pendingTimeout) {
+        setError(msg + ` Termination grace period: ~${Math.round((14400 * 6) / 3600)}h.`);
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setEvaluating(false);
+    }
+  }
+
+  async function expirePending(cid: string) {
+    setEvaluating(true);
+    setError(null);
+    setTxResult(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const campaignsContract = getCampaignsContract(settings.contractAddresses, signer);
+
+      const tx = await campaignsContract.expirePendingCampaign(BigInt(cid));
+      await tx.wait();
+      setTxResult(`Campaign #${cid} expired — budget refunded to advertiser.`);
+      loadCampaigns();
+    } catch (err) {
+      const msg = humanizeError(err);
+      if (msg.includes("E24") && pendingTimeout) {
+        const timeoutHours = Math.round((pendingTimeout * 6) / 3600);
+        setError(`${msg} (~${timeoutHours}h from campaign creation)`);
+      } else {
+        setError(msg);
+      }
     } finally {
       setEvaluating(false);
     }
@@ -387,10 +445,13 @@ export function GovernancePanel({ address }: Props) {
         campaigns={pendingCampaigns}
         loading={loadingCampaigns}
         quorum={quorumWeighted}
+        metadata={metadata}
+        metadataUrls={metadataUrls}
         selectedId={campaignId}
         onSelect={setCampaignId}
         onRefresh={loadCampaigns}
         onEvaluate={evaluateCampaign}
+        onExpire={expirePending}
         evaluating={evaluating}
         emptyText="No campaigns pending activation."
       />
@@ -402,6 +463,8 @@ export function GovernancePanel({ address }: Props) {
         campaigns={activeCampaigns}
         loading={loadingCampaigns}
         quorum={quorumWeighted}
+        metadata={metadata}
+        metadataUrls={metadataUrls}
         selectedId={campaignId}
         onSelect={setCampaignId}
         onRefresh={loadCampaigns}
@@ -429,6 +492,8 @@ export function GovernancePanel({ address }: Props) {
               campaigns={resolvedCampaigns}
               loading={loadingCampaigns}
               quorum={quorumWeighted}
+              metadata={metadata}
+              metadataUrls={metadataUrls}
               selectedId={campaignId}
               onSelect={(id) => { setCampaignId(id); setQueryCampaignId(id); }}
               onRefresh={loadCampaigns}
@@ -532,9 +597,19 @@ export function GovernancePanel({ address }: Props) {
         const nayPct = total > 0n ? 100 - ayePct : 0;
         return (
           <div style={{ ...cardStyle, marginTop: 10 }}>
-            <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-              Campaign #{queryCampaignId}
+            <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+              Campaign #{queryCampaignId}{metadata[queryCampaignId]?.title ? ` — ${metadata[queryCampaignId].title}` : ""}
             </div>
+            {metadata[queryCampaignId]?.description && (
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>{metadata[queryCampaignId].description}</div>
+            )}
+            {metadataUrls[queryCampaignId] && (
+              <div style={{ marginBottom: 4 }}>
+                <a href={metadataUrls[queryCampaignId]} target="_blank" rel="noopener"
+                  style={{ color: "#60a0ff", fontSize: 10, textDecoration: "underline" }}
+                >View IPFS Metadata</a>
+              </div>
+            )}
             {/* Majority bar */}
             <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
               <div style={{ width: `${ayePct}%`, background: "#2a6a2a", transition: "width 0.3s" }} />
@@ -692,18 +767,21 @@ export function GovernancePanel({ address }: Props) {
 // ---------------------------------------------------------------------------
 
 function CampaignSection({
-  title, subtitle, campaigns, loading, quorum,
-  selectedId, onSelect, onRefresh, onEvaluate, evaluating, emptyText,
+  title, subtitle, campaigns, loading, quorum, metadata, metadataUrls,
+  selectedId, onSelect, onRefresh, onEvaluate, onExpire, evaluating, emptyText,
 }: {
   title: string;
   subtitle: string;
   campaigns: GovernableCampaign[];
   loading: boolean;
   quorum: bigint | null;
+  metadata?: Record<string, CampaignMetadata>;
+  metadataUrls?: Record<string, string>;
   selectedId: string;
   onSelect: (id: string) => void;
   onRefresh: () => void;
   onEvaluate: (id: string) => void;
+  onExpire?: (id: string) => void;
   evaluating: boolean;
   emptyText: string;
 }) {
@@ -733,6 +811,8 @@ function CampaignSection({
               (c.status === 1 && ayePct <= 50) ||
               ((c.status === 3 || c.status === 4) && !c.resolved)
             );
+            // Pending campaign with nay majority — show Expire button instead
+            const canExpire = !c.resolved && c.status === 0 && ayePct <= 50 && total > 0n && onExpire;
             return (
               <div
                 key={c.id}
@@ -744,11 +824,21 @@ function CampaignSection({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                  <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>#{c.id}</span>
+                  <span style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 12 }}>
+                    #{c.id}{metadata?.[c.id]?.title ? ` — ${metadata[c.id].title}` : ""}
+                  </span>
                   <span style={{ fontSize: 10, color: c.resolved ? "#60c060" : "#c0c060" }}>
                     {c.resolved ? "Resolved" : STATUS_NAMES[c.status]}
                   </span>
                 </div>
+                {metadataUrls?.[c.id] && (
+                  <div style={{ marginBottom: 2 }}>
+                    <a href={metadataUrls[c.id]} target="_blank" rel="noopener"
+                      style={{ color: "#60a0ff", fontSize: 9, textDecoration: "underline" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >View IPFS Metadata</a>
+                  </div>
+                )}
                 {/* Majority bar */}
                 <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", marginBottom: 2 }}>
                   <div style={{ width: `${ayePct}%`, background: "#2a6a2a", transition: "width 0.3s" }} />
@@ -777,6 +867,15 @@ function CampaignSection({
                     style={{ ...evalBtn, marginTop: 4 }}
                   >
                     {evaluating ? "..." : c.status === 0 ? "Activate" : c.status === 1 ? "Terminate" : "Resolve"}
+                  </button>
+                )}
+                {canExpire && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onExpire(c.id); }}
+                    disabled={evaluating}
+                    style={{ ...evalBtn, marginTop: 4, background: "#2a1a0a", color: "#c09060", border: "1px solid #4a3a2a" }}
+                  >
+                    {evaluating ? "..." : "Expire (nay majority)"}
                   </button>
                 )}
               </div>

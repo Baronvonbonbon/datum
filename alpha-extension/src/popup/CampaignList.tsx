@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { CampaignStatus, CampaignMetadata, CATEGORY_NAMES, UserPreferences, buildCategoryHierarchy, getCategoryParent } from "@shared/types";
 import { formatDOT } from "@shared/dot";
+import { metadataUrl } from "@shared/ipfs";
 
 interface CampaignRow {
   id: string;
@@ -17,6 +18,7 @@ interface CampaignRow {
 export function CampaignList() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [metadata, setMetadata] = useState<Record<string, CampaignMetadata>>({});
+  const [metadataUrls, setMetadataUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [polling, setPolling] = useState(false);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
@@ -25,6 +27,19 @@ export function CampaignList() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [hideResolved, setHideResolved] = useState(true); // CL-1: auto-hide resolved
+
+  // E-M5: Restore category filter from session storage on mount
+  useEffect(() => {
+    chrome.storage.session.get("categoryFilter").then((stored) => {
+      if (stored.categoryFilter !== undefined) setCategoryFilter(stored.categoryFilter);
+    });
+  }, []);
+
+  // E-M5: Persist category filter to session storage on change
+  function updateCategoryFilter(val: number | null) {
+    setCategoryFilter(val);
+    chrome.storage.session.set({ categoryFilter: val });
+  }
 
   async function loadPrefs() {
     const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
@@ -47,15 +62,17 @@ export function CampaignList() {
     }));
     setCampaigns(camps);
 
-    const metaKeys = camps.map((c) => `metadata:${c.id}`);
+    const metaKeys = camps.flatMap((c) => [`metadata:${c.id}`, `metadata_url:${c.id}`]);
     if (metaKeys.length > 0) {
       const stored = await chrome.storage.local.get(metaKeys);
       const meta: Record<string, CampaignMetadata> = {};
+      const urls: Record<string, string> = {};
       for (const c of camps) {
-        const key = `metadata:${c.id}`;
-        if (stored[key]) meta[c.id] = stored[key];
+        if (stored[`metadata:${c.id}`]) meta[c.id] = stored[`metadata:${c.id}`];
+        if (stored[`metadata_url:${c.id}`]) urls[c.id] = stored[`metadata_url:${c.id}`];
       }
       setMetadata(meta);
+      setMetadataUrls(urls);
     }
   }
 
@@ -149,13 +166,13 @@ export function CampaignList() {
               maxHeight: 200, overflowY: "auto", marginTop: 2,
             }}>
               <button
-                onClick={() => { setCategoryFilter(null); setFilterOpen(false); }}
+                onClick={() => { updateCategoryFilter(null); setFilterOpen(false); }}
                 style={{ ...filterItem, fontWeight: categoryFilter === null ? 600 : 400, color: categoryFilter === null ? "#a0a0ff" : "#aaa" }}
               >All categories</button>
               {hierarchy.map((group) => (
                 <button
                   key={group.id}
-                  onClick={() => { setCategoryFilter(group.id); setFilterOpen(false); }}
+                  onClick={() => { updateCategoryFilter(group.id); setFilterOpen(false); }}
                   style={{ ...filterItem, fontWeight: categoryFilter === group.id ? 600 : 400, color: categoryFilter === group.id ? "#a0a0ff" : "#aaa" }}
                 >{group.name}</button>
               ))}
@@ -239,6 +256,21 @@ export function CampaignList() {
                 <div>Take rate: {(c.snapshotTakeRateBps / 100).toFixed(2)}%</div>
                 <div>Daily cap: {formatDOT(c.dailyCap)} DOT</div>
                 <div>Category: {categoryName} (ID: {c.categoryId})</div>
+                {meta?.creative && (
+                  <div style={{ marginTop: 6, borderTop: "1px solid #2a2a4a", paddingTop: 6 }}>
+                    <div style={{ color: "#aaa" }}>Creative: {meta.creative.text.slice(0, 80)}{meta.creative.text.length > 80 ? "..." : ""}</div>
+                    <div style={{ color: "#aaa" }}>CTA: {meta.creative.cta}
+                      {meta.creative.ctaUrl && (
+                        <a href={meta.creative.ctaUrl} target="_blank" rel="noopener" style={{ color: "#60a0ff", marginLeft: 6 }}>{meta.creative.ctaUrl.slice(0, 40)}...</a>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {metadataUrls[c.id] && (
+                  <div style={{ marginTop: 4 }}>
+                    <a href={metadataUrls[c.id]} target="_blank" rel="noopener" style={{ color: "#a0a0ff", textDecoration: "underline" }}>View IPFS Metadata</a>
+                  </div>
+                )}
               </div>
             )}
           </div>

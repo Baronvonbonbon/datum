@@ -56,6 +56,7 @@ export interface CampaignMetadata {
     text: string;
     cta: string;
     ctaUrl: string;
+    imageUrl?: string;  // optional HTTPS URL or IPFS gateway URL for creative image
   };
   version: number;
 }

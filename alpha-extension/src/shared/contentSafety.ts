@@ -10,6 +10,7 @@ const MAX_CATEGORY = 64;
 const MAX_CREATIVE_TEXT = 512;
 const MAX_CTA = 64;
 const MAX_CTA_URL = 2048;
+const MAX_IMAGE_URL = 2048;
 
 // Metadata byte-size cap (checked before JSON.parse in campaignPoller)
 export const MAX_METADATA_BYTES = 10_240; // 10 KB
@@ -55,6 +56,12 @@ export function validateMetadata(raw: unknown): ValidationResult {
   if ((creative.cta as string).length > MAX_CTA) return { valid: false, error: `creative.cta exceeds ${MAX_CTA} chars` };
   if ((creative.ctaUrl as string).length > MAX_CTA_URL) return { valid: false, error: `creative.ctaUrl exceeds ${MAX_CTA_URL} chars` };
 
+  // Optional image URL validation
+  if (creative.imageUrl !== undefined) {
+    if (typeof creative.imageUrl !== "string") return { valid: false, error: "creative.imageUrl must be a string" };
+    if ((creative.imageUrl as string).length > MAX_IMAGE_URL) return { valid: false, error: `creative.imageUrl exceeds ${MAX_IMAGE_URL} chars` };
+  }
+
   const data: CampaignMetadata = {
     title: obj.title as string,
     description: obj.description as string,
@@ -65,6 +72,7 @@ export function validateMetadata(raw: unknown): ValidationResult {
       text: creative.text as string,
       cta: creative.cta as string,
       ctaUrl: creative.ctaUrl as string,
+      ...(typeof creative.imageUrl === "string" && creative.imageUrl ? { imageUrl: creative.imageUrl } : {}),
     },
   };
 

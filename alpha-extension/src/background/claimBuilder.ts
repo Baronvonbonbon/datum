@@ -26,7 +26,10 @@ export const claimBuilder = {
   }): Promise<void> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
-    if (!userAddress) return; // no wallet connected
+    if (!userAddress) {
+      console.warn("[DATUM] Impression dropped: no connectedAddress in storage. Unlock wallet first.");
+      return;
+    }
 
     // Serialize per-(user, campaign) to prevent nonce race from concurrent tabs
     const lockKey = `${userAddress}:${msg.campaignId}`;
@@ -38,7 +41,10 @@ export const claimBuilder = {
       const cached = await chrome.storage.local.get("activeCampaigns");
       const campaigns = cached.activeCampaigns ?? [];
       const campaign = campaigns.find((c: { id: string }) => c.id === msg.campaignId);
-      if (!campaign) return; // campaign no longer active
+      if (!campaign) {
+        console.warn(`[DATUM] Impression dropped: campaign ${msg.campaignId} not in activeCampaigns cache`);
+        return;
+      }
 
       const impressionCount = 1n;
       // Use auction clearing CPM if provided, otherwise fall back to bid CPM
@@ -83,6 +89,7 @@ export const claimBuilder = {
 
       // Append claim to queue
       await appendToQueue(claim, userAddress);
+      console.log(`[DATUM] Claim queued: campaign=${msg.campaignId} nonce=${nonce} user=${userAddress}`);
     });
   },
 

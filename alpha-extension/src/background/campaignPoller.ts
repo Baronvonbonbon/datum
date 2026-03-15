@@ -41,7 +41,7 @@ export const campaignPoller = {
       // getCampaignForSettlement returns (status, publisher, bidCpmPlanck, remainingBudget, snapshotTakeRateBps)
       // categoryId, dailyCap, pendingExpiryBlock, terminationBlock not exposed — no room for new getters (490B spare)
       let missCount = 0;
-      for (let id = 0; id < Math.min(nextId, MAX_SCAN_ID); id++) {
+      for (let id = 1; id < Math.min(nextId, MAX_SCAN_ID); id++) {
         try {
           const [status, advertiser] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
@@ -108,6 +108,19 @@ export const campaignPoller = {
       await chrome.storage.local.set({ [STORAGE_KEY]: campaigns });
       console.log(`[DATUM] Polled ${campaigns.length} campaigns (Active/Pending/Paused)`);
 
+      // CL-4: Clean up metadata cache for campaigns no longer in active list
+      const activeIdSet = new Set(campaigns.map((c) => c.id));
+      const allKeys = await chrome.storage.local.get(null);
+      const staleMetaKeys = Object.keys(allKeys).filter((k) => {
+        if (!k.startsWith("metadata:") && !k.startsWith("metadata_ts:") && !k.startsWith("metadata_url:")) return false;
+        const cid = k.replace("metadata:", "").replace("metadata_ts:", "").replace("metadata_url:", "");
+        return !activeIdSet.has(cid);
+      });
+      if (staleMetaKeys.length > 0) {
+        await chrome.storage.local.remove(staleMetaKeys);
+        console.log(`[DATUM] Cleaned ${staleMetaKeys.length} stale metadata cache entries`);
+      }
+
       // Fetch IPFS metadata for campaigns
       const gateway = ipfsGateway || "https://dweb.link/ipfs/";
       for (const c of campaigns) {
@@ -159,7 +172,8 @@ export const campaignPoller = {
               continue;
             }
 
-            await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now() });
+            const urlKey = `metadata_url:${c.id}`;
+            await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now(), [urlKey]: url });
             console.log(`[DATUM] Cached metadata for campaign ${c.id}`);
           }
         } catch (err) {

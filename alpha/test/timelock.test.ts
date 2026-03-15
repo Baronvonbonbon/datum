@@ -227,4 +227,49 @@ describe("Admin Timelock (DatumTimelock)", function () {
       settlement.connect(other).setRelayContract(newAddr.address)
     ).to.be.revertedWithCustomError(settlement, "OwnableUnauthorizedAccount");
   });
+
+  // -----------------------------------------------------------------------
+  // T-4 Timelock edge cases
+  // -----------------------------------------------------------------------
+
+  it("T4-1: cancel() with no pending proposal reverts E35", async function () {
+    // Ensure no pending proposal
+    await expect(
+      timelock.cancel()
+    ).to.be.revertedWith("E35");
+  });
+
+  it("T4-2: propose() overwrites pending proposal (resets timer)", async function () {
+    const calldata1 = campaigns.interface.encodeFunctionData("setSettlementContract", [other.address]);
+    await timelock.propose(await campaigns.getAddress(), calldata1);
+
+    // Advance partway through delay
+    await advanceTime(TIMELOCK_DELAY / 2);
+
+    // Second propose overwrites — timer resets
+    const calldata2 = campaigns.interface.encodeFunctionData("setSettlementContract", [newAddr.address]);
+    await timelock.propose(await campaigns.getAddress(), calldata2);
+
+    // Original delay should NOT be enough (timer reset)
+    await advanceTime(TIMELOCK_DELAY / 2);
+    await expect(timelock.execute()).to.be.revertedWith("E37");
+
+    // Full delay from second propose works
+    await advanceTime(TIMELOCK_DELAY / 2 + 1);
+    await timelock.execute();
+    expect(await campaigns.settlementContract()).to.equal(newAddr.address);
+  });
+
+  it("T4-3: execute() where target call reverts", async function () {
+    // Propose setting governance on campaigns, but campaigns.setGovernanceContract
+    // accepts any address — so instead propose calling a function on mock that reverts
+    // Use settlement.setRelayContract with address(0) — OZ doesn't block this,
+    // but we can test with invalid calldata that will revert
+    const badCalldata = "0xdeadbeef"; // invalid function selector
+    await timelock.propose(await settlement.getAddress(), badCalldata);
+    await advanceTime(TIMELOCK_DELAY);
+
+    // Execute should revert because the target call fails
+    await expect(timelock.execute()).to.be.revertedWith("E02");
+  });
 });

@@ -37,6 +37,8 @@ contract DatumGovernanceV2 {
     uint256 public slashBps;           // slash percentage in basis points
     uint256 public baseLockupBlocks;
     uint256 public maxLockupBlocks;
+    uint256 public terminationQuorum;  // nay-side weighted minimum to terminate
+    uint256 public terminationGraceBlocks; // blocks after first nay before termination allowed
 
     // -------------------------------------------------------------------------
     // State
@@ -54,6 +56,7 @@ contract DatumGovernanceV2 {
     mapping(uint256 => bool) public resolved;
     mapping(uint256 => uint256) public slashCollected;
     mapping(uint256 => mapping(address => Vote)) private _votes;
+    mapping(uint256 => uint256) public firstNayBlock; // block of first nay vote per campaign
 
     // -------------------------------------------------------------------------
     // Events
@@ -72,7 +75,9 @@ contract DatumGovernanceV2 {
         uint256 _quorum,
         uint256 _slashBps,
         uint256 _baseLockup,
-        uint256 _maxLockup
+        uint256 _maxLockup,
+        uint256 _terminationQuorum,
+        uint256 _terminationGraceBlocks
     ) {
         require(_campaigns != address(0), "E00");
         owner = msg.sender;
@@ -81,6 +86,8 @@ contract DatumGovernanceV2 {
         slashBps = _slashBps;
         baseLockupBlocks = _baseLockup;
         maxLockupBlocks = _maxLockup;
+        terminationQuorum = _terminationQuorum;
+        terminationGraceBlocks = _terminationGraceBlocks;
     }
 
     receive() external payable {}
@@ -113,6 +120,9 @@ contract DatumGovernanceV2 {
             ayeWeighted[campaignId] += weight;
         } else {
             nayWeighted[campaignId] += weight;
+            if (firstNayBlock[campaignId] == 0) {
+                firstNayBlock[campaignId] = block.number;
+            }
         }
 
         emit VoteCast(campaignId, msg.sender, aye, msg.value, conviction);
@@ -186,9 +196,11 @@ contract DatumGovernanceV2 {
             IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
             emit CampaignEvaluated(campaignId, 1);
         } else if (status == 1 || status == 2) {
-            // Active/Paused -> Terminated: nay has majority (>=50%)
+            // Active/Paused -> Terminated: nay has majority (>=50%) + termination guards
             require(total > 0, "E51");
             require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
+            require(nayWeighted[campaignId] >= terminationQuorum, "E52");
+            require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + terminationGraceBlocks, "E53");
             IDatumCampaignsMinimal(campaigns).terminateCampaign(campaignId);
             resolved[campaignId] = true;
             emit CampaignEvaluated(campaignId, 4);

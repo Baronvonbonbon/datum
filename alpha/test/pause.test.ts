@@ -12,7 +12,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { fundSigners } from "./helpers/mine";
+import { fundSigners, mineBlocks } from "./helpers/mine";
 
 // Global pause tests: P1-P8
 // Verifies DatumPauseRegistry circuit breaker across Campaigns, Settlement, and Relay.
@@ -67,7 +67,9 @@ describe("Global Pause (DatumPauseRegistry)", function () {
       QUORUM_WEIGHTED,
       SLASH_BPS,
       BASE_LOCKUP,
-      MAX_LOCKUP
+      MAX_LOCKUP,
+      QUORUM_WEIGHTED,  // terminationQuorum = same as activation quorum
+      20n               // terminationGraceBlocks = 20 blocks
     );
 
     // Deploy GovernanceSlash
@@ -173,6 +175,9 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     // Vote nay with majority while unpaused
     await v2.connect(other).vote(cid, false, 0, { value: QUORUM_WEIGHTED * 2n });
 
+    // Mine past termination grace period so E52/E53 pass and the revert hits pause check
+    await mineBlocks(20);
+
     // Pause
     await pauseReg.pause();
 
@@ -247,5 +252,24 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     await campaigns.getCampaignStatus(1n);
     await campaigns.getCampaignForSettlement(1n);
     expect(await pauseReg.paused()).to.be.true;
+  });
+
+  // T-5 PauseRegistry idempotency
+  it("T5-1: pause() when already paused is idempotent", async function () {
+    await pauseReg.pause();
+    expect(await pauseReg.paused()).to.be.true;
+
+    // Calling pause again should not revert
+    await pauseReg.pause();
+    expect(await pauseReg.paused()).to.be.true;
+  });
+
+  it("T5-2: unpause() when already unpaused is idempotent", async function () {
+    // afterEach ensures unpaused, so it should be unpaused here
+    expect(await pauseReg.paused()).to.be.false;
+
+    // Calling unpause again should not revert
+    await pauseReg.unpause();
+    expect(await pauseReg.paused()).to.be.false;
   });
 });

@@ -151,6 +151,7 @@ async function main() {
     ? publisherAddress
     : match.publisher;
 
+  const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
   const adConfig = {
     campaignId,
     publisherAddress: effectivePublisher,
@@ -158,6 +159,7 @@ async function main() {
     metadata: validatedMeta,
     auctionMechanism: auctionMechanism as any,
     clearingCpmPlanck,
+    ipfsGateway,
   };
 
   // Inject ad: inline into SDK slot if available, overlay otherwise

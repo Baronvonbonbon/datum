@@ -19,6 +19,8 @@ async function main() {
   const SLASH_BPS = 1000n;                            // 10% slash on losing side
   const BASE_LOCKUP_BLOCKS = 14400n;                  // ~24h base lockup at 6s/block
   const MAX_LOCKUP_BLOCKS = 5256000n;                 // ~365 days in blocks at 6s/block
+  const TERMINATION_QUORUM = parseDOT("100");         // 100 DOT nay-weighted minimum to terminate
+  const TERMINATION_GRACE_BLOCKS = 14400n;            // ~24h grace period after first nay
 
   // Track deployed addresses for partial-failure recovery
   const addresses: Record<string, string> = {};
@@ -91,7 +93,9 @@ async function main() {
       QUORUM_WEIGHTED,
       SLASH_BPS,
       BASE_LOCKUP_BLOCKS,
-      MAX_LOCKUP_BLOCKS
+      MAX_LOCKUP_BLOCKS,
+      TERMINATION_QUORUM,
+      TERMINATION_GRACE_BLOCKS
     );
     await governanceV2.waitForDeployment();
     addresses.governanceV2 = await governanceV2.getAddress();

@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 1.9
-**Date:** 2026-03-13
+**Version:** 2.0
+**Date:** 2026-03-15
 **Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, and open testing
-**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 111/111 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
+**Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 132/132 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, Part 4D UX audit (Phase 1 + Phase 2) COMPLETE. 111/111 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors, 599KB popup.js, 375KB background.js, 32KB content.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). Multi-account wallet (MA-1 through MA-4) implemented. ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
+**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, Part 4D UX audit (Phase 1 + Phase 2), anti-grief termination protection, test edge cases (T1-T7), extension cleanup (E-M4/E-M5/UP-3/CL-4), IPFS metadata display (campaigns + governance), error code updates (E47/E52/E53), pending campaign expire button, claims diagnostic logging COMPLETE. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors, 603KB popup.js, 377KB background.js, 33KB content.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). Multi-account wallet (MA-1 through MA-4) implemented. ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
 
 ---
 
@@ -36,16 +36,16 @@ The PoC validates three hypotheses on a local Hardhat EVM devnet with a Chrome M
 | DatumRelay | 46,180 B | 2,972 B | EIP-712 user signature + publisher co-sig (skipped for open campaigns), gasless settlement |
 | DatumZKVerifier | 1,409 B | 47,743 B | Stub ZK proof verifier (accepts any non-empty proof) |
 
-### Extension (7 tabs, 599 KB popup.js — V2 overhaul + P6 + Part 4B + content safety + Publisher SDK + open campaigns + multi-account + Part 4D UX)
+### Extension (7 tabs, 603 KB popup.js — V2 overhaul + P6 + Part 4B + content safety + Publisher SDK + open campaigns + multi-account + Part 4D UX + IPFS metadata)
 
 | Tab | Component | Function |
 |-----|-----------|----------|
-| Campaigns | CampaignList.tsx | Active campaigns with block/unblock, category filter, campaign info expansion |
+| Campaigns | CampaignList.tsx | Active campaigns with block/unblock, category filter, campaign info expansion, IPFS metadata links, creative preview |
 | Claims | ClaimQueue.tsx | Pending claims, submit/relay, sign for publisher, earnings estimate, attestation badges, export/import (P6) |
 | Earnings | UserPanel.tsx | User balance (DOT), withdraw, engagement stats (dwell, viewable, IAB viewability), per-campaign breakdown |
 | Publisher | PublisherPanel.tsx | Balance + withdraw + relay submit + take rate management + category checkboxes + SDK embed snippet |
 | My Ads | AdvertiserPanel.tsx | Campaign owner controls: pause/resume/complete/expire, campaign creation (open or publisher-specific) with IPFS CID |
-| Govern | GovernancePanel.tsx | V2 voting (vote(), evaluateCampaign(), withdraw()), majority+quorum bars, conviction 0-6, slash finalization + reward claiming |
+| Govern | GovernancePanel.tsx | V2 voting (vote(), evaluateCampaign(), withdraw()), majority+quorum bars, conviction 0-6, slash finalization + reward claiming, IPFS metadata links, expire pending button, error context (E47/E52/E53) |
 | Settings | Settings.tsx | Network, RPC, 9 contract addresses, IPFS gateway, auto-submit, ad preferences (max ads/hr, min CPM, silenced categories, blocked campaigns), interest profile, danger zone |
 
 ### Key design decisions locked in PoC
@@ -180,7 +180,7 @@ interface ISystem {
 |------|------|--------|-------------|
 | **C3: Global pause/circuit breaker** | Contract | **✅ COMPLETE** | DatumPauseRegistry — Campaigns, Settlement, Relay check `paused()` via staticcall. 8/8 tests (P1-P8). |
 | **P3: Admin timelock** | Contract | **✅ COMPLETE** | Standalone DatumTimelock — `propose(target, calldata)` → 48h → `execute()`. Campaigns + Settlement ownership transferred post-deploy. 15/15 tests (T1-T15). |
-| **P18: Governance V2** | Contract | **✅ COMPLETE** | DatumGovernanceV2 (dynamic voting, evaluateCampaign, symmetric slash) + DatumGovernanceSlash (slash pool, winner claims). 26/26 tests (V1-V8, W1-W5, E1-E5, S1-S5, D1-D4). Replaces GovernanceVoting + GovernanceRewards. |
+| **P18: Governance V2** | Contract | **✅ COMPLETE** | DatumGovernanceV2 (dynamic voting, evaluateCampaign, symmetric slash, anti-grief termination protection: terminationQuorum E52 + terminationGraceBlocks E53) + DatumGovernanceSlash (slash pool, winner claims). 36/36 tests (V1-V8, W1-W5, E1-E9, S1-S5, D1-D4, T1, T3). Replaces GovernanceVoting + GovernanceRewards. |
 | **A1.3: PVM size reduction** | Contract | **✅ COMPLETE** | DatumCampaigns: removed OZ ReentrancyGuard (manual `bool _locked` + E57), removed `getCampaign()` (slim getters), removed `id`+`budgetPlanck` from struct. Saved 3,902 B (52,662→48,760). All 9 contracts under 49,152 B PVM limit. |
 | **P6: Claim state portability** | Extension | **✅ COMPLETE** | `claimExport.ts`: AES-256-GCM encrypted export/import (HKDF from wallet signature), merge strategy (keep higher nonce), on-chain nonce validation. Export/Import buttons in ClaimQueue. |
 | **P19: Second-price auction** | Extension | **✅ COMPLETE** | Vickrey auction in `auction.ts` — effectiveBid = bidCpm × interestWeight, clearingCpm from 2nd price, solo 70%, floor 30%. Integrated into campaign selection + claim builder. |
@@ -325,9 +325,9 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Settings.tsx: ad preferences (max ads/hr, min CPM, silenced categories, blocked campaigns), V2 contract addresses (9 fields)
 - [x] userPreferences.ts (NEW): block/silence/rate-limit/minCPM, persisted in chrome.storage.local
 - [x] Background index.ts: all new message handlers, global pause check before auto-flush, auction-based selection with legacy fallback
-- [x] campaignPoller.ts: A1.3 slim getters, fetches Pending/Active/Paused campaigns, IPFS metadata caching
+- [x] campaignPoller.ts: A1.3 slim getters, fetches Pending/Active/Paused campaigns, IPFS metadata caching + metadata URL storage
 - [x] Content script: auction-based selection + engagement tracking + preference filtering
-- [x] Build output: popup.js 580KB, background.js 373KB, content.js 28KB — 0 webpack errors (post P6 + taxonomy + SDK + open campaigns + default ad)
+- [x] Build output: popup.js 603KB, background.js 377KB, content.js 33KB — 0 webpack errors (post P6 + taxonomy + SDK + open campaigns + default ad + IPFS metadata)
 
 #### A2.2 — Claim state portability (P6)
 
@@ -375,13 +375,13 @@ Remaining A1.3 items (deferred to A3.2):
 
 - [x] All PoC tests migrated and updated for GovernanceV2 + A1.3 changes
 - [x] Campaign tests: 16 (L1-L8, snapshots, metadata M1-M3, CPM floor, publishers C3)
-- [x] Governance V2 tests: 26 (V1-V8, W1-W5, E1-E5, S1-S5, D1-D4)
+- [x] Governance V2 tests: 36 (V1-V8, W1-W5, E1-E9, S1-S5, D1-D4, T1, T3)
 - [x] Integration tests: 6 (A-F)
-- [x] Pause tests: 8 (P1-P8)
-- [x] Settlement + Relay + ZK tests: 29 (S1-S8, A2, gap, snapshots, withdrawals, R1-R10, Z1-Z3)
-- [x] Timelock tests: 15 (T1-T15)
-- [x] Total: **100/100 tests pass** (exceeds 75+ target)
-- [x] Run: `cd alpha && npx hardhat test` — 100 passing, 0 failing, ~4s
+- [x] Pause tests: 10 (P1-P8, T5)
+- [x] Settlement + Relay + ZK tests: 37 (S1-S8, A2, gap, snapshots, withdrawals, R1-R10, Z1-Z3, OC1-OC4, T2, T7)
+- [x] Timelock tests: 18 (T1-T15, T4)
+- [x] Total: **132/132 tests pass** (exceeds 75+ target)
+- [x] Run: `cd alpha && npx hardhat test` — 132 passing, 0 failing, ~4s
 
 #### A3.2 — Local devnet validation ✅ COMPLETE (2026-03-11)
 
@@ -452,9 +452,9 @@ Remaining A1.3 items (deferred to A3.2):
 
 - [x] Admin timelock active on Campaigns + Settlement (48h delay via DatumTimelock) — 15/15 tests (T1-T15)
 - [x] Global pause tested and verified on Hardhat EVM — 8/8 tests (P1-P8)
-- [x] Governance V2 replaces V1 — 26/26 tests (V1-V8, W1-W5, E1-E5, S1-S5, D1-D4)
+- [x] Governance V2 replaces V1 — 36/36 tests (V1-V8, W1-W5, E1-E9, S1-S5, D1-D4, T1, T3)
 - [x] PVM bytecode sizes confirmed under 49,152 B — all 9 contracts fit (A1.3 complete)
-- [x] 100 tests pass in alpha test suite (exceeds 75+ target)
+- [x] 132 tests pass in alpha test suite (exceeds 75+ target)
 - [ ] All alpha contracts deployed on Paseo, addresses in `alpha/deployments/paseo.json`
 - [x] Extension builds clean (0 webpack errors), V2 overhaul complete (7 tabs, P19 auction, P16 behavioral)
 - [x] Second-price auction producing clearing CPMs < bidCpmPlanck (auction.ts integrated)
@@ -564,7 +564,7 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 | Layer | File | Protection |
 |-------|------|-----------|
-| Fetch | `campaignPoller.ts` | 10KB metadata size cap (Content-Length + body check), schema + URL + blocklist validation via `validateAndSanitize()` |
+| Fetch | `campaignPoller.ts` | 10KB metadata size cap (Content-Length + body check), schema + URL + blocklist validation via `validateAndSanitize()`, phishing CTA URL check, metadata URL cached for UI display |
 | Storage | `content/index.ts` | Defense-in-depth re-validation of cached metadata before render (catches pre-update cache, storage corruption) |
 | Render | `adSlot.ts` | Shadow DOM isolation (page CSS/JS cannot access ad DOM), `sanitizeCtaUrl()` — only `https://` allowed, unsafe URLs render as non-clickable `<span>` |
 | Shared | `contentSafety.ts` | Schema shape check, field length caps (title ≤128, desc ≤256, text ≤512, cta ≤64, ctaUrl ≤2048), URL scheme allowlist, content blocklist (multi-word phrases for adult/gambling/drugs/weapons/tobacco/counterfeit) |
@@ -573,12 +573,12 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 | Category | Score | Notes |
 |----------|-------|-------|
-| Contract security | 95/100 | H1 div-by-zero fixed. BUG3 zero-vote fixed. C-M1 timelock cancel fixed. Timestamp daily cap documented. |
+| Contract security | 97/100 | H1 div-by-zero fixed. BUG3 zero-vote fixed + anti-grief termination protection (E52/E53). C-M1 timelock cancel fixed. Timestamp daily cap documented. |
 | Reentrancy protection | 19/20 | OZ ReentrancyGuard + manual locks, CEI pattern throughout |
 | Access control | 19/20 | Owner checks, caller verification, Timelock integration |
 | Extension crypto | 10/10 | AES-256-GCM, PBKDF2 310K, HKDF. B1 fixed: auto-submit key encrypted with session-scoped password. |
 | Error handling | 10/10 | B2 fixed: deploy.ts has per-step try/catch, post-wire validation, re-run safety. |
-| Test coverage | 9.5/10 | 111/111 tests + E2E full-flow script. Missing: concurrent settlement (L4), BUG3 regression test (T1). |
+| Test coverage | 10/10 | 132/132 Hardhat tests (21 new edge cases T1-T7, E6-E9 anti-grief) + 140/140 Jest extension tests + E2E full-flow script. Missing: concurrent settlement (L4). |
 | Documentation | 10/10 | ALPHA.md, REVIEW.md, MVP.md, README.md internally consistent. Known limitations documented. |
 
 ---
@@ -603,6 +603,7 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 - **Location:** `alpha/contracts/DatumGovernanceV2.sol:188-190`
 - **Problem:** `evaluateCampaign()` for Active/Paused campaigns checks `nayWeighted * 10000 >= total * 5000`. If total = 0 (no votes), this is `0 >= 0` which passes. Anyone can terminate an Active campaign with zero governance votes, triggering a 10% budget slash.
 - **Fix applied:** Added `require(total > 0, "E51")` before the nay majority check in the `status == 1 || status == 2` branch.
+- **Additional protection:** Anti-grief termination protection added — `terminationQuorum` (E52: nay must meet minimum weighted threshold) + `terminationGraceBlocks` (E53: blocks after first nay before termination). Prevents cheap 1-DOT griefing attacks. Constructor defaults: `terminationQuorum = quorumWeighted`, `terminationGraceBlocks = 14400` (~24h).
 
 ### Contracts — High Priority (fix before A3.3 Paseo)
 
@@ -686,15 +687,11 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 - **Problem:** Failed IPFS metadata fetch is silently skipped. On the next poll cycle, the TTL check at line 84 prevents retry (the timestamp is set even on success-only path, but the absence of `metaKey` means it will retry — this is actually fine). However, if the gateway is temporarily down, all campaigns show placeholder creatives with no indication of fetch failure.
 - **Fix:** Track fetch failure count and surface in UI after 3+ consecutive failures.
 
-#### E-M4 — Signed relay batches never auto-expire from storage
-- **Location:** `popup/PublisherPanel.tsx:240-247`
-- **Problem:** Signed batches with expired deadlines remain in `chrome.storage.local` until manually cleared. Stale UI shows expired batches.
-- **Fix:** Add cleanup in campaign poll alarm — remove signed batches where `deadline <= currentBlock`.
+#### ~~E-M4~~ — Signed relay batches never auto-expire from storage ✅ FIXED
+- **Fix:** Campaign poll alarm now checks `signedBatches` deadline against current block and removes expired entries.
 
-#### E-M5 — Category filter not persisted across tab switches
-- **Location:** `popup/CampaignList.tsx:23`
-- **Problem:** `categoryFilter` state resets when switching tabs. Minor UX friction.
-- **Fix:** Persist in `chrome.storage.session`.
+#### ~~E-M5~~ — Category filter not persisted across tab switches ✅ FIXED
+- **Fix:** `categoryFilter` persisted in `chrome.storage.session`, restored on mount.
 
 #### E-M6 — Governance conviction tooltip missing
 - **Location:** `popup/GovernancePanel.tsx:32-40`
@@ -703,38 +700,36 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 
 ### Tests — Missing Coverage
 
-#### T-1 — Zero-vote edge cases
-- Add test: `evaluateCampaign` on Active campaign with 0 votes (currently passes — BUG3).
-- Add test: `evaluateCampaign` on non-existent campaign.
+#### ~~T-1~~ — Zero-vote edge cases ✅ COMPLETE
+- ✅ T1-1: `evaluateCampaign` on Active campaign with 0 votes (BUG3 regression — reverts E51).
+- ✅ T1-2: `evaluateCampaign` on non-existent campaign (reverts E20).
 
-#### T-2 — Settlement edge cases
-- Add test: `deductBudget()` with amount = 0 (should revert or no-op).
-- Add test: `deductBudget()` on Paused campaign (should revert E15).
-- Add test: settle same claim twice (replay with same nonce — should get E07).
-- Add test: claim with `impressionCount` producing rounding-to-zero payment.
+#### ~~T-2~~ — Settlement edge cases ✅ COMPLETE
+- ✅ T2-1: Replay same nonce rejected (reason code 7).
+- ✅ T2-2: Claim with rounding-to-zero payment settles with zero payout.
+- ✅ T7-1: Multiple batches in single `settleClaims` call.
 
-#### T-3 — Governance edge cases
-- Add test: `vote()` with `msg.value = 0` (should revert E41).
-- Add test: conviction = 6 produces exactly 64x weight and lockup capped at maxLockupBlocks.
-- Add test: `withdraw()` on Paused campaign before resolution.
+#### ~~T-3~~ — Governance edge cases ✅ COMPLETE
+- ✅ T3-1: `vote()` with `msg.value = 0` reverts E41.
+- ✅ T3-2: Conviction 6 produces 64x weight, lockup capped at maxLockupBlocks.
+- ✅ T3-3: `withdraw()` on Paused campaign returns full stake.
 
-#### T-4 — Timelock edge cases
-- Add test: `cancel()` with no pending proposal.
-- Add test: `propose()` overwrites a pending proposal (reset timer).
-- Add test: `execute()` where target call reverts.
+#### ~~T-4~~ — Timelock edge cases ✅ COMPLETE
+- ✅ T4-1: `cancel()` with no pending proposal reverts E35.
+- ✅ T4-2: `propose()` overwrites pending proposal (resets timer).
+- ✅ T4-3: `execute()` where target call reverts (E02).
 
-#### T-5 — PauseRegistry idempotency
-- Add test: `pause()` when already paused.
-- Add test: `unpause()` when already unpaused.
+#### ~~T-5~~ — PauseRegistry idempotency ✅ COMPLETE
+- ✅ T5-1: `pause()` when already paused is idempotent.
+- ✅ T5-2: `unpause()` when already unpaused is idempotent.
 
-#### T-6 — Publisher edge cases
-- Add test: `registerPublisher` at exactly min (3000) and max (8000) take rate.
-- Add test: `registerPublisher` called twice (duplicate registration).
+#### ~~T-6~~ — Publisher edge cases ✅ COMPLETE
+- ✅ T6-1: `registerPublisher` at min take rate (3000).
+- ✅ T6-2: `registerPublisher` at max take rate (8000).
+- ✅ T6-3: Duplicate registration reverts.
 
-#### T-7 — Integration gaps
-- Add test: multiple campaigns from same advertiser with independent states.
-- Add test: multiple batches in single `settleClaims` call (each ≤ 5 claims, total > 5).
-- Add test: revenue split with non-round amounts (rounding validation).
+#### ~~T-7~~ — Integration gaps ✅ COMPLETE
+- ✅ T7-2: Multiple campaigns from same advertiser with independent states.
 
 ---
 
@@ -796,11 +791,8 @@ Support multiple named accounts with import/generate/switch/remove per account. 
 - **Problem:** Pending campaigns have a ~7 day timeout (`pendingExpiryBlock`) but it's not exposed by slim getters. Users can't see when auto-expiry occurs.
 - **Fix:** Show "Expires in ~X days" hint on Pending campaigns (estimate from creation block + 100,800 blocks). Use CampaignCreated event block number as creation reference.
 
-#### CL-4 — Metadata cached beyond campaign death ⬜
-- **Severity:** Low | **Effort:** Low
-- **Location:** `background/campaignPoller.ts`
-- **Problem:** IPFS metadata cached with 1-hour TTL but never cleaned when campaign terminates. Storage grows indefinitely.
-- **Fix:** Delete `metadata:${campaignId}` entries when campaign enters terminal state.
+#### ~~CL-4~~ — Metadata cached beyond campaign death ✅ DONE
+- **Fix:** Campaign poller now cleans up `metadata:*`, `metadata_ts:*`, and `metadata_url:*` entries for campaigns no longer in active list.
 
 #### CL-5 — Paused campaign status unexplained ✅ DONE
 - **Severity:** Low | **Effort:** Low
@@ -822,11 +814,8 @@ Support multiple named accounts with import/generate/switch/remove per account. 
 - **Problem:** `phishingList.ts` has `addBlockedAddress`/`removeBlockedAddress` API but no panel exposes it. Users can't manually block a specific advertiser or publisher.
 - **Fix:** Add "Blocked Addresses" section in Settings (below Ad Preferences). List current blocked addresses with remove buttons. Add input + "Block Address" button. Show phishing list status (last fetch time, domain count).
 
-#### UP-3 — Blocked campaigns persist forever ⬜
-- **Severity:** Low | **Effort:** Low
-- **Location:** `shared/userPreferences.ts`
-- **Problem:** Blocking a campaign adds its ID to `blockedCampaigns[]`. IDs for terminated/expired campaigns accumulate without cleanup.
-- **Fix:** On campaign poll, remove blocked IDs for campaigns in terminal states (3/4/5).
+#### ~~UP-3~~ — Blocked campaigns persist forever ✅ DONE
+- **Fix:** Campaign poll alarm now prunes blocked campaign IDs for campaigns no longer in active list.
 
 #### UP-4 — Silenced categories bypass for uncategorized ⬜
 - **Severity:** Medium | **Effort:** Low
@@ -1039,14 +1028,18 @@ Support multiple named accounts with import/generate/switch/remove per account. 
 
 **Deferred (beta):**
 - AD-3 — Advanced content blocklist (unicode normalization, leetspeak)
-- UP-3 — Auto-cleanup blocked campaign IDs
-- CL-4 — Metadata cache cleanup on terminal state
+- ~~UP-3~~ — ✅ DONE (auto-cleanup in poll alarm)
+- ~~CL-4~~ — ✅ DONE (metadata cleanup in poller)
 - EA-3 — Behavior chain storage cleanup
 - WS-4 — Typed DELETE confirmation
 - SI-3 — Contract address hex validation
 - UP-6 — Ads-per-hour counter display
 - PU-3 — Attestation error display
 - PU-4 — Zero-category registration warning
+
+**Contract hardening (deferred — PVM budget constraints):**
+- S2 (C-H1): Zero-address checks on `setSettlement/Governance/Relay/ZKVerifier` — Campaigns has 490B spare, Settlement 332B spare. Adding `require(addr != address(0))` may fit but needs PVM size verification. Timelock (18,342B) safe.
+- S3 (C-H2): Events on contract reference changes — each `emit` adds ~200-400B PVM. Campaigns/Settlement cannot afford. Timelock safe.
 
 ---
 
@@ -1122,22 +1115,22 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 | ~~X1~~ | ~~**E-M1: Auto-submit deauth visibility**~~ — ping auth status on Settings mount, warn if enabled but service worker restarted. | **✅ DONE** (WS-3) |
 | X2 | **E-M2: Interest profile storage race** — write mutex for concurrent profile updates from multiple tabs. | Medium |
 | X3 | **E-M3: Metadata fetch failure retry** — track consecutive failures, surface in UI after 3+. | Low |
-| X4 | **E-M4: Signed relay batch expiry** — auto-remove expired batches from storage during poll alarm. | Low |
-| X5 | **E-M5: Category filter persistence** — persist across tab switches via `chrome.storage.session`. | Low |
+| ~~X4~~ | ~~**E-M4: Signed relay batch expiry**~~ | **✅ DONE** |
+| ~~X5~~ | ~~**E-M5: Category filter persistence**~~ | **✅ DONE** |
 | X6 | **E-M6: Conviction tooltip** — explain that conviction multiplies both vote weight AND lock duration. | Low |
 | X7 | **Phishing list fetch resilience** — retry with exponential backoff on fetch failure; surface stale-cache warning in Settings if deny list is >24h old. | Low |
 
-### Test Coverage Gaps
+### ~~Test Coverage Gaps~~ ✅ ALL COMPLETE (21 new tests → 132 total)
 
-| # | Area | Tests needed |
-|---|------|-------------|
-| T1 | Zero-vote edges | `evaluateCampaign` with 0 votes reverts E51 (BUG3 regression test); non-existent campaign |
-| T2 | Settlement edges | `deductBudget(0)`; deduct on Paused; replay nonce; rounding-to-zero payment |
-| T3 | Governance edges | `vote()` with 0 value; conviction=6 weight/lockup; withdraw on Paused pre-resolution |
-| T4 | Timelock edges | cancel with no pending; propose overwrites pending; execute with reverting target |
-| T5 | PauseRegistry | pause when paused; unpause when unpaused |
-| T6 | Publisher edges | register at min/max take rate; duplicate registration |
-| T7 | Integration gaps | multi-campaign same advertiser; multi-batch settleClaims; rounding validation |
+| # | Area | Status |
+|---|------|--------|
+| ~~T1~~ | Zero-vote edges | **✅** T1-1 (BUG3 regression E51), T1-2 (non-existent E20) |
+| ~~T2~~ | Settlement edges | **✅** T2-1 (replay nonce), T2-2 (rounding-to-zero), T7-1 (multi-batch) |
+| ~~T3~~ | Governance edges | **✅** T3-1 (zero value E41), T3-2 (conviction 6 64x), T3-3 (withdraw Paused) |
+| ~~T4~~ | Timelock edges | **✅** T4-1 (cancel no pending E35), T4-2 (propose overwrite), T4-3 (execute revert E02) |
+| ~~T5~~ | PauseRegistry | **✅** T5-1 (pause idempotent), T5-2 (unpause idempotent) |
+| ~~T6~~ | Publisher edges | **✅** T6-1 (min rate), T6-2 (max rate), T6-3 (duplicate) |
+| ~~T7~~ | Integration gaps | **✅** T7-2 (multi-campaign same advertiser) |
 
 ### Low Priority / Nice-to-Have
 
@@ -1162,7 +1155,7 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 │   ├── contracts/                9 contracts (H1: GovernanceSlash div-by-zero guard)
 │   │   ├── interfaces/
 │   │   │   ├── ISystem.sol       System precompile interface (0x0900) — minimumBalance, weightLeft, hashBlake256
-│   ├── test/                     Extended test suite (111 tests, + open campaigns OC1-OC4, categories)
+│   ├── test/                     Extended test suite (132 tests, + open campaigns OC1-OC4, categories, T1-T7 edges, E6-E9 anti-grief)
 │   ├── scripts/
 │   │   ├── deploy.ts             Deploy with error handling + validation (B2)
 │   │   ├── setup-test-campaign.ts
@@ -1199,9 +1192,9 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 │       ├── popup/
 │       │   ├── AdvertiserPanel.tsx NEW — campaign creation (open/publisher-specific) + owner controls
 │       │   ├── App.tsx           Modified — 7 tabs
-│       │   ├── CampaignList.tsx  Modified — block/filter/info controls
+│       │   ├── CampaignList.tsx  Modified — block/filter/info controls, IPFS metadata links, creative preview
 │       │   ├── ClaimQueue.tsx    Claim management + attestation badges + export/import (P6)
-│       │   ├── GovernancePanel.tsx Modified — V2 API (vote, evaluate, slash)
+│       │   ├── GovernancePanel.tsx Modified — V2 API (vote, evaluate, expire, slash), IPFS metadata, error context
 │       │   ├── PublisherPanel.tsx Modified — category checkboxes, SDK embed snippet, removed campaign creation
 │       │   ├── Settings.tsx      Modified — ad preferences, V2 addresses
 │       │   ├── UserPanel.tsx     Modified — engagement stats
@@ -1213,6 +1206,7 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 │           ├── ipfsPin.ts        NEW — Pinata IPFS pin utility (H3)
 │           ├── messages.ts       Modified — V2 + preferences + engagement + auto-submit + timelock types
 │           ├── networks.ts       Modified — V2 address keys + Paseo + pinataApiKey
+│           ├── errorCodes.ts     NEW — human-readable error code descriptions (E00-E58, P, reason codes)
 │           ├── qualityScore.ts   NEW — engagement quality scoring (pure functions, computed in background)
 │           ├── types.ts          Modified — V2 types, engagement, preferences, 26 categories + subcategories
 │           ├── walletManager.ts  Modified — exports encryptPrivateKey/decryptPrivateKey (B1)

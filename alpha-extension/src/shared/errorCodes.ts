@@ -51,15 +51,15 @@ const ERROR_CODES: Record<string, string> = {
   E44: "No vote found for this campaign.",
   E45: "Vote lockup period has not expired yet.",
   E46: "Quorum not met.",
-  E47: "Aye majority required (> 50%).",
-  E48: "Nay majority required (≥ 50%).",
+  E47: "Aye majority required (> 50%). If nay has majority, the campaign will remain Pending until the pending timeout expires (~7 days from creation), then anyone can call Expire.",
+  E48: "Nay majority required (≥ 50%) with sufficient termination quorum.",
   E49: "Campaign already resolved.",
   E50: "Campaign in unexpected status for evaluation.",
   E51: "Cannot evaluate with zero total votes.",
 
-  // Governance Slash
-  E52: "Slash already finalized.",
-  E53: "Campaign must be resolved before finalizing slash.",
+  // Termination protection (anti-grief) / Governance Slash
+  E52: "Termination quorum not met (nay stake too low), or slash already finalized.",
+  E53: "Termination grace period not elapsed (~24h from first nay vote), or campaign not yet resolved for slash.",
   E54: "Slash must be finalized before claiming reward.",
   E55: "Slash reward already claimed.",
   E56: "Not on the winning side.",

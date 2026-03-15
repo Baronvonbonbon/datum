@@ -12,8 +12,10 @@ import { decodeBase58, encodeBase58, getBytes, hexlify, zeroPadValue } from "eth
  */
 export function cidToBytes32(cid: string): string {
   if (!cid.startsWith("Qm")) throw new Error("Only CIDv0 (Qm...) is supported");
-  const decoded = decodeBase58(cid);
-  const bytes = getBytes(decoded);
+  const decoded = decodeBase58(cid); // ethers v6: returns bigint
+  // Convert bigint to 34-byte Uint8Array (CIDv0 = 0x1220 prefix + 32-byte digest)
+  const hex = decoded.toString(16).padStart(68, "0"); // 34 bytes = 68 hex chars
+  const bytes = getBytes("0x" + hex);
   // CIDv0 = 0x12 (sha2-256) + 0x20 (32 bytes length) + 32-byte digest = 34 bytes
   if (bytes.length !== 34 || bytes[0] !== 0x12 || bytes[1] !== 0x20) {
     throw new Error("Invalid CIDv0: expected 34 bytes with 0x1220 prefix");

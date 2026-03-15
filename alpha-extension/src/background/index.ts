@@ -129,7 +129,31 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       const activeIds = new Set(active.map((c) => c.id));
       const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
       if (pruned > 0) console.log(`[DATUM] Pruned ${pruned} stale claims for inactive campaigns`);
+
+      // UP-3: Auto-cleanup blocked campaign IDs for terminal campaigns
+      const prefs = await getPreferences();
+      if (prefs.blockedCampaigns.length > 0) {
+        const stillRelevant = prefs.blockedCampaigns.filter((id) => activeIds.has(id));
+        if (stillRelevant.length < prefs.blockedCampaigns.length) {
+          await updatePreferences({ blockedCampaigns: stillRelevant });
+          console.log(`[DATUM] Cleaned ${prefs.blockedCampaigns.length - stillRelevant.length} stale blocked campaign IDs`);
+        }
+      }
     }
+
+    // E-M4: Remove expired signed relay batches from storage
+    try {
+      const stored = await chrome.storage.local.get("signedBatches");
+      if (stored.signedBatches?.deadline) {
+        const provider = new JsonRpcProvider(settings.rpcUrl);
+        const currentBlock = await provider.getBlockNumber();
+        if (stored.signedBatches.deadline <= currentBlock) {
+          await chrome.storage.local.remove("signedBatches");
+          console.log("[DATUM] Removed expired signed relay batches");
+        }
+      }
+    } catch { /* non-critical */ }
+
     // H2: Poll timelock for pending admin changes
     if (settings.contractAddresses.timelock) {
       await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses);
@@ -164,10 +188,19 @@ async function handleMessage(
       // Check rate limit before recording
       const prefs = await getPreferences();
       const withinLimit = await checkRateLimit(prefs.maxAdsPerHour);
-      if (!withinLimit) return { ok: false, reason: "rate_limited" };
+      if (!withinLimit) {
+        console.warn(`[DATUM] Impression rate-limited (max ${prefs.maxAdsPerHour}/hr)`);
+        return { ok: false, reason: "rate_limited" };
+      }
 
       await recordImpressionTime();
-      await claimBuilder.onImpression(msg);
+      try {
+        await claimBuilder.onImpression(msg);
+        console.log(`[DATUM] Claim built for campaign ${msg.campaignId}`);
+      } catch (err) {
+        console.error("[DATUM] claimBuilder.onImpression failed:", err);
+        return { ok: false, reason: "claim_build_error" };
+      }
       return { ok: true };
     }
 
