@@ -8,7 +8,9 @@
     "test": "npx hardhat test",
     "test:coverage": "npx hardhat coverage",
     "deploy:local": "npx hardhat run scripts/deploy.ts --network hardhat",
-    "deploy:polkavm": "npx hardhat run scripts/deploy.ts --network polkadotHub"
+    "deploy:polkavm": "npx hardhat run scripts/deploy.ts --network polkadotHub",
+    "deploy:testnet": "npx hardhat run scripts/deploy.ts --network polkadotTestnet",
+    "setup:testnet": "npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

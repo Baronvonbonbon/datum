@@ -59,6 +59,16 @@ const config: HardhatUserConfig = {
         target: "pvm",   // Compile to PolkaVM bytecode via resolc
       },
     },
+    polkadotTestnet: {
+      // Polkadot Hub TestNet (Paseo replacement) — Chain ID 420420417
+      // Faucet: https://faucet.polkadot.io/ (select "Polkadot Hub TestNet")
+      // Explorer: https://blockscout-testnet.polkadot.io/
+      url: process.env.TESTNET_RPC ?? "https://eth-rpc-testnet.polkadot.io/",
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+      polkadot: {
+        target: "pvm",
+      },
+    },
   },
   mocha: {
     // Substrate tests need long timeouts: real block times (~3s), PVM deploys, and

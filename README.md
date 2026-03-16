@@ -171,9 +171,9 @@ The extension processes all browsing data locally. Page classification, campaign
 ```
 alpha/
   contracts/          Solidity source (9 contracts + interfaces + mocks)
-  test/               Hardhat test suite (111 tests)
-  scripts/            deploy.ts, e2e-full-flow.ts, fund-test-accounts.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts
-  hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotHub
+  test/               Hardhat test suite (132 tests)
+  scripts/            deploy.ts, setup-testnet.ts, e2e-full-flow.ts, fund-test-accounts.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts
+  hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotTestnet, polkadotHub
 
 alpha-extension/
   src/background/     Auction, engagement chain, claim builder, campaign poller, auto-submit
@@ -209,7 +209,7 @@ cd alpha
 npm install
 
 # Run tests (Hardhat EVM)
-npx hardhat test             # 111/111 pass
+npx hardhat test             # 132/132 pass
 
 # Compile for PolkaVM
 npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
@@ -250,6 +250,37 @@ Deploy script writes `deployed-addresses.json` to both `alpha/` and `alpha-exten
 
 **Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
+### Polkadot Hub TestNet (live deployment)
+
+All 9 contracts are deployed on Polkadot Hub TestNet (Chain ID 420420417):
+
+| Contract | Address |
+|----------|---------|
+| PauseRegistry | `0xFa0e0D4cb23a9616f780Cb0Ad4055E9b5fE6d1bD` |
+| Timelock | `0x68003Ae2711dE93e66882591FD80F10105183831` |
+| Publishers | `0x3dF89c128F7E3b80d3220f0EB3c8bf8C0F351d46` |
+| Campaigns | `0x1337cD3be712079688EbbD2DA2455F981522ab1d` |
+| GovernanceV2 | `0x708356253c389bE1b0182e2c757468052Ec8CbA8` |
+| GovernanceSlash | `0xF6232d3050e34240250Ff514e6279C63DEBDfD86` |
+| Settlement | `0x6dCbe782CFa9255adc94fdb821E6A7bc092fccc3` |
+| Relay | `0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B` |
+| ZKVerifier | `0x00e95AC62efAf6250c0f15df4812122C8854DF90` |
+
+**RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/
+
+```bash
+cd alpha
+export DEPLOYER_PRIVATE_KEY="your-key"
+
+# Deploy (if redeploying)
+npm run deploy:testnet
+
+# Automated post-deploy setup (fund accounts, register publishers, create campaign, vote, activate)
+npm run setup:testnet
+```
+
+The extension defaults to Polkadot Hub TestNet with these addresses hardcoded. Build and load in Chrome to test against live contracts.
+
 ### Claim export/import
 
 The extension supports encrypted claim state portability (P6):
@@ -261,12 +292,13 @@ The extension supports encrypted claim state portability (P6):
 ## Status
 
 - [x] **PoC** -- 7 contracts, 64/64 Hardhat tests, local devnet verified (tagged `poc-complete`)
-- [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 111/111 tests
+- [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 132/132 tests
 - [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
-- [ ] **Browser E2E** -- load extension in Chrome, configure for local devnet, verify full ad display + claim flow (A3.2 manual step)
-- [ ] **Paseo testnet** -- deployment and open multi-account testing (A3.3-A3.5)
+- [x] **Polkadot Hub TestNet** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered (A3.3)
+- [ ] **Browser E2E on testnet** -- load extension in Chrome, verify full ad display + claim flow on testnet (A3.4)
+- [ ] **Open testing** -- publish addresses, external tester instructions (A3.5)
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 
 ## Why PolkaVM

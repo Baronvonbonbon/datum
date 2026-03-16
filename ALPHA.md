@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 2.0
-**Date:** 2026-03-15
-**Scope:** Alpha build — feature-complete for Paseo testnet deployment with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, and open testing
+**Version:** 2.1
+**Date:** 2026-03-16
+**Scope:** Alpha build — feature-complete, deployed to Polkadot Hub TestNet with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, and open testing
 **Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 132/132 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** All contracts, extension code, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, Part 4D UX audit (Phase 1 + Phase 2), anti-grief termination protection, test edge cases (T1-T7), extension cleanup (E-M4/E-M5/UP-3/CL-4), IPFS metadata display (campaigns + governance), error code updates (E47/E52/E53), pending campaign expire button, claims diagnostic logging COMPLETE. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors, 603KB popup.js, 377KB background.js, 33KB content.js). **A3.2 local devnet E2E PASSED** (all 6 sections: campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). Multi-account wallet (MA-1 through MA-4) implemented. ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. **Next step: A3.2 browser E2E (manual) → A3.3 Paseo deployment.**
+**Current status:** **A3.3 TESTNET DEPLOYMENT COMPLETE.** All 9 contracts deployed to Polkadot Hub TestNet (Chain ID 420420417). ECRecover precompile verified working. Automated setup complete: 6 accounts funded, 2 publishers registered, test campaign #1 active with governance vote. Extension hardcoded with testnet contract addresses, default network set to Polkadot Hub TestNet. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors). **Next step: A3.4 browser E2E on testnet → A3.5 open testing.**
 
 ---
 
@@ -404,42 +404,56 @@ Remaining A1.3 items (deferred to A3.2):
 - [ ] Load alpha-extension in Chrome, configure for local devnet (browser E2E — manual step)
 - [ ] Fix any runtime issues from browser E2E
 
-#### A3.3 — Paseo testnet deployment
+#### A3.3 — Polkadot Hub TestNet deployment (COMPLETE 2026-03-16)
 
-- [ ] Verify pallet-revive active on Paseo (`system.pallets` includes `Contracts` or `Revive`)
-- [ ] Acquire Paseo testnet DOT via faucet for deployer wallet
-- [ ] Set env: `PASEO_RPC`, `DEPLOYER_PRIVATE_KEY`
-- [ ] Deploy: `cd alpha && npx hardhat run scripts/deploy.ts --network paseo`
+- [x] Verify pallet-revive active on testnet — connected at block 6,467,844
+- [x] Acquire testnet PAS via faucet — Alice funded with ~500,000 PAS
+- [x] Set env: `DEPLOYER_PRIVATE_KEY` (Alice)
+- [x] Deploy: `cd alpha && npm run deploy:testnet` (polkadotTestnet network)
   - Deploy order: PauseRegistry → Timelock → Publishers → Campaigns → GovernanceV2 → GovernanceSlash → Settlement → Relay → ZKVerifier
-  - Wire (immediate): v2.setSlashContract(slash), campaigns.setGovernanceContract(v2), campaigns.setSettlementContract(settlement), settlement.setRelayContract(relay), settlement.setZKVerifier(zkVerifier)
+  - Wire: v2.setSlashContract(slash), campaigns.setGovernanceContract(v2), campaigns.setSettlementContract(settlement), settlement.setRelayContract(relay), settlement.setZKVerifier(zkVerifier)
   - Transfer ownership: campaigns.transferOwnership(timelock), settlement.transferOwnership(timelock)
-- [ ] Record addresses in `alpha/deployments/paseo.json`
-- [ ] Set testnet-appropriate thresholds:
-  - `activationThreshold`: low (e.g., 1 DOT weighted — allows easy testing)
-  - `terminationThreshold`: low (e.g., 0.5 DOT weighted)
-  - `minReviewerStake`: low (e.g., 0.1 DOT)
-  - `minimumCpmFloor`: low (e.g., 0.0001 DOT)
-- [ ] Verify ECRecover precompile: submit a relay-signed batch on Paseo
-- [ ] Run `alpha/scripts/e2e-smoke.ts` against Paseo
+  - All wiring validated
+- [x] Record addresses in `alpha/deployed-addresses.json` + `alpha-extension/deployed-addresses.json`
+- [x] Production thresholds deployed (quorum=100 PAS, slash=10%, terminationQuorum=100 PAS, terminationGrace=14400 blocks)
+- [x] **ECRecover precompile verified working** — signer == recovered address
+- [x] Automated setup via `npm run setup:testnet`:
+  - 6 accounts funded (Bob, Charlie, Diana, Eve, Frank, Grace)
+  - Diana + Eve registered as publishers with categories
+  - Campaign #1 created (Bob→Diana, 10 PAS, 0.016 PAS CPM), Frank voted aye (100 PAS), campaign Active
+  - Metadata hash set
 
-#### A3.4 — Alpha extension for Paseo
+**Deployed contract addresses (Polkadot Hub TestNet, Chain ID 420420417):**
+| Contract | Address |
+|----------|---------|
+| PauseRegistry | `0xFa0e0D4cb23a9616f780Cb0Ad4055E9b5fE6d1bD` |
+| Timelock | `0x68003Ae2711dE93e66882591FD80F10105183831` |
+| Publishers | `0x3dF89c128F7E3b80d3220f0EB3c8bf8C0F351d46` |
+| Campaigns | `0x1337cD3be712079688EbbD2DA2455F981522ab1d` |
+| GovernanceV2 | `0x708356253c389bE1b0182e2c757468052Ec8CbA8` |
+| GovernanceSlash | `0xF6232d3050e34240250Ff514e6279C63DEBDfD86` |
+| Settlement | `0x6dCbe782CFa9255adc94fdb821E6A7bc092fccc3` |
+| Relay | `0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B` |
+| ZKVerifier | `0x00e95AC62efAf6250c0f15df4812122C8854DF90` |
 
-- [ ] Update `alpha-extension/src/shared/networks.ts` with Paseo contract addresses
-- [ ] Set Paseo as default network
+#### A3.4 — Alpha extension for testnet
+
+- [x] Update `alpha-extension/src/shared/networks.ts` with testnet contract addresses (hardcoded)
+- [x] Set Polkadot Hub TestNet as default network
 - [ ] Build: `cd alpha-extension && npm run build`
-- [ ] Load in Chrome, test against Paseo:
+- [ ] Load in Chrome, test against testnet:
   - Create campaign with real IPFS metadata
   - Vote → activate
   - Browse → ad appears → claims generated with auction clearing CPM
-  - Submit claims → settlement on Paseo
+  - Submit claims → settlement on testnet
   - Withdraw
 - [ ] Document load instructions in `alpha-extension/README.md`
 
 #### A3.5 — Open testing
 
-- [ ] Publish Paseo contract addresses publicly
+- [ ] Publish testnet contract addresses publicly
 - [ ] Document how external testers can:
-  - Get Paseo DOT from faucet
+  - Get PAS from faucet (https://faucet.polkadot.io/ → Polkadot Hub TestNet)
   - Load the alpha extension
   - Register as publisher
   - Create campaigns
@@ -455,7 +469,7 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Governance V2 replaces V1 — 36/36 tests (V1-V8, W1-W5, E1-E9, S1-S5, D1-D4, T1, T3)
 - [x] PVM bytecode sizes confirmed under 49,152 B — all 9 contracts fit (A1.3 complete)
 - [x] 132 tests pass in alpha test suite (exceeds 75+ target)
-- [ ] All alpha contracts deployed on Paseo, addresses in `alpha/deployments/paseo.json`
+- [x] All alpha contracts deployed on Polkadot Hub TestNet, addresses in `deployed-addresses.json` (A3.3 complete 2026-03-16)
 - [x] Extension builds clean (0 webpack errors), V2 overhaul complete (7 tabs, P19 auction, P16 behavioral)
 - [x] Second-price auction producing clearing CPMs < bidCpmPlanck (auction.ts integrated)
 - [x] Claim export/import code complete (claimExport.ts + ClaimQueue buttons) — round-trip needs runtime verification in A3.2
