@@ -18,7 +18,9 @@ import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
 import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
-import { refreshPhishingList, isAddressBlocked } from "@shared/phishingList";
+import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
+import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
+import { metadataUrl } from "@shared/ipfs";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -207,6 +209,65 @@ async function handleMessage(
     case "GET_ACTIVE_CAMPAIGNS": {
       const cached = await campaignPoller.getCachedSerialized();
       return { campaigns: cached };
+    }
+
+    case "FETCH_IPFS_METADATA": {
+      // Content script requests metadata fetch (background has no CSP restrictions)
+      const { campaignId: cid, metadataHash: mHash } = msg as any;
+      console.log(`[DATUM] FETCH_IPFS_METADATA: campaignId=${cid}, hash=${mHash}`);
+      if (!cid || !mHash) return { metadata: null };
+      const s = await getSettings();
+      const primaryGateway = s.ipfsGateway || "https://dweb.link/ipfs/";
+      // Try multiple gateways for reliability
+      const gateways = [
+        primaryGateway,
+        "https://ipfs.io/ipfs/",
+        "https://cloudflare-ipfs.com/ipfs/",
+        "https://gateway.pinata.cloud/ipfs/",
+      ];
+      // Deduplicate (in case primaryGateway is already in the list)
+      const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
+
+      for (const gw of uniqueGateways) {
+        const url = metadataUrl(mHash, gw);
+        if (!url) continue;
+        try {
+          console.log(`[DATUM] FETCH_IPFS_METADATA: trying ${url}`);
+          const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+          if (!resp.ok) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} returned ${resp.status}`);
+            continue;
+          }
+          const bodyText = await resp.text();
+          if (bodyText.length > MAX_METADATA_BYTES) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: body too large (${bodyText.length})`);
+            return { metadata: null };
+          }
+          const meta = validateAndSanitize(JSON.parse(bodyText));
+          if (!meta) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: validation failed`);
+            return { metadata: null };
+          }
+          if (!passesContentBlocklist(meta)) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: blocklist failed`);
+            return { metadata: null };
+          }
+          if (meta.creative.ctaUrl && await isUrlPhishing(meta.creative.ctaUrl)) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: phishing check failed`);
+            return { metadata: null };
+          }
+          // Cache for future use
+          const metaKey = `metadata:${cid}`;
+          await chrome.storage.local.set({ [metaKey]: meta, [`metadata_ts:${cid}`]: Date.now() });
+          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw}`);
+          return { metadata: meta };
+        } catch (err) {
+          console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} error:`, err);
+          continue;
+        }
+      }
+      console.warn(`[DATUM] FETCH_IPFS_METADATA: all gateways failed for campaign ${cid}`);
+      return { metadata: null };
     }
 
     case "POLL_CAMPAIGNS": {

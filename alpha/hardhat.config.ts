@@ -64,7 +64,13 @@ const config: HardhatUserConfig = {
       // Faucet: https://faucet.polkadot.io/ (select "Polkadot Hub TestNet")
       // Explorer: https://blockscout-testnet.polkadot.io/
       url: process.env.TESTNET_RPC ?? "https://eth-rpc-testnet.polkadot.io/",
-      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [
+            process.env.DEPLOYER_PRIVATE_KEY,
+            // Additional test accounts (only used when DEPLOYER_PRIVATE_KEY is set)
+            ...(process.env.TESTNET_ACCOUNTS ?? "").split(",").filter(Boolean),
+          ]
+        : [],
       polkadot: {
         target: "pvm",
       },

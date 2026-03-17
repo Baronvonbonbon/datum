@@ -6,7 +6,7 @@
 **Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 132/132 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** **A3.3 TESTNET DEPLOYMENT COMPLETE.** All 9 contracts deployed to Polkadot Hub TestNet (Chain ID 420420417). ECRecover precompile verified working. Automated setup complete: 6 accounts funded, 2 publishers registered, test campaign #1 active with governance vote. Extension hardcoded with testnet contract addresses, default network set to Polkadot Hub TestNet. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors). **Next step: A3.4 browser E2E on testnet → A3.5 open testing.**
+**Current status:** **A3.3 TESTNET DEPLOYMENT COMPLETE + IPFS METADATA RENDERING.** All 9 contracts deployed to Polkadot Hub TestNet (Chain ID 420420417). ECRecover precompile verified working. Automated setup complete: 6 accounts funded, 2 publishers registered, test campaign #1 active with governance vote. Extension hardcoded with testnet contract addresses, default network set to Polkadot Hub TestNet. IPFS metadata rendering in ad overlay with multi-gateway fallback. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors). **Next step: A3.4 browser E2E on testnet → A3.5 open testing.**
 
 ---
 
@@ -289,7 +289,7 @@ DatumCampaigns was 52,662 B (3,510 B over PVM limit). Size reduction applied:
 **New error code:** E57 = reentrancy guard (replaces OZ nonReentrant in DatumCampaigns only).
 
 Remaining A1.3 items (deferred to A3.2):
-- [ ] Run gas benchmarks on local substrate-contracts-node
+- [x] Run gas benchmarks on Polkadot Hub TestNet (see A3.3 results)
 - [ ] Verify `ecrecover` precompile works on substrate-contracts-node
 - [x] Add `minimumBalance()` check before DOT transfers (System precompile `0x0900`) — **Implemented in GovernanceV2 only** (withdraw + slashAction). Settlement/Relay too tight on PVM bytecode (+4 KB per contract for precompile call). New error E58.
 
@@ -327,7 +327,7 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Background index.ts: all new message handlers, global pause check before auto-flush, auction-based selection with legacy fallback
 - [x] campaignPoller.ts: A1.3 slim getters, fetches Pending/Active/Paused campaigns, IPFS metadata caching + metadata URL storage
 - [x] Content script: auction-based selection + engagement tracking + preference filtering
-- [x] Build output: popup.js 603KB, background.js 377KB, content.js 33KB — 0 webpack errors (post P6 + taxonomy + SDK + open campaigns + default ad + IPFS metadata)
+- [x] Build output: popup.js 603KB, background.js 379KB, content.js 39KB — 0 webpack errors (post P6 + taxonomy + SDK + open campaigns + default ad + IPFS metadata + multi-gateway fetch)
 
 #### A2.2 — Claim state portability (P6)
 
@@ -356,18 +356,14 @@ Remaining A1.3 items (deferred to A3.2):
   - Surface warnings in popup when admin changes are pending
 - [x] Verify extension builds clean with alpha changes
 
-#### A2.4 — IPFS integration (real pinning)
+#### A2.4 — IPFS integration (real pinning + rendering) — ✅ COMPLETE
 
-- [ ] Evaluate IPFS pinning services for alpha:
-  - Pinata (free tier: 100 files, 500 MB) — good for alpha
-  - nft.storage (free, backed by Filecoin) — unlimited but slower
-  - web3.storage — Filecoin-backed, good free tier
-- [ ] Add IPFS upload to `alpha-extension/src/popup/PublisherPanel.tsx`:
-  - "Upload Metadata to IPFS" button → posts JSON to pinning service API
-  - Returns CID → auto-fills metadata CID input
-  - Requires API key (configured in Settings)
-- [ ] Add IPFS pinning API key field to Settings.tsx
-- [ ] Verify metadata round-trip: upload JSON → get CID → create campaign → set metadata → poller fetches → CampaignList displays
+- [x] Pinata IPFS pinning: API key in Settings, "Pin to IPFS" in AdvertiserPanel with validation
+- [x] Metadata round-trip: pin JSON → CID → `setMetadata(campaignId, cidToBytes32(cid))` → poller fetches → ad overlay renders rich content
+- [x] Multi-gateway IPFS fallback: configured gateway → ipfs.io → cloudflare-ipfs → Pinata (in both poller and on-demand handler)
+- [x] `FETCH_IPFS_METADATA` background handler: content script delegates IPFS fetch to background (no CSP restrictions), validates, caches
+- [x] Rich ad rendering: title header + body text + CTA button from IPFS metadata; fallback to category/campaign info when metadata unavailable
+- [x] Campaign and Governance tabs show IPFS links computed from on-chain `metadataHash` via `bytes32ToCid()`
 
 ### Phase A3 — Testing & Deployment
 
@@ -436,6 +432,22 @@ Remaining A1.3 items (deferred to A3.2):
 | Relay | `0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B` |
 | ZKVerifier | `0x00e95AC62efAf6250c0f15df4812122C8854DF90` |
 
+**Gas benchmarks (Polkadot Hub TestNet, 2026-03-16):**
+
+> The eth-rpc adapter uses 18-decimal denomination. Cost (DOT) = gas × gasPrice / 10^18.
+
+| Function | Gas (weight) | Cost (DOT) | Cost (USD @$5/DOT) |
+|----------|-------------|-----------|-------------------|
+| `createCampaign` | 210,696 | 0.2107 | $1.05 |
+| `vote (aye)` | 106,762 | 0.1068 | $0.53 |
+| `evaluateCampaign` | 3,898 | 0.0039 | $0.02 |
+| `settleClaims (1 claim)` | 112,215 | 0.1122 | $0.56 |
+| `settleClaims (5 claims)` | 73,868 | 0.0739 | $0.37 |
+| `withdrawPublisher` | 1,762 | 0.0018 | $0.01 |
+| `withdrawUser` | 1,762 | 0.0018 | $0.01 |
+
+Settlement batching: 5-claim batch = 0.66x of single claim gas. Per-claim: single 0.1122 DOT ($0.56) vs 5-batch 0.0148 DOT ($0.07).
+
 #### A3.4 — Alpha extension for testnet
 
 - [x] Update `alpha-extension/src/shared/networks.ts` with testnet contract addresses (hardcoded)
@@ -473,7 +485,7 @@ Remaining A1.3 items (deferred to A3.2):
 - [x] Extension builds clean (0 webpack errors), V2 overhaul complete (7 tabs, P19 auction, P16 behavioral)
 - [x] Second-price auction producing clearing CPMs < bidCpmPlanck (auction.ts integrated)
 - [x] Claim export/import code complete (claimExport.ts + ClaimQueue buttons) — round-trip needs runtime verification in A3.2
-- [ ] IPFS metadata pinning and retrieval works end-to-end
+- [x] IPFS metadata pinning and retrieval works end-to-end (multi-gateway fallback, background fetch, rich ad rendering)
 - [ ] At least 3 external testers have completed a full flow on Paseo
 - [ ] No critical bugs in first 7 days of Paseo operation
 
@@ -578,9 +590,10 @@ Ad creative metadata from IPFS now passes through validation before rendering:
 
 | Layer | File | Protection |
 |-------|------|-----------|
-| Fetch | `campaignPoller.ts` | 10KB metadata size cap (Content-Length + body check), schema + URL + blocklist validation via `validateAndSanitize()`, phishing CTA URL check, metadata URL cached for UI display |
+| Fetch (poller) | `campaignPoller.ts` | 10KB metadata size cap (Content-Length + body check), schema + URL + blocklist validation via `validateAndSanitize()`, phishing CTA URL check, multi-gateway IPFS fallback (configured gateway + ipfs.io + cloudflare-ipfs + Pinata) |
+| Fetch (on-demand) | `background/index.ts` `FETCH_IPFS_METADATA` | Content script requests metadata fetch on cache miss; background fetches from IPFS (no CSP restrictions), validates, caches. Multi-gateway fallback for reliability. |
 | Storage | `content/index.ts` | Defense-in-depth re-validation of cached metadata before render (catches pre-update cache, storage corruption) |
-| Render | `adSlot.ts` | Shadow DOM isolation (page CSS/JS cannot access ad DOM), `sanitizeCtaUrl()` — only `https://` allowed, unsafe URLs render as non-clickable `<span>` |
+| Render | `adSlot.ts` | Shadow DOM isolation (page CSS/JS cannot access ad DOM), `sanitizeCtaUrl()` — only `https://` allowed, unsafe URLs render as non-clickable `<span>`. Rich content: title header + body text + CTA button when IPFS metadata available. |
 | Shared | `contentSafety.ts` | Schema shape check, field length caps (title ≤128, desc ≤256, text ≤512, cta ≤64, ctaUrl ≤2048), URL scheme allowlist, content blocklist (multi-word phrases for adult/gambling/drugs/weapons/tobacco/counterfeit) |
 
 ### Review Scores
@@ -696,10 +709,10 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 - **Problem:** `getProfile()` → mutate → `set()` is not atomic. Multiple tabs updating simultaneously can lose profile writes.
 - **Fix:** Use a write mutex or queue-and-flush pattern.
 
-#### E-M3 — Metadata fetch failure not retried
-- **Location:** `background/campaignPoller.ts:105-107`
-- **Problem:** Failed IPFS metadata fetch is silently skipped. On the next poll cycle, the TTL check at line 84 prevents retry (the timestamp is set even on success-only path, but the absence of `metaKey` means it will retry — this is actually fine). However, if the gateway is temporarily down, all campaigns show placeholder creatives with no indication of fetch failure.
-- **Fix:** Track fetch failure count and surface in UI after 3+ consecutive failures.
+#### ~~E-M3~~ — Metadata fetch failure not retried ✅ PARTIALLY FIXED
+- **Location:** `background/campaignPoller.ts`, `background/index.ts`
+- **Problem:** Failed IPFS metadata fetch silently skipped; single gateway unreliable.
+- **Fix applied:** Multi-gateway IPFS fallback in both campaign poller and on-demand `FETCH_IPFS_METADATA` handler: configured gateway → ipfs.io → cloudflare-ipfs → Pinata. Content script requests background fetch on cache miss (bypasses host page CSP). Remaining: failure count tracking + UI notification for 3+ consecutive failures.
 
 #### ~~E-M4~~ — Signed relay batches never auto-expire from storage ✅ FIXED
 - **Fix:** Campaign poll alarm now checks `signedBatches` deadline against current block and removes expired entries.
@@ -1128,7 +1141,7 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 |---|------|-------------|----------|
 | ~~X1~~ | ~~**E-M1: Auto-submit deauth visibility**~~ — ping auth status on Settings mount, warn if enabled but service worker restarted. | **✅ DONE** (WS-3) |
 | X2 | **E-M2: Interest profile storage race** — write mutex for concurrent profile updates from multiple tabs. | Medium |
-| X3 | **E-M3: Metadata fetch failure retry** — track consecutive failures, surface in UI after 3+. | Low |
+| ~~X3~~ | ~~**E-M3: Metadata fetch failure retry**~~ — multi-gateway IPFS fallback implemented (4 gateways). Remaining: consecutive failure count + UI notification. | **Partially done** |
 | ~~X4~~ | ~~**E-M4: Signed relay batch expiry**~~ | **✅ DONE** |
 | ~~X5~~ | ~~**E-M5: Category filter persistence**~~ | **✅ DONE** |
 | X6 | **E-M6: Conviction tooltip** — explain that conviction multiplies both vote weight AND lock duration. | Low |

@@ -72,6 +72,10 @@ Publishers embed the DATUM SDK on their site to enable two-party impression atte
 | **Overlay** | No SDK or no ad slot div | Ad renders fixed at bottom-right of viewport |
 | **Default house ad** | No campaigns match | Polkadot philosophy link, inline or overlay depending on SDK presence |
 
+**Ad content rendering:**
+
+When IPFS metadata is available for the winning campaign, the ad displays rich content: title as header, creative body text, and a CTA button (with label from metadata) linking to the CTA URL. The content script first checks the local metadata cache; on cache miss, it requests the background service worker to fetch from IPFS (via `FETCH_IPFS_METADATA` message — background has no CSP restrictions). The background tries multiple IPFS gateways (configured gateway, ipfs.io, cloudflare-ipfs, Pinata) for reliability. Fetched metadata is validated against the content safety schema before rendering.
+
 ### Take Rate Updates
 
 1. Publisher calls `updateTakeRate(newBps)` — sets a pending rate with an effective block.
@@ -471,12 +475,13 @@ verifyingContract: <relay contract address>
 
 **File:** `shared/contentSafety.ts`
 
-### Four-layer validation
+### Five-layer validation
 
 | Layer | Location | Checks |
 |-------|----------|--------|
 | **Pin-time** | AdvertiserPanel (popup) | `validateAndSanitize()` before IPFS pin — advertiser sees rejection immediately |
-| **Fetch-time** | campaignPoller (background) | 10KB size cap (Content-Length + body), `validateAndSanitize()` before caching |
+| **Fetch-time (poller)** | campaignPoller (background) | 10KB size cap (Content-Length + body), `validateAndSanitize()` before caching, multi-gateway IPFS fallback |
+| **Fetch-time (on-demand)** | background `FETCH_IPFS_METADATA` handler | Content script requests metadata fetch on cache miss; background fetches from IPFS (no CSP restrictions), validates, caches |
 | **Cache-time** | content/index.ts | `validateMetadata()` + `passesContentBlocklist()` re-validation from storage |
 | **Render-time** | adSlot.ts (content) | `sanitizeCtaUrl()` — unsafe URLs render as non-clickable `<span>` |
 

@@ -6,7 +6,7 @@ import { cidToBytes32 } from "@shared/ipfs";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { CampaignMetadata, CATEGORY_NAMES, CampaignStatus, buildCategoryHierarchy } from "@shared/types";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -41,6 +41,7 @@ export function AdvertiserPanel({ address }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ id: number; action: string } | null>(null);
   const [hideResolved, setHideResolved] = useState(true); // CL-1
+  const [sym, setSym] = useState("DOT");
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -104,6 +105,10 @@ export function AdvertiserPanel({ address }: Props) {
 
   useEffect(() => {
     loadCampaigns();
+    chrome.storage.local.get("settings").then((s) => {
+      const network = (s.settings ?? DEFAULT_SETTINGS).network;
+      setSym(getCurrencySymbol(network));
+    });
   }, [loadCampaigns]);
 
   async function doAction(id: number, action: string) {
@@ -188,10 +193,10 @@ export function AdvertiserPanel({ address }: Props) {
                   <div style={{ color: "#aaa", fontSize: 11, marginBottom: 3 }}>{meta.description}</div>
                 )}
                 <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>
-                  Budget: {formatDOT(c.remainingBudget)} DOT remaining
+                  Budget: {formatDOT(c.remainingBudget)} {sym} remaining
                 </div>
                 <div style={{ color: "#888", fontSize: 11, marginBottom: 2 }}>
-                  Bid: {formatDOT(c.bidCpmPlanck)} DOT/1000 views
+                  Bid: {formatDOT(c.bidCpmPlanck)} {sym}/1000 views
                 </div>
                 {/* Creative preview */}
                 {meta?.creative && (
@@ -263,7 +268,7 @@ export function AdvertiserPanel({ address }: Props) {
                   <div style={{ marginTop: 6, padding: 8, background: "#2a1a0a", borderRadius: 4, border: "1px solid #4a2a0a" }}>
                     <div style={{ color: "#ff9040", fontSize: 11, marginBottom: 6 }}>
                       {confirmAction.action === "complete"
-                        ? `Complete campaign? This will refund ${formatDOT(c.remainingBudget)} DOT and permanently end this campaign.`
+                        ? `Complete campaign? This will refund ${formatDOT(c.remainingBudget)} ${sym} and permanently end this campaign.`
                         : `Pause campaign #${c.id}?`}
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -296,7 +301,7 @@ export function AdvertiserPanel({ address }: Props) {
       {/* Campaign creation form */}
       <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
         <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 8 }}>Create Campaign</div>
-        <CreateCampaignForm address={address} onCreated={loadCampaigns} />
+        <CreateCampaignForm address={address} onCreated={loadCampaigns} currencySymbol={sym} />
       </div>
 
       {txResult && (
@@ -311,7 +316,7 @@ export function AdvertiserPanel({ address }: Props) {
   );
 }
 
-function CreateCampaignForm({ address, onCreated }: { address: string; onCreated: () => void }) {
+function CreateCampaignForm({ address, onCreated, currencySymbol: sym }: { address: string; onCreated: () => void; currencySymbol: string }) {
   const [budget, setBudget] = useState("1");
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.01");
@@ -432,17 +437,17 @@ function CreateCampaignForm({ address, onCreated }: { address: string; onCreated
   return (
     <div>
       <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Budget (DOT)</label>
+        <label style={formLabel}>Budget ({sym})</label>
         <input type="text" value={budget} onChange={(e) => setBudget(e.target.value)}
           style={formInput} placeholder="1.0" />
       </div>
       <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Daily Cap (DOT)</label>
+        <label style={formLabel}>Daily Cap ({sym})</label>
         <input type="text" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)}
           style={formInput} placeholder="0.1" />
       </div>
       <div style={{ marginBottom: 6 }}>
-        <label style={formLabel}>Bid CPM (DOT per 1000 impressions)</label>
+        <label style={formLabel}>Bid CPM ({sym} per 1000 impressions)</label>
         <input type="text" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)}
           style={formInput} placeholder="0.01" />
       </div>

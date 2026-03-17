@@ -23,7 +23,7 @@ import {
   renameWallet,
   migrateIfNeeded,
 } from "@shared/walletManager";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -83,12 +83,14 @@ export function App() {
     connected: false, blockNumber: null, blockHash: null,
     nativeBalance: null, rpcUrl: "", lastUpdated: null, error: null,
   });
+  const [sym, setSym] = useState("DOT");
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pollChainStatus = useCallback(async () => {
     try {
       const stored = await chrome.storage.local.get("settings");
       const settings = stored.settings ?? DEFAULT_SETTINGS;
+      setSym(getCurrencySymbol(settings.network));
       const rpcUrl = settings.rpcUrl;
       if (!rpcUrl) return;
 
@@ -753,7 +755,7 @@ export function App() {
         <div>
           {chainStatus.nativeBalance !== null ? (
             <span style={{ color: "#60a060" }}>
-              {formatDOT(chainStatus.nativeBalance)} DOT
+              {formatDOT(chainStatus.nativeBalance)} {sym}
             </span>
           ) : chainStatus.connected ? (
             <span style={{ color: "#555" }}>...</span>

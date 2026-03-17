@@ -323,7 +323,7 @@ export interface StoredSettings {
   pinataApiKey: string;
 }
 
-export type NetworkName = "local" | "polkadotTestnet" | "paseo" | "westend" | "kusama" | "polkadotHub";
+export type NetworkName = "local" | "polkadotTestnet" | "westend" | "kusama" | "polkadotHub";
 
 export interface ContractAddresses {
   campaigns: string;

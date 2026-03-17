@@ -3,6 +3,7 @@
 // Uses Shadow DOM for isolation from host page CSS/JS.
 
 import { sanitizeCtaUrl } from "@shared/contentSafety";
+import { bytes32ToCid } from "@shared/ipfs";
 
 export interface CampaignCreative {
   title: string;
@@ -23,9 +24,11 @@ export interface AdSlotConfig {
   publisherAddress: string;
   category: string;
   metadata: CampaignCreative | null;
+  metadataHash?: string;  // bytes32 from on-chain CampaignMetadataSet
   auctionMechanism?: "second-price" | "solo" | "floor";
   clearingCpmPlanck?: string;
   ipfsGateway?: string;
+  currencySymbol?: string;
 }
 
 const SLOT_ID = "datum-ad-slot";
@@ -72,6 +75,14 @@ function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
   return null;
 }
 
+/** Compute https://ipfs.io/ipfs/{CID} from a bytes32 metadata hash. Returns null if zero/invalid. */
+function ipfsLinkFromHash(hash?: string): string | null {
+  if (!hash || hash === "0x" + "0".repeat(64)) return null;
+  try {
+    return `https://ipfs.io/ipfs/${bytes32ToCid(hash)}`;
+  } catch { return null; }
+}
+
 const MECHANISM_LABELS: Record<string, { label: string; color: string }> = {
   "second-price": { label: "2nd Price", color: "#60a0ff" },
   "solo": { label: "Solo", color: "#c09060" },
@@ -113,7 +124,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   // Earning footer
   const earningHtml = config.clearingCpmPlanck
     ? `<div style="color:#60a060;font-size:10px;margin-top:4px;">
-         Earning: ${formatCpm(config.clearingCpmPlanck)} DOT/1000 views
+         Earning: ${formatCpm(config.clearingCpmPlanck)} ${config.currencySymbol ?? "DOT"}/1000 views
          ${mech ? `<span style="color:${mech.color};margin-left:4px;border:1px solid ${mech.color}33;padding:0 4px;border-radius:2px;font-size:9px;">${mech.label}</span>` : ""}
        </div>`
     : "";
@@ -168,6 +179,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
       ${earningHtml}
     `;
   } else {
+    const ipfsLink = ipfsLinkFromHash(config.metadataHash);
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
@@ -185,6 +197,13 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
       <div style="color:#555;font-size:10px;margin-top:4px;">
         Privacy-preserving · Polkadot Hub
       </div>
+      ${ipfsLink ? `<div style="margin-top:6px;">
+        <a href="${escapeHtml(ipfsLink)}" target="_blank" rel="noopener" style="
+          display:inline-block;background:#2a2a5a;color:#a0a0ff;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
+        ">View Ad Details &rarr;</a>
+      </div>` : ""}
       ${earningHtml}
     `;
   }
@@ -229,7 +248,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
 
   const earningHtml = config.clearingCpmPlanck
     ? `<div style="color:#60a060;font-size:10px;margin-top:4px;">
-         Earning: ${formatCpm(config.clearingCpmPlanck)} DOT/1000 views
+         Earning: ${formatCpm(config.clearingCpmPlanck)} ${config.currencySymbol ?? "DOT"}/1000 views
          ${mech ? `<span style="color:${mech.color};margin-left:4px;border:1px solid ${mech.color}33;padding:0 4px;border-radius:2px;font-size:9px;">${mech.label}</span>` : ""}
        </div>`
     : "";
@@ -278,6 +297,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
       ${earningHtml}
     `;
   } else {
+    const ipfsLink = ipfsLinkFromHash(config.metadataHash);
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
@@ -292,6 +312,13 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
       <div style="color:#555;font-size:10px;margin-top:4px;">
         Privacy-preserving · Polkadot Hub
       </div>
+      ${ipfsLink ? `<div style="margin-top:6px;">
+        <a href="${escapeHtml(ipfsLink)}" target="_blank" rel="noopener" style="
+          display:inline-block;background:#2a2a5a;color:#a0a0ff;
+          border:1px solid #4a4a8a;border-radius:4px;
+          padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
+        ">View Ad Details &rarr;</a>
+      </div>` : ""}
       ${earningHtml}
     `;
   }

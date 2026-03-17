@@ -105,6 +105,25 @@ export const campaignPoller = {
         }
       }
 
+      // Enrich with metadataHash from CampaignMetadataSet events
+      if (campaigns.length > 0) {
+        try {
+          const metaFilter = contract.filters.CampaignMetadataSet();
+          const metaEvents = await contract.queryFilter(metaFilter);
+          for (const ev of metaEvents) {
+            const args = (ev as any).args;
+            if (!args) continue;
+            const cid = (args[0] ?? args.campaignId)?.toString();
+            const hash: string = args[1] ?? args.metadataHash ?? "";
+            if (!cid || !hash) continue;
+            const camp = campaigns.find((c) => c.id === cid);
+            if (camp) camp.metadataHash = hash;
+          }
+        } catch (err) {
+          console.warn("[DATUM] Could not enrich metadata hashes from events:", err);
+        }
+      }
+
       await chrome.storage.local.set({ [STORAGE_KEY]: campaigns });
       console.log(`[DATUM] Polled ${campaigns.length} campaigns (Active/Pending/Paused)`);
 
@@ -121,9 +140,19 @@ export const campaignPoller = {
         console.log(`[DATUM] Cleaned ${staleMetaKeys.length} stale metadata cache entries`);
       }
 
-      // Fetch IPFS metadata for campaigns
-      const gateway = ipfsGateway || "https://dweb.link/ipfs/";
+      // Fetch IPFS metadata for campaigns (multi-gateway for reliability)
+      const primaryGateway = ipfsGateway || "https://dweb.link/ipfs/";
+      const gateways = [
+        primaryGateway,
+        "https://ipfs.io/ipfs/",
+        "https://cloudflare-ipfs.com/ipfs/",
+        "https://gateway.pinata.cloud/ipfs/",
+      ];
+      const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
+
       for (const c of campaigns) {
+        if (!c.metadataHash) continue;
+
         const metaKey = `metadata:${c.id}`;
         const tsKey = `metadata_ts:${c.id}`;
         const existing = await chrome.storage.local.get([metaKey, tsKey]);
@@ -132,52 +161,56 @@ export const campaignPoller = {
           if (fetchedAt && Date.now() - fetchedAt < METADATA_TTL_MS) continue;
         }
 
-        try {
-          const filter = contract.filters.CampaignMetadataSet(BigInt(c.id));
-          const events = await contract.queryFilter(filter);
-          if (events.length === 0) continue;
+        let fetched = false;
+        for (const gw of uniqueGateways) {
+          try {
+            const url = metadataUrl(c.metadataHash, gw);
+            if (!url) continue;
 
-          const lastEvent = events[events.length - 1];
-          const hash: string = (lastEvent as any).args?.[1] ?? (lastEvent as any).args?.metadataHash;
-          if (!hash) continue;
+            const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+            if (!resp.ok) continue;
 
-          const url = metadataUrl(hash, gateway);
-          if (!url) continue;
-
-          const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-          if (resp.ok) {
             // Size cap: check Content-Length header first, then body length
             const contentLength = resp.headers.get("content-length");
             if (contentLength && parseInt(contentLength, 10) > MAX_METADATA_BYTES) {
               console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (Content-Length: ${contentLength}), skipping`);
-              continue;
+              fetched = true; // Don't retry — content is too large on any gateway
+              break;
             }
 
             const bodyText = await resp.text();
             if (bodyText.length > MAX_METADATA_BYTES) {
               console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (body: ${bodyText.length}), skipping`);
-              continue;
+              fetched = true;
+              break;
             }
 
             const rawMeta = JSON.parse(bodyText);
             const meta = validateAndSanitize(rawMeta);
             if (!meta) {
               console.warn(`[DATUM] Metadata for campaign ${c.id} failed validation, skipping`);
-              continue;
+              fetched = true;
+              break;
             }
 
             // Check CTA URL against phishing deny list
             if (meta.creative.ctaUrl && await isUrlPhishing(meta.creative.ctaUrl)) {
               console.warn(`[DATUM] Campaign ${c.id} CTA URL flagged as phishing: ${meta.creative.ctaUrl}`);
-              continue;
+              fetched = true;
+              break;
             }
 
-            const urlKey = `metadata_url:${c.id}`;
-            await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now(), [urlKey]: url });
-            console.log(`[DATUM] Cached metadata for campaign ${c.id}`);
+            await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now() });
+            console.log(`[DATUM] Cached metadata for campaign ${c.id} via ${gw}`);
+            fetched = true;
+            break;
+          } catch {
+            // Try next gateway
+            continue;
           }
-        } catch (err) {
-          console.warn(`[DATUM] Failed to fetch metadata for campaign ${c.id}:`, err);
+        }
+        if (!fetched) {
+          console.warn(`[DATUM] All gateways failed for campaign ${c.id} metadata`);
         }
       }
     } catch (err) {
@@ -210,4 +243,5 @@ interface SerializedCampaign {
   categoryId: string;
   pendingExpiryBlock: string;
   terminationBlock: string;
+  metadataHash?: string;  // bytes32 from CampaignMetadataSet event
 }

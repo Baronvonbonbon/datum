@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { JsonRpcProvider, Contract } from "ethers";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
-import { NETWORK_CONFIGS, DEFAULT_SETTINGS } from "@shared/networks";
+import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { unlock, isConfigured } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
@@ -201,7 +201,6 @@ export function Settings() {
         >
           <option value="local">Local (dev)</option>
           <option value="polkadotTestnet">Polkadot Hub TestNet</option>
-          <option value="paseo">Paseo Asset Hub (legacy)</option>
           <option value="westend">Westend Asset Hub</option>
           <option value="kusama">Kusama Asset Hub</option>
           <option value="polkadotHub">Polkadot Hub</option>
@@ -474,7 +473,7 @@ export function Settings() {
         </div>
 
         <div style={sectionStyle}>
-          <label style={labelStyle}>Minimum bid CPM (DOT)</label>
+          <label style={labelStyle}>Minimum bid CPM ({getCurrencySymbol(settings.network)})</label>
           <input
             type="text"
             value={prefs.minBidCpm === "0" ? "" : prefs.minBidCpm}

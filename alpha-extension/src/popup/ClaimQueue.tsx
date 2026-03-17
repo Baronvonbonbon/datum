@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getSettlementContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner, getUnlockedWallet } from "@shared/walletManager";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 import { humanizeError } from "@shared/errorCodes";
@@ -42,6 +42,7 @@ export function ClaimQueue({ address }: Props) {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [sym, setSym] = useState("DOT");
   const [stalePruned, setStalePruned] = useState(0); // CL-2: stale claims notification
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +87,10 @@ export function ClaimQueue({ address }: Props) {
 
   useEffect(() => {
     loadState();
+    chrome.storage.local.get("settings").then((s) => {
+      const network = (s.settings ?? DEFAULT_SETTINGS).network;
+      setSym(getCurrencySymbol(network));
+    });
   }, [loadState]);
 
   async function getSettings() {
@@ -414,7 +419,7 @@ export function ClaimQueue({ address }: Props) {
 
       {pendingCount === 0 ? (
         <div style={{ color: "#555", fontSize: 13 }}>
-          No pending claims. Browse pages to earn DOT.
+          No pending claims. Browse pages to earn {sym}.
         </div>
       ) : (
         <>
@@ -433,7 +438,7 @@ export function ClaimQueue({ address }: Props) {
                 </div>
                 {estPlanck !== null && (
                   <div style={{ color: "#60c060", fontSize: 11, marginTop: 2 }}>
-                    ~{formatDOT(estPlanck)} DOT est. earnings
+                    ~{formatDOT(estPlanck)} {sym} est. earnings
                   </div>
                 )}
               </div>
@@ -499,7 +504,7 @@ export function ClaimQueue({ address }: Props) {
           </div>
           {result.totalPaid > 0n && (
             <div style={{ color: "#888", fontSize: 12, marginTop: 2 }}>
-              Total paid: {formatDOT(result.totalPaid)} DOT
+              Total paid: {formatDOT(result.totalPaid)} {sym}
             </div>
           )}
         </div>

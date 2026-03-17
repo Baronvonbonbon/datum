@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { CampaignStatus, CampaignMetadata, CATEGORY_NAMES, UserPreferences, buildCategoryHierarchy, getCategoryParent } from "@shared/types";
 import { formatDOT } from "@shared/dot";
-import { metadataUrl } from "@shared/ipfs";
+import { bytes32ToCid } from "@shared/ipfs";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 
 interface CampaignRow {
   id: string;
@@ -13,6 +14,7 @@ interface CampaignRow {
   snapshotTakeRateBps: number;
   status: CampaignStatus;
   categoryId: number;
+  metadataHash?: string;
 }
 
 export function CampaignList() {
@@ -27,6 +29,7 @@ export function CampaignList() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [hideResolved, setHideResolved] = useState(true); // CL-1: auto-hide resolved
+  const [sym, setSym] = useState("DOT");
 
   // E-M5: Restore category filter from session storage on mount
   useEffect(() => {
@@ -59,24 +62,39 @@ export function CampaignList() {
       snapshotTakeRateBps: Number(c.snapshotTakeRateBps),
       status: Number(c.status) as CampaignStatus,
       categoryId: Number(c.categoryId ?? 0),
+      metadataHash: c.metadataHash || undefined,
     }));
     setCampaigns(camps);
 
-    const metaKeys = camps.flatMap((c) => [`metadata:${c.id}`, `metadata_url:${c.id}`]);
+    // Compute IPFS URLs from on-chain metadata hash
+    const urls: Record<string, string> = {};
+    for (const camp of camps) {
+      if (camp.metadataHash && camp.metadataHash !== "0x" + "0".repeat(64)) {
+        try {
+          const cid = bytes32ToCid(camp.metadataHash);
+          urls[camp.id] = `https://ipfs.io/ipfs/${cid}`;
+        } catch {}
+      }
+    }
+    setMetadataUrls(urls);
+
+    // Load cached metadata content for display
+    const metaKeys = camps.map((c) => `metadata:${c.id}`);
     if (metaKeys.length > 0) {
       const stored = await chrome.storage.local.get(metaKeys);
       const meta: Record<string, CampaignMetadata> = {};
-      const urls: Record<string, string> = {};
       for (const c of camps) {
         if (stored[`metadata:${c.id}`]) meta[c.id] = stored[`metadata:${c.id}`];
-        if (stored[`metadata_url:${c.id}`]) urls[c.id] = stored[`metadata_url:${c.id}`];
       }
       setMetadata(meta);
-      setMetadataUrls(urls);
     }
   }
 
   useEffect(() => {
+    chrome.storage.local.get("settings").then((s) => {
+      const network = (s.settings ?? DEFAULT_SETTINGS).network;
+      setSym(getCurrencySymbol(network));
+    });
     Promise.all([loadCampaigns(), loadPrefs()]).finally(() => setLoading(false));
   }, []);
 
@@ -230,16 +248,24 @@ export function CampaignList() {
               <div style={{ color: "#aaa", fontSize: 12, marginBottom: 4 }}>{meta.description}</div>
             )}
             <div style={{ color: "#888", fontSize: 12 }}>
-              Budget: {formatDOT(c.remainingBudget)} DOT remaining
+              Budget: {formatDOT(c.remainingBudget)} {sym} remaining
             </div>
             <div style={{ color: "#888", fontSize: 12 }}>
-              Bid: {formatDOT(c.bidCpmPlanck)} DOT / 1000 impressions
+              Bid: {formatDOT(c.bidCpmPlanck)} {sym} / 1000 impressions
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
               <span style={{ color: "#666", fontSize: 11, fontFamily: "monospace" }}>
                 {c.publisher.slice(0, 10)}...
               </span>
-              <span style={{ color: "#666", fontSize: 11 }}>{categoryName}</span>
+              <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {metadataUrls[c.id] && (
+                  <a href={metadataUrls[c.id]} target="_blank" rel="noopener"
+                    style={{ color: "#a0a0ff", fontSize: 10, textDecoration: "underline" }}
+                    title="View ad creative on IPFS"
+                  >IPFS</a>
+                )}
+                <span style={{ color: "#666", fontSize: 11 }}>{categoryName}</span>
+              </span>
             </div>
             {/* CL-3: Pending expiration note */}
             {c.status === CampaignStatus.Pending && (
@@ -254,7 +280,7 @@ export function CampaignList() {
                 <div>Advertiser: <span style={{ fontFamily: "monospace", color: "#aaa" }}>{c.advertiser}</span></div>
                 <div>Publisher: <span style={{ fontFamily: "monospace", color: "#aaa" }}>{c.publisher}</span></div>
                 <div>Take rate: {(c.snapshotTakeRateBps / 100).toFixed(2)}%</div>
-                <div>Daily cap: {formatDOT(c.dailyCap)} DOT</div>
+                <div>Daily cap: {formatDOT(c.dailyCap)} {sym}</div>
                 <div>Category: {categoryName} (ID: {c.categoryId})</div>
                 {meta?.creative && (
                   <div style={{ marginTop: 6, borderTop: "1px solid #2a2a4a", paddingTop: 6 }}>

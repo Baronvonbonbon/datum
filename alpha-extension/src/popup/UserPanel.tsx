@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSettlementContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
@@ -17,6 +17,7 @@ export function UserPanel({ address }: Props) {
   const [txResult, setTxResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [behaviorChains, setBehaviorChains] = useState<BehaviorChainState[]>([]);
+  const [sym, setSym] = useState("DOT");
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -58,6 +59,10 @@ export function UserPanel({ address }: Props) {
   useEffect(() => {
     loadBalance();
     loadBehaviorChains();
+    chrome.storage.local.get("settings").then((s) => {
+      const network = (s.settings ?? DEFAULT_SETTINGS).network;
+      setSym(getCurrencySymbol(network));
+    });
   }, [loadBalance, loadBehaviorChains]);
 
   async function withdraw() {
@@ -104,7 +109,7 @@ export function UserPanel({ address }: Props) {
           <div style={cardStyle}>
             <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
             <div style={{ color: "#e0e0e0", fontSize: 18, fontWeight: 600 }}>
-              {balance !== null ? formatDOT(balance) : "--"} DOT
+              {balance !== null ? formatDOT(balance) : "--"} {sym}
             </div>
             <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
               75% of settled impressions
@@ -114,7 +119,7 @@ export function UserPanel({ address }: Props) {
           {/* EA-4: Withdrawal minimum display (denomination rounding: value % 10^6 >= 500k rejected) */}
           {balance !== null && balance > 0n && balance < 1_000_000n && (
             <div style={{ color: "#c09060", fontSize: 11, marginTop: 8, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
-              Balance below minimum withdrawal (0.0001 DOT / 1M planck).
+              Balance below minimum withdrawal (0.0001 {sym} / 1M planck).
             </div>
           )}
           {balance !== null && balance >= 1_000_000n && (
@@ -123,7 +128,7 @@ export function UserPanel({ address }: Props) {
               disabled={withdrawing}
               style={{ ...primaryBtn, marginTop: 12 }}
             >
-              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(balance)} DOT`}
+              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(balance)} ${sym}`}
             </button>
           )}
 

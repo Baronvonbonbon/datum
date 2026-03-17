@@ -75,7 +75,7 @@ Alice visits Bob's tech blog. The DATUM content script (running entirely in her 
 3. **Filters campaigns by category overlap** — Carol's open campaign targets "Computers & Electronics" and Bob's SDK declares that same category. The campaign is eligible.
 4. **Runs a second-price auction** — if multiple campaigns match, the highest effective bid wins but pays the second-highest price. Solo campaigns pay 70% of their bid. Alice's interest profile weights the bids (tech-interested users make tech campaigns bid higher).
 5. **Performs a handshake** — the extension sends a random challenge to the SDK via `CustomEvent`. The SDK responds with a signature, creating a two-party attestation that this impression is real (not fabricated by a modified extension).
-6. **Injects an ad inline** — Carol's creative renders inside Bob's `<div id="datum-ad-slot">` via Shadow DOM (isolated from page CSS/JS). If no SDK slot exists, the ad appears as an overlay at the bottom-right of Alice's screen. If no campaigns matched at all, a default house ad linking to Polkadot's philosophy page appears instead.
+6. **Injects an ad inline** — Carol's creative renders inside Bob's `<div id="datum-ad-slot">` via Shadow DOM (isolated from page CSS/JS). When IPFS metadata is available, the ad displays the title as a header, creative body text, and a CTA button linking to the landing page URL. On metadata cache miss, the extension requests the background service worker to fetch from IPFS (using multiple gateway fallbacks for reliability). If no SDK slot exists, the ad appears as an overlay at the bottom-right of Alice's screen. If no campaigns matched at all, a default house ad linking to Polkadot's philosophy page appears instead.
 7. **Tracks engagement** — an IntersectionObserver measures how long Alice sees the ad (dwell time), whether her tab is focused, scroll depth, and IAB viewability (50% visible for 1+ second). Low-quality views (under 1 second, unfocused tab) are rejected before any claim is built.
 8. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. The publisher field is Bob's address (resolved dynamically for open campaigns). No data about what Alice browsed leaves her device — only the cryptographic claim.
 
@@ -157,6 +157,7 @@ Key subsystems:
 - **Publisher SDK** -- lightweight JS tag (`datum-sdk.js`) with challenge-response handshake for two-party impression attestation; inline ad injection into publisher-provided `<div id="datum-ad-slot">`
 - **Open campaigns** -- campaigns with `publisher = address(0)` are served by any publisher whose categories overlap; publisher resolved dynamically at impression time
 - **Default house ad** -- when no campaigns match, a default ad linking to Polkadot philosophy appears (inline or overlay)
+- **IPFS metadata rendering** -- ad overlay displays rich content from IPFS (title, body, CTA button); multi-gateway fallback (dweb.link, ipfs.io, cloudflare-ipfs, Pinata) with background fetch to bypass CSP
 - **Second-price auction** (P19) -- Vickrey auction: effectiveBid = bidCpm x interestWeight, solo campaigns at 70%, floor at 30%
 - **Behavioral analytics** (P16) -- on-device engagement capture (dwell time, scroll depth, tab focus, viewability), behavior hash chain, quality scoring, engagement-weighted CPM
 - **Claim portability** (P6) -- encrypted export/import of claim state (AES-256-GCM, HKDF key from wallet signature)
@@ -220,7 +221,7 @@ npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
 ```bash
 cd alpha-extension
 npm install
-npm run build                # output in dist/ (popup.js 599KB, background.js 375KB, content.js 32KB)
+npm run build                # output in dist/ (popup.js 603KB, background.js 379KB, content.js 39KB)
 ```
 
 Load in Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> select `alpha-extension/dist/`
@@ -281,6 +282,19 @@ npm run setup:testnet
 
 The extension defaults to Polkadot Hub TestNet with these addresses hardcoded. Build and load in Chrome to test against live contracts.
 
+**Gas benchmarks (testnet, gasPrice=10^12):**
+
+| Function | Gas | Cost (DOT) | ~USD @$5 |
+|----------|-----|-----------|----------|
+| `createCampaign` | 210,696 | 0.2107 | $1.05 |
+| `vote` | 106,762 | 0.1068 | $0.53 |
+| `evaluateCampaign` | 3,898 | 0.0039 | $0.02 |
+| `settleClaims (1)` | 112,215 | 0.1122 | $0.56 |
+| `settleClaims (5)` | 73,868 | 0.0739 | $0.37 |
+| `withdraw` | 1,762 | 0.0018 | $0.01 |
+
+Settlement batching is sub-linear: per-claim drops from 0.112 DOT to 0.015 DOT in a 5-claim batch.
+
 ### Claim export/import
 
 The extension supports encrypted claim state portability (P6):
@@ -293,7 +307,7 @@ The extension supports encrypted claim state portability (P6):
 
 - [x] **PoC** -- 7 contracts, 64/64 Hardhat tests, local devnet verified (tagged `poc-complete`)
 - [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 132/132 tests
-- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
+- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, IPFS metadata rendering in ad overlay (multi-gateway fallback), UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
 - [x] **Polkadot Hub TestNet** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered (A3.3)
@@ -329,7 +343,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 | ~~Multi-publisher campaigns~~ | **Done** — open campaigns (`publisher = address(0)`) allow any matching publisher (P5) |
 | Contract upgrade path | Non-upgradeable; UUPS proxy or migration for beta (P7) |
 | Mandatory publisher attestation | Optional co-signature (degraded trust mode); mandatory post-alpha (P1) |
-| Rich media ad rendering | Text creatives only; image/video post-alpha |
+| Rich media ad rendering | Text creatives with IPFS metadata (title, body, CTA); image/video post-alpha |
 
 ## License
 

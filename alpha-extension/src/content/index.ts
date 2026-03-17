@@ -8,6 +8,8 @@ import { injectAdSlot, injectAdSlotInline, injectDefaultAd, injectDefaultAdInlin
 import { startTracking, computeQualityScore } from "./engagement";
 import { validateMetadata, passesContentBlocklist, sanitizeCtaUrl } from "@shared/contentSafety";
 import { isUrlPhishing } from "@shared/phishingList";
+import { getCurrencySymbol } from "@shared/networks";
+import { NetworkName } from "@shared/types";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
 
@@ -134,6 +136,7 @@ async function main() {
   // Defense-in-depth: re-validate metadata from storage before rendering
   let validatedMeta = null;
   const rawMeta = metaStored[metaKey] ?? null;
+  console.log(`[DATUM] Campaign ${campaignId}: cached metadata=${!!rawMeta}, metadataHash=${match.metadataHash ?? "none"}`);
   if (rawMeta) {
     const result = validateMetadata(rawMeta);
     if (result.valid && result.data && passesContentBlocklist(result.data)) {
@@ -143,6 +146,26 @@ async function main() {
       } else {
         validatedMeta = result.data;
       }
+    } else {
+      console.warn(`[DATUM] Campaign ${campaignId}: cached metadata failed re-validation: ${result.error ?? "blocklist"}`);
+    }
+  }
+
+  // If no cached metadata but hash available, fetch via background (no CSP restrictions)
+  if (!validatedMeta && match.metadataHash) {
+    console.log(`[DATUM] Campaign ${campaignId}: requesting IPFS fetch from background...`);
+    try {
+      const fetchResp = await chrome.runtime.sendMessage({
+        type: "FETCH_IPFS_METADATA",
+        campaignId,
+        metadataHash: match.metadataHash,
+      });
+      console.log(`[DATUM] Campaign ${campaignId}: FETCH_IPFS_METADATA response:`, fetchResp?.metadata ? "got metadata" : "null");
+      if (fetchResp?.metadata) {
+        validatedMeta = fetchResp.metadata;
+      }
+    } catch (err) {
+      console.warn(`[DATUM] Campaign ${campaignId}: FETCH_IPFS_METADATA failed:`, err);
     }
   }
 
@@ -152,14 +175,19 @@ async function main() {
     : match.publisher;
 
   const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
+
+  const currencySymbol = getCurrencySymbol((settingsStored.settings?.network ?? "polkadotHub") as NetworkName);
+
   const adConfig = {
     campaignId,
     publisherAddress: effectivePublisher,
     category,
     metadata: validatedMeta,
+    metadataHash: match.metadataHash || undefined,
     auctionMechanism: auctionMechanism as any,
     clearingCpmPlanck,
     ipfsGateway,
+    currencySymbol,
   };
 
   // Inject ad: inline into SDK slot if available, overlay otherwise

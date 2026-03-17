@@ -3,9 +3,10 @@ import { parseUnits } from "ethers";
 import { getGovernanceV2Contract, getGovernanceSlashContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { CampaignMetadata, CATEGORY_NAMES } from "@shared/types";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { humanizeError } from "@shared/errorCodes";
+import { bytes32ToCid } from "@shared/ipfs";
 
 interface Props {
   address: string | null;
@@ -83,6 +84,7 @@ export function GovernancePanel({ address }: Props) {
   const [finalizing, setFinalizing] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [showResolved, setShowResolved] = useState(true);
+  const [sym, setSym] = useState("DOT");
 
   // Slash info per queried campaign
   const [slashFinalized, setSlashFinalized] = useState(false);
@@ -100,6 +102,7 @@ export function GovernancePanel({ address }: Props) {
     setLoadingCampaigns(true);
     try {
       const settings = await getSettings();
+      setSym(getCurrencySymbol(settings.network));
       const provider = getProvider(settings.rpcUrl);
       const campaignsContract = getCampaignsContract(settings.contractAddresses, provider);
       const v2 = getGovernanceV2Contract(settings.contractAddresses, provider);
@@ -157,17 +160,28 @@ export function GovernancePanel({ address }: Props) {
 
       setCampaigns(governable);
 
-      // Load cached IPFS metadata for campaign titles/links
+      // Load cached IPFS metadata for campaign titles + compute IPFS links from on-chain hash
       if (governable.length > 0) {
-        const metaKeys = governable.flatMap((c) => [`metadata:${c.id}`, `metadata_url:${c.id}`]);
-        const stored = await chrome.storage.local.get(metaKeys);
+        const metaKeys = governable.map((c) => `metadata:${c.id}`);
+        const stored = await chrome.storage.local.get([...metaKeys, "activeCampaigns"]);
         const meta: Record<string, CampaignMetadata> = {};
-        const urls: Record<string, string> = {};
         for (const c of governable) {
           if (stored[`metadata:${c.id}`]) meta[c.id] = stored[`metadata:${c.id}`];
-          if (stored[`metadata_url:${c.id}`]) urls[c.id] = stored[`metadata_url:${c.id}`];
         }
         setMetadata(meta);
+
+        // Compute IPFS URLs from metadataHash in cached campaign data
+        const urls: Record<string, string> = {};
+        const cached: Array<Record<string, string>> = stored.activeCampaigns ?? [];
+        for (const c of governable) {
+          const cachedCamp = cached.find((cc) => cc.id === c.id);
+          if (cachedCamp?.metadataHash && cachedCamp.metadataHash !== "0x" + "0".repeat(64)) {
+            try {
+              const cid = bytes32ToCid(cachedCamp.metadataHash);
+              urls[c.id] = `https://ipfs.io/ipfs/${cid}`;
+            } catch {}
+          }
+        }
         setMetadataUrls(urls);
       }
     } catch {
@@ -187,7 +201,7 @@ export function GovernancePanel({ address }: Props) {
     const lockDuration = CONVICTION_LABELS[conviction] ?? "unknown duration";
     const confirmed = confirm(
       `Voting is permanent — you cannot change your vote on campaign #${campaignId}.\n\n` +
-      `You are voting ${aye ? "AYE" : "NAY"} with ${dotAmount} DOT at conviction ${conviction} (${lockDuration}).\n\n` +
+      `You are voting ${aye ? "AYE" : "NAY"} with ${dotAmount} ${sym} at conviction ${conviction} (${lockDuration}).\n\n` +
       `Your stake will be locked and the losing side pays ${slashBps !== null ? (slashBps / 100).toFixed(1) : "?"}% slash on withdrawal.\n\n` +
       `Continue?`
     );
@@ -297,8 +311,8 @@ export function GovernancePanel({ address }: Props) {
       }
 
       const msg = slashed > 0n
-        ? `Stake withdrawn: ${formatDOT(returned)} DOT returned, ${formatDOT(slashed)} DOT slashed.`
-        : `Stake withdrawn: ${formatDOT(returned)} DOT returned.`;
+        ? `Stake withdrawn: ${formatDOT(returned)} ${sym} returned, ${formatDOT(slashed)} ${sym} slashed.`
+        : `Stake withdrawn: ${formatDOT(returned)} ${sym} returned.`;
       setTxResult(msg);
       queryVoteStatus();
     } catch (err) {
@@ -428,7 +442,7 @@ export function GovernancePanel({ address }: Props) {
       {/* V2 params info */}
       {quorumWeighted !== null && (
         <div style={{ marginBottom: 10, padding: "6px 10px", background: "#111", borderRadius: 4, fontSize: 11, color: "#666" }}>
-          Quorum: {formatDOT(quorumWeighted)} DOT weighted
+          Quorum: {formatDOT(quorumWeighted)} {sym} weighted
           {slashBps !== null && (
             <span> &middot; Slash: {(slashBps / 100).toFixed(1)}%</span>
           )}
@@ -445,6 +459,7 @@ export function GovernancePanel({ address }: Props) {
         campaigns={pendingCampaigns}
         loading={loadingCampaigns}
         quorum={quorumWeighted}
+        currencySymbol={sym}
         metadata={metadata}
         metadataUrls={metadataUrls}
         selectedId={campaignId}
@@ -463,6 +478,7 @@ export function GovernancePanel({ address }: Props) {
         campaigns={activeCampaigns}
         loading={loadingCampaigns}
         quorum={quorumWeighted}
+        currencySymbol={sym}
         metadata={metadata}
         metadataUrls={metadataUrls}
         selectedId={campaignId}
@@ -492,6 +508,7 @@ export function GovernancePanel({ address }: Props) {
               campaigns={resolvedCampaigns}
               loading={loadingCampaigns}
               quorum={quorumWeighted}
+              currencySymbol={sym}
               metadata={metadata}
               metadataUrls={metadataUrls}
               selectedId={campaignId}
@@ -530,7 +547,7 @@ export function GovernancePanel({ address }: Props) {
           </div>
         </div>
         <div style={{ marginBottom: 6 }}>
-          <label style={formLabel}>Stake (DOT)</label>
+          <label style={formLabel}>Stake ({sym})</label>
           <input
             type="text"
             value={dotAmount}
@@ -617,15 +634,15 @@ export function GovernancePanel({ address }: Props) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
               <span style={{ color: "#60c060", fontSize: 12 }}>
-                Aye: {formatDOT(qc.ayeWeighted)} DOT ({ayePct}%)
+                Aye: {formatDOT(qc.ayeWeighted)} {sym} ({ayePct}%)
               </span>
               <span style={{ color: "#ff8080", fontSize: 12 }}>
-                Nay: {formatDOT(qc.nayWeighted)} DOT ({nayPct}%)
+                Nay: {formatDOT(qc.nayWeighted)} {sym} ({nayPct}%)
               </span>
             </div>
             {quorumWeighted !== null && (
               <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
-                Total: {formatDOT(total)} / {formatDOT(quorumWeighted)} DOT quorum
+                Total: {formatDOT(total)} / {formatDOT(quorumWeighted)} {sym} quorum
                 {total >= quorumWeighted
                   ? <span style={{ color: "#60c060", marginLeft: 6 }}>Met</span>
                   : <span style={{ color: "#c09060", marginLeft: 6 }}>Not met</span>
@@ -669,7 +686,7 @@ export function GovernancePanel({ address }: Props) {
               {myVote.direction === 1 ? "AYE" : "NAY"}
             </span>
             <span style={{ color: "#888", fontSize: 12 }}>
-              {formatDOT(myVote.lockAmount)} DOT (conv. {myVote.conviction})
+              {formatDOT(myVote.lockAmount)} {sym} (conv. {myVote.conviction})
             </span>
           </div>
           <div style={{ color: "#666", fontSize: 11 }}>
@@ -690,7 +707,7 @@ export function GovernancePanel({ address }: Props) {
               disabled={withdrawing}
               style={{ ...primaryBtn, marginTop: 8 }}
             >
-              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(myVote.lockAmount)} DOT Stake`}
+              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(myVote.lockAmount)} ${sym} Stake`}
             </button>
           )}
         </div>
@@ -726,7 +743,7 @@ export function GovernancePanel({ address }: Props) {
                 {claimableAmount !== null && claimableAmount > 0n ? (
                   <div>
                     <div style={{ color: "#e0e0e0", fontSize: 13, marginBottom: 6 }}>
-                      Claimable: {formatDOT(claimableAmount)} DOT
+                      Claimable: {formatDOT(claimableAmount)} {sym}
                     </div>
                     <button
                       onClick={claimSlashReward}
@@ -767,7 +784,7 @@ export function GovernancePanel({ address }: Props) {
 // ---------------------------------------------------------------------------
 
 function CampaignSection({
-  title, subtitle, campaigns, loading, quorum, metadata, metadataUrls,
+  title, subtitle, campaigns, loading, quorum, currencySymbol, metadata, metadataUrls,
   selectedId, onSelect, onRefresh, onEvaluate, onExpire, evaluating, emptyText,
 }: {
   title: string;
@@ -775,6 +792,7 @@ function CampaignSection({
   campaigns: GovernableCampaign[];
   loading: boolean;
   quorum: bigint | null;
+  currencySymbol: string;
   metadata?: Record<string, CampaignMetadata>;
   metadataUrls?: Record<string, string>;
   selectedId: string;

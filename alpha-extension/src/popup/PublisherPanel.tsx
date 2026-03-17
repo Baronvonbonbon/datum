@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSettlementContract, getPublishersContract, getRelayContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { CATEGORY_NAMES } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
@@ -45,6 +45,7 @@ export function PublisherPanel({ address }: Props) {
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [txResult, setTxResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sym, setSym] = useState("DOT");
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -57,6 +58,7 @@ export function PublisherPanel({ address }: Props) {
     setError(null);
     try {
       const settings = await getSettings();
+      setSym(getCurrencySymbol(settings.network));
       const provider = getProvider(settings.rpcUrl);
       const settlement = getSettlementContract(settings.contractAddresses, provider);
       const publishers = getPublishersContract(settings.contractAddresses, provider);
@@ -242,7 +244,7 @@ export function PublisherPanel({ address }: Props) {
       // Clear signed batches from storage
       await chrome.storage.local.remove("signedBatches");
       setSignedBatchData(null);
-      setTxResult(`Relay submitted: ${settledCount} settled, ${rejectedCount} rejected. Total paid: ${formatDOT(totalPaid)} DOT`);
+      setTxResult(`Relay submitted: ${settledCount} settled, ${rejectedCount} rejected. Total paid: ${formatDOT(totalPaid)} ${sym}`);
       loadData();
     } catch (err) {
       setError(humanizeError(err));
@@ -272,7 +274,7 @@ export function PublisherPanel({ address }: Props) {
           <div style={cardStyle}>
             <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
             <div style={{ color: "#e0e0e0", fontSize: 18, fontWeight: 600 }}>
-              {balance !== null ? formatDOT(balance) : "—"} DOT
+              {balance !== null ? formatDOT(balance) : "—"} {sym}
             </div>
           </div>
 
@@ -400,7 +402,7 @@ export function PublisherPanel({ address }: Props) {
               disabled={withdrawing}
               style={{ ...primaryBtn, marginTop: 12 }}
             >
-              {withdrawing ? "Withdrawing…" : `Withdraw ${formatDOT(balance)} DOT`}
+              {withdrawing ? "Withdrawing…" : `Withdraw ${formatDOT(balance)} ${sym}`}
             </button>
           )}
 

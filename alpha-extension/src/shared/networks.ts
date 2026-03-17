@@ -1,5 +1,19 @@
 import { ContractAddresses, NetworkName, StoredSettings } from "./types";
 
+/** Currency symbol per network (DOT only for mainnet Polkadot Hub). */
+export const CURRENCY_SYMBOL: Record<NetworkName, string> = {
+  local: "devDOT",
+  polkadotTestnet: "PAS",
+  westend: "WND",
+  kusama: "KSM",
+  polkadotHub: "DOT",
+};
+
+/** Get the currency symbol for the given network name. */
+export function getCurrencySymbol(network: NetworkName): string {
+  return CURRENCY_SYMBOL[network] ?? "DOT";
+}
+
 export const NETWORK_CONFIGS: Record<
   NetworkName,
   { rpcUrl: string; addresses: ContractAddresses }
@@ -30,20 +44,6 @@ export const NETWORK_CONFIGS: Record<
       pauseRegistry: "0xFa0e0D4cb23a9616f780Cb0Ad4055E9b5fE6d1bD",
       timelock: "0x68003Ae2711dE93e66882591FD80F10105183831",
       zkVerifier: "0x00e95AC62efAf6250c0f15df4812122C8854DF90",
-    },
-  },
-  paseo: {
-    rpcUrl: "https://paseo-asset-hub-eth-rpc.polkadot.io",
-    addresses: {
-      campaigns: "",
-      publishers: "",
-      governanceV2: "",
-      governanceSlash: "",
-      settlement: "",
-      relay: "",
-      pauseRegistry: "",
-      timelock: "",
-      zkVerifier: "",
     },
   },
   westend: {
