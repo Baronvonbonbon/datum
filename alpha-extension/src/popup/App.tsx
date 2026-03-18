@@ -61,6 +61,7 @@ export function App() {
   const [accounts, setAccounts] = useState<{ name: string; address: string }[]>([]);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
   const [renamingAccount, setRenamingAccount] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
 
@@ -548,7 +549,11 @@ export function App() {
             </div>
           )}
           {address && (
-            <div style={{ color: "#888", fontSize: 11, marginTop: 2, fontFamily: "monospace" }}>
+            <div
+              onClick={() => { navigator.clipboard.writeText(address); }}
+              title="Click to copy address"
+              style={{ color: "#888", fontSize: 11, marginTop: 2, fontFamily: "monospace", cursor: "pointer" }}
+            >
               {address.slice(0, 6)}...{address.slice(-4)}
             </div>
           )}
@@ -644,8 +649,19 @@ export function App() {
             {activeAccount && (
               <span style={{ color: "#a0a0ff", fontSize: 11, fontWeight: 600 }}>{activeAccount}</span>
             )}
-            <span style={{ color: "#888", fontSize: 11, fontFamily: "monospace" }}>
-              {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : ""}
+            <span
+              onClick={(e) => {
+                if (address) {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(address);
+                  setAddressCopied(true);
+                  setTimeout(() => setAddressCopied(false), 1500);
+                }
+              }}
+              title={address ? "Click to copy address" : ""}
+              style={{ color: addressCopied ? "#60c060" : "#888", fontSize: 11, fontFamily: "monospace" }}
+            >
+              {addressCopied ? "Copied!" : address ? `${address.slice(0, 6)}...${address.slice(-4)}` : ""}
             </span>
             {accounts.length > 1 && <span style={{ color: "#555", fontSize: 8 }}>v</span>}
           </button>
@@ -809,7 +825,7 @@ export function App() {
         {tab === "publisher" && <PublisherPanel key={refreshKey} address={address} />}
         {tab === "advertiser" && <AdvertiserPanel key={refreshKey} address={address} />}
         {tab === "governance" && <GovernancePanel key={refreshKey} address={address} />}
-        {tab === "settings" && <Settings key={refreshKey} />}
+        {tab === "settings" && <Settings key={refreshKey} address={address} />}
       </div>
     </div>
   );

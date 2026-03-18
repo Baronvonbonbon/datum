@@ -11,7 +11,7 @@ interface InterestProfileData {
   visitCounts: Record<string, number>;
 }
 
-export function Settings() {
+export function Settings({ address }: { address: string }) {
   const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
@@ -190,6 +190,20 @@ export function Settings() {
       <div style={{ marginBottom: 12 }}>
         <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Settings</span>
       </div>
+
+      {/* Wallet address (read-only, selectable) */}
+      {address && (
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Your Address</label>
+          <input
+            type="text"
+            value={address}
+            readOnly
+            onFocus={(e) => e.target.select()}
+            style={{ ...inputStyle, fontFamily: "monospace", fontSize: 11, color: "#aaa", cursor: "text" }}
+          />
+        </div>
+      )}
 
       {/* Network */}
       <div style={sectionStyle}>
