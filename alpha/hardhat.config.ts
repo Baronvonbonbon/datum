@@ -60,8 +60,8 @@ const config: HardhatUserConfig = {
       },
     },
     polkadotTestnet: {
-      // Polkadot Hub TestNet (Paseo replacement) — Chain ID 420420417
-      // Faucet: https://faucet.polkadot.io/ (select "Polkadot Hub TestNet")
+      // Paseo — Chain ID 420420417
+      // Faucet: https://faucet.polkadot.io/ (select "Paseo")
       // Explorer: https://blockscout-testnet.polkadot.io/
       url: process.env.TESTNET_RPC ?? "https://eth-rpc-testnet.polkadot.io/",
       accounts: process.env.DEPLOYER_PRIVATE_KEY

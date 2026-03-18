@@ -81,7 +81,7 @@ async function main() {
   const needed = FUND_AMOUNT * BigInt(TO_FUND.length);
   if (aliceBal < needed + parseDOT("50")) {
     console.error(`Alice needs at least ${formatDOT(needed + parseDOT("50"))} PAS to fund accounts + pay gas.`);
-    console.error("Use the faucet: https://faucet.polkadot.io/ (Polkadot Hub TestNet)");
+    console.error("Use the faucet: https://faucet.polkadot.io/ (Paseo)");
     process.exitCode = 1;
     return;
   }

@@ -251,9 +251,9 @@ Deploy script writes `deployed-addresses.json` to both `alpha/` and `alpha-exten
 
 **Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
-### Polkadot Hub TestNet (live deployment)
+### Paseo (live deployment)
 
-All 9 contracts are deployed on Polkadot Hub TestNet (Chain ID 420420417):
+All 9 contracts are deployed on Paseo (Chain ID 420420417):
 
 | Contract | Address |
 |----------|---------|
@@ -280,7 +280,7 @@ npm run deploy:testnet
 npm run setup:testnet
 ```
 
-The extension defaults to Polkadot Hub TestNet with these addresses hardcoded. Build and load in Chrome to test against live contracts.
+The extension defaults to Paseo with these addresses hardcoded. Build and load in Chrome to test against live contracts.
 
 **Gas benchmarks (testnet, gasPrice=10^12):**
 
@@ -310,8 +310,9 @@ The extension supports encrypted claim state portability (P6):
 - [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, IPFS metadata rendering in ad overlay (multi-gateway fallback), UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
-- [x] **Polkadot Hub TestNet** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered (A3.3)
-- [ ] **Browser E2E on testnet** -- load extension in Chrome, verify full ad display + claim flow on testnet (A3.4)
+- [x] **Paseo deployment** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered, Diana set to all 26 categories (A3.3)
+- [x] **Publisher relay bot** -- automated relay service (Diana), co-signs attestations + submits claims every 5 min, demo index page with inline ad slot
+- [ ] **Browser E2E on Paseo** -- load extension in Chrome, verify full ad display + claim flow on testnet (A3.4)
 - [ ] **Open testing** -- publish addresses, external tester instructions (A3.5)
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 

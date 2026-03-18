@@ -1,8 +1,8 @@
 # DATUM Alpha Testing Guide
 
-**Version:** 1.1
-**Date:** 2026-03-13
-**Prerequisites:** Docker running (substrate + eth-rpc containers), contracts deployed, extension built
+**Version:** 1.2
+**Date:** 2026-03-18
+**Prerequisites:** Docker running (substrate + eth-rpc containers) for local testing, or Paseo for live testing. Contracts deployed, extension built.
 
 ---
 

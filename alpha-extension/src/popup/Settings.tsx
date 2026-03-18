@@ -200,7 +200,7 @@ export function Settings() {
           style={selectStyle}
         >
           <option value="local">Local (dev)</option>
-          <option value="polkadotTestnet">Polkadot Hub TestNet</option>
+          <option value="polkadotTestnet">Paseo</option>
           <option value="westend">Westend Asset Hub</option>
           <option value="kusama">Kusama Asset Hub</option>
           <option value="polkadotHub">Polkadot Hub</option>

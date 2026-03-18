@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad); 2026-03-11 (A3.2 local devnet E2E passed)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad); 2026-03-11 (A3.2 local devnet E2E passed); 2026-03-18 (A3.3 testnet deployment + relay bot)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 111/111 tests — see ALPHA.md for Governance V2, A1.1-A1.3 changes, Part 4B pre-launch review fixes, Publisher SDK, open campaigns, and current contract architecture (9 contracts). All alpha-scope code AND pre-launch review fixes COMPLETE. **A3.2 local devnet E2E PASSED** (9 contracts deployed on pallet-revive, all 6 E2E sections pass). Next: A3.3 Paseo deployment.
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 132/132 Hardhat tests + 140/140 Jest extension tests — see ALPHA.md for full architecture. All alpha-scope code AND pre-launch review fixes COMPLETE. **A3.3 TESTNET DEPLOYMENT COMPLETE** — 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay bot live. Next: A3.4 browser E2E on testnet.
 
 ---
 
@@ -470,7 +470,7 @@ alpha-extension/
 └── webpack.config.js
 ```
 
-**Test results: PoC 64/64 pass. Alpha 111/111 pass.**
+**Test results: PoC 64/64 pass. Alpha 132/132 Hardhat + 140/140 Jest pass.**
 
 ---
 
@@ -551,7 +551,7 @@ Campaign creation moved to AdvertiserPanel. Added:
 
 ### Extension Build Size
 
-popup.js: 580 KB | background.js: 373 KB | content.js: 28 KB (post-V2 overhaul + Part 4B fixes + Publisher SDK + open campaigns)
+popup.js: 603 KB | background.js: 379 KB | content.js: 39 KB (post-V2 overhaul + Part 4B fixes + Publisher SDK + open campaigns + IPFS metadata + multi-account + UX audit)
 
 ### Trust Assumptions Updated
 

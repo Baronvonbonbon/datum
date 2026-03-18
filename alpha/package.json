@@ -17,7 +17,7 @@
     "@parity/hardhat-polkadot": "^0.2.7",
     "@parity/hardhat-polkadot-node": "^0.2.5",
     "@parity/hardhat-polkadot-resolc": "^0.2.3",
-    "@parity/resolc": "*",
+    "@parity/resolc": "^1.0.0",
     "hardhat": "^2.22.0",
     "solc": "0.8.24",
     "ts-node": "^10.9.2",

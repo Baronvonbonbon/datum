@@ -117,10 +117,13 @@ async function main() {
     MIN_CPM_FLOOR, PENDING_TIMEOUT, await publishers.getAddress(), await pauseRegistry.getAddress()
   );
 
+  const TERMINATION_QUORUM = QUORUM;
+  const TERMINATION_GRACE = substrate ? 3n : 10n;
   const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");
   const v2: DatumGovernanceV2 = await V2Factory.deploy(
     await campaigns.getAddress(),
-    QUORUM, SLASH_BPS, BASE_LOCKUP, MAX_LOCKUP
+    QUORUM, SLASH_BPS, BASE_LOCKUP, MAX_LOCKUP,
+    TERMINATION_QUORUM, TERMINATION_GRACE
   );
 
   const SlashFactory = await ethers.getContractFactory("DatumGovernanceSlash");
@@ -215,7 +218,10 @@ async function main() {
   console.log("3. vote (nay)");
   await activateCampaign(cidVote, voter1);
   await measure("vote (nay)", v2.connect(voter2).vote(cidVote, false, 0, { value: QUORUM }));
-  // Evaluate to terminate
+  // Mine past termination grace period, then evaluate to terminate
+  for (let i = 0; i < Number(TERMINATION_GRACE) + 1; i++) {
+    await ethers.provider.send("evm_mine", []);
+  }
   await v2.evaluateCampaign(cidVote);
 
   // ---------------------------------------------------------------------------

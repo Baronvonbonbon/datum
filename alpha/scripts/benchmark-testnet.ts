@@ -1,5 +1,5 @@
 /**
- * Gas benchmarks for DATUM contracts on Polkadot Hub TestNet.
+ * Gas benchmarks for DATUM contracts on Paseo.
  *
  * Uses the already-deployed contracts and pre-funded test accounts.
  * NOTE: On pallet-revive, accounts that have never made a contract call may hit
@@ -200,7 +200,7 @@ async function main() {
 
   // ─── Results ────────────────────────────────────────────────────────────
   console.log("\n" + "=".repeat(90));
-  console.log("DATUM Testnet Gas Benchmarks — Polkadot Hub TestNet (Chain ID 420420417)");
+  console.log("DATUM Testnet Gas Benchmarks — Paseo (Chain ID 420420417)");
   console.log("=".repeat(90));
   console.log(`${"Function".padEnd(30)} | ${"Gas (weight)".padEnd(14)} | ${"Cost (DOT)".padEnd(14)} | Cost (USD @$5)`);
   console.log("-".repeat(85));
@@ -228,7 +228,7 @@ async function main() {
     const usdCost = dotCost * 5;
     console.log(`| \`${r.label}\` | ${r.gasUsed} | ${dotCost.toFixed(6)} | $${usdCost.toFixed(4)} |`);
   }
-  console.log(`\n_Measured ${date} on Polkadot Hub TestNet (chainId ${net.chainId}), gasPrice=${gasPrice} (eth-rpc 18-decimal)_`);
+  console.log(`\n_Measured ${date} on Paseo (chainId ${net.chainId}), gasPrice=${gasPrice} (eth-rpc 18-decimal)_`);
   console.log(`_Note: eth-rpc uses 18-decimal denomination. Cost (DOT) = gas × gasPrice / 10^18._`);
 }
 

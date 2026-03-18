@@ -1,12 +1,12 @@
 # DATUM Alpha Build Roadmap
 
-**Version:** 2.1
-**Date:** 2026-03-16
-**Scope:** Alpha build — feature-complete, deployed to Polkadot Hub TestNet with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, and open testing
+**Version:** 2.2
+**Date:** 2026-03-18
+**Scope:** Alpha build — feature-complete, deployed to Paseo with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, publisher relay bot, and open testing
 **Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 132/132 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** **A3.3 TESTNET DEPLOYMENT COMPLETE + IPFS METADATA RENDERING.** All 9 contracts deployed to Polkadot Hub TestNet (Chain ID 420420417). ECRecover precompile verified working. Automated setup complete: 6 accounts funded, 2 publishers registered, test campaign #1 active with governance vote. Extension hardcoded with testnet contract addresses, default network set to Polkadot Hub TestNet. IPFS metadata rendering in ad overlay with multi-gateway fallback. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors). **Next step: A3.4 browser E2E on testnet → A3.5 open testing.**
+**Current status:** **A3.3 TESTNET DEPLOYMENT COMPLETE + PUBLISHER RELAY BOT LIVE.** All 9 contracts deployed to Paseo (Chain ID 420420417). ECRecover precompile verified working. Automated setup complete: 6 accounts funded, 2 publishers registered (Diana: all 26 categories), test campaign #1 active with governance vote. Publisher relay bot running as systemd service — auto-signs attestations and submits claims every 5 minutes. Demo index page with inline ad slot pointing to Diana's publisher address. Extension hardcoded with testnet contract addresses, default network set to Paseo. IPFS metadata rendering in ad overlay with multi-gateway fallback. 132/132 Hardhat tests. 140/140 Jest extension tests. Extension builds clean (0 webpack errors). **Next step: A3.4 browser E2E on testnet → A3.5 open testing.**
 
 ---
 
@@ -136,7 +136,7 @@ pallet-revive provides ~41 host functions (syscalls) and several precompile cont
 
 ### Recommended alpha optimizations
 
-1. **Verify ECRecover precompile on Paseo** (blocker — relay breaks without it)
+1. ~~**Verify ECRecover precompile on Paseo**~~ **✅ VERIFIED** on Paseo
 2. ~~**Use `minimumBalance()` from System precompile**~~ **✅ IMPLEMENTED** — DatumGovernanceV2 `withdraw()` and `slashAction()` check `minimumBalance()` before DOT transfers. Error E58 = below existential deposit. Uses `SYSTEM_ADDR.code.length > 0` guard to skip on Hardhat EVM. GovernanceV2 grew 37,677→39,829 B (+2,152 B), still within limit. **Not added to Settlement/Relay** — precompile calls add ~4 KB PVM each, exceeding their tight bytecode budgets.
 3. **Use `has_key()` from Storage precompile** for cheaper existence checks in governance (voted? registered?)
 4. **Document BN128 pairing availability** for future ZK verifier (P9) — if available, Groth16 verification becomes feasible on-chain
@@ -169,7 +169,7 @@ interface ISystem {
 
 ### Alpha goals
 
-1. **Feature-complete for Paseo deployment** — all four alpha-scope post-MVP items implemented
+1. **Feature-complete for testnet deployment** — all four alpha-scope post-MVP items implemented
 2. **IPFS integration** — real IPFS metadata pinning and retrieval (not synthetic hashes)
 3. **Open multi-account testing** — no artificial account limits; anyone on Paseo can interact
 4. **No KYB enforcement** — campaign creators are permissionless (KYB is post-alpha, P10)
@@ -289,7 +289,7 @@ DatumCampaigns was 52,662 B (3,510 B over PVM limit). Size reduction applied:
 **New error code:** E57 = reentrancy guard (replaces OZ nonReentrant in DatumCampaigns only).
 
 Remaining A1.3 items (deferred to A3.2):
-- [x] Run gas benchmarks on Polkadot Hub TestNet (see A3.3 results)
+- [x] Run gas benchmarks on Paseo (see A3.3 results)
 - [ ] Verify `ecrecover` precompile works on substrate-contracts-node
 - [x] Add `minimumBalance()` check before DOT transfers (System precompile `0x0900`) — **Implemented in GovernanceV2 only** (withdraw + slashAction). Settlement/Relay too tight on PVM bytecode (+4 KB per contract for precompile call). New error E58.
 
@@ -344,13 +344,13 @@ Remaining A1.3 items (deferred to A3.2):
   - Merge strategy: keep higher nonce, append newer claims
 - [ ] Add manual test procedure to README
 
-#### A2.3 — Extension Paseo configuration
+#### A2.3 — Extension testnet configuration
 
 - [x] Add Paseo network to `alpha-extension/src/shared/networks.ts`:
-  - Paseo RPC URL
-  - Placeholder contract addresses (filled after deployment)
-  - Paseo as selectable network in Settings
-- [x] Update Settings.tsx: network dropdown includes Paseo
+  - TestNet RPC URL (`https://eth-rpc-testnet.polkadot.io/`)
+  - Contract addresses populated from deployment
+  - Paseo as default network in Settings
+- [x] Update Settings.tsx: network dropdown includes Paseo (Paseo removed)
 - [ ] Update `alpha-extension/src/background/campaignPoller.ts`:
   - Add `ContractChangeProposed` event monitoring (from P3 timelock)
   - Surface warnings in popup when admin changes are pending
@@ -400,7 +400,7 @@ Remaining A1.3 items (deferred to A3.2):
 - [ ] Load alpha-extension in Chrome, configure for local devnet (browser E2E — manual step)
 - [ ] Fix any runtime issues from browser E2E
 
-#### A3.3 — Polkadot Hub TestNet deployment (COMPLETE 2026-03-16)
+#### A3.3 — Paseo deployment (COMPLETE 2026-03-16)
 
 - [x] Verify pallet-revive active on testnet — connected at block 6,467,844
 - [x] Acquire testnet PAS via faucet — Alice funded with ~500,000 PAS
@@ -419,7 +419,7 @@ Remaining A1.3 items (deferred to A3.2):
   - Campaign #1 created (Bob→Diana, 10 PAS, 0.016 PAS CPM), Frank voted aye (100 PAS), campaign Active
   - Metadata hash set
 
-**Deployed contract addresses (Polkadot Hub TestNet, Chain ID 420420417):**
+**Deployed contract addresses (Paseo, Chain ID 420420417):**
 | Contract | Address |
 |----------|---------|
 | PauseRegistry | `0xFa0e0D4cb23a9616f780Cb0Ad4055E9b5fE6d1bD` |
@@ -432,7 +432,7 @@ Remaining A1.3 items (deferred to A3.2):
 | Relay | `0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B` |
 | ZKVerifier | `0x00e95AC62efAf6250c0f15df4812122C8854DF90` |
 
-**Gas benchmarks (Polkadot Hub TestNet, 2026-03-16):**
+**Gas benchmarks (Paseo, 2026-03-16):**
 
 > The eth-rpc adapter uses 18-decimal denomination. Cost (DOT) = gas × gasPrice / 10^18.
 
@@ -451,7 +451,7 @@ Settlement batching: 5-claim batch = 0.66x of single claim gas. Per-claim: singl
 #### A3.4 — Alpha extension for testnet
 
 - [x] Update `alpha-extension/src/shared/networks.ts` with testnet contract addresses (hardcoded)
-- [x] Set Polkadot Hub TestNet as default network
+- [x] Set Paseo as default network
 - [ ] Build: `cd alpha-extension && npm run build`
 - [ ] Load in Chrome, test against testnet:
   - Create campaign with real IPFS metadata
@@ -465,7 +465,7 @@ Settlement batching: 5-claim batch = 0.66x of single claim gas. Per-claim: singl
 
 - [ ] Publish testnet contract addresses publicly
 - [ ] Document how external testers can:
-  - Get PAS from faucet (https://faucet.polkadot.io/ → Polkadot Hub TestNet)
+  - Get PAS from faucet (https://faucet.polkadot.io/ → Paseo)
   - Load the alpha extension
   - Register as publisher
   - Create campaigns
@@ -481,13 +481,13 @@ Settlement batching: 5-claim batch = 0.66x of single claim gas. Per-claim: singl
 - [x] Governance V2 replaces V1 — 36/36 tests (V1-V8, W1-W5, E1-E9, S1-S5, D1-D4, T1, T3)
 - [x] PVM bytecode sizes confirmed under 49,152 B — all 9 contracts fit (A1.3 complete)
 - [x] 132 tests pass in alpha test suite (exceeds 75+ target)
-- [x] All alpha contracts deployed on Polkadot Hub TestNet, addresses in `deployed-addresses.json` (A3.3 complete 2026-03-16)
+- [x] All alpha contracts deployed on Paseo, addresses in `deployed-addresses.json` (A3.3 complete 2026-03-16)
 - [x] Extension builds clean (0 webpack errors), V2 overhaul complete (7 tabs, P19 auction, P16 behavioral)
 - [x] Second-price auction producing clearing CPMs < bidCpmPlanck (auction.ts integrated)
 - [x] Claim export/import code complete (claimExport.ts + ClaimQueue buttons) — round-trip needs runtime verification in A3.2
 - [x] IPFS metadata pinning and retrieval works end-to-end (multi-gateway fallback, background fetch, rich ad rendering)
 - [ ] At least 3 external testers have completed a full flow on Paseo
-- [ ] No critical bugs in first 7 days of Paseo operation
+- [ ] No critical bugs in first 7 days of testnet operation
 
 ---
 
@@ -503,7 +503,7 @@ Comprehensive code review of all contracts, extension, deploy scripts, tests, an
 #### ~~B2 — Deploy script has no error handling or wiring validation~~ ✅ FIXED
 - **Fix applied:** Per-step try/catch with step numbers, post-wire read-back validation (7 checks), addresses only written after validation, re-run safety (checks one-time setters before calling), ownership transfer skip if already transferred.
 
-### Tier 1 — High priority (fix before Paseo deployment / A3.3)
+### Tier 1 — High priority (fix before testnet deployment / A3.3)
 
 #### ~~H1 — Division-by-zero guard in GovernanceSlash~~ ✅ FIXED
 - **Fix applied:** Added `require(winningWeight[campaignId] > 0, "E03")` before division in `claimSlashReward()`. Added test S6 (all-winners-withdrew edge case). 101/101 tests pass.
@@ -632,7 +632,7 @@ Comprehensive audit of all contracts, extension code, tests, and deploy scripts.
 - **Fix applied:** Added `require(total > 0, "E51")` before the nay majority check in the `status == 1 || status == 2` branch.
 - **Additional protection:** Anti-grief termination protection added — `terminationQuorum` (E52: nay must meet minimum weighted threshold) + `terminationGraceBlocks` (E53: blocks after first nay before termination). Prevents cheap 1-DOT griefing attacks. Constructor defaults: `terminationQuorum = quorumWeighted`, `terminationGraceBlocks = 14400` (~24h).
 
-### Contracts — High Priority (fix before A3.3 Paseo)
+### Contracts — High Priority (fix before A3.3 testnet)
 
 #### C-H1 — Missing zero-address checks on contract reference setters
 - **Location:** `DatumCampaigns.sol:81-87`, `DatumSettlement.sol:83-89`
@@ -1027,7 +1027,7 @@ Support multiple named accounts with import/generate/switch/remove per account. 
 - UP-1 — Min CPM threshold UI (already existed in Settings) ✅
 - CL-1 — Auto-hide resolved campaigns (CampaignList + AdvertiserPanel) ✅
 
-**Phase 2 — Before A3.3 Paseo: ✅ ALL COMPLETE**
+**Phase 2 — Before A3.3 testnet: ✅ ALL COMPLETE**
 - CL-2 — Prune stale claims + notification (ClaimQueue pruned count display) ✅
 - CL-3 — Pending expiration visibility (tooltip + inline note) ✅
 - CL-5 — Paused campaign tooltip ✅
@@ -1080,7 +1080,7 @@ After Gate GA, these items become the beta development cycle:
 | 1 | **P7: Contract upgrade path** | UUPS proxy or migration pattern. Required before Kusama mainnet. |
 | ~~2~~ | ~~**P21: Publisher SDK**~~ | **✅ COMPLETE** — `sdk/datum-sdk.js` + `sdk/example-publisher.html`. CustomEvent handshake protocol, inline ad injection, category declaration, extension SDK detection + handshake. |
 | 3 | **P1: Mandatory attestation** | Publisher co-sig enforcement (no degraded trust mode). SDK handshake provides two-party attestation; mandatory mode post-alpha. |
-| 4 | **P17: External wallets** | WalletConnect v2 for Paseo/Kusama. Keep embedded wallet as lite mode. |
+| 4 | **P17: External wallets** | WalletConnect v2 for testnet/Kusama. Keep embedded wallet as lite mode. |
 | ~~5~~ | ~~**P5: Multi-publisher campaigns**~~ | **✅ COMPLETE** — Open campaigns (`publisher = address(0)`) allow any matching publisher. Category bitmask filtering. Dynamic publisher resolution at impression time. |
 | 6 | **P9: ZK proof Phase 1** | Replace stub verifier with real Groth16 circuit. Requires BN128 pairing precompile. |
 | ~~7~~ | ~~**P16: Behavioral analytics**~~ | **✅ COMPLETE** — Implemented in alpha extension. engagement.ts, behaviorChain.ts, behaviorCommit.ts, zkProofStub.ts. |
@@ -1259,13 +1259,13 @@ Consolidated list of all optimization, improvement, and feature opportunities de
 | Clearing CPM floor | 30% of bidCpmPlanck | Ensures meaningful payment even without competition. Configurable. |
 | Claim export encryption | AES-256-GCM, key from wallet signature of fixed message | User doesn't need separate password; key derivation is deterministic from wallet. |
 | IPFS pinning | Pinata free tier for alpha | 100 files / 500 MB sufficient for testing. Evaluate alternatives at beta. |
-| Testnet | Paseo | Closer to Polkadot Hub spec than Westend. Recommended by docs. |
+| Testnet | Paseo | Chain ID 420420417. RPC: `https://eth-rpc-testnet.polkadot.io/`. Faucet: `https://faucet.polkadot.io/`. |
 | Open campaigns | `publisher = address(0)` + 50% snapshot take rate | PVM size constraint: external call to publisher registry too expensive in Settlement (3,105 B over). Publisher registration validated off-chain by extension and Relay. |
 | System precompile usage | GovernanceV2 only (minimumBalance) | Settlement (+3,845 B over) and Relay (+626 B over) have insufficient PVM headroom for precompile calls. GovernanceV2 has 9,323 B spare after adding minimumBalance checks. Blake2-256 and weightLeft deferred to post-alpha. |
 | Claim hash algorithm | keccak256 (not Blake2-256) | Blake2-256 via system precompile would save gas at runtime but adds ~4 KB PVM bytecode to Settlement (only 332 B spare). Keeping keccak256 preserves compatibility and avoids size overflow. Revisit when resolc optimizer improves or Settlement is refactored. |
 | Publisher SDK | CustomEvent protocol (datum:sdk-ready, datum:challenge, datum:response) | No postMessage (CSP issues), no DOM injection from SDK (isolation). Extension detects SDK, SDK doesn't detect extension — SDK is passive. |
 | Default house ad | polkadot.com/philosophy link when no campaigns match | Prevents blank slot on SDK-enabled pages. No tracking, no claims, no earning. |
-| Account limits | None | Open to all Paseo testnet users. No KYB enforcement for alpha. |
+| Account limits | None | Open to all Paseo users. No KYB enforcement for alpha. |
 
 ### PVM Size Lessons Learned
 

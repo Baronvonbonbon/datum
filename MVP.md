@@ -1,8 +1,8 @@
 # DATUM MVP Implementation Plan
 
-**Version:** 2.2
+**Version:** 2.3
 **Date:** 2026-02-24
-**Last updated:** 2026-03-11 — **A3.2 local devnet E2E PASSED.** 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass (campaign lifecycle, settlement, withdrawals, pause/unpause, governance slash, timelock). ERC-20/DATUM token removed from roadmap — all economics on DOT/KSM. 111/111 Hardhat tests, 580KB popup, 0 errors. Next: A3.2 browser E2E (manual) → A3.3 Paseo deployment.
+**Last updated:** 2026-03-18 — **A3.3 TESTNET DEPLOYMENT COMPLETE + RELAY BOT LIVE.** All 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay bot running (Diana, auto-submit every 5 min). Demo page with inline ad slot. 132/132 Hardhat tests, 140/140 Jest extension tests, 603KB popup, 0 errors. Next: A3.4 browser E2E on testnet → A3.5 open testing.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 
@@ -14,7 +14,7 @@ The MVP consists of four deliverables:
 
 1. **Contracts** — DatumPauseRegistry, DatumTimelock, DatumPublishers, DatumCampaigns, DatumGovernanceV2, DatumGovernanceSlash, DatumSettlement, DatumRelay, DatumZKVerifier validated on PolkaVM
 2. **Browser Extension** — Chrome extension with full publisher-SDK simulation, wallet-signed claim submission, manual and auto modes
-3. **Testnet** — Live deployment on Westend or Paseo with real wallets and real block times
+3. **Testnet** — Live deployment on Paseo with real wallets and real block times
 4. **Mainnet** — Progressive rollout: Kusama → Polkadot Hub
 
 ### Deferred (explicitly out of MVP scope)
@@ -54,7 +54,7 @@ Each phase has a binary gate. Nothing in the next phase begins until all gate cr
 |------|----------|
 | **G1** | All 64 tests pass on Hardhat EVM; 44/46 core pass on substrate (2 skipped by design). resolc compiles all seven contracts under 49,152-byte PVM limit. `zkProof` field present in Claim struct; stub ZK verifier (DatumZKVerifier) deployed and wired. Gas benchmarks recorded in BENCHMARKS.md. Publisher relay (`settleClaimsFor`) implemented with EIP-712 signatures. Publisher co-signature verification (2.21) implemented in DatumRelay. |
 | **G2** | Extension installs in Chrome without errors. User can import or generate a wallet key (embedded wallet with AES-256-GCM encryption). Campaign list loads from a local or testnet node with creative metadata (title, description, IPFS CID). At least one impression is recorded and one claim is submitted successfully (manual mode). Auto mode submits without user interaction. Publisher can create a campaign and upload creative metadata via the extension UI. Local interest profile accumulates across visits; campaign selection uses weighted scoring (not first-match). Settings shows interest profile with reset option. |
-| **G3** | All five contracts deployed to Westend or Paseo. Full E2E smoke test passes: campaign created → governance activates → extension records impressions → claims submitted → publisher withdraws. No hardcoded addresses or test values remain in extension. |
+| **G3** | All nine contracts deployed to Paseo. Full E2E smoke test passes: campaign created → governance activates → extension records impressions → claims submitted → publisher withdraws. No hardcoded addresses or test values remain in extension. **✅ PASSED** (A3.3 — 2026-03-16) |
 | **G4-K** | Contracts deployed to Kusama. At least one real campaign created and activated by a real third-party advertiser (not the deployer). Ownership transferred to multisig. |
 | **G4-P** | Contracts deployed to Polkadot Hub mainnet. Extension published to Chrome Web Store. |
 
@@ -1105,7 +1105,7 @@ These items were identified during 2.23/2.24 development and are deferred to pos
 ### Tasks
 
 #### 3.1 — Choose testnet and acquire tokens
-- [ ] Select network: Westend Hub (more stable) or Paseo (newer, closer to Polkadot Hub spec) — recommendation: Paseo
+- [x] Selected network: Paseo (Chain ID 420420417). RPC: `https://eth-rpc-testnet.polkadot.io/`
 - [ ] Acquire testnet DOT via faucet for: deployer wallet, test advertiser wallet, test publisher wallet, test user wallet, test governance voter wallet (min 5 accounts)
 - [ ] Verify pallet-revive is active on the chosen testnet (`system.pallets` includes `Contracts`)
 

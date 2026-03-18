@@ -1,8 +1,8 @@
-# DATUM Alpha — Polkadot Hub TestNet Release Summary
+# DATUM Alpha — Paseo Release Summary
 
-**Date:** 2026-03-16
-**Version:** 2.1
-**Status:** Deployed to Polkadot Hub TestNet (Chain ID 420420417). ECRecover verified. Test campaign active. Pending browser E2E on testnet → open testing.
+**Date:** 2026-03-18
+**Version:** 2.2
+**Status:** Deployed to Paseo (Chain ID 420420417). ECRecover verified. Test campaign active. Publisher relay bot live (Diana, 5-min poll). Demo page with inline ad slot. Pending browser E2E on testnet → open testing.
 
 ---
 
@@ -10,7 +10,7 @@
 
 DATUM is a decentralized advertising protocol built on Polkadot Hub (pallet-revive). Users earn DOT for viewing ads. Publishers monetize content. Advertisers pay per-impression with on-chain settlement. Governance is conviction-weighted with symmetric slash penalties.
 
-The alpha release is a full-stack system: 9 Solidity contracts compiled to PolkaVM and deployed to Polkadot Hub TestNet, a Chrome MV3 browser extension (7 tabs), a publisher SDK, deploy/test scripts, and comprehensive documentation.
+The alpha release is a full-stack system: 9 Solidity contracts compiled to PolkaVM and deployed to Paseo, a Chrome MV3 browser extension (7 tabs), a publisher SDK, deploy/test scripts, and comprehensive documentation.
 
 ---
 
@@ -59,7 +59,7 @@ The alpha release is a full-stack system: 9 Solidity contracts compiled to Polka
 | **Publisher** | PublisherPanel.tsx | Balance + withdraw, relay submit, take rate management with effective block display, 26 category checkboxes, SDK embed snippet with copy-to-clipboard |
 | **My Ads** | AdvertiserPanel.tsx | Campaign creation (open or publisher-specific) with IPFS CID, pause/resume/complete/expire controls, auto-hide resolved |
 | **Govern** | GovernancePanel.tsx | Vote with conviction 0-6 (human-readable lockup times), evaluate campaigns, expire pending (nay majority), withdraw with slash, slash finalization + reward claiming, majority+quorum bars, IPFS metadata links, error context (E47/E52/E53) |
-| **Settings** | Settings.tsx | Network selector (local/Polkadot Hub TestNet/Paseo/Westend/Kusama/Polkadot Hub), RPC URL with connectivity test, 9 contract addresses with load/validate, IPFS gateway, Pinata API key, auto-submit toggle, ad preferences (max ads/hr, min CPM, silenced categories), interest profile, danger zone |
+| **Settings** | Settings.tsx | Network selector (local/Paseo/Westend/Kusama/Polkadot Hub), RPC URL with connectivity test, 9 contract addresses with load/validate, IPFS gateway, Pinata API key, auto-submit toggle, ad preferences (max ads/hr, min CPM, silenced categories), interest profile, danger zone |
 
 ### Background Service (13 modules)
 
@@ -105,7 +105,7 @@ The alpha release is a full-stack system: 9 Solidity contracts compiled to Polka
 | **ipfs.ts** | CIDv0 ↔ bytes32 encoding |
 | **ipfsPin.ts** | Pinata API pin utility |
 | **dot.ts** | DOT/planck formatting |
-| **networks.ts** | Network configs (local, Polkadot Hub TestNet, Paseo, Westend, Kusama, Polkadot Hub) |
+| **networks.ts** | Network configs (local, Paseo, Westend, Kusama, Polkadot Hub) |
 | **messages.ts** | Message type definitions for chrome.runtime.sendMessage |
 
 ### Security Layers
@@ -200,16 +200,16 @@ The alpha release is a full-stack system: 9 Solidity contracts compiled to Polka
 
 ## Deployment Status
 
-### A3.3 — Polkadot Hub TestNet Deployment (COMPLETE 2026-03-16)
+### A3.3 — Paseo Deployment (COMPLETE 2026-03-16)
 
-- [x] Connected to Polkadot Hub TestNet at block 6,467,844
+- [x] Connected to Paseo at block 6,467,844
 - [x] Alice funded with ~500,000 PAS via faucet
 - [x] **ECRecover precompile verified working** (signer == recovered)
 - [x] All 9 contracts deployed via `npm run deploy:testnet`
 - [x] All wiring validated (GovernanceV2→Slash, Campaigns→Governance/Settlement, Settlement→Relay/ZKVerifier)
 - [x] Campaigns + Settlement ownership transferred to Timelock
 - [x] Automated setup via `npm run setup:testnet`: 6 accounts funded, Diana+Eve registered as publishers, campaign #1 active
-- [x] Extension hardcoded with testnet addresses, default network set to Polkadot Hub TestNet
+- [x] Extension hardcoded with testnet addresses, default network set to Paseo
 
 **Contract addresses:** See README.md or `deployed-addresses.json`.
 
@@ -218,7 +218,7 @@ The alpha release is a full-stack system: 9 Solidity contracts compiled to Polka
 ### A3.4 — Browser E2E on Testnet
 
 - [x] `networks.ts` hardcoded with testnet contract addresses
-- [x] Polkadot Hub TestNet set as default network
+- [x] Paseo set as default network
 - [ ] Build extension: `cd alpha-extension && npm run build`
 - [ ] Load in Chrome, test against testnet:
   - Create campaign with real IPFS metadata
