@@ -380,12 +380,16 @@
       <p>Add the SDK to any page with two lines:</p>
       <pre>&lt;script src="https://your-cdn/datum-sdk.js"
   data-categories="6,26"
-  data-publisher="0xYOUR_PUBLISHER_ADDRESS"&gt;&lt;/script&gt;
+  data-publisher="0xYOUR_PUBLISHER_ADDRESS"
+  data-relay="https://your-relay.example.com"&gt;&lt;/script&gt;
 &lt;div id="datum-ad-slot"&gt;&lt;/div&gt;</pre>
       <p>
         <code>data-categories</code> declares which ad categories your site accepts
         (comma-separated IDs from the taxonomy below).
         <code>data-publisher</code> is your registered on-chain address.
+        <code>data-relay</code> is the URL of your publisher relay bot (the extension
+        uses this to request attestations and submit claims &mdash; no extension rebuild needed
+        when the URL changes).
         The extension matches campaigns by category overlap, runs a Vickrey auction,
         and injects the winning ad into the slot.
       </p>
@@ -402,11 +406,100 @@
       <div class="taxonomy-grid" id="taxonomy-grid"></div>
     </section>
 
+    <!-- Publisher Relay Bot -->
+    <section>
+      <h2>Publisher Relay Bot</h2>
+      <p>
+        Publishers run a relay bot that co-signs user claim batches (EIP-712 attestation)
+        and submits them on-chain via <code>DatumRelay.settleClaimsFor()</code>.
+        The relay pays gas so users don't need to &mdash; the publisher is reimbursed from
+        the campaign budget's take-rate share.
+      </p>
+
+      <h3>Current Relay</h3>
+      <p>
+        Diana's relay bot for this demo page is exposed via a Cloudflare Quick Tunnel.
+        The current relay URL is shown in the status panel above (check the Relay Bot indicator).
+        The extension is pre-configured to use this relay on the Paseo network.
+      </p>
+      <div style="background:#0e0e24; border:1px solid #1a1a3a; border-radius:6px; padding:14px 16px; margin:12px 0; font-family:monospace; font-size:12px; color:#888;">
+        <div><span style="color:#60a0ff">Publisher:</span> <span style="color:#a0a0ff">0xcA5668fB864Acab0aC7f4CFa73949174720b58D0</span> (Diana)</div>
+        <div><span style="color:#60a0ff">Network:</span> Paseo (Chain ID 420420417)</div>
+        <div><span style="color:#60a0ff">Endpoints:</span></div>
+        <div style="padding-left:16px">POST <code>/.well-known/datum-attest</code> &mdash; publisher co-signature</div>
+        <div style="padding-left:16px">POST <code>/relay/submit</code> &mdash; queue signed claim batches</div>
+        <div style="padding-left:16px">GET <code>/relay/status</code> &mdash; queue depth + stats</div>
+        <div style="padding-left:16px">GET <code>/health</code> &mdash; heartbeat</div>
+      </div>
+
+      <h3>How It Works</h3>
+      <ul>
+        <li>User browses a publisher page with the DATUM SDK and extension installed</li>
+        <li>Impressions are tracked locally; claims accumulate in the extension</li>
+        <li>When the user signs a claim batch (EIP-712), the extension requests a publisher
+            co-signature from the relay's <code>/.well-known/datum-attest</code> endpoint</li>
+        <li>The signed batch is sent to <code>/relay/submit</code>, where the relay verifies the
+            user's EIP-712 signature, queues the batch, and submits it on-chain every 5 minutes</li>
+        <li>Settlement splits revenue: publisher (take rate), user (75% of remainder), protocol (25%)</li>
+      </ul>
+
+      <h3>Security</h3>
+      <ul>
+        <li><strong>No private key exposure:</strong> Users sign claim batches locally using EIP-712 typed data.
+            Only the signature is sent to the relay &mdash; private keys never leave the browser</li>
+        <li><strong>Signature verification:</strong> The relay verifies every user signature before queuing.
+            Forged or tampered batches are rejected</li>
+        <li><strong>Rate limiting:</strong> Per-IP sliding-window limits (10 attestation/min, 5 submit/min)</li>
+        <li><strong>Input validation:</strong> Address format, nonce range, batch size caps (max 100 claims)</li>
+        <li><strong>HTTPS only:</strong> Exposed via Cloudflare tunnel; the extension rejects HTTP for non-local domains</li>
+      </ul>
+
+      <h3>Downtime Risk</h3>
+      <p>
+        This demo relay uses a Cloudflare Quick Tunnel, which assigns a temporary
+        <code>*.trycloudflare.com</code> URL. The URL changes if the tunnel restarts.
+        If the relay is offline (check the indicator above), claims will still accumulate
+        in the extension &mdash; they can be submitted when the relay comes back online,
+        or exported and submitted manually. No claims or earnings are lost due to relay downtime.
+      </p>
+
+      <h3>Run Your Own Relay</h3>
+      <p>
+        A relay bot template is included in the repository at
+        <a href="https://github.com/mfabdev/datum/tree/main/docs/relay-bot-template"><code>docs/relay-bot-template/</code></a>.
+        To set up your own publisher relay:
+      </p>
+      <pre>
+# 1. Register as a publisher on-chain (via the DATUM extension Publisher tab)
+# 2. Copy the template
+cp -r docs/relay-bot-template my-relay-bot
+cd my-relay-bot
+
+# 3. Install dependencies
+npm install
+
+# 4. Configure your publisher key and contract addresses
+#    Edit .env (see .env.example in the template)
+export PUBLISHER_KEY="0xYOUR_PRIVATE_KEY"
+export RPC_URL="https://eth-rpc-testnet.polkadot.io/"
+
+# 5. Start the bot
+node relay-bot.mjs
+
+# 6. (Optional) Expose via Cloudflare tunnel for remote access
+cloudflared tunnel --url http://127.0.0.1:3400</pre>
+      <p>
+        See the template's <code>README.md</code> for full configuration options, systemd setup,
+        and security hardening details.
+      </p>
+    </section>
+
     <!-- Links -->
     <section>
       <h2>Resources</h2>
       <ul>
         <li><a href="https://github.com/mfabdev/datum">GitHub Repository</a></li>
+        <li><a href="https://github.com/mfabdev/datum/tree/main/docs/relay-bot-template">Relay Bot Template</a></li>
         <li><a href="https://blockscout-testnet.polkadot.io/">Paseo Explorer</a></li>
         <li><a href="https://faucet.polkadot.io/">Testnet Faucet</a> (select "Paseo")</li>
       </ul>
@@ -419,7 +512,7 @@
   </div>
 
   <!-- DATUM SDK — Diana (Publisher 1) testnet address, all categories -->
-  <script src="datum-sdk.js" data-categories="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26" data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"></script>
+  <script src="datum-sdk.js" data-categories="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26" data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0" data-relay="https://index-routine-cent-choice.trycloudflare.com"></script>
 
   <script>
     // Build taxonomy grid from the canonical category list

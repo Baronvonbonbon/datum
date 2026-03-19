@@ -59,14 +59,6 @@ async function immediateInitialPoll() {
       }
     }
 
-    // Seed known publisher relay domains for testnet
-    if (settings.network === "polkadotTestnet") {
-      await chrome.storage.local.set({
-        "publisherDomain:0xca5668fb864acab0ac7f4cfa73949174720b58d0":
-          "index-routine-cent-choice.trycloudflare.com",
-      });
-    }
-
     if (settings.contractAddresses.campaigns) {
       console.log("[DATUM] Running immediate campaign poll...");
       await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
@@ -210,6 +202,19 @@ async function handleMessage(
       } catch (err) {
         console.error("[DATUM] claimBuilder.onImpression failed:", err);
         return { ok: false, reason: "claim_build_error" };
+      }
+      return { ok: true };
+    }
+
+    case "SET_PUBLISHER_RELAY": {
+      // Content script detected a publisher relay URL from the SDK data-relay attribute
+      const { publisher: pub, relay: relayUrl } = msg as any;
+      if (pub && relayUrl && /^0x[0-9a-fA-F]{40}$/.test(pub)) {
+        // Strip protocol — publisherAttestation.ts builds https:// URL from bare domain
+        const domain = relayUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+        const key = `publisherDomain:${pub.toLowerCase()}`;
+        await chrome.storage.local.set({ [key]: domain });
+        console.log(`[DATUM] Publisher relay set: ${pub.slice(0, 10)}... → ${domain}`);
       }
       return { ok: true };
     }

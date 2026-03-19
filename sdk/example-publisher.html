@@ -101,12 +101,15 @@
       <p>Add the following snippet to your page:</p>
       <pre>&lt;script src="datum-sdk.js"
   data-categories="1,6,26"
-  data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"&gt;&lt;/script&gt;
+  data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
+  data-relay="https://your-relay.example.com"&gt;&lt;/script&gt;
 &lt;div id="datum-ad-slot"&gt;&lt;/div&gt;</pre>
       <p>
         The <code>data-categories</code> attribute declares which ad categories your site
         accepts (comma-separated IDs from the DATUM taxonomy). The
         <code>data-publisher</code> attribute is your registered on-chain publisher address.
+        The <code>data-relay</code> attribute points to your publisher relay bot URL
+        (the extension picks this up automatically &mdash; no rebuild needed when the URL changes).
       </p>
     </article>
 

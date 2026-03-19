@@ -1,0 +1,14 @@
+{
+  "name": "datum-relay-bot",
+  "version": "0.1.0",
+  "description": "DATUM Publisher Relay Bot — co-signs and submits claim batches on behalf of users",
+  "type": "module",
+  "main": "relay-bot.mjs",
+  "scripts": {
+    "start": "node relay-bot.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "express": "^4.21.0"
+  }
+}

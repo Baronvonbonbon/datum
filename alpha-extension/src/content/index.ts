@@ -123,6 +123,17 @@ async function main() {
   seenThisLoad.add(dedupeKey);
   await chrome.storage.local.set({ [storageKey]: Date.now() });
 
+  // If SDK declares a relay URL, push it to background for publisher domain mapping
+  if (sdkInfo?.relay && sdkInfo.publisher) {
+    try {
+      chrome.runtime.sendMessage({
+        type: "SET_PUBLISHER_RELAY",
+        publisher: sdkInfo.publisher,
+        relay: sdkInfo.relay,
+      });
+    } catch {}
+  }
+
   // Perform handshake with SDK if present
   let attestation: Attestation | null = null;
   if (sdkInfo) {

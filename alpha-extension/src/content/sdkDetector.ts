@@ -4,6 +4,7 @@
 export interface SDKInfo {
   publisher: string;       // Publisher's on-chain address
   categories: number[];    // Category IDs declared by the SDK
+  relay: string;           // Publisher relay URL (empty = none declared)
   version: string;         // SDK version string
   hasAdSlot: boolean;      // Whether <div id="datum-ad-slot"> exists
 }
@@ -37,6 +38,7 @@ export function detectSDK(): Promise<SDKInfo | null> {
           categories: Array.isArray(detail.categories)
             ? detail.categories.map(Number).filter((n: number) => !isNaN(n))
             : [],
+          relay: String(detail.relay ?? ""),
           version: String(detail.version ?? "unknown"),
           hasAdSlot: !!document.getElementById("datum-ad-slot"),
         });
@@ -82,6 +84,7 @@ function parseScriptTag(el: HTMLScriptElement): SDKInfo | null {
   return {
     publisher,
     categories,
+    relay: el.getAttribute("data-relay") || "",
     version: "detected",
     hasAdSlot: !!document.getElementById("datum-ad-slot"),
   };

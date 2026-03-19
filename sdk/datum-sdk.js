@@ -6,7 +6,7 @@
  * with the DATUM browser extension.
  *
  * Usage:
- *   <script src="datum-sdk.js" data-categories="1,6,26" data-publisher="0xYOUR_ADDRESS"></script>
+ *   <script src="datum-sdk.js" data-categories="1,6,26" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
  *   <div id="datum-ad-slot"></div>
  */
 (function () {
@@ -29,6 +29,7 @@
 
   var publisherAddress = scriptTag ? scriptTag.getAttribute("data-publisher") || "" : "";
   var categoriesStr = scriptTag ? scriptTag.getAttribute("data-categories") || "" : "";
+  var relayUrl = scriptTag ? scriptTag.getAttribute("data-relay") || "" : "";
   var categories = categoriesStr
     ? categoriesStr.split(",").map(function (s) { return parseInt(s.trim(), 10); }).filter(function (n) { return !isNaN(n); })
     : [];
@@ -56,6 +57,7 @@
         detail: {
           publisher: publisherAddress,
           categories: categories,
+          relay: relayUrl,
           version: VERSION,
         },
       })
