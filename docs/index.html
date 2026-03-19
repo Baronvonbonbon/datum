@@ -233,6 +233,20 @@
     .status .label { color: #60a0ff; }
     .status .ok { color: #60c060; }
     .status .waiting { color: #c0c060; }
+    .status .offline { color: #ff6060; }
+    .heartbeat-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .heartbeat-dot.online { background: #60c060; box-shadow: 0 0 6px #60c06080; }
+    .heartbeat-dot.offline { background: #ff6060; box-shadow: 0 0 6px #ff606080; }
+    .heartbeat-dot.checking { background: #c0c060; box-shadow: 0 0 6px #c0c06080; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .heartbeat-dot.online { animation: pulse 3s ease-in-out infinite; }
 
     /* Footer */
     footer {
@@ -352,6 +366,7 @@
         <div id="datum-ad-slot"></div>
       </div>
       <div class="status" id="sdk-status">
+        <div><span class="label">Relay Bot:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
         <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
         <div><span class="label">Publisher:</span> <span id="status-publisher">&mdash;</span></div>
         <div><span class="label">Categories:</span> <span id="status-categories">&mdash;</span></div>
@@ -463,6 +478,40 @@
 
       grid.appendChild(group);
     });
+
+    // Relay bot heartbeat
+    var RELAY_URL = "https://index-routine-cent-choice.trycloudflare.com";
+    var relayDot = document.getElementById("relay-dot");
+    var relayText = document.getElementById("status-relay");
+
+    function checkRelay() {
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, 5000);
+      fetch(RELAY_URL + "/health", { signal: controller.signal })
+        .then(function (r) { clearTimeout(timeout); return r.json(); })
+        .then(function (data) {
+          if (data && data.ok) {
+            relayDot.className = "heartbeat-dot online";
+            var upH = Math.floor(data.uptime / 3600);
+            var upM = Math.floor((data.uptime % 3600) / 60);
+            relayText.textContent = "Online (uptime " + upH + "h " + upM + "m)";
+            relayText.className = "ok";
+          } else {
+            relayDot.className = "heartbeat-dot offline";
+            relayText.textContent = "Unexpected response";
+            relayText.className = "offline";
+          }
+        })
+        .catch(function () {
+          clearTimeout(timeout);
+          relayDot.className = "heartbeat-dot offline";
+          relayText.textContent = "Offline";
+          relayText.className = "offline";
+        });
+    }
+
+    checkRelay();
+    setInterval(checkRelay, 30000);
 
     // SDK status monitoring
     document.addEventListener("datum:sdk-ready", function (e) {
