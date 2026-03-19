@@ -50,14 +50,16 @@ export async function requestPublisherAttestation(
       return "";
     }
 
-    // M6: Warn on non-HTTPS for non-localhost domains
+    // M6: Reject explicit http:// for non-local domains (HTTPS is always used)
     const isLocal = domain === "localhost" || domain.startsWith("localhost:") || domain.startsWith("127.");
-    if (!isLocal && !domain.startsWith("https://")) {
+    if (!isLocal && domain.startsWith("http://")) {
       console.warn(`[DATUM] Publisher attestation: refusing HTTP for non-local domain ${domain}`);
       return "";
     }
 
-    const url = `https://${domain}/.well-known/datum-attest`;
+    // Strip protocol prefix if present (domain should be bare hostname)
+    const bareDomain = domain.replace(/^https?:\/\//, "");
+    const url = `https://${bareDomain}/.well-known/datum-attest`;
     const body: AttestationRequest = {
       campaignId,
       user: userAddress,

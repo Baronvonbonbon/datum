@@ -59,6 +59,14 @@ async function immediateInitialPoll() {
       }
     }
 
+    // Seed known publisher relay domains for testnet
+    if (settings.network === "polkadotTestnet") {
+      await chrome.storage.local.set({
+        "publisherDomain:0xca5668fb864acab0ac7f4cfa73949174720b58d0":
+          "index-routine-cent-choice.trycloudflare.com",
+      });
+    }
+
     if (settings.contractAddresses.campaigns) {
       console.log("[DATUM] Running immediate campaign poll...");
       await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
