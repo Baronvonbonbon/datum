@@ -5,10 +5,10 @@
 
 import { EngagementEvent } from "./types";
 
-// Engagement quality thresholds
-const MIN_DWELL_MS = 1000;         // ad must be visible >=1s
-const MIN_TAB_FOCUS_MS = 500;      // tab must be focused >=0.5s
-const MIN_QUALITY_SCORE = 0.3;     // minimum composite quality to record claim
+// Engagement quality thresholds (relaxed for alpha — tighten for production)
+const MIN_DWELL_MS = 200;          // ad must be visible >=200ms
+const MIN_TAB_FOCUS_MS = 100;      // tab must be focused >=100ms
+const MIN_QUALITY_SCORE = 0.05;    // minimum composite quality to record claim
 
 /**
  * Compute engagement quality score (0.0 - 1.0).

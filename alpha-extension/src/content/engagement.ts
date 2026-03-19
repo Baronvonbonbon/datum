@@ -134,9 +134,9 @@ function finalize(state: TrackingState): void {
     state.tabFocusMs += now - state.tabFocusStart;
   }
 
-  // Minimum tracking duration: 500ms (ignore accidental closes)
+  // Minimum tracking duration: 100ms (ignore accidental closes)
   const elapsed = now - state.startTime;
-  if (elapsed < 500) return;
+  if (elapsed < 100) return;
 
   const event: EngagementEvent = {
     campaignId: state.campaignId,

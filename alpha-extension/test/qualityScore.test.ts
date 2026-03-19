@@ -87,35 +87,35 @@ describe("meetsQualityThreshold", () => {
     expect(meetsQualityThreshold(event)).toBe(true);
   });
 
-  test("dwell below 1000ms fails threshold", () => {
-    const event = makeEvent({ dwellMs: 500 });
+  test("dwell below 200ms fails threshold", () => {
+    const event = makeEvent({ dwellMs: 50 });
     expect(meetsQualityThreshold(event)).toBe(false);
   });
 
-  test("tab focus below 500ms fails threshold", () => {
-    const event = makeEvent({ tabFocusMs: 200 });
+  test("tab focus below 100ms fails threshold", () => {
+    const event = makeEvent({ tabFocusMs: 50 });
     expect(meetsQualityThreshold(event)).toBe(false);
   });
 
   test("exactly at dwell minimum", () => {
     const event = makeEvent({
-      dwellMs: 1000,        // exactly at MIN_DWELL_MS
-      tabFocusMs: 500,      // exactly at MIN_TAB_FOCUS_MS
+      dwellMs: 200,         // exactly at MIN_DWELL_MS (alpha)
+      tabFocusMs: 100,      // exactly at MIN_TAB_FOCUS_MS (alpha)
       iabViewable: true,    // +0.25
       scrollDepthPct: 50,   // some scroll
     });
-    // Score: 0.07 + 0.042 + 0.25 + 0.075 ≈ 0.44 → above 0.3 threshold
+    // Score: 0.014 + 0.008 + 0.25 + 0.075 = 0.35 → above 0.05 threshold
     expect(meetsQualityThreshold(event)).toBe(true);
   });
 
-  test("low quality below 0.3 score fails", () => {
+  test("very low quality below 0.05 score fails", () => {
     const event = makeEvent({
-      dwellMs: 1000,      // just above min
-      tabFocusMs: 500,    // just above min
+      dwellMs: 200,       // just above min
+      tabFocusMs: 100,    // just above min
       iabViewable: false, // no viewable bonus
       scrollDepthPct: 0,  // no scroll
     });
-    // Score: 0.07 + 0.042 = 0.11 → below 0.3
+    // Score: 0.014 + 0.008 = 0.02 → below 0.05
     expect(meetsQualityThreshold(event)).toBe(false);
   });
 });

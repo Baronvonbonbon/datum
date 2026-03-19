@@ -428,7 +428,7 @@ function CreateCampaignForm({ address, onCreated, currencySymbol: sym }: { addre
       setResult(`Campaign created${idStr}. Status: Pending.`);
       onCreated();
     } catch (err) {
-      setFormError(String(err));
+      setFormError(humanizeError(err));
     } finally {
       setCreating(false);
     }
