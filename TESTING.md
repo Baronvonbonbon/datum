@@ -1,52 +1,188 @@
 # DATUM Alpha Testing Guide
 
-**Version:** 1.2
-**Date:** 2026-03-18
-**Prerequisites:** Docker running (substrate + eth-rpc containers) for local testing, or Paseo for live testing. Contracts deployed, extension built.
+**Version:** 1.3
+**Date:** 2026-03-19
+**Status:** Ready for live browser E2E testing on Paseo testnet.
+**Prerequisites:** Extension built (`alpha-extension/dist/`). For Paseo live testing, no local Docker required — contracts are already deployed and a campaign is active.
 
 ---
 
 ## Prerequisites
 
-### 1. Verify Docker containers
+### Option A: Paseo Testnet (recommended — no local setup needed)
 
-```bash
-docker ps  # should show substrate + eth-rpc
-```
-
-If not running:
-```bash
-cd alpha && ./scripts/start-substrate.sh
-```
-
-### 2. Verify contracts are deployed
-
-```bash
-cat alpha/deployed-addresses.json
-```
-
-If missing or stale, redeploy:
-```bash
-cd alpha
-npx hardhat run scripts/deploy.ts --network substrate
-```
-
-### 3. Fund test accounts
-
-```bash
-cd alpha
-npx hardhat run scripts/fund-test-accounts.ts --network substrate
-```
-
-This creates 24 accounts: 6 config accounts (Charleth-Heath), 3 advertisers, 3 viewers, 2 publishers, 3 voters, 2 light-funded, and 5 ED edge cases. Output written to `test-accounts.json`.
-
-### 4. Build extension
+Everything is already deployed and live. You just need the extension.
 
 ```bash
 cd alpha-extension && npm run build
 ```
 
-Output in `alpha-extension/dist/`.
+Output in `alpha-extension/dist/`. The build is pre-configured with Paseo contract addresses and defaults to the Paseo network.
+
+### Option B: Local Devnet
+
+```bash
+# 1. Start substrate + eth-rpc Docker containers
+docker ps  # should show substrate + eth-rpc
+# If not running:
+cd alpha && ./scripts/start-substrate.sh
+
+# 2. Deploy contracts
+cd alpha && npx hardhat run scripts/deploy.ts --network substrate
+
+# 3. Fund test accounts
+npx hardhat run scripts/fund-test-accounts.ts --network substrate
+
+# 4. Build extension
+cd alpha-extension && npm run build
+```
+
+---
+
+---
+
+## Paseo Live Testing (A3.4)
+
+This is the primary testing path. All contracts are deployed, a campaign is active, and Diana's relay bot is running.
+
+### Testnet Details
+
+| Item | Value |
+|------|-------|
+| Network | Paseo (Chain ID 420420417) |
+| RPC | `https://eth-rpc-testnet.polkadot.io/` |
+| Explorer | https://blockscout-testnet.polkadot.io/ |
+| Faucet | https://faucet.polkadot.io/ (select "Paseo") |
+| Currency | PAS (testnet DOT) |
+| Demo page | https://baronvonbonbon.github.io/datum/ |
+
+### Published Testnet State
+
+| Role | Name | Address |
+|------|------|---------|
+| Deployer | Alice | `0x94CC36412EE0c099BfE7D61a35092e40342F62D7` |
+| Publisher | Diana | `0xcA5668fB864Acab0aC7f4CFa73949174720b58D0` |
+
+- Diana is registered with 50% take rate, all 26 categories
+- Campaign #1 is Active (Bob→Diana, 10 PAS budget)
+- Diana's relay bot is live, auto-signing attestations + submitting claims every 5 min
+
+### Live Testing Flow
+
+#### Step 1: Load the Extension
+
+1. Build: `cd alpha-extension && npm run build`
+2. Open `chrome://extensions` → **Developer mode** on
+3. **Load unpacked** → select `alpha-extension/dist/`
+4. Pin the DATUM icon to toolbar
+
+#### Step 2: Get Testnet PAS
+
+1. Go to https://faucet.polkadot.io/ (select "Paseo")
+2. The faucet uses substrate addresses — convert your extension address using https://hoonsubin.github.io/evm-substrate-address-converter/ (EVM → Substrate)
+3. Request PAS — you need at least 1 PAS to submit claims directly, or 0 if using publisher relay
+
+#### Step 3: Configure Extension
+
+1. Open extension → **Settings** tab
+2. **Network** should default to "Paseo" — verify
+3. Contract addresses are pre-loaded in the build (no manual entry needed)
+4. Click **Test Connection** — should show "Connected — block #N"
+5. Click **Save**
+
+#### Step 4: Create a Wallet
+
+1. Extension → **Import Private Key** (or create new)
+2. Enter an account name (e.g. "Test User")
+3. Paste or generate a private key
+4. Set a password (min 8 chars)
+5. Verify your address appears in the header
+
+#### Step 5: Visit the Demo Page
+
+Go to **https://baronvonbonbon.github.io/datum/**
+
+The page runs the DATUM SDK with Diana's publisher address and `data-relay` pointing to her relay bot:
+
+```html
+<script src="datum-sdk.js"
+  data-categories="1,2,...,26"
+  data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
+  data-relay="https://index-routine-cent-choice.trycloudflare.com">
+</script>
+```
+
+**What the extension does on page load:**
+1. Detects the SDK tag, reads `data-relay` URL
+2. Stores `publisherDomain:0xca566...` → relay domain in local storage (no rebuild needed if relay URL changes)
+3. Fetches active campaigns from the Paseo chain
+4. Runs campaign matching + Vickrey auction
+5. Performs challenge-response handshake with the SDK
+6. Injects the winning campaign's ad into `<div id="datum-ad-slot">`
+
+**What to look for:**
+- Ad creative appears in the slot (IPFS metadata rendered: title, body, CTA button)
+- SDK status panel shows: Relay Bot online, SDK Ready, handshake complete
+- Extension popup → **Campaigns** tab shows Campaign #1 as Active
+
+#### Step 6: Verify Claim Building
+
+After the ad has been visible for a few seconds with the tab focused:
+
+1. Quality scoring runs: dwell 35% + focus 25% + viewability 25% + scroll 15%
+2. Thresholds (relaxed for alpha): dwell ≥ 200ms, focus ≥ 100ms, composite ≥ 0.05
+3. Claim hash chain is built: `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, prevHash)`
+4. Claim appears in extension → **Claims** tab
+
+> **Tip:** Refresh the page and wait ~10 seconds with the tab focused. Claims are de-duped per (campaign, hostname) for 5 minutes, so each visit after the cooldown can generate one claim.
+
+#### Step 7: Submit Claims via Publisher Relay (zero gas)
+
+The easiest path — no PAS required:
+
+1. Extension → **Claims** tab
+2. Click **Sign for Publisher (zero gas)**
+3. Enter your wallet password to sign the EIP-712 `ClaimBatch`
+4. The extension requests a publisher co-signature from Diana's relay (`/.well-known/datum-attest`)
+5. The signed batch is sent to Diana's relay (`/relay/submit`)
+6. Diana's relay queues it and submits on-chain within 5 minutes
+
+**What happens on-chain:**
+- `DatumRelay.settleClaimsFor()` is called by Diana's wallet (she pays gas)
+- `DatumSettlement` validates the hash chain, splits revenue:
+  - Diana (publisher): 50% take rate
+  - You (user): 75% of remainder = 37.5% of total
+  - Protocol: 25% of remainder = 12.5%
+
+**Check relay status:** https://baronvonbonbon.github.io/datum/ → relay heartbeat indicator shows online/offline + uptime.
+
+#### Step 8: Direct On-Chain Submission (requires PAS)
+
+If you have PAS in your wallet:
+
+1. Extension → **Claims** tab
+2. Click **Submit All (you pay gas)**
+3. Enter password, confirm transaction
+4. Claims settle in 1-2 blocks
+
+#### Step 9: Check Earnings and Withdraw
+
+1. Extension → **Earnings** tab
+2. Balance shows accumulated PAS from settled claims
+3. Click **Withdraw** to send to your wallet
+4. Verify in explorer: https://blockscout-testnet.polkadot.io/
+
+#### Step 10: Run Your Own Publisher Relay (optional)
+
+Want to test with your own publisher registration and relay?
+
+1. Register as a publisher via the extension **Publisher** tab (requires PAS for gas)
+2. Copy the relay template: `docs/relay-bot-template/`
+3. Configure with your publisher key + contract addresses (see `.env.example`)
+4. Start: `node relay-bot.mjs`
+5. Expose via Cloudflare tunnel: `cloudflared tunnel --url http://127.0.0.1:3400`
+6. Add `data-relay="https://your-tunnel.trycloudflare.com"` to your publisher page's SDK tag
+7. The extension picks up the new relay URL automatically — no rebuild needed
 
 ---
 
@@ -183,11 +319,17 @@ Open `http://localhost:8080/example-publisher.html` in Chrome.
 
 The page has the SDK embed:
 ```html
-<script src="datum-sdk.js" data-categories="5,24" data-publisher="0x..."></script>
+<script src="datum-sdk.js"
+  data-categories="6,26"
+  data-publisher="0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"
+  data-relay="https://your-relay.example.com">
+</script>
 <div id="datum-ad-slot"></div>
 ```
 
-**Note:** The `data-publisher` in the example page must match a registered publisher. Edit `example-publisher.html` and set `data-publisher` to Baltathar's address (`0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0`) and `data-categories` to match the campaign's category.
+**`data-publisher`** must match a registered publisher address. Edit `example-publisher.html` and set it to Baltathar's address.
+
+**`data-relay`** is the URL of the publisher's relay bot. When the extension detects this attribute, it automatically stores the relay domain for attestation requests — no extension rebuild needed when the URL changes. Leave blank if the publisher has no relay (claims will settle in degraded trust mode, or the user submits directly).
 
 ### Step 7: Verify Ad Display
 
@@ -213,7 +355,7 @@ After the ad displays for 1+ second with the tab focused:
 1. IntersectionObserver tracks viewport visibility
 2. Engagement tracker measures dwell time, focus, viewability, scroll depth
 3. Background computes quality score: `dwell 35% + focus 25% + viewability 25% + scroll 15%`
-4. If quality >= 0.3 (and dwell >= 1s, focus >= 0.5s): claim is built and queued
+4. If quality >= 0.05 (and dwell >= 200ms, focus >= 100ms): claim is built and queued (thresholds relaxed for alpha)
 5. Claim hash: `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)`
 
 **Check:** Extension popup → **Claims** tab should show pending claims.
@@ -344,7 +486,7 @@ The extension now supports **multi-account wallets** (MA-1 through MA-4). You ca
 | Claims rejected (reason 7) | Nonce gap | Claims must be sequential: nonce = lastNonce + 1 |
 | Ad doesn't appear | Category mismatch | Ensure campaign and publisher categories overlap |
 | Ad doesn't appear | Campaign not Active | Check campaign status in Govern tab; evaluate if Pending |
-| No pending claims | Quality too low | Keep tab focused for 1+ second, scroll page, don't minimize |
+| No pending claims | Quality too low | Keep tab focused for 200ms+ with ad visible; thresholds relaxed for alpha (dwell ≥ 200ms, focus ≥ 100ms, score ≥ 0.05) |
 | Service worker errors | Devchain restarted, addresses changed | Redeploy and update Settings |
 | Balance shows 0 | Wrong network | Verify Settings → Network is `local` |
 | Auto-submit stopped working | Browser restarted, session key lost | Re-authorize in Settings (WS-3 warning banner) |
