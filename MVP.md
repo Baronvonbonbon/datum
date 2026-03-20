@@ -2,7 +2,7 @@
 
 **Version:** 2.3
 **Date:** 2026-02-24
-**Last updated:** 2026-03-18 — **A3.3 TESTNET DEPLOYMENT COMPLETE + RELAY BOT LIVE.** All 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay bot running (Diana, auto-submit every 5 min). Demo page with inline ad slot. 132/132 Hardhat tests, 140/140 Jest extension tests, 603KB popup, 0 errors. Next: A3.4 browser E2E on testnet → A3.5 open testing.
+**Last updated:** 2026-03-20 — **A3.3 TESTNET DEPLOYMENT COMPLETE + PUBLISHER RELAY LIVE.** All 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay running (Diana, co-signing attestations + processing claims). Demo page with inline ad slot. 132/132 Hardhat tests, 140/140 Jest extension tests, 603KB popup, 0 errors. Next: A3.4 browser E2E on testnet → A3.5 open testing.
 **Scope:** Nine-contract system + browser extension, deployed through local → testnet → Kusama → Polkadot Hub
 **Build model:** Solo developer with Claude Code assistance
 

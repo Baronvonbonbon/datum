@@ -372,7 +372,7 @@
       <p>
         This page runs the DATUM Publisher SDK with Diana's testnet publisher address.
         If you have the DATUM extension installed and connected to Paseo,
-        an ad from an active campaign will appear below. Diana's relay bot co-signs
+        an ad from an active campaign will appear below. Diana's publisher relay co-signs
         and settles claims automatically.
       </p>
       <div class="ad-section">
@@ -380,7 +380,7 @@
         <div id="datum-ad-slot"></div>
       </div>
       <div class="status" id="sdk-status">
-        <div><span class="label">Relay Bot:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
+        <div><span class="label">Publisher Relay:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
         <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
         <div><span class="label">Publisher:</span> <span id="status-publisher">&mdash;</span></div>
         <div><span class="label">Categories:</span> <span id="status-categories">&mdash;</span></div>
@@ -401,7 +401,7 @@
         <code>data-categories</code> declares which ad categories your site accepts
         (comma-separated IDs from the taxonomy below).
         <code>data-publisher</code> is your registered on-chain address.
-        <code>data-relay</code> is the URL of your publisher relay bot (the extension
+        <code>data-relay</code> is the URL of your publisher relay endpoint (the extension
         uses this to request attestations and submit claims &mdash; no extension rebuild needed
         when the URL changes).
         The extension matches campaigns by category overlap, runs a Vickrey auction,
@@ -420,20 +420,22 @@
       <div class="taxonomy-grid" id="taxonomy-grid"></div>
     </section>
 
-    <!-- Publisher Relay Bot -->
+    <!-- Publisher Relay -->
     <section>
-      <h2>Publisher Relay Bot</h2>
+      <h2>Publisher Relay</h2>
       <p>
-        Publishers run a relay bot that co-signs user claim batches (EIP-712 attestation)
-        and submits them on-chain via <code>DatumRelay.settleClaimsFor()</code>.
-        The relay pays gas so users don't need to &mdash; the publisher is reimbursed from
-        the campaign budget's take-rate share.
+        Publishers operate a publicly available relay endpoint that co-signs user claim
+        batches (EIP-712 attestation) and submits them on-chain via
+        <code>DatumRelay.settleClaimsFor()</code>. The relay pays gas so users don't
+        need to &mdash; the publisher is reimbursed from the campaign budget's take-rate
+        share. How a publisher chooses to run their relay &mdash; automated service,
+        manual dashboard, serverless function, or anything else &mdash; is entirely up to them.
       </p>
 
       <h3>Current Relay</h3>
       <p>
-        Diana's relay bot for this demo page is exposed via a Cloudflare Quick Tunnel.
-        The current relay URL is shown in the status panel above (check the Relay Bot indicator).
+        Diana's relay for this demo page is exposed via a Cloudflare Quick Tunnel.
+        The current relay URL is shown in the status panel above (check the Publisher Relay indicator).
         The extension is pre-configured to use this relay on the Paseo network.
       </p>
       <div style="background:#0e0e24; border:1px solid #1a1a3a; border-radius:6px; padding:14px 16px; margin:12px 0; font-family:monospace; font-size:12px; color:#888;">
@@ -453,7 +455,7 @@
         <li>When the user signs a claim batch (EIP-712), the extension requests a publisher
             co-signature from the relay's <code>/.well-known/datum-attest</code> endpoint</li>
         <li>The signed batch is sent to <code>/relay/submit</code>, where the relay verifies the
-            user's EIP-712 signature, queues the batch, and submits it on-chain every 5 minutes</li>
+            user's EIP-712 signature and processes it for on-chain submission</li>
         <li>Settlement splits revenue: publisher (take rate), user (75% of remainder), protocol (25%)</li>
       </ul>
 
@@ -479,15 +481,18 @@
 
       <h3>Run Your Own Relay</h3>
       <p>
-        A relay bot template is included in the repository at
+        A reference relay implementation is included in the repository at
         <a href="https://github.com/mfabdev/datum/tree/main/docs/relay-bot-template"><code>docs/relay-bot-template/</code></a>.
-        To set up your own publisher relay:
+        This is one way to run a publisher relay &mdash; an automated Node.js service that
+        queues and submits batches on a timer. Publishers are free to implement their relay
+        endpoint however they prefer (serverless, manual review, custom tooling, etc.) as long
+        as it exposes the required HTTP endpoints. To set up the reference implementation:
       </p>
       <pre>
 # 1. Register as a publisher on-chain (via the DATUM extension Publisher tab)
 # 2. Copy the template
-cp -r docs/relay-bot-template my-relay-bot
-cd my-relay-bot
+cp -r docs/relay-bot-template my-relay
+cd my-relay
 
 # 3. Install dependencies
 npm install
@@ -497,7 +502,7 @@ npm install
 export PUBLISHER_KEY="0xYOUR_PRIVATE_KEY"
 export RPC_URL="https://eth-rpc-testnet.polkadot.io/"
 
-# 5. Start the bot
+# 5. Start the relay
 node relay-bot.mjs
 
 # 6. (Optional) Expose via Cloudflare tunnel for remote access
@@ -513,7 +518,7 @@ cloudflared tunnel --url http://127.0.0.1:3400</pre>
       <h2>Resources</h2>
       <ul>
         <li><a href="https://github.com/mfabdev/datum">GitHub Repository</a></li>
-        <li><a href="https://github.com/mfabdev/datum/tree/main/docs/relay-bot-template">Relay Bot Template</a></li>
+        <li><a href="https://github.com/mfabdev/datum/tree/main/docs/relay-bot-template">Publisher Relay Template</a></li>
         <li><a href="https://blockscout-testnet.polkadot.io/">Paseo Explorer</a></li>
         <li><a href="https://faucet.polkadot.io/">Testnet Faucet</a> (select "Paseo")</li>
       </ul>
@@ -586,7 +591,7 @@ cloudflared tunnel --url http://127.0.0.1:3400</pre>
       grid.appendChild(group);
     });
 
-    // Relay bot heartbeat
+    // Publisher relay heartbeat
     var RELAY_URL = "https://index-routine-cent-choice.trycloudflare.com";
     var relayDot = document.getElementById("relay-dot");
     var relayText = document.getElementById("status-relay");

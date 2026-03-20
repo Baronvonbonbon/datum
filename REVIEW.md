@@ -1,8 +1,8 @@
 # DATUM PoC Design Review
 
-**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad); 2026-03-11 (A3.2 local devnet E2E passed); 2026-03-18 (A3.3 testnet deployment + relay bot)
+**Date:** 2026-02-24 (original review); 2026-03-03 (web3 alignment addendum); 2026-03-09 (extension UI addendum, V2 overhaul, P6/P16/P19 complete, Part 4B pre-launch fixes); 2026-03-10 (Publisher SDK, open campaigns, default house ad); 2026-03-11 (A3.2 local devnet E2E passed); 2026-03-18 (A3.3 testnet deployment + publisher relay)
 **Spec versions reviewed:** Architecture Specification v0.3, PoC Compendium v1.0
-**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 132/132 Hardhat tests + 140/140 Jest extension tests — see ALPHA.md for full architecture. All alpha-scope code AND pre-launch review fixes COMPLETE. **A3.3 TESTNET DEPLOYMENT COMPLETE** — 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay bot live. Next: A3.4 browser E2E on testnet.
+**Status:** All 11 issues resolved. PoC: 64/64 tests. Alpha (current): 132/132 Hardhat tests + 140/140 Jest extension tests — see ALPHA.md for full architecture. All alpha-scope code AND pre-launch review fixes COMPLETE. **A3.3 TESTNET DEPLOYMENT COMPLETE** — 9 contracts deployed to Paseo (Chain ID 420420417). Publisher relay live. Next: A3.4 browser E2E on testnet.
 
 ---
 

@@ -2,11 +2,11 @@
 
 **Version:** 2.2
 **Date:** 2026-03-18
-**Scope:** Alpha build — feature-complete, deployed to Paseo with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, publisher relay bot, and open testing
+**Scope:** Alpha build — feature-complete, deployed to Paseo with IPFS integration, Publisher SDK, open campaigns, multi-account wallet, UX polish, publisher relay, and open testing
 **Base:** PoC MVP (tagged `poc-complete`) — 9 contracts (post-GovernanceV2), 132/132 tests, 7-tab extension (V2 overhaul + Part 4B fixes + Publisher SDK complete + Part 4D UX audit + multi-account), local devnet verified
 **Build model:** Solo developer with Claude Code assistance
 
-**Current status:** **A3.4 BROWSER E2E READY.** All 9 contracts deployed to Paseo (Chain ID 420420417). Extension builds clean with pre-loaded testnet addresses, defaults to Paseo network. Publisher relay bot live as systemd service (Diana, 5-min poll). Demo GitHub Pages site with video walkthrough, live ad slot, relay heartbeat indicator, relay bot documentation, and `docs/relay-bot-template/` for external publishers. SDK `data-relay` attribute enables dynamic relay discovery — no extension rebuild needed when relay URL changes. Quality thresholds relaxed for alpha (dwell ≥ 200ms, focus ≥ 100ms, score ≥ 0.05). 132/132 Hardhat tests. 140/140 Jest extension tests. 0 webpack errors. **Next step: A3.5 open testing.**
+**Current status:** **A3.4 BROWSER E2E READY.** All 9 contracts deployed to Paseo (Chain ID 420420417). Extension builds clean with pre-loaded testnet addresses, defaults to Paseo network. Publisher relay live as systemd service (Diana). Demo GitHub Pages site with video walkthrough, live ad slot, relay heartbeat indicator, publisher relay documentation, and `docs/relay-bot-template/` reference implementation for external publishers. SDK `data-relay` attribute enables dynamic relay discovery — no extension rebuild needed when relay URL changes. Quality thresholds relaxed for alpha (dwell ≥ 200ms, focus ≥ 100ms, score ≥ 0.05). 132/132 Hardhat tests. 140/140 Jest extension tests. 0 webpack errors. **Next step: A3.5 open testing.**
 
 ---
 

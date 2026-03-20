@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// DATUM Publisher Relay Bot — Template
+// DATUM Publisher Relay — Reference Implementation
 //
-// A publisher relay bot that:
+// A publisher relay endpoint that:
 //   1. Co-signs claim batches via EIP-712 (publisher attestation)
 //   2. Accepts user-signed batches and queues them for on-chain submission
 //   3. Periodically submits queued batches via DatumRelay.settleClaimsFor()
@@ -679,7 +679,7 @@ app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 // ── Startup ──────────────────────────────────────────────────────────────────
 
 async function main() {
-  log("INIT", "DATUM Publisher Relay Bot starting...");
+  log("INIT", "DATUM Publisher Relay starting...");
   log("INIT", `Publisher: ${publisher.address}`);
   log("INIT", `RPC: ${RPC_URL}`);
   log("INIT", `Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
@@ -720,7 +720,7 @@ async function main() {
   setTimeout(poll, 10_000);
   setInterval(poll, POLL_INTERVAL_MS);
 
-  log("INIT", "Relay bot running.");
+  log("INIT", "Publisher relay running.");
 }
 
 main().catch((err) => { console.error("Fatal:", err); process.exit(1); });

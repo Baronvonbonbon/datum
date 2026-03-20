@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-18
 **Version:** 2.2
-**Status:** Deployed to Paseo (Chain ID 420420417). ECRecover verified. Test campaign active. Publisher relay bot live (Diana, 5-min poll). Demo page with inline ad slot. Pending browser E2E on testnet → open testing.
+**Status:** Deployed to Paseo (Chain ID 420420417). ECRecover verified. Test campaign active. Publisher relay live (Diana, co-signing + processing claims). Demo page with inline ad slot. Pending browser E2E on testnet → open testing.
 
 ---
 

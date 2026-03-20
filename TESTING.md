@@ -43,7 +43,7 @@ cd alpha-extension && npm run build
 
 ## Paseo Live Testing (A3.4)
 
-This is the primary testing path. All contracts are deployed, a campaign is active, and Diana's relay bot is running.
+This is the primary testing path. All contracts are deployed, a campaign is active, and Diana's publisher relay is running.
 
 ### Testnet Details
 
@@ -65,7 +65,7 @@ This is the primary testing path. All contracts are deployed, a campaign is acti
 
 - Diana is registered with 50% take rate, all 26 categories
 - Campaign #1 is Active (Bob→Diana, 10 PAS budget)
-- Diana's relay bot is live, auto-signing attestations + submitting claims every 5 min
+- Diana's publisher relay is live, co-signing attestations + processing claims
 
 ### Live Testing Flow
 
@@ -102,7 +102,7 @@ This is the primary testing path. All contracts are deployed, a campaign is acti
 
 Go to **https://baronvonbonbon.github.io/datum/**
 
-The page runs the DATUM SDK with Diana's publisher address and `data-relay` pointing to her relay bot:
+The page runs the DATUM SDK with Diana's publisher address and `data-relay` pointing to her relay endpoint:
 
 ```html
 <script src="datum-sdk.js"
@@ -122,7 +122,7 @@ The page runs the DATUM SDK with Diana's publisher address and `data-relay` poin
 
 **What to look for:**
 - Ad creative appears in the slot (IPFS metadata rendered: title, body, CTA button)
-- SDK status panel shows: Relay Bot online, SDK Ready, handshake complete
+- SDK status panel shows: Publisher Relay online, SDK Ready, handshake complete
 - Extension popup → **Campaigns** tab shows Campaign #1 as Active
 
 #### Step 6: Verify Claim Building
@@ -143,18 +143,18 @@ The easiest path — no PAS required:
 1. Extension → **Claims** tab
 2. Click **Sign for Publisher (zero gas)**
 3. Enter your wallet password to sign the EIP-712 `ClaimBatch`
-4. The extension requests a publisher co-signature from Diana's relay (`/.well-known/datum-attest`)
-5. The signed batch is sent to Diana's relay (`/relay/submit`)
-6. Diana's relay queues it and submits on-chain within 5 minutes
+4. The extension requests a publisher co-signature from Diana's relay endpoint (`/.well-known/datum-attest`)
+5. The signed batch is sent to Diana's relay endpoint (`/relay/submit`)
+6. Diana's relay processes it and submits on-chain
 
 **What happens on-chain:**
-- `DatumRelay.settleClaimsFor()` is called by Diana's wallet (she pays gas)
+- `DatumRelay.settleClaimsFor()` is called by Diana's relay (she pays gas)
 - `DatumSettlement` validates the hash chain, splits revenue:
   - Diana (publisher): 50% take rate
   - You (user): 75% of remainder = 37.5% of total
   - Protocol: 25% of remainder = 12.5%
 
-**Check relay status:** https://baronvonbonbon.github.io/datum/ → relay heartbeat indicator shows online/offline + uptime.
+**Check relay status:** https://baronvonbonbon.github.io/datum/ → Publisher Relay indicator shows online/offline + uptime.
 
 #### Step 8: Direct On-Chain Submission (requires PAS)
 
@@ -174,15 +174,17 @@ If you have PAS in your wallet:
 
 #### Step 10: Run Your Own Publisher Relay (optional)
 
-Want to test with your own publisher registration and relay?
+Want to test with your own publisher registration and relay endpoint?
 
 1. Register as a publisher via the extension **Publisher** tab (requires PAS for gas)
-2. Copy the relay template: `docs/relay-bot-template/`
+2. Copy the reference relay template: `docs/relay-bot-template/`
 3. Configure with your publisher key + contract addresses (see `.env.example`)
 4. Start: `node relay-bot.mjs`
 5. Expose via Cloudflare tunnel: `cloudflared tunnel --url http://127.0.0.1:3400`
 6. Add `data-relay="https://your-tunnel.trycloudflare.com"` to your publisher page's SDK tag
 7. The extension picks up the new relay URL automatically — no rebuild needed
+
+How you implement your relay is up to you — the template is a reference automated service, but any HTTPS endpoint exposing the required routes will work.
 
 ---
 
@@ -329,7 +331,7 @@ The page has the SDK embed:
 
 **`data-publisher`** must match a registered publisher address. Edit `example-publisher.html` and set it to Baltathar's address.
 
-**`data-relay`** is the URL of the publisher's relay bot. When the extension detects this attribute, it automatically stores the relay domain for attestation requests — no extension rebuild needed when the URL changes. Leave blank if the publisher has no relay (claims will settle in degraded trust mode, or the user submits directly).
+**`data-relay`** is the URL of the publisher's relay endpoint. When the extension detects this attribute, it automatically stores the relay domain for attestation requests — no extension rebuild needed when the URL changes. Leave blank if the publisher has no relay (claims will settle in degraded trust mode, or the user submits directly).
 
 ### Step 7: Verify Ad Display
 

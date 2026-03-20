@@ -311,7 +311,7 @@ The extension supports encrypted claim state portability (P6):
 - [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
 - [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
 - [x] **Paseo deployment** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered, Diana set to all 26 categories (A3.3)
-- [x] **Publisher relay bot** -- automated relay service (Diana), co-signs attestations + submits claims every 5 min, demo index page with inline ad slot
+- [x] **Publisher relay** -- publisher relay endpoint (Diana), co-signs attestations + submits claims, demo index page with inline ad slot
 - [ ] **Browser E2E on Paseo** -- load extension in Chrome, verify full ad display + claim flow on testnet (A3.4)
 - [ ] **Open testing** -- publish addresses, external tester instructions (A3.5)
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub

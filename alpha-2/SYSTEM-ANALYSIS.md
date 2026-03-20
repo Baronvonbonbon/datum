@@ -40,7 +40,7 @@ DATUM is a decentralized advertising protocol where:
 - **Advertisers** deposit DOT into escrow campaigns with a CPM bid and category
 - **Community governance** votes to activate or reject campaigns (conviction-weighted)
 - **Users** browse publisher pages with the DATUM browser extension, which tracks impressions locally and builds a cryptographic claim hash chain
-- **Publishers** run relay bots that co-sign claim batches and submit them on-chain
+- **Publishers** operate relay endpoints that co-sign claim batches and submit them on-chain
 - **Settlement** verifies hash chains on-chain and splits revenue three ways: publisher (take rate), user (75% of remainder), protocol (25%)
 
 All contracts target Solidity 0.8.24, compiled with `resolc` v0.3.0 for PVM (PolkaVM) bytecode. Each must fit under the 49,152-byte PVM contract size limit.
@@ -60,7 +60,7 @@ All contracts target Solidity 0.8.24, compiled with `resolc` v0.3.0 for PVM (Pol
 | Publisher | Registered in DatumPublishers | registerPublisher, updateTakeRate, setCategories, withdrawPublisher |
 | User/Viewer | Any EOA | Browse pages, accumulate claims off-chain, settleClaims or sign for relay |
 | Voter | Any EOA | vote (payable), evaluateCampaign, withdraw, claimSlashReward |
-| Relay Bot | Off-chain service (Diana) | Calls DatumRelay.settleClaimsFor() with user-signed batches |
+| Publisher Relay | Off-chain endpoint (Diana) | Calls DatumRelay.settleClaimsFor() with user-signed batches |
 
 ---
 
@@ -612,7 +612,7 @@ protocolFee      = 20,000,000 planck (25% of remainder = 12.5% of total)
 
 ### 4.8 DatumRelay
 
-**Purpose:** Gasless settlement via EIP-712 signatures. Users sign claim batches off-chain, publishers (relay bots) collect signatures and submit them on-chain, paying gas. The relay verifies user signatures and optional publisher co-signatures before forwarding to Settlement.
+**Purpose:** Gasless settlement via EIP-712 signatures. Users sign claim batches off-chain, publishers (via their relay endpoints) collect signatures and submit them on-chain, paying gas. The relay contract verifies user signatures and optional publisher co-signatures before forwarding to Settlement.
 
 **PVM Size:** 46,180 bytes (2,972 spare)
 
@@ -655,7 +655,7 @@ struct SignedClaimBatch {
 **Functions:**
 | Function | Access | Description |
 |----------|--------|-------------|
-| `settleClaimsFor(batches)` | anyone (typically relay bot), not paused | Verify signatures, forward to settlement.settleClaims() |
+| `settleClaimsFor(batches)` | anyone (typically publisher relay), not paused | Verify signatures, forward to settlement.settleClaims() |
 
 **settleClaimsFor Flow:**
 
@@ -732,7 +732,7 @@ Anyone── evaluateCampaign(cId) ───────────────
 ### 5.2 Claim Settlement Flow
 
 ```
-User (browser extension)          Relay Bot              DatumRelay         Settlement         Campaigns
+User (browser extension)       Publisher Relay          DatumRelay         Settlement         Campaigns
     │                                 │                       │                  │                  │
     │ Build claims locally            │                       │                  │                  │
     │ (hash chain, nonces,            │                       │                  │                  │
@@ -927,7 +927,7 @@ Settlement receives DOT
 | Clearing CPM | Extension determines clearing price | Medium | Must be ≤ bidCpmPlanck; ZK proof stub (future: Groth16) |
 | Quality score | Extension computes engagement quality | Medium | Computed in background (trusted context), not content script |
 | Publisher identity | SDK declares publisher address | Low | On-chain registration check, handshake verification |
-| Relay bot honesty | Relay could delay or drop batches | Low | Claims persist in extension; users can submit directly |
+| Relay honesty | Relay could delay or drop batches | Low | Claims persist in extension; users can submit directly |
 | Admin power | Owner can propose parameter changes | Medium | 48h Timelock on Campaigns + Settlement |
 | Pause power | Owner can pause instantly | Medium | Intentional for emergency; cannot pause governance |
 
@@ -1038,4 +1038,4 @@ All contracts must fit under the 49,152-byte PVM limit (resolc v0.3.0, optimizer
 - 9 contracts deployed and wired
 - 6 accounts funded, 2 publishers registered
 - Campaign #1 active with governance vote
-- Publisher relay bot running, attestations working
+- Publisher relay running, attestations working
