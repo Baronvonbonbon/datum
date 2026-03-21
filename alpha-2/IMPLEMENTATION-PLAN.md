@@ -563,7 +563,7 @@ The 132 existing Hardhat tests cover the same functionality. After restructuring
 | Timelock | 18,342 | 18,342 | 30,810 | Unchanged |
 | Publishers | 22,614 | 22,813 | 26,339 | Unchanged |
 | **Campaigns (Core)** | **48,662** | **38,564** | **10,588** | Restructured |
-| GovernanceV2 | 39,693 | 43,671 | 5,481 | +logarithmic conviction |
+| GovernanceV2 | 39,693 | 43,725 | 5,427 | +logarithmic conviction (0–8) |
 | GovernanceSlash | 30,298 | 36,520 | 12,632 | +sweep |
 | **Settlement** | **48,820** | **43,132** | **6,020** | Restructured, ZK→Relay |
 | Relay | 46,180 | 46,178 | 2,974 | Unchanged |
@@ -599,11 +599,11 @@ Each phase is independently deployable and testable. Phase 1 alone solves Settle
 
 ## 14. Governance Conviction Curves — Test Scenarios
 
-Alpha-2 replaces Polkadot's exponential conviction model (`weight = 2^c`, `lockup = base * 2^c`) with logarithmic lockup scaling where each step up costs disproportionately more locked time per unit of voting weight. Conviction range is 1-6 (no zero-conviction votes).
+Alpha-2 replaces Polkadot's exponential conviction model (`weight = 2^c`, `lockup = base * 2^c`) with logarithmic lockup scaling where each step up costs disproportionately more locked time per unit of voting weight. Conviction range is 0–8 with low-risk entry points (0-lock, 24h, 72h) before the main curve.
 
-**Selected: Curve B (Balanced)** — implemented in `DatumGovernanceV2.sol`.
+**Selected: Curve B (Balanced, extended)** — implemented in `DatumGovernanceV2.sol`.
 
-The following alternative curves are candidates for testnet experimentation. Each uses the same lockup schedule (7d → 365d) but differs in weight multiplier, changing the risk/reward profile. Switching curves requires only updating the `CONVICTION_WEIGHT` array (7 values, index 0 unused).
+The following alternative curves are candidates for testnet experimentation. Each uses the same lockup schedule (0 → 365d) but differs in weight multiplier, changing the risk/reward profile. Switching curves requires only updating the `_weight()` function.
 
 ### Curve A — Conservative (steep risk escalation)
 
@@ -623,20 +623,23 @@ Conv │ Weight │ Lockup │ Days/x │ Marginal cost
 
 **When to test:** If governance sees excessive high-conviction voting or if slash penalties feel too weak. This curve makes casual high-conviction votes very expensive.
 
-### Curve B — Balanced (selected)
+### Curve B — Balanced, extended (selected)
 
-Triangular weight (1,3,6,10,15,21). Cost per unit rises steeply at first, then plateaus. Rewards long-term commitment without making high conviction unreachable.
+9-level curve (0–8) with low-risk entry (0-lock, 24h, 72h) then logarithmic escalation. Max 21x at 365d. Cost per unit rises through the middle, plateaus at the top.
 
 ```
-CONVICTION_WEIGHT = [0, 1, 3, 6, 10, 15, 21]
+Weights: [1, 1, 2, 3, 5, 8, 12, 16, 21]
 
 Conv │ Weight │ Lockup │ Days/x │ Marginal cost
-  1  │   1x   │   7d   │   7.0  │ —
-  2  │   3x   │  30d   │  10.0  │ +23d for +2x
-  3  │   6x   │  90d   │  15.0  │ +60d for +3x
-  4  │  10x   │ 180d   │  18.0  │ +90d for +4x
-  5  │  15x   │ 270d   │  18.0  │ +90d for +5x
-  6  │  21x   │ 365d   │  17.4  │ +95d for +6x
+  0  │   1x   │    0   │   —    │ instant withdraw
+  1  │   1x   │  24h   │   —    │ +24h for +0x (skin in the game)
+  2  │   2x   │  72h   │   1.5  │ +48h for +1x
+  3  │   3x   │   7d   │   2.3  │ +4d for +1x
+  4  │   5x   │  30d   │   6.0  │ +23d for +2x
+  5  │   8x   │  90d   │  11.3  │ +60d for +3x
+  6  │  12x   │ 180d   │  15.0  │ +90d for +4x
+  7  │  16x   │ 270d   │  16.9  │ +90d for +4x
+  8  │  21x   │ 365d   │  17.4  │ +95d for +5x
 ```
 
 ### Curve C — Aggressive (rewards commitment)
@@ -675,14 +678,14 @@ Conv │ Weight │ Lockup │ Days/x │ Marginal cost
 
 **When to test:** If governance bifurcates into "don't care" (conv 1) and "all in" (conv 6) with no middle ground. This curve taxes the transition zone to see if it produces more deliberate conviction selection.
 
-### Comparison at conviction 6
+### Comparison at max conviction
 
-| Curve | Max Weight | Days/x | Character |
-|-------|-----------|--------|-----------|
-| A     | 6x        | 60.8   | "Every vote is expensive" |
-| **B** | **21x**   | **17.4** | **"Balanced risk/reward" (selected)** |
-| C     | 40x       | 9.1    | "Conviction is king" |
-| D     | 30x       | 12.2   | "Commit or don't bother" |
+| Curve | Levels | Max Weight | Days/x at max | Character |
+|-------|--------|-----------|---------------|-----------|
+| A     | 1–6    | 6x        | 60.8          | "Every vote is expensive" |
+| **B** | **0–8** | **21x**  | **17.4**      | **"Low entry, balanced top" (selected)** |
+| C     | 1–6    | 40x       | 9.1           | "Conviction is king" |
+| D     | 1–6    | 30x       | 12.2          | "Commit or don't bother" |
 
 ### Testing approach
 

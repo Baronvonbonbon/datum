@@ -15,15 +15,18 @@ import "./interfaces/ISystem.sol";
 ///           - Conviction scales logarithmically with lock time: each step up costs
 ///             disproportionately more locked time per unit of voting weight gained.
 ///
-///         Conviction table (6s blocks):
-///           1 →  1x weight,   7 days lock  (  100,800 blocks) —  7.0 days/x
-///           2 →  3x weight,  30 days lock  (  432,000 blocks) — 10.0 days/x
-///           3 →  6x weight,  90 days lock  (1,296,000 blocks) — 15.0 days/x
-///           4 → 10x weight, 180 days lock  (2,592,000 blocks) — 18.0 days/x
-///           5 → 15x weight, 270 days lock  (3,888,000 blocks) — 18.0 days/x
-///           6 → 21x weight, 365 days lock  (5,256,000 blocks) — 17.4 days/x
+///         Conviction table (6s blocks, 14,400 blocks/day):
+///           0 →  1x weight,    0 lock  (        0 blocks) — instant withdraw
+///           1 →  1x weight,  24h lock  (   14,400 blocks) — skin in the game
+///           2 →  2x weight,  72h lock  (   43,200 blocks) —  1.5 days/x
+///           3 →  3x weight,   7d lock  (  100,800 blocks) —  2.3 days/x
+///           4 →  5x weight,  30d lock  (  432,000 blocks) —  6.0 days/x
+///           5 →  8x weight,  90d lock  (1,296,000 blocks) — 11.3 days/x
+///           6 → 12x weight, 180d lock  (2,592,000 blocks) — 15.0 days/x
+///           7 → 16x weight, 270d lock  (3,888,000 blocks) — 16.9 days/x
+///           8 → 21x weight, 365d lock  (5,256,000 blocks) — 17.4 days/x
 contract DatumGovernanceV2 {
-    uint8 public constant MAX_CONVICTION = 6;
+    uint8 public constant MAX_CONVICTION = 8;
 
     ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
@@ -31,26 +34,33 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
     // Conviction lookup (hardcoded — no storage arrays, saves PVM bytecode)
     // Polkadot Hub: 6-second block time, 14,400 blocks/day
-    //   1 →  1x /   7d    2 →  3x /  30d    3 →  6x /  90d
-    //   4 → 10x / 180d    5 → 15x / 270d    6 → 21x / 365d
+    //   0 →  1x /   0     1 →  1x / 24h    2 →  2x / 72h
+    //   3 →  3x /   7d    4 →  5x / 30d    5 →  8x / 90d
+    //   6 → 12x / 180d    7 → 16x / 270d   8 → 21x / 365d
     // -------------------------------------------------------------------------
 
     function _weight(uint8 c) internal pure returns (uint256) {
+        if (c == 0) return 1;
         if (c == 1) return 1;
-        if (c == 2) return 3;
-        if (c == 3) return 6;
-        if (c == 4) return 10;
-        if (c == 5) return 15;
-        return 21; // c == 6
+        if (c == 2) return 2;
+        if (c == 3) return 3;
+        if (c == 4) return 5;
+        if (c == 5) return 8;
+        if (c == 6) return 12;
+        if (c == 7) return 16;
+        return 21; // c == 8
     }
 
     function _lockup(uint8 c) internal pure returns (uint256) {
-        if (c == 1) return 100800;
-        if (c == 2) return 432000;
-        if (c == 3) return 1296000;
-        if (c == 4) return 2592000;
-        if (c == 5) return 3888000;
-        return 5256000; // c == 6
+        if (c <= 0) return 0;
+        if (c == 1) return 14400;
+        if (c == 2) return 43200;
+        if (c == 3) return 100800;
+        if (c == 4) return 432000;
+        if (c == 5) return 1296000;
+        if (c == 6) return 2592000;
+        if (c == 7) return 3888000;
+        return 5256000; // c == 8
     }
 
     // -------------------------------------------------------------------------
@@ -65,7 +75,9 @@ contract DatumGovernanceV2 {
     uint256 public quorumWeighted;
     uint256 public slashBps;
     uint256 public terminationQuorum;
-    uint256 public terminationGraceBlocks;
+    uint256 public baseGraceBlocks;    // minimum cooldown before termination
+    uint256 public gracePerQuorum;     // additional blocks per quorum-unit of total weight
+    uint256 public maxGraceBlocks;     // cap on total grace period
 
     // -------------------------------------------------------------------------
     // State
@@ -74,7 +86,7 @@ contract DatumGovernanceV2 {
     struct Vote {
         uint8 direction;          // 0=none, 1=aye, 2=nay
         uint256 lockAmount;
-        uint8 conviction;         // 0-6
+        uint8 conviction;         // 0-8
         uint256 lockedUntilBlock;
     }
 
@@ -102,15 +114,20 @@ contract DatumGovernanceV2 {
         uint256 _quorum,
         uint256 _slashBps,
         uint256 _terminationQuorum,
-        uint256 _terminationGraceBlocks
+        uint256 _baseGrace,
+        uint256 _gracePerQuorum,
+        uint256 _maxGrace
     ) {
         require(_campaigns != address(0), "E00");
+        require(_maxGrace >= _baseGrace, "E00");
         owner = msg.sender;
         campaigns = _campaigns;
         quorumWeighted = _quorum;
         slashBps = _slashBps;
         terminationQuorum = _terminationQuorum;
-        terminationGraceBlocks = _terminationGraceBlocks;
+        baseGraceBlocks = _baseGrace;
+        gracePerQuorum = _gracePerQuorum;
+        maxGraceBlocks = _maxGrace;
     }
 
     receive() external payable {}
@@ -136,7 +153,7 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function vote(uint256 campaignId, bool aye, uint8 conviction) external payable {
-        require(conviction >= 1 && conviction <= MAX_CONVICTION, "E40");
+        require(conviction <= MAX_CONVICTION, "E40");
         require(msg.value > 0, "E41");
 
         Vote storage v = _votes[campaignId][msg.sender];
@@ -231,7 +248,13 @@ contract DatumGovernanceV2 {
             require(total > 0, "E51");
             require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
             require(nayWeighted[campaignId] >= terminationQuorum, "E52");
-            require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + terminationGraceBlocks, "E53");
+            // Scaled grace: higher turnout → longer cooldown (capped)
+            uint256 grace = baseGraceBlocks;
+            if (quorumWeighted > 0) {
+                grace += total * gracePerQuorum / quorumWeighted;
+            }
+            if (grace > maxGraceBlocks) grace = maxGraceBlocks;
+            require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + grace, "E53");
             lifecycle.terminateCampaign(campaignId);
             resolved[campaignId] = true;
             emit CampaignEvaluated(campaignId, 4);
@@ -279,7 +302,7 @@ contract DatumGovernanceV2 {
     /// @notice Returns the weight multiplier for a conviction level.
     ///         Used by GovernanceSlash to compute voter weight consistently.
     function convictionWeight(uint8 conviction) external pure returns (uint256) {
-        require(conviction >= 1 && conviction <= MAX_CONVICTION, "E40");
+        require(conviction <= MAX_CONVICTION, "E40");
         return _weight(conviction);
     }
 }

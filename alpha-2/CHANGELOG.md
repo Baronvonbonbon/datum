@@ -80,24 +80,27 @@ GovernanceV2 calls Lifecycle directly (not through Campaigns), so `msg.sender ==
 
 ### DatumGovernanceV2 — Logarithmic Conviction
 
-Replaced Polkadot's exponential conviction model with logarithmic lockup scaling (Curve B):
+Replaced Polkadot's exponential conviction model with logarithmic lockup scaling. Conviction 0–8 with low-risk entry points (0-lock, 24h, 72h) and escalating cost through the upper range:
 
 | Conv | Weight | Lockup | Days/x | Marginal Cost |
 |------|--------|--------|--------|---------------|
-| 1 | 1x | 7d | 7.0 | — |
-| 2 | 3x | 30d | 10.0 | +23d for +2x |
-| 3 | 6x | 90d | 15.0 | +60d for +3x |
-| 4 | 10x | 180d | 18.0 | +90d for +4x |
-| 5 | 15x | 270d | 18.0 | +90d for +5x |
-| 6 | 21x | 365d | 17.4 | +95d for +6x |
+| 0 | 1x | 0 | — | instant withdraw |
+| 1 | 1x | 24h | — | +24h for +0x (skin in the game) |
+| 2 | 2x | 72h | 1.5 | +48h for +1x |
+| 3 | 3x | 7d | 2.3 | +4d for +1x |
+| 4 | 5x | 30d | 6.0 | +23d for +2x |
+| 5 | 8x | 90d | 11.3 | +60d for +3x |
+| 6 | 12x | 180d | 15.0 | +90d for +4x |
+| 7 | 16x | 270d | 16.9 | +90d for +4x |
+| 8 | 21x | 365d | 17.4 | +95d for +5x |
 
-- Conviction 1–6 only (no zero-conviction votes)
+- Conviction 0–8 (9 levels). Conv 0 = no lock, conv 1 = 24h commitment, max 21x at 365d
 - Weights and lockups hardcoded as `if/else` chains in pure internal functions (saves ~2.7 KB vs storage arrays)
 - Constructor takes 5 params (removed `baseLockup`, `maxLockup` — lockups are hardcoded)
 - `convictionWeight(uint8)` external pure view added for GovernanceSlash
 - Termination calls Lifecycle directly (not via Campaigns)
-- Alternative curves A (conservative), C (aggressive), D (S-curve) documented in IMPLEMENTATION-PLAN.md §14
-- **Size: 39,693 → 43,671 B (+3,978 B from new features, 5,481 spare)**
+- Alternative curves documented in IMPLEMENTATION-PLAN.md §14
+- **Size: 39,693 → 43,725 B (+4,032 B from new features, 5,427 spare)**
 
 ### DatumGovernanceSlash — Sweep Added
 
@@ -144,7 +147,7 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 | Contract | Alpha | Alpha-2 | Spare | Delta |
 |---|---|---|---|---|
 | DatumRelay | 46,180 | 46,178 | 2,974 | -2 |
-| DatumGovernanceV2 | 39,693 | 43,671 | 5,481 | +3,978 |
+| DatumGovernanceV2 | 39,693 | 43,725 | 5,427 | +4,032 |
 | **DatumSettlement** | **48,820** | **43,132** | **6,020** | **-5,688** |
 | **DatumCampaigns** | **48,662** | **38,564** | **10,588** | **-10,098** |
 | DatumGovernanceSlash | 30,298 | 36,520 | 12,632 | +6,222 |
