@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "./interfaces/IDatumCampaignsMinimal.sol";
+import "./interfaces/IDatumCampaignLifecycle.sol";
+import "./interfaces/ISystem.sol";
+
+/// @title DatumGovernanceV2
+/// @notice Dynamic conviction-based governance: vote/withdraw/re-vote, campaign evaluation,
+///         and symmetric slash (losing side pays configurable BPS on resolution).
+///
+///         Alpha-2 changes:
+///           - Termination delegates to DatumCampaignLifecycle (not Campaigns directly).
+///           - getCampaignForSettlement returns 4 values (no remainingBudget).
+///           - Conviction scales logarithmically with lock time: each step up costs
+///             disproportionately more locked time per unit of voting weight gained.
+///
+///         Conviction table (6s blocks):
+///           1 →  1x weight,   7 days lock  (  100,800 blocks) —  7.0 days/x
+///           2 →  3x weight,  30 days lock  (  432,000 blocks) — 10.0 days/x
+///           3 →  6x weight,  90 days lock  (1,296,000 blocks) — 15.0 days/x
+///           4 → 10x weight, 180 days lock  (2,592,000 blocks) — 18.0 days/x
+///           5 → 15x weight, 270 days lock  (3,888,000 blocks) — 18.0 days/x
+///           6 → 21x weight, 365 days lock  (5,256,000 blocks) — 17.4 days/x
+contract DatumGovernanceV2 {
+    uint8 public constant MAX_CONVICTION = 6;
+
+    ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
+    address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
+
+    // -------------------------------------------------------------------------
+    // Conviction lookup tables (logarithmic weight, escalating lockup)
+    // Polkadot Hub: 6-second block time, 14,400 blocks/day
+    // -------------------------------------------------------------------------
+
+    // Weight multipliers: conviction → multiplier (index 0 unused)
+    // 1x, 3x, 6x, 10x, 15x, 21x — each step costs more lockup per unit of weight
+    uint256[7] private CONVICTION_WEIGHT = [0, 1, 3, 6, 10, 15, 21];
+
+    // Lockup in blocks: conviction → blocks (index 0 unused)
+    // 7d, 30d, 90d, 180d, 270d, 365d — smooth escalation to 1-year max
+    uint256[7] private CONVICTION_LOCKUP = [
+        0,         // 0: unused (conviction starts at 1)
+        100800,    // 1: 7 days
+        432000,    // 2: 30 days
+        1296000,   // 3: 90 days
+        2592000,   // 4: 180 days
+        3888000,   // 5: 270 days
+        5256000    // 6: 365 days
+    ];
+
+    // -------------------------------------------------------------------------
+    // Configuration
+    // -------------------------------------------------------------------------
+
+    address public owner;
+    address public campaigns;
+    address public slashContract;
+    IDatumCampaignLifecycle public lifecycle;
+
+    uint256 public quorumWeighted;
+    uint256 public slashBps;
+    uint256 public terminationQuorum;
+    uint256 public terminationGraceBlocks;
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+
+    struct Vote {
+        uint8 direction;          // 0=none, 1=aye, 2=nay
+        uint256 lockAmount;
+        uint8 conviction;         // 0-6
+        uint256 lockedUntilBlock;
+    }
+
+    mapping(uint256 => uint256) public ayeWeighted;
+    mapping(uint256 => uint256) public nayWeighted;
+    mapping(uint256 => bool) public resolved;
+    mapping(uint256 => uint256) public slashCollected;
+    mapping(uint256 => mapping(address => Vote)) private _votes;
+    mapping(uint256 => uint256) public firstNayBlock;
+
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    event VoteCast(uint256 indexed campaignId, address indexed voter, bool aye, uint256 amount, uint8 conviction);
+    event VoteWithdrawn(uint256 indexed campaignId, address indexed voter, uint256 returned, uint256 slashed);
+    event CampaignEvaluated(uint256 indexed campaignId, uint8 result);
+
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    constructor(
+        address _campaigns,
+        uint256 _quorum,
+        uint256 _slashBps,
+        uint256 _terminationQuorum,
+        uint256 _terminationGraceBlocks
+    ) {
+        require(_campaigns != address(0), "E00");
+        owner = msg.sender;
+        campaigns = _campaigns;
+        quorumWeighted = _quorum;
+        slashBps = _slashBps;
+        terminationQuorum = _terminationQuorum;
+        terminationGraceBlocks = _terminationGraceBlocks;
+    }
+
+    receive() external payable {}
+
+    // -------------------------------------------------------------------------
+    // Admin
+    // -------------------------------------------------------------------------
+
+    function setSlashContract(address _slash) external {
+        require(msg.sender == owner, "E18");
+        require(slashContract == address(0), "E51");
+        slashContract = _slash;
+    }
+
+    function setLifecycle(address _lifecycle) external {
+        require(msg.sender == owner, "E18");
+        require(_lifecycle != address(0), "E00");
+        lifecycle = IDatumCampaignLifecycle(_lifecycle);
+    }
+
+    // -------------------------------------------------------------------------
+    // Voting
+    // -------------------------------------------------------------------------
+
+    function vote(uint256 campaignId, bool aye, uint8 conviction) external payable {
+        require(conviction >= 1 && conviction <= MAX_CONVICTION, "E40");
+        require(msg.value > 0, "E41");
+
+        Vote storage v = _votes[campaignId][msg.sender];
+        require(v.direction == 0, "E42");
+
+        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        require(status == 0 || status == 1, "E43");
+
+        uint256 weight = msg.value * CONVICTION_WEIGHT[conviction];
+        uint256 lockup = CONVICTION_LOCKUP[conviction];
+
+        v.direction = aye ? 1 : 2;
+        v.lockAmount = msg.value;
+        v.conviction = conviction;
+        v.lockedUntilBlock = block.number + lockup;
+
+        if (aye) {
+            ayeWeighted[campaignId] += weight;
+        } else {
+            nayWeighted[campaignId] += weight;
+            if (firstNayBlock[campaignId] == 0) {
+                firstNayBlock[campaignId] = block.number;
+            }
+        }
+
+        emit VoteCast(campaignId, msg.sender, aye, msg.value, conviction);
+    }
+
+    // -------------------------------------------------------------------------
+    // Withdrawal
+    // -------------------------------------------------------------------------
+
+    function withdraw(uint256 campaignId) external {
+        Vote storage v = _votes[campaignId][msg.sender];
+        require(v.direction != 0, "E44");
+        require(block.number >= v.lockedUntilBlock, "E45");
+
+        uint256 weight = v.lockAmount * CONVICTION_WEIGHT[v.conviction];
+        uint256 slash = 0;
+
+        if (v.direction == 1) {
+            ayeWeighted[campaignId] -= weight;
+        } else {
+            nayWeighted[campaignId] -= weight;
+        }
+
+        if (resolved[campaignId]) {
+            (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+            bool loser = (status == 3 && v.direction == 2)
+                      || (status == 4 && v.direction == 1);
+            if (loser) {
+                slash = v.lockAmount * slashBps / 10000;
+                slashCollected[campaignId] += slash;
+            }
+        }
+
+        uint256 refund = v.lockAmount - slash;
+
+        if (SYSTEM_ADDR.code.length > 0) {
+            uint256 minBal = SYSTEM.minimumBalance();
+            require(refund >= minBal, "E58");
+        }
+
+        v.direction = 0;
+        v.lockAmount = 0;
+        v.conviction = 0;
+        v.lockedUntilBlock = 0;
+
+        (bool ok,) = msg.sender.call{value: refund}("");
+        require(ok, "E02");
+
+        emit VoteWithdrawn(campaignId, msg.sender, refund, slash);
+    }
+
+    // -------------------------------------------------------------------------
+    // Evaluation
+    // -------------------------------------------------------------------------
+
+    function evaluateCampaign(uint256 campaignId) external {
+        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+
+        uint256 total = ayeWeighted[campaignId] + nayWeighted[campaignId];
+
+        if (status == 0) {
+            // Pending -> Active
+            require(total >= quorumWeighted, "E46");
+            require(ayeWeighted[campaignId] * 10000 > total * 5000, "E47");
+            IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
+            emit CampaignEvaluated(campaignId, 1);
+        } else if (status == 1 || status == 2) {
+            // Active/Paused -> Terminated (via Lifecycle)
+            require(total > 0, "E51");
+            require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
+            require(nayWeighted[campaignId] >= terminationQuorum, "E52");
+            require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + terminationGraceBlocks, "E53");
+            lifecycle.terminateCampaign(campaignId);
+            resolved[campaignId] = true;
+            emit CampaignEvaluated(campaignId, 4);
+        } else if (status == 3) {
+            // Completed -> mark resolved
+            require(!resolved[campaignId], "E49");
+            resolved[campaignId] = true;
+            emit CampaignEvaluated(campaignId, 3);
+        } else if (status == 4 && !resolved[campaignId]) {
+            // Terminated -> mark resolved
+            resolved[campaignId] = true;
+            emit CampaignEvaluated(campaignId, 4);
+        } else {
+            revert("E50");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Slash contract callback
+    // -------------------------------------------------------------------------
+
+    function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external {
+        require(msg.sender == slashContract, "E19");
+        if (action == 0) {
+            if (SYSTEM_ADDR.code.length > 0) {
+                uint256 minBal = SYSTEM.minimumBalance();
+                require(value >= minBal, "E58");
+            }
+            (bool ok,) = target.call{value: value}("");
+            require(ok, "E02");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Views
+    // -------------------------------------------------------------------------
+
+    function getVote(uint256 campaignId, address voter) external view returns (
+        uint8 direction, uint256 lockAmount, uint8 conviction, uint256 lockedUntilBlock
+    ) {
+        Vote storage v = _votes[campaignId][voter];
+        return (v.direction, v.lockAmount, v.conviction, v.lockedUntilBlock);
+    }
+
+    /// @notice Returns the weight multiplier for a conviction level.
+    ///         Used by GovernanceSlash to compute voter weight consistently.
+    function convictionWeight(uint8 conviction) external view returns (uint256) {
+        require(conviction >= 1 && conviction <= MAX_CONVICTION, "E40");
+        return CONVICTION_WEIGHT[conviction];
+    }
+}

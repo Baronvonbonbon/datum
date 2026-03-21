@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./interfaces/IDatumCampaignLifecycle.sol";
+import "./interfaces/IDatumCampaigns.sol";
+import "./interfaces/IDatumBudgetLedger.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
+
+/// @title DatumCampaignLifecycle
+/// @notice Handles campaign lifecycle transitions: complete, terminate, expire.
+///         Extracted from DatumCampaigns (alpha) to free PVM bytecode headroom.
+///
+///         Reads campaign state from DatumCampaigns, routes refunds through
+///         DatumBudgetLedger, and calls back to Campaigns to update status.
+///
+///         Termination: 10% slash to governance, 90% refund to advertiser.
+///         Completion/Expiry: full remaining budget refund to advertiser.
+contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
+    // -------------------------------------------------------------------------
+    // References
+    // -------------------------------------------------------------------------
+
+    address public owner;
+    IDatumCampaigns public campaigns;
+    IDatumBudgetLedger public budgetLedger;
+    IDatumPauseRegistry public pauseRegistry;
+    address public governanceContract;
+    address public settlementContract;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    constructor(address _pauseRegistry) {
+        require(_pauseRegistry != address(0), "E00");
+        owner = msg.sender;
+        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin
+    // -------------------------------------------------------------------------
+
+    function setCampaigns(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        campaigns = IDatumCampaigns(addr);
+    }
+
+    function setBudgetLedger(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        budgetLedger = IDatumBudgetLedger(addr);
+    }
+
+    function setGovernanceContract(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        governanceContract = addr;
+    }
+
+    function setSettlementContract(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        settlementContract = addr;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "E00");
+        owner = newOwner;
+    }
+
+    // -------------------------------------------------------------------------
+    // Lifecycle transitions
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IDatumCampaignLifecycle
+    /// @dev Advertiser or settlement (auto-complete) can call.
+    ///      Drains remaining budget to advertiser via BudgetLedger.
+    function completeCampaign(uint256 campaignId) external nonReentrant {
+        address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+        require(advertiser != address(0), "E01");
+        require(
+            msg.sender == advertiser || msg.sender == settlementContract,
+            "E13"
+        );
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(
+            status == IDatumCampaigns.CampaignStatus.Active ||
+            status == IDatumCampaigns.CampaignStatus.Paused,
+            "E14"
+        );
+
+        // Update status on Campaigns
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Completed);
+
+        // Drain remaining budget to advertiser
+        budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        emit CampaignCompleted(campaignId);
+    }
+
+    /// @inheritdoc IDatumCampaignLifecycle
+    /// @dev Called by GovernanceV2 directly (not via Campaigns).
+    ///      10% slash to governance, 90% refund to advertiser.
+    function terminateCampaign(uint256 campaignId) external nonReentrant {
+        require(!pauseRegistry.paused(), "P");
+        require(msg.sender == governanceContract, "E19");
+
+        address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+        require(advertiser != address(0), "E01");
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(
+            status == IDatumCampaigns.CampaignStatus.Active ||
+            status == IDatumCampaigns.CampaignStatus.Paused,
+            "E14"
+        );
+
+        // Record termination block + update status on Campaigns
+        campaigns.setTerminationBlock(campaignId, block.number);
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Terminated);
+
+        // 10% slash to governance
+        budgetLedger.drainFraction(campaignId, governanceContract, 1000);
+
+        // 90% remaining refund to advertiser
+        budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        emit CampaignTerminated(campaignId, block.number);
+    }
+
+    /// @inheritdoc IDatumCampaignLifecycle
+    /// @dev Callable by anyone once pendingExpiryBlock has passed.
+    function expirePendingCampaign(uint256 campaignId) external nonReentrant {
+        address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+        require(advertiser != address(0), "E01");
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(status == IDatumCampaigns.CampaignStatus.Pending, "E20");
+
+        uint256 expiryBlock = campaigns.getPendingExpiryBlock(campaignId);
+        require(block.number > expiryBlock, "E24");
+
+        // Update status on Campaigns
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Expired);
+
+        // Full refund to advertiser
+        budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        emit CampaignExpired(campaignId);
+    }
+}
