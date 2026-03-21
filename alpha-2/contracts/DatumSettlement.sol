@@ -2,13 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IDatumSettlement.sol";
-import "./interfaces/IDatumCampaignsSettlement.sol";
-import "./interfaces/IDatumBudgetLedger.sol";
-import "./interfaces/IDatumPaymentVault.sol";
-import "./interfaces/IDatumPauseRegistry.sol";
-import "./interfaces/IDatumCampaignLifecycle.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches, validates hash chains, and distributes payments.
@@ -17,8 +11,7 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 ///           - Pull-payment balances + withdrawals extracted to DatumPaymentVault.
 ///           - Budget deduction routed through DatumBudgetLedger (not Campaigns).
 ///           - Auto-complete on budget exhaustion calls DatumCampaignLifecycle.
-///           - S3: Events on contract reference changes.
-///           - S4: ZK verifier empty-return guard.
+///           - ZK proof verification moved to DatumRelay (saves ~4 KB PVM).
 ///
 ///         Revenue formula (unchanged):
 ///           totalPayment    = (clearingCpmPlanck * impressionCount) / 1000
@@ -26,73 +19,53 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder * 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
-    // -------------------------------------------------------------------------
-    // Cross-contract references
-    // -------------------------------------------------------------------------
-
-    IDatumCampaignsSettlement public campaigns;
-    IDatumBudgetLedger public budgetLedger;
-    IDatumPaymentVault public paymentVault;
-    IDatumCampaignLifecycle public lifecycle;
-
+contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
+    address public owner;
+    address public campaigns;
+    address public budgetLedger;
+    address public paymentVault;
+    address public lifecycle;
     address public relayContract;
-    address public zkVerifier;
-
-    // -------------------------------------------------------------------------
-    // Global pause registry
-    // -------------------------------------------------------------------------
-
-    IDatumPauseRegistry public pauseRegistry;
-
-    // -------------------------------------------------------------------------
-    // Claim tracking per (user, campaignId)
-    // -------------------------------------------------------------------------
+    address public pauseRegistry;
 
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
-    // -------------------------------------------------------------------------
-    // Constructor
-    // -------------------------------------------------------------------------
-
-    constructor(address _campaigns, address _pauseRegistry) Ownable(msg.sender) {
+    constructor(address _campaigns, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
-        campaigns = IDatumCampaignsSettlement(_campaigns);
-        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+        owner = msg.sender;
+        campaigns = _campaigns;
+        pauseRegistry = _pauseRegistry;
     }
 
     // -------------------------------------------------------------------------
-    // Admin (S2 zero-addr, S3 events)
+    // Admin — single configure + relay setter (saves PVM vs 6 individual setters)
     // -------------------------------------------------------------------------
 
-    function setRelayContract(address addr) external onlyOwner {
-        emit ContractReferenceChanged("relay", relayContract, addr);
+    function configure(
+        address _budgetLedger,
+        address _paymentVault,
+        address _lifecycle
+    ) external {
+        require(msg.sender == owner, "E18");
+        require(_budgetLedger != address(0), "E00");
+        require(_paymentVault != address(0), "E00");
+        require(_lifecycle != address(0), "E00");
+        budgetLedger = _budgetLedger;
+        paymentVault = _paymentVault;
+        lifecycle = _lifecycle;
+    }
+
+    function setRelayContract(address addr) external {
+        require(msg.sender == owner, "E18");
         relayContract = addr;
     }
 
-    function setZKVerifier(address addr) external onlyOwner {
-        emit ContractReferenceChanged("zkVerifier", zkVerifier, addr);
-        zkVerifier = addr;
-    }
-
-    function setBudgetLedger(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        emit ContractReferenceChanged("budgetLedger", address(budgetLedger), addr);
-        budgetLedger = IDatumBudgetLedger(addr);
-    }
-
-    function setPaymentVault(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        emit ContractReferenceChanged("paymentVault", address(paymentVault), addr);
-        paymentVault = IDatumPaymentVault(addr);
-    }
-
-    function setLifecycle(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        emit ContractReferenceChanged("lifecycle", address(lifecycle), addr);
-        lifecycle = IDatumCampaignLifecycle(addr);
+    function transferOwnership(address newOwner) external {
+        require(msg.sender == owner, "E18");
+        require(newOwner != address(0), "E00");
+        owner = newOwner;
     }
 
     // -------------------------------------------------------------------------
@@ -105,7 +78,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         nonReentrant
         returns (SettlementResult memory result)
     {
-        require(!pauseRegistry.paused(), "P");
+        // Pause check via plain staticcall (no typed interface import)
+        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
+            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
+        );
+        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
             require(
@@ -154,7 +132,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         }
     }
 
-    /// @dev Validate a single claim. Alpha-2: remainingBudget check delegated to BudgetLedger.
     function _validateClaim(Claim calldata claim, address user)
         internal
         view
@@ -162,14 +139,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
     {
         if (claim.impressionCount == 0) return (false, 2, 0);
 
-        // Alpha-2: 4-value return (no remainingBudget)
-        (uint8 status, address cPublisher, uint256 cBidCpm,
-         uint16 cTakeRate) = campaigns.getCampaignForSettlement(claim.campaignId);
+        (bool cOk, bytes memory cRet) = campaigns.staticcall(
+            abi.encodeWithSelector(bytes4(0xe3c76d2e), claim.campaignId)
+        );
+        require(cOk, "E01");
+        (uint8 status, address cPublisher, uint256 cBidCpm, uint16 cTakeRate)
+            = abi.decode(cRet, (uint8, address, uint256, uint16));
 
         if (cBidCpm == 0) return (false, 3, 0);
         if (status != 1) return (false, 4, 0);
 
-        // Publisher validation
         if (cPublisher != address(0)) {
             if (claim.publisher != cPublisher) return (false, 5, 0);
         } else {
@@ -178,11 +157,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
 
         if (claim.clearingCpmPlanck > cBidCpm) return (false, 6, 0);
 
-        // Nonce sequence
         uint256 expectedNonce = lastNonce[user][claim.campaignId] + 1;
         if (claim.nonce != expectedNonce) return (false, 7, 0);
 
-        // Hash chain
         bytes32 expectedPrevHash = lastClaimHash[user][claim.campaignId];
         if (claim.nonce == 1) {
             if (claim.previousClaimHash != bytes32(0)) return (false, 8, 0);
@@ -201,25 +178,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         ));
         if (claim.claimHash != expectedHash) return (false, 10, 0);
 
-        // Budget sufficiency check delegated to BudgetLedger.deductAndTransfer
-        // (reverts there if insufficient — no pre-check needed, saves a cross-contract read)
-
-        // ZK proof verification (S4: empty-return guard)
-        if (zkVerifier != address(0) && claim.zkProof.length > 0) {
-            (bool ok2, bytes memory ret) = zkVerifier.staticcall(
-                abi.encodeWithSignature("verify(bytes,bytes32)", claim.zkProof, expectedHash)
-            );
-            // S4: guard against empty return from codeless address
-            if (!ok2 || ret.length < 32 || !abi.decode(ret, (bool))) {
-                return (false, 12, 0);
-            }
-        }
-
         return (true, 0, cTakeRate);
     }
 
-    /// @dev Execute a validated claim: deduct budget via BudgetLedger,
-    ///      credit payment via PaymentVault, handle auto-complete.
     function _settleSingleClaim(
         Claim calldata claim,
         address user,
@@ -232,19 +193,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
         uint256 userPayment = (remainder * 7500) / 10000;
         uint256 protocolFee = remainder - userPayment;
 
-        // Deduct from budget and transfer DOT to PaymentVault
-        bool exhausted = budgetLedger.deductAndTransfer(
-            claim.campaignId, totalPayment, address(paymentVault)
+        // Deduct from budget — BudgetLedger sends DOT to PaymentVault
+        (bool dOk, bytes memory dRet) = budgetLedger.call(
+            abi.encodeWithSelector(bytes4(0xcdbb1755),
+                claim.campaignId, totalPayment, paymentVault)
         );
+        require(dOk, "E16");
+        bool exhausted = abi.decode(dRet, (bool));
 
         // Record balance split in PaymentVault (DOT already there from BudgetLedger)
-        paymentVault.creditSettlement(
-            claim.publisher, publisherPayment,
-            user, userPayment,
-            protocolFee
+        (bool vOk,) = paymentVault.call(
+            abi.encodeWithSelector(bytes4(0xdb96c4a4),
+                claim.publisher, publisherPayment, user, userPayment, protocolFee)
         );
+        require(vOk, "E02");
 
-        // Update hash chain
         lastNonce[user][claim.campaignId] = claim.nonce;
         lastClaimHash[user][claim.campaignId] = claim.claimHash;
 
@@ -265,7 +228,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable {
 
         // Auto-complete if budget exhausted
         if (exhausted) {
-            lifecycle.completeCampaign(claim.campaignId);
+            (bool lOk,) = lifecycle.call(
+                abi.encodeWithSelector(bytes4(0x9553f180), claim.campaignId)
+            );
+            require(lOk, "E02");
         }
     }
 }

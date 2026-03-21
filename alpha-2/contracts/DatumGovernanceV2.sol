@@ -29,25 +29,29 @@ contract DatumGovernanceV2 {
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
     // -------------------------------------------------------------------------
-    // Conviction lookup tables (logarithmic weight, escalating lockup)
+    // Conviction lookup (hardcoded — no storage arrays, saves PVM bytecode)
     // Polkadot Hub: 6-second block time, 14,400 blocks/day
+    //   1 →  1x /   7d    2 →  3x /  30d    3 →  6x /  90d
+    //   4 → 10x / 180d    5 → 15x / 270d    6 → 21x / 365d
     // -------------------------------------------------------------------------
 
-    // Weight multipliers: conviction → multiplier (index 0 unused)
-    // 1x, 3x, 6x, 10x, 15x, 21x — each step costs more lockup per unit of weight
-    uint256[7] private CONVICTION_WEIGHT = [0, 1, 3, 6, 10, 15, 21];
+    function _weight(uint8 c) internal pure returns (uint256) {
+        if (c == 1) return 1;
+        if (c == 2) return 3;
+        if (c == 3) return 6;
+        if (c == 4) return 10;
+        if (c == 5) return 15;
+        return 21; // c == 6
+    }
 
-    // Lockup in blocks: conviction → blocks (index 0 unused)
-    // 7d, 30d, 90d, 180d, 270d, 365d — smooth escalation to 1-year max
-    uint256[7] private CONVICTION_LOCKUP = [
-        0,         // 0: unused (conviction starts at 1)
-        100800,    // 1: 7 days
-        432000,    // 2: 30 days
-        1296000,   // 3: 90 days
-        2592000,   // 4: 180 days
-        3888000,   // 5: 270 days
-        5256000    // 6: 365 days
-    ];
+    function _lockup(uint8 c) internal pure returns (uint256) {
+        if (c == 1) return 100800;
+        if (c == 2) return 432000;
+        if (c == 3) return 1296000;
+        if (c == 4) return 2592000;
+        if (c == 5) return 3888000;
+        return 5256000; // c == 6
+    }
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -141,8 +145,8 @@ contract DatumGovernanceV2 {
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         require(status == 0 || status == 1, "E43");
 
-        uint256 weight = msg.value * CONVICTION_WEIGHT[conviction];
-        uint256 lockup = CONVICTION_LOCKUP[conviction];
+        uint256 weight = msg.value * _weight(conviction);
+        uint256 lockup = _lockup(conviction);
 
         v.direction = aye ? 1 : 2;
         v.lockAmount = msg.value;
@@ -170,7 +174,7 @@ contract DatumGovernanceV2 {
         require(v.direction != 0, "E44");
         require(block.number >= v.lockedUntilBlock, "E45");
 
-        uint256 weight = v.lockAmount * CONVICTION_WEIGHT[v.conviction];
+        uint256 weight = v.lockAmount * _weight(v.conviction);
         uint256 slash = 0;
 
         if (v.direction == 1) {
@@ -274,8 +278,8 @@ contract DatumGovernanceV2 {
 
     /// @notice Returns the weight multiplier for a conviction level.
     ///         Used by GovernanceSlash to compute voter weight consistently.
-    function convictionWeight(uint8 conviction) external view returns (uint256) {
+    function convictionWeight(uint8 conviction) external pure returns (uint256) {
         require(conviction >= 1 && conviction <= MAX_CONVICTION, "E40");
-        return CONVICTION_WEIGHT[conviction];
+        return _weight(conviction);
     }
 }

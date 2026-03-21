@@ -1,0 +1,29 @@
+{
+  "name": "datum-alpha-2",
+  "version": "0.2.0",
+  "description": "DATUM Alpha-2 — restructured contracts for PolkaVM (resolc 1.0)",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "compile:polkavm": "npx hardhat compile --network polkadotHub",
+    "test": "npx hardhat test",
+    "test:coverage": "npx hardhat coverage",
+    "deploy:local": "npx hardhat run scripts/deploy.ts --network hardhat",
+    "deploy:polkavm": "npx hardhat run scripts/deploy.ts --network polkadotHub",
+    "deploy:testnet": "npx hardhat run scripts/deploy.ts --network polkadotTestnet",
+    "setup:testnet": "npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@parity/hardhat-polkadot": "^0.2.7",
+    "@parity/hardhat-polkadot-node": "^0.2.5",
+    "@parity/hardhat-polkadot-resolc": "^0.2.3",
+    "@parity/resolc": "^1.0.0",
+    "hardhat": "^2.22.0",
+    "solc": "0.8.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}

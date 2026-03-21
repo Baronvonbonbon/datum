@@ -62,8 +62,6 @@ interface IDatumSettlement {
         uint256 nonce,
         uint8 reasonCode
     );
-    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
-
     // -------------------------------------------------------------------------
     // Settlement
     // -------------------------------------------------------------------------

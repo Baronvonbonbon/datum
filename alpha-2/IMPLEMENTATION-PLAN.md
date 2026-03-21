@@ -557,22 +557,29 @@ The 132 existing Hardhat tests cover the same functionality. After restructuring
 
 ## 13. Estimated PVM Budget After Restructuring
 
-| Contract | Alpha (current) | Alpha-2 (est.) | Spare (est.) | Status |
-|----------|----------------|----------------|-------------|--------|
+| Contract | Alpha (current) | Alpha-2 (actual) | Spare | Status |
+|----------|----------------|-------------------|-------|--------|
 | PauseRegistry | 4,047 | 4,047 | 45,105 | Unchanged |
 | Timelock | 18,342 | 18,342 | 30,810 | Unchanged |
-| Publishers | 22,614 | 22,614 | 26,538 | Unchanged |
-| **Campaigns (Core)** | **48,662** | **~28,000** | **~21,000** | Restructured |
-| GovernanceV2 | 39,693 | 39,693 | 9,459 | Unchanged |
-| GovernanceSlash | 30,298 | ~31,800 | ~17,350 | +sweep |
-| **Settlement** | **48,820** | **~38,000** | **~11,000** | Restructured |
-| Relay | 46,180 | 46,180 | 2,972 | Unchanged |
+| Publishers | 22,614 | 22,813 | 26,339 | Unchanged |
+| **Campaigns (Core)** | **48,662** | **38,564** | **10,588** | Restructured |
+| GovernanceV2 | 39,693 | 43,671 | 5,481 | +logarithmic conviction |
+| GovernanceSlash | 30,298 | 36,520 | 12,632 | +sweep |
+| **Settlement** | **48,820** | **43,132** | **6,020** | Restructured, ZK→Relay |
+| Relay | 46,180 | 46,178 | 2,974 | Unchanged |
 | ZKVerifier | 1,409 | 1,409 | 47,743 | Unchanged |
-| **PaymentVault** | — | **~18,000** | **~31,000** | New |
-| **BudgetLedger** | — | **~22,000** | **~27,000** | New |
-| **CampaignLifecycle** | — | **~24,000** | **~25,000** | New |
+| **PaymentVault** | — | **16,062** | **33,090** | New |
+| **BudgetLedger** | — | **22,345** | **26,807** | New |
+| **CampaignLifecycle** | — | **30,197** | **18,955** | New |
 
-**Total PVM across 12 contracts:** ~294,000 B (vs ~260,000 B across 9 contracts currently). The 34,000 B increase in total bytecode is traded for ~32,000 B of freed headroom in the two critical contracts.
+**Total PVM across 12 contracts:** 323,280 B (vs ~260,000 B across 9 contracts in alpha). Total spare headroom in Campaigns+Settlement: 16,608 B (vs 822 B in alpha). All contracts well under the 49,152 B limit.
+
+**PVM size optimization notes:**
+- Settlement ZK verification moved to DatumRelay (post-alpha, when real Groth16 is ready). Saved ~4 KB.
+- Settlement admin setters consolidated into single `configure()`. Saved ~2 KB.
+- Settlement pauseRegistry changed from typed interface to plain address + inline staticcall. Saved ~3 KB.
+- GovernanceV2 conviction weights/lockups hardcoded as if/else chains (no storage arrays). Saved ~2.7 KB vs array approach.
+- All cross-contract references stored as plain `address` (no typed interface variables).
 
 ---
 
