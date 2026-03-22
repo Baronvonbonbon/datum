@@ -16,15 +16,17 @@ import "./interfaces/ISystem.sol";
 ///             disproportionately more locked time per unit of voting weight gained.
 ///
 ///         Conviction table (6s blocks, 14,400 blocks/day):
-///           0 →  1x weight,    0 lock  (        0 blocks) — instant withdraw
-///           1 →  1x weight,  24h lock  (   14,400 blocks) — skin in the game
-///           2 →  2x weight,  72h lock  (   43,200 blocks) —  1.5 days/x
-///           3 →  3x weight,   7d lock  (  100,800 blocks) —  2.3 days/x
-///           4 →  5x weight,  30d lock  (  432,000 blocks) —  6.0 days/x
-///           5 →  8x weight,  90d lock  (1,296,000 blocks) — 11.3 days/x
-///           6 → 12x weight, 180d lock  (2,592,000 blocks) — 15.0 days/x
-///           7 → 16x weight, 270d lock  (3,888,000 blocks) — 16.9 days/x
-///           8 → 21x weight, 365d lock  (5,256,000 blocks) — 17.4 days/x
+///           Low levels are cheap (casual participation), upper levels have
+///           escalating lockup cost per unit of weight (true conviction).
+///           0 →  1x weight,    0d lock (        0 blocks) — instant withdraw
+///           1 →  2x weight,    1d lock (   14,400 blocks) — low-risk entry
+///           2 →  3x weight,    3d lock (   43,200 blocks) — weekend lock
+///           3 →  4x weight,    7d lock (  100,800 blocks) — one week
+///           4 →  6x weight,   21d lock (  302,400 blocks) — three weeks
+///           5 →  9x weight,   90d lock (1,296,000 blocks) — quarter
+///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
+///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
+///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
 contract DatumGovernanceV2 {
     uint8 public constant MAX_CONVICTION = 8;
 
@@ -34,20 +36,21 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
     // Conviction lookup (hardcoded — no storage arrays, saves PVM bytecode)
     // Polkadot Hub: 6-second block time, 14,400 blocks/day
-    //   0 →  1x /   0     1 →  1x / 24h    2 →  2x / 72h
-    //   3 →  3x /   7d    4 →  5x / 30d    5 →  8x / 90d
-    //   6 → 12x / 180d    7 → 16x / 270d   8 → 21x / 365d
+    // Escalating cost: low levels cheap, high levels require true conviction
+    //   0 →  1x /   0d    1 →  2x /   1d   2 →  3x /   3d
+    //   3 →  4x /   7d    4 →  6x /  21d   5 →  9x /  90d
+    //   6 → 14x / 180d    7 → 18x / 270d   8 → 21x / 365d
     // -------------------------------------------------------------------------
 
     function _weight(uint8 c) internal pure returns (uint256) {
         if (c == 0) return 1;
-        if (c == 1) return 1;
-        if (c == 2) return 2;
-        if (c == 3) return 3;
-        if (c == 4) return 5;
-        if (c == 5) return 8;
-        if (c == 6) return 12;
-        if (c == 7) return 16;
+        if (c == 1) return 2;
+        if (c == 2) return 3;
+        if (c == 3) return 4;
+        if (c == 4) return 6;
+        if (c == 5) return 9;
+        if (c == 6) return 14;
+        if (c == 7) return 18;
         return 21; // c == 8
     }
 
@@ -56,7 +59,7 @@ contract DatumGovernanceV2 {
         if (c == 1) return 14400;
         if (c == 2) return 43200;
         if (c == 3) return 100800;
-        if (c == 4) return 432000;
+        if (c == 4) return 302400;
         if (c == 5) return 1296000;
         if (c == 6) return 2592000;
         if (c == 7) return 3888000;

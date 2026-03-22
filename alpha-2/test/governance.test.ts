@@ -31,9 +31,10 @@ describe("DatumGovernanceV2", function () {
   const GRACE_PER_QUORUM = 20n;          // additional grace blocks per quorum-unit
   const MAX_GRACE = 50n;                 // cap on grace period
 
-  // Alpha-2 conviction curve: weights [1,1,2,3,5,8,12,16,21], lockups [0,24h,72h,7d,30d,90d,180d,270d,365d]
-  const WEIGHTS = [1n, 1n, 2n, 3n, 5n, 8n, 12n, 16n, 21n];
-  const LOCKUPS = [0n, 14400n, 43200n, 100800n, 432000n, 1296000n, 2592000n, 3888000n, 5256000n];
+  // Alpha-2 conviction curve: escalating cost, low levels cheap, high = true conviction
+  // Weights [1,2,3,4,6,9,14,18,21], Lockups [0,1d,3d,7d,21d,90d,180d,270d,365d]
+  const WEIGHTS = [1n, 2n, 3n, 4n, 6n, 9n, 14n, 18n, 21n];
+  const LOCKUPS = [0n, 14400n, 43200n, 100800n, 302400n, 1296000n, 2592000n, 3888000n, 5256000n];
 
   let nextCid = 1n;
 
@@ -112,7 +113,7 @@ describe("DatumGovernanceV2", function () {
     ).to.be.revertedWith("E42");
   });
 
-  it("V4: conviction weights match logarithmic curve [1,1,2,3,5,8,12,16,21]", async function () {
+  it("V4: conviction weights match escalating curve [1,2,3,4,6,9,14,18,21]", async function () {
     for (let c = 0; c <= 8; c++) {
       const cid = await setupCampaign(0);
       const stake = parseDOT("1");
@@ -157,7 +158,7 @@ describe("DatumGovernanceV2", function () {
   it("W1: withdraw after lockup returns full stake (unresolved)", async function () {
     const cid = await setupCampaign(0);
     const stake = parseDOT("1");
-    await v2.connect(voter1).vote(cid, true, 1, { value: stake }); // conv 1 = 14400 blocks
+    await v2.connect(voter1).vote(cid, true, 1, { value: stake }); // conv 1 = 14400 blocks (24h)
 
     // Mine past lockup
     await mineBlocks(14401);
@@ -173,7 +174,7 @@ describe("DatumGovernanceV2", function () {
 
   it("W2: withdraw before lockup reverts E45", async function () {
     const cid = await setupCampaign(0);
-    await v2.connect(voter1).vote(cid, true, 2, { value: parseDOT("1") }); // conv 2 = 43200 blocks
+    await v2.connect(voter1).vote(cid, true, 2, { value: parseDOT("1") }); // conv 2 = 43200 blocks (3d)
 
     await expect(
       v2.connect(voter1).withdraw(cid)

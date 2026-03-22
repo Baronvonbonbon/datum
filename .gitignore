@@ -14,5 +14,11 @@ alpha/test-accounts.json
 alpha-extension/node_modules/
 alpha-extension/dist/
 alpha/DEPLOY-TESTNET.md
+alpha-2/node_modules/
+alpha-2/artifacts/
+alpha-2/cache/
+alpha-2/typechain-types/
+alpha-2/extension/node_modules/
+alpha-2/extension/dist/
 relay-bot/
 ref/
