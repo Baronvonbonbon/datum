@@ -1,6 +1,7 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./DatumGovernanceV2.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 
@@ -9,7 +10,8 @@ import "./interfaces/IDatumCampaignsMinimal.sol";
 ///
 ///         Alpha-2: getCampaignForSettlement returns 4 values (no remainingBudget).
 ///         M4: sweepSlashPool() — permissionless sweep of unclaimed slash after deadline.
-contract DatumGovernanceSlash {
+///         Hardening: ReentrancyGuard on claim/sweep (value transfer via slashAction).
+contract DatumGovernanceSlash is ReentrancyGuard {
     address public voting;
     address public campaigns;
     address public owner;
@@ -33,8 +35,8 @@ contract DatumGovernanceSlash {
 
     /// @notice Snapshot winning side weight after resolution
     function finalizeSlash(uint256 campaignId) external {
-        require(!finalized[campaignId], "E52");
-        require(DatumGovernanceV2(payable(voting)).resolved(campaignId), "E53");
+        require(!finalized[campaignId], "E59");
+        require(DatumGovernanceV2(payable(voting)).resolved(campaignId), "E60");
 
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         uint256 w;
@@ -50,7 +52,7 @@ contract DatumGovernanceSlash {
     }
 
     /// @notice Winner claims proportional share of collected slash
-    function claimSlashReward(uint256 campaignId) external {
+    function claimSlashReward(uint256 campaignId) external nonReentrant {
         require(finalized[campaignId], "E54");
         require(!claimed[campaignId][msg.sender], "E55");
 
@@ -66,9 +68,9 @@ contract DatumGovernanceSlash {
 
         uint256 voterWeight = lockAmount * DatumGovernanceV2(payable(voting)).convictionWeight(conviction);
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
-        require(winningWeight[campaignId] > 0, "E03");
+        require(winningWeight[campaignId] > 0, "E61");
         uint256 share = pool * voterWeight / winningWeight[campaignId];
-        require(share > 0, "E03");
+        require(share > 0, "E61");
 
         claimed[campaignId][msg.sender] = true;
 
@@ -77,12 +79,12 @@ contract DatumGovernanceSlash {
 
     /// @notice M4: Sweep unclaimed slash pool after deadline. Permissionless.
     ///         Sends remaining funds to protocol owner.
-    function sweepSlashPool(uint256 campaignId) external {
+    function sweepSlashPool(uint256 campaignId) external nonReentrant {
         require(finalized[campaignId], "E54");
         require(block.number >= finalizedBlock[campaignId] + SWEEP_DEADLINE_BLOCKS, "E24");
 
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
-        require(pool > 0, "E03");
+        require(pool > 0, "E61");
 
         // Transfer remaining pool to owner (protocol treasury)
         DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, owner, pool);

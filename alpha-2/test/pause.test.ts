@@ -53,7 +53,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     pauseReg = await PauseFactory.deploy();
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
-    publishers = await PublishersFactory.deploy(50n);
+    publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
 
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
@@ -180,6 +180,26 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     await campaigns.getCampaignStatus(1n);
     await campaigns.getCampaignForSettlement(1n);
     expect(await pauseReg.paused()).to.be.true;
+  });
+
+  // P9: Publishers respects global pause (S5 fix)
+  it("P9: registerPublisher reverts when globally paused", async function () {
+    await pauseReg.pause();
+
+    await expect(
+      publishers.connect(other).registerPublisher(5000)
+    ).to.be.revertedWith("P");
+  });
+
+  it("P10: setCategories reverts when globally paused", async function () {
+    // Register first while unpaused
+    await publishers.connect(other).registerPublisher(5000);
+
+    await pauseReg.pause();
+
+    await expect(
+      publishers.connect(other).setCategories(1n)
+    ).to.be.revertedWith("P");
   });
 
   // T5: PauseRegistry idempotency

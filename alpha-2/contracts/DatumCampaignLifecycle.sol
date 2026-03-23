@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -33,6 +33,8 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         _;
     }
 
+    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -49,21 +51,25 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
     function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("campaigns", address(campaigns), addr);
         campaigns = IDatumCampaigns(addr);
     }
 
     function setBudgetLedger(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("budgetLedger", address(budgetLedger), addr);
         budgetLedger = IDatumBudgetLedger(addr);
     }
 
     function setGovernanceContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("governance", governanceContract, addr);
         governanceContract = addr;
     }
 
     function setSettlementContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("settlement", settlementContract, addr);
         settlementContract = addr;
     }
 

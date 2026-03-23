@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 /// @title IDatumPublishers
@@ -27,4 +27,11 @@ interface IDatumPublishers {
     function getCategories(address publisher) external view returns (uint256);
     function takeRateUpdateDelayBlocks() external view returns (uint256);
     function DEFAULT_TAKE_RATE_BPS() external view returns (uint16);
+
+    // S12: Global blocklist
+    function isBlocked(address addr) external view returns (bool);
+
+    // S12: Per-publisher allowlist
+    function allowlistEnabled(address publisher) external view returns (bool);
+    function isAllowedAdvertiser(address publisher, address advertiser) external view returns (bool);
 }

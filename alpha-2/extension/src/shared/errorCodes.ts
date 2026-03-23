@@ -1,5 +1,5 @@
 // Human-readable error messages for DATUM on-chain error codes.
-// Contract error strings are 2-3 chars (E00-E58, P) to minimize PVM bytecode.
+// Contract error strings are 2-3 chars (E00-E63, P) to minimize PVM bytecode.
 
 const ERROR_CODES: Record<string, string> = {
   // General
@@ -57,9 +57,9 @@ const ERROR_CODES: Record<string, string> = {
   E50: "Campaign in unexpected status for evaluation.",
   E51: "Cannot evaluate with zero total votes.",
 
-  // Termination protection (anti-grief) / Governance Slash
-  E52: "Termination quorum not met (nay stake too low), or slash already finalized.",
-  E53: "Termination grace period not elapsed (~24h from first nay vote), or campaign not yet resolved for slash.",
+  // Termination protection (anti-grief)
+  E52: "Termination quorum not met (nay stake too low).",
+  E53: "Termination grace period not elapsed (~24h from first nay vote).",
   E54: "Slash must be finalized before claiming reward.",
   E55: "Slash reward already claimed.",
   E56: "Not on the winning side.",
@@ -67,6 +67,15 @@ const ERROR_CODES: Record<string, string> = {
   // System
   E57: "Transaction conflict (reentrancy). Try again.",
   E58: "Amount below existential deposit (dust).",
+
+  // Governance Slash (deduped from E52/E53/E03)
+  E59: "Slash already finalized for this campaign.",
+  E60: "Campaign not yet resolved (cannot finalize slash).",
+  E61: "No slash pool to claim or sweep (zero balance).",
+
+  // S12: Blocklist & Allowlist
+  E62: "Address is blocked (advertiser or publisher on protocol deny list).",
+  E63: "Advertiser not on publisher's allowlist.",
   P: "System is globally paused.",
 };
 

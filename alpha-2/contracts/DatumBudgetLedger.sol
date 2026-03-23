@@ -1,6 +1,7 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 
 /// @title DatumBudgetLedger
@@ -13,7 +14,10 @@ import "./interfaces/IDatumBudgetLedger.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site to avoid resolc codegen bug.
-contract DatumBudgetLedger is IDatumBudgetLedger {
+///
+///         Hardening: ReentrancyGuard on all value-transfer paths,
+///         ContractReferenceChanged events on admin setters.
+contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     // -------------------------------------------------------------------------
     // Authorization
     // -------------------------------------------------------------------------
@@ -42,6 +46,12 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
     mapping(uint256 => Budget) private _budgets;
 
     // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+
+    // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
@@ -55,16 +65,19 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
 
     function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("campaigns", campaigns, addr);
         campaigns = addr;
     }
 
     function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("settlement", settlement, addr);
         settlement = addr;
     }
 
     function setLifecycle(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        emit ContractReferenceChanged("lifecycle", lifecycle, addr);
         lifecycle = addr;
     }
 
@@ -102,7 +115,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
     /// @inheritdoc IDatumBudgetLedger
     function deductAndTransfer(
         uint256 campaignId, uint256 amount, address recipient
-    ) external returns (bool exhausted) {
+    ) external nonReentrant returns (bool exhausted) {
         require(msg.sender == settlement, "E25");
 
         Budget storage b = _budgets[campaignId];
@@ -135,7 +148,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
     /// @inheritdoc IDatumBudgetLedger
     function drainToAdvertiser(
         uint256 campaignId, address advertiser
-    ) external returns (uint256 drained) {
+    ) external nonReentrant returns (uint256 drained) {
         require(msg.sender == lifecycle, "E25");
 
         drained = _budgets[campaignId].remaining;
@@ -151,7 +164,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
     /// @inheritdoc IDatumBudgetLedger
     function drainFraction(
         uint256 campaignId, address recipient, uint256 bps
-    ) external returns (uint256 amount) {
+    ) external nonReentrant returns (uint256 amount) {
         require(msg.sender == lifecycle, "E25");
         require(bps <= 10000, "E16");
 
@@ -162,6 +175,32 @@ contract DatumBudgetLedger is IDatumBudgetLedger {
         if (amount > 0) {
             _send(recipient, amount);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Dust sweep (M4) — permissionless, terminal campaigns only
+    // -------------------------------------------------------------------------
+
+    event DustSwept(uint256 indexed campaignId, address recipient, uint256 amount);
+
+    /// @notice Sweep rounding dust from terminal campaigns to protocol owner.
+    ///         Permissionless — anyone can call. Only works when remaining > 0
+    ///         and campaign status is Completed (3), Terminated (4), or Expired (5).
+    function sweepDust(uint256 campaignId) external nonReentrant {
+        uint256 dust = _budgets[campaignId].remaining;
+        require(dust > 0, "E03");
+
+        // Check campaign is terminal via staticcall to getCampaignStatus
+        (bool ok, bytes memory ret) = campaigns.staticcall(
+            abi.encodeWithSignature("getCampaignStatus(uint256)", campaignId)
+        );
+        require(ok && ret.length >= 32, "E01");
+        uint8 status = abi.decode(ret, (uint8));
+        require(status >= 3, "E14");  // 3=Completed, 4=Terminated, 5=Expired
+
+        _budgets[campaignId].remaining = 0;
+        emit DustSwept(campaignId, owner, dust);
+        _send(owner, dust);
     }
 
     // -------------------------------------------------------------------------

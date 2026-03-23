@@ -1,8 +1,8 @@
 # DATUM — Complete Feature Backlog
 
-**Version:** 1.0
-**Date:** 2026-03-20
-**Scope:** Every deferred, incomplete, planned, sacrificed, or missing feature from the alpha build, collected from all project documentation, code annotations, and design reviews.
+**Version:** 1.1
+**Date:** 2026-03-23 (updated from 1.0 / 2026-03-20)
+**Scope:** Every deferred, incomplete, planned, sacrificed, or missing feature from the alpha-2 build, collected from all project documentation, code annotations, process flow analysis, and design reviews.
 
 ---
 
@@ -28,48 +28,50 @@
 
 Items required to close out the alpha testing phase.
 
-| # | Item | Source | Description |
-|---|------|--------|-------------|
-| 1.1 | **Browser E2E on Paseo (A3.4)** | ALPHA.md, RELEASE-CANDIDATE.md | Load extension in Chrome, create campaign with real IPFS metadata, vote to activate, browse to trigger ad display, submit claims via relay, verify on-chain settlement, withdraw earnings. |
-| 1.2 | **Open testing (A3.5)** | ALPHA.md, RELEASE-CANDIDATE.md | Publish testnet addresses publicly, write external tester instructions (faucet, install, registration, campaign creation, earning, governance), monitor contract events for unexpected patterns. |
-| 1.3 | **Gate GA: IPFS round-trip** | RELEASE-CANDIDATE.md | Verify IPFS metadata round-trip end-to-end on Paseo (pin → fetch → render in ad slot). |
-| 1.4 | **Gate GA: External testers** | RELEASE-CANDIDATE.md | At least 3 external testers complete the full flow. |
-| 1.5 | **Gate GA: Stability** | RELEASE-CANDIDATE.md | No critical bugs in first 7 days of operation. |
-| 1.6 | **Claim export/import test procedure** | ALPHA.md (A2.2/L6) | Add manual test procedure to README for P6 encrypted export/import round-trip. |
-| 1.7 | **Benchmark `settleClaimsFor()` gas** | MVP.md (1.6) | Update benchmark script to measure relay settlement gas cost vs direct `settleClaims()`. |
+| # | Item | Source | Status | Description |
+|---|------|--------|--------|-------------|
+| 1.1 | **Browser E2E on Paseo (A3.4)** | ALPHA.md, RELEASE-CANDIDATE.md | **DONE** | ~~Load extension in Chrome, create campaign with real IPFS metadata, vote to activate, browse to trigger ad display, submit claims via relay, verify on-chain settlement, withdraw earnings.~~ All key points pass. |
+| 1.2 | **Relay round-trip fix** | PROCESS-FLOWS.md §10.1 | **BLOCKED** | Extension `signForRelay()` stores signed batches in `chrome.storage.local` but **never POSTs to relay bot's `/relay/submit`**. The relay bot endpoint works but has zero callers. Must fix `ClaimQueue.tsx` to POST signed batches to publisher relay URL after signing. |
+| 1.3 | **Gate GA: IPFS round-trip** | RELEASE-CANDIDATE.md | **DONE** | ~~Verify IPFS metadata round-trip end-to-end on Paseo.~~ |
+| 1.4 | **Gate GA: External testers** | RELEASE-CANDIDATE.md | Open | At least 3 external testers complete the full flow. |
+| 1.5 | **Gate GA: Stability** | RELEASE-CANDIDATE.md | Open | No critical bugs in first 7 days of operation. |
+| 1.6 | **Claim export/import test procedure** | ALPHA.md (A2.2/L6) | Open | Cross-device verification pending. |
+| 1.7 | **Benchmark `settleClaimsFor()` gas** | MVP.md (1.6) | Open | Full relay vs direct comparison pending. |
+| 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | Open | Update `deploy.ts` for 12-contract deploy + wiring. Alpha scripts target 9 contracts. |
+| 1.9 | **Alpha-2 testnet deploy** | CHANGELOG.md | Open | Deploy alpha-2 (12 contracts) to Paseo, run E2E validation. |
 
 ---
 
-## 2. Contract Hardening — PVM Size Blocked
+## 2. Contract Hardening
 
-Hardening items deferred because DatumCampaigns (490 B spare) and DatumSettlement (332 B spare) cannot absorb additional PVM bytecode.
+Items previously blocked by PVM size constraints. Alpha-2 restructuring freed headroom. Hardening pass applied 2026-03-22, S12 blocklist 2026-03-23. **7 of 8 items complete.**
 
-| ID | Item | Contracts Affected | Spare Available | Risk |
-|----|------|--------------------|-----------------|------|
-| S2 | **Zero-address checks on contract reference setters** — `setSettlementContract()`, `setGovernanceContract()`, `setRelayContract()`, `setZKVerifier()` accept `address(0)`. Misconfigured timelock proposal could brick contracts. Exception: `setZKVerifier(address(0))` is valid (disables ZK). | Campaigns, Settlement | 490 B, 332 B | Medium — admin misconfiguration vector |
-| S3 | **Events on contract reference changes** — no events emitted for `setSettlementContract()`, `setGovernanceContract()`, etc. Off-chain monitoring cannot detect wiring changes. Each `emit` adds ~200-400 B PVM. | Campaigns, Settlement, Timelock | 490 B, 332 B | Low — monitoring gap |
-| S4 | **ZK verification accepts empty return** — `ok2=true` but `ret.length < 32` silently passes. Malicious or broken verifier returning empty bytes bypasses ZK checks. | Settlement | 332 B | Low (stub verifier) — **must fix before real ZK** |
-| S5 | **DatumPublishers dual pause** — uses OZ `Pausable` (local) rather than `pauseRegistry.paused()` (global). Two independent pause states. | Publishers | 26,538 B (plenty) | Low — inconsistency, not vulnerability |
-| S7 | **Error code E03 reused** — same code for 3 different conditions across GovernanceSlash and Settlement. | GovernanceSlash, Settlement | — | Low — debugging confusion |
-| C-M3 | **Inconsistent reentrancy guard** — Campaigns uses manual `_locked` bool; Settlement uses OZ `nonReentrant`. | Campaigns | 490 B | Low — functionally equivalent |
-| M4 | **Governance sweep of abandoned funds** — unclaimed slash rewards (GovernanceSlash) have no expiry; completed/terminated campaigns with rounding dust have no reclaim path. Two-contract sweep pattern designed but Campaigns too tight. | GovernanceSlash (18,854 B spare), Campaigns (490 B spare) | Mixed | Medium — funds permanently locked |
-| S12 | **On-chain publisher/advertiser blocklist** — extension-only filtering is bypassable by direct contract calls. | Publishers (26 KB spare) | Plenty | Low for alpha — medium for mainnet |
-
-**Unblocking strategy:** Wait for resolc optimizer improvements, or extract functionality into new satellite contracts (e.g., `DatumSweeper`).
+| ID | Item | Status | Notes |
+|----|------|--------|-------|
+| S2 | **Zero-address checks on contract reference setters** | **DONE** | All setters across all contracts now validate `addr != address(0)`. Settlement `setRelayContract()` added. |
+| S3 | **Events on contract reference changes** | **DONE** | `ContractReferenceChanged(name, oldAddr, newAddr)` emitted by Campaigns, Settlement, BudgetLedger, CampaignLifecycle, GovernanceV2. +11,927 B PVM total. |
+| S7 | **Error code E03/E52/E53 reused** | **DONE** | GovernanceSlash deduped: E52→E59, E53→E60, E03→E61. Extension `errorCodes.ts` updated. |
+| C-M3 | **Inconsistent reentrancy guard** | **DONE** | BudgetLedger: OZ `ReentrancyGuard`. GovernanceSlash: OZ `ReentrancyGuard`. Campaigns: manual `_locked` (cheaper PVM). All value-transfer paths now guarded. |
+| S4 | **ZK verification accepts empty return** | Open | Stub verifier — must fix before real ZK integration. Not applicable until post-alpha. |
+| S5 | **DatumPublishers dual pause** | **DONE** | Replaced OZ `Pausable` with global `pauseRegistry.paused()`. Constructor now takes `_pauseRegistry` address. Publishers +3,962 B PVM (22,377 spare). |
+| M4 | **Governance sweep of abandoned funds** | **DONE** | GovernanceSlash: `sweepSlashPool()`. BudgetLedger: `sweepDust()` — permissionless sweep of terminal campaign dust to protocol owner. +3,483 B PVM (20,502 spare). |
+| S12 | **On-chain publisher/advertiser blocklist** | **DONE** | Global blocklist on Publishers (E62) + per-publisher allowlist (E63). Checked in registerPublisher + createCampaign. Settlement check deferred (PVM). Owner-managed for alpha — **must migrate to timelock before mainnet**. Future: open blocklist to governance control. Publishers +8,966 B (13,411 spare), Campaigns +4,443 B (6,686 spare). 25 tests. |
 
 ---
 
-## 3. Gas & Runtime Optimizations — PVM Size Blocked
+## 3. Gas & Runtime Optimizations
 
-Optimizations that would reduce on-chain costs but exceed PVM bytecode limits.
+Optimizations that would reduce on-chain costs. Some now have headroom after alpha-2 restructuring + hardening.
 
-| ID | Optimization | PVM Cost | Spare | Impact |
-|----|-------------|----------|-------|--------|
-| O1 | **Blake2-256 claim hashing** via `hashBlake256()` system precompile — ~3x cheaper than keccak256 per claim. `@noble/hashes` installed in extension but unused. `ISystem.sol` interface ready. Requires claim struct migration. | +4,177 B to Settlement | 332 B | High — per-claim gas reduction |
-| O2 | **`weightLeft()` batch loop early abort** — graceful partial settlement when weight runs low mid-loop, instead of full revert. | +3,598 B to Relay, +~4 KB to Settlement | Relay: 2,972 B; Settlement: 332 B | Medium — prevents wasted gas on partial batches |
-| O3 | **`minimumBalance()` in Settlement `_send()`** — prevent dust transfers below existential deposit. Already in GovernanceV2. | +~2 KB to Settlement | 332 B | Low — edge case dust prevention |
-| O4 | **Storage precompile `has_key()`** — cheaper existence checks for voted/registered mappings vs full SLOAD. | ~1-2 KB each | GovernanceV2: 9,323 B; Publishers: 26,538 B | Low — marginal gas savings |
-| O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement | Low — marginal gas savings |
+| ID | Optimization | PVM Cost | Spare (post-S12) | Feasible? | Impact |
+|----|-------------|----------|-------------------|-----------|--------|
+| O1 | **Blake2-256 claim hashing** via `hashBlake256()` system precompile — ~3x cheaper than keccak256 per claim. `@noble/hashes` installed in extension but unused. `ISystem.sol` interface ready. Requires claim struct migration. | +4,177 B to Settlement | 3,543 B | **No** — 634 B short | High — per-claim gas reduction |
+| O2 | **`weightLeft()` batch loop early abort** — graceful partial settlement when weight runs low mid-loop, instead of full revert. | +3,598 B to Relay, +~4 KB to Settlement | Relay: 2,974 B; Settlement: 3,543 B | **No** — exceeds both | Medium — prevents wasted gas on partial batches |
+| O3 | **`minimumBalance()` in PaymentVault withdrawals** — prevent dust transfers below existential deposit. Already in GovernanceV2. | +~2 KB to PaymentVault | 33,090 B | **Yes** | Low — edge case dust prevention |
+| O4 | **Storage precompile `has_key()`** — cheaper existence checks for voted/registered mappings vs full SLOAD. | ~1-2 KB each | GovernanceV2: 1,213 B; Publishers: 13,411 B | **Partial** — Publishers only | Low — marginal gas savings |
+| O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 3,543 B | **Tight** | Low — marginal gas savings |
+
+**Note:** O1 and O2 remain blocked on Settlement (3,543 B spare) and Relay (2,974 B spare). These require either resolc producing smaller output in future versions, or further Settlement restructuring. O3 is now feasible on PaymentVault (33,090 B spare) instead of Settlement.
 
 ---
 
@@ -133,20 +135,20 @@ Governance-related UX enhancements identified during MVP review.
 
 Major features planned for post-alpha development.
 
-| Priority | ID | Item | Description | Dependency |
-|----------|-----|------|-------------|------------|
-| 1 | P7 | **Contract upgrade path** | UUPS proxy or migration pattern for Settlement (holds user balances). Required before Kusama mainnet. | None |
-| 2 | P1 | **Mandatory publisher attestation** | Enforce publisher co-sig — no degraded trust mode. Currently optional. | P21 (done) |
-| 3 | P17 | **External wallet integration** | WalletConnect v2 for SubWallet/Talisman/Polkadot.js. Embedded wallet uses secp256k1/EIP-712; external wallets may use sr25519. | None |
-| 4 | P9 | **ZK proof Phase 1** | Replace stub DatumZKVerifier with real Groth16/PLONK circuit for auction clearing and behavioral proofs. In-browser WASM prover (~5-30s per batch). | BN128 pairing precompile on Polkadot Hub |
-| 5 | P20 | **Campaign inactivity timeout** | Auto-complete after N blocks with no settlements. Prevents dust-budget lock when advertiser loses key. | None |
-| 6 | M4 | **Governance sweep** | `sweepSlashPool()` + `sweepAbandonedBudget()` for locked funds with no claimant. | Campaigns PVM headroom |
-| 7 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17, sr25519Verify precompile stability |
-| 8 | P11 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration |
-| 9 | F9 | **H160 phishing address list population** | Populate H160 blocklist from Ethereum phishing feeds (MetaMask/EthPhishingDetect). Infrastructure ready; list is empty. | None |
-| 10 | P10 | **Decentralized KYB identity** | Evaluating zkMe and Polkadot PoP. Currently permissionless. | None |
-| 11 | F11 | **On-chain domain blocklist** | Move phishing domain deny list on-chain so settlement rejects phishing campaigns. Currently extension-only. | S12 |
-| 12 | — | **Rich media ad rendering** | Image/video creatives. Currently text-only with IPFS metadata (title, body, CTA). | None |
+| Priority | ID | Item | Description | Dependency | Status |
+|----------|-----|------|-------------|------------|--------|
+| 1 | P7 | **Contract upgrade path** | UUPS proxy or migration pattern for PaymentVault (holds user balances). Required before Kusama mainnet. | None | Open |
+| 2 | P1 | **Mandatory publisher attestation** | Enforce publisher co-sig — no degraded trust mode. Currently optional. `DatumAttestationVerifier` wrapper contract. | P21 (done) | Open |
+| 3 | P17 | **External wallet integration** | WalletConnect v2 for SubWallet/Talisman/Polkadot.js. Embedded wallet uses secp256k1/EIP-712; external wallets may use sr25519. | None | Open |
+| 4 | P9 | **ZK proof Phase 1** | Replace stub DatumZKVerifier with real Groth16/PLONK circuit for auction clearing and behavioral proofs. In-browser WASM prover (~5-30s per batch). | BN128 pairing precompile on Polkadot Hub | Open |
+| 5 | P20 | **Campaign inactivity timeout** | Auto-complete after N blocks with no settlements. Prevents dust-budget lock when advertiser loses key. | None | Open |
+| 6 | ~~M4~~ | ~~**Governance sweep**~~ | ~~`sweepSlashPool()` + `sweepAbandonedBudget()` for locked funds with no claimant.~~ | — | **DONE** |
+| 7 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17, sr25519Verify precompile stability | Open |
+| 8 | P11 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration | Open |
+| 9 | F9 | **H160 phishing address list population** | Populate H160 blocklist from Ethereum phishing feeds (MetaMask/EthPhishingDetect). Infrastructure ready; list is empty. | None | Open |
+| 10 | P10 | **Decentralized KYB identity** | Evaluating zkMe and Polkadot PoP. Currently permissionless. | None | Open |
+| 11 | F11 | **On-chain domain blocklist** | Move phishing domain deny list on-chain so settlement rejects phishing campaigns. Currently extension-only. | S12 (**done**) | Open — unblocked |
+| 12 | — | **Rich media ad rendering** | Image/video creatives. Currently text-only with IPFS metadata (title, body, CTA). | None | Open |
 
 ---
 
@@ -160,7 +162,7 @@ Areas where the system currently relies on trust assumptions rather than cryptog
 | **Clearing CPM** | On-device second-price auction (P19) | Deterministic from inputs, no proof | ZK proof of auction outcome (P9) |
 | **Engagement quality** | On-device behavior hash chain (P16) | Quality scoring in trusted background context | Selective disclosure; ZK behavior proofs (P9) |
 | **Claim state persistence** | Browser `chrome.storage.local` | Lost if browser data cleared | Encrypted export/import (P6 done); deterministic derivation from seed + on-chain state |
-| **Dust transfer prevention** | GovernanceV2 checks `minimumBalance()` | Settlement/Relay skip check (PVM size) | Extend to Settlement/Relay when resolc improves |
+| **Dust transfer prevention** | GovernanceV2 checks `minimumBalance()` | PaymentVault/Settlement/Relay skip check | PaymentVault feasible now (33,090 B spare, O3). Settlement/Relay still PVM-blocked. |
 | **Open campaign take rate** | Fixed 50% snapshot (`DEFAULT_TAKE_RATE_BPS`) | Static default, not market-driven | Dynamic per-publisher rates (PVM constraint) |
 | **Publisher domain resolution** | `data-relay` SDK attribute → local storage | URL changes require page update | On-chain publisher domain registry |
 | **Direct submission attestation** | No co-sig enforcement for direct `settleClaims()` | Users can submit without publisher | `DatumAttestationVerifier` wrapper contract post-MVP |
@@ -182,7 +184,7 @@ Structural gaps identified in design review. These require significant design wo
 | **KYB cost responsibility** | No KYB enforcement. | One-time onboarding deposit in `createCampaign()`. |
 | **GDPR right to erasure** | No plan. Hashes on-chain are permanent. | Hash-of-hash on-chain, PII off-chain; erasure = delete off-chain source only. Legal analysis required. |
 | **Price discovery mechanism** | `clearingCpmPlanck` bounded by bidCpm ceiling; auction on-device only. | Off-chain batch auction per epoch; ZK proof of clearing rate. |
-| **Contract upgrade / migration** | Non-upgradeable. Settlement holds user balances. Lost owner key = permanently locked protocolBalance. | UUPS proxy or migration function (P7). Required before mainnet. |
+| **Contract upgrade / migration** | Non-upgradeable. PaymentVault holds user balances (extracted from Settlement in alpha-2). Lost owner key = permanently locked protocolBalance. | UUPS proxy or migration function (P7). Required before mainnet. |
 | **XCM retry queue** | XCM fee routing not implemented. | Idempotency keys + bounded retries for XCM failures when P11 is built. |
 | **Extension version coordination** | No on-chain version hash registry. | Hash registration must precede extension release. Staging environment. |
 | **Multi-chain settlement** | Single chain (Polkadot Hub). | XCM-based cross-chain claims post-mainnet. |
@@ -192,6 +194,19 @@ Structural gaps identified in design review. These require significant design wo
 ## 10. Phase 4 — Kusama & Mainnet
 
 Deployment milestones not yet started.
+
+### Pre-Mainnet Gate (required before Phase 4B)
+
+These items are mandatory before mainnet. See also `S12-BLOCKLIST-ANALYSIS.md` and `project_s12_mainnet_migration.md`.
+
+| Item | Description | Status |
+|------|-------------|--------|
+| **Timelock-gated blocklist** | `blockAddress()`/`unblockAddress()` must go through 48h timelock for transparency. Currently direct `onlyOwner`. | Open |
+| **Governance blocklist override** | Community can propose unblock via conviction vote (Option C hybrid). Admin retains emergency-block. | Open — future goal |
+| **Settlement blocklist check** | `isBlocked(claim.publisher)` in `_validateClaim()`. Blocked if Settlement restructured or resolc shrinks output. | Open — PVM blocked (3,543 B spare, ~800 B cost) |
+| **Contract upgrade path (P7)** | UUPS proxy or migration pattern for PaymentVault. Lost owner key = permanently locked protocolBalance. | Open |
+| **Full security audit** | External audit of all 12 contracts before mainnet launch. | Open |
+| **Two-step ownership transfer (L3)** | `transferOwnership()` → `acceptOwnership()` pattern. Prevents irrecoverable ownership loss. | Open |
 
 ### Phase 4A — Kusama Deployment
 
@@ -206,7 +221,7 @@ Deployment milestones not yet started.
 - Deploy to Polkadot Hub mainnet
 - Extension published to Chrome Web Store
 - Production monitoring and alerting
-- Full security audit before mainnet launch
+- All pre-mainnet gate items resolved
 
 ---
 
@@ -214,18 +229,25 @@ Deployment milestones not yet started.
 
 Documented and accepted for alpha. Not bugs — deliberate tradeoffs.
 
-| Limitation | Detail | Impact |
-|------------|--------|--------|
-| **Daily cap timestamp manipulation** | `block.timestamp / 86400` — validators can shift +-15s | Negligible (<0.02% error) |
-| **Unclaimed slash rewards — no expiry** | `claimSlashReward()` has no deadline; unclaimed pools permanently locked | Low — only non-claiming governance participants |
-| **Denomination rounding** | pallet-revive eth-rpc rejects `value % 10^6 >= 500_000` | Runtime quirk — all code adjusted |
-| **Single pending timelock proposal** | `propose()` overwrites previous pending; must cancel before re-proposing | Admin UX limitation — intentional simplicity |
-| **Blake2-256 deferred** | Claims use keccak256 (~3x more expensive on Substrate) | Higher per-claim gas cost |
-| **No on-chain publisher domain registry** | Relay URL via SDK `data-relay` attribute, not chain state | URL changes require page update |
-| **Manual reentrancy guard in Campaigns** | `_locked` bool instead of OZ `nonReentrant` | Functionally equivalent — PVM size constraint |
-| **No claim expiry** | Stale claims can be submitted indefinitely | Low — nonce chain prevents replay |
-| **E03/E52/E53 dual meaning** | Same error codes used in different contexts | Debugging confusion — extension `humanizeError()` provides context |
-| **Shadow DOM mode "open"** | `attachShadow({ mode: "open" })` — page JS can access shadow DOM | Upgrade to "closed" post-alpha |
+| Limitation | Detail | Impact | Status |
+|------------|--------|--------|--------|
+| **Daily cap timestamp manipulation** | `block.timestamp / 86400` — validators can shift +-15s | Negligible (<0.02% error) | Accepted |
+| ~~**Unclaimed slash rewards — no expiry**~~ | ~~`claimSlashReward()` has no deadline; unclaimed pools permanently locked~~ | — | **RESOLVED** — `sweepSlashPool()` added (M4, 365-day deadline) |
+| **Denomination rounding** | pallet-revive eth-rpc rejects `value % 10^6 >= 500_000` | Runtime quirk — all code adjusted | Accepted |
+| **Single pending timelock proposal** | `propose()` overwrites previous pending; must cancel before re-proposing | Admin UX limitation — intentional simplicity | Accepted |
+| **Blake2-256 deferred** | Claims use keccak256 (~3x more expensive on Substrate) | Higher per-claim gas cost | Accepted — O1 blocked on Settlement PVM |
+| **No on-chain publisher domain registry** | Relay URL via SDK `data-relay` attribute, not chain state | URL changes require page update | Accepted |
+| **Manual reentrancy guard in Campaigns** | `_locked` bool instead of OZ `nonReentrant` | Functionally equivalent — PVM size constraint | Accepted |
+| **No claim expiry on direct settlement** | Stale claims can be submitted indefinitely via `settleClaims()` | Low — nonce chain prevents replay. Relay has `deadline` field. | Accepted |
+| ~~**E03/E52/E53 dual meaning**~~ | ~~Same error codes used in different contexts~~ | — | **RESOLVED** — GovernanceSlash deduped to E59/E60/E61 (S7) |
+| **Shadow DOM mode "open"** | `attachShadow({ mode: "open" })` — page JS can access shadow DOM | Upgrade to "closed" post-alpha | Accepted |
+| **Blocklist not timelock-gated** | `blockAddress()`/`unblockAddress()` use direct `onlyOwner` for alpha | Must migrate before mainnet | Accepted for alpha |
+| **No Settlement blocklist check** | Blocked publisher's existing campaigns can still settle claims | Low — new campaigns blocked; existing drain naturally | Accepted — PVM blocked (3,543 B spare, ~800 B cost) |
+| **No GovernanceV2 vote blocklist check** | Blocked addresses can still vote | Low — no fund theft via voting; slash penalizes bad actors | Accepted — PVM blocked (1,213 B spare) |
+| **No publisher deregistration** | Publishers cannot unregister or deactivate themselves | Low — can enable empty allowlist or set max take rate | Accepted |
+| **Open campaign take rate fixed at 50%** | `DEFAULT_TAKE_RATE_BPS = 5000` not configurable | Static default, not market-driven | Accepted |
+| **Revenue split hardcoded** | 75/25 user/protocol split in Settlement | Not governance-controlled | Accepted for alpha |
+| **Relay round-trip incomplete** | Extension stores signed batches locally, never POSTs to relay bot | **Broken flow** — see §1.2 | Must fix |
 
 ---
 
@@ -257,19 +279,29 @@ Explicit TODO/stub markers in source code.
 
 ## Summary
 
-| Category | Count | Timeline |
-|----------|-------|----------|
-| Immediate (A3.4 / A3.5 / Gate GA) | 7 | Now |
-| Contract hardening (PVM blocked) | 8 | Before mainnet |
-| Gas & runtime optimizations (PVM blocked) | 5 | Post-alpha |
-| Extension UX Phase 3 (polish) | 10 | Post-alpha |
-| Extension UX deferred to beta | 11 | Beta |
-| Extension UX governance improvements | 8 | Beta |
-| Feature development (post-alpha/beta) | 12 | Beta / post-beta |
-| Trust model gaps | 8 | Long-term |
-| Architectural / long-term | 13 | Mainnet+ |
-| Phase 4 (Kusama/mainnet) milestones | 6 | Post-testnet |
-| Accepted known limitations | 10 | Documented |
-| Code-level stubs | 5 | Various |
-| Low priority / nice-to-have | 5 | Someday |
-| **Total** | **108** | |
+| Category | Total | Done | Open | Timeline |
+|----------|-------|------|------|----------|
+| Immediate (deploy, relay fix, testing) | 9 | 2 | 7 | Now |
+| Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
+| Gas & runtime optimizations | 5 | 0 | 5 (3 PVM-blocked) | Post-alpha |
+| Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
+| Extension UX deferred to beta | 11 | 0 | 11 | Beta |
+| Extension UX governance improvements | 8 | 0 | 8 | Beta |
+| Feature development (post-alpha/beta) | 12 | 1 (M4) | 11 | Beta / post-beta |
+| Trust model gaps | 8 | 0 | 8 | Long-term |
+| Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
+| Pre-mainnet gate | 6 | 0 | 6 | Before mainnet |
+| Phase 4 (Kusama/mainnet) milestones | 6 | 0 | 6 | Post-testnet |
+| Accepted known limitations | 17 | 2 resolved | 15 accepted | Documented |
+| Code-level stubs | 5 | 0 | 5 | Various |
+| Low priority / nice-to-have | 5 | 0 | 5 | Someday |
+| **Total** | **123** | **12** | **111** | |
+
+### Critical Path (blocking mainnet)
+
+1. **1.2** — Fix relay round-trip (extension → relay bot POST)
+2. **1.8** — Alpha-2 deploy scripts (12-contract)
+3. **1.9** — Alpha-2 testnet deploy
+4. **P7** — Contract upgrade path (UUPS proxy)
+5. **Timelock-gated blocklist** — S12 pre-mainnet requirement
+6. **Security audit** — External review of all 12 contracts

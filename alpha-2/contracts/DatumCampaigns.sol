@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumCampaigns.sol";
@@ -25,10 +25,18 @@ contract DatumCampaigns is IDatumCampaigns {
     // -------------------------------------------------------------------------
 
     address public owner;
+    bool private _locked;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "E18");
         _;
+    }
+
+    modifier noReentrant() {
+        require(!_locked, "E57");
+        _locked = true;
+        _;
+        _locked = false;
     }
 
     uint256 public immutable minimumCpmFloor;
@@ -121,17 +129,26 @@ contract DatumCampaigns is IDatumCampaigns {
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
         uint8 categoryId
-    ) external payable returns (uint256 campaignId) {
+    ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > 0, "E11");
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
 
+        // S12: Blocklist — reject blocked advertisers and publishers
+        require(!publishers.isBlocked(msg.sender), "E62");
+
         uint16 snapshot;
         if (publisher != address(0)) {
+            require(!publishers.isBlocked(publisher), "E62");
             IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
             require(pub.registered, "E17");
             snapshot = pub.takeRateBps;
+
+            // S12: Per-publisher allowlist
+            if (publishers.allowlistEnabled(publisher)) {
+                require(publishers.isAllowedAdvertiser(publisher, msg.sender), "E63");
+            }
         } else {
             snapshot = 5000; // DEFAULT_TAKE_RATE_BPS
         }

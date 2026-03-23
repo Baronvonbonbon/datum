@@ -410,12 +410,12 @@ describe("DatumGovernanceV2", function () {
     expect(await slash.winningWeight(cid)).to.equal(parseDOT("2"));
   });
 
-  it("S2: finalizeSlash on unresolved campaign reverts E53", async function () {
+  it("S2: finalizeSlash on unresolved campaign reverts E60", async function () {
     const cid = await setupCampaign(0);
-    await expect(slash.finalizeSlash(cid)).to.be.revertedWith("E53");
+    await expect(slash.finalizeSlash(cid)).to.be.revertedWith("E60");
   });
 
-  it("S3: double finalize reverts E52", async function () {
+  it("S3: double finalize reverts E59", async function () {
     const cid = await setupCampaign(0); // Start as Pending (voteable)
     await v2.connect(voter1).vote(cid, true, 0, { value: parseDOT("1") });
 
@@ -424,7 +424,7 @@ describe("DatumGovernanceV2", function () {
     await v2.evaluateCampaign(cid);
 
     await slash.finalizeSlash(cid);
-    await expect(slash.finalizeSlash(cid)).to.be.revertedWith("E52");
+    await expect(slash.finalizeSlash(cid)).to.be.revertedWith("E59");
   });
 
   it("S4: claimSlashReward works for winning voter", async function () {

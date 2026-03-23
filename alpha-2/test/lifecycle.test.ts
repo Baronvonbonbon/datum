@@ -45,7 +45,7 @@ describe("DatumCampaignLifecycle", function () {
     pauseReg = await PauseFactory.deploy();
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
-    publishers = await PublishersFactory.deploy(50n);
+    publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
 
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();

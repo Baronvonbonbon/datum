@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumCampaignsMinimal.sol";
@@ -107,6 +107,7 @@ contract DatumGovernanceV2 {
     event VoteCast(uint256 indexed campaignId, address indexed voter, bool aye, uint256 amount, uint8 conviction);
     event VoteWithdrawn(uint256 indexed campaignId, address indexed voter, uint256 returned, uint256 slashed);
     event CampaignEvaluated(uint256 indexed campaignId, uint8 result);
+    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -142,12 +143,14 @@ contract DatumGovernanceV2 {
     function setSlashContract(address _slash) external {
         require(msg.sender == owner, "E18");
         require(slashContract == address(0), "E51");
+        emit ContractReferenceChanged("slashContract", slashContract, _slash);
         slashContract = _slash;
     }
 
     function setLifecycle(address _lifecycle) external {
         require(msg.sender == owner, "E18");
         require(_lifecycle != address(0), "E00");
+        emit ContractReferenceChanged("lifecycle", address(lifecycle), _lifecycle);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
     }
 

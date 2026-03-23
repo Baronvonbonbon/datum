@@ -1,7 +1,8 @@
 # Alpha-2 Implementation Plan — Contract Restructuring
 
-**Version:** 1.0
-**Date:** 2026-03-20
+**Version:** 1.1
+**Date:** 2026-03-20 (plan) / 2026-03-23 (execution complete)
+**Status:** PHASES 1-4 COMPLETE. Phase 5 deferred (PVM-blocked).
 **Goal:** Restructure DatumCampaigns (48,662 B / 490 B spare) and DatumSettlement (48,820 B / 332 B spare) to free significant PVM bytecode headroom while preserving all existing functionality, enabling the deferred hardening and optimization work from the alpha backlog.
 
 ---
@@ -461,118 +462,160 @@ This is a **fresh deployment**, not an upgrade. Alpha-2 contracts replace alpha 
 
 ### Deployment Order
 
+**Status: Contracts compiled + tested. Deploy scripts pending.**
+
 1. `DatumPauseRegistry` (unchanged)
-2. `DatumTimelock` (unchanged or minor modification)
-3. `DatumPublishers` (unchanged)
+2. `DatumTimelock` (unchanged)
+3. `DatumPublishers` (S5 + S12 — pauseRegistry, blocklist, allowlist)
 4. `DatumPaymentVault` (new)
 5. `DatumBudgetLedger` (new)
-6. `DatumCampaigns` (restructured — Core only)
+6. `DatumCampaigns` (restructured — Core + S12 checks)
 7. `DatumCampaignLifecycle` (new)
-8. `DatumGovernanceV2` (minor interface update for getCampaignForSettlement return changes, if any)
-9. `DatumGovernanceSlash` (add sweep function)
-10. `DatumSettlement` (restructured — no balances)
-11. `DatumRelay` (unchanged or minor)
+8. `DatumGovernanceV2` (conviction 0-8, anti-grief, ContractReferenceChanged events)
+9. `DatumGovernanceSlash` (sweep, ReentrancyGuard, deduped errors)
+10. `DatumSettlement` (restructured — no balances, configure(), ContractReferenceChanged)
+11. `DatumRelay` (unchanged)
 12. `DatumZKVerifier` (unchanged)
 
 ### Wiring
 
-Post-deploy wiring calls expand slightly:
+Post-deploy wiring calls (actual, based on implemented contracts):
 
 ```
-campaigns.setSettlement(settlement)
-campaigns.setGovernance(governance)
-campaigns.setLifecycle(lifecycle)
-campaigns.setBudgetLedger(budgetLedger)
-settlement.setRelay(relay)
-settlement.setZKVerifier(zkVerifier)
-settlement.setPaymentVault(vault)
-settlement.setBudgetLedger(budgetLedger)
-vault.setSettlement(settlement)       // authorize credit calls
-budgetLedger.setCampaigns(campaigns)  // authorize init calls
-budgetLedger.setSettlement(settlement) // authorize deduct calls
-budgetLedger.setLifecycle(lifecycle)  // authorize drain calls
-lifecycle.setCampaigns(campaigns)
-lifecycle.setBudgetLedger(budgetLedger)
-governance.setCampaigns(campaigns)    // may need lifecycle reference too
-slash.setCampaigns(campaigns)
-// Ownership transfers to Timelock as before
+// Core wiring
+campaigns.setSettlementContract(settlement)
+campaigns.setGovernanceContract(governance)
+campaigns.setLifecycleContract(lifecycle)
+campaigns.setBudgetLedgerContract(budgetLedger)
+
+// Settlement wiring
+settlement.configure(campaigns, budgetLedger, paymentVault, lifecycle)
+settlement.setRelayContract(relay)
+
+// Satellite wiring
+vault.setSettlementContract(settlement)
+budgetLedger.configure(campaigns, settlement, lifecycle)
+lifecycle.configure(campaigns, budgetLedger, governance)
+lifecycle.setSettlementContract(settlement)
+
+// Governance wiring
+governance.setSlashContract(slash)
+governance.setLifecycle(lifecycle)
+slash.setCampaigns(campaigns)  // or equivalent reference
+
+// Ownership transfers to Timelock
+campaigns.transferOwnership(timelock)
+settlement.transferOwnership(timelock)
 ```
 
 ### Extension Changes
 
-| Component | Change |
-|-----------|--------|
-| Contract addresses config | Add 3 new addresses: `paymentVault`, `budgetLedger`, `campaignLifecycle` |
-| Earnings panel (UserPanel.tsx) | Read `userBalance` from Vault instead of Settlement |
-| Publisher panel (PublisherPanel.tsx) | Read `publisherBalance` from Vault instead of Settlement |
-| Publisher withdrawal | Call `vault.withdrawPublisher()` instead of `settlement.withdrawPublisher()` |
-| User withdrawal | Call `vault.withdrawUser()` instead of `settlement.withdrawUser()` |
-| Claims panel (ClaimQueue.tsx) | No change — claim submission still goes through Settlement/Relay |
-| Campaign creation (AdvertiserPanel.tsx) | No change — `createCampaign()` API unchanged |
-| Governance (GovernancePanel.tsx) | No change unless GovernanceV2 interface changes |
-| Settings (Settings.tsx) | 3 new contract address fields |
-| deployed-addresses.json | 3 new entries |
-| deploy.ts | Extended wiring sequence |
+| Component | Change | Status |
+|-----------|--------|--------|
+| Contract addresses config | Add 3 new addresses: `paymentVault`, `budgetLedger`, `campaignLifecycle` | **DONE** |
+| Earnings panel (UserPanel.tsx) | Read `userBalance` from Vault instead of Settlement | **DONE** |
+| Publisher panel (PublisherPanel.tsx) | Read `publisherBalance` from Vault instead of Settlement | **DONE** |
+| Publisher withdrawal | Call `vault.withdrawPublisher()` instead of `settlement.withdrawPublisher()` | **DONE** |
+| User withdrawal | Call `vault.withdrawUser()` instead of `settlement.withdrawUser()` | **DONE** |
+| Claims panel (ClaimQueue.tsx) | No change — claim submission still goes through Settlement/Relay | **DONE** |
+| Campaign creation (AdvertiserPanel.tsx) | No change — `createCampaign()` API unchanged | **DONE** |
+| Governance (GovernancePanel.tsx) | Updated for conviction 0-8 | **DONE** |
+| Settings (Settings.tsx) | 3 new contract address fields | **DONE** |
+| Error codes (errorCodes.ts) | E59-E63 added, E00-E63 range | **DONE** |
+| deploy.ts | Extended wiring sequence | **TODO** |
 
 ---
 
-## 11. Risk Assessment
+## 11. Risk Assessment — Plan vs Actual
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| **Cross-contract call overhead** — 3 new satellite contracts = more external calls on the settlement hot path | Medium | `creditSettlement` is 1 call replacing 3 SSTORE+SLOAD pairs — net PVM reduction. `deductAndTransfer` replaces existing cross-contract call. Total additional calls per settled claim: ~1-2. |
-| **Re-entrancy across contracts** — value transfers between 4+ contracts in one tx | High | PaymentVault receives DOT via `payable` function (no callback). BudgetLedger sends via `.call{value}` but only to Vault or advertiser. ReentrancyGuard on Settlement covers the full tx. Vault has its own ReentrancyGuard for withdrawals. |
-| **State consistency** — campaign status in Campaigns, budget in BudgetLedger, balances in Vault must stay synchronized | High | Atomic: `_settleSingleClaim` calls BudgetLedger.deduct then Vault.credit in sequence within a single nonReentrant tx. Lifecycle transitions are single-tx (read status → drain budget → update status). No partial states possible. |
-| **PVM size estimates wrong** — satellite contracts might be larger than expected | Medium | Build and measure after Phase 1 before committing to later phases. Each phase is independently valuable. |
-| **Gas increase** — more cross-contract calls = more gas per settlement | Low | Pallet-revive cross-contract calls are weight-based, not gas-based. The weight cost of a CALL to a deployed contract is relatively flat. More calls but less computation per contract = roughly equivalent total weight. Benchmark after Phase 1. |
-| **Deploy complexity** — 12 contracts + extended wiring | Low | `deploy.ts` already handles 9 contracts with full wiring and validation. Adding 3 more is mechanical. Post-wire validation catches misconfiguration. |
-
----
-
-## 12. Test Plan
-
-### Existing Tests (must all pass)
-
-The 132 existing Hardhat tests cover the same functionality. After restructuring, every test must produce identical outcomes. Tests will need mechanical updates to account for new contract addresses and changed call targets for withdrawals.
-
-### New Tests Required
-
-| Area | Tests |
-|------|-------|
-| **PaymentVault** | Credit authorization (only Settlement), withdrawal flows (publisher/user/protocol), reentrancy protection, zero-balance withdrawal rejection, receive() acceptance |
-| **BudgetLedger** | Initialize authorization (only Campaigns), deduct + daily cap enforcement, day rollover, auto-complete signal, drain authorization (only Lifecycle), sweep abandoned budget after timeout |
-| **CampaignLifecycle** | Complete (advertiser + auto-complete), terminate (governance + slash calc + refund), expire (permissionless + block check), reentrancy protection, authorization checks |
-| **Cross-contract integration** | Full settlement flow through all 4 contracts (Settlement → BudgetLedger → PaymentVault), lifecycle transition with refund through BudgetLedger, governance termination through Lifecycle |
-| **GovernanceSlash sweep** | Sweep unclaimed slash pool after deadline, sweep rejection before deadline |
-
-### Regression Strategy
-
-1. Port all 132 existing tests to new contract addresses — adjust withdrawal calls, add setup for new contracts
-2. Run full E2E script (`e2e-full-flow.ts`) against restructured contracts
-3. Compile all 12 contracts with `--network polkadotHub` and verify PVM sizes
-4. Deploy to local devnet and run fund-test-accounts + setup-test-campaign
-5. Deploy to Paseo testnet and run `setup:testnet`
+| Risk | Planned Severity | Actual Outcome |
+|------|-----------------|----------------|
+| **Cross-contract call overhead** | Medium | **Mitigated.** `creditSettlement` is non-payable (DOT already at Vault from BudgetLedger). Additional calls per settled claim: 2 (deductAndTransfer + creditSettlement). Acceptable. |
+| **Re-entrancy across contracts** | High | **Mitigated.** OZ ReentrancyGuard on BudgetLedger, PaymentVault, GovernanceSlash, CampaignLifecycle. Campaigns uses manual `_locked` (cheaper PVM). GovernanceV2 follows CEI pattern (no guard — PVM too tight). |
+| **State consistency** | High | **Mitigated.** Settlement flow is atomic within single nonReentrant tx. Lifecycle transitions are single-tx. 174 tests confirm no state desync. |
+| **PVM size estimates wrong** | Medium | **Partially realized.** CampaignLifecycle was 30,197 B vs estimated ~24,000 B (25% over). Campaigns Core was 38,564 B vs estimated ~28,000 B (37% over). Overall restructuring still freed sufficient headroom but left less margin than planned. GovernanceV2 ended at 1,213 B spare after hardening — tightest contract. |
+| **Gas increase** | Low | **Not benchmarked.** Full relay vs direct gas comparison still pending (backlog 1.7). |
+| **Deploy complexity** | Low | **Deploy scripts not yet updated.** Alpha scripts target 9 contracts. Alpha-2 requires 12-contract deploy with expanded wiring. This is the current top priority. |
 
 ---
 
-## 13. Estimated PVM Budget After Restructuring
+## 12. Test Plan — Results
 
-| Contract | Alpha (current) | Alpha-2 (actual) | Spare | Status |
-|----------|----------------|-------------------|-------|--------|
-| PauseRegistry | 4,047 | 4,047 | 45,105 | Unchanged |
-| Timelock | 18,342 | 18,342 | 30,810 | Unchanged |
-| Publishers | 22,614 | 22,813 | 26,339 | Unchanged |
-| **Campaigns (Core)** | **48,662** | **38,564** | **10,588** | Restructured |
-| GovernanceV2 | 39,693 | 43,725 | 5,427 | +logarithmic conviction (0–8) |
-| GovernanceSlash | 30,298 | 36,520 | 12,632 | +sweep |
-| **Settlement** | **48,820** | **43,132** | **6,020** | Restructured, ZK→Relay |
-| Relay | 46,180 | 46,178 | 2,974 | Unchanged |
-| ZKVerifier | 1,409 | 1,409 | 47,743 | Unchanged |
-| **PaymentVault** | — | **16,062** | **33,090** | New |
-| **BudgetLedger** | — | **22,345** | **26,807** | New |
-| **CampaignLifecycle** | — | **30,197** | **18,955** | New |
+### Test Counts
 
-**Total PVM across 12 contracts:** 323,280 B (vs ~260,000 B across 9 contracts in alpha). Total spare headroom in Campaigns+Settlement: 16,608 B (vs 822 B in alpha). All contracts well under the 49,152 B limit.
+| Stage | Tests | Files | Status |
+|-------|-------|-------|--------|
+| Alpha (baseline) | 132 | 7 | All pass |
+| Alpha-2 (restructure) | 142 | 9 | All pass |
+| Alpha-2 + hardening | 142 | 9 | All pass |
+| Alpha-2 + S12 blocklist | **174** | **10** | **All pass** |
+
+### Test Files (alpha-2, 174 total)
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `test/campaigns.test.ts` | — | Campaign creation, metadata, pause/resume, views |
+| `test/governance.test.ts` | — | Voting, conviction 0-8, evaluation, termination, anti-grief |
+| `test/settlement.test.ts` | — | Claim validation, hash chain, payment split, auto-complete |
+| `test/relay.test.ts` | — | EIP-712 signatures, publisher co-sig, open campaigns |
+| `test/lifecycle.test.ts` | — | Complete, terminate, expire, refund routing, authorization |
+| `test/budget.test.ts` | — | Initialize, deduct, daily cap, drain, sweep dust |
+| `test/vault.test.ts` | — | Credit authorization, withdrawals, reentrancy |
+| `test/slash.test.ts` | — | Finalize, claim reward, sweep pool, authorization |
+| `test/timelock.test.ts` | — | Propose, execute, cancel, delay enforcement |
+| `test/blocklist.test.ts` | 25 | BK1-BK6 (blocklist), AL1-AL6 (allowlist) |
+
+### PVM Compilation
+
+All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat compile --network substrate`.
+
+### Remaining Verification
+
+- ~~Port alpha tests to alpha-2 architecture~~ **DONE**
+- ~~PVM compilation clean~~ **DONE**
+- Deploy scripts for 12-contract deploy — **TODO**
+- Testnet deploy + E2E validation — **TODO**
+
+---
+
+## 13. PVM Budget — Plan vs Actual
+
+### Pre-hardening (restructure only)
+
+| Contract | Alpha | A2 Plan (est.) | A2 Actual | Spare | Status |
+|----------|-------|----------------|-----------|-------|--------|
+| PauseRegistry | 4,047 | 4,047 | 4,047 | 45,105 | Unchanged |
+| Timelock | 18,342 | 18,342 | 18,342 | 30,810 | Unchanged |
+| Publishers | 22,614 | ~22,800 | 22,813 | 26,339 | Minor change |
+| **Campaigns** | **48,662** | **~28,000** | **38,564** | **10,588** | Restructured |
+| GovernanceV2 | 39,693 | ~43,000 | 43,725 | 5,427 | +conviction 0-8 |
+| GovernanceSlash | 30,298 | ~36,000 | 36,520 | 12,632 | +sweep |
+| **Settlement** | **48,820** | **~38,000** | **43,132** | **6,020** | Restructured |
+| Relay | 46,180 | 46,180 | 46,178 | 2,974 | Unchanged |
+| ZKVerifier | 1,409 | 1,409 | 1,409 | 47,743 | Unchanged |
+| **PaymentVault** | — | **~18,000** | **16,062** | **33,090** | New |
+| **BudgetLedger** | — | **~22,000** | **22,345** | **26,807** | New |
+| **CampaignLifecycle** | — | **~24,000** | **30,197** | **18,955** | New |
+
+### Post-hardening + S12 (final state, 2026-03-23)
+
+| Contract | Post-Restructure | Post-Hardening | Post-S12 | Spare | Delta |
+|----------|-----------------|----------------|----------|-------|-------|
+| GovernanceV2 | 43,725 | 47,939 | 47,939 | **1,213** | +4,214 |
+| Relay | 46,178 | 46,178 | 46,178 | 2,974 | 0 |
+| Settlement | 43,132 | 45,609 | 45,609 | 3,543 | +2,477 |
+| **Campaigns** | 38,564 | 38,023 | **42,466** | **6,686** | +3,902 |
+| GovernanceSlash | 36,520 | 37,160 | 37,160 | 11,992 | +640 |
+| CampaignLifecycle | 30,197 | 32,512 | 32,512 | 16,640 | +2,315 |
+| BudgetLedger | 22,345 | 28,650 | 28,650 | 20,502 | +6,305 |
+| **Publishers** | 22,813 | 26,775 | **35,741** | **13,411** | +12,928 |
+| Timelock | 18,342 | 18,342 | 18,342 | 30,810 | 0 |
+| PaymentVault | 16,062 | 16,062 | 16,062 | 33,090 | 0 |
+| PauseRegistry | 4,047 | 4,047 | 4,047 | 45,105 | 0 |
+| ZKVerifier | 1,409 | 1,409 | 1,409 | 47,743 | 0 |
+| **Total** | 323,334 | 342,706 | **356,115** | | +32,781 |
+
+**Hardening added 19,372 B PVM.** S12 added 13,409 B. GovernanceV2 is tightest at 1,213 B spare — no further additions without restructuring.
 
 **PVM size optimization notes:**
 - Settlement ZK verification moved to DatumRelay (post-alpha, when real Groth16 is ready). Saved ~4 KB.
@@ -585,15 +628,29 @@ The 132 existing Hardhat tests cover the same functionality. After restructuring
 
 ## Implementation Order
 
-| Phase | Deliverable | Depends On | Unblocks |
-|-------|-------------|------------|----------|
-| **Phase 1** | DatumPaymentVault + Settlement refactor | Nothing | O1, O3, S3, S4 in Settlement |
-| **Phase 2** | DatumBudgetLedger + Campaigns refactor | Phase 1 (Settlement needs new deduct path) | S2, S3, P20, M4 in Campaigns |
-| **Phase 3** | DatumCampaignLifecycle + Campaigns thinning | Phase 2 (Lifecycle needs BudgetLedger) | Maximum headroom in Campaigns |
-| **Phase 4** | Hardening items across all contracts | Phases 1-3 | Mainnet readiness |
-| **Phase 5** | Blake2-256 + weight-limited batches | Phase 1 + extension update | Gas optimization |
+| Phase | Deliverable | Status | Date | Notes |
+|-------|-------------|--------|------|-------|
+| **Phase 1** | DatumPaymentVault + Settlement refactor | **DONE** | 2026-03-21 | Settlement 48,820 → 43,132 B. PaymentVault 16,062 B. |
+| **Phase 2** | DatumBudgetLedger + Campaigns refactor | **DONE** | 2026-03-21 | Campaigns 48,662 → 38,564 B. BudgetLedger 22,345 B. |
+| **Phase 3** | DatumCampaignLifecycle + Campaigns thinning | **DONE** | 2026-03-21 | CampaignLifecycle 30,197 B. Campaign struct 10 → 8 slots. |
+| **Phase 4** | Hardening (S2/S3/S5/S7/C-M3/M4) + S12 blocklist | **DONE** | 2026-03-22/23 | 7 hardening stages + S12. 174 tests. +32,781 B PVM. |
+| **Phase 5** | Blake2-256 + weight-limited batches | **DEFERRED** | — | O1 needs 4,177 B, Settlement has 3,543 B spare. O2 exceeds both Settlement and Relay. Blocked until resolc produces smaller output or further restructuring. |
 
-Each phase is independently deployable and testable. Phase 1 alone solves Settlement's most critical constraint. Phases can be implemented incrementally with full test coverage at each step.
+### Remaining Work
+
+1. **Deploy scripts** — Update `deploy.ts` for 12-contract deploy + wiring sequence (alpha scripts target 9 contracts)
+2. **Testnet deploy** — Deploy alpha-2 to Paseo, run E2E validation
+3. **Relay fix** — Extension `signForRelay()` must POST to relay bot `/relay/submit` (currently stores locally only)
+4. **O3** — `minimumBalance()` in PaymentVault withdrawals (feasible: 33,090 B spare)
+
+### What Phase 5 Would Need
+
+O1 (Blake2-256) requires either:
+- resolc producing ~700 B smaller Settlement output (current: 45,609 B, need: ≤44,975 B)
+- Further Settlement restructuring to extract more code
+- Claim hash migration in both contracts and extension simultaneously
+
+O2 (weightLeft batch abort) requires headroom in both Settlement (~4 KB) and Relay (~3.6 KB), exceeding both.
 
 ---
 

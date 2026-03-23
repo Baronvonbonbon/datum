@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumBudgetLedger } from "../typechain-types";
+import { DatumBudgetLedger, MockCampaigns } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { fundSigners } from "./helpers/mine";
@@ -8,6 +8,7 @@ import { fundSigners } from "./helpers/mine";
 // BudgetLedger tests for alpha-2 satellite:
 // BL1-BL3: initializeBudget, deductAndTransfer, drainToAdvertiser
 // BL4-BL6: access control, daily cap, edge cases
+// M4: dust sweep for terminal campaigns
 
 describe("DatumBudgetLedger", function () {
   let ledger: DatumBudgetLedger;
@@ -182,5 +183,104 @@ describe("DatumBudgetLedger", function () {
     await expect(
       ledger.setCampaigns(ethers.ZeroAddress)
     ).to.be.revertedWith("E00");
+  });
+});
+
+// M4: Dust sweep tests (requires MockCampaigns for status checks)
+describe("DatumBudgetLedger — Dust Sweep (M4)", function () {
+  let ledger: DatumBudgetLedger;
+  let mock: MockCampaigns;
+
+  let owner: HardhatEthersSigner;
+  let settlementMock: HardhatEthersSigner;
+  let lifecycleMock: HardhatEthersSigner;
+  let sweeper: HardhatEthersSigner;
+
+  const BUDGET = parseDOT("10");
+  const DAILY_CAP = parseDOT("10");
+
+  before(async function () {
+    await fundSigners();
+    [owner, , settlementMock, lifecycleMock, , sweeper] = await ethers.getSigners();
+
+    // Deploy MockCampaigns + BudgetLedger
+    const MockFactory = await ethers.getContractFactory("MockCampaigns");
+    mock = await MockFactory.deploy();
+
+    const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+    ledger = await LedgerFactory.deploy();
+
+    await ledger.setCampaigns(await mock.getAddress());
+    await ledger.setSettlement(settlementMock.address);
+    await ledger.setLifecycle(lifecycleMock.address);
+    await mock.setBudgetLedger(await ledger.getAddress());
+  });
+
+  it("M4-1: sweepDust works on Completed campaign", async function () {
+    const cid = 100n;
+    // Create campaign with budget via mock
+    await mock.setCampaign(cid, owner.address, owner.address, parseDOT("0.01"), 5000, 0);
+    await mock.initBudget(cid, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    // Deduct most of budget, leave dust
+    await ledger.connect(settlementMock).deductAndTransfer(cid, BUDGET - 5n, owner.address);
+    expect(await ledger.getRemainingBudget(cid)).to.equal(5n);
+
+    // Set campaign to Completed (status 3)
+    await mock.setStatus(Number(cid), 3);
+
+    // Sweep dust — permissionless
+    const ownerBalBefore = await ethers.provider.getBalance(owner.address);
+    await ledger.connect(sweeper).sweepDust(cid);
+    const ownerBalAfter = await ethers.provider.getBalance(owner.address);
+
+    expect(ownerBalAfter - ownerBalBefore).to.equal(5n);
+    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+  });
+
+  it("M4-2: sweepDust works on Terminated campaign", async function () {
+    const cid = 101n;
+    await mock.setCampaign(cid, owner.address, owner.address, parseDOT("0.01"), 5000, 0);
+    await mock.initBudget(cid, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    await ledger.connect(settlementMock).deductAndTransfer(cid, BUDGET - 3n, owner.address);
+    await mock.setStatus(Number(cid), 4); // Terminated
+
+    await ledger.connect(sweeper).sweepDust(cid);
+    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+  });
+
+  it("M4-3: sweepDust reverts on Active campaign (E14)", async function () {
+    const cid = 102n;
+    await mock.setCampaign(cid, owner.address, owner.address, parseDOT("0.01"), 5000, 1);
+    await mock.initBudget(cid, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    await expect(
+      ledger.connect(sweeper).sweepDust(cid)
+    ).to.be.revertedWith("E14");
+  });
+
+  it("M4-4: sweepDust reverts on Pending campaign (E14)", async function () {
+    const cid = 103n;
+    await mock.setCampaign(cid, owner.address, owner.address, parseDOT("0.01"), 5000, 0);
+    await mock.initBudget(cid, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    await expect(
+      ledger.connect(sweeper).sweepDust(cid)
+    ).to.be.revertedWith("E14");
+  });
+
+  it("M4-5: sweepDust reverts with zero remaining (E03)", async function () {
+    const cid = 104n;
+    await mock.setCampaign(cid, owner.address, owner.address, parseDOT("0.01"), 5000, 3);
+    await mock.initBudget(cid, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    // Drain everything via lifecycle
+    await ledger.connect(lifecycleMock).drainToAdvertiser(cid, owner.address);
+    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+
+    await expect(
+      ledger.connect(sweeper).sweepDust(cid)
+    ).to.be.revertedWith("E03");
   });
 });

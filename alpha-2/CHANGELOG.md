@@ -1,8 +1,8 @@
 # Alpha-2 Changelog
 
-**Date:** 2026-03-20
+**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
-**Status:** All 12 contracts compile. All under 49,152 B PVM limit. No tests yet.
+**Status:** All 12 contracts compile. All under 49,152 B PVM limit. 174 tests passing.
 
 ---
 
@@ -82,19 +82,19 @@ GovernanceV2 calls Lifecycle directly (not through Campaigns), so `msg.sender ==
 
 Replaced Polkadot's exponential conviction model with logarithmic lockup scaling. Conviction 0–8 with low-risk entry points (0-lock, 24h, 72h) and escalating cost through the upper range:
 
-| Conv | Weight | Lockup | Days/x | Marginal Cost |
+| Conv | Weight | Lockup | Blocks | Marginal Cost |
 |------|--------|--------|--------|---------------|
-| 0 | 1x | 0 | — | instant withdraw |
-| 1 | 1x | 24h | — | +24h for +0x (skin in the game) |
-| 2 | 2x | 72h | 1.5 | +48h for +1x |
-| 3 | 3x | 7d | 2.3 | +4d for +1x |
-| 4 | 5x | 30d | 6.0 | +23d for +2x |
-| 5 | 8x | 90d | 11.3 | +60d for +3x |
-| 6 | 12x | 180d | 15.0 | +90d for +4x |
-| 7 | 16x | 270d | 16.9 | +90d for +4x |
-| 8 | 21x | 365d | 17.4 | +95d for +5x |
+| 0 | 1x | 0 | 0 | instant withdraw |
+| 1 | 2x | 1d | 14,400 | +1d for +1x (low-risk entry) |
+| 2 | 3x | 3d | 43,200 | +2d for +1x |
+| 3 | 4x | 7d | 100,800 | +4d for +1x |
+| 4 | 6x | 21d | 302,400 | +14d for +2x |
+| 5 | 9x | 90d | 1,296,000 | +69d for +3x |
+| 6 | 14x | 180d | 2,592,000 | +90d for +5x |
+| 7 | 18x | 270d | 3,888,000 | +90d for +4x |
+| 8 | 21x | 365d | 5,256,000 | +95d for +3x |
 
-- Conviction 0–8 (9 levels). Conv 0 = no lock, conv 1 = 24h commitment, max 21x at 365d
+- Conviction 0–8 (9 levels). Conv 0 = no lock, conv 1 = 1d commitment, max 21x at 365d
 - Weights and lockups hardcoded as `if/else` chains in pure internal functions (saves ~2.7 KB vs storage arrays)
 - Constructor takes 5 params (removed `baseLockup`, `maxLockup` — lockups are hardcoded)
 - `convictionWeight(uint8)` external pure view added for GovernanceSlash
@@ -109,9 +109,13 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 - Uses `convictionWeight()` view from GovernanceV2 for consistent weight calculation
 - **Size: 30,298 → 36,520 B (+6,222 B, 12,632 spare)**
 
-### DatumPublishers — Minor
+### DatumPublishers — S5 Global Pause
 
-- **Size: 22,614 → 22,813 B (+199 B, 26,339 spare)**
+- Replaced OZ `Pausable` with global `DatumPauseRegistry` check (S5: consistent with all other contracts)
+- Constructor now takes `_pauseRegistry` address as second argument
+- Removed `pause()`/`unpause()` owner functions (no longer has local pause state)
+- Custom `whenNotPaused` modifier calls `pauseRegistry.paused()`
+- **Size: 22,614 → 26,775 B (+4,161 B, 22,377 spare)**
 
 ### DatumRelay — Unchanged
 
@@ -144,23 +148,23 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 
 ## PVM Size Budget
 
-| Contract | Alpha | Alpha-2 | Spare | Delta |
-|---|---|---|---|---|
-| DatumRelay | 46,180 | 46,178 | 2,974 | -2 |
-| DatumGovernanceV2 | 39,693 | 43,725 | 5,427 | +4,032 |
-| **DatumSettlement** | **48,820** | **43,132** | **6,020** | **-5,688** |
-| **DatumCampaigns** | **48,662** | **38,564** | **10,588** | **-10,098** |
-| DatumGovernanceSlash | 30,298 | 36,520 | 12,632 | +6,222 |
-| DatumCampaignLifecycle | — | 30,197 | 18,955 | new |
-| DatumPublishers | 22,614 | 22,813 | 26,339 | +199 |
-| DatumBudgetLedger | — | 22,345 | 26,807 | new |
-| DatumTimelock | 18,342 | 18,342 | 30,810 | 0 |
-| DatumPaymentVault | — | 16,062 | 33,090 | new |
-| DatumPauseRegistry | 4,047 | 4,047 | 45,105 | 0 |
-| DatumZKVerifier | 1,409 | 1,409 | 47,743 | 0 |
-| **Total** | **~260,065** | **323,280** | | **+63,215** |
+| Contract | Alpha | A2 Pre-Harden | A2 Post-Harden | A2 Post-S12 | Spare | Notes |
+|---|---|---|---|---|---|---|
+| **DatumGovernanceV2** | 39,693 | 43,725 | 47,939 | 47,939 | **1,213** | tightest — no S12 check |
+| DatumRelay | 46,180 | 46,178 | 46,178 | 46,178 | 2,974 | unchanged |
+| DatumSettlement | 48,820 | 43,132 | 45,609 | 45,609 | 3,543 | S12 check deferred |
+| **DatumCampaigns** | 48,662 | 38,564 | 38,023 | **42,466** | **6,686** | +S12 blocklist+allowlist checks |
+| DatumGovernanceSlash | 30,298 | 36,520 | 37,160 | 37,160 | 11,992 | unchanged |
+| DatumCampaignLifecycle | — | 30,197 | 32,512 | 32,512 | 16,640 | unchanged |
+| DatumBudgetLedger | — | 22,345 | 28,650 | 28,650 | 20,502 | unchanged |
+| **DatumPublishers** | 22,614 | 22,813 | 26,775 | **35,741** | **13,411** | +S12 blocklist+allowlist |
+| DatumTimelock | 18,342 | 18,342 | 18,342 | 18,342 | 30,810 | unchanged |
+| DatumPaymentVault | — | 16,062 | 16,062 | 16,062 | 33,090 | unchanged |
+| DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
+| DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
+| **Total** | **~260,065** | **323,334** | **342,706** | **356,115** | | **+13,409 B S12** |
 
-Total PVM increase is 63 KB across 12 contracts (3 new), but the two critical contracts shed a combined 15,786 B — the headroom that matters.
+Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. GovernanceV2 remains tightest at 1,213 B spare.
 
 ---
 
@@ -217,9 +221,102 @@ The restructuring unblocks backlog items that were previously impossible due to 
 
 ---
 
+## Contract Hardening (2026-03-22)
+
+Seven hardening stages applied across 6 contracts. All 142 tests passing, PVM compilation clean.
+
+### Changes by Contract
+
+| Stage | Contract | Change | PVM Delta |
+|-------|----------|--------|-----------|
+| 1 | **BudgetLedger** | OZ `ReentrancyGuard` on `deductAndTransfer`, `drainToAdvertiser`, `drainFraction`. `ContractReferenceChanged` events on 3 admin setters. | +2,822 B |
+| 2 | **Settlement** | Zero-address check on `setRelayContract()`. `ContractReferenceChanged` events on `configure()` (3 refs) and `setRelayContract()`. | +2,477 B |
+| 3 | **GovernanceSlash** | OZ `ReentrancyGuard` on `claimSlashReward`, `sweepSlashPool`. | +640 B |
+| 4 | **CampaignLifecycle** | `ContractReferenceChanged` events on `setCampaigns`, `setBudgetLedger`, `setGovernanceContract`, `setSettlementContract`. | +2,315 B |
+| 5 | **GovernanceV2** | `ContractReferenceChanged` events on `setSlashContract`, `setLifecycle`. | +4,214 B |
+| 6 | **Campaigns** | Manual `noReentrant` guard (`_locked` bool, E57) on `createCampaign`. | -541 B |
+| 7 | **GovernanceSlash** | Error code dedup: E52→E59 (slash already finalized), E53→E60 (not resolved), E03→E61 (zero slash balance). Extension `errorCodes.ts` updated. | ~0 B |
+| 8 | **Publishers** | S5: Replaced OZ `Pausable` with global `DatumPauseRegistry`. Constructor takes `_pauseRegistry` address. Removed local `pause()`/`unpause()`. | +3,962 B |
+| 9 | **BudgetLedger** | M4: `sweepDust(campaignId)` — permissionless sweep of terminal campaign dust to protocol owner. Checks campaign status via staticcall to `getCampaignStatus()`. | +3,483 B |
+
+### Backlog Items Resolved
+
+- **S2:** Zero-address checks on contract reference setters — complete across all contracts.
+- **S3:** Events on contract reference changes — `ContractReferenceChanged(name, oldAddr, newAddr)` emitted by all 6 contracts with admin setters (Campaigns already had this; BudgetLedger, Settlement, CampaignLifecycle, GovernanceV2 added).
+- **C-M3:** Reentrancy consistency — BudgetLedger now has OZ `ReentrancyGuard` (was the only value-transfer contract without one). Campaigns uses manual `_locked` (cheaper PVM than OZ import).
+- **S5:** Publishers dual pause — replaced OZ `Pausable` with global `pauseRegistry.paused()`. All contracts now use the same circuit breaker.
+- **S7:** Error code E03/E52/E53 dual meanings — GovernanceSlash now uses E59/E60/E61.
+- **M4:** Budget dust sweep — `BudgetLedger.sweepDust()` clears rounding dust from terminal campaigns (Completed/Terminated/Expired). Permissionless, sends to protocol owner. Combined with GovernanceSlash `sweepSlashPool()`, all abandoned funds now have a reclaim path.
+
+### Error Code Changes
+
+| Old | New | Context |
+|-----|-----|---------|
+| E52 (GovernanceSlash) | **E59** | Slash already finalized for campaign |
+| E53 (GovernanceSlash) | **E60** | Campaign not yet resolved (cannot finalize slash) |
+| E03 (GovernanceSlash) | **E61** | No slash pool to claim or sweep (zero balance) |
+
+E52/E53 in GovernanceV2 (termination quorum / grace period) remain unchanged.
+
+### Reentrancy Guard Coverage (post-hardening)
+
+| Contract | Guard | Value Transfers |
+|----------|-------|-----------------|
+| BudgetLedger | OZ `ReentrancyGuard` | `deductAndTransfer`, `drainToAdvertiser`, `drainFraction` |
+| Settlement | OZ `ReentrancyGuard` | via BudgetLedger/PaymentVault calls |
+| CampaignLifecycle | OZ `ReentrancyGuard` | via BudgetLedger drain calls |
+| PaymentVault | OZ `ReentrancyGuard` | `withdrawPublisher`, `withdrawUser`, `withdrawProtocol` |
+| GovernanceV2 | — | `withdraw` (direct `.call{value}`), `slashAction` (direct `.call{value}`) |
+| GovernanceSlash | OZ `ReentrancyGuard` | via `slashAction` on GovernanceV2 |
+| Campaigns | Manual `_locked` | `createCampaign` (forwards to BudgetLedger) |
+| Publishers | OZ `ReentrancyGuard` | none (no value transfers, defense-in-depth) |
+
+**Note:** GovernanceV2 `withdraw()` and `slashAction()` lack reentrancy guards but follow checks-effects-interactions (state zeroed before `.call{value}`). Adding OZ `ReentrancyGuard` would exceed PVM limit (only 1,213 B spare).
+
+---
+
+## S12: On-Chain Blocklist & Publisher Allowlist (2026-03-23)
+
+Global address blocklist and per-publisher advertiser allowlist. 25 new tests, 174 total.
+
+### DatumPublishers (+8,966 B PVM)
+
+- **Global blocklist:** `mapping(address => bool) public blocked`. Owner-managed via `blockAddress()`/`unblockAddress()` (both `onlyOwner`, require non-zero address).
+- **Blocklist on registration:** `registerPublisher()` checks `!blocked[msg.sender]` (E62).
+- **Per-publisher allowlist:** `allowlistEnabled` mapping + `_allowedAdvertisers` nested mapping. Publishers toggle via `setAllowlistEnabled()`, manage entries via `setAllowedAdvertiser()`. Both gated to registered publishers and respect global pause.
+- **Views:** `isBlocked(addr)`, `isAllowedAdvertiser(publisher, advertiser)`.
+- **Events:** `AddressBlocked`, `AddressUnblocked`, `AllowlistToggled`, `AdvertiserAllowlistUpdated`.
+
+### DatumCampaigns (+4,443 B PVM)
+
+- **createCampaign blocklist checks:** `!publishers.isBlocked(msg.sender)` (E62) for advertiser, `!publishers.isBlocked(publisher)` (E62) for targeted publisher (non-zero only).
+- **createCampaign allowlist check:** If `publisher != address(0) && publishers.allowlistEnabled(publisher)`, require `publishers.isAllowedAdvertiser(publisher, msg.sender)` (E63). Open campaigns (`publisher=address(0)`) bypass allowlist entirely.
+
+### What was NOT implemented (deferred)
+
+- **Settlement claim check:** Skipped (3,543 B spare, ~800 B cost). Existing campaigns with a newly-blocked publisher can still settle.
+- **GovernanceV2 vote check:** Skipped (1,213 B spare, no room). Blocked voting is low-risk.
+- **Timelock gating:** Direct `onlyOwner` for alpha. **Must migrate to timelock before mainnet.**
+- **Governance-managed blocklist:** Future goal — open blocklist to governance control (Option C hybrid: admin emergency block + governance override).
+
+### New Error Codes
+
+| Code | Meaning |
+|------|---------|
+| **E62** | Address is blocked (advertiser or publisher on protocol deny list) |
+| **E63** | Advertiser not on publisher's allowlist |
+
+### Tests (25 new, `test/blocklist.test.ts`)
+
+- BK1-BK6: Global blocklist (add, remove, events, access control, registerPublisher, createCampaign, open campaigns)
+- AL1-AL6: Per-publisher allowlist (toggle, entries, events, createCampaign enforce, open campaign bypass, pause respect)
+
+---
+
 ## Remaining Work
 
-1. **Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture, add tests for 3 new satellites + conviction curve + cross-contract flows
+1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 174 tests across 10 test files (includes S12 blocklist).
 2. **Deploy scripts:** Update `deploy.ts` for 12-contract deploy + extended wiring sequence
-3. **Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault, update conviction display for 1–6 range
+3. ~~**Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault~~ — **Done.** Extension v0.2.0 with 12-contract support, 140/140 Jest tests.
 4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation
+5. **Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit` — currently stores locally only (see PROCESS-FLOWS.md §10.1)

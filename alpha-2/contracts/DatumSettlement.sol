@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -31,6 +31,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
+    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+
     constructor(address _campaigns, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
@@ -52,6 +54,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         require(_budgetLedger != address(0), "E00");
         require(_paymentVault != address(0), "E00");
         require(_lifecycle != address(0), "E00");
+        emit ContractReferenceChanged("budgetLedger", budgetLedger, _budgetLedger);
+        emit ContractReferenceChanged("paymentVault", paymentVault, _paymentVault);
+        emit ContractReferenceChanged("lifecycle", lifecycle, _lifecycle);
         budgetLedger = _budgetLedger;
         paymentVault = _paymentVault;
         lifecycle = _lifecycle;
@@ -59,6 +64,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
 
     function setRelayContract(address addr) external {
         require(msg.sender == owner, "E18");
+        require(addr != address(0), "E00");
+        emit ContractReferenceChanged("relay", relayContract, addr);
         relayContract = addr;
     }
 

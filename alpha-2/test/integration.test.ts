@@ -111,7 +111,7 @@ describe("Integration", function () {
     pauseReg = await PauseFactory.deploy();
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
-    publishers = await PublishersFactory.deploy(TAKE_RATE_DELAY);
+    publishers = await PublishersFactory.deploy(TAKE_RATE_DELAY, await pauseReg.getAddress());
 
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
