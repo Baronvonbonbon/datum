@@ -160,12 +160,12 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 | DatumBudgetLedger | — | 22,345 | 28,650 | 28,650 | 20,502 | unchanged |
 | **DatumPublishers** | 22,614 | 22,813 | 26,775 | **35,741** | **13,411** | +S12 blocklist+allowlist |
 | DatumTimelock | 18,342 | 18,342 | 18,342 | 18,342 | 30,810 | unchanged |
-| DatumPaymentVault | — | 16,062 | 16,062 | 16,062 | 33,090 | unchanged |
+| DatumPaymentVault | — | 16,062 | 16,062 | **17,341** | **31,811** | O3 minimumBalance dust guard |
 | DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
 | DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
-| **Total** | **~260,065** | **323,334** | **342,706** | **355,594** | | **+13,409 B S12, -521 B O1** |
+| **Total** | **~260,065** | **323,334** | **342,706** | **356,873** | | **+13,409 S12, -521 O1, +1,279 O3** |
 
-Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. O1 Blake2 precompile net -521 B on Settlement (removed events, merged admin, added precompile). GovernanceV2 remains tightest at 1,213 B spare.
+Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. O1 Blake2 precompile net -521 B on Settlement. O3 minimumBalance dust guard +1,279 B on PaymentVault. GovernanceV2 remains tightest at 1,213 B spare.
 
 ---
 
@@ -217,8 +217,9 @@ The restructuring unblocks backlog items that were previously impossible due to 
 
 ### Gas Optimizations (was blocked)
 - **O1: Blake2-256 claim hashing — DONE.** `hashBlake256()` precompile in `_validateClaim()`. Made room by removing events (-2,640 B) + merging admin. Net -521 B vs pre-O1. Settlement now 45,088 B (4,064 spare). Extension + relay still use keccak256 — must migrate for end-to-end Blake2.
-- O3: `minimumBalance()` dust guard in PaymentVault (33,090 B spare — feasible)
+- **O3: `minimumBalance()` dust guard in PaymentVault — DONE.** E58 on all 3 withdrawal paths. +1,279 B (31,811 spare).
 - O2: `weightLeft()` batch loop early abort (still tight on Relay: 2,974 B spare)
+- ~~O4: `has_key()` storage precompile~~ — **Not implementable.** Pallet-revive does not expose storage-level precompiles through Solidity.
 
 ### Features (was blocked)
 - P20: Campaign inactivity timeout (Campaigns now has 10,588 B spare)
@@ -314,6 +315,26 @@ Global address blocklist and per-publisher advertiser allowlist. 25 new tests, 1
 
 - BK1-BK6: Global blocklist (add, remove, events, access control, registerPublisher, createCampaign, open campaigns)
 - AL1-AL6: Per-publisher allowlist (toggle, entries, events, createCampaign enforce, open campaign bypass, pause respect)
+
+---
+
+## O3: minimumBalance() Dust Guard in PaymentVault (2026-03-24)
+
+All three PaymentVault withdrawal paths (`withdrawPublisher`, `withdrawUser`, `withdrawProtocol`) now check `SYSTEM.minimumBalance()` on PolkaVM before sending DOT. Transfers below the existential deposit are rejected with E58, preventing dust accounts.
+
+- Uses same `SYSTEM_ADDR.code.length > 0` guard pattern as GovernanceV2 and Settlement
+- Check is in the single `_send()` internal function — covers all 3 withdrawal paths
+- On Hardhat EVM, the guard is false (no precompile) — withdrawals proceed without the check
+- **PVM cost: +1,279 B** (PaymentVault: 16,062 → 17,341 B, 31,811 spare)
+
+This matches GovernanceV2's existing E58 dust prevention. All contracts that transfer native DOT to external addresses now guard against dust:
+- **GovernanceV2:** `withdraw()` + `slashAction()` — E58
+- **PaymentVault:** `_send()` (all 3 withdrawals) — E58
+- **BudgetLedger:** `drainToAdvertiser()` / `drainFraction()` — no guard (sends to known advertiser addresses, amounts are budget-scale)
+
+### O4: Storage Precompile `has_key()` — Not Implementable
+
+O4 proposed using a `has_key()` storage precompile for cheaper existence checks on voted/registered mappings. Investigation found that pallet-revive does not expose storage-level precompiles through Solidity. The System precompile at 0x900 only provides `minimumBalance()`, `weightLeft()`, and `hashBlake256()`. O4 requires pallet-revive to add a Solidity-callable storage existence check, which is not available. **Closed as not implementable with current toolchain.**
 
 ---
 

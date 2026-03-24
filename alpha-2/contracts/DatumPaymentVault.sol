@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IDatumPaymentVault.sol";
+import "./interfaces/ISystem.sol";
 
 /// @title DatumPaymentVault
 /// @notice Pull-payment vault for publisher, user, and protocol balances.
@@ -17,6 +18,9 @@ import "./interfaces/IDatumPaymentVault.sol";
 ///         to record how the DOT should be split among publisher/user/protocol.
 ///         Single _send() site to avoid resolc codegen bug with multiple transfer() sites.
 contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable {
+    ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
+    address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
+
     // -------------------------------------------------------------------------
     // Authorization
     // -------------------------------------------------------------------------
@@ -110,7 +114,11 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable {
 
     /// @dev Single native-transfer site — avoids resolc codegen bug where multiple
     ///      transfer() sites produce broken RISC-V.
+    ///      O3: Dust guard via minimumBalance() precompile on PolkaVM.
     function _send(address to, uint256 amount) internal {
+        if (SYSTEM_ADDR.code.length > 0) {
+            require(amount >= SYSTEM.minimumBalance(), "E58");
+        }
         (bool ok,) = payable(to).call{value: amount}("");
         require(ok, "E02");
     }

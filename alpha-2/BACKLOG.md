@@ -68,11 +68,11 @@ Optimizations that would reduce on-chain costs. Some now have headroom after alp
 |----|-------------|----------|-------------------|-----------|--------|
 | O1 | **Blake2-256 claim hashing** via `hashBlake256()` system precompile — ~3x cheaper than keccak256 per claim. | +2,119 B to Settlement (actual) | 4,064 B | **DONE** — contract deployed. Extension + relay migration pending. | High — per-claim gas reduction |
 | O2 | **`weightLeft()` batch loop early abort** — graceful partial settlement when weight runs low mid-loop, instead of full revert. | +3,598 B to Relay, +~4 KB to Settlement | Relay: 2,974 B; Settlement: 3,543 B | **No** — exceeds both | Medium — prevents wasted gas on partial batches |
-| O3 | **`minimumBalance()` in PaymentVault withdrawals** — prevent dust transfers below existential deposit. Already in GovernanceV2. | +~2 KB to PaymentVault | 33,090 B | **Yes** | Low — edge case dust prevention |
-| O4 | **Storage precompile `has_key()`** — cheaper existence checks for voted/registered mappings vs full SLOAD. | ~1-2 KB each | GovernanceV2: 1,213 B; Publishers: 13,411 B | **Partial** — Publishers only | Low — marginal gas savings |
-| O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 3,543 B | **Tight** | Low — marginal gas savings |
+| O3 | **`minimumBalance()` in PaymentVault withdrawals** — prevent dust transfers below existential deposit. Matches GovernanceV2's E58 guard. | +1,279 B to PaymentVault (actual) | 31,811 B | **DONE** | Low — edge case dust prevention |
+| O4 | ~~**Storage precompile `has_key()`**~~ — cheaper existence checks for voted/registered mappings vs full SLOAD. | — | — | **Closed** — pallet-revive does not expose storage precompiles through Solidity. System precompile at 0x900 only has minimumBalance/weightLeft/hashBlake256. | — |
+| O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 4,064 B | **Closed** — same as O4, not available via Solidity precompile | Low — marginal gas savings |
 
-**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 feasible on PaymentVault (33,090 B spare).
+**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 done (PaymentVault: 17,341 B, 31,811 spare). O4/O5 closed — pallet-revive does not expose storage precompiles through Solidity.
 
 ---
 
@@ -163,7 +163,7 @@ Areas where the system currently relies on trust assumptions rather than cryptog
 | **Clearing CPM** | On-device second-price auction (P19) | Deterministic from inputs, no proof | ZK proof of auction outcome (P9) |
 | **Engagement quality** | On-device behavior hash chain (P16) | Quality scoring in trusted background context | Selective disclosure; ZK behavior proofs (P9) |
 | **Claim state persistence** | Browser `chrome.storage.local` | Lost if browser data cleared | Encrypted export/import (P6 done); deterministic derivation from seed + on-chain state |
-| **Dust transfer prevention** | GovernanceV2 checks `minimumBalance()` | PaymentVault/Settlement/Relay skip check | PaymentVault feasible now (33,090 B spare, O3). Settlement/Relay still PVM-blocked. |
+| **Dust transfer prevention** | GovernanceV2 + PaymentVault check `minimumBalance()` (E58) | Settlement/Relay skip check | PaymentVault done (O3). Settlement/Relay still PVM-constrained. BudgetLedger sends budget-scale amounts — guard unnecessary. |
 | **Open campaign take rate** | Fixed 50% snapshot (`DEFAULT_TAKE_RATE_BPS`) | Static default, not market-driven | Dynamic per-publisher rates (PVM constraint) |
 | **Publisher domain resolution** | `data-relay` SDK attribute → local storage | URL changes require page update | On-chain publisher domain registry |
 | **Direct submission attestation** | No co-sig enforcement for direct `settleClaims()` | Users can submit without publisher | `DatumAttestationVerifier` wrapper contract post-MVP |
@@ -284,7 +284,7 @@ Explicit TODO/stub markers in source code.
 |----------|-------|------|------|----------|
 | Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 2 | 8 | Now |
 | Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
-| Gas & runtime optimizations | 5 | 1 (O1 contract) | 4 (O2 PVM-blocked) | Post-alpha |
+| Gas & runtime optimizations | 5 | 2 (O1, O3) + 2 closed (O4, O5) | 1 (O2 PVM-blocked) | Post-alpha |
 | Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
 | Extension UX deferred to beta | 11 | 0 | 11 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
@@ -296,7 +296,7 @@ Explicit TODO/stub markers in source code.
 | Accepted known limitations | 17 | 3 resolved | 14 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **124** | **14** | **110** | |
+| **Total** | **124** | **17** | **107** | |
 
 ### Critical Path (blocking mainnet)
 

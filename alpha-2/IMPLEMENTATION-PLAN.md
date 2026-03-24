@@ -609,12 +609,12 @@ All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat co
 | BudgetLedger | 22,345 | 28,650 | 28,650 | 20,502 | +6,305 |
 | **Publishers** | 22,813 | 26,775 | **35,741** | **13,411** | +12,928 |
 | Timelock | 18,342 | 18,342 | 18,342 | 30,810 | 0 |
-| PaymentVault | 16,062 | 16,062 | 16,062 | 33,090 | 0 |
+| PaymentVault | 16,062 | 16,062 | **17,341** | **31,811** | +1,279 (O3 dust guard) |
 | PauseRegistry | 4,047 | 4,047 | 4,047 | 45,105 | 0 |
 | ZKVerifier | 1,409 | 1,409 | 1,409 | 47,743 | 0 |
-| **Total** | 323,334 | 342,706 | **355,594** | | +32,260 |
+| **Total** | 323,334 | 342,706 | **356,873** | | +33,539 |
 
-**Hardening added 19,372 B PVM.** S12 added 13,409 B. O1 Blake2 precompile on Settlement net -521 B (removed events -2,640 B, added precompile +2,119 B). GovernanceV2 is tightest at 1,213 B spare — no further additions without restructuring.
+**Hardening added 19,372 B PVM.** S12 added 13,409 B. O1 Blake2 precompile on Settlement net -521 B. O3 minimumBalance dust guard on PaymentVault +1,279 B. GovernanceV2 is tightest at 1,213 B spare — no further additions without restructuring.
 
 **PVM size optimization notes:**
 - Settlement ZK verification moved to DatumRelay (post-alpha, when real Groth16 is ready). Saved ~4 KB.
