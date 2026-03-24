@@ -11,6 +11,7 @@ import {
   DatumBudgetLedger,
   DatumPaymentVault,
   DatumCampaignLifecycle,
+  DatumAttestationVerifier,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
@@ -35,6 +36,7 @@ describe("Integration", function () {
   let ledger: DatumBudgetLedger;
   let vault: DatumPaymentVault;
   let lifecycle: DatumCampaignLifecycle;
+  let verifier: DatumAttestationVerifier;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -123,7 +125,7 @@ describe("Integration", function () {
     campaigns = await CampaignsFactory.deploy(MIN_CPM, PENDING_TIMEOUT, await publishers.getAddress(), await pauseReg.getAddress());
 
     const LifecycleFactory = await ethers.getContractFactory("DatumCampaignLifecycle");
-    lifecycle = await LifecycleFactory.deploy(await pauseReg.getAddress());
+    lifecycle = await LifecycleFactory.deploy(await pauseReg.getAddress(), 432000n);
 
     const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");
     v2 = await V2Factory.deploy(
@@ -160,6 +162,9 @@ describe("Integration", function () {
 
     await vault.setSettlement(await settlement.getAddress());
 
+    const VerifierFactory = await ethers.getContractFactory("DatumAttestationVerifier");
+    verifier = await VerifierFactory.deploy(await settlement.getAddress(), await campaigns.getAddress());
+
     await settlement.configure(
       await ledger.getAddress(),
       await vault.getAddress(),
@@ -167,6 +172,7 @@ describe("Integration", function () {
       await relay.getAddress(),
       await publishers.getAddress()
     );
+    await settlement.setAttestationVerifier(await verifier.getAddress());
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
     await lifecycle.setBudgetLedger(await ledger.getAddress());
@@ -460,5 +466,131 @@ describe("Integration", function () {
     ]);
     expect(result.settledCount).to.equal(1n);
     expect(result.rejectedCount).to.equal(0n);
+  });
+
+  // =========================================================================
+  // P1: Mandatory publisher attestation (DatumAttestationVerifier)
+  // =========================================================================
+
+  // H1: attested settlement with valid publisher co-sig succeeds
+  it("H1: attested settlement with valid publisher co-sig", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
+
+    // Publisher signs attestation
+    const domain = {
+      name: "DatumAttestationVerifier",
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: await verifier.getAddress(),
+    };
+    const types = {
+      PublisherAttestation: [
+        { name: "campaignId", type: "uint256" },
+        { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+      ],
+    };
+    const value = {
+      campaignId,
+      user: user.address,
+      firstNonce: claims[0].nonce,
+      lastNonce: claims[claims.length - 1].nonce,
+      claimCount: claims.length,
+    };
+    const publisherSig = await publisher.signTypedData(domain, types, value);
+
+    const result = await verifier.connect(user).settleClaimsAttested.staticCall([
+      { user: user.address, campaignId, claims, publisherSig }
+    ]);
+    expect(result.settledCount).to.equal(1n);
+
+    await verifier.connect(user).settleClaimsAttested([
+      { user: user.address, campaignId, claims, publisherSig }
+    ]);
+  });
+
+  // H2: attested settlement without co-sig reverts E33
+  it("H2: attested settlement without publisher co-sig reverts E33", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
+
+    await expect(
+      verifier.connect(user).settleClaimsAttested([
+        { user: user.address, campaignId, claims, publisherSig: "0x" }
+      ])
+    ).to.be.revertedWith("E33");
+  });
+
+  // H3: attested settlement with wrong signer reverts E34
+  it("H3: attested settlement with wrong publisher signer reverts E34", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
+
+    // user signs instead of publisher
+    const domain = {
+      name: "DatumAttestationVerifier",
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: await verifier.getAddress(),
+    };
+    const types = {
+      PublisherAttestation: [
+        { name: "campaignId", type: "uint256" },
+        { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+      ],
+    };
+    const wrongSig = await user.signTypedData(domain, types, {
+      campaignId,
+      user: user.address,
+      firstNonce: claims[0].nonce,
+      lastNonce: claims[claims.length - 1].nonce,
+      claimCount: claims.length,
+    });
+
+    await expect(
+      verifier.connect(user).settleClaimsAttested([
+        { user: user.address, campaignId, claims, publisherSig: wrongSig }
+      ])
+    ).to.be.revertedWith("E34");
+  });
+
+  // H4: non-user caller reverts E32
+  it("H4: attested settlement by non-user reverts E32", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+    await expect(
+      verifier.connect(publisher).settleClaimsAttested([
+        { user: user.address, campaignId, claims, publisherSig: "0x" }
+      ])
+    ).to.be.revertedWith("E32");
   });
 });

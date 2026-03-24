@@ -20,4 +20,9 @@ interface IDatumCampaignLifecycle {
     /// @notice Expire a Pending campaign past its timeout. Permissionless.
     ///         Full budget refund to advertiser via BudgetLedger.
     function expirePendingCampaign(uint256 campaignId) external;
+
+    /// @notice P20: Expire an Active/Paused campaign with no settlement activity
+    ///         for inactivityTimeoutBlocks. Permissionless.
+    ///         Full budget refund to advertiser via BudgetLedger.
+    function expireInactiveCampaign(uint256 campaignId) external;
 }

@@ -140,10 +140,10 @@ Major features planned for post-alpha development.
 | Priority | ID | Item | Description | Dependency | Status |
 |----------|-----|------|-------------|------------|--------|
 | 1 | P7 | **Contract upgrade path** | UUPS proxy or migration pattern for PaymentVault (holds user balances). Required before Kusama mainnet. | None | Open |
-| 2 | P1 | **Mandatory publisher attestation** | Enforce publisher co-sig — no degraded trust mode. Currently optional. `DatumAttestationVerifier` wrapper contract. | P21 (done) | Open |
+| 2 | P1 | **Mandatory publisher attestation** | `DatumAttestationVerifier` wrapper contract — enforces EIP-712 publisher co-sig for direct settlement. 35,920 B PVM. Settlement `setAttestationVerifier()` + auth check (+836 B). 4 tests (H1-H4). | P21 (done) | **DONE** |
 | 3 | P17 | **External wallet integration** | WalletConnect v2 for SubWallet/Talisman/Polkadot.js. Embedded wallet uses secp256k1/EIP-712; external wallets may use sr25519. | None | Open |
 | 4 | P9 | **ZK proof Phase 1** | Replace stub DatumZKVerifier with real Groth16/PLONK circuit for auction clearing and behavioral proofs. In-browser WASM prover (~5-30s per batch). | BN128 pairing precompile on Polkadot Hub | Open |
-| 5 | P20 | **Campaign inactivity timeout** | Auto-complete after N blocks with no settlements. Prevents dust-budget lock when advertiser loses key. | None | Open |
+| 5 | P20 | **Campaign inactivity timeout** | `expireInactiveCampaign()` on CampaignLifecycle. `lastSettlementBlock` tracking on BudgetLedger. 30-day default (432,000 blocks). Permissionless. E64 error. 5 tests (LC10-LC14). | None | **DONE** |
 | 6 | ~~M4~~ | ~~**Governance sweep**~~ | ~~`sweepSlashPool()` + `sweepAbandonedBudget()` for locked funds with no claimant.~~ | — | **DONE** |
 | 7 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17, sr25519Verify precompile stability | Open |
 | 8 | P11 | **XCM fee routing** | Protocol fee routing to HydraDX for DOT→stablecoin swaps via XCM precompile. | HydraDX integration | Open |
@@ -289,7 +289,7 @@ Explicit TODO/stub markers in source code.
 | Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
 | Extension UX deferred to beta | 11 | 0 | 11 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
-| Feature development (post-alpha/beta) | 12 | 1 (M4) | 11 | Beta / post-beta |
+| Feature development (post-alpha/beta) | 12 | 3 (M4, P1, P20) | 9 | Beta / post-beta |
 | Trust model gaps | 8 | 0 | 8 | Long-term |
 | Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
 | Pre-mainnet gate | 6 | 1 | 5 | Before mainnet |
@@ -297,27 +297,27 @@ Explicit TODO/stub markers in source code.
 | Accepted known limitations | 17 | 4 resolved | 13 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **125** | **19** | **106** | |
+| **Total** | **125** | **21** | **104** | |
 
 ### Contract Status: FROZEN FOR ALPHA (2026-03-24)
 
-All 12 contracts are complete. 176/176 tests. No further contract changes for alpha deployment.
+All 13 contracts are complete. 185/185 tests. No further contract changes for alpha deployment.
 
-**Done:** Phases 1-4 restructuring, S2/S3/S5/S7/C-M3/M4 hardening, S12 blocklist (all 3 layers: registration, campaign creation, settlement claim validation), O1 Blake2-256, O3 dust guard, S12 Settlement check.
+**Done:** Phases 1-4 restructuring, S2/S3/S5/S7/C-M3/M4 hardening, S12 blocklist (all 3 layers), O1 Blake2-256, O3 dust guard, P1 mandatory attestation (new DatumAttestationVerifier), P20 campaign inactivity timeout.
 
 **Closed:** O2 (PVM-blocked), O4/O5 (not available), O6 (counterproductive), GovernanceV2 vote blocklist (no room), GovernanceV2 reentrancy guard (no room).
 
-**PVM-frozen (no additions possible):** GovernanceV2 (1,213 spare), Settlement (1,936 spare), Relay (2,974 spare).
+**PVM-frozen (no additions possible):** Settlement (1,100 spare), GovernanceV2 (1,213 spare), Relay (2,974 spare).
 
 **Pre-mainnet contract changes (post-alpha):** Timelock-gated blocklist, two-step ownership (L3), UUPS proxy (P7), security audit.
 
-**Post-alpha feature contracts:** P1 (mandatory attestation), P9 (real ZK), P20 (inactivity timeout), F7 (sr25519).
+**Post-alpha feature contracts:** P9 (real ZK), F7 (sr25519), F11 (on-chain domain blocklist — skipped for now, would blow Settlement budget).
 
 ### Critical Path (blocking mainnet)
 
 1. **1.10** — Blake2 claim hash migration (extension + relay) — **blocks testnet deploy**
 2. **1.2** — Fix relay round-trip (extension → relay bot POST)
-3. **1.8** — Alpha-2 deploy scripts (12-contract, 5-arg `configure()`)
+3. **1.8** — Alpha-2 deploy scripts (13-contract, 5-arg `configure()` + `setAttestationVerifier()`, 2-arg Lifecycle constructor)
 4. **1.9** — Alpha-2 testnet deploy
 5. **P7** — Contract upgrade path (UUPS proxy)
 6. **Timelock-gated blocklist** — S12 pre-mainnet requirement

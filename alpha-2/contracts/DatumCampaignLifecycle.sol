@@ -28,6 +28,10 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     address public governanceContract;
     address public settlementContract;
 
+    /// @dev P20: Blocks of inactivity before a campaign can be expired.
+    ///      30 days at 6s blocks = 432,000 blocks.
+    uint256 public immutable inactivityTimeoutBlocks;
+
     modifier onlyOwner() {
         require(msg.sender == owner, "E18");
         _;
@@ -39,10 +43,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _pauseRegistry) {
+    constructor(address _pauseRegistry, uint256 _inactivityTimeoutBlocks) {
         require(_pauseRegistry != address(0), "E00");
+        require(_inactivityTimeoutBlocks > 0, "E00");
         owner = msg.sender;
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+        inactivityTimeoutBlocks = _inactivityTimeoutBlocks;
     }
 
     // -------------------------------------------------------------------------
@@ -158,5 +164,32 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
         emit CampaignExpired(campaignId);
+    }
+
+    // -------------------------------------------------------------------------
+    // P20: Inactivity timeout
+    // -------------------------------------------------------------------------
+
+    /// @notice Expire an Active/Paused campaign that has had no settlement activity
+    ///         for `inactivityTimeoutBlocks`. Permissionless — anyone can call.
+    ///         Full remaining budget refunded to advertiser.
+    function expireInactiveCampaign(uint256 campaignId) external nonReentrant {
+        address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+        require(advertiser != address(0), "E01");
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(
+            status == IDatumCampaigns.CampaignStatus.Active ||
+            status == IDatumCampaigns.CampaignStatus.Paused,
+            "E14"
+        );
+
+        uint256 lastBlock = budgetLedger.lastSettlementBlock(campaignId);
+        require(block.number > lastBlock + inactivityTimeoutBlocks, "E64");
+
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Completed);
+        budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        emit CampaignCompleted(campaignId);
     }
 }

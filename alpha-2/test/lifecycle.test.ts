@@ -57,7 +57,7 @@ describe("DatumCampaignLifecycle", function () {
 
     // Deploy Lifecycle
     const LifecycleFactory = await ethers.getContractFactory("DatumCampaignLifecycle");
-    lifecycle = await LifecycleFactory.deploy(await pauseReg.getAddress());
+    lifecycle = await LifecycleFactory.deploy(await pauseReg.getAddress(), 100n);
 
     // Wire everything
     await ledger.setCampaigns(await campaigns.getAddress());
@@ -214,5 +214,66 @@ describe("DatumCampaignLifecycle", function () {
     await expect(
       lifecycle.connect(other).expirePendingCampaign(cid)
     ).to.be.revertedWith("E20");
+  });
+
+  // =========================================================================
+  // P20: Campaign inactivity timeout
+  // =========================================================================
+
+  // LC10: expireInactiveCampaign succeeds after timeout
+  it("LC10: anyone can expire inactive Active campaign after timeout", async function () {
+    const cid = await createAndActivate();
+
+    // Mine past inactivity timeout (100 blocks in test)
+    await mineBlocks(102n);
+
+    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    await lifecycle.connect(other).expireInactiveCampaign(cid);
+    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+
+    expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
+    expect(advBalAfter - advBalBefore).to.equal(BUDGET);
+    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+  });
+
+  // LC11: expireInactiveCampaign reverts before timeout
+  it("LC11: expire inactive reverts before timeout (E64)", async function () {
+    const cid = await createAndActivate();
+
+    await expect(
+      lifecycle.connect(other).expireInactiveCampaign(cid)
+    ).to.be.revertedWith("E64");
+  });
+
+  // LC12: expireInactiveCampaign reverts on non-Active
+  it("LC12: expire inactive reverts on Pending campaign (E14)", async function () {
+    const cid = await createPending();
+
+    await mineBlocks(102n);
+
+    await expect(
+      lifecycle.connect(other).expireInactiveCampaign(cid)
+    ).to.be.revertedWith("E14");
+  });
+
+  // LC13: expireInactiveCampaign works on Paused campaign
+  it("LC13: expire inactive works on Paused campaign", async function () {
+    const cid = await createAndActivate();
+
+    // Pause the campaign
+    await campaigns.connect(advertiser).togglePause(cid, true);
+    expect(await campaigns.getCampaignStatus(cid)).to.equal(2); // Paused
+
+    await mineBlocks(102n);
+
+    await lifecycle.connect(other).expireInactiveCampaign(cid);
+    expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
+  });
+
+  // LC14: lastSettlementBlock is set on creation
+  it("LC14: lastSettlementBlock set on budget initialization", async function () {
+    const cid = await createAndActivate();
+    const lastBlock = await ledger.lastSettlementBlock(cid);
+    expect(lastBlock).to.be.gt(0n);
   });
 });

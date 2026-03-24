@@ -637,46 +637,48 @@ All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat co
 | **Phase 2** | DatumBudgetLedger + Campaigns refactor | **DONE** | 2026-03-21 | Campaigns 48,662 → 38,564 B. BudgetLedger 22,345 B. |
 | **Phase 3** | DatumCampaignLifecycle + Campaigns thinning | **DONE** | 2026-03-21 | CampaignLifecycle 30,197 B. Campaign struct 10 → 8 slots. |
 | **Phase 4** | Hardening (S2/S3/S5/S7/C-M3/M4) + S12 blocklist | **DONE** | 2026-03-22/23 | 7 hardening stages + S12. 174 tests. +32,781 B PVM. |
-| **Phase 5** | Blake2-256 + weight-limited batches | **O1 DONE, O2 DEFERRED** | 2026-03-23 | O1: Blake2 precompile added to Settlement. Made room by removing events (-2,640 B) + merging admin. Net -521 B. S12 Settlement blocklist +2,128 B. Final: 47,216 B (1,936 spare). O2 exceeds both Settlement and Relay — still blocked. |
+| **Phase 5** | Blake2-256 + weight-limited batches | **O1 DONE, O2 DEFERRED** | 2026-03-23 | O1: Blake2 precompile added to Settlement. Made room by removing events (-2,640 B) + merging admin. Net -521 B. S12 Settlement blocklist +2,128 B. O2 exceeds both Settlement and Relay — still blocked. |
+| **Phase 6** | P1 + P20 features | **DONE** | 2026-03-24 | P1: DatumAttestationVerifier (35,920 B, 13th contract). P20: inactivity timeout in BudgetLedger + CampaignLifecycle. Settlement: 48,052 B (1,100 spare). 185/185 tests. |
 
 ### Contract Status: FROZEN FOR ALPHA
 
-All 12 contracts are complete. 176/176 tests passing. No further contract changes planned for alpha deployment.
+All 13 contracts are complete. 185/185 tests passing. No further contract changes planned for alpha deployment.
 
 **Completed:**
 - Phases 1-4: Restructuring + hardening + S12 blocklist (all 3 layers: registration, campaign creation, settlement)
 - O1: Blake2-256 claim hashing in Settlement
 - O3: minimumBalance() dust guard in PaymentVault
 - S12 Settlement blocklist check (reason code 11)
+- P1: Mandatory publisher attestation — DatumAttestationVerifier wrapper (35,920 B)
+- P20: Campaign inactivity timeout — BudgetLedger `lastSettlementBlock` + CampaignLifecycle `expireInactiveCampaign()` (432,000 blocks / 30 days)
 
 **Closed (not implementable or counterproductive):**
-- O2: weightLeft batch abort — exceeds both Settlement (1,936 spare) and Relay (2,974 spare)
+- O2: weightLeft batch abort — exceeds both Settlement (1,100 spare) and Relay (2,974 spare)
 - O4/O5: Storage precompiles — not available via Solidity on pallet-revive
 - O6: Relay typed→plain address swap — +1,160 B worse (amortized imports)
+- F11: On-chain domain blocklist — Settlement at 1,100 spare, cross-contract call would exceed budget
 - GovernanceV2 vote blocklist — no room (1,213 spare)
 - GovernanceV2 reentrancy guard — no room (1,213 spare)
 
 **PVM-frozen contracts (no further additions possible):**
 - GovernanceV2: 47,939 B (1,213 spare)
-- Settlement: 47,216 B (1,936 spare)
+- Settlement: 48,052 B (1,100 spare)
 - Relay: 46,178 B (2,974 spare)
 
 **Pre-mainnet contract changes (post-alpha, before Kusama/mainnet):**
 - Timelock-gated blocklist — `blockAddress()`/`unblockAddress()` through 48h timelock
 - Two-step ownership (L3) — `transferOwnership()` → `acceptOwnership()` pattern
 - Contract upgrade path (P7) — UUPS proxy or migration for PaymentVault
-- Security audit — external review of all 12 contracts
+- Security audit — external review of all 13 contracts
 
 **Post-alpha feature contracts:**
-- P1: Mandatory publisher attestation (DatumAttestationVerifier wrapper)
 - P9: Real ZK verifier (Groth16/PLONK — needs BN128 precompile)
-- P20: Campaign inactivity timeout (Campaigns has 6,686 spare)
 - F7: sr25519 signature verification (needs precompile)
 
 ### Remaining Work (off-contract, blocks alpha-2 deploy)
 
 1. **Blake2 migration (extension + relay)** — Extension `behaviorChain.ts` and relay bot must switch claim hash from keccak256 to Blake2-256. `@noble/hashes` installed but unused. **Required before testnet deploy.**
-2. **Deploy scripts** — Update `deploy.ts` for 12-contract deploy + wiring sequence. Settlement `configure()` now takes 5 args.
+2. **Deploy scripts** — Update `deploy.ts` for 13-contract deploy + wiring sequence. Settlement `configure()` takes 5 args. CampaignLifecycle constructor takes 2 args. Settlement `setAttestationVerifier()` for P1.
 3. **Testnet deploy** — Deploy alpha-2 to Paseo, run E2E validation
 4. **Relay fix** — Extension `signForRelay()` must POST to relay bot `/relay/submit` (currently stores locally only)
 
@@ -686,7 +688,7 @@ All 12 contracts are complete. 176/176 tests passing. No further contract change
 - Removing `ContractReferenceChanged` events from Settlement (saved 2,640 B — string event encoding is expensive)
 - Merging `setRelayContract()` into `configure()` (5-arg, publishers added for S12)
 - Blake2 precompile call cost only 2,119 B (vs estimated ~4 KB — single-function precompile is cheaper)
-- Net result: -521 B vs pre-O1 Settlement, then +2,128 B for S12 blocklist. 47,216 B (1,936 spare).
+- Net result: -521 B vs pre-O1 Settlement, then +2,128 B for S12 blocklist, +836 B for P1 auth. 48,052 B (1,100 spare).
 
 Key empirical findings:
 - **OZ ReentrancyGuard vs manual `_locked`:** OZ saves 5,994 B when contract already imports OZ (amortized). Costs +707 B when it would be the sole OZ import (Campaigns). Use OZ when amortized.

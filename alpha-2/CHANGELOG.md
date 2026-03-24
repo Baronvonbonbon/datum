@@ -1,14 +1,14 @@
 # Alpha-2 Changelog
 
-**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile)
+**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile) / 2026-03-24 (P1, P20)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
-**Status:** All 12 contracts compile. All under 49,152 B PVM limit. 176 tests passing.
+**Status:** All 13 contracts compile. All under 49,152 B PVM limit. 185 tests passing.
 
 ---
 
 ## Summary
 
-Alpha-2 restructures the DATUM protocol from 9 to 12 contracts to break the PVM bytecode ceiling that blocked all further development on Campaigns (490 B spare) and Settlement (332 B spare). Three new satellite contracts were extracted, the governance conviction model was replaced with a logarithmic curve, and the toolchain was upgraded to resolc 1.0.0.
+Alpha-2 restructures the DATUM protocol from 9 to 13 contracts to break the PVM bytecode ceiling that blocked all further development on Campaigns (490 B spare) and Settlement (332 B spare). Three new satellite contracts were extracted, the governance conviction model was replaced with a logarithmic curve, and the toolchain was upgraded to resolc 1.0.0.
 
 The restructuring freed **16,608 B** of combined headroom in the two critical contracts (Campaigns + Settlement), up from 822 B in alpha. This unblocks 8 deferred hardening items, 5 gas optimizations, and 3 feature requirements.
 
@@ -154,19 +154,20 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 |---|---|---|---|---|---|---|
 | **DatumGovernanceV2** | 39,693 | 43,725 | 47,939 | 47,939 | **1,213** | tightest — no S12 check |
 | DatumRelay | 46,180 | 46,178 | 46,178 | 46,178 | 2,974 | unchanged |
-| DatumSettlement | 48,820 | 43,132 | 45,609 | **47,216** | **1,936** | O1 Blake2 + admin merge + S12 blocklist |
+| DatumSettlement | 48,820 | 43,132 | 45,609 | **48,052** | **1,100** | O1 Blake2 + S12 blocklist + P1 verifier auth |
 | **DatumCampaigns** | 48,662 | 38,564 | 38,023 | **42,466** | **6,686** | +S12 blocklist+allowlist checks |
 | DatumGovernanceSlash | 30,298 | 36,520 | 37,160 | 37,160 | 11,992 | unchanged |
-| DatumCampaignLifecycle | — | 30,197 | 32,512 | 32,512 | 16,640 | unchanged |
-| DatumBudgetLedger | — | 22,345 | 28,650 | 28,650 | 20,502 | unchanged |
+| DatumCampaignLifecycle | — | 30,197 | 32,512 | **40,910** | **8,242** | P20 inactivity timeout |
+| DatumBudgetLedger | — | 22,345 | 28,650 | **29,809** | **19,343** | P20 lastSettlementBlock |
+| DatumAttestationVerifier | — | — | — | **35,920** | **13,232** | P1 new contract |
 | **DatumPublishers** | 22,614 | 22,813 | 26,775 | **35,741** | **13,411** | +S12 blocklist+allowlist |
 | DatumTimelock | 18,342 | 18,342 | 18,342 | 18,342 | 30,810 | unchanged |
 | DatumPaymentVault | — | 16,062 | 16,062 | **17,341** | **31,811** | O3 minimumBalance dust guard |
 | DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
 | DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
-| **Total** | **~260,065** | **323,334** | **342,706** | **359,001** | | **+15,537 S12, -521 O1, +1,279 O3** |
+| **Total** | **~260,065** | **323,334** | **342,706** | **405,314** | | 13 contracts |
 
-Hardening added 19,372 B PVM across 8 contracts. S12 added 15,537 B across 3 contracts (Publishers +8,966, Campaigns +4,443, Settlement +2,128). O1 Blake2 precompile net -521 B on Settlement. O3 minimumBalance dust guard +1,279 B on PaymentVault. GovernanceV2 remains tightest at 1,213 B spare.
+Hardening added 19,372 B PVM. S12 added 15,537 B across 3 contracts. O1 Blake2 net -521 B. O3 dust guard +1,279 B. P20 inactivity timeout +9,557 B (BudgetLedger + Lifecycle). P1 attestation verifier +36,756 B (new contract + Settlement auth). Settlement tightest at 1,100 B spare.
 
 ---
 
@@ -414,11 +415,62 @@ On **PolkaVM** (pallet-revive), Settlement now hashes claims with Blake2-256. Th
 
 ---
 
+## P20: Campaign Inactivity Timeout (2026-03-24)
+
+Campaigns with no settlement activity for `inactivityTimeoutBlocks` can be expired by anyone. Full remaining budget refunded to advertiser.
+
+### Changes
+
+- **DatumBudgetLedger:** New `mapping(uint256 => uint256) public lastSettlementBlock` — set to `block.number` on `initializeBudget()`, updated on each `deductAndTransfer()`. +1,159 B PVM (29,809 B, 19,343 spare).
+- **DatumCampaignLifecycle:** New `expireInactiveCampaign(uint256 campaignId)` — permissionless. Checks `block.number > lastSettlementBlock + inactivityTimeoutBlocks`. Sets status to Completed, drains budget to advertiser. Constructor now takes `(pauseRegistry, inactivityTimeoutBlocks)`. +8,398 B PVM (40,910 B, 8,242 spare).
+- **IDatumBudgetLedger:** Added `lastSettlementBlock(uint256)` view.
+- **IDatumCampaignLifecycle:** Added `expireInactiveCampaign(uint256)`.
+- **Error code E64:** Inactivity timeout not yet reached.
+
+### Default Timeout
+
+30 days = 432,000 blocks at 6s block time. Configurable via constructor.
+
+### Tests (5 new: LC10-LC14)
+
+- LC10: expire inactive Active campaign after timeout — full refund
+- LC11: expire before timeout reverts E64
+- LC12: expire inactive Pending campaign reverts E14
+- LC13: expire inactive Paused campaign succeeds
+- LC14: lastSettlementBlock set on budget initialization
+
+---
+
+## P1: Mandatory Publisher Attestation — DatumAttestationVerifier (2026-03-24)
+
+New contract: `DatumAttestationVerifier` wraps `settleClaims()` with mandatory EIP-712 publisher co-signature verification. Users call `settleClaimsAttested()` instead of `settleClaims()` directly.
+
+### Design
+
+- For campaigns with a designated publisher (`publisher != address(0)`), `publisherSig` must be a valid EIP-712 `PublisherAttestation` signature from that publisher.
+- For open campaigns (`publisher == address(0)`), `publisherSig` is ignored — no attestation required.
+- Settlement updated: `attestationVerifier` address added to authorized callers in `settleClaims()` (alongside user and relay).
+- Separate `setAttestationVerifier(address)` setter on Settlement (not folded into `configure()`).
+
+### PVM Sizes
+
+- **DatumAttestationVerifier:** 35,920 B (13,232 spare) — new contract (13th).
+- **DatumSettlement:** 47,216 → 48,052 B (+836 B, 1,100 spare) — `attestationVerifier` storage + OR check + setter.
+
+### Tests (4 new: H1-H4)
+
+- H1: valid publisher co-sig settles successfully
+- H2: missing co-sig reverts E33
+- H3: wrong signer reverts E34
+- H4: non-user caller reverts E32
+
+---
+
 ## Remaining Work
 
-1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 174 tests across 10 test files (includes S12 blocklist).
-2. **Deploy scripts:** Update `deploy.ts` for 12-contract deploy + extended wiring sequence. Settlement `configure()` now takes 4 args (relay included).
-3. ~~**Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault~~ — **Done.** Extension v0.2.0 with 12-contract support, 140/140 Jest tests.
+1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 185 tests across 10 test files.
+2. **Deploy scripts:** Update `deploy.ts` for 13-contract deploy + extended wiring sequence. Settlement `configure()` 5-arg + `setAttestationVerifier()`. CampaignLifecycle constructor 2-arg.
+3. ~~**Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault~~ — **Done.** Extension v0.2.0 with 12-contract support, 140/140 Jest tests. Needs update for AttestationVerifier.
 4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation
 5. **Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit` — currently stores locally only (see PROCESS-FLOWS.md §10.1)
 6. **Blake2 migration (extension + relay):** Extension `behaviorChain.ts` and relay bot must switch claim hash from keccak256 to Blake2-256 to match Settlement on PolkaVM. Required before alpha-2 testnet deploy. `@noble/hashes` already installed in extension.

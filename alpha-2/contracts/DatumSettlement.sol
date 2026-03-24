@@ -32,6 +32,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public relayContract;
     address public pauseRegistry;
     address public publishers;
+    address public attestationVerifier;
 
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
@@ -68,6 +69,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         publishers = _publishers;
     }
 
+    function setAttestationVerifier(address addr) external {
+        require(msg.sender == owner, "E18");
+        require(addr != address(0), "E00");
+        attestationVerifier = addr;
+    }
+
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
@@ -93,7 +100,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
             require(
-                msg.sender == batch.user || msg.sender == relayContract,
+                msg.sender == batch.user || msg.sender == relayContract || msg.sender == attestationVerifier,
                 "E32"
             );
             _processBatch(batch.user, batch.campaignId, batch.claims, result);

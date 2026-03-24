@@ -45,6 +45,10 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     mapping(uint256 => Budget) private _budgets;
 
+    /// @dev P20: Tracks the last block where a deduction occurred for each campaign.
+    ///      Used by CampaignLifecycle.expireInactiveCampaign() to detect stale campaigns.
+    mapping(uint256 => uint256) public lastSettlementBlock;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -104,6 +108,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
             dailySpent: 0,
             lastSpendDay: 0
         });
+        lastSettlementBlock[campaignId] = block.number;
 
         emit BudgetInitialized(campaignId, budget, dailyCap);
     }
@@ -132,6 +137,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
         b.dailySpent += amount;
         b.remaining -= amount;
+        lastSettlementBlock[campaignId] = block.number;
 
         emit BudgetDeducted(campaignId, amount, b.remaining);
 

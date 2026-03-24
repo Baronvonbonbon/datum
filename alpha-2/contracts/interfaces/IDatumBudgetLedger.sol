@@ -37,4 +37,8 @@ interface IDatumBudgetLedger {
 
     function getRemainingBudget(uint256 campaignId) external view returns (uint256);
     function getDailyCap(uint256 campaignId) external view returns (uint256);
+
+    /// @notice P20: Last block where a settlement deduction occurred for this campaign.
+    ///         Set to block.number at creation, updated on each deductAndTransfer().
+    function lastSettlementBlock(uint256 campaignId) external view returns (uint256);
 }
