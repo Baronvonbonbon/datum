@@ -125,7 +125,8 @@ describe("DatumSettlement", function () {
       await ledger.getAddress(),
       await vault.getAddress(),
       await mock.getAddress(), // lifecycle placeholder (non-zero)
-      await relay.getAddress()
+      await relay.getAddress(),
+      await mock.getAddress()  // publishers placeholder (non-zero)
     );
 
     // Wire BudgetLedger

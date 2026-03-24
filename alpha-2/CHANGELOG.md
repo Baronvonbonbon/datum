@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
-**Status:** All 12 contracts compile. All under 49,152 B PVM limit. 174 tests passing.
+**Status:** All 12 contracts compile. All under 49,152 B PVM limit. 176 tests passing.
 
 ---
 
@@ -66,18 +66,19 @@ GovernanceV2 calls Lifecycle directly (not through Campaigns), so `msg.sender ==
 - `getCampaignForSettlement()` now returns 4 values (no `remainingBudget` — lives on BudgetLedger)
 - **Size: 48,662 → 38,564 B (10,098 B freed, 10,588 spare)**
 
-### DatumSettlement — Restructured + Blake2 Precompile
+### DatumSettlement — Restructured + Blake2 Precompile + S12 Blocklist
 
 - Pull-payment balances + 3 withdrawals extracted to PaymentVault
 - Budget deduction routed through BudgetLedger (not Campaigns)
 - Auto-complete on budget exhaustion calls CampaignLifecycle
 - ZK proof verification removed entirely (stub, moved to post-alpha)
 - `IDatumPauseRegistry` typed interface replaced with plain `address` + inline staticcall
-- Admin setters consolidated: `configure(budgetLedger, paymentVault, lifecycle, relay)` — single 4-arg function replaces `configure()` + `setRelayContract()`
+- Admin setters consolidated: `configure(budgetLedger, paymentVault, lifecycle, relay, publishers)` — single 5-arg function
 - `setZKVerifier()` removed
 - Cross-contract calls use hardcoded `bytes4` selectors (same PVM size as string signatures — resolc optimizes both)
 - **O1: Blake2-256 claim hashing** via `ISystem(0x900).hashBlake256()` precompile — ~3x cheaper than keccak256 per claim on Substrate. Falls back to keccak256 on Hardhat EVM (via `SYSTEM_ADDR.code.length > 0` guard). Fits by removing `ContractReferenceChanged` events and merging admin functions.
-- **Size: 48,820 → 45,088 B (3,732 B freed, 4,064 spare)**
+- **S12: Settlement blocklist check** — `_validateClaim()` calls `publishers.isBlocked(claim.publisher)` via staticcall. Blocked publishers' claims rejected with reason code 11. Graceful rejection (not revert) — remaining claims in batch continue processing.
+- **Size: 48,820 → 47,216 B (1,606 B freed, 1,936 spare)**
 
 ### DatumGovernanceV2 — Logarithmic Conviction
 
@@ -153,7 +154,7 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 |---|---|---|---|---|---|---|
 | **DatumGovernanceV2** | 39,693 | 43,725 | 47,939 | 47,939 | **1,213** | tightest — no S12 check |
 | DatumRelay | 46,180 | 46,178 | 46,178 | 46,178 | 2,974 | unchanged |
-| DatumSettlement | 48,820 | 43,132 | 45,609 | **45,088** | **4,064** | O1 Blake2 + admin merge |
+| DatumSettlement | 48,820 | 43,132 | 45,609 | **47,216** | **1,936** | O1 Blake2 + admin merge + S12 blocklist |
 | **DatumCampaigns** | 48,662 | 38,564 | 38,023 | **42,466** | **6,686** | +S12 blocklist+allowlist checks |
 | DatumGovernanceSlash | 30,298 | 36,520 | 37,160 | 37,160 | 11,992 | unchanged |
 | DatumCampaignLifecycle | — | 30,197 | 32,512 | 32,512 | 16,640 | unchanged |
@@ -163,9 +164,9 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 | DatumPaymentVault | — | 16,062 | 16,062 | **17,341** | **31,811** | O3 minimumBalance dust guard |
 | DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
 | DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
-| **Total** | **~260,065** | **323,334** | **342,706** | **356,873** | | **+13,409 S12, -521 O1, +1,279 O3** |
+| **Total** | **~260,065** | **323,334** | **342,706** | **359,001** | | **+15,537 S12, -521 O1, +1,279 O3** |
 
-Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. O1 Blake2 precompile net -521 B on Settlement. O3 minimumBalance dust guard +1,279 B on PaymentVault. GovernanceV2 remains tightest at 1,213 B spare.
+Hardening added 19,372 B PVM across 8 contracts. S12 added 15,537 B across 3 contracts (Publishers +8,966, Campaigns +4,443, Settlement +2,128). O1 Blake2 precompile net -521 B on Settlement. O3 minimumBalance dust guard +1,279 B on PaymentVault. GovernanceV2 remains tightest at 1,213 B spare.
 
 ---
 
@@ -192,12 +193,11 @@ Lessons learned during alpha-2 development:
 
 | Technique | Savings | Notes |
 |---|---|---|
-| Plain `address` instead of typed interface variables (`IDatumFoo public foo`) | ~3 KB per variable | Typed interface generates ABI overhead in PVM |
+| Plain `address` instead of typed interface variables (`IDatumFoo public foo`) | ~3 KB per variable | **Only when the interface is not already imported.** If the contract already imports the interface (e.g., Relay imports `IDatumCampaignsSettlement`), the typed variable adds negligible cost and replacing with inline staticcall is **+1,160 B worse** (tested on Relay: 46,178 → 47,338 B). Same amortization pattern as OZ. |
 | Consolidating admin setters into single `configure()` | ~2 KB | Fewer function dispatch entries |
-| Removing `IDatumPauseRegistry` import → plain address + inline staticcall | ~3 KB | Avoids importing interface |
 | Hardcoded `if/else` conviction lookup vs storage arrays | ~2.7 KB | Pure functions cheaper than SLOAD chains |
 | `abi.encodeWithSelector(bytes4)` vs `abi.encodeWithSignature(string)` | **0 B** | resolc optimizes both identically |
-| OZ `ReentrancyGuard` modifier vs manual `_locked` bool | OZ is **5,994 B smaller** | Counterintuitive — modifiers compile far smaller on resolc. Never use inline `_locked` pattern. |
+| OZ `ReentrancyGuard` modifier vs manual `_locked` bool | **Depends on existing OZ usage** | If contract already imports OZ (Settlement): OZ saves **5,994 B** — import cost amortized. If contract has no other OZ imports (Campaigns): OZ costs **+707 B** — import overhead exceeds single-site modifier savings. **Rule:** use OZ when the contract already inherits OZ; use manual `_locked` when it would be the only OZ import. |
 | Removing ZK verification (staticcall + bytes handling + abi.decode) | ~4 KB | Significant for large contracts near the limit |
 | Removing `ContractReferenceChanged` events (4 string emits) | ~2,640 B | Event string encoding is expensive in PVM. Remove from size-critical contracts. |
 | ISystem precompile (hashBlake256 only, with code.length guard + keccak fallback) | +2,119 B | Cheaper than estimated ~4 KB — single precompile function costs less than multi-function interface. |
@@ -248,7 +248,7 @@ Seven hardening stages applied across 6 contracts. All 142 tests passing, PVM co
 
 - **S2:** Zero-address checks on contract reference setters — complete across all contracts.
 - **S3:** Events on contract reference changes — `ContractReferenceChanged(name, oldAddr, newAddr)` emitted by all 6 contracts with admin setters (Campaigns already had this; BudgetLedger, Settlement, CampaignLifecycle, GovernanceV2 added).
-- **C-M3:** Reentrancy consistency — BudgetLedger now has OZ `ReentrancyGuard` (was the only value-transfer contract without one). Campaigns uses manual `_locked` (cheaper PVM than OZ import).
+- **C-M3:** Reentrancy consistency — BudgetLedger now has OZ `ReentrancyGuard` (was the only value-transfer contract without one). Campaigns uses manual `_locked` — **verified cheaper** (+707 B if switched to OZ, because Campaigns has no other OZ imports to amortize the cost).
 - **S5:** Publishers dual pause — replaced OZ `Pausable` with global `pauseRegistry.paused()`. All contracts now use the same circuit breaker.
 - **S7:** Error code E03/E52/E53 dual meanings — GovernanceSlash now uses E59/E60/E61.
 - **M4:** Budget dust sweep — `BudgetLedger.sweepDust()` clears rounding dust from terminal campaigns (Completed/Terminated/Expired). Permissionless, sends to protocol owner. Combined with GovernanceSlash `sweepSlashPool()`, all abandoned funds now have a reclaim path.
@@ -273,7 +273,7 @@ E52/E53 in GovernanceV2 (termination quorum / grace period) remain unchanged.
 | PaymentVault | OZ `ReentrancyGuard` | `withdrawPublisher`, `withdrawUser`, `withdrawProtocol` |
 | GovernanceV2 | — | `withdraw` (direct `.call{value}`), `slashAction` (direct `.call{value}`) |
 | GovernanceSlash | OZ `ReentrancyGuard` | via `slashAction` on GovernanceV2 |
-| Campaigns | Manual `_locked` | `createCampaign` (forwards to BudgetLedger) |
+| Campaigns | Manual `_locked` (optimal — no OZ imports to amortize) | `createCampaign` (forwards to BudgetLedger) |
 | Publishers | OZ `ReentrancyGuard` | none (no value transfers, defense-in-depth) |
 
 **Note:** GovernanceV2 `withdraw()` and `slashAction()` lack reentrancy guards but follow checks-effects-interactions (state zeroed before `.call{value}`). Adding OZ `ReentrancyGuard` would exceed PVM limit (only 1,213 B spare).
@@ -297,9 +297,13 @@ Global address blocklist and per-publisher advertiser allowlist. 25 new tests, 1
 - **createCampaign blocklist checks:** `!publishers.isBlocked(msg.sender)` (E62) for advertiser, `!publishers.isBlocked(publisher)` (E62) for targeted publisher (non-zero only).
 - **createCampaign allowlist check:** If `publisher != address(0) && publishers.allowlistEnabled(publisher)`, require `publishers.isAllowedAdvertiser(publisher, msg.sender)` (E63). Open campaigns (`publisher=address(0)`) bypass allowlist entirely.
 
+### DatumSettlement (+2,128 B PVM)
+
+- **Settlement claim validation:** `_validateClaim()` calls `publishers.isBlocked(claim.publisher)` via inline staticcall. Rejected with reason code 11 (graceful, not revert). New `address public publishers` storage variable. `configure()` expanded from 4-arg to 5-arg (added `_publishers`).
+- **Size: 45,088 → 47,216 B (+2,128 B, 1,936 spare)**
+
 ### What was NOT implemented (deferred)
 
-- **Settlement claim check:** Skipped (3,543 B spare, ~800 B cost). Existing campaigns with a newly-blocked publisher can still settle.
 - **GovernanceV2 vote check:** Skipped (1,213 B spare, no room). Blocked voting is low-risk.
 - **Timelock gating:** Direct `onlyOwner` for alpha. **Must migrate to timelock before mainnet.**
 - **Governance-managed blocklist:** Future goal — open blocklist to governance control (Option C hybrid: admin emergency block + governance override).
@@ -361,9 +365,22 @@ Made room by removing low-value PVM overhead, then added the precompile:
 
 Previous estimate was ~4 KB PVM per precompile staticcall. Actual cost for a single `hashBlake256()` call with `code.length > 0` guard was **2,119 B** — roughly half. The ~4 KB estimate was for multi-function interface usage (e.g., GovernanceV2 uses both `minimumBalance()` across two call sites). A single-function, single-call-site precompile is significantly cheaper.
 
-### Key Finding: OZ ReentrancyGuard vs Manual `_locked`
+### Key Finding: Typed Interface Variables — Same Amortization as OZ
 
-Experimentally confirmed that replacing OZ `ReentrancyGuard` with a manual `bool _locked` + inline modifier **costs +5,994 B** on resolc. The OZ modifier pattern compiles dramatically smaller. This confirms the previous finding and quantifies it precisely: **never use inline reentrancy guards on resolc**.
+Tested replacing `IDatumCampaignsSettlement public campaigns` and `IDatumPauseRegistry public pauseRegistry` in DatumRelay with plain `address` + inline staticcall (matching Settlement's pattern). Result: **+1,160 B worse** (46,178 → 47,338 B).
+
+The ~3 KB saving from plain `address` only applies when the interface is **not already imported**. Settlement saves because it never imports `IDatumCampaignsSettlement` — it uses `address public campaigns` with raw `abi.encodeWithSelector`. But Relay imports `IDatumCampaignsSettlement` and `IDatumPauseRegistry` already, so the typed variable cost is amortized. The inline staticcall boilerplate (`abi.encodeWithSelector` + return decoding + error check) adds more bytecode than the typed variable would have cost.
+
+**Rule:** Only replace typed interface variables with plain `address` when removing the interface import entirely. If the interface stays (e.g., for struct definitions or other call sites), keep the typed variable.
+
+### Key Finding: OZ ReentrancyGuard vs Manual `_locked` — It Depends
+
+The cost depends on whether the contract already imports OZ:
+
+- **Settlement** (already inherits OZ `ReentrancyGuard` + `Ownable`): switching to manual `_locked` costs **+5,994 B**. The OZ import overhead is already amortized across multiple inheritance sites.
+- **Campaigns** (no OZ imports at all): switching to OZ `ReentrancyGuard` costs **+707 B**. The OZ import overhead exceeds the single-call-site modifier savings.
+
+**Rule of thumb:** Use OZ `ReentrancyGuard` when the contract already inherits from OZ (import cost amortized). Use manual `_locked` when it would be the sole OZ import — the import base cost (~1-2 KB) isn't worth it for a single modifier site.
 
 ### Key Finding: Event String Encoding is Expensive
 
@@ -371,13 +388,14 @@ Experimentally confirmed that replacing OZ `ReentrancyGuard` with a manual `bool
 
 ### Contract API Change
 
-`setRelayContract(address)` removed. `configure()` now takes 4 args:
+`setRelayContract(address)` removed. `configure()` now takes 5 args (publishers added for S12 blocklist):
 ```solidity
 function configure(
     address _budgetLedger,
     address _paymentVault,
     address _lifecycle,
-    address _relay
+    address _relay,
+    address _publishers
 ) external;
 ```
 
@@ -392,7 +410,7 @@ On **PolkaVM** (pallet-revive), Settlement now hashes claims with Blake2-256. Th
 
 ### Tests
 
-174/174 passing (unchanged count). Keccak256 fallback exercised on Hardhat EVM. 4 test files updated for new `configure()` signature.
+176/176 passing. Keccak256 fallback exercised on Hardhat EVM. 4 test files updated for new `configure()` 5-arg signature. 2 new tests (G, G2) for settlement blocklist check.
 
 ---
 

@@ -63,7 +63,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
     await campaigns.setGovernanceContract(newAddr.address);
     await campaigns.setSettlementContract(other.address);
     await campaigns.setLifecycleContract(other.address);
-    await settlement.configure(other.address, other.address, other.address, other.address);
+    await settlement.configure(other.address, other.address, other.address, other.address, other.address);
 
     // Transfer ownership to timelock
     await campaigns.transferOwnership(await timelock.getAddress());
@@ -159,7 +159,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
   // T11: settlement configure change via timelock
   it("T11: settlement configure via timelock", async function () {
     const calldata = settlement.interface.encodeFunctionData("configure", [
-      other.address, other.address, other.address, newAddr.address
+      other.address, other.address, other.address, newAddr.address, other.address
     ]);
     await timelock.propose(await settlement.getAddress(), calldata);
     await advanceTime(TIMELOCK_DELAY);
@@ -170,7 +170,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
   // T14: execute before delay reverts on settlement change
   it("T14: execute reverts before delay on settlement change", async function () {
     const calldata = settlement.interface.encodeFunctionData("configure", [
-      other.address, other.address, other.address, other.address
+      other.address, other.address, other.address, other.address, other.address
     ]);
     await timelock.propose(await settlement.getAddress(), calldata);
     await expect(timelock.execute()).to.be.revertedWith("E37");

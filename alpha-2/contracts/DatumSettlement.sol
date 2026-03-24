@@ -31,6 +31,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public lifecycle;
     address public relayContract;
     address public pauseRegistry;
+    address public publishers;
 
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
@@ -51,17 +52,20 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         address _budgetLedger,
         address _paymentVault,
         address _lifecycle,
-        address _relay
+        address _relay,
+        address _publishers
     ) external {
         require(msg.sender == owner, "E18");
         require(_budgetLedger != address(0), "E00");
         require(_paymentVault != address(0), "E00");
         require(_lifecycle != address(0), "E00");
         require(_relay != address(0), "E00");
+        require(_publishers != address(0), "E00");
         budgetLedger = _budgetLedger;
         paymentVault = _paymentVault;
         lifecycle = _lifecycle;
         relayContract = _relay;
+        publishers = _publishers;
     }
 
     function transferOwnership(address newOwner) external {
@@ -156,6 +160,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         } else {
             if (claim.publisher == address(0)) return (false, 5, 0);
         }
+
+        // S12: reject claims involving blocked publishers
+        (bool blOk, bytes memory blRet) = publishers.staticcall(
+            abi.encodeWithSelector(bytes4(0xfbac3951), claim.publisher)  // isBlocked(address)
+        );
+        if (blOk && blRet.length >= 32 && abi.decode(blRet, (bool))) return (false, 11, 0);
 
         if (claim.clearingCpmPlanck > cBidCpm) return (false, 6, 0);
 

@@ -104,7 +104,8 @@ describe("Global Pause (DatumPauseRegistry)", function () {
       await ledger.getAddress(),
       await vault.getAddress(),
       owner.address, // lifecycle placeholder
-      await relay.getAddress()
+      await relay.getAddress(),
+      await publishers.getAddress()
     );
 
     // Register publisher

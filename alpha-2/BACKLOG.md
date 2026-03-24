@@ -56,7 +56,7 @@ Items previously blocked by PVM size constraints. Alpha-2 restructuring freed he
 | S4 | **ZK verification accepts empty return** | Open | Stub verifier — must fix before real ZK integration. Not applicable until post-alpha. |
 | S5 | **DatumPublishers dual pause** | **DONE** | Replaced OZ `Pausable` with global `pauseRegistry.paused()`. Constructor now takes `_pauseRegistry` address. Publishers +3,962 B PVM (22,377 spare). |
 | M4 | **Governance sweep of abandoned funds** | **DONE** | GovernanceSlash: `sweepSlashPool()`. BudgetLedger: `sweepDust()` — permissionless sweep of terminal campaign dust to protocol owner. +3,483 B PVM (20,502 spare). |
-| S12 | **On-chain publisher/advertiser blocklist** | **DONE** | Global blocklist on Publishers (E62) + per-publisher allowlist (E63). Checked in registerPublisher + createCampaign. Settlement check deferred (PVM). Owner-managed for alpha — **must migrate to timelock before mainnet**. Future: open blocklist to governance control. Publishers +8,966 B (13,411 spare), Campaigns +4,443 B (6,686 spare). 25 tests. |
+| S12 | **On-chain publisher/advertiser blocklist** | **DONE** | Global blocklist on Publishers (E62) + per-publisher allowlist (E63). Checked in registerPublisher + createCampaign + **settlement claim validation** (reason 11). Owner-managed for alpha — **must migrate to timelock before mainnet**. Future: open blocklist to governance control. Publishers +8,966 B (13,411 spare), Campaigns +4,443 B (6,686 spare), Settlement +2,128 B (1,936 spare). 27 tests. |
 
 ---
 
@@ -71,8 +71,9 @@ Optimizations that would reduce on-chain costs. Some now have headroom after alp
 | O3 | **`minimumBalance()` in PaymentVault withdrawals** — prevent dust transfers below existential deposit. Matches GovernanceV2's E58 guard. | +1,279 B to PaymentVault (actual) | 31,811 B | **DONE** | Low — edge case dust prevention |
 | O4 | ~~**Storage precompile `has_key()`**~~ — cheaper existence checks for voted/registered mappings vs full SLOAD. | — | — | **Closed** — pallet-revive does not expose storage precompiles through Solidity. System precompile at 0x900 only has minimumBalance/weightLeft/hashBlake256. | — |
 | O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 4,064 B | **Closed** — same as O4, not available via Solidity precompile | Low — marginal gas savings |
+| O6 | **Relay: replace typed interface variables with plain `address` + inline staticcall** — mirror Settlement's pattern for `campaigns` and `pauseRegistry`. | **+1,160 B worse** (tested) | Relay: 2,974 B | **Closed** — typed variables are cheaper when the interface is already imported (amortized). 46,178 → 47,338 B. | — |
 
-**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 done (PaymentVault: 17,341 B, 31,811 spare). O4/O5 closed — pallet-revive does not expose storage precompiles through Solidity.
+**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 done (PaymentVault: 17,341 B, 31,811 spare). O4/O5 closed — pallet-revive does not expose storage precompiles through Solidity. O6 closed — typed interface variables cheaper than inline staticcall when interface already imported.
 
 ---
 
@@ -204,7 +205,7 @@ These items are mandatory before mainnet. See also `S12-BLOCKLIST-ANALYSIS.md` a
 |------|-------------|--------|
 | **Timelock-gated blocklist** | `blockAddress()`/`unblockAddress()` must go through 48h timelock for transparency. Currently direct `onlyOwner`. | Open |
 | **Governance blocklist override** | Community can propose unblock via conviction vote (Option C hybrid). Admin retains emergency-block. | Open — future goal |
-| **Settlement blocklist check** | `isBlocked(claim.publisher)` in `_validateClaim()`. Now has 4,064 B spare after O1 optimization. ~800 B cost. | Open — **feasible** (4,064 B spare) |
+| **Settlement blocklist check** | `isBlocked(claim.publisher)` in `_validateClaim()`. Reason code 11. `configure()` expanded to 5-arg (added `_publishers`). +2,128 B (1,936 spare). | **DONE** |
 | **Contract upgrade path (P7)** | UUPS proxy or migration pattern for PaymentVault. Lost owner key = permanently locked protocolBalance. | Open |
 | **Full security audit** | External audit of all 12 contracts before mainnet launch. | Open |
 | **Two-step ownership transfer (L3)** | `transferOwnership()` → `acceptOwnership()` pattern. Prevents irrecoverable ownership loss. | Open |
@@ -238,12 +239,12 @@ Documented and accepted for alpha. Not bugs — deliberate tradeoffs.
 | **Single pending timelock proposal** | `propose()` overwrites previous pending; must cancel before re-proposing | Admin UX limitation — intentional simplicity | Accepted |
 | ~~**Blake2-256 deferred**~~ | ~~Claims use keccak256 (~3x more expensive on Substrate)~~ | — | **RESOLVED** — O1 Blake2 precompile added to Settlement. Extension + relay migration pending (1.10). |
 | **No on-chain publisher domain registry** | Relay URL via SDK `data-relay` attribute, not chain state | URL changes require page update | Accepted |
-| **Manual reentrancy guard in Campaigns** | `_locked` bool instead of OZ `nonReentrant` | Functionally equivalent — PVM size constraint | Accepted |
+| **Manual reentrancy guard in Campaigns** | `_locked` bool instead of OZ `nonReentrant` | Functionally equivalent — **verified optimal**: OZ costs +707 B here because Campaigns has no other OZ imports to amortize. Manual is correct choice. | Accepted |
 | **No claim expiry on direct settlement** | Stale claims can be submitted indefinitely via `settleClaims()` | Low — nonce chain prevents replay. Relay has `deadline` field. | Accepted |
 | ~~**E03/E52/E53 dual meaning**~~ | ~~Same error codes used in different contexts~~ | — | **RESOLVED** — GovernanceSlash deduped to E59/E60/E61 (S7) |
 | **Shadow DOM mode "open"** | `attachShadow({ mode: "open" })` — page JS can access shadow DOM | Upgrade to "closed" post-alpha | Accepted |
 | **Blocklist not timelock-gated** | `blockAddress()`/`unblockAddress()` use direct `onlyOwner` for alpha | Must migrate before mainnet | Accepted for alpha |
-| **No Settlement blocklist check** | Blocked publisher's existing campaigns can still settle claims | Low — new campaigns blocked; existing drain naturally | Accepted — now feasible (4,064 B spare, ~800 B cost) |
+| ~~**No Settlement blocklist check**~~ | ~~Blocked publisher's existing campaigns can still settle claims~~ | — | **RESOLVED** — `_validateClaim()` now checks `isBlocked(claim.publisher)` (reason code 11). Settlement: 47,216 B (1,936 spare). |
 | **No GovernanceV2 vote blocklist check** | Blocked addresses can still vote | Low — no fund theft via voting; slash penalizes bad actors | Accepted — PVM blocked (1,213 B spare) |
 | **No publisher deregistration** | Publishers cannot unregister or deactivate themselves | Low — can enable empty allowlist or set max take rate | Accepted |
 | **Open campaign take rate fixed at 50%** | `DEFAULT_TAKE_RATE_BPS = 5000` not configurable | Static default, not market-driven | Accepted |
@@ -284,19 +285,19 @@ Explicit TODO/stub markers in source code.
 |----------|-------|------|------|----------|
 | Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 2 | 8 | Now |
 | Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
-| Gas & runtime optimizations | 5 | 2 (O1, O3) + 2 closed (O4, O5) | 1 (O2 PVM-blocked) | Post-alpha |
+| Gas & runtime optimizations | 6 | 2 (O1, O3) + 3 closed (O4, O5, O6) | 1 (O2 PVM-blocked) | Post-alpha |
 | Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
 | Extension UX deferred to beta | 11 | 0 | 11 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
 | Feature development (post-alpha/beta) | 12 | 1 (M4) | 11 | Beta / post-beta |
 | Trust model gaps | 8 | 0 | 8 | Long-term |
 | Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
-| Pre-mainnet gate | 6 | 0 | 6 | Before mainnet |
+| Pre-mainnet gate | 6 | 1 | 5 | Before mainnet |
 | Phase 4 (Kusama/mainnet) milestones | 6 | 0 | 6 | Post-testnet |
-| Accepted known limitations | 17 | 3 resolved | 14 accepted | Documented |
+| Accepted known limitations | 17 | 4 resolved | 13 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **124** | **17** | **107** | |
+| **Total** | **125** | **19** | **106** | |
 
 ### Critical Path (blocking mainnet)
 

@@ -597,11 +597,9 @@ The relay bot at `relay-bot/relay-bot.mjs` has a working `/relay/submit` endpoin
 
 **Fix needed:** `signForRelay()` must POST signed batches to publisher relay endpoint after signing. Relay URL is derivable from the attestation endpoint base URL.
 
-### 10.2 Settlement Blocklist Check (DEFERRED — PVM)
+### 10.2 Settlement Blocklist Check — DONE
 
-S12 blocklist is NOT checked in `Settlement._validateClaim()`. A blocked publisher's existing campaigns can still settle claims. Settlement has only 3,543 B spare; staticcall to `isBlocked()` costs ~800 B.
-
-**Resolution:** Deferred until Settlement is restructured or resolc produces smaller output.
+S12 blocklist now checked in `Settlement._validateClaim()`. Claims involving a blocked publisher are rejected with reason code 11 (graceful rejection, not revert). Calls `publishers.isBlocked(claim.publisher)` via inline staticcall. +2,128 B PVM (Settlement: 47,216 B, 1,936 spare). `configure()` expanded to 5-arg (added `_publishers`).
 
 ### 10.3 GovernanceV2 Vote Blocklist Check (DEFERRED — PVM)
 

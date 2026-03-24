@@ -164,7 +164,8 @@ describe("Integration", function () {
       await ledger.getAddress(),
       await vault.getAddress(),
       await lifecycle.getAddress(),
-      await relay.getAddress()
+      await relay.getAddress(),
+      await publishers.getAddress()
     );
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
@@ -411,5 +412,53 @@ describe("Integration", function () {
     // Publisher withdraws from vault
     await vault.connect(publisher).withdrawPublisher();
     expect(await vault.publisherBalance(publisher.address)).to.equal(0n);
+  });
+
+  // Scenario G: Settlement blocklist check (S12)
+  it("G: settlement rejects claims for blocked publisher (reason 11)", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+    expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
+
+    // Block the publisher AFTER campaign activation
+    await publishers.blockAddress(publisher.address);
+
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
+
+    const result = await settlement.connect(user).settleClaims.staticCall([
+      { user: user.address, campaignId, claims }
+    ]);
+    expect(result.rejectedCount).to.equal(1n);
+    expect(result.settledCount).to.equal(0n);
+
+    // Verify reason code 11 (blocked publisher) in ClaimRejected event
+    await expect(
+      settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }])
+    ).to.emit(settlement, "ClaimRejected").withArgs(campaignId, user.address, 1n, 11);
+
+    // Unblock for subsequent tests
+    await publishers.unblockAddress(publisher.address);
+  });
+
+  // Scenario G2: Settlement allows claims for unblocked publisher
+  it("G2: settlement allows claims after publisher unblocked", async function () {
+    const campaignId = await createTestCampaign();
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const impressions = 1000n;
+    const cpm = BID_CPM;
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
+
+    const result = await settlement.connect(user).settleClaims.staticCall([
+      { user: user.address, campaignId, claims }
+    ]);
+    expect(result.settledCount).to.equal(1n);
+    expect(result.rejectedCount).to.equal(0n);
   });
 });
