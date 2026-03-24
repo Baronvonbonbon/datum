@@ -299,12 +299,27 @@ Explicit TODO/stub markers in source code.
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
 | **Total** | **125** | **19** | **106** | |
 
+### Contract Status: FROZEN FOR ALPHA (2026-03-24)
+
+All 12 contracts are complete. 176/176 tests. No further contract changes for alpha deployment.
+
+**Done:** Phases 1-4 restructuring, S2/S3/S5/S7/C-M3/M4 hardening, S12 blocklist (all 3 layers: registration, campaign creation, settlement claim validation), O1 Blake2-256, O3 dust guard, S12 Settlement check.
+
+**Closed:** O2 (PVM-blocked), O4/O5 (not available), O6 (counterproductive), GovernanceV2 vote blocklist (no room), GovernanceV2 reentrancy guard (no room).
+
+**PVM-frozen (no additions possible):** GovernanceV2 (1,213 spare), Settlement (1,936 spare), Relay (2,974 spare).
+
+**Pre-mainnet contract changes (post-alpha):** Timelock-gated blocklist, two-step ownership (L3), UUPS proxy (P7), security audit.
+
+**Post-alpha feature contracts:** P1 (mandatory attestation), P9 (real ZK), P20 (inactivity timeout), F7 (sr25519).
+
 ### Critical Path (blocking mainnet)
 
 1. **1.10** — Blake2 claim hash migration (extension + relay) — **blocks testnet deploy**
 2. **1.2** — Fix relay round-trip (extension → relay bot POST)
-3. **1.8** — Alpha-2 deploy scripts (12-contract, updated `configure()` signature)
+3. **1.8** — Alpha-2 deploy scripts (12-contract, 5-arg `configure()`)
 4. **1.9** — Alpha-2 testnet deploy
 5. **P7** — Contract upgrade path (UUPS proxy)
 6. **Timelock-gated blocklist** — S12 pre-mainnet requirement
-7. **Security audit** — External review of all 12 contracts
+7. **L3** — Two-step ownership transfer
+8. **Security audit** — External review of all 12 contracts
