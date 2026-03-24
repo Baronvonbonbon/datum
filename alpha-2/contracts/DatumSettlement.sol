@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumSettlement.sol";
+import "./interfaces/ISystem.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches, validates hash chains, and distributes payments.
@@ -20,6 +21,9 @@ import "./interfaces/IDatumSettlement.sol";
 ///           userPayment     = remainder * 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
+    ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
+    address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
+
     address public owner;
     address public campaigns;
     address public budgetLedger;
@@ -31,8 +35,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
-    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
-
     constructor(address _campaigns, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
@@ -42,31 +44,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Admin — single configure + relay setter (saves PVM vs 6 individual setters)
+    // Admin — single configure (all cross-contract refs + relay)
     // -------------------------------------------------------------------------
 
     function configure(
         address _budgetLedger,
         address _paymentVault,
-        address _lifecycle
+        address _lifecycle,
+        address _relay
     ) external {
         require(msg.sender == owner, "E18");
         require(_budgetLedger != address(0), "E00");
         require(_paymentVault != address(0), "E00");
         require(_lifecycle != address(0), "E00");
-        emit ContractReferenceChanged("budgetLedger", budgetLedger, _budgetLedger);
-        emit ContractReferenceChanged("paymentVault", paymentVault, _paymentVault);
-        emit ContractReferenceChanged("lifecycle", lifecycle, _lifecycle);
+        require(_relay != address(0), "E00");
         budgetLedger = _budgetLedger;
         paymentVault = _paymentVault;
         lifecycle = _lifecycle;
-    }
-
-    function setRelayContract(address addr) external {
-        require(msg.sender == owner, "E18");
-        require(addr != address(0), "E00");
-        emit ContractReferenceChanged("relay", relayContract, addr);
-        relayContract = addr;
+        relayContract = _relay;
     }
 
     function transferOwnership(address newOwner) external {
@@ -174,7 +169,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0);
         }
 
-        bytes32 expectedHash = keccak256(abi.encodePacked(
+        bytes memory packed = abi.encodePacked(
             claim.campaignId,
             claim.publisher,
             user,
@@ -182,7 +177,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             claim.clearingCpmPlanck,
             claim.nonce,
             claim.previousClaimHash
-        ));
+        );
+        bytes32 expectedHash;
+        if (SYSTEM_ADDR.code.length > 0) {
+            expectedHash = SYSTEM.hashBlake256(packed);
+        } else {
+            expectedHash = keccak256(packed);
+        }
         if (claim.claimHash != expectedHash) return (false, 10, 0);
 
         return (true, 0, cTakeRate);

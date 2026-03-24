@@ -163,9 +163,9 @@ describe("Integration", function () {
     await settlement.configure(
       await ledger.getAddress(),
       await vault.getAddress(),
-      await lifecycle.getAddress()
+      await lifecycle.getAddress(),
+      await relay.getAddress()
     );
-    await settlement.setRelayContract(await relay.getAddress());
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
     await lifecycle.setBudgetLedger(await ledger.getAddress());

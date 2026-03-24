@@ -113,11 +113,6 @@ describe("DatumSettlement", function () {
     // Deploy Settlement
     const SettlementFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementFactory.deploy(await mock.getAddress(), await pauseReg.getAddress());
-    await settlement.configure(
-      await ledger.getAddress(),
-      await vault.getAddress(),
-      await mock.getAddress() // lifecycle placeholder (non-zero)
-    );
 
     // Deploy Relay
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
@@ -126,7 +121,12 @@ describe("DatumSettlement", function () {
       await mock.getAddress(),
       await pauseReg.getAddress()
     );
-    await settlement.setRelayContract(await relay.getAddress());
+    await settlement.configure(
+      await ledger.getAddress(),
+      await vault.getAddress(),
+      await mock.getAddress(), // lifecycle placeholder (non-zero)
+      await relay.getAddress()
+    );
 
     // Wire BudgetLedger
     await ledger.setCampaigns(await mock.getAddress());

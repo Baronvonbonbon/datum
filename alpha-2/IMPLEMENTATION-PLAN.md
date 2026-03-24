@@ -488,9 +488,8 @@ campaigns.setGovernanceContract(governance)
 campaigns.setLifecycleContract(lifecycle)
 campaigns.setBudgetLedgerContract(budgetLedger)
 
-// Settlement wiring
-settlement.configure(campaigns, budgetLedger, paymentVault, lifecycle)
-settlement.setRelayContract(relay)
+// Settlement wiring (single 4-arg configure — relay included)
+settlement.configure(budgetLedger, paymentVault, lifecycle, relay)
 
 // Satellite wiring
 vault.setSettlementContract(settlement)
@@ -603,7 +602,7 @@ All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat co
 |----------|-----------------|----------------|----------|-------|-------|
 | GovernanceV2 | 43,725 | 47,939 | 47,939 | **1,213** | +4,214 |
 | Relay | 46,178 | 46,178 | 46,178 | 2,974 | 0 |
-| Settlement | 43,132 | 45,609 | 45,609 | 3,543 | +2,477 |
+| Settlement | 43,132 | 45,609 | **45,088** | **4,064** | +1,956 (net: hardening +2,477, O1 -521) |
 | **Campaigns** | 38,564 | 38,023 | **42,466** | **6,686** | +3,902 |
 | GovernanceSlash | 36,520 | 37,160 | 37,160 | 11,992 | +640 |
 | CampaignLifecycle | 30,197 | 32,512 | 32,512 | 16,640 | +2,315 |
@@ -613,14 +612,17 @@ All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat co
 | PaymentVault | 16,062 | 16,062 | 16,062 | 33,090 | 0 |
 | PauseRegistry | 4,047 | 4,047 | 4,047 | 45,105 | 0 |
 | ZKVerifier | 1,409 | 1,409 | 1,409 | 47,743 | 0 |
-| **Total** | 323,334 | 342,706 | **356,115** | | +32,781 |
+| **Total** | 323,334 | 342,706 | **355,594** | | +32,260 |
 
-**Hardening added 19,372 B PVM.** S12 added 13,409 B. GovernanceV2 is tightest at 1,213 B spare — no further additions without restructuring.
+**Hardening added 19,372 B PVM.** S12 added 13,409 B. O1 Blake2 precompile on Settlement net -521 B (removed events -2,640 B, added precompile +2,119 B). GovernanceV2 is tightest at 1,213 B spare — no further additions without restructuring.
 
 **PVM size optimization notes:**
 - Settlement ZK verification moved to DatumRelay (post-alpha, when real Groth16 is ready). Saved ~4 KB.
-- Settlement admin setters consolidated into single `configure()`. Saved ~2 KB.
+- Settlement admin setters consolidated into single `configure()` (4-arg, includes relay). Saved ~2 KB.
 - Settlement pauseRegistry changed from typed interface to plain address + inline staticcall. Saved ~3 KB.
+- Settlement `ContractReferenceChanged` events removed — string encoding costs ~660 B PVM per emit. Saved 2,640 B.
+- Blake2 precompile (`hashBlake256()` single call site with code.length guard): +2,119 B. Cheaper than the ~4 KB estimate.
+- **OZ ReentrancyGuard compiles 5,994 B smaller than manual `_locked` on resolc.** Never use inline guards.
 - GovernanceV2 conviction weights/lockups hardcoded as if/else chains (no storage arrays). Saved ~2.7 KB vs array approach.
 - All cross-contract references stored as plain `address` (no typed interface variables).
 
@@ -634,23 +636,30 @@ All 12 contracts compile under 49,152 B PVM limit. Verified with `npx hardhat co
 | **Phase 2** | DatumBudgetLedger + Campaigns refactor | **DONE** | 2026-03-21 | Campaigns 48,662 → 38,564 B. BudgetLedger 22,345 B. |
 | **Phase 3** | DatumCampaignLifecycle + Campaigns thinning | **DONE** | 2026-03-21 | CampaignLifecycle 30,197 B. Campaign struct 10 → 8 slots. |
 | **Phase 4** | Hardening (S2/S3/S5/S7/C-M3/M4) + S12 blocklist | **DONE** | 2026-03-22/23 | 7 hardening stages + S12. 174 tests. +32,781 B PVM. |
-| **Phase 5** | Blake2-256 + weight-limited batches | **DEFERRED** | — | O1 needs 4,177 B, Settlement has 3,543 B spare. O2 exceeds both Settlement and Relay. Blocked until resolc produces smaller output or further restructuring. |
+| **Phase 5** | Blake2-256 + weight-limited batches | **O1 DONE, O2 DEFERRED** | 2026-03-23 | O1: Blake2 precompile added to Settlement (45,088 B, 4,064 spare). Made room by removing events (-2,640 B) + merging admin. Net -521 B. O2 exceeds both Settlement and Relay — still blocked. |
 
 ### Remaining Work
 
-1. **Deploy scripts** — Update `deploy.ts` for 12-contract deploy + wiring sequence (alpha scripts target 9 contracts)
-2. **Testnet deploy** — Deploy alpha-2 to Paseo, run E2E validation
-3. **Relay fix** — Extension `signForRelay()` must POST to relay bot `/relay/submit` (currently stores locally only)
-4. **O3** — `minimumBalance()` in PaymentVault withdrawals (feasible: 33,090 B spare)
+1. **Blake2 migration (extension + relay)** — Extension `behaviorChain.ts` and relay bot must switch claim hash from keccak256 to Blake2-256. `@noble/hashes` installed but unused. **Required before testnet deploy.**
+2. **Deploy scripts** — Update `deploy.ts` for 12-contract deploy + wiring sequence. Settlement `configure()` now takes 4 args (relay folded in).
+3. **Testnet deploy** — Deploy alpha-2 to Paseo, run E2E validation
+4. **Relay fix** — Extension `signForRelay()` must POST to relay bot `/relay/submit` (currently stores locally only)
+5. **O3** — `minimumBalance()` in PaymentVault withdrawals (feasible: 33,090 B spare)
 
-### What Phase 5 Would Need
+### Phase 5 Status
 
-O1 (Blake2-256) requires either:
-- resolc producing ~700 B smaller Settlement output (current: 45,609 B, need: ≤44,975 B)
-- Further Settlement restructuring to extract more code
-- Claim hash migration in both contracts and extension simultaneously
+**O1 (Blake2-256): DONE on contract side.** Made room by:
+- Removing `ContractReferenceChanged` events from Settlement (saved 2,640 B — string event encoding is expensive)
+- Merging `setRelayContract()` into `configure()` (4-arg)
+- Blake2 precompile call cost only 2,119 B (vs estimated ~4 KB — single-function precompile is cheaper)
+- Net result: -521 B vs pre-O1 Settlement. 45,088 B (4,064 spare).
 
-O2 (weightLeft batch abort) requires headroom in both Settlement (~4 KB) and Relay (~3.6 KB), exceeding both.
+Key empirical findings:
+- **OZ ReentrancyGuard is 5,994 B smaller than manual `_locked` on resolc** — confirmed experimentally
+- **Single precompile function costs ~2.1 KB**, not ~4 KB as previously estimated
+- **String event encoding costs ~660 B PVM per emit** — avoid on size-critical contracts
+
+**O2 (weightLeft batch abort): Still blocked.** Requires headroom in both Settlement (~4 KB) and Relay (~3.6 KB), exceeding both.
 
 ---
 

@@ -39,6 +39,7 @@ Items required to close out the alpha testing phase.
 | 1.7 | **Benchmark `settleClaimsFor()` gas** | MVP.md (1.6) | Open | Full relay vs direct comparison pending. |
 | 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | Open | Update `deploy.ts` for 12-contract deploy + wiring. Alpha scripts target 9 contracts. |
 | 1.9 | **Alpha-2 testnet deploy** | CHANGELOG.md | Open | Deploy alpha-2 (12 contracts) to Paseo, run E2E validation. |
+| 1.10 | **Blake2 claim hash migration (extension + relay)** | CHANGELOG.md (O1) | Open | Settlement now uses `hashBlake256()` on PolkaVM. Extension `behaviorChain.ts` and relay bot must switch from keccak256 to Blake2-256. `@noble/hashes` installed but unused. **Required before 1.9** (testnet deploy) — claims will fail hash validation otherwise. |
 
 ---
 
@@ -49,7 +50,7 @@ Items previously blocked by PVM size constraints. Alpha-2 restructuring freed he
 | ID | Item | Status | Notes |
 |----|------|--------|-------|
 | S2 | **Zero-address checks on contract reference setters** | **DONE** | All setters across all contracts now validate `addr != address(0)`. Settlement `setRelayContract()` added. |
-| S3 | **Events on contract reference changes** | **DONE** | `ContractReferenceChanged(name, oldAddr, newAddr)` emitted by Campaigns, Settlement, BudgetLedger, CampaignLifecycle, GovernanceV2. +11,927 B PVM total. |
+| S3 | **Events on contract reference changes** | **DONE** (5/6 contracts) | `ContractReferenceChanged(name, oldAddr, newAddr)` emitted by Campaigns, BudgetLedger, CampaignLifecycle, GovernanceV2. Settlement events removed to make room for O1 Blake2 precompile (-2,640 B). |
 | S7 | **Error code E03/E52/E53 reused** | **DONE** | GovernanceSlash deduped: E52→E59, E53→E60, E03→E61. Extension `errorCodes.ts` updated. |
 | C-M3 | **Inconsistent reentrancy guard** | **DONE** | BudgetLedger: OZ `ReentrancyGuard`. GovernanceSlash: OZ `ReentrancyGuard`. Campaigns: manual `_locked` (cheaper PVM). All value-transfer paths now guarded. |
 | S4 | **ZK verification accepts empty return** | Open | Stub verifier — must fix before real ZK integration. Not applicable until post-alpha. |
@@ -65,13 +66,13 @@ Optimizations that would reduce on-chain costs. Some now have headroom after alp
 
 | ID | Optimization | PVM Cost | Spare (post-S12) | Feasible? | Impact |
 |----|-------------|----------|-------------------|-----------|--------|
-| O1 | **Blake2-256 claim hashing** via `hashBlake256()` system precompile — ~3x cheaper than keccak256 per claim. `@noble/hashes` installed in extension but unused. `ISystem.sol` interface ready. Requires claim struct migration. | +4,177 B to Settlement | 3,543 B | **No** — 634 B short | High — per-claim gas reduction |
+| O1 | **Blake2-256 claim hashing** via `hashBlake256()` system precompile — ~3x cheaper than keccak256 per claim. | +2,119 B to Settlement (actual) | 4,064 B | **DONE** — contract deployed. Extension + relay migration pending. | High — per-claim gas reduction |
 | O2 | **`weightLeft()` batch loop early abort** — graceful partial settlement when weight runs low mid-loop, instead of full revert. | +3,598 B to Relay, +~4 KB to Settlement | Relay: 2,974 B; Settlement: 3,543 B | **No** — exceeds both | Medium — prevents wasted gas on partial batches |
 | O3 | **`minimumBalance()` in PaymentVault withdrawals** — prevent dust transfers below existential deposit. Already in GovernanceV2. | +~2 KB to PaymentVault | 33,090 B | **Yes** | Low — edge case dust prevention |
 | O4 | **Storage precompile `has_key()`** — cheaper existence checks for voted/registered mappings vs full SLOAD. | ~1-2 KB each | GovernanceV2: 1,213 B; Publishers: 13,411 B | **Partial** — Publishers only | Low — marginal gas savings |
 | O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 3,543 B | **Tight** | Low — marginal gas savings |
 
-**Note:** O1 and O2 remain blocked on Settlement (3,543 B spare) and Relay (2,974 B spare). These require either resolc producing smaller output in future versions, or further Settlement restructuring. O3 is now feasible on PaymentVault (33,090 B spare) instead of Settlement.
+**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 feasible on PaymentVault (33,090 B spare).
 
 ---
 
@@ -203,7 +204,7 @@ These items are mandatory before mainnet. See also `S12-BLOCKLIST-ANALYSIS.md` a
 |------|-------------|--------|
 | **Timelock-gated blocklist** | `blockAddress()`/`unblockAddress()` must go through 48h timelock for transparency. Currently direct `onlyOwner`. | Open |
 | **Governance blocklist override** | Community can propose unblock via conviction vote (Option C hybrid). Admin retains emergency-block. | Open — future goal |
-| **Settlement blocklist check** | `isBlocked(claim.publisher)` in `_validateClaim()`. Blocked if Settlement restructured or resolc shrinks output. | Open — PVM blocked (3,543 B spare, ~800 B cost) |
+| **Settlement blocklist check** | `isBlocked(claim.publisher)` in `_validateClaim()`. Now has 4,064 B spare after O1 optimization. ~800 B cost. | Open — **feasible** (4,064 B spare) |
 | **Contract upgrade path (P7)** | UUPS proxy or migration pattern for PaymentVault. Lost owner key = permanently locked protocolBalance. | Open |
 | **Full security audit** | External audit of all 12 contracts before mainnet launch. | Open |
 | **Two-step ownership transfer (L3)** | `transferOwnership()` → `acceptOwnership()` pattern. Prevents irrecoverable ownership loss. | Open |
@@ -235,14 +236,14 @@ Documented and accepted for alpha. Not bugs — deliberate tradeoffs.
 | ~~**Unclaimed slash rewards — no expiry**~~ | ~~`claimSlashReward()` has no deadline; unclaimed pools permanently locked~~ | — | **RESOLVED** — `sweepSlashPool()` added (M4, 365-day deadline) |
 | **Denomination rounding** | pallet-revive eth-rpc rejects `value % 10^6 >= 500_000` | Runtime quirk — all code adjusted | Accepted |
 | **Single pending timelock proposal** | `propose()` overwrites previous pending; must cancel before re-proposing | Admin UX limitation — intentional simplicity | Accepted |
-| **Blake2-256 deferred** | Claims use keccak256 (~3x more expensive on Substrate) | Higher per-claim gas cost | Accepted — O1 blocked on Settlement PVM |
+| ~~**Blake2-256 deferred**~~ | ~~Claims use keccak256 (~3x more expensive on Substrate)~~ | — | **RESOLVED** — O1 Blake2 precompile added to Settlement. Extension + relay migration pending (1.10). |
 | **No on-chain publisher domain registry** | Relay URL via SDK `data-relay` attribute, not chain state | URL changes require page update | Accepted |
 | **Manual reentrancy guard in Campaigns** | `_locked` bool instead of OZ `nonReentrant` | Functionally equivalent — PVM size constraint | Accepted |
 | **No claim expiry on direct settlement** | Stale claims can be submitted indefinitely via `settleClaims()` | Low — nonce chain prevents replay. Relay has `deadline` field. | Accepted |
 | ~~**E03/E52/E53 dual meaning**~~ | ~~Same error codes used in different contexts~~ | — | **RESOLVED** — GovernanceSlash deduped to E59/E60/E61 (S7) |
 | **Shadow DOM mode "open"** | `attachShadow({ mode: "open" })` — page JS can access shadow DOM | Upgrade to "closed" post-alpha | Accepted |
 | **Blocklist not timelock-gated** | `blockAddress()`/`unblockAddress()` use direct `onlyOwner` for alpha | Must migrate before mainnet | Accepted for alpha |
-| **No Settlement blocklist check** | Blocked publisher's existing campaigns can still settle claims | Low — new campaigns blocked; existing drain naturally | Accepted — PVM blocked (3,543 B spare, ~800 B cost) |
+| **No Settlement blocklist check** | Blocked publisher's existing campaigns can still settle claims | Low — new campaigns blocked; existing drain naturally | Accepted — now feasible (4,064 B spare, ~800 B cost) |
 | **No GovernanceV2 vote blocklist check** | Blocked addresses can still vote | Low — no fund theft via voting; slash penalizes bad actors | Accepted — PVM blocked (1,213 B spare) |
 | **No publisher deregistration** | Publishers cannot unregister or deactivate themselves | Low — can enable empty allowlist or set max take rate | Accepted |
 | **Open campaign take rate fixed at 50%** | `DEFAULT_TAKE_RATE_BPS = 5000` not configurable | Static default, not market-driven | Accepted |
@@ -281,9 +282,9 @@ Explicit TODO/stub markers in source code.
 
 | Category | Total | Done | Open | Timeline |
 |----------|-------|------|------|----------|
-| Immediate (deploy, relay fix, testing) | 9 | 2 | 7 | Now |
+| Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 2 | 8 | Now |
 | Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
-| Gas & runtime optimizations | 5 | 0 | 5 (3 PVM-blocked) | Post-alpha |
+| Gas & runtime optimizations | 5 | 1 (O1 contract) | 4 (O2 PVM-blocked) | Post-alpha |
 | Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
 | Extension UX deferred to beta | 11 | 0 | 11 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
@@ -292,16 +293,17 @@ Explicit TODO/stub markers in source code.
 | Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
 | Pre-mainnet gate | 6 | 0 | 6 | Before mainnet |
 | Phase 4 (Kusama/mainnet) milestones | 6 | 0 | 6 | Post-testnet |
-| Accepted known limitations | 17 | 2 resolved | 15 accepted | Documented |
+| Accepted known limitations | 17 | 3 resolved | 14 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **123** | **12** | **111** | |
+| **Total** | **124** | **14** | **110** | |
 
 ### Critical Path (blocking mainnet)
 
-1. **1.2** — Fix relay round-trip (extension → relay bot POST)
-2. **1.8** — Alpha-2 deploy scripts (12-contract)
-3. **1.9** — Alpha-2 testnet deploy
-4. **P7** — Contract upgrade path (UUPS proxy)
-5. **Timelock-gated blocklist** — S12 pre-mainnet requirement
-6. **Security audit** — External review of all 12 contracts
+1. **1.10** — Blake2 claim hash migration (extension + relay) — **blocks testnet deploy**
+2. **1.2** — Fix relay round-trip (extension → relay bot POST)
+3. **1.8** — Alpha-2 deploy scripts (12-contract, updated `configure()` signature)
+4. **1.9** — Alpha-2 testnet deploy
+5. **P7** — Contract upgrade path (UUPS proxy)
+6. **Timelock-gated blocklist** — S12 pre-mainnet requirement
+7. **Security audit** — External review of all 12 contracts

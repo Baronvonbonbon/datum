@@ -178,7 +178,7 @@
 **Off-chain flow:**
 
 1. Each qualifying ad view produces a claim: `(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)`
-2. Claim hash = `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, prevHash)`
+2. Claim hash = `blake2-256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, prevHash)` on PolkaVM (via `ISystem(0x900).hashBlake256()`); keccak256 fallback on EVM. **Extension and relay must use Blake2-256 to match on-chain validation.**
 3. Claims queued in `chrome.storage.local`
 4. `ClaimQueue.tsx` shows pending claims with "Submit All" and "Sign for Publisher" options
 

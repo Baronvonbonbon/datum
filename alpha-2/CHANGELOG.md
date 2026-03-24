@@ -1,6 +1,6 @@
 # Alpha-2 Changelog
 
-**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist)
+**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
 **Status:** All 12 contracts compile. All under 49,152 B PVM limit. 174 tests passing.
 
@@ -66,17 +66,18 @@ GovernanceV2 calls Lifecycle directly (not through Campaigns), so `msg.sender ==
 - `getCampaignForSettlement()` now returns 4 values (no `remainingBudget` — lives on BudgetLedger)
 - **Size: 48,662 → 38,564 B (10,098 B freed, 10,588 spare)**
 
-### DatumSettlement — Restructured
+### DatumSettlement — Restructured + Blake2 Precompile
 
 - Pull-payment balances + 3 withdrawals extracted to PaymentVault
 - Budget deduction routed through BudgetLedger (not Campaigns)
 - Auto-complete on budget exhaustion calls CampaignLifecycle
 - ZK proof verification removed entirely (stub, moved to post-alpha)
 - `IDatumPauseRegistry` typed interface replaced with plain `address` + inline staticcall
-- Admin setters consolidated: `configure(budgetLedger, paymentVault, lifecycle)` replaces 3 individual setters
+- Admin setters consolidated: `configure(budgetLedger, paymentVault, lifecycle, relay)` — single 4-arg function replaces `configure()` + `setRelayContract()`
 - `setZKVerifier()` removed
 - Cross-contract calls use hardcoded `bytes4` selectors (same PVM size as string signatures — resolc optimizes both)
-- **Size: 48,820 → 43,132 B (5,688 B freed, 6,020 spare)**
+- **O1: Blake2-256 claim hashing** via `ISystem(0x900).hashBlake256()` precompile — ~3x cheaper than keccak256 per claim on Substrate. Falls back to keccak256 on Hardhat EVM (via `SYSTEM_ADDR.code.length > 0` guard). Fits by removing `ContractReferenceChanged` events and merging admin functions.
+- **Size: 48,820 → 45,088 B (3,732 B freed, 4,064 spare)**
 
 ### DatumGovernanceV2 — Logarithmic Conviction
 
@@ -152,7 +153,7 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 |---|---|---|---|---|---|---|
 | **DatumGovernanceV2** | 39,693 | 43,725 | 47,939 | 47,939 | **1,213** | tightest — no S12 check |
 | DatumRelay | 46,180 | 46,178 | 46,178 | 46,178 | 2,974 | unchanged |
-| DatumSettlement | 48,820 | 43,132 | 45,609 | 45,609 | 3,543 | S12 check deferred |
+| DatumSettlement | 48,820 | 43,132 | 45,609 | **45,088** | **4,064** | O1 Blake2 + admin merge |
 | **DatumCampaigns** | 48,662 | 38,564 | 38,023 | **42,466** | **6,686** | +S12 blocklist+allowlist checks |
 | DatumGovernanceSlash | 30,298 | 36,520 | 37,160 | 37,160 | 11,992 | unchanged |
 | DatumCampaignLifecycle | — | 30,197 | 32,512 | 32,512 | 16,640 | unchanged |
@@ -162,9 +163,9 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 | DatumPaymentVault | — | 16,062 | 16,062 | 16,062 | 33,090 | unchanged |
 | DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
 | DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
-| **Total** | **~260,065** | **323,334** | **342,706** | **356,115** | | **+13,409 B S12** |
+| **Total** | **~260,065** | **323,334** | **342,706** | **355,594** | | **+13,409 B S12, -521 B O1** |
 
-Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. GovernanceV2 remains tightest at 1,213 B spare.
+Hardening added 19,372 B PVM across 8 contracts. S12 added 13,409 B across 2 contracts. O1 Blake2 precompile net -521 B on Settlement (removed events, merged admin, added precompile). GovernanceV2 remains tightest at 1,213 B spare.
 
 ---
 
@@ -196,8 +197,11 @@ Lessons learned during alpha-2 development:
 | Removing `IDatumPauseRegistry` import → plain address + inline staticcall | ~3 KB | Avoids importing interface |
 | Hardcoded `if/else` conviction lookup vs storage arrays | ~2.7 KB | Pure functions cheaper than SLOAD chains |
 | `abi.encodeWithSelector(bytes4)` vs `abi.encodeWithSignature(string)` | **0 B** | resolc optimizes both identically |
-| OZ `ReentrancyGuard` modifier vs manual `_locked` bool | OZ is **smaller** | Counterintuitive — modifiers compile smaller |
+| OZ `ReentrancyGuard` modifier vs manual `_locked` bool | OZ is **5,994 B smaller** | Counterintuitive — modifiers compile far smaller on resolc. Never use inline `_locked` pattern. |
 | Removing ZK verification (staticcall + bytes handling + abi.decode) | ~4 KB | Significant for large contracts near the limit |
+| Removing `ContractReferenceChanged` events (4 string emits) | ~2,640 B | Event string encoding is expensive in PVM. Remove from size-critical contracts. |
+| ISystem precompile (hashBlake256 only, with code.length guard + keccak fallback) | +2,119 B | Cheaper than estimated ~4 KB — single precompile function costs less than multi-function interface. |
+| Merging `setRelayContract()` into `configure()` (4→5 arg) | included above | Eliminating one external function saves dispatch + validation overhead. |
 
 ---
 
@@ -212,8 +216,8 @@ The restructuring unblocks backlog items that were previously impossible due to 
 - M4: Governance sweep of abandoned funds (GovernanceSlash: done; BudgetLedger: ready)
 
 ### Gas Optimizations (was blocked)
-- O1: Blake2-256 claim hashing via system precompile (Settlement now has 6,020 B spare)
-- O3: `minimumBalance()` dust guard in Settlement
+- **O1: Blake2-256 claim hashing — DONE.** `hashBlake256()` precompile in `_validateClaim()`. Made room by removing events (-2,640 B) + merging admin. Net -521 B vs pre-O1. Settlement now 45,088 B (4,064 spare). Extension + relay still use keccak256 — must migrate for end-to-end Blake2.
+- O3: `minimumBalance()` dust guard in PaymentVault (33,090 B spare — feasible)
 - O2: `weightLeft()` batch loop early abort (still tight on Relay: 2,974 B spare)
 
 ### Features (was blocked)
@@ -230,7 +234,7 @@ Seven hardening stages applied across 6 contracts. All 142 tests passing, PVM co
 | Stage | Contract | Change | PVM Delta |
 |-------|----------|--------|-----------|
 | 1 | **BudgetLedger** | OZ `ReentrancyGuard` on `deductAndTransfer`, `drainToAdvertiser`, `drainFraction`. `ContractReferenceChanged` events on 3 admin setters. | +2,822 B |
-| 2 | **Settlement** | Zero-address check on `setRelayContract()`. `ContractReferenceChanged` events on `configure()` (3 refs) and `setRelayContract()`. | +2,477 B |
+| 2 | **Settlement** | Zero-address check on `setRelayContract()`. `ContractReferenceChanged` events on `configure()` (3 refs) and `setRelayContract()`. **Later reverted:** events removed and `setRelayContract()` merged into `configure()` to make room for O1 Blake2 precompile. | +2,477 B → net -521 B |
 | 3 | **GovernanceSlash** | OZ `ReentrancyGuard` on `claimSlashReward`, `sweepSlashPool`. | +640 B |
 | 4 | **CampaignLifecycle** | `ContractReferenceChanged` events on `setCampaigns`, `setBudgetLedger`, `setGovernanceContract`, `setSettlementContract`. | +2,315 B |
 | 5 | **GovernanceV2** | `ContractReferenceChanged` events on `setSlashContract`, `setLifecycle`. | +4,214 B |
@@ -313,10 +317,69 @@ Global address blocklist and per-publisher advertiser allowlist. 25 new tests, 1
 
 ---
 
+## O1: Blake2-256 Claim Hashing via System Precompile (2026-03-23)
+
+Settlement claim hash validation switched from `keccak256` to `ISystem(0x900).hashBlake256()` with automatic keccak256 fallback on EVM (Hardhat tests).
+
+### Problem
+
+Blake2-256 is the native Substrate hash — ~3x cheaper gas than keccak256 on pallet-revive. O1 was blocked: the precompile call was estimated at ~4 KB PVM, but Settlement only had 3,543 B spare.
+
+### Solution
+
+Made room by removing low-value PVM overhead, then added the precompile:
+
+| Change | PVM Delta |
+|--------|-----------|
+| Remove `ContractReferenceChanged` events (4 string-encoded emits in `configure()` + `setRelayContract()`) | **-2,640 B** |
+| Merge `setRelayContract()` into `configure()` (now 4-arg: budgetLedger, paymentVault, lifecycle, relay) | (included above) |
+| Add ISystem import + `SYSTEM`/`SYSTEM_ADDR` constants + `hashBlake256()` call + `code.length` guard + keccak fallback | **+2,119 B** |
+| **Net** | **-521 B** |
+
+### Key Finding: Precompile Cost Lower Than Expected
+
+Previous estimate was ~4 KB PVM per precompile staticcall. Actual cost for a single `hashBlake256()` call with `code.length > 0` guard was **2,119 B** — roughly half. The ~4 KB estimate was for multi-function interface usage (e.g., GovernanceV2 uses both `minimumBalance()` across two call sites). A single-function, single-call-site precompile is significantly cheaper.
+
+### Key Finding: OZ ReentrancyGuard vs Manual `_locked`
+
+Experimentally confirmed that replacing OZ `ReentrancyGuard` with a manual `bool _locked` + inline modifier **costs +5,994 B** on resolc. The OZ modifier pattern compiles dramatically smaller. This confirms the previous finding and quantifies it precisely: **never use inline reentrancy guards on resolc**.
+
+### Key Finding: Event String Encoding is Expensive
+
+`ContractReferenceChanged(string name, address old, address new)` events with string parameters cost ~660 B PVM each (4 emits = 2,640 B). On size-critical contracts, prefer events with only indexed/typed params, or omit events entirely when the state change is observable via view functions.
+
+### Contract API Change
+
+`setRelayContract(address)` removed. `configure()` now takes 4 args:
+```solidity
+function configure(
+    address _budgetLedger,
+    address _paymentVault,
+    address _lifecycle,
+    address _relay
+) external;
+```
+
+### Claim Hash: On-Chain vs Off-Chain
+
+On **PolkaVM** (pallet-revive), Settlement now hashes claims with Blake2-256. The extension and relay bot still compute keccak256. For end-to-end Blake2:
+1. Extension `behaviorChain.ts` must switch to `@noble/hashes/blake2b` (already installed, unused)
+2. Relay bot claim hash computation must switch to Blake2-256
+3. Until migrated, claims submitted via the extension will fail hash validation on Substrate — **the keccak256 fallback in `_validateClaim()` only applies on Hardhat EVM, not on PolkaVM** where `SYSTEM_ADDR.code.length > 0` is true
+
+**Migration required before alpha-2 testnet deploy.** See backlog item 1.10.
+
+### Tests
+
+174/174 passing (unchanged count). Keccak256 fallback exercised on Hardhat EVM. 4 test files updated for new `configure()` signature.
+
+---
+
 ## Remaining Work
 
 1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 174 tests across 10 test files (includes S12 blocklist).
-2. **Deploy scripts:** Update `deploy.ts` for 12-contract deploy + extended wiring sequence
+2. **Deploy scripts:** Update `deploy.ts` for 12-contract deploy + extended wiring sequence. Settlement `configure()` now takes 4 args (relay included).
 3. ~~**Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault~~ — **Done.** Extension v0.2.0 with 12-contract support, 140/140 Jest tests.
 4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation
 5. **Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit` — currently stores locally only (see PROCESS-FLOWS.md §10.1)
+6. **Blake2 migration (extension + relay):** Extension `behaviorChain.ts` and relay bot must switch claim hash from keccak256 to Blake2-256 to match Settlement on PolkaVM. Required before alpha-2 testnet deploy. `@noble/hashes` already installed in extension.
