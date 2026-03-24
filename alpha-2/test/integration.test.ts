@@ -593,4 +593,96 @@ describe("Integration", function () {
       ])
     ).to.be.revertedWith("E32");
   });
+
+  // H5: open campaign attestation verifies against claims[0].publisher
+  it("H5: attested settlement on open campaign verifies serving publisher", async function () {
+    // Create open campaign (publisher=address(0))
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+    );
+    await tx.wait();
+    const campaignId = await campaigns.nextCampaignId() - 1n;
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+    // Publisher signs attestation (serving publisher, not campaign publisher)
+    const domain = {
+      name: "DatumAttestationVerifier",
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: await verifier.getAddress(),
+    };
+    const types = {
+      PublisherAttestation: [
+        { name: "campaignId", type: "uint256" },
+        { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+      ],
+    };
+    const publisherSig = await publisher.signTypedData(domain, types, {
+      campaignId,
+      user: user.address,
+      firstNonce: claims[0].nonce,
+      lastNonce: claims[claims.length - 1].nonce,
+      claimCount: claims.length,
+    });
+
+    const result = await verifier.connect(user).settleClaimsAttested.staticCall([
+      { user: user.address, campaignId, claims, publisherSig }
+    ]);
+    expect(result.settledCount).to.equal(1n);
+
+    await verifier.connect(user).settleClaimsAttested([
+      { user: user.address, campaignId, claims, publisherSig }
+    ]);
+  });
+
+  // H6: open campaign attestation with wrong signer reverts E34
+  it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+    );
+    await tx.wait();
+    const campaignId = await campaigns.nextCampaignId() - 1n;
+
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await v2.evaluateCampaign(campaignId);
+
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+    // User signs instead of publisher — should fail
+    const domain = {
+      name: "DatumAttestationVerifier",
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: await verifier.getAddress(),
+    };
+    const types = {
+      PublisherAttestation: [
+        { name: "campaignId", type: "uint256" },
+        { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
+        { name: "lastNonce", type: "uint256" },
+        { name: "claimCount", type: "uint256" },
+      ],
+    };
+    const wrongSig = await user.signTypedData(domain, types, {
+      campaignId,
+      user: user.address,
+      firstNonce: claims[0].nonce,
+      lastNonce: claims[claims.length - 1].nonce,
+      claimCount: claims.length,
+    });
+
+    await expect(
+      verifier.connect(user).settleClaimsAttested([
+        { user: user.address, campaignId, claims, publisherSig: wrongSig }
+      ])
+    ).to.be.revertedWith("E34");
+  });
 });

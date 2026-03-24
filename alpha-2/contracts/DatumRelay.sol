@@ -100,9 +100,15 @@ contract DatumRelay {
             require(signer != address(0) && signer == sb.user, "E31");
 
             // Publisher co-signature (4-value return)
+            // Required for all campaigns when provided. Open campaigns verify
+            // against claims[0].publisher (the actual serving publisher).
             if (sb.publisherSig.length > 0) {
                 (, address cPublisher,,) = campaigns.getCampaignForSettlement(sb.campaignId);
-                if (cPublisher != address(0)) {
+                address expectedPub = cPublisher;
+                if (expectedPub == address(0)) {
+                    expectedPub = sb.claims[0].publisher;
+                }
+                if (expectedPub != address(0)) {
                     bytes32 pubStructHash = keccak256(abi.encode(
                         PUBLISHER_ATTESTATION_TYPEHASH,
                         sb.campaignId,
@@ -128,7 +134,7 @@ contract DatumRelay {
                         pv := byte(0, calldataload(add(pubSig.offset, 64)))
                     }
                     address pubSigner = ecrecover(pubDigest, pv, pr, ps);
-                    require(pubSigner != address(0) && pubSigner == cPublisher, "E34");
+                    require(pubSigner != address(0) && pubSigner == expectedPub, "E34");
                 }
             }
 

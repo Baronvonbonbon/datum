@@ -1,7 +1,7 @@
 # DATUM Alpha-2 — Complete Process Flows
 
-**Date:** 2026-03-23
-**Contracts:** 12 (alpha-2), compared against 9 (alpha)
+**Date:** 2026-03-24
+**Contracts:** 13 (alpha-2), compared against 9 (alpha)
 
 ---
 
@@ -191,6 +191,27 @@
 
 **Payment:** User pays gas. Earnings credited to PaymentVault.
 
+### 3.3a Submit Claims via Attested Path (P1)
+
+**Contract:** DatumAttestationVerifier → DatumSettlement
+
+1. User calls `attestationVerifier.settleClaimsAttested(batches)` from extension
+2. For each AttestedBatch:
+   - Validate: `msg.sender == batch.user` (E32)
+   - Look up campaign publisher via `campaigns.getCampaignForSettlement()`
+   - Determine expected publisher signer:
+     - Targeted campaign (`cPublisher != address(0)`): verify against `cPublisher`
+     - Open campaign (`cPublisher == address(0)`): verify against `claims[0].publisher` (the serving publisher)
+   - Require `expectedPublisher != address(0)` (E00)
+   - Verify EIP-712 publisher co-signature: `PublisherAttestation(campaignId, user, firstNonce, lastNonce, claimCount)`
+   - Domain name: "DatumAttestationVerifier" (distinct from Relay domain)
+   - Recover signer via ecrecover, require `signer == expectedPublisher` (E34)
+3. Convert to ClaimBatch[], forward to `settlement.settleClaims()`
+4. Settlement processes normally (see Flow 5.1)
+
+**Payment:** User pays gas. Publisher attestation provides trust, not gas subsidy.
+**Note:** All campaigns require attestation. Open campaigns verify against the actual serving publisher from the claim, pairing every claim to a specific (user, ad, publisher) triple.
+
 ### 3.4 Sign Claims for Relay (Publisher Pays Gas)
 
 **Extension flow (partially broken — see [10.1](#101-relay-round-trip-gap)):**
@@ -347,7 +368,7 @@
 
 1. User/relay calls `settlement.settleClaims(batches[])`
 2. Pause check
-3. For each batch: validate caller == `batch.user` OR caller == `relayContract` (E32)
+3. For each batch: validate caller == `batch.user` OR caller == `relayContract` OR caller == `attestationVerifier` (E32)
 4. For each claim in batch (max 5 per batch — E28):
    - **Validate:** impressionCount > 0, campaign exists + active, publisher matches, clearingCpm <= bidCpm, nonce sequential, hash chain valid
    - **Settle:** `totalPayment = (clearingCpm × impressionCount) / 1000`
@@ -432,8 +453,8 @@
 - `campaigns.setGovernanceContract(addr)`
 - `campaigns.setLifecycleContract(addr)`
 - `campaigns.setBudgetLedgerContract(addr)`
-- `settlement.setRelayContract(addr)`
-- `settlement.configure(campaigns, budgetLedger, paymentVault, lifecycle)`
+- `settlement.configure(budgetLedger, paymentVault, lifecycle, relay, publishers)` (5-arg)
+- `settlement.setAttestationVerifier(addr)` (separate setter, not in configure)
 - `budgetLedger.configure(campaigns, settlement, lifecycle)`
 - `lifecycle.configure(campaigns, budgetLedger, governance)`
 - `paymentVault.setSettlementContract(addr)`
@@ -480,6 +501,21 @@ All emit `ContractReferenceChanged(name, oldAddr, newAddr)`.
 2. Validate: remaining > 0 (E03), campaign terminal (status >= 3)
 3. Transfer dust to protocol owner
 4. Emit `DustSwept`
+
+### 7.4 Expire Inactive Campaign (P20)
+
+**Contract:** DatumCampaignLifecycle → DatumBudgetLedger → DatumCampaigns
+
+1. Anyone calls `lifecycle.expireInactiveCampaign(campaignId)`
+2. Validate: campaign exists, status == Active or Paused (E14)
+3. Read `budgetLedger.lastSettlementBlock(campaignId)` — set at budget init and updated on each deduction
+4. Require: `block.number > lastSettlementBlock + inactivityTimeoutBlocks` (E64)
+5. Set status = Completed via `campaigns.setCampaignStatus()`
+6. Refund full budget: `budgetLedger.drainToAdvertiser(campaignId, advertiser)`
+7. Emit `CampaignCompleted(campaignId)`
+
+**Payment:** DatumBudgetLedger → Advertiser (full remaining balance)
+**Note:** Permissionless — anyone can call once timeout expires. Default timeout: 432,000 blocks (~30 days). Prevents permanently locked budgets when advertiser loses key access.
 
 ---
 
@@ -533,13 +569,14 @@ Example at 50% take rate, 10 DOT total:
 
 ## 9. Alpha vs Alpha-2 Comparison
 
-### Structural Changes (9 → 12 contracts)
+### Structural Changes (9 → 13 contracts)
 
 | Alpha | Alpha-2 | Change |
 |-------|---------|--------|
 | DatumCampaigns (monolithic) | DatumCampaigns + DatumBudgetLedger + DatumCampaignLifecycle | Budget escrow and lifecycle transitions extracted into satellites |
 | DatumSettlement (holds balances) | DatumSettlement + DatumPaymentVault | Pull-payment vault extracted; Settlement no longer holds DOT |
 | — | S12 Blocklist on Publishers | New: global blocklist + per-publisher allowlist |
+| — | DatumAttestationVerifier | New: P1 mandatory publisher attestation wrapper for direct settlement |
 
 ### Function Migration
 
@@ -570,6 +607,8 @@ Example at 50% take rate, 10 DOT total:
 | Lifecycle satellite | CampaignLifecycle | `completeCampaign()`, `terminateCampaign()`, `expirePendingCampaign()` |
 | OZ ReentrancyGuard | BudgetLedger, GovernanceSlash | Proper reentrancy protection on value transfers |
 | `ContractReferenceChanged` events | All wired contracts | Transparent admin contract swaps |
+| P1 Publisher attestation | AttestationVerifier | settleClaimsAttested() with EIP-712 publisher co-sig enforcement |
+| P20 Inactivity timeout | CampaignLifecycle + BudgetLedger | expireInactiveCampaign() + lastSettlementBlock tracking |
 | Escalating conviction (9 levels) | GovernanceV2 | 0-8 conviction (alpha had 0-6) with hardcoded if/else lookup |
 | Anti-grief termination | GovernanceV2 | `terminationQuorum` (E52) + grace period (E53) + `firstNayBlock` |
 | Error code dedup | GovernanceSlash | E59/E60/E61 (was reusing E52/E53/E03) |
@@ -625,11 +664,9 @@ Contract enforces one vote per address per campaign. Cannot increase stake witho
 
 **Resolution:** Backlog item — `increaseStake(campaignId)` function. Needs PVM headroom on GovernanceV2 (only 1,213 B spare).
 
-### 10.7 No Campaign Inactivity Timeout
+### 10.7 Campaign Inactivity Timeout — DONE (P20)
 
-Active campaigns with zero settlement activity run indefinitely. If advertiser loses key, budget is locked forever (except `sweepDust()` only works on terminal campaigns).
-
-**Resolution:** Backlog P20 — auto-complete after N blocks with no settlements.
+Implemented in CampaignLifecycle.expireInactiveCampaign(). BudgetLedger tracks lastSettlementBlock (set at initializeBudget, updated on deductAndTransfer). Permissionless — anyone can call once block.number > lastSettlementBlock + 432,000 blocks (~30 days). Full budget refunded to advertiser.
 
 ### 10.8 No Dispute / Challenge Mechanism
 
@@ -643,11 +680,9 @@ All contracts are non-upgradeable. PaymentVault holds user balances. Lost owner 
 
 **Resolution:** Backlog P7 — UUPS proxy or migration pattern. Required before mainnet.
 
-### 10.10 Direct Settlement Has No Attestation Enforcement
+### 10.10 Direct Settlement Attestation — DONE (P1)
 
-`settlement.settleClaims()` accepts claims from `msg.sender == batch.user` with no publisher co-signature requirement. Users can self-report impressions.
-
-**Resolution:** Backlog P1 — mandatory publisher attestation. Currently optional (degraded trust mode). Post-alpha: `DatumAttestationVerifier` wrapper contract.
+DatumAttestationVerifier wraps settleClaims() with mandatory EIP-712 publisher co-signature for ALL campaigns. Targeted campaigns verify against the campaign's designated publisher. Open campaigns (publisher=address(0)) verify against `claims[0].publisher` (the actual serving publisher). Users call settleClaimsAttested() instead of settleClaims() directly. Settlement auth expanded: caller == user OR relay OR attestationVerifier (E32). 37,086 B PVM (12,066 spare).
 
 ### 10.11 Open Campaign Take Rate Is Fixed
 
@@ -673,11 +708,9 @@ Single chain only (Polkadot Hub). No XCM cross-chain claims.
 
 **Resolution:** Backlog — XCM-based cross-chain settlement post-mainnet.
 
-### 10.15 Withdrawal Has No Minimum Balance Check (PaymentVault)
+### 10.15 PaymentVault Dust Guard — DONE (O3)
 
-`GovernanceV2.withdraw()` checks `minimumBalance()` via system precompile (E58). `PaymentVault` withdrawal functions do not — dust withdrawals could fail silently due to denomination rounding.
-
-**Resolution:** Backlog O3 — add `minimumBalance()` check to PaymentVault. PVM cost acceptable (PaymentVault has 33,090 B spare), but not yet implemented.
+PaymentVault._send() now checks minimumBalance() via system precompile on PolkaVM (E58). Applies to all 3 withdrawal paths (publisher, user, protocol). Guarded by SYSTEM_ADDR.code.length > 0 for Hardhat compatibility.
 
 ### 10.16 No Publisher Deregistration
 
@@ -716,8 +749,11 @@ PauseRegistry ←── Publishers ←── Campaigns ──→ BudgetLedger
      ├── Settlement ────────────────┤──→ PaymentVault
      │        ↑                     │         ↑
      │        │                     │         │
-     └── Relay ──→ Settlement       │    (creditSettlement)
-                                    │
+     ├── Relay ──→ Settlement       │    (creditSettlement)
+     │                              │
+     └── AttestationVerifier ──→ Settlement
+              ↑ reads: Campaigns (publisher lookup)
+
               GovernanceV2 ─────────┘──→ CampaignLifecycle
                    ↑
                    │
@@ -738,4 +774,5 @@ PauseRegistry ←── Publishers ←── Campaigns ──→ BudgetLedger
 - CampaignLifecycle: deployer (direct)
 - PaymentVault: deployer (direct)
 - Relay: deployer (direct)
+- AttestationVerifier: deployer (direct)
 - ZKVerifier: deployer (direct)

@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile) / 2026-03-24 (P1, P20)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
-**Status:** All 13 contracts compile. All under 49,152 B PVM limit. 185 tests passing.
+**Status:** All 13 contracts compile. All under 49,152 B PVM limit. 187 tests passing.
 
 ---
 
@@ -119,10 +119,11 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 - Custom `whenNotPaused` modifier calls `pauseRegistry.paused()`
 - **Size: 22,614 → 26,775 B (+4,161 B, 22,377 spare)**
 
-### DatumRelay — Unchanged
+### DatumRelay — Open Campaign Attestation
 
 - Updated for 4-value `getCampaignForSettlement` return (no `remainingBudget`)
-- **Size: 46,180 → 46,178 B (2,974 spare)**
+- Publisher co-sig now verifies against `claims[0].publisher` for open campaigns (was skipped)
+- **Size: 46,180 → 46,872 B (2,280 spare)**
 
 ### Unchanged Contracts
 
@@ -153,21 +154,21 @@ Replaced Polkadot's exponential conviction model with logarithmic lockup scaling
 | Contract | Alpha | A2 Pre-Harden | A2 Post-Harden | A2 Post-S12 | Spare | Notes |
 |---|---|---|---|---|---|---|
 | **DatumGovernanceV2** | 39,693 | 43,725 | 47,939 | 47,939 | **1,213** | tightest — no S12 check |
-| DatumRelay | 46,180 | 46,178 | 46,178 | 46,178 | 2,974 | unchanged |
+| DatumRelay | 46,180 | 46,178 | 46,178 | **46,872** | **2,280** | open campaign attestation |
 | DatumSettlement | 48,820 | 43,132 | 45,609 | **48,052** | **1,100** | O1 Blake2 + S12 blocklist + P1 verifier auth |
 | **DatumCampaigns** | 48,662 | 38,564 | 38,023 | **42,466** | **6,686** | +S12 blocklist+allowlist checks |
 | DatumGovernanceSlash | 30,298 | 36,520 | 37,160 | 37,160 | 11,992 | unchanged |
 | DatumCampaignLifecycle | — | 30,197 | 32,512 | **40,910** | **8,242** | P20 inactivity timeout |
 | DatumBudgetLedger | — | 22,345 | 28,650 | **29,809** | **19,343** | P20 lastSettlementBlock |
-| DatumAttestationVerifier | — | — | — | **35,920** | **13,232** | P1 new contract |
+| DatumAttestationVerifier | — | — | — | **37,086** | **12,066** | P1 new contract, mandatory for all campaigns |
 | **DatumPublishers** | 22,614 | 22,813 | 26,775 | **35,741** | **13,411** | +S12 blocklist+allowlist |
 | DatumTimelock | 18,342 | 18,342 | 18,342 | 18,342 | 30,810 | unchanged |
 | DatumPaymentVault | — | 16,062 | 16,062 | **17,341** | **31,811** | O3 minimumBalance dust guard |
 | DatumPauseRegistry | 4,047 | 4,047 | 4,047 | 4,047 | 45,105 | unchanged |
 | DatumZKVerifier | 1,409 | 1,409 | 1,409 | 1,409 | 47,743 | unchanged |
-| **Total** | **~260,065** | **323,334** | **342,706** | **405,314** | | 13 contracts |
+| **Total** | **~260,065** | **323,334** | **342,706** | **407,174** | | 13 contracts |
 
-Hardening added 19,372 B PVM. S12 added 15,537 B across 3 contracts. O1 Blake2 net -521 B. O3 dust guard +1,279 B. P20 inactivity timeout +9,557 B (BudgetLedger + Lifecycle). P1 attestation verifier +36,756 B (new contract + Settlement auth). Settlement tightest at 1,100 B spare.
+Hardening added 19,372 B PVM. S12 added 15,537 B across 3 contracts. O1 Blake2 net -521 B. O3 dust guard +1,279 B. P20 inactivity timeout +9,557 B (BudgetLedger + Lifecycle). P1 attestation verifier +37,922 B (new contract + Settlement auth + Relay open campaign fix). Settlement tightest at 1,100 B spare.
 
 ---
 
@@ -447,22 +448,27 @@ New contract: `DatumAttestationVerifier` wraps `settleClaims()` with mandatory E
 
 ### Design
 
-- For campaigns with a designated publisher (`publisher != address(0)`), `publisherSig` must be a valid EIP-712 `PublisherAttestation` signature from that publisher.
-- For open campaigns (`publisher == address(0)`), `publisherSig` is ignored — no attestation required.
+- **All campaigns require publisher attestation.** `publisherSig` must be a valid EIP-712 `PublisherAttestation` signature.
+- Targeted campaigns (`publisher != address(0)`): verified against the campaign's designated publisher.
+- Open campaigns (`publisher == address(0)`): verified against `claims[0].publisher` — the actual serving publisher. This pairs every claim to a specific (user, ad, publisher) triple, preventing fraud.
+- Relay updated: when `publisherSig` is provided for open campaigns, verifies against `claims[0].publisher` (was previously skipped).
 - Settlement updated: `attestationVerifier` address added to authorized callers in `settleClaims()` (alongside user and relay).
 - Separate `setAttestationVerifier(address)` setter on Settlement (not folded into `configure()`).
 
 ### PVM Sizes
 
-- **DatumAttestationVerifier:** 35,920 B (13,232 spare) — new contract (13th).
+- **DatumAttestationVerifier:** 37,086 B (12,066 spare) — new contract (13th).
+- **DatumRelay:** 46,178 → 46,872 B (+694 B, 2,280 spare) — open campaign co-sig verification.
 - **DatumSettlement:** 47,216 → 48,052 B (+836 B, 1,100 spare) — `attestationVerifier` storage + OR check + setter.
 
-### Tests (4 new: H1-H4)
+### Tests (6 new: H1-H6)
 
 - H1: valid publisher co-sig settles successfully
 - H2: missing co-sig reverts E33
 - H3: wrong signer reverts E34
 - H4: non-user caller reverts E32
+- H5: open campaign attested settlement verifies against serving publisher
+- H6: open campaign attested settlement with wrong signer reverts E34
 
 ---
 

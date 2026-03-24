@@ -7,13 +7,14 @@ import "./interfaces/IDatumCampaignsSettlement.sol";
 /// @title DatumAttestationVerifier
 /// @notice P1: Mandatory publisher attestation for direct claim settlement.
 ///         Wraps settleClaims() and enforces EIP-712 publisher co-signature
-///         for campaigns with a designated publisher. Open campaigns
-///         (publisher=address(0)) pass through without co-sig.
+///         for ALL campaigns. Targeted campaigns verify against the campaign's
+///         designated publisher. Open campaigns (publisher=address(0)) verify
+///         against claims[0].publisher (the actual serving publisher).
 ///
 ///         Users call settleClaimsAttested() instead of Settlement.settleClaims()
 ///         directly. This contract verifies publisher attestation then forwards
-///         to Settlement. Relay already enforces attestation; this contract
-///         ensures direct submissions also have it.
+///         to Settlement. Relay also enforces attestation when a co-sig is
+///         provided; this contract makes it mandatory.
 contract DatumAttestationVerifier {
     // -------------------------------------------------------------------------
     // Constants
@@ -61,9 +62,9 @@ contract DatumAttestationVerifier {
     }
 
     /// @notice Settle claims with mandatory publisher attestation.
-    ///         For campaigns with a designated publisher, publisherSig must be
-    ///         a valid EIP-712 signature from that publisher. For open campaigns
-    ///         (publisher=address(0)), publisherSig is ignored.
+    ///         publisherSig must be a valid EIP-712 signature from the publisher.
+    ///         Targeted campaigns: verified against campaign's designated publisher.
+    ///         Open campaigns: verified against claims[0].publisher (the serving publisher).
     function settleClaimsAttested(AttestedBatch[] calldata batches)
         external
         returns (IDatumSettlement.SettlementResult memory result)
@@ -76,39 +77,42 @@ contract DatumAttestationVerifier {
             require(msg.sender == ab.user, "E32");
             require(ab.claims.length > 0, "E28");
 
-            // Check if campaign has a designated publisher
+            // Determine expected publisher signer
             (, address cPublisher,,) = campaigns.getCampaignForSettlement(ab.campaignId);
-
-            if (cPublisher != address(0)) {
-                // Mandatory: verify publisher co-signature
-                bytes32 structHash = keccak256(abi.encode(
-                    PUBLISHER_ATTESTATION_TYPEHASH,
-                    ab.campaignId,
-                    ab.user,
-                    ab.claims[0].nonce,
-                    ab.claims[ab.claims.length - 1].nonce,
-                    ab.claims.length
-                ));
-                bytes32 digest = keccak256(abi.encodePacked(
-                    "\x19\x01",
-                    DOMAIN_SEPARATOR,
-                    structHash
-                ));
-
-                bytes calldata sig = ab.publisherSig;
-                require(sig.length == 65, "E33");
-                bytes32 r;
-                bytes32 s;
-                uint8 v;
-                assembly {
-                    r := calldataload(sig.offset)
-                    s := calldataload(add(sig.offset, 32))
-                    v := byte(0, calldataload(add(sig.offset, 64)))
-                }
-                address pubSigner = ecrecover(digest, v, r, s);
-                require(pubSigner != address(0) && pubSigner == cPublisher, "E34");
+            address expectedPublisher = cPublisher;
+            if (expectedPublisher == address(0)) {
+                // Open campaign: verify against the actual serving publisher
+                expectedPublisher = ab.claims[0].publisher;
             }
-            // Open campaigns: no attestation required
+            require(expectedPublisher != address(0), "E00");
+
+            // Mandatory: verify publisher co-signature
+            bytes32 structHash = keccak256(abi.encode(
+                PUBLISHER_ATTESTATION_TYPEHASH,
+                ab.campaignId,
+                ab.user,
+                ab.claims[0].nonce,
+                ab.claims[ab.claims.length - 1].nonce,
+                ab.claims.length
+            ));
+            bytes32 digest = keccak256(abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR,
+                structHash
+            ));
+
+            bytes calldata sig = ab.publisherSig;
+            require(sig.length == 65, "E33");
+            bytes32 r;
+            bytes32 s;
+            uint8 v;
+            assembly {
+                r := calldataload(sig.offset)
+                s := calldataload(add(sig.offset, 32))
+                v := byte(0, calldataload(add(sig.offset, 64)))
+            }
+            address pubSigner = ecrecover(digest, v, r, s);
+            require(pubSigner != address(0) && pubSigner == expectedPublisher, "E34");
 
             // Build ClaimBatch for forwarding
             IDatumSettlement.Claim[] memory memoryClaims =
