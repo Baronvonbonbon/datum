@@ -125,74 +125,57 @@ All amounts are in planck (1 DOT = 10^10 planck). Clearing CPM is determined by 
 
 ## Architecture
 
-### Smart contracts (9 contracts, Solidity on PolkaVM)
+### Smart contracts (13 contracts, Solidity on PolkaVM)
 
 | Contract | PVM Size | Role |
 |----------|----------|------|
+| `DatumZKVerifier` | 1 KB | Stub ZK proof verifier (real Groth16 post-alpha) |
 | `DatumPauseRegistry` | 4 KB | Global emergency pause circuit breaker |
-| `DatumTimelock` | 18 KB | 48-hour admin delay for contract reference changes |
-| `DatumPublishers` | 23 KB | Publisher registry, take-rate management (30-80%), category bitmask (26 categories) |
-| `DatumCampaigns` | 49 KB | Campaign lifecycle: creation (open or publisher-specific), activation, pausing, completion, termination, expiry |
-| `DatumGovernanceV2` | 40 KB | Conviction voting (0-6x), evaluateCampaign(), inline symmetric slash, minimumBalance dust prevention |
-| `DatumGovernanceSlash` | 30 KB | Slash pool finalization and winner reward claims |
-| `DatumSettlement` | 49 KB | Hash-chain validation, claim processing, 3-way payment split, open campaign resolution, optional ZK |
-| `DatumRelay` | 46 KB | EIP-712 user + publisher co-signature verification for gasless settlement, open campaign co-sig skip |
-| `DatumZKVerifier` | 1 KB | Stub ZK proof verifier (wired to Settlement for future Groth16 proofs) |
+| `DatumPaymentVault` | 17 KB | Pull-payment vault (publisher/user/protocol balances) |
+| `DatumTimelock` | 18 KB | Single-slot admin delay for governance changes |
+| `DatumBudgetLedger` | 30 KB | Campaign escrow, daily caps, settlement tracking |
+| `DatumPublishers` | 36 KB | Registry, take rates, categories, S12 blocklist + allowlists |
+| `DatumAttestationVerifier` | 37 KB | P1 mandatory publisher co-signature for all campaigns |
+| `DatumGovernanceSlash` | 37 KB | Per-campaign slash pool finalization and winner rewards |
+| `DatumCampaignLifecycle` | 41 KB | Complete/terminate/expire + P20 inactivity timeout |
+| `DatumCampaigns` | 42 KB | Campaign creation, metadata, status management |
+| `DatumRelay` | 47 KB | EIP-712 co-signature for gasless settlement |
+| `DatumGovernanceV2` | 48 KB | Conviction voting (9 levels, 0-8), escalating lockups |
+| `DatumSettlement` | 48 KB | Hash-chain validation, Blake2-256, 3-way payment split |
 
-All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte initcode limit using resolc v0.3.0 with optimizer mode `z`. DatumCampaigns and DatumSettlement ownership is transferred to DatumTimelock post-deploy for admin safety.
+All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte PVM limit using resolc v1.0.0 with optimizer mode `z`. 187/187 tests passing.
 
-### Browser extension (Chrome MV3, 7 tabs)
+### Browser extension (archived, will be rebuilt for alpha-2)
 
-| Tab | Function |
-|-----|----------|
-| Campaigns | Active campaigns with block/unblock, collapsible 26-category filter, campaign info |
-| Claims | Pending claims, submit (you pay gas) or sign for publisher relay (zero gas), export/import |
-| Earnings | User balance in DOT, withdraw, engagement stats (dwell, viewable, viewability rate) |
-| Publisher | Publisher balance, withdraw, relay submit, take rate management, category checkboxes, SDK embed snippet |
-| My Ads | Advertiser campaign controls: pause/resume/complete/expire, campaign creation (open or publisher-specific) |
-| Govern | Conviction voting (0-6x), evaluateCampaign, withdraw with slash, slash finalization + reward claiming |
-| Settings | Network, RPC (with connectivity test), 9 contract addresses (with mismatch detection), IPFS gateway, auto-submit (with deauth warning), ad preferences, interest profile |
+The alpha extension (140/140 tests, 9-contract support) is in `archive/alpha-extension/`. A new extension targeting the 13-contract alpha-2 architecture will be built fresh.
 
-Key subsystems:
-- **Publisher SDK** -- lightweight JS tag (`datum-sdk.js`) with challenge-response handshake for two-party impression attestation; inline ad injection into publisher-provided `<div id="datum-ad-slot">`
-- **Open campaigns** -- campaigns with `publisher = address(0)` are served by any publisher whose categories overlap; publisher resolved dynamically at impression time
-- **Default house ad** -- when no campaigns match, a default ad linking to Polkadot philosophy appears (inline or overlay)
-- **IPFS metadata rendering** -- ad overlay displays rich content from IPFS (title, body, CTA button); multi-gateway fallback (dweb.link, ipfs.io, cloudflare-ipfs, Pinata) with background fetch to bypass CSP
-- **Second-price auction** (P19) -- Vickrey auction: effectiveBid = bidCpm x interestWeight, solo campaigns at 70%, floor at 30%
-- **Behavioral analytics** (P16) -- on-device engagement capture (dwell time, scroll depth, tab focus, viewability), behavior hash chain, quality scoring, engagement-weighted CPM
-- **Claim portability** (P6) -- encrypted export/import of claim state (AES-256-GCM, HKDF key from wallet signature)
-- **Multi-account wallet** -- AES-256-GCM encrypted private keys with PBKDF2 key derivation; named accounts with switch/rename/delete, legacy migration; signs all transactions directly
+### Web app
+
+React + Vite, 24 pages covering all protocol roles: Explorer (browse without wallet), Advertiser (create/manage campaigns), Publisher (register/configure/earnings), Governance (vote/evaluate/slash), Admin (timelock/pause/blocklist/fees), Settings.
 
 ### Privacy model
 
-The extension processes all browsing data locally. Page classification, campaign matching, auction, engagement tracking, and impression recording happen entirely on-device. The only data submitted on-chain is a hash-chain claim attesting that the user viewed N impressions for a given campaign. The claim contains no URLs, no page content, no browsing history. Category targeting and ad selection are resolved client-side via the on-device auction.
+The extension processes all browsing data locally. Page classification, campaign matching, auction, engagement tracking, and impression recording happen entirely on-device. The only data submitted on-chain is a hash-chain claim attesting that the user viewed N impressions for a given campaign. No URLs, page content, or browsing history leaves the browser.
 
 ## Repository layout
 
 ```
-alpha/
-  contracts/          Solidity source (9 contracts + interfaces + mocks)
-  test/               Hardhat test suite (132 tests)
-  scripts/            deploy.ts, setup-testnet.ts, e2e-full-flow.ts, fund-test-accounts.ts, setup-test-campaign.ts, benchmark-gas.ts, fund-wallet.ts
+alpha-2/              Canonical contracts (13), tests (187), process flows, UI plan
+  contracts/          Solidity source (13 contracts + interfaces + mocks)
+  test/               Hardhat test suite (187 tests)
   hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotTestnet, polkadotHub
 
-alpha-extension/
-  src/background/     Auction, engagement chain, claim builder, campaign poller, auto-submit
-  src/content/        SDK detection, handshake, 26-category classifier, ad slot injection (inline + overlay + default), engagement tracking
-  src/popup/          React UI: 7 tabs (Campaigns, Claims, Earnings, Publisher, My Ads, Govern, Settings)
-  src/shared/         Types, ABIs, contract factories, claim export, wallet manager, networks
+web/                  Web app (React + Vite, 24 pages)
+  src/pages/          Explorer, Advertiser, Publisher, Governance, Admin, Settings
+  src/shared/         Alpha-2 ABIs, types, networks, conviction curve, error codes
+  src/components/     Shared UI components
+  src/context/        Wallet + Settings providers
 
-sdk/
-  datum-sdk.js        Publisher SDK tag — CustomEvent protocol for handshake + category declaration
-  example-publisher.html  Demo page with SDK integration
+sdk/                  Publisher SDK (datum-sdk.js + example)
+docs/                 Demo page + relay template
+archive/              PoC, alpha (9-contract), alpha extension, old extension, superseded docs
 
-poc/                  PoC MVP (frozen, tagged poc-complete) -- 64/64 tests, 7 contracts
-extension/            PoC extension (frozen)
-
-ALPHA.md              Alpha build roadmap, checklist, PVM size lessons
-SYSTEM-FLOW.md        Detailed process flows for every role and subsystem
-MVP.md                Phased implementation plan with gate criteria
-REVIEW.md             Design review, 11 issues resolved, trust assumptions
+STATUS.md             Current project status + critical path
 ```
 
 ## Getting started
@@ -206,94 +189,47 @@ REVIEW.md             Design review, 11 issues resolved, trust assumptions
 ### Contracts
 
 ```bash
-cd alpha
+cd alpha-2
 npm install
 
 # Run tests (Hardhat EVM)
-npx hardhat test             # 132/132 pass
+npx hardhat test             # 187/187 pass
 
 # Compile for PolkaVM
-npx hardhat compile --network polkadotHub   # requires resolc v0.3.0
+npx hardhat compile --network polkadotHub   # requires resolc v1.0.0
 ```
 
-### Extension
+### Web app
 
 ```bash
-cd alpha-extension
+cd web
 npm install
-npm run build                # output in dist/ (popup.js 603KB, background.js 379KB, content.js 39KB)
+npm run dev                  # Vite dev server
+npm run build                # Production build (dist/)
+npm run type-check           # TypeScript validation
 ```
-
-Load in Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> select `alpha-extension/dist/`
 
 ### Local devchain
 
 ```bash
-cd alpha
+cd alpha-2
 
 # Start substrate node + eth-rpc adapter (Docker)
 docker compose up -d
 
-# Deploy 9 contracts with full wiring + ownership transfer
+# Deploy contracts with full wiring + ownership transfer
 npx hardhat run scripts/deploy.ts --network substrate
-
-# Run full E2E flow (campaign lifecycle, settlement, withdrawals, pause, slash, timelock)
-npx hardhat run scripts/e2e-full-flow.ts --network substrate
-
-# Fund 24 test accounts (advertisers, viewers, publishers, voters, ED edge cases)
-npx hardhat run scripts/fund-test-accounts.ts --network substrate
-
-# Or fund a single wallet
-TARGET=0xYourAddress npx hardhat run scripts/fund-wallet.ts --network substrate
 ```
-
-Deploy script writes `deployed-addresses.json` to both `alpha/` and `alpha-extension/` -- the extension auto-loads addresses on reload.
 
 **Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
-### Paseo (live deployment)
+### Paseo testnet
 
-All 9 contracts are deployed on Paseo (Chain ID 420420417):
+9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — requires updated deploy scripts and Blake2 hash migration first.
 
-| Contract | Address |
-|----------|---------|
-| PauseRegistry | `0xFa0e0D4cb23a9616f780Cb0Ad4055E9b5fE6d1bD` |
-| Timelock | `0x68003Ae2711dE93e66882591FD80F10105183831` |
-| Publishers | `0x3dF89c128F7E3b80d3220f0EB3c8bf8C0F351d46` |
-| Campaigns | `0x1337cD3be712079688EbbD2DA2455F981522ab1d` |
-| GovernanceV2 | `0x708356253c389bE1b0182e2c757468052Ec8CbA8` |
-| GovernanceSlash | `0xF6232d3050e34240250Ff514e6279C63DEBDfD86` |
-| Settlement | `0x6dCbe782CFa9255adc94fdb821E6A7bc092fccc3` |
-| Relay | `0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B` |
-| ZKVerifier | `0x00e95AC62efAf6250c0f15df4812122C8854DF90` |
+**RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/`
 
-**RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/
-
-```bash
-cd alpha
-export DEPLOYER_PRIVATE_KEY="your-key"
-
-# Deploy (if redeploying)
-npm run deploy:testnet
-
-# Automated post-deploy setup (fund accounts, register publishers, create campaign, vote, activate)
-npm run setup:testnet
-```
-
-The extension defaults to Paseo with these addresses hardcoded. Build and load in Chrome to test against live contracts.
-
-**Gas benchmarks (testnet, gasPrice=10^12):**
-
-| Function | Gas | Cost (DOT) | ~USD @$5 |
-|----------|-----|-----------|----------|
-| `createCampaign` | 210,696 | 0.2107 | $1.05 |
-| `vote` | 106,762 | 0.1068 | $0.53 |
-| `evaluateCampaign` | 3,898 | 0.0039 | $0.02 |
-| `settleClaims (1)` | 112,215 | 0.1122 | $0.56 |
-| `settleClaims (5)` | 73,868 | 0.0739 | $0.37 |
-| `withdraw` | 1,762 | 0.0018 | $0.01 |
-
-Settlement batching is sub-linear: per-claim drops from 0.112 DOT to 0.015 DOT in a 5-claim batch.
+Current alpha addresses and testnet state are documented in [STATUS.md](STATUS.md).
 
 ### Claim export/import
 
@@ -305,15 +241,18 @@ The extension supports encrypted claim state portability (P6):
 
 ## Status
 
-- [x] **PoC** -- 7 contracts, 64/64 Hardhat tests, local devnet verified (tagged `poc-complete`)
-- [x] **Alpha contracts** -- 9 contracts (V2 governance, global pause, admin timelock, PVM size reduction, open campaigns, publisher categories), 132/132 tests
-- [x] **Alpha extension** -- V2 overhaul (7 tabs), Publisher SDK + handshake, open campaign support, default house ad, second-price auction (P19), behavioral analytics (P16), claim portability (P6), 26-category taxonomy, engagement quality scoring, multi-account wallet (MA-1 through MA-4), phishing list integration, IPFS metadata rendering in ad overlay (multi-gateway fallback), UX audit Phase 1+2 complete, 140/140 Jest tests, 0 webpack errors
-- [x] **Publisher SDK** -- `datum-sdk.js` with challenge-response attestation protocol, inline ad injection, `example-publisher.html` demo
-- [x] **Local devnet E2E** -- 9 contracts deployed on pallet-revive substrate devchain, all 6 E2E sections pass: campaign lifecycle, settlement (1M impressions, 16 DOT payment), withdrawals, pause/unpause, governance slash, timelock (A3.2)
-- [x] **Paseo deployment** -- all 9 contracts deployed (Chain ID 420420417), ECRecover verified, test campaign active, 6 accounts funded, 2 publishers registered, Diana set to all 26 categories (A3.3)
-- [x] **Publisher relay** -- publisher relay endpoint (Diana), co-signs attestations + submits claims, demo index page with inline ad slot
-- [ ] **Browser E2E on Paseo** -- load extension in Chrome, verify full ad display + claim flow on testnet (A3.4)
-- [ ] **Open testing** -- publish addresses, external tester instructions (A3.5)
+See [STATUS.md](STATUS.md) for detailed project status and critical path.
+
+- [x] **PoC** -- 7 contracts, 64/64 tests (archived)
+- [x] **Alpha** -- 9 contracts deployed on Paseo, 132/132 tests (archived)
+- [x] **Alpha-2 contracts** -- 13 contracts (P1 attestation, S12 blocklist, P20 inactivity, extracted satellites), 187/187 tests
+- [x] **Extension** -- 140/140 tests, feature-complete for alpha
+- [x] **Web app** -- 24 pages, 0 TypeScript errors, Vite build ready
+- [x] **Publisher SDK + relay** -- live on Paseo testnet (Diana)
+- [x] **Paseo testnet** -- alpha contracts deployed, test campaign active
+- [ ] **Blake2 hash migration** -- extension + relay must switch from keccak256 to Blake2-256
+- [ ] **Alpha-2 deploy** -- update deploy scripts for 13-contract wiring, deploy to Paseo
+- [ ] **Open testing** -- publish addresses, external tester flow
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 
 ## Why PolkaVM
@@ -348,4 +287,4 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 
 ## License
 
-MIT
+Apache-2.0
