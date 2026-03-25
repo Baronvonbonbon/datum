@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getSettlementContract, getProvider } from "@shared/contracts";
+import { getSettlementContract, getAttestationVerifierContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
@@ -117,6 +117,10 @@ export function ClaimQueue({ address }: Props) {
         throw new Error("Settlement contract address not configured. Check Settings.");
       }
 
+      if (!settings.contractAddresses.attestationVerifier) {
+        throw new Error("AttestationVerifier contract address not configured. Check Settings.");
+      }
+
       const signer = getSigner(settings.rpcUrl);
 
       // Get batches from background (serialized — bigints as strings)
@@ -131,26 +135,45 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
 
-      // Deserialize bigints for contract call
-      const contractBatches = serializedBatches.map((b) => ({
-        user: b.user,
-        campaignId: BigInt(b.campaignId),
-        claims: b.claims.map((c) => ({
-          campaignId: BigInt(c.campaignId),
-          publisher: c.publisher,
-          impressionCount: BigInt(c.impressionCount),
-          clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
-          nonce: BigInt(c.nonce),
-          previousClaimHash: c.previousClaimHash,
-          claimHash: c.claimHash,
-          zkProof: c.zkProof,
-        })),
+      // Request publisher attestation for each batch (mandatory in alpha-2)
+      const attestedBatches = await Promise.all(serializedBatches.map(async (b) => {
+        const claimsLen = b.claims.length;
+        let publisherSig = "0x";
+        try {
+          const attestResponse = await chrome.runtime.sendMessage({
+            type: "REQUEST_PUBLISHER_ATTESTATION",
+            publisherAddress: b.claims[0]?.publisher ?? "",
+            campaignId: b.campaignId,
+            userAddress: b.user,
+            firstNonce: b.claims[0].nonce,
+            lastNonce: b.claims[claimsLen - 1].nonce,
+            claimCount: claimsLen,
+          });
+          if (attestResponse?.signature) publisherSig = attestResponse.signature;
+        } catch {
+          // Attestation unavailable — degraded trust mode (open campaigns)
+        }
+        return {
+          user: b.user,
+          campaignId: BigInt(b.campaignId),
+          claims: b.claims.map((c) => ({
+            campaignId: BigInt(c.campaignId),
+            publisher: c.publisher,
+            impressionCount: BigInt(c.impressionCount),
+            clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+            nonce: BigInt(c.nonce),
+            previousClaimHash: c.previousClaimHash,
+            claimHash: c.claimHash,
+            zkProof: c.zkProof,
+          })),
+          publisherSig,
+        };
       }));
 
-      const settlement = getSettlementContract(settings.contractAddresses, signer);
+      const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
 
-      // Submit transaction
-      const tx = await settlement.settleClaims(contractBatches);
+      // Submit via AttestationVerifier (mandatory P1 path)
+      const tx = await attestationVerifier.settleClaimsAttested(attestedBatches);
       const receipt = await tx.wait();
 
       // Parse SettlementResult from events — count ClaimSettled vs ClaimRejected
@@ -159,11 +182,10 @@ export function ClaimQueue({ address }: Props) {
       let totalPaid = 0n;
 
       if (receipt?.logs) {
-        // Try to decode events from receipt
-        const settlementInterface = settlement.interface;
+        const iface = attestationVerifier.interface;
         for (const log of receipt.logs) {
           try {
-            const parsed = settlementInterface.parseLog(log);
+            const parsed = iface.parseLog(log);
             if (parsed?.name === "ClaimSettled") {
               settledCount++;
               totalPaid += BigInt(parsed.args.totalPayment ?? 0);
@@ -333,7 +355,7 @@ export function ClaimQueue({ address }: Props) {
         });
       }
 
-      // Store signed batches for publisher relay pickup
+      // Store signed batches locally (for display + backup)
       await chrome.storage.local.set({
         signedBatches: {
           batches: signedBatches,
@@ -341,6 +363,36 @@ export function ClaimQueue({ address }: Props) {
           deadline,
         },
       });
+
+      // POST batches to publisher relay endpoints
+      const relaysByPublisher = new Map<string, typeof signedBatches>();
+      for (const batch of signedBatches) {
+        const publisher = batch.claims[0]?.publisher ?? "";
+        if (!publisher) continue;
+        const key = `publisherDomain:${publisher.toLowerCase()}`;
+        const relayStorage = await chrome.storage.local.get(key);
+        const domain: string | undefined = relayStorage[key];
+        if (!domain) continue;
+        const relayUrl = `https://${domain}`;
+        const existing = relaysByPublisher.get(relayUrl) ?? [];
+        existing.push(batch);
+        relaysByPublisher.set(relayUrl, existing);
+      }
+
+      for (const [relayUrl, batches] of relaysByPublisher) {
+        try {
+          await fetch(`${relayUrl}/relay/submit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ batches }),
+            signal: AbortSignal.timeout(8000),
+          });
+          console.log(`[DATUM] POSTed ${batches.length} batch(es) to ${relayUrl}`);
+        } catch (err) {
+          console.warn(`[DATUM] Relay POST failed for ${relayUrl}:`, err);
+          // Non-fatal — batches are stored locally and can be retried
+        }
+      }
 
       setSignedCount(signedBatches.length);
     } catch (err) {

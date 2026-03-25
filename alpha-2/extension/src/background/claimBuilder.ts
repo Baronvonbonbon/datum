@@ -1,7 +1,31 @@
 // Builds claims from impressions, maintaining per-(user, campaign) hash chains.
+// Alpha-2: Uses Blake2-256 on PolkaVM (keccak256 fallback for local Hardhat EVM).
+// Hash preimage: (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
 
-import { keccak256, solidityPackedKeccak256, ZeroHash } from "ethers";
+import { solidityPacked, ZeroHash } from "ethers";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { Claim, ClaimChainState, Impression } from "@shared/types";
+
+/** Blake2-256 hash of ABI-packed values. Matches ISystem(0x900).hashBlake256() on PolkaVM. */
+function blake2Hash(types: string[], values: unknown[]): string {
+  const packed = solidityPacked(types, values);
+  const bytes = hexToBytes(packed);
+  const hash = blake2b(bytes, { dkLen: 32 });
+  return "0x" + bytesToHex(hash);
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const arr = new Uint8Array(h.length / 2);
+  for (let i = 0; i < arr.length; i++) {
+    arr[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  }
+  return arr;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
 const CHAIN_STATE_PREFIX = "chainState:";
 const QUEUE_KEY = "claimQueue";
@@ -55,7 +79,9 @@ export const claimBuilder = {
       const previousClaimHash =
         chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
-      const claimHash = solidityPackedKeccak256(
+      // Blake2-256 on PolkaVM; matches Settlement._validateClaim() hash order:
+      // (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
+      const claimHash = blake2Hash(
         ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
         [
           campaignId,

@@ -10,7 +10,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contracts) is fully tested but not yet deployed. The browser extension is feature-complete. A new web app covers all advanced flows. The critical path to mainnet is Blake2 hash migration followed by alpha-2 deployment.
+The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contracts) is fully tested but not yet deployed. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). A web app covers all advanced flows. The critical path to mainnet is relay Blake2 migration, deploy scripts, and alpha-2 testnet deployment.
 
 ---
 
@@ -46,11 +46,20 @@ The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contra
 
 **Toolchain:** Solidity 0.8.24, resolc 1.0.0, Hardhat 2.22, OZ 5.0
 
-### Browser Extension — `archive/alpha-extension/` (archived)
+### Browser Extension — `alpha-2/extension/` (alpha-2)
 
-v0.2.0 (alpha, 9-contract). 140/140 Jest tests, 0 webpack errors. Archived — will be rebuilt for alpha-2 (13 contracts).
+v0.3.0 (alpha-2, 13-contract). 165/165 Jest tests, 0 webpack errors. Manifest V3, Chrome/Chromium.
 
-Key capabilities to carry forward: Vickrey auction, engagement tracking, hash-chain claims, IPFS multi-gateway, Shadow DOM ad injection, phishing list, content safety, AES-256-GCM wallet, auto-submit (B1), claim export (P6), timelock monitor (H2).
+3-tab popup (Claims, Earnings, Settings). Advanced flows (Campaigns, Publisher, Advertiser, Governance) moved to web app.
+
+Key features:
+- **Blake2-256 claim hashing** — `@noble/hashes/blake2.js` matches Settlement on PolkaVM
+- **P1 attestation path** — submits via `AttestationVerifier.settleClaimsAttested()` with publisher co-sig per batch
+- **EIP-1193 provider bridge** — `window.datum` compatible with `ethers.BrowserProvider` for web app integration
+- **Relay POST** — `signForRelay()` POSTs signed batches to publisher relay endpoints
+- Vickrey auction, engagement tracking, IPFS multi-gateway, Shadow DOM ad injection, phishing list, content safety, AES-256-GCM multi-account wallet, auto-submit (B1), claim export (P6), timelock monitor (H2)
+
+Previous alpha extension (140/140 tests, 9-contract) archived in `archive/alpha-extension/`.
 
 ### Web App — `web/`
 
@@ -101,22 +110,21 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations, process
 
 | Component | Tests | Status |
 |-----------|-------|--------|
-| Alpha contracts | 132 | Passing |
+| Alpha contracts | 132 | Passing (archived) |
 | Alpha-2 contracts | 187 | Passing |
-| Extension (archived) | 140 | Passing (alpha, pre-rebuild) |
-| **Total** | **459** | **All passing** |
+| Extension (alpha-2) | 165 | Passing |
+| **Total** | **484** | **All passing** |
 
 ---
 
 ## Critical Path to Mainnet
 
-### 1. Blake2 Claim Hash Migration (BLOCKS TESTNET)
+### 1. Blake2 Claim Hash Migration
 
-Extension `behaviorChain.ts` and relay bot use keccak256. Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Claims will fail validation until both sides match.
+Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Claims will fail validation until both sides match.
 
-- Extension: `@noble/hashes/blake2b` in service worker
-- Relay bot: Blake2-256 in claim hashing
-- Must update before alpha-2 testnet deploy
+- **Extension: DONE** — `@noble/hashes/blake2.js` in claimBuilder, behaviorChain, behaviorCommit. 165/165 tests.
+- **Relay bot: PENDING** — must switch from keccak256 to Blake2-256 before testnet deploy.
 
 ### 2. Alpha-2 Deploy Scripts
 
@@ -146,6 +154,7 @@ Publish addresses, document external tester flow, monitor events.
 | — | S12 mainnet migration | Blocklist must be timelock-gated before mainnet. Governance-managed (Option C hybrid). |
 | — | Relay settlement web UI | Web page for `DatumRelay.settleClaimsFor()` (currently extension-only) |
 | — | Attested settlement web UI | Web page for `DatumAttestationVerifier.settleClaimsAttested()` |
+| — | Relay Blake2 migration | Relay bot must switch claim hash from keccak256 to Blake2-256 |
 
 ---
 
@@ -153,7 +162,7 @@ Publish addresses, document external tester flow, monitor events.
 
 ```
 datum/
-├── alpha-2/          # Canonical contracts (13), tests, process flows, UI plan
+├── alpha-2/          # Canonical contracts (13), tests, extension (165 tests), process flows
 ├── web/              # Web app (React + Vite, 24 pages)
 ├── sdk/              # Publisher SDK (datum-sdk.js)
 ├── docs/             # Demo page + relay template

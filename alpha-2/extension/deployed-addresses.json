@@ -8,5 +8,9 @@
   "settlement": "0x6dCbe782CFa9255adc94fdb821E6A7bc092fccc3",
   "relay": "0x0c2F453B48f4eC13f4c6f4d5708765A2f57Ca65B",
   "zkVerifier": "0x00e95AC62efAf6250c0f15df4812122C8854DF90",
+  "paymentVault": "",
+  "budgetLedger": "",
+  "lifecycle": "",
+  "attestationVerifier": "",
   "network": "polkadotTestnet"
 }

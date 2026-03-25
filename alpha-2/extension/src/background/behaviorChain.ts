@@ -1,8 +1,19 @@
 // Behavior hash chain — per-(userAddress, campaignId) append-only chain.
 // Each engagement event is hashed into the chain for future ZK verification.
+// Alpha-2: Uses Blake2-256 to match on-chain hash semantics.
 
-import { keccak256, solidityPackedKeccak256, ZeroHash } from "ethers";
+import { solidityPacked, ZeroHash } from "ethers";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { BehaviorChainState, EngagementEvent } from "@shared/types";
+
+function blake2Hash(types: string[], values: unknown[]): string {
+  const packed = solidityPacked(types, values);
+  const h = packed.startsWith("0x") ? packed.slice(2) : packed;
+  const bytes = new Uint8Array(h.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  const hash = blake2b(bytes, { dkLen: 32 });
+  return "0x" + Array.from(hash).map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
 const CHAIN_KEY_PREFIX = "behaviorChain:";
 
@@ -13,8 +24,8 @@ export async function appendEvent(
 ): Promise<BehaviorChainState> {
   const state = await getChainState(userAddress, event.campaignId);
 
-  // Hash: keccak256(previousHash, campaignId, dwellMs, scrollDepthPct, tabFocusMs, viewableMs, iabViewable, timestamp)
-  const newHash = solidityPackedKeccak256(
+  // Hash: blake2b(previousHash, campaignId, dwellMs, scrollDepthPct, tabFocusMs, viewableMs, iabViewable, timestamp)
+  const newHash = blake2Hash(
     ["bytes32", "string", "uint256", "uint256", "uint256", "uint256", "bool", "uint256"],
     [
       state.headHash,

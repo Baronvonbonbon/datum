@@ -33,6 +33,7 @@ export const NETWORK_CONFIGS: Record<
       paymentVault: "",
       budgetLedger: "",
       lifecycle: "",
+      attestationVerifier: "",
     },
   },
   polkadotTestnet: {
@@ -51,6 +52,7 @@ export const NETWORK_CONFIGS: Record<
       paymentVault: "",
       budgetLedger: "",
       lifecycle: "",
+      attestationVerifier: "",
     },
   },
   westend: {
@@ -68,6 +70,7 @@ export const NETWORK_CONFIGS: Record<
       paymentVault: "",
       budgetLedger: "",
       lifecycle: "",
+      attestationVerifier: "",
     },
   },
   kusama: {
@@ -85,6 +88,7 @@ export const NETWORK_CONFIGS: Record<
       paymentVault: "",
       budgetLedger: "",
       lifecycle: "",
+      attestationVerifier: "",
     },
   },
   polkadotHub: {
@@ -102,6 +106,7 @@ export const NETWORK_CONFIGS: Record<
       paymentVault: "",
       budgetLedger: "",
       lifecycle: "",
+      attestationVerifier: "",
     },
   },
 };

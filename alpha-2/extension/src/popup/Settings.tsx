@@ -11,7 +11,7 @@ interface InterestProfileData {
   visitCounts: Record<string, number>;
 }
 
-export function Settings({ address }: { address: string }) {
+export function Settings({ address }: { address: string | null }) {
   const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
@@ -293,6 +293,7 @@ export function Settings({ address }: { address: string }) {
                     paymentVault: addrs.paymentVault ?? "",
                     budgetLedger: addrs.budgetLedger ?? "",
                     lifecycle: addrs.lifecycle ?? "",
+                    attestationVerifier: addrs.attestationVerifier ?? "",
                   },
                 }));
               } catch (err) {

@@ -474,9 +474,10 @@ New contract: `DatumAttestationVerifier` wraps `settleClaims()` with mandatory E
 
 ## Remaining Work
 
-1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 185 tests across 10 test files.
+1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 187 tests across 10 test files.
 2. **Deploy scripts:** Update `deploy.ts` for 13-contract deploy + extended wiring sequence. Settlement `configure()` 5-arg + `setAttestationVerifier()`. CampaignLifecycle constructor 2-arg.
-3. ~~**Extension:** Update contract addresses config (3 new addresses), redirect withdrawal calls to PaymentVault~~ — **Done.** Extension v0.2.0 with 12-contract support, 140/140 Jest tests. Needs update for AttestationVerifier.
-4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation
-5. **Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit` — currently stores locally only (see PROCESS-FLOWS.md §10.1)
-6. **Blake2 migration (extension + relay):** Extension `behaviorChain.ts` and relay bot must switch claim hash from keccak256 to Blake2-256 to match Settlement on PolkaVM. Required before alpha-2 testnet deploy. `@noble/hashes` already installed in extension.
+3. ~~**Extension:** Full alpha-2 rebuild~~ — **Done.** Extension v0.3.0 with 13-contract support, 165/165 Jest tests. Blake2-256 claim hashing, P1 attestation path, EIP-1193 provider bridge, relay POST, 3-tab popup.
+4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation.
+5. ~~**Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit`~~ — **Done.** Extension POSTs to `{publisherDomain}/relay/submit` after signing.
+6. ~~**Blake2 migration (extension):**~~ — **Done.** claimBuilder, behaviorChain, behaviorCommit all use `@noble/hashes/blake2.js` with `dkLen: 32`.
+7. **Blake2 migration (relay):** Relay bot must switch claim hash from keccak256 to Blake2-256 to match Settlement on PolkaVM. Required before alpha-2 testnet deploy.

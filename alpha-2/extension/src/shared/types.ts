@@ -338,6 +338,7 @@ export interface ContractAddresses {
   paymentVault: string;
   budgetLedger: string;
   lifecycle: string;
+  attestationVerifier: string;
 }
 
 // User ad preferences — persisted in chrome.storage.local

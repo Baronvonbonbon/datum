@@ -16,7 +16,7 @@ import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
-import DatumSettlementAbi from "@shared/abis/DatumSettlement.json";
+import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
@@ -90,6 +90,7 @@ async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null
       paymentVault: addrs.paymentVault ?? "",
       budgetLedger: addrs.budgetLedger ?? "",
       lifecycle: addrs.lifecycle ?? "",
+      attestationVerifier: addrs.attestationVerifier ?? "",
     };
   } catch {
     return null;
@@ -456,14 +457,6 @@ async function handleMessage(
       return { signature: sig || undefined };
     }
 
-    // Governance V2 actions (handled directly in popup via contract calls)
-    case "EVALUATE_CAMPAIGN":
-    case "FINALIZE_SLASH":
-    case "CLAIM_SLASH_REWARD":
-      // These are handled directly by the popup panels via ethers contract calls,
-      // not routed through background. Return ok for compatibility.
-      return { ok: true, note: "Handled in popup" };
-
     // User preferences
     case "GET_USER_PREFERENCES": {
       const preferences = await getPreferences();
@@ -543,6 +536,74 @@ async function handleMessage(
       return { ok: true };
     }
 
+    // -----------------------------------------------------------------------
+    // window.datum provider bridge (content/provider.ts → EIP-1193 proxy)
+    // -----------------------------------------------------------------------
+
+    case "PROVIDER_GET_ADDRESS": {
+      const stored = await chrome.storage.local.get("connectedAddress");
+      return { address: stored.connectedAddress ?? null };
+    }
+
+    case "PROVIDER_GET_CHAIN_ID": {
+      const s = await getSettings();
+      try {
+        const provider = new JsonRpcProvider(s.rpcUrl);
+        const network = await provider.getNetwork();
+        return { chainId: "0x" + network.chainId.toString(16) };
+      } catch {
+        return { chainId: "0x1" };
+      }
+    }
+
+    case "PROVIDER_SIGN_TYPED_DATA": {
+      const { getUnlockedWallet } = await import("@shared/walletManager");
+      const wallet = getUnlockedWallet();
+      if (!wallet) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      try {
+        const signature = await wallet.signTypedData(msg.domain, msg.types, msg.value);
+        return { signature };
+      } catch (err) {
+        return { error: String(err instanceof Error ? err.message : err) };
+      }
+    }
+
+    case "PROVIDER_PERSONAL_SIGN": {
+      const { getUnlockedWallet: getWallet } = await import("@shared/walletManager");
+      const w = getWallet();
+      if (!w) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      try {
+        const signature = await w.signMessage(msg.message);
+        return { signature };
+      } catch (err) {
+        return { error: String(err instanceof Error ? err.message : err) };
+      }
+    }
+
+    case "PROVIDER_RPC_PROXY": {
+      // Proxy arbitrary RPC calls (eth_call, eth_getCode, eth_blockNumber, etc.)
+      // to the extension's configured RPC endpoint
+      const s2 = await getSettings();
+      try {
+        const provider = new JsonRpcProvider(s2.rpcUrl);
+        const result = await provider.send(msg.method, msg.params ?? []);
+        return { result };
+      } catch (err) {
+        return { error: String(err instanceof Error ? err.message : err) };
+      }
+    }
+
+    case "PROVIDER_CONNECT":
+    case "PROVIDER_DISCONNECT": {
+      const stored2 = await chrome.storage.local.get("connectedAddress");
+      return { address: stored2.connectedAddress ?? null };
+    }
+
+    case "PROVIDER_APPROVAL_RESPONSE": {
+      // Future: popup approval flow — for now auto-approve (wallet must be unlocked)
+      return { ok: true };
+    }
+
     default:
       return { error: "unknown message type" };
   }
@@ -617,7 +678,7 @@ async function autoFlushDirect() {
 
   try {
     const settings = await getSettings();
-    if (!settings.contractAddresses.settlement || !settings.autoSubmit) {
+    if (!settings.contractAddresses.attestationVerifier || !settings.autoSubmit) {
       await claimQueue.releaseMutex();
       return;
     }
@@ -657,37 +718,62 @@ async function autoFlushDirect() {
 
     await chrome.storage.local.set({ lastAutoFlush: Date.now() });
 
+    if (!settings.contractAddresses.attestationVerifier) {
+      console.log("[DATUM] Auto-flush skipped — attestationVerifier address not configured");
+      await claimQueue.releaseMutex();
+      return;
+    }
+
     const provider = new JsonRpcProvider(settings.rpcUrl);
     const wallet = new Wallet(privateKey, provider);
-    const settlement = new Contract(
-      settings.contractAddresses.settlement,
-      DatumSettlementAbi.abi,
+    const attestationVerifier = new Contract(
+      settings.contractAddresses.attestationVerifier,
+      DatumAttestationVerifierAbi.abi,
       wallet
     );
 
-    const contractBatches = batches.map((b) => ({
-      user: b.user,
-      campaignId: b.campaignId,
-      claims: b.claims.map((c) => ({
-        campaignId: c.campaignId,
-        publisher: c.publisher,
-        impressionCount: c.impressionCount,
-        clearingCpmPlanck: c.clearingCpmPlanck,
-        nonce: c.nonce,
-        previousClaimHash: c.previousClaimHash,
-        claimHash: c.claimHash,
-        zkProof: c.zkProof,
-      })),
+    // Build AttestedBatch[] — request publisher co-signature for each batch
+    const attestedBatches = await Promise.all(batches.map(async (b) => {
+      const publisher = b.claims[0]?.publisher ?? "";
+      let publisherSig = "0x";
+      try {
+        const sig = await requestPublisherAttestation(
+          publisher,
+          b.campaignId.toString(),
+          b.user,
+          b.claims[0].nonce.toString(),
+          b.claims[b.claims.length - 1].nonce.toString(),
+          b.claims.length,
+        );
+        if (sig) publisherSig = sig;
+      } catch {
+        // Attestation unavailable — degraded trust mode
+      }
+      return {
+        user: b.user,
+        campaignId: b.campaignId,
+        claims: b.claims.map((c) => ({
+          campaignId: c.campaignId,
+          publisher: c.publisher,
+          impressionCount: c.impressionCount,
+          clearingCpmPlanck: c.clearingCpmPlanck,
+          nonce: c.nonce,
+          previousClaimHash: c.previousClaimHash,
+          claimHash: c.claimHash,
+          zkProof: c.zkProof,
+        })),
+        publisherSig,
+      };
     }));
 
     let settledCount = 0;
     let rejectedCount = 0;
 
-    const tx = await settlement.settleClaims(contractBatches);
+    const tx = await attestationVerifier.settleClaimsAttested(attestedBatches);
     const receipt = await tx.wait();
 
     if (receipt?.logs) {
-      const iface = settlement.interface;
+      const iface = attestationVerifier.interface;
       for (const log of receipt.logs) {
         try {
           const parsed = iface.parseLog(log);

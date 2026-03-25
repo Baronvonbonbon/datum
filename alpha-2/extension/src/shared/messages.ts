@@ -8,7 +8,16 @@ export type ContentToBackground =
   | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string }
   | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
-  | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean };
+  | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean }
+  | { type: "SET_PUBLISHER_RELAY"; publisher: string; relay: string }
+  // window.datum provider bridge (EIP-1193 compatible)
+  | { type: "PROVIDER_CONNECT" }
+  | { type: "PROVIDER_GET_ADDRESS" }
+  | { type: "PROVIDER_GET_CHAIN_ID" }
+  | { type: "PROVIDER_SIGN_TYPED_DATA"; domain: any; types: any; value: any; requestId: string }
+  | { type: "PROVIDER_PERSONAL_SIGN"; message: string; address: string; requestId: string }
+  | { type: "PROVIDER_RPC_PROXY"; method: string; params: any[]; requestId: string }
+  | { type: "PROVIDER_DISCONNECT" };
 
 // Messages sent FROM popup TO background
 export type PopupToBackground =
@@ -28,9 +37,6 @@ export type PopupToBackground =
   | { type: "GET_INTEREST_PROFILE" }
   | { type: "RESET_INTEREST_PROFILE" }
   | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number }
-  | { type: "EVALUATE_CAMPAIGN"; campaignId: string }
-  | { type: "FINALIZE_SLASH"; campaignId: string }
-  | { type: "CLAIM_SLASH_REWARD"; campaignId: string }
   | { type: "GET_USER_PREFERENCES" }
   | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
   | { type: "BLOCK_CAMPAIGN"; campaignId: string }
@@ -38,7 +44,8 @@ export type PopupToBackground =
   | { type: "AUTHORIZE_AUTO_SUBMIT"; privateKey: string }
   | { type: "REVOKE_AUTO_SUBMIT" }
   | { type: "CHECK_AUTO_SUBMIT" }
-  | { type: "GET_TIMELOCK_PENDING" };
+  | { type: "GET_TIMELOCK_PENDING" }
+  | { type: "PROVIDER_APPROVAL_RESPONSE"; requestId: string; approved: boolean };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

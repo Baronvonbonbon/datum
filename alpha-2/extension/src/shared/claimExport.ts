@@ -76,7 +76,7 @@ export async function exportClaims(signer: Wallet): Promise<Blob> {
   const signature = await signer.signMessage(SIGN_MESSAGE);
   const encrypted = await encryptData(JSON.stringify(exportData), signature);
 
-  return new Blob([encrypted], { type: "application/octet-stream" });
+  return new Blob([encrypted.buffer as ArrayBuffer], { type: "application/octet-stream" });
 }
 
 /**
@@ -196,7 +196,7 @@ async function deriveKeyFromSignature(signature: string): Promise<CryptoKey> {
   const sigBytes = getBytes(signature);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    sigBytes.slice(0, 32),
+    sigBytes.slice(0, 32).buffer as ArrayBuffer,
     "HKDF",
     false,
     ["deriveKey"]
@@ -205,8 +205,8 @@ async function deriveKeyFromSignature(signature: string): Promise<CryptoKey> {
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: new TextEncoder().encode("datum-claim-export-v1"),
-      info: new TextEncoder().encode("aes-key"),
+      salt: new TextEncoder().encode("datum-claim-export-v1").buffer as ArrayBuffer,
+      info: new TextEncoder().encode("aes-key").buffer as ArrayBuffer,
     },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
@@ -221,9 +221,9 @@ async function encryptData(plaintext: string, signature: string): Promise<Uint8A
   const encoded = new TextEncoder().encode(plaintext);
 
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
     key,
-    encoded
+    encoded.buffer as ArrayBuffer
   );
 
   // Format: [12 bytes IV] [ciphertext]
@@ -241,9 +241,9 @@ async function decryptData(data: Uint8Array, signature: string): Promise<string>
   const ciphertext = data.slice(12);
 
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
     key,
-    ciphertext
+    ciphertext.buffer as ArrayBuffer
   );
 
   return new TextDecoder().decode(plaintext);

@@ -1,7 +1,7 @@
 # DATUM — Complete Feature Backlog
 
-**Version:** 1.1
-**Date:** 2026-03-23 (updated from 1.0 / 2026-03-20)
+**Version:** 1.2
+**Date:** 2026-03-25 (updated from 1.1 / 2026-03-23)
 **Scope:** Every deferred, incomplete, planned, sacrificed, or missing feature from the alpha-2 build, collected from all project documentation, code annotations, process flow analysis, and design reviews.
 
 ---
@@ -31,15 +31,15 @@ Items required to close out the alpha testing phase.
 | # | Item | Source | Status | Description |
 |---|------|--------|--------|-------------|
 | 1.1 | **Browser E2E on Paseo (A3.4)** | ALPHA.md, RELEASE-CANDIDATE.md | **DONE** | ~~Load extension in Chrome, create campaign with real IPFS metadata, vote to activate, browse to trigger ad display, submit claims via relay, verify on-chain settlement, withdraw earnings.~~ All key points pass. |
-| 1.2 | **Relay round-trip fix** | PROCESS-FLOWS.md §10.1 | **BLOCKED** | Extension `signForRelay()` stores signed batches in `chrome.storage.local` but **never POSTs to relay bot's `/relay/submit`**. The relay bot endpoint works but has zero callers. Must fix `ClaimQueue.tsx` to POST signed batches to publisher relay URL after signing. |
+| 1.2 | **Relay round-trip fix** | PROCESS-FLOWS.md §10.1 | **DONE** | ~~Extension `signForRelay()` stores signed batches but never POSTs.~~ Fixed: `ClaimQueue.tsx` now POSTs signed batches to `{publisherDomain}/relay/submit` after signing. |
 | 1.3 | **Gate GA: IPFS round-trip** | RELEASE-CANDIDATE.md | **DONE** | ~~Verify IPFS metadata round-trip end-to-end on Paseo.~~ |
 | 1.4 | **Gate GA: External testers** | RELEASE-CANDIDATE.md | Open | At least 3 external testers complete the full flow. |
 | 1.5 | **Gate GA: Stability** | RELEASE-CANDIDATE.md | Open | No critical bugs in first 7 days of operation. |
 | 1.6 | **Claim export/import test procedure** | ALPHA.md (A2.2/L6) | Open | Cross-device verification pending. |
 | 1.7 | **Benchmark `settleClaimsFor()` gas** | MVP.md (1.6) | Open | Full relay vs direct comparison pending. |
-| 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | Open | Update `deploy.ts` for 12-contract deploy + wiring. Alpha scripts target 9 contracts. |
-| 1.9 | **Alpha-2 testnet deploy** | CHANGELOG.md | Open | Deploy alpha-2 (12 contracts) to Paseo, run E2E validation. |
-| 1.10 | **Blake2 claim hash migration (extension + relay)** | CHANGELOG.md (O1) | Open | Settlement now uses `hashBlake256()` on PolkaVM. Extension `behaviorChain.ts` and relay bot must switch from keccak256 to Blake2-256. `@noble/hashes` installed but unused. **Required before 1.9** (testnet deploy) — claims will fail hash validation otherwise. |
+| 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | Open | Update `deploy.ts` for 13-contract deploy + wiring. Alpha scripts target 9 contracts. |
+| 1.9 | **Alpha-2 testnet deploy** | CHANGELOG.md | Open | Deploy alpha-2 (13 contracts) to Paseo, run E2E validation. |
+| 1.10 | **Blake2 claim hash migration (extension + relay)** | CHANGELOG.md (O1) | **Extension DONE** / Relay Open | Settlement uses `hashBlake256()` on PolkaVM. Extension migrated to `@noble/hashes/blake2.js` (claimBuilder, behaviorChain, behaviorCommit). **Relay bot still uses keccak256 — must migrate before testnet deploy.** |
 
 ---
 
@@ -85,10 +85,10 @@ Post-alpha UX improvements identified during Part 4D audit. All have working inf
 |----|------|----------|-------------|
 | UP-2 | **Address blocklist management UI** | Settings.tsx | `phishingList.ts` has `addBlockedAddress`/`removeBlockedAddress` API but no panel exposes it. Users can't manually block a specific advertiser or publisher address. |
 | UP-4 | **Silenced "Uncategorized" category** | background/index.ts | Campaigns with `categoryId=0` bypass all category silencing. No way to block uncategorized ads. |
-| UP-5 | **Auction transparency display** | CampaignList.tsx | Users can't see which campaigns competed, why one won, clearing CPM, or interest weight contribution. |
+| UP-5 | **Auction transparency display** | Web app (CampaignList moved) | Users can't see which campaigns competed, why one won, clearing CPM, or interest weight contribution. |
 | UP-7 | **Per-campaign claim management** | ClaimQueue.tsx | Only "Submit All" or "Clear All" — can't submit or discard claims for a single campaign. |
 | UP-8 | **Per-campaign frequency cap** | content/index.ts, background/index.ts | `maxAdsPerHour` is global. A single high-bid campaign can dominate all ad slots. |
-| GV-4 | **Timelock ABI decoding** | GovernancePanel.tsx | Timelock `ChangeProposed` events show raw hex calldata. Need ABI-decode for human-readable descriptions. |
+| GV-4 | **Timelock ABI decoding** | Web app (GovernancePanel moved) | Timelock `ChangeProposed` events show raw hex calldata. Need ABI-decode for human-readable descriptions. |
 | EA-1 | **Earnings history** | UserPanel.tsx | Only shows current withdrawable balance. No record of past withdrawals or earning rate. |
 | EA-2 | **Per-campaign earnings breakdown** | UserPanel.tsx | Aggregate engagement only. No "Campaign #3 earned you X DOT" view. |
 | AD-1 | **Pre-scoring quality rejection** | background/index.ts, content/index.ts | Ad shown → quality scored below threshold → claim removed, but user already saw ad. Pre-score based on site history before rendering. |
@@ -108,10 +108,10 @@ Lower-priority UX items and edge cases.
 | SI-3 | **Contract address hex/checksum validation** | Settings.tsx | Accepts any string as contract address. No `0x` prefix + 40 hex char validation. |
 | UP-6 | **Ads-per-hour counter display** | UserPanel.tsx or Settings.tsx | `maxAdsPerHour` enforced but no "X/12 ads shown this hour" display. |
 | PU-3 | **Publisher attestation error display** | ClaimQueue.tsx | Attestation endpoint unreachable shows "Unattested" with no error reason. |
-| PU-4 | **Zero-category registration warning** | PublisherPanel.tsx | Can register with no categories selected. SDK won't match any campaigns. No warning. |
+| PU-4 | **Zero-category registration warning** | Web app (PublisherPanel moved) | Can register with no categories selected. SDK won't match any campaigns. No warning. |
 | E-M2 | **Interest profile storage race** | background/interestProfile.ts | `getProfile()` → mutate → `set()` is not atomic. Multiple tabs updating simultaneously can lose writes. |
 | E-M3 | **Metadata fetch failure retry UI** | campaignPoller.ts, background/index.ts | Multi-gateway fallback implemented (4 gateways). Missing: failure count tracking + UI notification for 3+ consecutive failures. |
-| E-M6 | **Conviction tooltip** | GovernancePanel.tsx | Conviction labels show "1x, 2x, 4x..." but don't explain conviction multiplies both vote weight AND lock duration. |
+| E-M6 | **Conviction tooltip** | Web app (GovernancePanel moved) | Conviction labels show "1x, 2x, 4x..." but don't explain conviction multiplies both vote weight AND lock duration. |
 | X7 | **Phishing list fetch resilience** | phishingList.ts | No retry with exponential backoff. No stale-cache warning if deny list is >24h old. |
 
 ---
@@ -160,14 +160,14 @@ Areas where the system currently relies on trust assumptions rather than cryptog
 
 | Component | Current State | Trust Assumption | Full Solution |
 |-----------|--------------|------------------|---------------|
-| **Impression count** | Extension self-reports | Publisher co-sig optional (degraded trust mode) | Mandatory attestation (P1) + TEE/ZK |
+| **Impression count** | Extension self-reports | Publisher co-sig mandatory (P1 done) | TEE/ZK for full trustlessness |
 | **Clearing CPM** | On-device second-price auction (P19) | Deterministic from inputs, no proof | ZK proof of auction outcome (P9) |
 | **Engagement quality** | On-device behavior hash chain (P16) | Quality scoring in trusted background context | Selective disclosure; ZK behavior proofs (P9) |
 | **Claim state persistence** | Browser `chrome.storage.local` | Lost if browser data cleared | Encrypted export/import (P6 done); deterministic derivation from seed + on-chain state |
 | **Dust transfer prevention** | GovernanceV2 + PaymentVault check `minimumBalance()` (E58) | Settlement/Relay skip check | PaymentVault done (O3). Settlement/Relay still PVM-constrained. BudgetLedger sends budget-scale amounts — guard unnecessary. |
 | **Open campaign take rate** | Fixed 50% snapshot (`DEFAULT_TAKE_RATE_BPS`) | Static default, not market-driven | Dynamic per-publisher rates (PVM constraint) |
 | **Publisher domain resolution** | `data-relay` SDK attribute → local storage | URL changes require page update | On-chain publisher domain registry |
-| **Direct submission attestation** | No co-sig enforcement for direct `settleClaims()` | Users can submit without publisher | `DatumAttestationVerifier` wrapper contract post-MVP |
+| ~~**Direct submission attestation**~~ | ~~No co-sig enforcement for direct `settleClaims()`~~ | — | **RESOLVED** — `DatumAttestationVerifier.settleClaimsAttested()` enforces publisher co-sig for all campaigns (P1) |
 
 ---
 
@@ -249,7 +249,7 @@ Documented and accepted for alpha. Not bugs — deliberate tradeoffs.
 | **No publisher deregistration** | Publishers cannot unregister or deactivate themselves | Low — can enable empty allowlist or set max take rate | Accepted |
 | **Open campaign take rate fixed at 50%** | `DEFAULT_TAKE_RATE_BPS = 5000` not configurable | Static default, not market-driven | Accepted |
 | **Revenue split hardcoded** | 75/25 user/protocol split in Settlement | Not governance-controlled | Accepted for alpha |
-| **Relay round-trip incomplete** | Extension stores signed batches locally, never POSTs to relay bot | **Broken flow** — see §1.2 | Must fix |
+| ~~**Relay round-trip incomplete**~~ | ~~Extension stores signed batches locally, never POSTs to relay bot~~ | — | **RESOLVED** — Extension now POSTs to `{publisherDomain}/relay/submit` after signing (§1.2) |
 
 ---
 
@@ -260,10 +260,10 @@ Explicit TODO/stub markers in source code.
 | File | Annotation |
 |------|------------|
 | `DatumZKVerifier.sol` | Stub — accepts any non-empty proof. Replace with real Groth16/PLONK verifier. |
-| `alpha-extension/src/background/zkProofStub.ts` | ZK proof stub — real circuit replaces this in P9 post-alpha. |
-| `alpha-extension/src/content/adSlot.ts:106` | `attachShadow({ mode: "open" })` — upgrade to "closed" post-alpha. |
-| `alpha-extension/src/shared/walletManager.ts:8` | Post-MVP: WalletConnect or iframe bridge for external wallet support. |
-| `alpha-extension/src/background/publisherAttestation.ts:25` | Post-MVP: publishers register their domain on-chain. |
+| `alpha-2/extension/src/background/zkProofStub.ts` | ZK proof stub — real circuit replaces this in P9 post-alpha. |
+| `alpha-2/extension/src/content/adSlot.ts` | `attachShadow({ mode: "open" })` — upgrade to "closed" post-alpha. |
+| `alpha-2/extension/src/shared/walletManager.ts` | Post-MVP: WalletConnect or iframe bridge for external wallet support. |
+| `alpha-2/extension/src/background/publisherAttestation.ts` | Post-MVP: publishers register their domain on-chain. |
 
 ---
 
@@ -283,43 +283,52 @@ Explicit TODO/stub markers in source code.
 
 | Category | Total | Done | Open | Timeline |
 |----------|-------|------|------|----------|
-| Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 2 | 8 | Now |
+| Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 5 | 5 | Now |
 | Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
 | Gas & runtime optimizations | 6 | 2 (O1, O3) + 3 closed (O4, O5, O6) | 1 (O2 PVM-blocked) | Post-alpha |
 | Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
 | Extension UX deferred to beta | 11 | 0 | 11 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
 | Feature development (post-alpha/beta) | 12 | 3 (M4, P1, P20) | 9 | Beta / post-beta |
-| Trust model gaps | 8 | 0 | 8 | Long-term |
+| Trust model gaps | 8 | 2 resolved | 6 | Long-term |
 | Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
 | Pre-mainnet gate | 6 | 1 | 5 | Before mainnet |
 | Phase 4 (Kusama/mainnet) milestones | 6 | 0 | 6 | Post-testnet |
-| Accepted known limitations | 17 | 4 resolved | 13 accepted | Documented |
+| Accepted known limitations | 17 | 6 resolved | 11 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **125** | **21** | **104** | |
+| **Total** | **125** | **26** | **99** | |
 
 ### Contract Status: FROZEN FOR ALPHA (2026-03-24)
 
-All 13 contracts are complete. 185/185 tests. No further contract changes for alpha deployment.
+All 13 contracts are complete. 187/187 tests. No further contract changes for alpha deployment.
 
 **Done:** Phases 1-4 restructuring, S2/S3/S5/S7/C-M3/M4 hardening, S12 blocklist (all 3 layers), O1 Blake2-256, O3 dust guard, P1 mandatory attestation (new DatumAttestationVerifier), P20 campaign inactivity timeout.
 
 **Closed:** O2 (PVM-blocked), O4/O5 (not available), O6 (counterproductive), GovernanceV2 vote blocklist (no room), GovernanceV2 reentrancy guard (no room).
 
-**PVM-frozen (no additions possible):** Settlement (1,100 spare), GovernanceV2 (1,213 spare), Relay (2,974 spare).
+**PVM-frozen (no additions possible):** Settlement (1,100 spare), GovernanceV2 (1,213 spare), Relay (2,280 spare).
 
 **Pre-mainnet contract changes (post-alpha):** Timelock-gated blocklist, two-step ownership (L3), UUPS proxy (P7), security audit.
 
 **Post-alpha feature contracts:** P9 (real ZK), F7 (sr25519), F11 (on-chain domain blocklist — skipped for now, would blow Settlement budget).
 
+### Extension Status: ALPHA-2 BUILD COMPLETE (2026-03-25)
+
+165/165 Jest tests, 0 webpack errors. All alpha-2 features implemented.
+
+**Done:** Blake2-256 claim hashing (claimBuilder, behaviorChain, behaviorCommit), P1 attestation path (settleClaimsAttested), relay POST, EIP-1193 provider bridge (window.datum), 3-tab popup, 13-contract support, dead code cleanup.
+
+**Pending:** Alpha-2 testnet deploy (to populate deployed-addresses.json with live addresses).
+
 ### Critical Path (blocking mainnet)
 
-1. **1.10** — Blake2 claim hash migration (extension + relay) — **blocks testnet deploy**
-2. **1.2** — Fix relay round-trip (extension → relay bot POST)
-3. **1.8** — Alpha-2 deploy scripts (13-contract, 5-arg `configure()` + `setAttestationVerifier()`, 2-arg Lifecycle constructor)
-4. **1.9** — Alpha-2 testnet deploy
-5. **P7** — Contract upgrade path (UUPS proxy)
-6. **Timelock-gated blocklist** — S12 pre-mainnet requirement
-7. **L3** — Two-step ownership transfer
-8. **Security audit** — External review of all 12 contracts
+1. ~~**1.10** — Blake2 claim hash migration (extension)~~ — **DONE**
+2. ~~**1.2** — Fix relay round-trip (extension -> relay bot POST)~~ — **DONE**
+3. **1.10** — Blake2 claim hash migration (relay bot) — **blocks testnet deploy**
+4. **1.8** — Alpha-2 deploy scripts (13-contract, 5-arg `configure()` + `setAttestationVerifier()`, 2-arg Lifecycle constructor)
+5. **1.9** — Alpha-2 testnet deploy
+6. **P7** — Contract upgrade path (UUPS proxy)
+7. **Timelock-gated blocklist** — S12 pre-mainnet requirement
+8. **L3** — Two-step ownership transfer
+9. **Security audit** — External review of all 13 contracts

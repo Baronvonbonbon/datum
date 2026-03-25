@@ -1,11 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { JsonRpcProvider } from "ethers";
-import { CampaignList } from "./CampaignList";
 import { ClaimQueue } from "./ClaimQueue";
 import { UserPanel } from "./UserPanel";
-import { PublisherPanel } from "./PublisherPanel";
-import { AdvertiserPanel } from "./AdvertiserPanel";
-import { GovernancePanel } from "./GovernancePanel";
 import { Settings } from "./Settings";
 import {
   isConfigured,
@@ -27,15 +23,11 @@ import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 import { humanizeError } from "@shared/errorCodes";
 
-type Tab = "campaigns" | "claims" | "user" | "publisher" | "advertiser" | "governance" | "settings";
+type Tab = "claims" | "user" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
-  campaigns: "Campaigns",
   claims: "Claims",
   user: "Earnings",
-  publisher: "Publisher",
-  advertiser: "My Ads",
-  governance: "Govern",
   settings: "Settings",
 };
 
@@ -819,12 +811,8 @@ export function App() {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {tab === "campaigns" && <CampaignList key={refreshKey} />}
         {tab === "claims" && <ClaimQueue key={refreshKey} address={address} />}
         {tab === "user" && <UserPanel key={refreshKey} address={address} />}
-        {tab === "publisher" && <PublisherPanel key={refreshKey} address={address} />}
-        {tab === "advertiser" && <AdvertiserPanel key={refreshKey} address={address} />}
-        {tab === "governance" && <GovernancePanel key={refreshKey} address={address} />}
         {tab === "settings" && <Settings key={refreshKey} address={address} />}
       </div>
     </div>

@@ -77,7 +77,7 @@ Alice visits Bob's tech blog. The DATUM content script (running entirely in her 
 5. **Performs a handshake** — the extension sends a random challenge to the SDK via `CustomEvent`. The SDK responds with a signature, creating a two-party attestation that this impression is real (not fabricated by a modified extension).
 6. **Injects an ad inline** — Carol's creative renders inside Bob's `<div id="datum-ad-slot">` via Shadow DOM (isolated from page CSS/JS). When IPFS metadata is available, the ad displays the title as a header, creative body text, and a CTA button linking to the landing page URL. On metadata cache miss, the extension requests the background service worker to fetch from IPFS (using multiple gateway fallbacks for reliability). If no SDK slot exists, the ad appears as an overlay at the bottom-right of Alice's screen. If no campaigns matched at all, a default house ad linking to Polkadot's philosophy page appears instead.
 7. **Tracks engagement** — an IntersectionObserver measures how long Alice sees the ad (dwell time), whether her tab is focused, scroll depth, and IAB viewability (50% visible for 1+ second). Low-quality views (under 1 second, unfocused tab) are rejected before any claim is built.
-8. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `keccak256(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. The publisher field is Bob's address (resolved dynamically for open campaigns). No data about what Alice browsed leaves her device — only the cryptographic claim.
+8. **Builds a hash-chain claim** — if engagement quality passes the threshold (score >= 0.3), the extension computes `blake2b(campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousClaimHash)` and queues the claim locally. The publisher field is Bob's address (resolved dynamically for open campaigns). No data about what Alice browsed leaves her device — only the cryptographic claim.
 
 #### Step 5 — Claims are submitted on-chain
 
@@ -145,9 +145,13 @@ All amounts are in planck (1 DOT = 10^10 planck). Clearing CPM is determined by 
 
 All contracts compile to PolkaVM (RISC-V) bytecode under the 49,152-byte PVM limit using resolc v1.0.0 with optimizer mode `z`. 187/187 tests passing.
 
-### Browser extension (archived, will be rebuilt for alpha-2)
+### Browser extension — `alpha-2/extension/`
 
-The alpha extension (140/140 tests, 9-contract support) is in `archive/alpha-extension/`. A new extension targeting the 13-contract alpha-2 architecture will be built fresh.
+3-tab popup (Claims, Earnings, Settings), 13-contract support, Blake2-256 claim hashing, mandatory publisher attestation (P1), EIP-1193 provider bridge (`window.datum` compatible with `ethers.BrowserProvider`). 165/165 Jest tests, 0 webpack errors.
+
+Key capabilities: Vickrey auction, engagement tracking, Blake2 hash-chain claims, IPFS multi-gateway, Shadow DOM ad injection, phishing list, content safety, AES-256-GCM multi-account wallet, auto-submit (B1), claim export (P6), timelock monitor (H2), relay POST, provider bridge for web app integration.
+
+The alpha extension (140/140 tests, 9-contract) is archived in `archive/alpha-extension/`.
 
 ### Web app
 
@@ -160,9 +164,10 @@ The extension processes all browsing data locally. Page classification, campaign
 ## Repository layout
 
 ```
-alpha-2/              Canonical contracts (13), tests (187), process flows, UI plan
+alpha-2/              Canonical contracts (13), tests (187), extension (165 tests), process flows
   contracts/          Solidity source (13 contracts + interfaces + mocks)
   test/               Hardhat test suite (187 tests)
+  extension/          Browser extension (3 tabs, 165 Jest tests, Blake2, P1, provider bridge)
   hardhat.config.ts   Networks: hardhat, substrate (local Docker), polkadotTestnet, polkadotHub
 
 web/                  Web app (React + Vite, 24 pages)
@@ -225,7 +230,7 @@ npx hardhat run scripts/deploy.ts --network substrate
 
 ### Paseo testnet
 
-9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — requires updated deploy scripts and Blake2 hash migration first.
+9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — requires updated deploy scripts. The extension Blake2 migration is complete; relay Blake2 migration is still needed.
 
 **RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/`
 
@@ -246,11 +251,12 @@ See [STATUS.md](STATUS.md) for detailed project status and critical path.
 - [x] **PoC** -- 7 contracts, 64/64 tests (archived)
 - [x] **Alpha** -- 9 contracts deployed on Paseo, 132/132 tests (archived)
 - [x] **Alpha-2 contracts** -- 13 contracts (P1 attestation, S12 blocklist, P20 inactivity, extracted satellites), 187/187 tests
-- [x] **Extension** -- 140/140 tests, feature-complete for alpha
+- [x] **Extension (alpha-2)** -- 165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider, 3-tab popup
 - [x] **Web app** -- 24 pages, 0 TypeScript errors, Vite build ready
 - [x] **Publisher SDK + relay** -- live on Paseo testnet (Diana)
 - [x] **Paseo testnet** -- alpha contracts deployed, test campaign active
-- [ ] **Blake2 hash migration** -- extension + relay must switch from keccak256 to Blake2-256
+- [x] **Blake2 hash migration (extension)** -- extension uses `@noble/hashes/blake2.js`, matches Settlement on PolkaVM
+- [ ] **Blake2 hash migration (relay)** -- relay bot must switch from keccak256 to Blake2-256
 - [ ] **Alpha-2 deploy** -- update deploy scripts for 13-contract wiring, deploy to Paseo
 - [ ] **Open testing** -- publish addresses, external tester flow
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
@@ -282,7 +288,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 | External wallet integration | Multi-account embedded wallet; WalletConnect v2 post-alpha (P17) |
 | ~~Multi-publisher campaigns~~ | **Done** — open campaigns (`publisher = address(0)`) allow any matching publisher (P5) |
 | Contract upgrade path | Non-upgradeable; UUPS proxy or migration for beta (P7) |
-| Mandatory publisher attestation | Optional co-signature (degraded trust mode); mandatory post-alpha (P1) |
+| ~~Mandatory publisher attestation~~ | **Done** — `DatumAttestationVerifier` enforces EIP-712 publisher co-sig for all campaigns (P1) |
 | Rich media ad rendering | Text creatives with IPFS metadata (title, body, CTA); image/video post-alpha |
 
 ## License

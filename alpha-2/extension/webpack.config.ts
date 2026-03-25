@@ -16,6 +16,7 @@ const config = (
     entry: {
       background: "./src/background/index.ts",
       content: "./src/content/index.ts",
+      provider: "./src/content/provider.ts",
       popup: "./src/popup/index.tsx",
       offscreen: "./src/offscreen/offscreen.ts",
     },
