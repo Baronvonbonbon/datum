@@ -73,7 +73,7 @@ export function App() {
               <Route path="/governance/my-votes" element={<MyVotes />} />
               <Route path="/governance/parameters" element={<GovernanceParameters />} />
 
-              {/* Admin */}
+              {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
               <Route path="/admin/timelock" element={<TimelockAdmin />} />
               <Route path="/admin/pause" element={<PauseRegistryAdmin />} />

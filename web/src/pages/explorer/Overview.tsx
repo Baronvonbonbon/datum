@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
-import { getCurrencySymbol } from "@shared/networks";
+import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 
 interface Stats {
   totalCampaigns: number;
@@ -88,7 +88,7 @@ export function Overview() {
             Protocol {stats.paused ? "PAUSED" : "Active"}
           </span>
           <span style={{ color: "#555", fontSize: 12 }}>
-            · {settings.network} · {connected ? `block #${blockNumber}` : "connecting..."}
+            · {getNetworkDisplayName(settings.network)} · {connected ? `block #${blockNumber}` : "connecting..."}
           </span>
         </div>
       )}
@@ -107,7 +107,7 @@ export function Overview() {
           <StatCard label="Total Campaigns" value={stats.totalCampaigns} />
           <StatCard label="Active" value={stats.activeCampaigns} color="#60c060" />
           <StatCard label="Pending Votes" value={stats.pendingCampaigns} color="#c0c060" />
-          <StatCard label="Network" value={settings.network} />
+          <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
         </div>
       )}
 

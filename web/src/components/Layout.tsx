@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
-import { getCurrencySymbol } from "@shared/networks";
+import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 
@@ -12,13 +12,8 @@ const NAV_ITEMS = [
   { path: "/advertiser", label: "Advertiser" },
   { path: "/publisher", label: "Publisher" },
   { path: "/governance", label: "Governance" },
-  { path: "/admin", label: "Admin", children: [
-    { path: "/admin/timelock", label: "Timelock" },
-    { path: "/admin/pause", label: "Pause Registry" },
-    { path: "/admin/blocklist", label: "Blocklist" },
-    { path: "/admin/protocol", label: "Protocol Fees" },
-  ]},
   { path: "/settings", label: "Settings" },
+  { path: "/demo/", label: "Demo", external: true },
 ];
 
 const navLinkStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
@@ -38,7 +33,6 @@ export function Layout() {
   const { blockNumber, connected } = useBlock();
   const { settings } = useSettings();
   const [showConnect, setShowConnect] = useState(false);
-  const location = useLocation();
 
   const sym = getCurrencySymbol(settings.network);
 
@@ -65,7 +59,7 @@ export function Layout() {
               display: "inline-block",
             }} />
             {connected
-              ? <span style={{ color: "#608060" }}>#{blockNumber} · {settings.network}</span>
+              ? <span style={{ color: "#608060" }}>#{blockNumber} · {getNetworkDisplayName(settings.network)}</span>
               : <span style={{ color: "#806060" }}>Disconnected</span>
             }
           </div>
@@ -105,35 +99,33 @@ export function Layout() {
           borderRight: "1px solid #1a1a2e",
           paddingTop: 16,
         }}>
-          {NAV_ITEMS.map((item) => {
-            const isInSection = item.children && location.pathname.startsWith(item.path);
-            return (
+          {NAV_ITEMS.map((item) => (
               <div key={item.path}>
+                {(item as any).external ? (
+                  <a
+                    href={item.path}
+                    style={{
+                      display: "block",
+                      padding: "10px 16px",
+                      color: "#666",
+                      borderLeft: "2px solid transparent",
+                      textDecoration: "none",
+                      fontSize: 14,
+                    }}
+                  >
+                    {item.label} ↗
+                  </a>
+                ) : (
                 <NavLink
-                  to={item.children ? item.children[0].path : item.path}
+                  to={item.path}
                   end={item.exact}
-                  style={({ isActive }) => navLinkStyle({ isActive: isActive || !!isInSection })}
+                  style={navLinkStyle}
                 >
                   {item.label}
                 </NavLink>
-                {isInSection && item.children?.map((child) => (
-                  <NavLink
-                    key={child.path}
-                    to={child.path}
-                    style={({ isActive }) => ({
-                      display: "block",
-                      padding: "6px 16px 6px 28px",
-                      color: isActive ? "#a0a0ff" : "#555",
-                      textDecoration: "none",
-                      fontSize: 12,
-                    })}
-                  >
-                    {child.label}
-                  </NavLink>
-                ))}
+                )}
               </div>
-            );
-          })}
+          ))}
         </nav>
 
         {/* Main content */}

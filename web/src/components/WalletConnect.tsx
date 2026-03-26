@@ -70,7 +70,11 @@ export function WalletConnect({ onClose }: Props) {
 
           {!isDatumAvailable && !isInjectedAvailable && (
             <div style={{ padding: 12, background: "#1a1a0a", border: "1px solid #3a3a0a", borderRadius: 4, color: "#c0c060", fontSize: 12 }}>
-              No wallet detected. Install the DATUM extension or MetaMask, or use a private key below.
+              No wallet detected. Install the{" "}
+              <a href="https://github.com/Baronvonbonbon/datum" target="_blank" rel="noopener noreferrer" style={{ color: "#a0a0ff" }}>
+                DATUM extension
+              </a>{" "}
+              or MetaMask, or use a private key below.
             </div>
           )}
 

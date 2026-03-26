@@ -55,7 +55,9 @@ export function Settings() {
             onChange={(e) => handleNetworkChange(e.target.value)}
             style={{ ...inputStyle, cursor: "pointer" }}
           >
-            {Object.entries(NETWORK_CONFIGS).map(([key, cfg]) => (
+            {Object.entries(NETWORK_CONFIGS)
+              .filter(([_, cfg]) => Object.values(cfg.addresses).some((a) => a !== ""))
+              .map(([key, cfg]) => (
               <option key={key} value={key}>{cfg.name} (Chain {cfg.chainId})</option>
             ))}
           </select>

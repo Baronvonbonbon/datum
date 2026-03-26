@@ -8,5 +8,7 @@ archive/alpha/deployments/
 archive/alpha/local-devnet.json
 archive/alpha/test-accounts.json
 archive/alpha/DEPLOY-TESTNET.md
+alpha-2/TESTNET-KEYS.md
+alpha-2/deployed-addresses.json.devnet-backup
 relay-bot/
 ref/
