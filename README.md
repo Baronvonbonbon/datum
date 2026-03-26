@@ -206,8 +206,6 @@ npx hardhat compile --network polkadotHub   # requires resolc v1.0.0
 
 ### Web app
 
-Live at **https://datum.javcon.io** (Cloudflare Pages, auto-deploys on push to main).
-
 ```bash
 cd web
 npm install
@@ -235,18 +233,26 @@ npx hardhat run scripts/setup-testnet.ts --network substrate
 
 ### Paseo testnet (live)
 
-13 alpha-2 contracts are deployed on Paseo (Chain ID 420420417). Test campaign #1 is active (Bob→Diana, 10 PAS).
+13 alpha-2 contracts are deployed on Paseo (Chain ID 420420417) with an active test campaign.
 
 | Resource | URL |
 |----------|-----|
-| **Web App** | https://datum.javcon.io |
-| **Demo Page** | https://datum.javcon.io/demo/ |
-| **Relay (Diana)** | https://relay.javcon.io/relay/status |
 | RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | https://blockscout-testnet.polkadot.io/ |
 | Faucet | https://faucet.polkadot.io/ (select "Paseo") |
 
 Contract addresses and deployment details are in [alpha-2/DEPLOY-TESTNET.md](alpha-2/DEPLOY-TESTNET.md).
+
+```bash
+cd alpha-2
+export DEPLOYER_PRIVATE_KEY="0x..."
+
+# Deploy 13 contracts + wire + ownership transfer
+npx hardhat run scripts/deploy.ts --network polkadotTestnet
+
+# Fund accounts, register publishers, create test campaign
+npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet
+```
 
 ### Claim export/import
 
@@ -264,12 +270,11 @@ See [STATUS.md](STATUS.md) for detailed project status and critical path.
 - [x] **Alpha** -- 9 contracts deployed on Paseo, 132/132 tests (archived)
 - [x] **Alpha-2 contracts** -- 13 contracts (P1 attestation, S12 blocklist, P20 inactivity, extracted satellites), 187/187 tests
 - [x] **Extension (alpha-2)** -- 165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider, 3-tab popup
-- [x] **Web app** -- 24 pages, live at [datum.javcon.io](https://datum.javcon.io)
-- [x] **Publisher SDK + relay** -- live at [relay.javcon.io](https://relay.javcon.io/relay/status) (Diana, Cloudflare tunnel)
+- [x] **Web app** -- 24 pages, React + Vite, protocol explorer + all role dashboards
+- [x] **Publisher SDK + relay** -- SDK embed tag, reference relay implementation, demo page
 - [x] **Paseo testnet** -- 13 alpha-2 contracts deployed, test campaign active, all wiring validated
 - [x] **Blake2 hash migration** -- extension + relay both use `@noble/hashes/blake2.js`, matches Settlement on PolkaVM
 - [x] **Alpha-2 deploy** -- 13-contract deploy + setup-testnet on Paseo, 16 wiring ops, 22 validation checks
-- [x] **Demo page** -- publisher integration example at [datum.javcon.io/demo/](https://datum.javcon.io/demo/)
 - [ ] **E2E browser validation** -- full flow on Paseo with extension + relay + web app
 - [ ] **Open testing** -- publish addresses, external tester flow
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub

@@ -436,16 +436,15 @@
         manual dashboard, serverless function, or anything else &mdash; is entirely up to them.
       </p>
 
-      <h3>Current Relay</h3>
+      <h3>Demo Relay</h3>
       <p>
-        Diana's relay for this demo page is at <a href="https://relay.javcon.io/relay/status" style="color:#a0a0ff">relay.javcon.io</a>,
-        exposed via a Cloudflare named tunnel with a stable URL.
-        The extension is pre-configured to use this relay on the Paseo network.
+        This demo page connects to Diana's testnet relay (check the status indicator above).
+        Each publisher operates their own relay &mdash; the relay URL is declared in the SDK
+        tag's <code>data-relay</code> attribute.
       </p>
       <div style="background:#0e0e24; border:1px solid #1a1a3a; border-radius:6px; padding:14px 16px; margin:12px 0; font-family:monospace; font-size:12px; color:#888;">
-        <div><span style="color:#60a0ff">Publisher:</span> <span style="color:#a0a0ff">0xcA5668fB864Acab0aC7f4CFa73949174720b58D0</span> (Diana)</div>
-        <div><span style="color:#60a0ff">Network:</span> Paseo (Chain ID 420420417)</div>
-        <div><span style="color:#60a0ff">Endpoints:</span></div>
+        <div><span style="color:#60a0ff">Network:</span> Paseo Testnet (Chain ID 420420417)</div>
+        <div><span style="color:#60a0ff">Relay Endpoints:</span></div>
         <div style="padding-left:16px">POST <code>/.well-known/datum-attest</code> &mdash; publisher co-signature</div>
         <div style="padding-left:16px">POST <code>/relay/submit</code> &mdash; queue signed claim batches</div>
         <div style="padding-left:16px">GET <code>/relay/status</code> &mdash; queue depth + stats</div>
@@ -471,15 +470,14 @@
             Forged or tampered batches are rejected</li>
         <li><strong>Rate limiting:</strong> Per-IP sliding-window limits (10 attestation/min, 5 submit/min)</li>
         <li><strong>Input validation:</strong> Address format, nonce range, batch size caps (max 50 claims per batch)</li>
-        <li><strong>HTTPS only:</strong> Exposed via Cloudflare tunnel; the extension rejects HTTP for non-local domains</li>
+        <li><strong>HTTPS only:</strong> The extension rejects HTTP relay URLs for non-local domains</li>
       </ul>
 
-      <h3>Downtime Risk</h3>
+      <h3>Relay Downtime</h3>
       <p>
-        The relay runs behind a Cloudflare named tunnel at <code>relay.javcon.io</code> with a stable URL.
-        If the relay is offline (check the indicator above), claims will still accumulate
+        If the publisher relay is offline (check the indicator above), claims will still accumulate
         in the extension &mdash; they can be submitted when the relay comes back online,
-        or exported and submitted manually. No claims or earnings are lost due to relay downtime.
+        or the user can submit claims directly on-chain. No claims or earnings are lost due to relay downtime.
       </p>
 
       <h3>Run Your Own Relay</h3>
@@ -508,8 +506,7 @@ export RPC_URL="https://eth-rpc-testnet.polkadot.io/"
 # 5. Start the relay
 node relay-bot.mjs
 
-# 6. (Optional) Expose via Cloudflare tunnel for remote access
-cloudflared tunnel --url http://127.0.0.1:3400</pre>
+# 6. (Optional) Expose publicly via reverse proxy, tunnel, or cloud hosting</pre>
       <p>
         See the template's <code>README.md</code> for full configuration options, systemd setup,
         and security hardening details.
