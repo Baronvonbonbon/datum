@@ -222,15 +222,18 @@ cd alpha-2
 # Start substrate node + eth-rpc adapter (Docker)
 docker compose up -d
 
-# Deploy contracts with full wiring + ownership transfer
+# Deploy 13 contracts with full wiring + ownership transfer
 npx hardhat run scripts/deploy.ts --network substrate
+
+# Post-deploy setup (fund accounts, register publishers, create test campaign)
+npx hardhat run scripts/setup-testnet.ts --network substrate
 ```
 
 **Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
 ### Paseo testnet
 
-9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — requires updated deploy scripts. The extension Blake2 migration is complete; relay Blake2 migration is still needed.
+9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — deploy scripts and Blake2 migration are complete. Next: deploy to Paseo and run E2E validation.
 
 **RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/`
 
@@ -255,9 +258,9 @@ See [STATUS.md](STATUS.md) for detailed project status and critical path.
 - [x] **Web app** -- 24 pages, 0 TypeScript errors, Vite build ready
 - [x] **Publisher SDK + relay** -- live on Paseo testnet (Diana)
 - [x] **Paseo testnet** -- alpha contracts deployed, test campaign active
-- [x] **Blake2 hash migration (extension)** -- extension uses `@noble/hashes/blake2.js`, matches Settlement on PolkaVM
-- [ ] **Blake2 hash migration (relay)** -- relay bot must switch from keccak256 to Blake2-256
-- [ ] **Alpha-2 deploy** -- update deploy scripts for 13-contract wiring, deploy to Paseo
+- [x] **Blake2 hash migration** -- extension + relay both use `@noble/hashes/blake2.js`, matches Settlement on PolkaVM
+- [x] **Alpha-2 deploy scripts** -- 13-contract deploy + setup-testnet, 16 wiring ops, 22 validation checks
+- [ ] **Alpha-2 deploy** -- deploy to Paseo, run E2E validation
 - [ ] **Open testing** -- publish addresses, external tester flow
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 
@@ -275,7 +278,7 @@ The tradeoffs are real: resolc produces 10-20x larger bytecode than solc (DatumC
 ## Known limitations
 
 - **Daily cap timestamp:** `DatumCampaigns` uses `block.timestamp / 86400` for daily cap tracking. Block validators can manipulate timestamps by ±15 seconds, which is negligible relative to the 86,400-second daily period (<0.02% error).
-- **Unclaimed slash rewards:** `DatumGovernanceSlash` has no expiry deadline for unclaimed rewards. Unclaimed funds remain locked. A sweep function is planned for beta (M4).
+- **Unclaimed slash rewards:** `DatumGovernanceSlash.sweepSlashPool()` reclaims unclaimed rewards after 365 days (M4 — implemented).
 - **Denomination rounding:** The pallet-revive eth-rpc adapter rejects value transfers where `value % 10^6 >= 500_000`. All on-chain payment amounts (settlement splits, governance stakes, withdrawals) must be clean multiples of 10^6 planck. This is a pallet-revive/eth-rpc quirk, not an existential deposit issue.
 
 ## Deferred (explicitly out of scope for alpha)

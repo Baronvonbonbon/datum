@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { JsonRpcProvider, Contract } from "ethers";
+import { JsonRpcProvider, Contract, isAddress } from "ethers";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { unlock, isConfigured } from "@shared/walletManager";
@@ -28,6 +28,8 @@ export function Settings({ address }: { address: string | null }) {
   const [rpcTesting, setRpcTesting] = useState(false);
   // SI-2: Network/contract mismatch warning
   const [contractWarning, setContractWarning] = useState<string | null>(null);
+  // SI-3: Contract address hex/checksum validation
+  const [addressErrors, setAddressErrors] = useState<Record<string, string>>({});
 
   // User preferences
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -133,6 +135,7 @@ export function Settings({ address }: { address: string | null }) {
       rpcUrl: config.rpcUrl,
       contractAddresses: config.addresses,
     }));
+    setAddressErrors({}); // SI-3: Clear validation errors on network switch
   }
 
   function handleAddressChange(key: keyof ContractAddresses, value: string) {
@@ -140,6 +143,16 @@ export function Settings({ address }: { address: string | null }) {
       ...s,
       contractAddresses: { ...s.contractAddresses, [key]: value },
     }));
+    // SI-3: Validate hex/checksum
+    setAddressErrors((prev) => {
+      const next = { ...prev };
+      if (value && !isAddress(value)) {
+        next[key] = "Invalid address — must be a valid hex or checksummed address";
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
   }
 
   async function clearQueue() {
@@ -296,6 +309,8 @@ export function Settings({ address }: { address: string | null }) {
                     attestationVerifier: addrs.attestationVerifier ?? "",
                   },
                 }));
+                // SI-3: Clear validation errors for loaded addresses
+                setAddressErrors({});
               } catch (err) {
                 alert("Could not load deployed addresses. Run deploy.ts first, then rebuild the extension.");
               }
@@ -314,9 +329,12 @@ export function Settings({ address }: { address: string | null }) {
               type="text"
               value={settings.contractAddresses[key]}
               onChange={(e) => handleAddressChange(key, e.target.value)}
-              style={{ ...inputStyle, fontFamily: "monospace", fontSize: 11 }}
+              style={{ ...inputStyle, fontFamily: "monospace", fontSize: 11, ...(addressErrors[key] ? { borderColor: "#ff8080" } : {}) }}
               placeholder="0x..."
             />
+            {addressErrors[key] && (
+              <div style={{ color: "#ff8080", fontSize: 10, marginTop: 2 }}>{addressErrors[key]}</div>
+            )}
           </div>
         ))}
       </div>
@@ -327,10 +345,25 @@ export function Settings({ address }: { address: string | null }) {
         <input
           type="text"
           value={settings.publisherAddress}
-          onChange={(e) => setSettings((s) => ({ ...s, publisherAddress: e.target.value }))}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSettings((s) => ({ ...s, publisherAddress: val }));
+            setAddressErrors((prev) => {
+              const next = { ...prev };
+              if (val && !isAddress(val)) {
+                next.publisherAddress = "Invalid address — must be a valid hex or checksummed address";
+              } else {
+                delete next.publisherAddress;
+              }
+              return next;
+            });
+          }}
           style={{ ...inputStyle, fontFamily: "monospace" }}
           placeholder="Leave blank to use connected wallet"
         />
+        {addressErrors.publisherAddress && (
+          <div style={{ color: "#ff8080", fontSize: 10, marginTop: 2 }}>{addressErrors.publisherAddress}</div>
+        )}
       </div>
 
       {/* IPFS Gateway */}

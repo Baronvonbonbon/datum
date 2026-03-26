@@ -37,9 +37,9 @@ Items required to close out the alpha testing phase.
 | 1.5 | **Gate GA: Stability** | RELEASE-CANDIDATE.md | Open | No critical bugs in first 7 days of operation. |
 | 1.6 | **Claim export/import test procedure** | ALPHA.md (A2.2/L6) | Open | Cross-device verification pending. |
 | 1.7 | **Benchmark `settleClaimsFor()` gas** | MVP.md (1.6) | Open | Full relay vs direct comparison pending. |
-| 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | Open | Update `deploy.ts` for 13-contract deploy + wiring. Alpha scripts target 9 contracts. |
+| 1.8 | **Alpha-2 deploy scripts** | IMPLEMENTATION-PLAN.md | **DONE** | `alpha-2/scripts/deploy.ts` — 13-contract deploy, 16 wiring ops, 22 validation checks, ownership transfer, re-run safety. `setup-testnet.ts` for post-deploy setup. |
 | 1.9 | **Alpha-2 testnet deploy** | CHANGELOG.md | Open | Deploy alpha-2 (13 contracts) to Paseo, run E2E validation. |
-| 1.10 | **Blake2 claim hash migration (extension + relay)** | CHANGELOG.md (O1) | **Extension DONE** / Relay Open | Settlement uses `hashBlake256()` on PolkaVM. Extension migrated to `@noble/hashes/blake2.js` (claimBuilder, behaviorChain, behaviorCommit). **Relay bot still uses keccak256 — must migrate before testnet deploy.** |
+| 1.10 | **Blake2 claim hash migration (extension + relay)** | CHANGELOG.md (O1) | **DONE** | Settlement uses `hashBlake256()` on PolkaVM. Extension: `@noble/hashes/blake2.js` (claimBuilder, behaviorChain, behaviorCommit). Relay: `blake2Hash()` in test-submit.mjs + relay-bot.mjs. |
 
 ---
 
@@ -73,46 +73,46 @@ Optimizations that would reduce on-chain costs. Some now have headroom after alp
 | O5 | **Storage precompile `get_range()`/`length()`** — partial reads of large storage values. | ~1-2 KB | Settlement: 4,064 B | **Closed** — same as O4, not available via Solidity precompile | Low — marginal gas savings |
 | O6 | **Relay: replace typed interface variables with plain `address` + inline staticcall** — mirror Settlement's pattern for `campaigns` and `pauseRegistry`. | **+1,160 B worse** (tested) | Relay: 2,974 B | **Closed** — typed variables are cheaper when the interface is already imported (amortized). 46,178 → 47,338 B. | — |
 
-**Note:** O1 contract-side complete (Settlement: 45,088 B, 4,064 spare). Extension `behaviorChain.ts` + relay bot must migrate from keccak256 → Blake2-256 before testnet deploy (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 done (PaymentVault: 17,341 B, 31,811 spare). O4/O5 closed — pallet-revive does not expose storage precompiles through Solidity. O6 closed — typed interface variables cheaper than inline staticcall when interface already imported.
+**Note:** O1 fully complete — contract, extension, and relay all use Blake2-256 (see 1.10). O2 remains blocked on Settlement (4,064 B spare) and Relay (2,974 B spare). O3 done (PaymentVault: 17,341 B, 31,811 spare). O4/O5 closed — pallet-revive does not expose storage precompiles through Solidity. O6 closed — typed interface variables cheaper than inline staticcall when interface already imported.
 
 ---
 
 ## 4. Extension UX — Phase 3 Polish
 
-Post-alpha UX improvements identified during Part 4D audit. All have working infrastructure — they need UI implementation.
+Post-alpha UX improvements identified during Part 4D audit. **7/10 complete** (2026-03-26).
 
-| ID | Item | Location | Description |
-|----|------|----------|-------------|
-| UP-2 | **Address blocklist management UI** | Settings.tsx | `phishingList.ts` has `addBlockedAddress`/`removeBlockedAddress` API but no panel exposes it. Users can't manually block a specific advertiser or publisher address. |
-| UP-4 | **Silenced "Uncategorized" category** | background/index.ts | Campaigns with `categoryId=0` bypass all category silencing. No way to block uncategorized ads. |
-| UP-5 | **Auction transparency display** | Web app (CampaignList moved) | Users can't see which campaigns competed, why one won, clearing CPM, or interest weight contribution. |
-| UP-7 | **Per-campaign claim management** | ClaimQueue.tsx | Only "Submit All" or "Clear All" — can't submit or discard claims for a single campaign. |
-| UP-8 | **Per-campaign frequency cap** | content/index.ts, background/index.ts | `maxAdsPerHour` is global. A single high-bid campaign can dominate all ad slots. |
-| GV-4 | **Timelock ABI decoding** | Web app (GovernancePanel moved) | Timelock `ChangeProposed` events show raw hex calldata. Need ABI-decode for human-readable descriptions. |
-| EA-1 | **Earnings history** | UserPanel.tsx | Only shows current withdrawable balance. No record of past withdrawals or earning rate. |
-| EA-2 | **Per-campaign earnings breakdown** | UserPanel.tsx | Aggregate engagement only. No "Campaign #3 earned you X DOT" view. |
-| AD-1 | **Pre-scoring quality rejection** | background/index.ts, content/index.ts | Ad shown → quality scored below threshold → claim removed, but user already saw ad. Pre-score based on site history before rendering. |
-| AD-2 | **In-ad feedback/report mechanism** | adSlot.ts, background/index.ts | No way to report an ad as inappropriate, misleading, or irrelevant from within the rendered ad. |
+| ID | Item | Location | Status | Description |
+|----|------|----------|--------|-------------|
+| UP-2 | **Address blocklist management UI** | Settings.tsx | Open | `phishingList.ts` has `addBlockedAddress`/`removeBlockedAddress` API but no panel exposes it. Users can't manually block a specific advertiser or publisher address. |
+| UP-4 | **Silenced "Uncategorized" category** | background/index.ts | Open | Campaigns with `categoryId=0` bypass all category silencing. No way to block uncategorized ads. |
+| UP-5 | **Auction mechanism badge** | adSlot.ts | **DONE** | Colored mechanism badge (Vickrey/First-price/Open/Direct) in campaign footer across all 4 render paths (overlay+inline × creative+fallback). |
+| UP-7 | **Per-campaign claim management** | ClaimQueue.tsx, claimQueue.ts | **DONE** | Per-campaign Submit and Discard buttons. `buildBatchForCampaign()`/`discardCampaignClaims()` in claimQueue.ts. Bug fix: `contractBatches` → `attestedBatches`. |
+| UP-8 | **Per-campaign frequency cap** | content/index.ts, background/index.ts | Open | `maxAdsPerHour` is global. A single high-bid campaign can dominate all ad slots. |
+| GV-4 | **Timelock ABI decoding** | web Timelock.tsx | **DONE** | Expanded from 4 → 28 selectors covering all 13 contracts. Decodes parameters (addresses truncated, DOT amounts formatted, bools). |
+| EA-1 | **Earnings history** | web Earnings.tsx | **DONE** | Already implemented — web app shows ClaimSettled event history with amounts + timestamps. |
+| EA-2 | **Per-campaign earnings breakdown** | web Earnings.tsx | **DONE** | Groups ClaimSettled events by campaignId with per-campaign totals. Sorted by total payment descending. |
+| AD-1 | **Pre-scoring quality rejection** | background/index.ts | **DONE** | Already implemented — `qualityScore.ts` computed in background (trusted context) before claim creation. `meetsQualityThreshold()` gates claim builder. |
+| AD-2 | **In-ad feedback/report** | adSlot.ts, content/index.ts | **DONE** | Report button in ad header → `BLOCK_CAMPAIGN` message → campaign added to blocked list. |
 
 ---
 
 ## 5. Extension UX — Deferred to Beta
 
-Lower-priority UX items and edge cases.
+Lower-priority UX items and edge cases. **2 of 11 promoted and completed** (SI-3, PU-3 — 2026-03-26).
 
-| ID | Item | Location | Description |
-|----|------|----------|-------------|
-| AD-3 | **Advanced content blocklist** | contentSafety.ts | Naive substring match doesn't catch obfuscation ("0nline cas1no"). Need unicode normalization, leetspeak dictionary. |
-| EA-3 | **Behavior chain storage cleanup** | background/index.ts | `behaviorChain:address:campaign` keys grow indefinitely in `chrome.storage.local`. Need cleanup for terminal campaigns or cap per user. |
-| WS-4 | **Typed DELETE confirmation for wallet removal** | App.tsx | Single confirmation dialog for wallet removal. Should require typing "DELETE" to prevent accidental key loss. |
-| SI-3 | **Contract address hex/checksum validation** | Settings.tsx | Accepts any string as contract address. No `0x` prefix + 40 hex char validation. |
-| UP-6 | **Ads-per-hour counter display** | UserPanel.tsx or Settings.tsx | `maxAdsPerHour` enforced but no "X/12 ads shown this hour" display. |
-| PU-3 | **Publisher attestation error display** | ClaimQueue.tsx | Attestation endpoint unreachable shows "Unattested" with no error reason. |
-| PU-4 | **Zero-category registration warning** | Web app (PublisherPanel moved) | Can register with no categories selected. SDK won't match any campaigns. No warning. |
-| E-M2 | **Interest profile storage race** | background/interestProfile.ts | `getProfile()` → mutate → `set()` is not atomic. Multiple tabs updating simultaneously can lose writes. |
-| E-M3 | **Metadata fetch failure retry UI** | campaignPoller.ts, background/index.ts | Multi-gateway fallback implemented (4 gateways). Missing: failure count tracking + UI notification for 3+ consecutive failures. |
-| E-M6 | **Conviction tooltip** | Web app (GovernancePanel moved) | Conviction labels show "1x, 2x, 4x..." but don't explain conviction multiplies both vote weight AND lock duration. |
-| X7 | **Phishing list fetch resilience** | phishingList.ts | No retry with exponential backoff. No stale-cache warning if deny list is >24h old. |
+| ID | Item | Location | Status | Description |
+|----|------|----------|--------|-------------|
+| AD-3 | **Advanced content blocklist** | contentSafety.ts | Open | Naive substring match doesn't catch obfuscation ("0nline cas1no"). Need unicode normalization, leetspeak dictionary. |
+| EA-3 | **Behavior chain storage cleanup** | background/index.ts | Open | `behaviorChain:address:campaign` keys grow indefinitely in `chrome.storage.local`. Need cleanup for terminal campaigns or cap per user. |
+| WS-4 | **Typed DELETE confirmation for wallet removal** | App.tsx | Open | Single confirmation dialog for wallet removal. Should require typing "DELETE" to prevent accidental key loss. |
+| SI-3 | **Contract address hex/checksum validation** | Settings.tsx | **DONE** | Real-time validation with `isAddress()` on every keystroke. Red border + error text on invalid. Publisher address also validated. |
+| UP-6 | **Ads-per-hour counter display** | UserPanel.tsx or Settings.tsx | Open | `maxAdsPerHour` enforced but no "X/12 ads shown this hour" display. |
+| PU-3 | **Publisher attestation error display** | ClaimQueue.tsx, publisherAttestation.ts | **DONE** | Structured `AttestationResult` with descriptive errors (no URL, HTTP blocked, timeout, network, invalid response). Amber warning box per campaign. |
+| PU-4 | **Zero-category registration warning** | Web app (PublisherPanel moved) | Open | Can register with no categories selected. SDK won't match any campaigns. No warning. |
+| E-M2 | **Interest profile storage race** | background/interestProfile.ts | Open | `getProfile()` → mutate → `set()` is not atomic. Multiple tabs updating simultaneously can lose writes. |
+| E-M3 | **Metadata fetch failure retry UI** | campaignPoller.ts, background/index.ts | Open | Multi-gateway fallback implemented (4 gateways). Missing: failure count tracking + UI notification for 3+ consecutive failures. |
+| E-M6 | **Conviction tooltip** | Web app (GovernancePanel moved) | Open | Conviction labels show "1x, 2x, 4x..." but don't explain conviction multiplies both vote weight AND lock duration. |
+| X7 | **Phishing list fetch resilience** | phishingList.ts | Open | No retry with exponential backoff. No stale-cache warning if deny list is >24h old. |
 
 ---
 
@@ -276,6 +276,7 @@ Explicit TODO/stub markers in source code.
 | L3 | **Two-step ownership transfer** | `transferOwnership()` → `acceptOwnership()` pattern instead of immediate single-step. |
 | L4 | **Concurrent settlement test** | No test for multiple users settling in the same block. |
 | L6 | **Claim export/import test procedure** | README procedure for P6 encrypted round-trip. |
+| L7 | **Per-campaign publisher whitelist** | Allow advertisers to whitelist multiple publishers per campaign (between targeted=1 and open=all). Requires new `DatumCampaignValidator` satellite contract (~4-5 KB PVM) — Settlement (1,100 B spare) cannot fit inline validation. Satellite stores `mapping(campaignId => mapping(publisher => bool))`, Settlement calls via staticcall. Workaround: create multiple single-publisher campaigns. |
 
 ---
 
@@ -283,11 +284,11 @@ Explicit TODO/stub markers in source code.
 
 | Category | Total | Done | Open | Timeline |
 |----------|-------|------|------|----------|
-| Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 5 | 5 | Now |
+| Immediate (deploy, relay fix, testing, Blake2 migration) | 10 | 7 | 3 | Now |
 | Contract hardening | 8 | 7 | 1 (S4 ZK stub) | Before mainnet |
 | Gas & runtime optimizations | 6 | 2 (O1, O3) + 3 closed (O4, O5, O6) | 1 (O2 PVM-blocked) | Post-alpha |
-| Extension UX Phase 3 (polish) | 10 | 0 | 10 | Post-alpha |
-| Extension UX deferred to beta | 11 | 0 | 11 | Beta |
+| Extension UX Phase 3 (polish) | 10 | 7 (UP-5/7, GV-4, EA-1/2, AD-1/2) | 3 | Post-alpha |
+| Extension UX deferred to beta | 11 | 2 (SI-3, PU-3) | 9 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
 | Feature development (post-alpha/beta) | 12 | 3 (M4, P1, P20) | 9 | Beta / post-beta |
 | Trust model gaps | 8 | 2 resolved | 6 | Long-term |
@@ -297,7 +298,7 @@ Explicit TODO/stub markers in source code.
 | Accepted known limitations | 17 | 6 resolved | 11 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **125** | **26** | **99** | |
+| **Total** | **125** | **37** | **88** | |
 
 ### Contract Status: FROZEN FOR ALPHA (2026-03-24)
 
@@ -313,21 +314,20 @@ All 13 contracts are complete. 187/187 tests. No further contract changes for al
 
 **Post-alpha feature contracts:** P9 (real ZK), F7 (sr25519), F11 (on-chain domain blocklist — skipped for now, would blow Settlement budget).
 
-### Extension Status: ALPHA-2 BUILD COMPLETE (2026-03-25)
+### Extension Status: ALPHA-2 BUILD COMPLETE + PHASE 3 POLISH (2026-03-26)
 
-165/165 Jest tests, 0 webpack errors. All alpha-2 features implemented.
+165/165 Jest tests, 0 webpack errors. All alpha-2 features + Phase 3 polish implemented.
 
-**Done:** Blake2-256 claim hashing (claimBuilder, behaviorChain, behaviorCommit), P1 attestation path (settleClaimsAttested), relay POST, EIP-1193 provider bridge (window.datum), 3-tab popup, 13-contract support, dead code cleanup.
+**Done:** Blake2-256 claim hashing (claimBuilder, behaviorChain, behaviorCommit), P1 attestation path (settleClaimsAttested), relay POST, EIP-1193 provider bridge (window.datum), 3-tab popup, 13-contract support, dead code cleanup. Phase 3: SI-3 address validation, UP-5 mechanism badge, UP-7 per-campaign claim management, AD-2 report button, PU-3 attestation errors, GV-4 timelock decoding (28 selectors), EA-2 per-campaign earnings.
 
 **Pending:** Alpha-2 testnet deploy (to populate deployed-addresses.json with live addresses).
 
 ### Critical Path (blocking mainnet)
 
-1. ~~**1.10** — Blake2 claim hash migration (extension)~~ — **DONE**
+1. ~~**1.10** — Blake2 claim hash migration (extension + relay)~~ — **DONE**
 2. ~~**1.2** — Fix relay round-trip (extension -> relay bot POST)~~ — **DONE**
-3. **1.10** — Blake2 claim hash migration (relay bot) — **blocks testnet deploy**
-4. **1.8** — Alpha-2 deploy scripts (13-contract, 5-arg `configure()` + `setAttestationVerifier()`, 2-arg Lifecycle constructor)
-5. **1.9** — Alpha-2 testnet deploy
+3. ~~**1.8** — Alpha-2 deploy scripts~~ — **DONE** (`alpha-2/scripts/deploy.ts` + `setup-testnet.ts`)
+4. **1.9** — Alpha-2 testnet deploy
 6. **P7** — Contract upgrade path (UUPS proxy)
 7. **Timelock-gated blocklist** — S12 pre-mainnet requirement
 8. **L3** — Two-step ownership transfer

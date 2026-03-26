@@ -29,6 +29,7 @@ export interface AdSlotConfig {
   clearingCpmPlanck?: string;
   ipfsGateway?: string;
   currencySymbol?: string;
+  onReport?: () => void;
 }
 
 const SLOT_ID = "datum-ad-slot";
@@ -88,6 +89,28 @@ const MECHANISM_LABELS: Record<string, { label: string; color: string }> = {
   "solo": { label: "Solo", color: "#c09060" },
   "floor": { label: "Floor", color: "#888" },
 };
+
+/** Render a small mechanism badge for the campaign footer line. Returns empty string if no mechanism set. */
+function mechanismBadgeHtml(mechanism?: string): string {
+  if (!mechanism) return "";
+  const mech = MECHANISM_LABELS[mechanism];
+  if (!mech) return "";
+  return ` <span style="color:${mech.color};border:1px solid ${mech.color}33;padding:0 3px;border-radius:2px;font-size:9px;margin-left:4px;">${mech.label}</span>`;
+}
+
+/** Render report + close buttons for ad header. */
+function headerButtonsHtml(hasReport: boolean): string {
+  const reportBtn = hasReport
+    ? `<button class="datum-report" style="
+        background:none;border:none;color:#999;cursor:pointer;
+        font-size:10px;line-height:1;padding:0 4px;font-family:system-ui,sans-serif;
+      ">Report</button>`
+    : "";
+  return `${reportBtn}<button class="datum-close" style="
+    background:none;border:none;color:#888;cursor:pointer;
+    font-size:16px;line-height:1;padding:0 2px;
+  ">&#x2715;</button>`;
+}
 
 export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   // Don't inject twice
@@ -158,10 +181,9 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="font-weight:600;color:#a0a0ff;font-size:11px;letter-spacing:0.5px;">DATUM</span>
-        <button class="datum-close" style="
-          background:none;border:none;color:#888;cursor:pointer;
-          font-size:16px;line-height:1;padding:0 2px;
-        ">&#x2715;</button>
+        <div style="display:flex;align-items:center;gap:2px;">
+          ${headerButtonsHtml(!!config.onReport)}
+        </div>
       </div>
       ${imageHtml}
       <div style="color:#e0e0e0;font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
@@ -174,7 +196,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
         ${ctaHtml}
       </div>
       <div style="color:#555;font-size:10px;margin-top:6px;">
-        Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
+        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
       </div>
       ${earningHtml}
     `;
@@ -183,16 +205,15 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
-        <button class="datum-close" style="
-          background:none;border:none;color:#888;cursor:pointer;
-          font-size:16px;line-height:1;padding:0 2px;
-        ">&#x2715;</button>
+        <div style="display:flex;align-items:center;gap:2px;">
+          ${headerButtonsHtml(!!config.onReport)}
+        </div>
       </div>
       <div style="color:#ccc;font-size:12px;margin-bottom:6px;">
         Earning for browsing: <strong style="color:#a0a0ff;">${escapeHtml(config.category)}</strong>
       </div>
       <div style="color:#666;font-size:11px;">
-        Campaign #${escapeHtml(config.campaignId)} · Publisher ad
+        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Publisher ad
       </div>
       <div style="color:#555;font-size:10px;margin-top:4px;">
         Privacy-preserving · Polkadot Hub
@@ -213,6 +234,12 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
 
   // Close button via shadow DOM query
   shadow.querySelector(".datum-close")?.addEventListener("click", () => {
+    host.remove();
+  });
+
+  // Report button: block campaign + remove ad
+  shadow.querySelector(".datum-report")?.addEventListener("click", () => {
+    config.onReport?.();
     host.remove();
   });
 
@@ -279,7 +306,13 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="font-weight:600;color:#a0a0ff;font-size:11px;letter-spacing:0.5px;">DATUM</span>
-        <span style="color:#555;font-size:10px;">Inline · SDK</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          ${config.onReport ? `<button class="datum-report" style="
+            background:none;border:none;color:#999;cursor:pointer;
+            font-size:10px;line-height:1;padding:0 4px;font-family:system-ui,sans-serif;
+          ">Report</button>` : ""}
+          <span style="color:#555;font-size:10px;">Inline &middot; SDK</span>
+        </div>
       </div>
       ${imageHtml}
       <div style="color:#e0e0e0;font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
@@ -292,7 +325,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
         ${ctaHtml}
       </div>
       <div style="color:#555;font-size:10px;margin-top:6px;">
-        Campaign #${escapeHtml(config.campaignId)} · Privacy-preserving · Polkadot Hub
+        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
       </div>
       ${earningHtml}
     `;
@@ -301,13 +334,19 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
     wrapper.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-weight:600;color:#a0a0ff;">DATUM</span>
-        <span style="color:#555;font-size:10px;">Inline · SDK</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          ${config.onReport ? `<button class="datum-report" style="
+            background:none;border:none;color:#999;cursor:pointer;
+            font-size:10px;line-height:1;padding:0 4px;font-family:system-ui,sans-serif;
+          ">Report</button>` : ""}
+          <span style="color:#555;font-size:10px;">Inline &middot; SDK</span>
+        </div>
       </div>
       <div style="color:#ccc;font-size:12px;margin-bottom:6px;">
         Earning for browsing: <strong style="color:#a0a0ff;">${escapeHtml(config.category)}</strong>
       </div>
       <div style="color:#666;font-size:11px;">
-        Campaign #${escapeHtml(config.campaignId)} · Publisher ad
+        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Publisher ad
       </div>
       <div style="color:#555;font-size:10px;margin-top:4px;">
         Privacy-preserving · Polkadot Hub
@@ -324,6 +363,13 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   }
 
   shadow.appendChild(wrapper);
+
+  // Report button: block campaign + remove inline ad content
+  shadow.querySelector(".datum-report")?.addEventListener("click", () => {
+    config.onReport?.();
+    wrapper.remove();
+  });
+
   return target;
 }
 

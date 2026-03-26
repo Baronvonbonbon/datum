@@ -10,7 +10,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contracts) is fully tested but not yet deployed. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). A web app covers all advanced flows. The critical path to mainnet is relay Blake2 migration, deploy scripts, and alpha-2 testnet deployment.
+The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contracts) is fully tested but not yet deployed. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). Deploy scripts are ready (13-contract deploy + setup-testnet). A web app covers all advanced flows. The critical path to mainnet is alpha-2 Paseo deployment and E2E validation.
 
 ---
 
@@ -81,7 +81,7 @@ Lightweight JS tag (~3 KB). `<script data-publisher="0x..." data-categories="1,6
 
 ### Publisher Relay — `relay-bot/` (gitignored)
 
-Live systemd service for Diana on localhost:3400. Co-signs attestations, processes claim batches via `DatumRelay.settleClaimsFor()`.
+Live systemd service for Diana on localhost:3400. Co-signs attestations, processes claim batches via `DatumRelay.settleClaimsFor()`. Blake2-256 claim hashing migrated (matches Settlement on PolkaVM).
 
 ### Demo Page — `docs/`
 
@@ -119,20 +119,20 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations, process
 
 ## Critical Path to Mainnet
 
-### 1. Blake2 Claim Hash Migration
+### ~~1. Blake2 Claim Hash Migration~~ — DONE
 
-Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Claims will fail validation until both sides match.
+Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`.
 
 - **Extension: DONE** — `@noble/hashes/blake2.js` in claimBuilder, behaviorChain, behaviorCommit. 165/165 tests.
-- **Relay bot: PENDING** — must switch from keccak256 to Blake2-256 before testnet deploy.
+- **Relay bot: DONE** — `@noble/hashes/blake2.js` in test-submit.mjs + blake2Hash utility in relay-bot.mjs.
 
-### 2. Alpha-2 Deploy Scripts
+### ~~2. Alpha-2 Deploy Scripts~~ — DONE
 
-Update `alpha/scripts/deploy.ts` for 13-contract deployment:
-- Settlement `configure()` now takes 5 args (budgetLedger, paymentVault, lifecycle, relay, publishers)
-- CampaignLifecycle 2-arg constructor
-- `setAttestationVerifier()` for P1
-- New wiring for BudgetLedger, PaymentVault, CampaignLifecycle, AttestationVerifier
+`alpha-2/scripts/deploy.ts` — 13-contract deploy in dependency order, 16 wiring operations, 22 validation checks, ownership transfer, re-run safety (B2). Writes `deployed-addresses.json` to `alpha-2/` and `alpha-2/extension/`.
+
+`alpha-2/scripts/setup-testnet.ts` — funds 6 accounts, registers 2 publishers, creates test campaign, votes aye, sets metadata.
+
+Usage: `npx hardhat run scripts/deploy.ts --network polkadotTestnet`
 
 ### 3. Alpha-2 Testnet Deploy
 
@@ -154,7 +154,7 @@ Publish addresses, document external tester flow, monitor events.
 | — | S12 mainnet migration | Blocklist must be timelock-gated before mainnet. Governance-managed (Option C hybrid). |
 | — | Relay settlement web UI | Web page for `DatumRelay.settleClaimsFor()` (currently extension-only) |
 | — | Attested settlement web UI | Web page for `DatumAttestationVerifier.settleClaimsAttested()` |
-| — | Relay Blake2 migration | Relay bot must switch claim hash from keccak256 to Blake2-256 |
+| ~~—~~ | ~~Relay Blake2 migration~~ | **DONE** — relay bot migrated to `@noble/hashes/blake2.js` |
 
 ---
 

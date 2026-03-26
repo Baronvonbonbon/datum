@@ -39,9 +39,12 @@ export function ClaimQueue({ address }: Props) {
   const [result, setResult] = useState<SettlementResult | null>(null);
   const [signedCount, setSignedCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submittingCampaign, setSubmittingCampaign] = useState<string | null>(null);
+  const [discardingCampaign, setDiscardingCampaign] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [attestationWarnings, setAttestationWarnings] = useState<Record<string, string>>({});
   const [sym, setSym] = useState("DOT");
   const [stalePruned, setStalePruned] = useState(0); // CL-2: stale claims notification
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +105,7 @@ export function ClaimQueue({ address }: Props) {
     if (!address) return;
     setError(null);
     setResult(null);
+    setAttestationWarnings({});
 
     // Acquire submission mutex — prevents race with auto-submit
     const mutexResponse = await chrome.runtime.sendMessage({ type: "ACQUIRE_MUTEX" });
@@ -136,6 +140,7 @@ export function ClaimQueue({ address }: Props) {
       }
 
       // Request publisher attestation for each batch (mandatory in alpha-2)
+      const warnings: Record<string, string> = {};
       const attestedBatches = await Promise.all(serializedBatches.map(async (b) => {
         const claimsLen = b.claims.length;
         let publisherSig = "0x";
@@ -150,6 +155,7 @@ export function ClaimQueue({ address }: Props) {
             claimCount: claimsLen,
           });
           if (attestResponse?.signature) publisherSig = attestResponse.signature;
+          if (attestResponse?.error) warnings[b.campaignId] = attestResponse.error;
         } catch {
           // Attestation unavailable — degraded trust mode (open campaigns)
         }
@@ -169,6 +175,7 @@ export function ClaimQueue({ address }: Props) {
           publisherSig,
         };
       }));
+      if (Object.keys(warnings).length > 0) setAttestationWarnings(warnings);
 
       const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
 
@@ -203,9 +210,9 @@ export function ClaimQueue({ address }: Props) {
 
       // Remove settled claims from queue
       if (settledCount > 0) {
-        // Build map of campaignId → settled nonces from contract batches
+        // Build map of campaignId → settled nonces from the attested batches
         const settledNonces: Record<string, string[]> = {};
-        for (const b of contractBatches) {
+        for (const b of attestedBatches) {
           const cid = b.campaignId.toString();
           settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
         }
@@ -219,7 +226,7 @@ export function ClaimQueue({ address }: Props) {
 
       // Handle nonce mismatch: if all claims were rejected, try to re-sync from chain
       if (settledCount === 0n && rejectedCount > 0n) {
-        await resyncFromChain(address, settings, contractBatches);
+        await resyncFromChain(address, settings, attestedBatches);
         setError("Claims rejected — chain state resynced. Try submitting again.");
       }
     } catch (err) {
@@ -261,11 +268,151 @@ export function ClaimQueue({ address }: Props) {
     }
   }
 
+  async function submitCampaign(campaignId: string) {
+    if (!address) return;
+    setError(null);
+    setResult(null);
+    setAttestationWarnings({});
+
+    const mutexResponse = await chrome.runtime.sendMessage({ type: "ACQUIRE_MUTEX" });
+    if (!mutexResponse?.acquired) {
+      setError("A submission is already in progress. Please wait.");
+      return;
+    }
+
+    setSubmittingCampaign(campaignId);
+    try {
+      const settings = await getSettings();
+      if (!settings.contractAddresses.attestationVerifier) {
+        throw new Error("AttestationVerifier contract address not configured. Check Settings.");
+      }
+
+      const signer = getSigner(settings.rpcUrl);
+
+      const batchResponse = await chrome.runtime.sendMessage({
+        type: "SUBMIT_CAMPAIGN_CLAIMS",
+        userAddress: address,
+        campaignId,
+      });
+
+      const serializedBatch: SerializedClaimBatch | null = batchResponse?.batch ?? null;
+      if (!serializedBatch) {
+        setError("No pending claims for this campaign.");
+        return;
+      }
+
+      // Request publisher attestation
+      const claimsLen = serializedBatch.claims.length;
+      let publisherSig = "0x";
+      try {
+        const attestResponse = await chrome.runtime.sendMessage({
+          type: "REQUEST_PUBLISHER_ATTESTATION",
+          publisherAddress: serializedBatch.claims[0]?.publisher ?? "",
+          campaignId: serializedBatch.campaignId,
+          userAddress: serializedBatch.user,
+          firstNonce: serializedBatch.claims[0].nonce,
+          lastNonce: serializedBatch.claims[claimsLen - 1].nonce,
+          claimCount: claimsLen,
+        });
+        if (attestResponse?.signature) publisherSig = attestResponse.signature;
+        if (attestResponse?.error) setAttestationWarnings({ [campaignId]: attestResponse.error });
+      } catch {
+        // Attestation unavailable — degraded trust mode
+      }
+
+      const attestedBatch = {
+        user: serializedBatch.user,
+        campaignId: BigInt(serializedBatch.campaignId),
+        claims: serializedBatch.claims.map((c) => ({
+          campaignId: BigInt(c.campaignId),
+          publisher: c.publisher,
+          impressionCount: BigInt(c.impressionCount),
+          clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+          nonce: BigInt(c.nonce),
+          previousClaimHash: c.previousClaimHash,
+          claimHash: c.claimHash,
+          zkProof: c.zkProof,
+        })),
+        publisherSig,
+      };
+
+      const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
+      const tx = await attestationVerifier.settleClaimsAttested([attestedBatch]);
+      const receipt = await tx.wait();
+
+      let settledCount = 0n;
+      let rejectedCount = 0n;
+      let totalPaid = 0n;
+
+      if (receipt?.logs) {
+        const iface = attestationVerifier.interface;
+        for (const log of receipt.logs) {
+          try {
+            const parsed = iface.parseLog(log);
+            if (parsed?.name === "ClaimSettled") {
+              settledCount++;
+              totalPaid += BigInt(parsed.args.totalPayment ?? 0);
+            } else if (parsed?.name === "ClaimRejected") {
+              rejectedCount++;
+            }
+          } catch {
+            // log from a different contract
+          }
+        }
+      }
+
+      setResult({ settledCount, rejectedCount, totalPaid });
+
+      if (settledCount > 0) {
+        const settledNonces: Record<string, string[]> = {
+          [attestedBatch.campaignId.toString()]: attestedBatch.claims.map((c) => c.nonce.toString()),
+        };
+        await chrome.runtime.sendMessage({
+          type: "REMOVE_SETTLED_CLAIMS",
+          userAddress: address,
+          settledNonces,
+        });
+        await loadState();
+      }
+
+      if (settledCount === 0n && rejectedCount > 0n) {
+        await resyncFromChain(address, settings, [attestedBatch]);
+        setError("Claims rejected — chain state resynced. Try submitting again.");
+      }
+    } catch (err) {
+      setError(humanizeError(err));
+    } finally {
+      setSubmittingCampaign(null);
+      await chrome.runtime.sendMessage({ type: "RELEASE_MUTEX" });
+    }
+  }
+
+  async function discardCampaign(campaignId: string) {
+    if (!address) return;
+    setError(null);
+    setDiscardingCampaign(campaignId);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "DISCARD_CAMPAIGN_CLAIMS",
+        userAddress: address,
+        campaignId,
+      });
+      if (response?.removed > 0) {
+        await loadState();
+      }
+    } catch (err) {
+      setError(humanizeError(err));
+    } finally {
+      setDiscardingCampaign(null);
+    }
+  }
+
   async function signForRelay() {
     if (!address) return;
     setSigning(true);
     setError(null);
     setSignedCount(null);
+    setAttestationWarnings({});
 
     try {
       const settings = await getSettings();
@@ -311,6 +458,7 @@ export function ClaimQueue({ address }: Props) {
 
       // Sign each batch and store as SignedClaimBatch in storage
       const signedBatches = [];
+      const warnings: Record<string, string> = {};
       for (const b of serializedBatches) {
         const claimsLen = b.claims.length;
         if (claimsLen === 0) continue;
@@ -341,6 +489,7 @@ export function ClaimQueue({ address }: Props) {
           if (attestResponse?.signature) {
             publisherSig = attestResponse.signature;
           }
+          if (attestResponse?.error) warnings[b.campaignId] = attestResponse.error;
         } catch {
           // Attestation unavailable — degraded trust mode
         }
@@ -394,6 +543,7 @@ export function ClaimQueue({ address }: Props) {
         }
       }
 
+      if (Object.keys(warnings).length > 0) setAttestationWarnings(warnings);
       setSignedCount(signedBatches.length);
     } catch (err) {
       setError(humanizeError(err));
@@ -480,6 +630,7 @@ export function ClaimQueue({ address }: Props) {
             const estPlanck = meta
               ? (BigInt(meta.bidCpmPlanck) * BigInt(count) * 7500n) / (1000n * 10000n)
               : null;
+            const anyBusy = submitting || signing || submittingCampaign !== null || discardingCampaign !== null;
             return (
               <div key={cid} style={claimRowStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -493,6 +644,24 @@ export function ClaimQueue({ address }: Props) {
                     ~{formatDOT(estPlanck)} {sym} est. earnings
                   </div>
                 )}
+                {address && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button
+                      onClick={() => submitCampaign(cid)}
+                      disabled={anyBusy}
+                      style={campaignBtn}
+                    >
+                      {submittingCampaign === cid ? "Submitting…" : "Submit"}
+                    </button>
+                    <button
+                      onClick={() => discardCampaign(cid)}
+                      disabled={anyBusy}
+                      style={campaignDiscardBtn}
+                    >
+                      {discardingCampaign === cid ? "Discarding…" : "Discard"}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -501,14 +670,14 @@ export function ClaimQueue({ address }: Props) {
             <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
               <button
                 onClick={submitAll}
-                disabled={submitting || signing}
+                disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
                 style={primaryBtn}
               >
                 {submitting ? "Submitting…" : "Submit All (you pay gas)"}
               </button>
               <button
                 onClick={signForRelay}
-                disabled={submitting || signing}
+                disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
                 style={secondaryBtn}
               >
                 {signing ? "Signing…" : "Sign for Publisher (zero gas)"}
@@ -578,6 +747,18 @@ export function ClaimQueue({ address }: Props) {
           {importResult.skippedStale > 0 && (
             <span style={{ color: "#888" }}> ({importResult.skippedStale} skipped — already settled)</span>
           )}
+        </div>
+      )}
+
+      {/* PU-3: Attestation warnings */}
+      {Object.keys(attestationWarnings).length > 0 && (
+        <div style={{ marginTop: 12, padding: 10, background: "#2a1a0a", borderRadius: 6, border: "1px solid #4a3a2a", fontSize: 12 }}>
+          <div style={{ color: "#c09060", fontWeight: 600, marginBottom: 4 }}>Attestation warnings:</div>
+          {Object.entries(attestationWarnings).map(([cid, reason]) => (
+            <div key={cid} style={{ color: "#c09060", marginTop: 2 }}>
+              Campaign #{cid}: {reason}
+            </div>
+          ))}
         </div>
       )}
 
@@ -771,4 +952,24 @@ const portabilityBtn: React.CSSProperties = {
   border: "1px solid #333",
   padding: "6px 10px",
   fontSize: 11,
+};
+
+const campaignBtn: React.CSSProperties = {
+  background: "#1a1a2e",
+  color: "#a0a0ff",
+  border: "1px solid #3a3a6a",
+  borderRadius: 4,
+  padding: "3px 10px",
+  fontSize: 11,
+  cursor: "pointer",
+};
+
+const campaignDiscardBtn: React.CSSProperties = {
+  background: "#1a1a1a",
+  color: "#888",
+  border: "1px solid #333",
+  borderRadius: 4,
+  padding: "3px 10px",
+  fontSize: 11,
+  cursor: "pointer",
 };

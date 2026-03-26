@@ -8,6 +8,7 @@
     "test": "npx hardhat test",
     "test:coverage": "npx hardhat coverage",
     "deploy:local": "npx hardhat run scripts/deploy.ts --network hardhat",
+    "deploy:substrate": "npx hardhat run scripts/deploy.ts --network substrate",
     "deploy:polkavm": "npx hardhat run scripts/deploy.ts --network polkadotHub",
     "deploy:testnet": "npx hardhat run scripts/deploy.ts --network polkadotTestnet",
     "setup:testnet": "npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet"

@@ -101,6 +101,38 @@ export const claimQueue = {
     return pruned;
   },
 
+  // Build a single batch for one specific campaign (for per-campaign submit)
+  async buildBatchForCampaign(userAddress: string, campaignId: string): Promise<ClaimBatch | null> {
+    const stored = await chrome.storage.local.get(QUEUE_KEY);
+    const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
+
+    const campaignClaims = queue.filter(
+      (c) => c.userAddress === userAddress && c.campaignId === campaignId
+    );
+    if (campaignClaims.length === 0) return null;
+
+    return {
+      user: userAddress,
+      campaignId: BigInt(campaignId),
+      claims: campaignClaims.map(deserializeClaim),
+    };
+  },
+
+  // Remove all claims for a specific (user, campaign) pair
+  async discardCampaignClaims(userAddress: string, campaignId: string): Promise<number> {
+    const stored = await chrome.storage.local.get(QUEUE_KEY);
+    const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
+
+    const filtered = queue.filter(
+      (c) => !(c.userAddress === userAddress && c.campaignId === campaignId)
+    );
+    const removed = queue.length - filtered.length;
+    if (removed > 0) {
+      await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
+    }
+    return removed;
+  },
+
   // Remove successfully settled claims from the queue
   async removeSettled(userAddress: string, settledNonces: Map<string, bigint[]>): Promise<void> {
     const stored = await chrome.storage.local.get(QUEUE_KEY);

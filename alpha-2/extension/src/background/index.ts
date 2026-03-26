@@ -325,6 +325,17 @@ async function handleMessage(
       return { batches: serializeBatches(batches) };
     }
 
+    case "SUBMIT_CAMPAIGN_CLAIMS": {
+      const batch = await claimQueue.buildBatchForCampaign(msg.userAddress, msg.campaignId);
+      if (!batch) return { batch: null };
+      return { batch: serializeBatches([batch])[0] };
+    }
+
+    case "DISCARD_CAMPAIGN_CLAIMS": {
+      const removed = await claimQueue.discardCampaignClaims(msg.userAddress, msg.campaignId);
+      return { removed };
+    }
+
     case "SIGN_FOR_RELAY": {
       const allBatches = await claimQueue.buildBatches(msg.userAddress);
       const filtered = allBatches.filter(
@@ -446,7 +457,7 @@ async function handleMessage(
     }
 
     case "REQUEST_PUBLISHER_ATTESTATION": {
-      const sig = await requestPublisherAttestation(
+      const attestResult = await requestPublisherAttestation(
         msg.publisherAddress,
         msg.campaignId,
         msg.userAddress,
@@ -454,7 +465,7 @@ async function handleMessage(
         msg.lastNonce,
         msg.claimCount
       );
-      return { signature: sig || undefined };
+      return { signature: attestResult.signature || undefined, error: attestResult.error };
     }
 
     // User preferences
@@ -737,7 +748,7 @@ async function autoFlushDirect() {
       const publisher = b.claims[0]?.publisher ?? "";
       let publisherSig = "0x";
       try {
-        const sig = await requestPublisherAttestation(
+        const attestResult = await requestPublisherAttestation(
           publisher,
           b.campaignId.toString(),
           b.user,
@@ -745,7 +756,8 @@ async function autoFlushDirect() {
           b.claims[b.claims.length - 1].nonce.toString(),
           b.claims.length,
         );
-        if (sig) publisherSig = sig;
+        if (attestResult.signature) publisherSig = attestResult.signature;
+        if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
       } catch {
         // Attestation unavailable — degraded trust mode
       }

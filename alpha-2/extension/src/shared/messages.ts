@@ -24,6 +24,8 @@ export type PopupToBackground =
   | { type: "WALLET_CONNECTED"; address: string }
   | { type: "WALLET_DISCONNECTED" }
   | { type: "SUBMIT_CLAIMS"; userAddress: string }
+  | { type: "SUBMIT_CAMPAIGN_CLAIMS"; userAddress: string; campaignId: string }
+  | { type: "DISCARD_CAMPAIGN_CLAIMS"; userAddress: string; campaignId: string }
   | { type: "SIGN_FOR_RELAY"; userAddress: string; campaignId: string }
   | { type: "GET_QUEUE_STATE" }
   | { type: "CLEAR_QUEUE" }

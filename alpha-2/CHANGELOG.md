@@ -1,6 +1,6 @@
 # Alpha-2 Changelog
 
-**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile) / 2026-03-24 (P1, P20)
+**Date:** 2026-03-22 (hardening) / 2026-03-23 (S12 blocklist, Blake2 precompile) / 2026-03-24 (P1, P20) / 2026-03-26 (Phase 3 polish)
 **Compiler:** resolc 1.0.0 (up from 0.3.0)
 **Status:** All 13 contracts compile. All under 49,152 B PVM limit. 187 tests passing.
 
@@ -475,9 +475,10 @@ New contract: `DatumAttestationVerifier` wraps `settleClaims()` with mandatory E
 ## Remaining Work
 
 1. ~~**Tests:** Port alpha's 132 Hardhat tests to alpha-2 architecture~~ — **Done.** 187 tests across 10 test files.
-2. **Deploy scripts:** Update `deploy.ts` for 13-contract deploy + extended wiring sequence. Settlement `configure()` 5-arg + `setAttestationVerifier()`. CampaignLifecycle constructor 2-arg.
+2. ~~**Deploy scripts:** Update `deploy.ts` for 13-contract deploy~~ — **Done.** `alpha-2/scripts/deploy.ts` deploys 13 contracts in dependency order, 16 wiring ops, 22 validation checks, ownership transfer, re-run safety (B2). `setup-testnet.ts` for post-deploy setup.
 3. ~~**Extension:** Full alpha-2 rebuild~~ — **Done.** Extension v0.3.0 with 13-contract support, 165/165 Jest tests. Blake2-256 claim hashing, P1 attestation path, EIP-1193 provider bridge, relay POST, 3-tab popup.
-4. **Testnet deploy:** Deploy alpha-2 to Paseo, run E2E validation.
+4. **Testnet deploy:** Deploy alpha-2 to Paseo (`npx hardhat run scripts/deploy.ts --network polkadotTestnet`), run `setup-testnet.ts`, E2E validation.
 5. ~~**Relay fix:** Extension `signForRelay()` must POST signed batches to relay bot `/relay/submit`~~ — **Done.** Extension POSTs to `{publisherDomain}/relay/submit` after signing.
 6. ~~**Blake2 migration (extension):**~~ — **Done.** claimBuilder, behaviorChain, behaviorCommit all use `@noble/hashes/blake2.js` with `dkLen: 32`.
-7. **Blake2 migration (relay):** Relay bot must switch claim hash from keccak256 to Blake2-256 to match Settlement on PolkaVM. Required before alpha-2 testnet deploy.
+7. ~~**Blake2 migration (relay):**~~ — **Done.** Relay bot `test-submit.mjs` uses `blake2Hash()` from `@noble/hashes/blake2.js`. `relay-bot.mjs` has `blake2Hash` utility for future server-side validation.
+8. ~~**Phase 3 UX polish:**~~ — **Done.** 7 extension/web items: SI-3 address validation, UP-5 mechanism badge, UP-7 per-campaign claim management, AD-2 report button, PU-3 attestation error display, GV-4 timelock ABI decoding (28 selectors), EA-2 per-campaign earnings breakdown. 165/165 tests, 0 webpack errors.

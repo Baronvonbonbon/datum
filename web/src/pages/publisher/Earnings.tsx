@@ -6,11 +6,19 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 
+interface CampaignEarnings {
+  campaignId: string;
+  totalPublisherPayment: bigint;
+  totalImpressions: bigint;
+  settlementCount: number;
+}
+
 export function Earnings() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [events, setEvents] = useState<any[]>([]);
+  const [campaignBreakdown, setCampaignBreakdown] = useState<CampaignEarnings[]>([]);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
   const [loading, setLoading] = useState(true);
@@ -32,6 +40,26 @@ export function Earnings() {
         .slice(-20)
         .reverse();
       setEvents(mine);
+
+      // EA-2: Group by campaignId for per-campaign breakdown
+      const byCampaign = new Map<string, CampaignEarnings>();
+      for (const e of mine) {
+        const id = String(e.args?.campaignId ?? "?");
+        const existing = byCampaign.get(id);
+        const payment = BigInt(e.args?.publisherPayment ?? 0);
+        const impressions = BigInt(e.args?.impressionCount ?? 0);
+        if (existing) {
+          existing.totalPublisherPayment += payment;
+          existing.totalImpressions += impressions;
+          existing.settlementCount += 1;
+        } else {
+          byCampaign.set(id, { campaignId: id, totalPublisherPayment: payment, totalImpressions: impressions, settlementCount: 1 });
+        }
+      }
+      const sorted = Array.from(byCampaign.values()).sort((a, b) =>
+        a.totalPublisherPayment > b.totalPublisherPayment ? -1 : a.totalPublisherPayment < b.totalPublisherPayment ? 1 : 0
+      );
+      setCampaignBreakdown(sorted);
     } finally {
       setLoading(false);
     }
@@ -72,6 +100,35 @@ export function Earnings() {
               </button>
             )}
           </div>
+
+          {campaignBreakdown.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 10 }}>Earnings by Campaign</div>
+              <div style={{ border: "1px solid #1a1a2e", borderRadius: 6, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "#0f0f1a" }}>
+                      {["Campaign", "Total Paid", "Impressions", "Settlements"].map((h) => (
+                        <th key={h} style={{ padding: "6px 10px", color: "#555", fontSize: 11, textAlign: "left" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaignBreakdown.map((c) => (
+                      <tr key={c.campaignId} style={{ borderTop: "1px solid #0f0f1a" }}>
+                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>#{c.campaignId}</td>
+                        <td style={{ padding: "6px 10px", fontSize: 12 }}>
+                          <DOTAmount planck={c.totalPublisherPayment} />
+                        </td>
+                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>{c.totalImpressions.toLocaleString()}</td>
+                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>{c.settlementCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div>
             <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 10 }}>Recent Settlements (last 5000 blocks)</div>

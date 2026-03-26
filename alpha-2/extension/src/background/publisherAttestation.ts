@@ -3,7 +3,7 @@
 //
 // Endpoint: https://<publisher-domain>/.well-known/datum-attest
 // Timeout: 3 seconds (attestation failure must NOT block impression recording)
-// Fallback: returns empty string (degraded trust mode)
+// Fallback: returns empty signature with error reason (degraded trust mode)
 
 const ATTESTATION_TIMEOUT_MS = 3000;
 
@@ -17,6 +17,12 @@ interface AttestationRequest {
 
 interface AttestationResponse {
   signature: string;
+}
+
+/** Structured result from publisher attestation request. */
+export interface AttestationResult {
+  signature: string;
+  error?: string;
 }
 
 /**
@@ -33,7 +39,7 @@ async function getPublisherDomain(publisherAddress: string): Promise<string | nu
 
 /**
  * Request a publisher co-signature for a claim batch.
- * Returns the signature hex string, or empty string on failure (degraded trust).
+ * Returns { signature, error? } — empty signature with error on failure (degraded trust).
  */
 export async function requestPublisherAttestation(
   publisherAddress: string,
@@ -42,19 +48,19 @@ export async function requestPublisherAttestation(
   firstNonce: string,
   lastNonce: string,
   claimCount: number
-): Promise<string> {
+): Promise<AttestationResult> {
   try {
     const domain = await getPublisherDomain(publisherAddress);
     if (!domain) {
       // No known attestation endpoint — degraded trust mode
-      return "";
+      return { signature: "", error: "No publisher relay URL configured" };
     }
 
     // M6: Reject explicit http:// for non-local domains (HTTPS is always used)
     const isLocal = domain === "localhost" || domain.startsWith("localhost:") || domain.startsWith("127.");
     if (!isLocal && domain.startsWith("http://")) {
       console.warn(`[DATUM] Publisher attestation: refusing HTTP for non-local domain ${domain}`);
-      return "";
+      return { signature: "", error: `HTTP not allowed for non-local domain (${domain})` };
     }
 
     // Strip protocol prefix if present (domain should be bare hostname)
@@ -82,14 +88,22 @@ export async function requestPublisherAttestation(
 
     if (!response.ok) {
       console.warn(`[DATUM] Publisher attestation failed: ${response.status} from ${url}`);
-      return "";
+      return { signature: "", error: `HTTP ${response.status} from publisher relay` };
     }
 
     const data: AttestationResponse = await response.json();
-    return data.signature ?? "";
+    if (!data.signature) {
+      return { signature: "", error: "Invalid response format (no signature)" };
+    }
+    return { signature: data.signature };
   } catch (err) {
-    // Timeout, network error, or parse error — degrade gracefully
+    // Distinguish timeout from other network errors
+    if (err instanceof DOMException && err.name === "AbortError") {
+      console.warn("[DATUM] Publisher attestation timed out");
+      return { signature: "", error: `Network timeout (${ATTESTATION_TIMEOUT_MS / 1000}s)` };
+    }
     console.warn("[DATUM] Publisher attestation unavailable:", err);
-    return "";
+    const message = err instanceof Error ? err.message : String(err);
+    return { signature: "", error: `Network error: ${message}` };
   }
 }

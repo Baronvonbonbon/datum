@@ -199,6 +199,11 @@ async function main() {
     clearingCpmPlanck,
     ipfsGateway,
     currencySymbol,
+    onReport: () => {
+      try {
+        chrome.runtime.sendMessage({ type: "BLOCK_CAMPAIGN", campaignId: String(campaignId) });
+      } catch {}
+    },
   };
 
   // Inject ad: inline into SDK slot if available, overlay otherwise

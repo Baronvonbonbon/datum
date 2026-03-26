@@ -198,10 +198,9 @@ Test coverage: Blake2 hashing, claim builder, provider bridge, engagement, quali
 
 ## Next Steps
 
-1. **Alpha-2 testnet deploy** — Deploy 13 contracts to Paseo, update `deployed-addresses.json` with live addresses.
-2. **Relay Blake2 migration** — Relay bot must switch claim hash from keccak256 to Blake2-256.
-3. **E2E validation** — Full browser E2E on Paseo: create campaign, vote, browse, submit claims, verify settlement.
-4. **Open testing (A3.5)** — External testers complete the full flow.
+1. **Alpha-2 testnet deploy** — `npx hardhat run scripts/deploy.ts --network polkadotTestnet` then update `deployed-addresses.json` with live addresses.
+2. **E2E validation** — Full browser E2E on Paseo: create campaign, vote, browse, submit claims, verify settlement.
+3. **Open testing (A3.5)** — External testers complete the full flow.
 
 ## Rebuild After Changes
 
