@@ -1,6 +1,8 @@
-# DATUM Publisher Relay Bot
+# DATUM Publisher Relay — Reference Implementation
 
-A publisher relay bot that co-signs user claim batches and submits them on-chain via `DatumRelay.settleClaimsFor()`. The relay pays gas on behalf of users — publishers are reimbursed from the campaign budget's take-rate share.
+A reference implementation of a publisher relay endpoint that co-signs user claim batches and submits them on-chain via `DatumRelay.settleClaimsFor()`. The relay pays gas on behalf of users — publishers are reimbursed from the campaign budget's take-rate share.
+
+Publishers need a publicly available relay endpoint, but how they choose to implement it is up to them. This template provides an automated Node.js service that queues and submits batches on a timer. Publishers are free to build their own relay using serverless functions, manual review dashboards, custom tooling, or any other approach — as long as the required HTTP endpoints are exposed.
 
 ## Prerequisites
 
@@ -49,7 +51,7 @@ All configuration is via environment variables or `.env` file:
 
 ## Exposing to the Internet
 
-The bot listens on `0.0.0.0:3400`. To accept remote claims, expose it via HTTPS:
+The relay listens on `0.0.0.0:3400`. To accept remote claims, expose it via HTTPS:
 
 ### Cloudflare Quick Tunnel (simplest, no domain needed)
 
@@ -69,20 +71,20 @@ cloudflared tunnel run --url http://127.0.0.1:3400 my-relay
 
 ### Connecting the Extension
 
-The DATUM extension looks up the relay domain from `chrome.storage.local` under `publisherDomain:{address}` (lowercase). For testing, this is seeded automatically for known publishers on Paseo. For custom publishers, the extension will need to be configured to know your relay URL (post-alpha: publishers will register their domain on-chain).
+The DATUM extension discovers relay URLs from the `data-relay` attribute on the publisher's SDK script tag. When a user visits a publisher page, the extension reads the relay URL and stores it for attestation requests. Post-alpha, publishers will register their relay domain on-chain.
 
 ## systemd Service (Linux)
 
-Create `~/.config/systemd/user/datum-relay-bot.service`:
+Create `~/.config/systemd/user/datum-publisher-relay.service`:
 
 ```ini
 [Unit]
-Description=DATUM Publisher Relay Bot
+Description=DATUM Publisher Relay
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/path/to/your/relay-bot
+WorkingDirectory=/path/to/your/relay
 ExecStart=/usr/bin/node relay-bot.mjs
 Restart=on-failure
 RestartSec=30
@@ -95,7 +97,7 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now datum-relay-bot
+systemctl --user enable --now datum-publisher-relay
 loginctl enable-linger $USER  # keep running after logout
 ```
 
@@ -115,10 +117,10 @@ loginctl enable-linger $USER  # keep running after logout
 2. Extension tracks impressions locally, builds claim hash chain
 3. When user signs a claim batch, extension requests publisher co-signature from `/.well-known/datum-attest`
 4. Signed batch is submitted to `/relay/submit`
-5. Bot verifies user signature, queues batch
-6. Every 5 minutes (configurable), bot submits all queued batches via `DatumRelay.settleClaimsFor()`
+5. Relay verifies user signature, queues batch
+6. Periodically (configurable), relay submits queued batches via `DatumRelay.settleClaimsFor()`
 7. Settlement contract splits revenue: publisher (take rate), user (75%), protocol (25%)
 
 ## Queue Persistence
 
-Pending batches are persisted to `pending-queue.json` so they survive bot restarts. Expired batches (past deadline block) are automatically pruned.
+Pending batches are persisted to `pending-queue.json` so they survive restarts. Expired batches (past deadline block) are automatically pruned.
