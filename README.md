@@ -206,6 +206,8 @@ npx hardhat compile --network polkadotHub   # requires resolc v1.0.0
 
 ### Web app
 
+Live at **https://datum.javcon.io** (Cloudflare Pages, auto-deploys on push to main).
+
 ```bash
 cd web
 npm install
@@ -231,13 +233,20 @@ npx hardhat run scripts/setup-testnet.ts --network substrate
 
 **Devchain notes:** Pallet-revive gas is in weight units (~10^15). Each contract call costs ~5x10^21 planck in gas, so test accounts need ~10^24 planck each. The eth-rpc denomination rounding rule rejects transfers where `value % 10^6 >= 500_000` — use clean multiples of 10^6 planck for all on-chain values.
 
-### Paseo testnet
+### Paseo testnet (live)
 
-9 alpha contracts are currently live on Paseo (Chain ID 420420417). Alpha-2 (13 contracts) deployment is pending — deploy scripts and Blake2 migration are complete. Next: deploy to Paseo and run E2E validation.
+13 alpha-2 contracts are deployed on Paseo (Chain ID 420420417). Test campaign #1 is active (Bob→Diana, 10 PAS).
 
-**RPC:** `https://eth-rpc-testnet.polkadot.io/` | **Explorer:** https://blockscout-testnet.polkadot.io/ | **Faucet:** https://faucet.polkadot.io/`
+| Resource | URL |
+|----------|-----|
+| **Web App** | https://datum.javcon.io |
+| **Demo Page** | https://datum.javcon.io/demo/ |
+| **Relay (Diana)** | https://relay.javcon.io/relay/status |
+| RPC | `https://eth-rpc-testnet.polkadot.io/` |
+| Explorer | https://blockscout-testnet.polkadot.io/ |
+| Faucet | https://faucet.polkadot.io/ (select "Paseo") |
 
-Current alpha addresses and testnet state are documented in [STATUS.md](STATUS.md).
+Contract addresses and deployment details are in [alpha-2/DEPLOY-TESTNET.md](alpha-2/DEPLOY-TESTNET.md).
 
 ### Claim export/import
 
@@ -255,12 +264,13 @@ See [STATUS.md](STATUS.md) for detailed project status and critical path.
 - [x] **Alpha** -- 9 contracts deployed on Paseo, 132/132 tests (archived)
 - [x] **Alpha-2 contracts** -- 13 contracts (P1 attestation, S12 blocklist, P20 inactivity, extracted satellites), 187/187 tests
 - [x] **Extension (alpha-2)** -- 165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider, 3-tab popup
-- [x] **Web app** -- 24 pages, 0 TypeScript errors, Vite build ready
-- [x] **Publisher SDK + relay** -- live on Paseo testnet (Diana)
-- [x] **Paseo testnet** -- alpha contracts deployed, test campaign active
+- [x] **Web app** -- 24 pages, live at [datum.javcon.io](https://datum.javcon.io)
+- [x] **Publisher SDK + relay** -- live at [relay.javcon.io](https://relay.javcon.io/relay/status) (Diana, Cloudflare tunnel)
+- [x] **Paseo testnet** -- 13 alpha-2 contracts deployed, test campaign active, all wiring validated
 - [x] **Blake2 hash migration** -- extension + relay both use `@noble/hashes/blake2.js`, matches Settlement on PolkaVM
-- [x] **Alpha-2 deploy scripts** -- 13-contract deploy + setup-testnet, 16 wiring ops, 22 validation checks
-- [ ] **Alpha-2 deploy** -- deploy to Paseo, run E2E validation
+- [x] **Alpha-2 deploy** -- 13-contract deploy + setup-testnet on Paseo, 16 wiring ops, 22 validation checks
+- [x] **Demo page** -- publisher integration example at [datum.javcon.io/demo/](https://datum.javcon.io/demo/)
+- [ ] **E2E browser validation** -- full flow on Paseo with extension + relay + web app
 - [ ] **Open testing** -- publish addresses, external tester flow
 - [ ] **Mainnet** -- Kusama -> Polkadot Hub
 
