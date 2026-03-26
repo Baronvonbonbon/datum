@@ -113,7 +113,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         Claim[] calldata claims,
         SettlementResult memory result
     ) internal {
-        require(claims.length <= 5, "E28");
+        require(claims.length <= 50, "E28");
         bool gapFound = false;
 
         for (uint256 i = 0; i < claims.length; i++) {

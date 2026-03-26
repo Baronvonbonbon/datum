@@ -14,6 +14,7 @@
     "setup:testnet": "npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet"
   },
   "devDependencies": {
+    "@noble/hashes": "^2.0.1",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@parity/hardhat-polkadot": "^0.2.7",
     "@parity/hardhat-polkadot-node": "^0.2.5",
