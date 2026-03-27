@@ -94,7 +94,7 @@ export function Vote() {
   const amountPlanck = (() => { try { return parseDOT(amount); } catch { return 0n; } })();
 
   return (
-    <div className="nano-fade" style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 640 }}>
       <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
 
       <div style={{ margin: "12px 0 16px" }}>

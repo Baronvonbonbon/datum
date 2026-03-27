@@ -7,6 +7,21 @@ import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 
+/** Animates the block number ticking up when it changes. */
+function useBlockFlash(blockNumber: number | null) {
+  const [flash, setFlash] = useState(false);
+  const prev = useRef<number | null>(null);
+  useEffect(() => {
+    if (blockNumber !== null && blockNumber !== prev.current) {
+      prev.current = blockNumber;
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 600);
+      return () => clearTimeout(t);
+    }
+  }, [blockNumber]);
+  return flash;
+}
+
 const NAV_ITEMS = [
   { path: "/", label: "Explorer", exact: true },
   { path: "/advertiser", label: "Advertiser" },
@@ -62,9 +77,16 @@ export function Layout() {
   const { settings } = useSettings();
   const [showConnect, setShowConnect] = useState(false);
   const mainRef = useFadeIn();
+  const blockFlash = useBlockFlash(blockNumber);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      {/* ── Experimental warning ────────────────────────────────────────── */}
+      <div className="nano-warning-banner">
+        ⚠ Experimental build — Paseo testnet only. Do not connect a wallet holding real funds.
+        If you don't know why, close this tab, step away from the computer, raise your hand, and wait for an adult.
+      </div>
+
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="nano-header">
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -72,14 +94,16 @@ export function Layout() {
             DATUM
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "monospace" }}>
-            <span style={{
+            <span className={connected ? "nano-heartbeat" : undefined} style={{
               width: 6, height: 6, borderRadius: "50%",
               background: connected ? "var(--ok)" : "var(--error)",
               display: "inline-block",
-              boxShadow: connected ? "0 0 6px var(--ok)" : "none",
+              flexShrink: 0,
             }} />
             {connected
-              ? <span style={{ color: "var(--text-muted)" }}>#{blockNumber} · {getNetworkDisplayName(settings.network)}</span>
+              ? <span className={blockFlash ? "nano-block-flash" : undefined} style={{ color: "var(--text-muted)" }}>
+                  #{blockNumber} · {getNetworkDisplayName(settings.network)}
+                </span>
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
           </div>

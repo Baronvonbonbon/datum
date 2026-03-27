@@ -4,267 +4,236 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="DATUM — Decentralized advertising protocol on Polkadot Hub. On-chain settlement, privacy-preserving engagement, no intermediaries.">
-  <meta name="keywords" content="polkadot, web3, decentralized advertising, privacy, blockchain, open protocol">
   <title>DATUM — Decentralized Advertising on Polkadot Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-      background: #08081a;
-      color: #d8d8e8;
-      line-height: 1.7;
-    }
-    a { color: #a0a0ff; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-    .container { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
+    :root {
+      --bg:          #1c1917;
+      --bg-raised:   rgba(255,255,255,0.04);
+      --text:        rgba(255,255,255,0.75);
+      --text-strong: #ffffff;
+      --text-muted:  rgba(255,255,255,0.35);
+      --border:      rgba(255,255,255,0.12);
+      --accent:      rgba(160,160,255,0.9);
+      --accent-dim:  rgba(160,160,255,0.4);
+      --ok:          #6ee7b7;
+      --warn:        #fcd34d;
+      --error:       #fca5a5;
+      --radius:      8px;
+      --radius-sm:   4px;
+    }
+
+    html { color-scheme: dark; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Warning banner */
+    .warning-banner {
+      background: rgba(252,211,77,0.07);
+      border-bottom: 1px solid rgba(252,211,77,0.2);
+      padding: 7px 24px;
+      font-size: 12px;
+      color: var(--warn);
+      text-align: center;
+    }
+
+    /* Top nav */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      height: 52px;
+      background: rgba(28,25,23,0.88);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px) saturate(180%);
+      -webkit-backdrop-filter: blur(8px) saturate(180%);
+    }
+    .topnav-brand { font-weight: 700; color: var(--text-strong); font-size: 16px; letter-spacing: 0.06em; }
+    .topnav-link { font-size: 13px; color: var(--text-muted); }
+    .topnav-link:hover { color: var(--text); text-decoration: none; }
+
+    /* Container */
+    .container { max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* Fade-in */
+    .fade { opacity: 0; transform: translateY(10px); transition: opacity 700ms ease-out, transform 700ms ease-out; }
+    .fade.show { opacity: 1; transform: translateY(0); }
 
     /* Hero */
-    .hero {
-      text-align: center;
-      padding: 48px 0 40px;
-      border-bottom: 1px solid #1a1a3a;
-      margin-bottom: 40px;
-    }
-    .hero h1 {
-      font-size: 36px;
-      color: #c0c0ff;
-      letter-spacing: 4px;
-      font-weight: 700;
-      margin-bottom: 12px;
-    }
-    .hero .tagline {
-      color: #888;
-      font-size: 15px;
-      max-width: 560px;
-      margin: 0 auto;
-    }
+    .hero { text-align: center; padding: 40px 0 48px; margin-bottom: 48px; border-bottom: 1px solid var(--border); }
+    .hero h1 { font-size: 40px; color: var(--text-strong); letter-spacing: 0.12em; font-weight: 700; margin-bottom: 14px; }
+    .hero .tagline { color: var(--text-muted); font-size: 15px; max-width: 520px; margin: 0 auto; line-height: 1.6; }
 
-    /* Mission */
-    .mission {
-      background: #0e0e24;
-      border: 1px solid #1a1a3a;
-      border-radius: 8px;
-      padding: 28px 32px;
-      margin-bottom: 40px;
-    }
-    .mission h2 {
-      color: #a0a0ff;
-      font-size: 18px;
-      margin-bottom: 12px;
-    }
-    .mission p {
-      color: #b0b0c8;
-      font-size: 14px;
-      margin-bottom: 10px;
-    }
-
-    /* Sections */
-    section { margin-bottom: 40px; }
-    section h2 {
-      color: #c0c0ff;
-      font-size: 20px;
+    /* Cards */
+    .card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px 28px;
       margin-bottom: 16px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #1a1a3a;
+      transition: border-color 300ms ease;
     }
-    section h3 {
-      color: #a0a0d0;
-      font-size: 15px;
-      margin: 16px 0 8px;
-    }
-    section p, section li {
-      color: #b0b0c8;
-      font-size: 14px;
-    }
-    section ul {
-      list-style: none;
-      padding: 0;
-    }
-    section ul li {
-      padding: 3px 0;
-    }
-    section ul li::before {
-      content: "·";
-      color: #4a4a8a;
-      font-weight: bold;
-      margin-right: 8px;
-    }
+    .card:hover { border-color: rgba(255,255,255,0.22); }
+    .card h2 { font-size: 13px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 14px; }
+    .card h3 { font-size: 14px; font-weight: 600; color: var(--text-strong); margin: 18px 0 8px; }
+    .card p { color: var(--text); font-size: 14px; margin-bottom: 10px; }
+    .card p:last-child { margin-bottom: 0; }
+    .card ul { list-style: none; padding: 0; }
+    .card ul li { padding: 3px 0; color: var(--text); font-size: 14px; }
+    .card ul li::before { content: "·"; color: var(--accent-dim); font-weight: bold; margin-right: 8px; }
 
-    /* How it works */
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-top: 16px;
-    }
-    .step {
-      background: #0e0e24;
-      border: 1px solid #1a1a3a;
-      border-radius: 6px;
-      padding: 20px;
-    }
-    .step .num {
-      color: #a0a0ff;
-      font-size: 24px;
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-    .step .title {
-      color: #d0d0f0;
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-    .step .desc {
-      color: #888;
-      font-size: 12px;
-      line-height: 1.5;
-    }
+    section { margin-bottom: 12px; }
+
+    /* Step grid */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 4px; }
+    .step { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: border-color 300ms ease; }
+    .step:hover { border-color: rgba(255,255,255,0.22); }
+    .step .num { color: var(--accent); font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+    .step .title { color: var(--text-strong); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .step .desc { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
     /* Ad slot */
     .ad-section {
-      border: 1px dashed #2a2a5a;
-      border-radius: 8px;
+      border: 1px dashed rgba(160,160,255,0.2);
+      border-radius: var(--radius);
       padding: 20px;
-      margin: 32px 0;
-      min-height: 100px;
+      margin: 20px 0;
+      min-height: 80px;
+      background: rgba(160,160,255,0.02);
     }
     .ad-section-label {
-      color: #555;
+      color: var(--text-muted);
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.1em;
       margin-bottom: 8px;
     }
     #datum-ad-slot:empty::after {
       content: "Waiting for DATUM extension...";
-      color: #444;
+      color: var(--text-muted);
       font-size: 12px;
       font-style: italic;
     }
 
-    /* Taxonomy */
-    .taxonomy-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 12px;
+    /* Status panel */
+    .status-panel {
       margin-top: 16px;
-    }
-    .tax-group {
-      background: #0e0e24;
-      border: 1px solid #1a1a3a;
-      border-radius: 6px;
-      padding: 14px 16px;
-    }
-    .tax-group .parent {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-    .tax-group .parent .id {
-      background: #1a1a3a;
-      color: #a0a0ff;
-      font-size: 10px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
       font-family: monospace;
-      padding: 2px 6px;
-      border-radius: 3px;
-      min-width: 28px;
-      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
     }
-    .tax-group .parent .name {
-      color: #d0d0f0;
-      font-size: 13px;
-      font-weight: 600;
-    }
-    .tax-group .children {
-      padding-left: 36px;
-    }
-    .tax-group .child {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 1px 0;
-    }
-    .tax-group .child .id {
-      color: #555;
-      font-size: 10px;
-      font-family: monospace;
-      min-width: 36px;
-    }
-    .tax-group .child .name {
-      color: #888;
-      font-size: 11px;
-    }
+    .status-panel .row { padding: 2px 0; display: flex; gap: 8px; align-items: center; }
+    .status-panel .label { color: var(--accent); min-width: 120px; }
+    .status-panel .ok { color: var(--ok); }
+    .status-panel .warn { color: var(--warn); }
+    .status-panel .err { color: var(--error); }
 
-    /* SDK snippet */
+    /* Heartbeat dot */
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.online { background: var(--ok); }
+    .dot.offline { background: var(--error); }
+    .dot.checking { background: var(--warn); }
+    @keyframes heartbeat { 0%,100% { box-shadow: 0 0 4px var(--ok); } 50% { box-shadow: 0 0 10px var(--ok), 0 0 20px rgba(110,231,183,0.3); } }
+    .dot.online { animation: heartbeat 2s ease-in-out infinite; }
+
+    /* Taxonomy grid */
+    .taxonomy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+    .tax-group { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+    .tax-group .parent { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .tax-group .parent .id { background: rgba(160,160,255,0.1); color: var(--accent); font-size: 10px; font-family: monospace; padding: 2px 6px; border-radius: 3px; min-width: 26px; text-align: center; border: 1px solid rgba(160,160,255,0.2); }
+    .tax-group .parent .name { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+    .tax-group .children { padding-left: 34px; }
+    .tax-group .child { display: flex; gap: 6px; padding: 1px 0; }
+    .tax-group .child .id { color: var(--text-muted); font-size: 10px; font-family: monospace; min-width: 32px; }
+    .tax-group .child .name { color: var(--text-muted); font-size: 11px; }
+
+    /* Code */
     pre {
-      background: #0e0e24;
-      border: 1px solid #1a1a3a;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
       padding: 16px;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       overflow-x: auto;
       font-size: 12px;
-      color: #ccc;
+      color: var(--text);
       margin: 12px 0;
       line-height: 1.6;
     }
     code {
-      background: #1a1a2e;
-      padding: 2px 6px;
+      background: rgba(160,160,255,0.08);
+      padding: 1px 5px;
       border-radius: 3px;
       font-size: 12px;
-      color: #a0a0ff;
+      color: var(--accent);
+      border: 1px solid rgba(160,160,255,0.15);
     }
+    pre code { background: none; border: none; padding: 0; color: inherit; }
 
-    /* Status panel */
-    .status {
-      margin-top: 24px;
-      padding: 14px 16px;
-      background: #0e0e24;
-      border: 1px solid #1a1a3a;
-      border-radius: 6px;
+    /* Video */
+    .video-wrap { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: var(--radius); border: 1px solid var(--border); }
+    .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+
+    /* Info rows */
+    .info-row {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
       font-family: monospace;
       font-size: 12px;
-      color: #888;
+      color: var(--text-muted);
+      margin: 12px 0;
     }
-    .status div { padding: 2px 0; }
-    .status .label { color: #60a0ff; }
-    .status .ok { color: #60c060; }
-    .status .waiting { color: #c0c060; }
-    .status .offline { color: #ff6060; }
-    .heartbeat-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-    .heartbeat-dot.online { background: #60c060; box-shadow: 0 0 6px #60c06080; }
-    .heartbeat-dot.offline { background: #ff6060; box-shadow: 0 0 6px #ff606080; }
-    .heartbeat-dot.checking { background: #c0c060; box-shadow: 0 0 6px #c0c06080; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .heartbeat-dot.online { animation: pulse 3s ease-in-out infinite; }
+    .info-row .key { color: var(--accent); }
+    .info-row div { padding: 2px 0; }
+    .info-row div.indent { padding-left: 16px; }
 
     /* Footer */
-    footer {
-      margin-top: 48px;
-      padding-top: 24px;
-      border-top: 1px solid #1a1a3a;
-      text-align: center;
-      color: #555;
-      font-size: 12px;
-    }
-    footer a { color: #888; }
+    footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; color: var(--text-muted); font-size: 12px; }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--text); }
   </style>
 </head>
 <body>
+
+  <div class="warning-banner">
+    ⚠ Experimental build — Paseo testnet only. Do not connect a wallet holding real funds.
+  </div>
+
+  <nav class="topnav">
+    <span class="topnav-brand">DATUM</span>
+    <a href="/" class="topnav-link">← Web App</a>
+  </nav>
+
   <div class="container">
 
-    <!-- Hero -->
-    <div class="hero">
+    <div class="hero fade">
       <h1>DATUM</h1>
       <p class="tagline">
         Decentralized advertising protocol on Polkadot Hub.
@@ -272,372 +241,298 @@
       </p>
     </div>
 
-    <!-- Mission -->
-    <div class="mission">
-      <h2>Mission</h2>
-      <p>
-        The web already works. People publish content, others read it, and advertising
-        connects the two. Search engines, social networks, news sites, forums &mdash;
-        these experiences are familiar and valuable. What isn't necessary is the
-        centralized intermediary extracting rent from every interaction.
-      </p>
-      <p>
-        DATUM explores how these familiar web experiences &mdash; publishing, browsing,
-        advertising, content discovery &mdash; can continue to function as they always have,
-        but with on-chain settlement replacing opaque middlemen. Publishers keep their sites.
-        Advertisers keep their campaigns. Users keep their data. The protocol handles the
-        settlement, governance, and trust &mdash; without a dedicated service provider sitting
-        in the middle.
-      </p>
-      <p>
-        No platform lock-in. No data extraction. No intermediary taking a cut for matching
-        two parties that could match themselves. Just the existing web, with transparent
-        on-chain infrastructure underneath.
-      </p>
-    </div>
-
-    <!-- Video Walkthrough -->
     <section>
-      <h2>Walkthrough</h2>
-      <div style="position:relative; padding-bottom:56.25%; height:0; overflow:hidden; border-radius:8px; border:1px solid #1a1a3a;">
-        <iframe
-          src="https://www.youtube.com/embed/veLg_Fu6elY"
-          title="DATUM System Walkthrough"
-          style="position:absolute; top:0; left:0; width:100%; height:100%; border:0;"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowfullscreen>
-        </iframe>
+      <div class="card fade">
+        <h2>Mission</h2>
+        <p>
+          The web already works. People publish content, others read it, and advertising
+          connects the two. What isn't necessary is the centralized intermediary extracting
+          rent from every interaction.
+        </p>
+        <p>
+          DATUM explores how familiar web experiences — publishing, browsing, advertising,
+          content discovery — can continue to function as they always have, but with on-chain
+          settlement replacing opaque middlemen. Publishers keep their sites. Advertisers keep
+          their campaigns. Users keep their data. The protocol handles settlement, governance,
+          and trust — without a dedicated service provider in the middle.
+        </p>
+        <p>No platform lock-in. No data extraction. Just the existing web, with transparent on-chain infrastructure underneath.</p>
       </div>
     </section>
 
-    <!-- How It Works -->
     <section>
-      <h2>How It Works</h2>
-      <div class="steps">
-        <div class="step">
-          <div class="num">1</div>
-          <div class="title">Publish</div>
-          <div class="desc">
-            Add the SDK tag to your site. Declare your content categories and publisher address.
-            Your site serves ads directly &mdash; no ad server needed.
-          </div>
+      <div class="card fade">
+        <h2>Walkthrough</h2>
+        <div class="video-wrap">
+          <iframe src="https://www.youtube.com/embed/veLg_Fu6elY" title="DATUM System Walkthrough"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         </div>
-        <div class="step">
-          <div class="num">2</div>
-          <div class="title">Campaign</div>
-          <div class="desc">
-            Advertisers deposit DOT into an on-chain escrow, set a CPM bid and category.
-            Community governance votes to activate or reject campaigns.
+      </div>
+    </section>
+
+    <section>
+      <div class="card fade">
+        <h2>How It Works</h2>
+        <div class="steps">
+          <div class="step">
+            <div class="num">1</div>
+            <div class="title">Publish</div>
+            <div class="desc">Add the SDK tag to your site. Declare your categories and publisher address. No ad server needed.</div>
           </div>
-        </div>
-        <div class="step">
-          <div class="num">3</div>
-          <div class="title">Engage</div>
-          <div class="desc">
-            Users browse normally with the DATUM extension. Impressions are tracked locally
-            with engagement scoring. Behavior data never leaves the browser.
+          <div class="step">
+            <div class="num">2</div>
+            <div class="title">Campaign</div>
+            <div class="desc">Advertisers deposit DOT into on-chain escrow. Governance votes to activate or reject campaigns.</div>
           </div>
-        </div>
-        <div class="step">
-          <div class="num">4</div>
-          <div class="title">Settle</div>
-          <div class="desc">
-            Claim hash chains are submitted on-chain. Revenue splits automatically:
-            publisher, user, and protocol &mdash; all transparent, all verifiable.
+          <div class="step">
+            <div class="num">3</div>
+            <div class="title">Engage</div>
+            <div class="desc">Users browse with the DATUM extension. Impressions tracked locally — behavior data never leaves the browser.</div>
+          </div>
+          <div class="step">
+            <div class="num">4</div>
+            <div class="title">Settle</div>
+            <div class="desc">Claim hash chains submitted on-chain. Revenue splits automatically — publisher, user, protocol. All transparent.</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Architecture -->
     <section>
-      <h2>Protocol Architecture</h2>
-      <p>Thirteen smart contracts deployed on Polkadot Hub (PolkaVM / pallet-revive):</p>
-      <ul>
-        <li><strong>PauseRegistry</strong> &mdash; Emergency circuit breaker</li>
-        <li><strong>Timelock</strong> &mdash; Governance-delayed parameter changes</li>
-        <li><strong>Publishers</strong> &mdash; Publisher registration, take rates, category bitmasks, blocklist/allowlists</li>
-        <li><strong>Campaigns</strong> &mdash; Campaign lifecycle, metadata, status management</li>
-        <li><strong>BudgetLedger</strong> &mdash; Campaign escrow, daily caps, settlement tracking</li>
-        <li><strong>PaymentVault</strong> &mdash; Pull-payment vault (publisher/user/protocol balances)</li>
-        <li><strong>CampaignLifecycle</strong> &mdash; Complete/terminate/expire, inactivity timeout</li>
-        <li><strong>AttestationVerifier</strong> &mdash; Mandatory publisher co-signature for all settlements</li>
-        <li><strong>GovernanceV2</strong> &mdash; Conviction-weighted voting (9 levels), anti-grief termination protection</li>
-        <li><strong>GovernanceSlash</strong> &mdash; Symmetric slash on losing voters</li>
-        <li><strong>Settlement</strong> &mdash; Blake2-256 hash-chain validation, three-way revenue split</li>
-        <li><strong>Relay</strong> &mdash; EIP-712 gasless settlement with publisher co-signature</li>
-        <li><strong>ZKVerifier</strong> &mdash; Engagement proof verification (stub, Groth16 post-alpha)</li>
-      </ul>
-    </section>
-
-    <!-- Live Ad Slot -->
-    <section>
-      <h2>Live Ad Slot</h2>
-      <p>
-        This page runs the DATUM Publisher SDK with Diana's testnet publisher address.
-        If you have the DATUM extension installed and connected to Paseo,
-        an ad from an active campaign will appear below. Diana's publisher relay co-signs
-        and settles claims automatically.
-      </p>
-      <div class="ad-section">
-        <div class="ad-section-label">DATUM Ad Slot</div>
-        <div id="datum-ad-slot"></div>
-      </div>
-      <div class="status" id="sdk-status">
-        <div><span class="label">Publisher Relay:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
-        <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
-        <div><span class="label">Publisher:</span> <span id="status-publisher">&mdash;</span></div>
-        <div><span class="label">Categories:</span> <span id="status-categories">&mdash;</span></div>
-        <div><span class="label">Handshake:</span> <span id="status-handshake" class="waiting">Pending</span></div>
+      <div class="card fade">
+        <h2>Protocol Architecture</h2>
+        <p>Thirteen smart contracts on Polkadot Hub (PolkaVM / pallet-revive):</p>
+        <ul>
+          <li><strong>PauseRegistry</strong> — Emergency circuit breaker</li>
+          <li><strong>Timelock</strong> — Governance-delayed parameter changes</li>
+          <li><strong>Publishers</strong> — Registration, take rates, category bitmasks, blocklist/allowlists</li>
+          <li><strong>Campaigns</strong> — Campaign lifecycle, metadata, status management</li>
+          <li><strong>BudgetLedger</strong> — Campaign escrow, daily caps, settlement tracking</li>
+          <li><strong>PaymentVault</strong> — Pull-payment vault (publisher / user / protocol balances)</li>
+          <li><strong>CampaignLifecycle</strong> — Complete / terminate / expire, inactivity timeout</li>
+          <li><strong>AttestationVerifier</strong> — Mandatory publisher co-signature for all settlements</li>
+          <li><strong>GovernanceV2</strong> — Conviction-weighted voting (9 levels), anti-grief termination</li>
+          <li><strong>GovernanceSlash</strong> — Symmetric slash on losing voters</li>
+          <li><strong>Settlement</strong> — Blake2-256 hash-chain validation, three-way revenue split</li>
+          <li><strong>Relay</strong> — EIP-712 gasless settlement with publisher co-signature</li>
+          <li><strong>ZKVerifier</strong> — Engagement proof verification (stub; Groth16 post-alpha)</li>
+        </ul>
       </div>
     </section>
 
-    <!-- Publisher Integration -->
     <section>
-      <h2>Publisher Integration</h2>
-      <p>Add the SDK to any page with two lines:</p>
-      <pre>&lt;script src="https://your-cdn/datum-sdk.js"
+      <div class="card fade">
+        <h2>Live Ad Slot</h2>
+        <p>
+          This page runs the DATUM Publisher SDK with Diana's testnet publisher address.
+          If you have the DATUM extension installed and connected to Paseo, an ad from an
+          active campaign will appear below.
+        </p>
+        <div class="ad-section">
+          <div class="ad-section-label">DATUM Ad Slot</div>
+          <div id="datum-ad-slot"></div>
+        </div>
+        <div class="status-panel">
+          <div class="row"><span class="label">Publisher Relay</span><span class="dot checking" id="relay-dot"></span><span id="status-relay" class="warn">Checking...</span></div>
+          <div class="row"><span class="label">SDK</span><span id="status-sdk" class="warn">Loading...</span></div>
+          <div class="row"><span class="label">Publisher</span><span id="status-publisher">—</span></div>
+          <div class="row"><span class="label">Categories</span><span id="status-categories">—</span></div>
+          <div class="row"><span class="label">Handshake</span><span id="status-handshake" class="warn">Pending</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="card fade">
+        <h2>Publisher Integration</h2>
+        <p>Add the SDK to any page with two lines:</p>
+        <pre>&lt;script src="https://your-cdn/datum-sdk.js"
   data-categories="6,26"
   data-publisher="0xYOUR_PUBLISHER_ADDRESS"
   data-relay="https://your-relay.example.com"&gt;&lt;/script&gt;
 &lt;div id="datum-ad-slot"&gt;&lt;/div&gt;</pre>
-      <p>
-        <code>data-categories</code> declares which ad categories your site accepts
-        (comma-separated IDs from the taxonomy below).
-        <code>data-publisher</code> is your registered on-chain address.
-        <code>data-relay</code> is the URL of your publisher relay endpoint (the extension
-        uses this to request attestations and submit claims &mdash; no extension rebuild needed
-        when the URL changes).
-        The extension matches campaigns by category overlap, runs a Vickrey auction,
-        and injects the winning ad into the slot.
-      </p>
-    </section>
-
-    <!-- Taxonomy -->
-    <section>
-      <h2>Category Taxonomy</h2>
-      <p>
-        Campaigns and publishers declare categories using numeric IDs.
-        Top-level categories (1&ndash;26) are used for on-chain bitmask matching.
-        Subcategories provide finer-grained classification for client-side filtering.
-      </p>
-      <div class="taxonomy-grid" id="taxonomy-grid"></div>
-    </section>
-
-    <!-- Publisher Relay -->
-    <section>
-      <h2>Publisher Relay</h2>
-      <p>
-        Publishers operate a publicly available relay endpoint that co-signs user claim
-        batches (EIP-712 attestation) and submits them on-chain via
-        <code>DatumRelay.settleClaimsFor()</code>. The relay pays gas so users don't
-        need to &mdash; the publisher is reimbursed from the campaign budget's take-rate
-        share. How a publisher chooses to run their relay &mdash; automated service,
-        manual dashboard, serverless function, or anything else &mdash; is entirely up to them.
-      </p>
-
-      <h3>Demo Relay</h3>
-      <p>
-        This demo page connects to Diana's testnet relay (check the status indicator above).
-        Each publisher operates their own relay &mdash; the relay URL is declared in the SDK
-        tag's <code>data-relay</code> attribute.
-      </p>
-      <div style="background:#0e0e24; border:1px solid #1a1a3a; border-radius:6px; padding:14px 16px; margin:12px 0; font-family:monospace; font-size:12px; color:#888;">
-        <div><span style="color:#60a0ff">Network:</span> Paseo Testnet (Chain ID 420420417)</div>
-        <div><span style="color:#60a0ff">Relay Endpoints:</span></div>
-        <div style="padding-left:16px">POST <code>/.well-known/datum-attest</code> &mdash; publisher co-signature</div>
-        <div style="padding-left:16px">POST <code>/relay/submit</code> &mdash; queue signed claim batches</div>
-        <div style="padding-left:16px">GET <code>/relay/status</code> &mdash; queue depth + stats</div>
-        <div style="padding-left:16px">GET <code>/health</code> &mdash; heartbeat</div>
+        <p>
+          <code>data-categories</code> — comma-separated category IDs your site accepts.
+          <code>data-publisher</code> — your registered on-chain address.
+          <code>data-relay</code> — your relay URL; no extension rebuild needed when it changes.
+        </p>
       </div>
+    </section>
 
-      <h3>How It Works</h3>
-      <ul>
-        <li>User browses a publisher page with the DATUM SDK and extension installed</li>
-        <li>Impressions are tracked locally; claims accumulate in the extension</li>
-        <li>When the user signs a claim batch (EIP-712), the extension requests a publisher
-            co-signature from the relay's <code>/.well-known/datum-attest</code> endpoint</li>
-        <li>The signed batch is sent to <code>/relay/submit</code>, where the relay verifies the
-            user's EIP-712 signature and processes it for on-chain submission</li>
-        <li>Settlement splits revenue: publisher (take rate), user (75% of remainder), protocol (25%)</li>
-      </ul>
+    <section>
+      <div class="card fade">
+        <h2>Category Taxonomy</h2>
+        <p>Campaigns and publishers match by numeric IDs (1–26) stored as an on-chain bitmask.</p>
+        <div class="taxonomy-grid" id="taxonomy-grid"></div>
+      </div>
+    </section>
 
-      <h3>Security</h3>
-      <ul>
-        <li><strong>No private key exposure:</strong> Users sign claim batches locally using EIP-712 typed data.
-            Only the signature is sent to the relay &mdash; private keys never leave the browser</li>
-        <li><strong>Signature verification:</strong> The relay verifies every user signature before queuing.
-            Forged or tampered batches are rejected</li>
-        <li><strong>Rate limiting:</strong> Per-IP sliding-window limits (10 attestation/min, 5 submit/min)</li>
-        <li><strong>Input validation:</strong> Address format, nonce range, batch size caps (max 50 claims per batch)</li>
-        <li><strong>HTTPS only:</strong> The extension rejects HTTP relay URLs for non-local domains</li>
-      </ul>
+    <section>
+      <div class="card fade">
+        <h2>Publisher Relay</h2>
+        <p>
+          Publishers run a relay that co-signs user claim batches (EIP-712) and submits them
+          on-chain. The relay pays gas — users need no tokens.
+        </p>
 
-      <h3>Relay Downtime</h3>
-      <p>
-        If the publisher relay is offline (check the indicator above), claims will still accumulate
-        in the extension &mdash; they can be submitted when the relay comes back online,
-        or the user can submit claims directly on-chain. No claims or earnings are lost due to relay downtime.
-      </p>
+        <h3>Demo Relay</h3>
+        <p>This page connects to Diana's testnet relay. Each publisher declares their relay via <code>data-relay</code>.</p>
+        <div class="info-row">
+          <div><span class="key">Network:</span> Paseo Testnet (Chain ID 420420417)</div>
+          <div><span class="key">Endpoints:</span></div>
+          <div class="indent">POST <code>/.well-known/datum-attest</code> — publisher co-signature</div>
+          <div class="indent">POST <code>/relay/submit</code> — queue signed claim batches</div>
+          <div class="indent">GET <code>/relay/status</code> — queue depth + stats</div>
+          <div class="indent">GET <code>/health</code> — heartbeat</div>
+        </div>
 
-      <h3>Run Your Own Relay</h3>
-      <p>
-        A reference relay implementation is included in the repository at
-        <a href="https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template"><code>docs/relay-bot-template/</code></a>.
-        This is one way to run a publisher relay &mdash; an automated Node.js service that
-        queues and submits batches on a timer. Publishers are free to implement their relay
-        endpoint however they prefer (serverless, manual review, custom tooling, etc.) as long
-        as it exposes the required HTTP endpoints. To set up the reference implementation:
-      </p>
-      <pre>
-# 1. Register as a publisher on-chain (via the DATUM extension Publisher tab)
-# 2. Copy the template
-cp -r docs/relay-bot-template my-relay
-cd my-relay
+        <h3>Security</h3>
+        <ul>
+          <li><strong>No key exposure:</strong> Users sign locally via EIP-712 — only the signature is sent</li>
+          <li><strong>Signature verification:</strong> Every signature verified before queuing — forgeries rejected</li>
+          <li><strong>Rate limiting:</strong> Per-IP sliding-window (10 attestations/min, 5 submits/min)</li>
+          <li><strong>HTTPS only:</strong> Extension rejects HTTP relay URLs for non-local domains</li>
+        </ul>
 
-# 3. Install dependencies
+        <h3>Run Your Own</h3>
+        <p>Reference implementation: <a href="https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template"><code>docs/relay-bot-template/</code></a></p>
+        <pre># Copy template
+cp -r docs/relay-bot-template my-relay && cd my-relay
 npm install
 
-# 4. Configure your publisher key and contract addresses
-#    Edit .env (see .env.example in the template)
+# Configure
 export PUBLISHER_KEY="0xYOUR_PRIVATE_KEY"
 export RPC_URL="https://eth-rpc-testnet.polkadot.io/"
 
-# 5. Start the relay
+# Run
 node relay-bot.mjs
 
-# 6. (Optional) Expose publicly via reverse proxy, tunnel, or cloud hosting</pre>
-      <p>
-        See the template's <code>README.md</code> for full configuration options, systemd setup,
-        and security hardening details.
-      </p>
+# Expose publicly via reverse proxy, tunnel, or cloud hosting</pre>
+      </div>
     </section>
 
-    <!-- Links -->
     <section>
-      <h2>Resources</h2>
-      <ul>
-        <li><a href="https://github.com/Baronvonbonbon/datum">GitHub Repository</a></li>
-        <li><a href="https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template">Publisher Relay Template</a></li>
-        <li><a href="https://blockscout-testnet.polkadot.io/">Paseo Explorer</a></li>
-        <li><a href="https://faucet.polkadot.io/">Testnet Faucet</a> (select "Paseo")</li>
-      </ul>
+      <div class="card fade">
+        <h2>Resources</h2>
+        <ul>
+          <li><a href="https://github.com/Baronvonbonbon/datum">GitHub Repository</a></li>
+          <li><a href="https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template">Publisher Relay Template</a></li>
+          <li><a href="https://blockscout-testnet.polkadot.io/">Paseo Explorer</a></li>
+          <li><a href="https://faucet.polkadot.io/">Testnet Faucet</a> (select "Paseo")</li>
+        </ul>
+      </div>
     </section>
 
     <footer>
-      DATUM &mdash; Decentralized advertising on <a href="https://polkadot.com">Polkadot</a>
+      DATUM — Decentralized advertising on <a href="https://polkadot.com">Polkadot</a>
     </footer>
 
   </div>
 
-  <!-- DATUM SDK — Diana (Publisher 1) testnet address, all categories -->
-  <script src="datum-sdk.js" data-categories="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26" data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0" data-relay="https://relay.javcon.io"></script>
+  <!-- DATUM SDK — Diana (Publisher 1), all categories -->
+  <script src="datum-sdk.js"
+    data-categories="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26"
+    data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
+    data-relay="https://relay.javcon.io"></script>
 
   <script>
-    // Build taxonomy grid from the canonical category list
+    // Staggered fade-in
+    document.querySelectorAll('.fade').forEach(function(el, i) {
+      setTimeout(function() { el.classList.add('show'); }, i * 100);
+    });
+
+    // Taxonomy grid
     var CATEGORIES = {
-      1: { name: "Arts & Entertainment", subs: { 101: "Celebrities & Entertainment News", 102: "Comics & Animation", 103: "Movies", 104: "Music & Audio", 105: "Performing Arts", 106: "TV & Video", 107: "Visual Art & Design" } },
-      2: { name: "Autos & Vehicles", subs: { 201: "Motor Vehicles", 202: "Vehicle Parts & Accessories", 203: "Vehicle Shopping" } },
-      3: { name: "Beauty & Fitness", subs: { 301: "Beauty & Personal Care", 302: "Fitness & Bodybuilding", 303: "Fashion & Style" } },
-      4: { name: "Books & Literature", subs: { 401: "Book Reviews", 402: "E-Books & Digital Publishing" } },
-      5: { name: "Business & Industrial", subs: { 501: "Advertising & Marketing", 502: "Agriculture & Forestry", 503: "Business Finance", 504: "Construction & Maintenance", 505: "Manufacturing", 506: "Small Business" } },
-      6: { name: "Computers & Electronics", subs: { 601: "Consumer Electronics", 602: "Programming & Developer Tools", 603: "Hardware", 604: "Networking", 605: "Software" } },
-      7: { name: "Finance", subs: { 701: "Banking", 702: "Insurance", 703: "Investing", 704: "Credit & Lending" } },
-      8: { name: "Food & Drink", subs: { 801: "Cooking & Recipes", 802: "Restaurants & Dining", 803: "Beverages" } },
-      9: { name: "Games", subs: { 901: "Board & Card Games", 902: "Computer & Video Games", 903: "Online Games", 904: "Esports" } },
-      10: { name: "Health", subs: { 1001: "Health Conditions", 1002: "Mental Health", 1003: "Nutrition & Diet", 1004: "Pharmacy & Medications" } },
-      11: { name: "Hobbies & Leisure", subs: { 1101: "Crafts & DIY", 1102: "Outdoor Recreation", 1103: "Photography" } },
-      12: { name: "Home & Garden", subs: { 1201: "Gardening", 1202: "Home Improvement", 1203: "Interior Design" } },
-      13: { name: "Internet & Telecom", subs: { 1301: "Email & Messaging", 1302: "Search Engines", 1303: "Web Services & Cloud", 1304: "Privacy & Security" } },
-      14: { name: "Jobs & Education", subs: { 1401: "Education & Training", 1402: "Job Listings & Careers" } },
-      15: { name: "Law & Government", subs: { 1501: "Government", 1502: "Legal", 1503: "Military" } },
-      16: { name: "News", subs: { 1601: "Business News", 1602: "Politics", 1603: "Technology News", 1604: "World News" } },
-      17: { name: "Online Communities", subs: { 1701: "Blogging & Forums", 1702: "Social Networks" } },
-      18: { name: "People & Society", subs: { 1801: "Family & Relationships", 1802: "Religion & Spirituality", 1803: "Social Issues & Advocacy" } },
-      19: { name: "Pets & Animals", subs: { 1901: "Dogs", 1902: "Cats", 1903: "Wildlife" } },
-      20: { name: "Real Estate", subs: { 2001: "Rental Properties", 2002: "Commercial Real Estate" } },
-      21: { name: "Reference", subs: {} },
-      22: { name: "Science", subs: { 2201: "Biological Sciences", 2202: "Earth Sciences", 2203: "Physics", 2204: "Mathematics", 2205: "Computer Science" } },
-      23: { name: "Shopping", subs: { 2301: "Apparel", 2302: "Consumer Electronics Shopping", 2303: "Gifts & Special Events" } },
-      24: { name: "Sports", subs: { 2401: "Team Sports", 2402: "Individual Sports", 2403: "Combat Sports", 2404: "Water Sports" } },
-      25: { name: "Travel", subs: { 2501: "Air Travel", 2502: "Hotels & Accommodations", 2503: "Tourist Destinations" } },
-      26: { name: "Crypto & Web3", subs: { 2601: "Bitcoin & Ethereum", 2602: "DeFi", 2603: "NFTs & Digital Collectibles", 2604: "Polkadot & Parachains", 2605: "DAOs & Governance" } },
+      1:  { name: "Arts & Entertainment",   subs: { 101: "Celebrities & News", 102: "Comics & Animation", 103: "Movies", 104: "Music & Audio", 105: "Performing Arts", 106: "TV & Video", 107: "Visual Art & Design" } },
+      2:  { name: "Autos & Vehicles",        subs: { 201: "Motor Vehicles", 202: "Parts & Accessories", 203: "Vehicle Shopping" } },
+      3:  { name: "Beauty & Fitness",         subs: { 301: "Beauty & Personal Care", 302: "Fitness", 303: "Fashion & Style" } },
+      4:  { name: "Books & Literature",       subs: { 401: "Book Reviews", 402: "E-Books" } },
+      5:  { name: "Business & Industrial",    subs: { 501: "Advertising", 502: "Agriculture", 503: "Business Finance", 504: "Construction", 505: "Manufacturing", 506: "Small Business" } },
+      6:  { name: "Computers & Electronics",  subs: { 601: "Consumer Electronics", 602: "Developer Tools", 603: "Hardware", 604: "Networking", 605: "Software" } },
+      7:  { name: "Finance",                  subs: { 701: "Banking", 702: "Insurance", 703: "Investing", 704: "Credit & Lending" } },
+      8:  { name: "Food & Drink",             subs: { 801: "Cooking & Recipes", 802: "Restaurants", 803: "Beverages" } },
+      9:  { name: "Games",                    subs: { 901: "Board & Card Games", 902: "Video Games", 903: "Online Games", 904: "Esports" } },
+      10: { name: "Health",                   subs: { 1001: "Health Conditions", 1002: "Mental Health", 1003: "Nutrition", 1004: "Pharmacy" } },
+      11: { name: "Hobbies & Leisure",        subs: { 1101: "Crafts & DIY", 1102: "Outdoor Recreation", 1103: "Photography" } },
+      12: { name: "Home & Garden",            subs: { 1201: "Gardening", 1202: "Home Improvement", 1203: "Interior Design" } },
+      13: { name: "Internet & Telecom",       subs: { 1301: "Email & Messaging", 1302: "Search Engines", 1303: "Web Services", 1304: "Privacy & Security" } },
+      14: { name: "Jobs & Education",         subs: { 1401: "Education", 1402: "Job Listings" } },
+      15: { name: "Law & Government",         subs: { 1501: "Government", 1502: "Legal", 1503: "Military" } },
+      16: { name: "News",                     subs: { 1601: "Business News", 1602: "Politics", 1603: "Tech News", 1604: "World News" } },
+      17: { name: "Online Communities",       subs: { 1701: "Blogs & Forums", 1702: "Social Networks" } },
+      18: { name: "People & Society",         subs: { 1801: "Family & Relationships", 1802: "Religion", 1803: "Social Issues" } },
+      19: { name: "Pets & Animals",           subs: { 1901: "Dogs", 1902: "Cats", 1903: "Wildlife" } },
+      20: { name: "Real Estate",              subs: { 2001: "Rental Properties", 2002: "Commercial" } },
+      21: { name: "Reference",                subs: {} },
+      22: { name: "Science",                  subs: { 2201: "Biology", 2202: "Earth Sciences", 2203: "Physics", 2204: "Mathematics", 2205: "Computer Science" } },
+      23: { name: "Shopping",                 subs: { 2301: "Apparel", 2302: "Electronics", 2303: "Gifts" } },
+      24: { name: "Sports",                   subs: { 2401: "Team Sports", 2402: "Individual Sports", 2403: "Combat Sports", 2404: "Water Sports" } },
+      25: { name: "Travel",                   subs: { 2501: "Air Travel", 2502: "Hotels", 2503: "Destinations" } },
+      26: { name: "Crypto & Web3",            subs: { 2601: "Bitcoin & Ethereum", 2602: "DeFi", 2603: "NFTs", 2604: "Polkadot & Parachains", 2605: "DAOs & Governance" } },
     };
 
-    var grid = document.getElementById("taxonomy-grid");
-    Object.keys(CATEGORIES).forEach(function (id) {
+    var grid = document.getElementById('taxonomy-grid');
+    Object.keys(CATEGORIES).forEach(function(id) {
       var cat = CATEGORIES[id];
-      var group = document.createElement("div");
-      group.className = "tax-group";
-
-      var parent = document.createElement("div");
-      parent.className = "parent";
+      var group = document.createElement('div'); group.className = 'tax-group';
+      var parent = document.createElement('div'); parent.className = 'parent';
       parent.innerHTML = '<span class="id">' + id + '</span><span class="name">' + cat.name + '</span>';
       group.appendChild(parent);
-
       var subIds = Object.keys(cat.subs);
-      if (subIds.length > 0) {
-        var children = document.createElement("div");
-        children.className = "children";
-        subIds.forEach(function (sid) {
-          var child = document.createElement("div");
-          child.className = "child";
+      if (subIds.length) {
+        var children = document.createElement('div'); children.className = 'children';
+        subIds.forEach(function(sid) {
+          var child = document.createElement('div'); child.className = 'child';
           child.innerHTML = '<span class="id">' + sid + '</span><span class="name">' + cat.subs[sid] + '</span>';
           children.appendChild(child);
         });
         group.appendChild(children);
       }
-
       grid.appendChild(group);
     });
 
-    // Publisher relay heartbeat
-    var RELAY_URL = "https://relay.javcon.io";
-    var relayDot = document.getElementById("relay-dot");
-    var relayText = document.getElementById("status-relay");
-
+    // Relay heartbeat
+    var relayDot = document.getElementById('relay-dot');
+    var relayText = document.getElementById('status-relay');
     function checkRelay() {
-      var controller = new AbortController();
-      var timeout = setTimeout(function () { controller.abort(); }, 5000);
-      fetch(RELAY_URL + "/health", { signal: controller.signal })
-        .then(function (r) { clearTimeout(timeout); return r.json(); })
-        .then(function (data) {
+      var ctrl = new AbortController();
+      var t = setTimeout(function() { ctrl.abort(); }, 5000);
+      fetch('https://relay.javcon.io/health', { signal: ctrl.signal })
+        .then(function(r) { clearTimeout(t); return r.json(); })
+        .then(function(data) {
           if (data && data.ok) {
-            relayDot.className = "heartbeat-dot online";
-            var upH = Math.floor(data.uptime / 3600);
-            var upM = Math.floor((data.uptime % 3600) / 60);
-            relayText.textContent = "Online (uptime " + upH + "h " + upM + "m)";
-            relayText.className = "ok";
+            relayDot.className = 'dot online';
+            var h = Math.floor(data.uptime / 3600), m = Math.floor((data.uptime % 3600) / 60);
+            relayText.textContent = 'Online (uptime ' + h + 'h ' + m + 'm)';
+            relayText.className = 'ok';
           } else {
-            relayDot.className = "heartbeat-dot offline";
-            relayText.textContent = "Unexpected response";
-            relayText.className = "offline";
+            relayDot.className = 'dot offline';
+            relayText.textContent = 'Unexpected response';
+            relayText.className = 'err';
           }
         })
-        .catch(function () {
-          clearTimeout(timeout);
-          relayDot.className = "heartbeat-dot offline";
-          relayText.textContent = "Offline";
-          relayText.className = "offline";
+        .catch(function() {
+          clearTimeout(t);
+          relayDot.className = 'dot offline';
+          relayText.textContent = 'Offline';
+          relayText.className = 'err';
         });
     }
-
     checkRelay();
     setInterval(checkRelay, 30000);
 
-    // SDK status monitoring
-    document.addEventListener("datum:sdk-ready", function (e) {
+    // SDK events
+    document.addEventListener('datum:sdk-ready', function(e) {
       var d = e.detail || {};
-      document.getElementById("status-sdk").textContent = "Ready (v" + d.version + ")";
-      document.getElementById("status-sdk").className = "ok";
-      document.getElementById("status-publisher").textContent = d.publisher || "\u2014";
-      document.getElementById("status-categories").textContent = (d.categories || []).join(", ") || "\u2014";
+      document.getElementById('status-sdk').textContent = 'Ready (v' + d.version + ')';
+      document.getElementById('status-sdk').className = 'ok';
+      document.getElementById('status-publisher').textContent = d.publisher || '—';
+      document.getElementById('status-categories').textContent = (d.categories || []).join(', ') || '—';
     });
-
-    document.addEventListener("datum:response", function (e) {
+    document.addEventListener('datum:response', function(e) {
       var d = e.detail || {};
-      document.getElementById("status-handshake").textContent = "Complete (sig: " + (d.signature || "").slice(0, 18) + "...)";
-      document.getElementById("status-handshake").className = "ok";
+      document.getElementById('status-handshake').textContent = 'Complete (sig: ' + (d.signature || '').slice(0, 18) + '...)';
+      document.getElementById('status-handshake').className = 'ok';
     });
   </script>
 </body>
