@@ -14,6 +14,7 @@ declare global {
       isConnected: () => boolean;
       getAddress: () => Promise<string>;
       request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      isDatum: boolean;
     };
     ethereum?: {
       request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -25,7 +26,19 @@ declare global {
 }
 
 export function isDatumExtensionAvailable(): boolean {
-  return typeof window !== "undefined" && typeof window.datum !== "undefined";
+  return typeof window !== "undefined" && !!window.datum?.isDatum;
+}
+
+/** Wait for window.datum to appear (content script injection can lag). */
+export function waitForDatum(timeoutMs = 2000): Promise<boolean> {
+  if (isDatumExtensionAvailable()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = setInterval(() => {
+      if (isDatumExtensionAvailable()) { clearInterval(check); resolve(true); }
+      else if (Date.now() - start > timeoutMs) { clearInterval(check); resolve(false); }
+    }, 100);
+  });
 }
 
 export function isInjectedProviderAvailable(): boolean {
@@ -34,8 +47,8 @@ export function isInjectedProviderAvailable(): boolean {
 
 export async function connectDatum(): Promise<WalletConnection> {
   if (!window.datum) throw new Error("DATUM extension not detected");
-  if (!window.datum.isConnected()) throw new Error("DATUM extension is locked. Unlock it first.");
   const address = await window.datum.getAddress();
+  if (!address) throw new Error("No wallet found in DATUM extension. Create or unlock a wallet first.");
   // Wrap window.datum in an EIP-1193-compatible BrowserProvider
   const provider = new ethers.BrowserProvider(window.datum as never);
   const signer = await provider.getSigner();

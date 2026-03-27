@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { Signer } from "ethers";
 import {
   ConnectionMethod,
@@ -8,6 +8,7 @@ import {
   connectManual,
   isDatumExtensionAvailable,
   isInjectedProviderAvailable,
+  waitForDatum,
 } from "../lib/walletProvider";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -28,6 +29,14 @@ const WalletContext = createContext<WalletContextValue | null>(null);
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<WalletConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [datumReady, setDatumReady] = useState(isDatumExtensionAvailable());
+
+  // Wait for window.datum injection (content script can lag page load)
+  useEffect(() => {
+    if (!datumReady) {
+      waitForDatum().then(setDatumReady);
+    }
+  }, [datumReady]);
 
   const connect = useCallback(async (
     method: ConnectionMethod,
@@ -61,7 +70,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       address: connection?.address ?? null,
       signer: connection?.signer ?? null,
       method: connection?.method ?? null,
-      isDatumAvailable: isDatumExtensionAvailable(),
+      isDatumAvailable: datumReady,
       isInjectedAvailable: isInjectedProviderAvailable(),
       connect,
       disconnect,

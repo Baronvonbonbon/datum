@@ -49,13 +49,16 @@ async function immediateInitialPoll() {
   try {
     let settings = await getSettings();
 
-    // Auto-load deployed addresses if settings have empty contract addresses
-    if (!settings.contractAddresses.campaigns) {
-      const loaded = await tryLoadDeployedAddresses();
-      if (loaded) {
+    // Sync deployed addresses from bundled file — catches fresh installs AND
+    // upgrades where the bundled addresses changed (e.g. alpha-1 → alpha-2).
+    const loaded = await tryLoadDeployedAddresses();
+    if (loaded && loaded.campaigns) {
+      const stale = settings.contractAddresses.campaigns !== loaded.campaigns;
+      const empty = !settings.contractAddresses.campaigns;
+      if (empty || stale) {
         settings = { ...settings, contractAddresses: { ...settings.contractAddresses, ...loaded } };
         await chrome.storage.local.set({ settings });
-        console.log("[DATUM] Auto-loaded deployed contract addresses");
+        console.log(`[DATUM] ${empty ? "Auto-loaded" : "Updated stale"} contract addresses from deployed-addresses.json`);
       }
     }
 
