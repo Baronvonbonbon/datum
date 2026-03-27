@@ -16,7 +16,9 @@ const NAV_ITEMS = [
   { path: "/demo/", label: "Demo ↗", external: true },
 ];
 
-/** Trigger the Nano staggered fade-in on every route change. */
+/** Trigger the Nano staggered fade-in on every route change.
+ *  A MutationObserver also catches elements added after async data loads
+ *  and shows them immediately (no stagger for late arrivals). */
 function useFadeIn() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
@@ -24,15 +26,31 @@ function useFadeIn() {
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    // Reset — remove show class, force reflow, re-add with stagger
+
+    // Staggered reveal for elements present at route render time
     const items = el.querySelectorAll<HTMLElement>(".nano-fade");
     items.forEach((item) => item.classList.remove("nano-fade--show"));
-
     const timers: ReturnType<typeof setTimeout>[] = [];
     items.forEach((item, i) => {
       timers.push(setTimeout(() => item.classList.add("nano-fade--show"), i * 120));
     });
-    return () => timers.forEach(clearTimeout);
+
+    // Immediately show any .nano-fade elements added later (async data)
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.classList.contains("nano-fade")) node.classList.add("nano-fade--show");
+          node.querySelectorAll<HTMLElement>(".nano-fade").forEach((child) => child.classList.add("nano-fade--show"));
+        }
+      }
+    });
+    observer.observe(el, { childList: true, subtree: true });
+
+    return () => {
+      timers.forEach(clearTimeout);
+      observer.disconnect();
+    };
   }, [location.pathname]);
 
   return mainRef;

@@ -69,54 +69,49 @@ export function Overview() {
         </p>
       </div>
 
-      {/* Status banner */}
-      {stats && (
-        <div className="nano-fade nano-info" style={{
-          marginBottom: 28,
-          borderColor: stats.paused ? "rgba(252,165,165,0.3)" : "rgba(110,231,183,0.3)",
-          background: stats.paused ? "rgba(252,165,165,0.06)" : "rgba(110,231,183,0.06)",
-          display: "flex", alignItems: "center", gap: 8,
-        }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: "50%", display: "inline-block",
-            background: stats.paused ? "var(--error)" : "var(--ok)",
-            boxShadow: stats.paused ? "none" : "0 0 6px var(--ok)",
-          }} />
-          <span style={{ color: stats.paused ? "var(--error)" : "var(--ok)", fontWeight: 600 }}>
-            Protocol {stats.paused ? "Paused" : "Active"}
-          </span>
-          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            · {getNetworkDisplayName(settings.network)} · {connected ? `block #${blockNumber}` : "connecting…"}
-          </span>
-        </div>
-      )}
+      {/* Status banner — always rendered, content swaps */}
+      <div className="nano-fade" style={{ marginBottom: 28 }}>
+        {stats ? (
+          <div className="nano-info" style={{
+            borderColor: stats.paused ? "rgba(252,165,165,0.3)" : "rgba(110,231,183,0.3)",
+            background: stats.paused ? "rgba(252,165,165,0.06)" : "rgba(110,231,183,0.06)",
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: "50%", display: "inline-block",
+              background: stats.paused ? "var(--error)" : "var(--ok)",
+              boxShadow: stats.paused ? "none" : "0 0 6px var(--ok)",
+            }} />
+            <span style={{ color: stats.paused ? "var(--error)" : "var(--ok)", fontWeight: 600 }}>
+              Protocol {stats.paused ? "Paused" : "Active"}
+            </span>
+            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+              · {getNetworkDisplayName(settings.network)} · {connected ? `block #${blockNumber}` : "connecting…"}
+            </span>
+          </div>
+        ) : error ? (
+          <div className="nano-info nano-info--error">
+            {settings.contractAddresses.campaigns
+              ? `Error: ${error}`
+              : <>No contracts configured. Go to <Link to="/settings">Settings</Link>.</>}
+          </div>
+        ) : (
+          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>
+        )}
+      </div>
 
-      {loading && !stats && (
-        <div className="nano-fade" style={{ color: "var(--text-muted)", padding: "20px 0" }}>Loading…</div>
-      )}
-
-      {error && (
-        <div className="nano-fade nano-info nano-info--error" style={{ marginBottom: 20 }}>
-          {settings.contractAddresses.campaigns
-            ? `Error: ${error}`
-            : <>No contracts configured. Go to <Link to="/settings">Settings</Link>.</>}
-        </div>
-      )}
-
-      {/* Stat cards */}
-      {stats && (
-        <div className="nano-fade" style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-          gap: 12,
-          marginBottom: 36,
-        }}>
-          <StatCard label="Total Campaigns" value={stats.totalCampaigns} />
-          <StatCard label="Active" value={stats.activeCampaigns} color="var(--ok)" />
-          <StatCard label="Pending Votes" value={stats.pendingCampaigns} color="var(--warn)" />
-          <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
-        </div>
-      )}
+      {/* Stat cards — always rendered, values swap */}
+      <div className="nano-fade" style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+        gap: 12,
+        marginBottom: 36,
+      }}>
+        <StatCard label="Total Campaigns" value={stats?.totalCampaigns ?? "—"} />
+        <StatCard label="Active" value={stats?.activeCampaigns ?? "—"} color={stats ? "var(--ok)" : undefined} />
+        <StatCard label="Pending Votes" value={stats?.pendingCampaigns ?? "—"} color={stats ? "var(--warn)" : undefined} />
+        <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
+      </div>
 
       {/* Browse */}
       <div className="nano-fade" style={{ marginBottom: 28 }}>
