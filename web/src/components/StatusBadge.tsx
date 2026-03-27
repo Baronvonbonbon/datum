@@ -1,12 +1,12 @@
 import { CampaignStatus } from "@shared/types";
 
-const STATUS_CONFIG: Record<number, { label: string; color: string; bg: string }> = {
-  [CampaignStatus.Pending]:    { label: "Pending",    color: "#c0c060", bg: "#1a1a0a" },
-  [CampaignStatus.Active]:     { label: "Active",     color: "#60c060", bg: "#0a2a0a" },
-  [CampaignStatus.Paused]:     { label: "Paused",     color: "#c09060", bg: "#1a1a0a" },
-  [CampaignStatus.Completed]:  { label: "Completed",  color: "#60a0ff", bg: "#0a1a2a" },
-  [CampaignStatus.Terminated]: { label: "Terminated", color: "#ff8080", bg: "#2a0a0a" },
-  [CampaignStatus.Expired]:    { label: "Expired",    color: "#888888", bg: "#1a1a1a" },
+const STATUS_CONFIG: Record<number, { label: string; color: string; border: string }> = {
+  [CampaignStatus.Pending]:    { label: "Pending",    color: "var(--warn)",   border: "rgba(252,211,77,0.3)" },
+  [CampaignStatus.Active]:     { label: "Active",     color: "var(--ok)",     border: "rgba(110,231,183,0.3)" },
+  [CampaignStatus.Paused]:     { label: "Paused",     color: "var(--warn)",   border: "rgba(252,211,77,0.3)" },
+  [CampaignStatus.Completed]:  { label: "Completed",  color: "var(--accent)", border: "var(--accent-dim)" },
+  [CampaignStatus.Terminated]: { label: "Terminated", color: "var(--error)",  border: "rgba(252,165,165,0.3)" },
+  [CampaignStatus.Expired]:    { label: "Expired",    color: "var(--text-muted)", border: "var(--border)" },
 };
 
 interface Props {
@@ -15,7 +15,7 @@ interface Props {
 }
 
 export function StatusBadge({ status, style }: Props) {
-  const cfg = STATUS_CONFIG[status] ?? { label: `Status ${status}`, color: "#888", bg: "#111" };
+  const cfg = STATUS_CONFIG[status] ?? { label: `Status ${status}`, color: "var(--text-muted)", border: "var(--border)" };
   return (
     <span style={{
       display: "inline-block",
@@ -23,9 +23,9 @@ export function StatusBadge({ status, style }: Props) {
       borderRadius: 3,
       fontSize: 11,
       fontWeight: 600,
-      background: cfg.bg,
+      background: "var(--bg-raised)",
       color: cfg.color,
-      border: `1px solid ${cfg.color}40`,
+      border: `1px solid ${cfg.border}`,
       ...style,
     }}>
       {cfg.label}

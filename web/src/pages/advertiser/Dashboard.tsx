@@ -96,52 +96,61 @@ export function AdvertiserDashboard() {
   }
 
   if (!address) return (
-    <div style={{ padding: 20, color: "#666" }}>
+    <div style={{ padding: 20, color: "var(--text-muted)" }}>
       Connect your wallet to manage campaigns.
     </div>
   );
 
   return (
-    <div>
+    <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>My Campaigns</h1>
-        <Link to="/advertiser/create" style={{ padding: "6px 14px", background: "#1a1a3a", color: "#a0a0ff", border: "1px solid #4a4a8a", borderRadius: 4, fontSize: 13, textDecoration: "none" }}>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>My Campaigns</h1>
+        <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
           + New Campaign
         </Link>
       </div>
 
       {actionResult && (
-        <div style={{ padding: "8px 12px", background: "#0a2a0a", border: "1px solid #2a4a2a", borderRadius: 4, color: "#80c080", fontSize: 13, marginBottom: 12 }}>
+        <div className="nano-info nano-info--ok" style={{ marginBottom: 12 }}>
           {actionResult}
         </div>
       )}
 
-      {loading && <div style={{ color: "#555" }}>Loading your campaigns...</div>}
-      {error && <div style={errorBox}>{error}</div>}
+      {loading && <div style={{ color: "var(--text-muted)" }}>Loading your campaigns...</div>}
+      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {!loading && campaigns.length === 0 && (
-        <div style={{ padding: 20, color: "#555", textAlign: "center" }}>
-          No campaigns yet. <Link to="/advertiser/create" style={{ color: "#a0a0ff" }}>Create your first campaign.</Link>
+        <div style={{ padding: 20, color: "var(--text-muted)", textAlign: "center" }}>
+          No campaigns yet. <Link to="/advertiser/create" style={{ color: "var(--accent)" }}>Create your first campaign.</Link>
         </div>
       )}
 
       {campaigns.map((c) => (
-        <div key={c.id} style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 16, marginBottom: 12 }}>
+        <div key={c.id} className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
-              <span style={{ color: "#a0a0ff", fontWeight: 700, fontSize: 16 }}>Campaign #{c.id}</span>
+              <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: 16 }}>Campaign #{c.id}</span>
               <StatusBadge status={c.status} style={{ marginLeft: 10 }} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Link to={`/advertiser/campaign/${c.id}/metadata`} style={smallBtn}>Edit Metadata</Link>
-              <Link to={`/advertiser/campaign/${c.id}`} style={smallBtn}>Detail</Link>
+              <Link to={`/advertiser/campaign/${c.id}/metadata`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Edit Metadata</Link>
+              <Link to={`/advertiser/campaign/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Detail</Link>
             </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
-            <div style={infoCell}><div style={infoLabel}>Remaining</div><DOTAmount planck={c.remaining} /></div>
-            <div style={infoCell}><div style={infoLabel}>Bid CPM</div><DOTAmount planck={c.bidCpmPlanck} /></div>
-            <div style={infoCell}><div style={infoLabel}>Take Rate</div><span style={{ color: "#e0e0e0" }}>{(c.snapshotTakeRateBps / 100).toFixed(0)}%</span></div>
+            <div className="nano-card" style={{ padding: "8px 10px" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Remaining</div>
+              <DOTAmount planck={c.remaining} />
+            </div>
+            <div className="nano-card" style={{ padding: "8px 10px" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Bid CPM</div>
+              <DOTAmount planck={c.bidCpmPlanck} />
+            </div>
+            <div className="nano-card" style={{ padding: "8px 10px" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Take Rate</div>
+              <span style={{ color: "var(--text-strong)" }}>{(c.snapshotTakeRateBps / 100).toFixed(0)}%</span>
+            </div>
           </div>
 
           <IPFSPreview metadataHash={c.metadataHash} compact />
@@ -149,21 +158,21 @@ export function AdvertiserDashboard() {
           {signer && (
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               {c.status === 1 && (
-                <button onClick={() => doAction(c.id, "pause")} disabled={actionBusy === c.id} style={actionBtn}>
+                <button onClick={() => doAction(c.id, "pause")} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12 }}>
                   Pause
                 </button>
               )}
               {c.status === 2 && (
-                <button onClick={() => doAction(c.id, "resume")} disabled={actionBusy === c.id} style={actionBtn}>
+                <button onClick={() => doAction(c.id, "resume")} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12 }}>
                   Resume
                 </button>
               )}
               {(c.status === 1 || c.status === 2) && (
-                <button onClick={() => doAction(c.id, "complete")} disabled={actionBusy === c.id} style={{ ...actionBtn, color: "#ff8080", border: "1px solid #4a1a1a" }}>
+                <button onClick={() => doAction(c.id, "complete")} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}>
                   Complete Early
                 </button>
               )}
-              {actionBusy === c.id && <span style={{ color: "#555", fontSize: 12, alignSelf: "center" }}>Processing...</span>}
+              {actionBusy === c.id && <span style={{ color: "var(--text-muted)", fontSize: 12, alignSelf: "center" }}>Processing...</span>}
             </div>
           )}
         </div>
@@ -171,9 +180,3 @@ export function AdvertiserDashboard() {
     </div>
   );
 }
-
-const errorBox: React.CSSProperties = { padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ff8080", fontSize: 13, marginBottom: 12 };
-const smallBtn: React.CSSProperties = { padding: "4px 10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, textDecoration: "none" };
-const infoCell: React.CSSProperties = { background: "#111", border: "1px solid #1a1a2e", borderRadius: 4, padding: "8px 10px" };
-const infoLabel: React.CSSProperties = { color: "#555", fontSize: 11, marginBottom: 2 };
-const actionBtn: React.CSSProperties = { padding: "5px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, cursor: "pointer" };

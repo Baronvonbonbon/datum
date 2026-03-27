@@ -92,23 +92,23 @@ export function Allowlist() {
   }
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <Link to="/publisher" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Advertiser Allowlist</h1>
-      <p style={{ color: "#666", fontSize: 13, marginBottom: 16 }}>
+    <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Advertiser Allowlist</h1>
+      <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         When enabled, only listed advertisers can create campaigns targeting your publisher address.
         Open campaigns (publisher=0x0) always bypass the allowlist.
       </p>
 
-      {loading ? <div style={{ color: "#555" }}>Loading...</div> : (
+      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
         <>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 6, marginBottom: 16 }}>
+          <div className="nano-card" style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, marginBottom: 16 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "#888", fontSize: 13 }}>Allowlist Status</div>
-              <div style={{ color: enabled ? "#c0c060" : "#555", fontWeight: 600 }}>{enabled ? "Enabled" : "Disabled"}</div>
+              <div style={{ color: "var(--text)", fontSize: 13 }}>Allowlist Status</div>
+              <div style={{ color: enabled ? "var(--warn)" : "var(--text-muted)", fontWeight: 600 }}>{enabled ? "Enabled" : "Disabled"}</div>
             </div>
             {signer && (
-              <button onClick={toggleAllowlist} disabled={txState === "pending"} style={{ padding: "6px 14px", background: enabled ? "#2a1a0a" : "#1a1a3a", border: `1px solid ${enabled ? "#5a3a0a" : "#4a4a8a"}`, borderRadius: 4, color: enabled ? "#ff9040" : "#a0a0ff", fontSize: 13, cursor: "pointer" }}>
+              <button onClick={toggleAllowlist} disabled={txState === "pending"} className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, color: enabled ? "var(--warn)" : "var(--accent)" }}>
                 {enabled ? "Disable" : "Enable"}
               </button>
             )}
@@ -121,23 +121,24 @@ export function Allowlist() {
                   <input
                     value={newAddr} onChange={(e) => setNewAddr(e.target.value)}
                     placeholder="0x advertiser address"
-                    style={{ flex: 1, padding: "6px 8px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#e0e0e0", fontSize: 13, outline: "none", fontFamily: "monospace" }}
+                    className="nano-input"
+                    style={{ flex: 1, fontFamily: "monospace" }}
                   />
-                  <button onClick={addAddress} disabled={!ethers.isAddress(newAddr) || txState === "pending"} style={{ padding: "6px 14px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, cursor: "pointer" }}>
+                  <button onClick={addAddress} disabled={!ethers.isAddress(newAddr) || txState === "pending"} className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13 }}>
                     Add
                   </button>
                 </div>
               </div>
 
               {allowedAddresses.length === 0 ? (
-                <div style={{ color: "#555", fontSize: 13, fontStyle: "italic" }}>No advertisers allowed yet.</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13, fontStyle: "italic" }}>No advertisers allowed yet.</div>
               ) : (
-                <div style={{ border: "1px solid #1a1a2e", borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
                   {allowedAddresses.map((addr) => (
-                    <div key={addr} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #0f0f1a" }}>
+                    <div key={addr} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
                       <AddressDisplay address={addr} chars={8} style={{ fontSize: 13 }} />
                       {signer && (
-                        <button onClick={() => removeAddress(addr)} style={{ background: "none", border: "none", color: "#ff6060", cursor: "pointer", fontSize: 12 }}>Remove</button>
+                        <button onClick={() => removeAddress(addr)} style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", fontSize: 12 }}>Remove</button>
                       )}
                     </div>
                   ))}

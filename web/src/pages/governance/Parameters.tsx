@@ -43,14 +43,14 @@ export function GovernanceParameters() {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <Link to="/governance" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Governance Parameters</h1>
+    <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Governance Parameters</h1>
 
       {loading ? (
-        <div style={{ color: "#555" }}>Loading parameters...</div>
+        <div style={{ color: "var(--text-muted)" }}>Loading parameters...</div>
       ) : !params ? (
-        <div style={{ color: "#555" }}>Could not load parameters.</div>
+        <div style={{ color: "var(--text-muted)" }}>Could not load parameters.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Section title="Voting Thresholds">
@@ -62,23 +62,23 @@ export function GovernanceParameters() {
 
           <Section title="Conviction Curve">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <table className="nano-table" style={{ width: "100%", fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: "#0f0f1a" }}>
+                  <tr>
                     {["Level", "Weight", "Lockup", "Max Lock (1 DOT)"].map((h) => (
-                      <th key={h} style={{ padding: "6px 10px", color: "#555", textAlign: "left" }}>{h}</th>
+                      <th key={h}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {CONVICTION_WEIGHTS.map((w, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid #0f0f1a" }}>
-                      <td style={{ padding: "6px 10px", color: "#888" }}>{i}</td>
-                      <td style={{ padding: "6px 10px", color: "#e0e0e0", fontWeight: 600 }}>{w}x</td>
-                      <td style={{ padding: "6px 10px", color: "#888" }}>
+                    <tr key={i}>
+                      <td>{i}</td>
+                      <td style={{ fontWeight: 600 }}>{w}x</td>
+                      <td>
                         {CONVICTION_LOCKUP_BLOCKS[i] === 0 ? "None" : formatBlockDelta(CONVICTION_LOCKUP_BLOCKS[i])}
                       </td>
-                      <td style={{ padding: "6px 10px", color: "#555", fontFamily: "monospace" }}>
+                      <td style={{ fontFamily: "monospace" }}>
                         {w} {sym} effective
                       </td>
                     </tr>
@@ -96,7 +96,7 @@ export function GovernanceParameters() {
           </Section>
 
           <Section title="Scoring Reference">
-            <div style={{ color: "#666", fontSize: 12, lineHeight: 1.8 }}>
+            <div style={{ color: "var(--text)", fontSize: 12, lineHeight: 1.8 }}>
               <p style={{ margin: "0 0 8px" }}>Engagement quality score (computed by extension, not on-chain):</p>
               <ul style={{ paddingLeft: 20, margin: 0 }}>
                 <li>Dwell time: 35%</li>
@@ -114,8 +114,8 @@ export function GovernanceParameters() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 14 }}>
-      <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{title}</div>
+    <div className="nano-card" style={{ padding: 14 }}>
+      <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{title}</div>
       {children}
     </div>
   );
@@ -123,12 +123,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Row({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "6px 0", borderBottom: "1px solid #0f0f1a" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
       <div>
-        <div style={{ color: "#888", fontSize: 13 }}>{label}</div>
-        {hint && <div style={{ color: "#444", fontSize: 11, marginTop: 2 }}>{hint}</div>}
+        <div style={{ color: "var(--text)", fontSize: 13 }}>{label}</div>
+        {hint && <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{hint}</div>}
       </div>
-      <div style={{ color: "#e0e0e0", fontSize: 13, fontWeight: 600, textAlign: "right" }}>{value}</div>
+      <div style={{ color: "var(--text-strong)", fontSize: 13, fontWeight: 600, textAlign: "right" }}>{value}</div>
     </div>
   );
 }

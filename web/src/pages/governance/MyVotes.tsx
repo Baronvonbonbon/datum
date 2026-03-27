@@ -160,27 +160,27 @@ export function MyVotes() {
 
   if (!address) {
     return (
-      <div style={{ maxWidth: 640 }}>
-        <Link to="/governance" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>My Votes</h1>
-        <div style={{ color: "#666", padding: 20 }}>Connect your wallet to view your votes.</div>
+      <div className="nano-fade" style={{ maxWidth: 640 }}>
+        <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>My Votes</h1>
+        <div style={{ color: "var(--text)", padding: 20 }}>Connect your wallet to view your votes.</div>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <Link to="/governance" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>My Votes</h1>
+    <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>My Votes</h1>
 
       <TransactionStatus state={txState} message={txMsg} />
 
       {loading ? (
-        <div style={{ color: "#555" }}>Loading your votes...</div>
+        <div style={{ color: "var(--text-muted)" }}>Loading your votes...</div>
       ) : votes.length === 0 ? (
-        <div style={{ color: "#555", padding: 20, textAlign: "center" }}>
+        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
           You haven't voted on any campaigns yet.{" "}
-          <Link to="/governance" style={{ color: "#a0a0ff" }}>Browse governance →</Link>
+          <Link to="/governance" style={{ color: "var(--accent)" }}>Browse governance →</Link>
         </div>
       ) : (
         <div>
@@ -191,57 +191,59 @@ export function MyVotes() {
             const blocksLeft = blockNumber && v.unlockBlock > 0 ? Math.max(0, v.unlockBlock - blockNumber) : 0;
 
             return (
-              <div key={v.campaignId} style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 14, marginBottom: 10 }}>
+              <div key={v.campaignId} className="nano-card" style={{ padding: 14, marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Link to={`/governance/vote/${v.campaignId}`} style={{ color: "#a0a0ff", fontWeight: 700, textDecoration: "none" }}>
+                    <Link to={`/governance/vote/${v.campaignId}`} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
                       Campaign #{v.campaignId}
                     </Link>
                     <StatusBadge status={v.campaignStatus} />
-                    {v.campaignResolved && <span style={{ fontSize: 11, color: "#555" }}>Resolved</span>}
+                    {v.campaignResolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
                   </div>
-                  <span style={{
-                    padding: "2px 8px", borderRadius: 10, fontSize: 12, fontWeight: 600,
-                    background: v.direction === 1 ? "#0a2a0a" : "#2a0a0a",
-                    color: v.direction === 1 ? "#60c060" : "#ff8080",
-                    border: `1px solid ${v.direction === 1 ? "#2a5a2a" : "#5a2a2a"}`,
+                  <span className="nano-badge" style={{
+                    color: v.direction === 1 ? "var(--ok)" : "var(--error)",
+                    border: `1px solid ${v.direction === 1 ? "rgba(110,231,183,0.3)" : "rgba(252,165,165,0.3)"}`,
+                    borderRadius: 10,
+                    fontSize: 12,
+                    fontWeight: 600,
                   }}>
                     {v.direction === 1 ? "Aye" : "Nay"}
                   </span>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12, fontSize: 12 }}>
-                  <div style={{ color: "#555" }}>
-                    Staked: <span style={{ color: "#888" }}><DOTAmount planck={v.lockAmount} /></span>
+                  <div style={{ color: "var(--text-muted)" }}>
+                    Staked: <span style={{ color: "var(--text)" }}><DOTAmount planck={v.lockAmount} /></span>
                   </div>
-                  <div style={{ color: "#555" }}>
-                    Conviction: <span style={{ color: "#888" }}>{v.conviction} ({weight}x weight)</span>
+                  <div style={{ color: "var(--text-muted)" }}>
+                    Conviction: <span style={{ color: "var(--text)" }}>{v.conviction} ({weight}x weight)</span>
                   </div>
-                  <div style={{ color: "#555" }}>
-                    Effective: <span style={{ color: "#888" }}><DOTAmount planck={v.lockAmount * BigInt(weight)} /></span>
+                  <div style={{ color: "var(--text-muted)" }}>
+                    Effective: <span style={{ color: "var(--text)" }}><DOTAmount planck={v.lockAmount * BigInt(weight)} /></span>
                   </div>
-                  <div style={{ color: "#555" }}>
+                  <div style={{ color: "var(--text-muted)" }}>
                     {lockup === 0 ? (
-                      <span style={{ color: "#60c060" }}>No lockup</span>
+                      <span style={{ color: "var(--ok)" }}>No lockup</span>
                     ) : canWithdraw ? (
-                      <span style={{ color: "#60c060" }}>Unlocked</span>
+                      <span style={{ color: "var(--ok)" }}>Unlocked</span>
                     ) : (
-                      <span>Locked: <span style={{ color: "#888" }}>{formatBlockDelta(blocksLeft)} left</span></span>
+                      <span>Locked: <span style={{ color: "var(--text)" }}>{formatBlockDelta(blocksLeft)} left</span></span>
                     )}
                   </div>
                 </div>
 
                 {/* Slash info for resolved campaigns */}
                 {v.campaignResolved && v.lockAmount > 0n && (
-                  <div style={{ padding: "8px 10px", background: "#0a0a14", border: "1px solid #1a1a2e", borderRadius: 4, fontSize: 12, marginBottom: 10 }}>
+                  <div className="nano-card" style={{ padding: "8px 10px", fontSize: 12, marginBottom: 10 }}>
                     {!v.slashFinalized ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ color: "#888" }}>Slash not yet finalized for this campaign.</span>
+                        <span style={{ color: "var(--text)" }}>Slash not yet finalized for this campaign.</span>
                         {signer && (
                           <button
                             onClick={() => handleFinalizeSlash(v.campaignId)}
                             disabled={busyId === v.campaignId}
-                            style={smallActionBtn}
+                            className="nano-btn"
+                            style={{ padding: "4px 10px", fontSize: 12 }}
                           >
                             {busyId === v.campaignId ? "Finalizing..." : "Finalize Slash"}
                           </button>
@@ -249,21 +251,22 @@ export function MyVotes() {
                       </div>
                     ) : v.claimable > 0n ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ color: "#60c060" }}>
+                        <span style={{ color: "var(--ok)" }}>
                           Slash reward: <DOTAmount planck={v.claimable} />
                         </span>
                         {signer && (
                           <button
                             onClick={() => handleClaimSlashReward(v.campaignId)}
                             disabled={busyId === v.campaignId}
-                            style={{ ...smallActionBtn, color: "#60c060", border: "1px solid #2a5a2a" }}
+                            className="nano-btn"
+                            style={{ padding: "4px 10px", fontSize: 12, color: "var(--ok)", border: "1px solid rgba(110,231,183,0.3)" }}
                           >
                             {busyId === v.campaignId ? "Claiming..." : "Claim Reward"}
                           </button>
                         )}
                       </div>
                     ) : (
-                      <span style={{ color: "#555" }}>Slash finalized — no reward (losing side penalized).</span>
+                      <span style={{ color: "var(--text-muted)" }}>Slash finalized — no reward (losing side penalized).</span>
                     )}
                   </div>
                 )}
@@ -274,14 +277,13 @@ export function MyVotes() {
                     onClick={() => handleWithdraw(v.campaignId)}
                     disabled={busyId === v.campaignId || !canWithdraw}
                     title={!canWithdraw ? `Locked for ${formatBlockDelta(blocksLeft)}` : ""}
+                    className="nano-btn"
                     style={{
                       padding: "6px 14px",
-                      background: canWithdraw ? "#1a1a3a" : "#111",
-                      border: `1px solid ${canWithdraw ? "#4a4a8a" : "#1a1a2e"}`,
-                      borderRadius: 4,
-                      color: canWithdraw ? "#a0a0ff" : "#444",
                       fontSize: 12,
+                      color: canWithdraw ? "var(--accent)" : "var(--text-muted)",
                       cursor: canWithdraw ? "pointer" : "not-allowed",
+                      opacity: canWithdraw ? 1 : 0.5,
                     }}
                   >
                     {busyId === v.campaignId ? "Withdrawing..." : "Withdraw Stake"}
@@ -295,5 +297,3 @@ export function MyVotes() {
     </div>
   );
 }
-
-const smallActionBtn: React.CSSProperties = { padding: "4px 10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, cursor: "pointer" };

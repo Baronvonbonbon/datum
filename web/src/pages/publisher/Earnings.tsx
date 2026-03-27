@@ -82,20 +82,20 @@ export function Earnings() {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <Link to="/publisher" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Publisher Earnings</h1>
+    <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Publisher Earnings</h1>
 
-      {loading ? <div style={{ color: "#555" }}>Loading...</div> : (
+      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
         <>
-          <div style={{ padding: 16, background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, marginBottom: 16 }}>
-            <div style={{ color: "#555", fontSize: 12, marginBottom: 4 }}>Available to Withdraw</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: "#e0e0e0", marginBottom: 10 }}>
+          <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>Available to Withdraw</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-strong)", marginBottom: 10 }}>
               {balance !== null ? <DOTAmount planck={balance} /> : "—"}
             </div>
             <TransactionStatus state={txState} message={txMsg} />
             {signer && balance !== null && balance > 0n && (
-              <button onClick={handleWithdraw} disabled={txState === "pending"} style={{ marginTop: 8, padding: "8px 16px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, cursor: "pointer" }}>
+              <button onClick={handleWithdraw} disabled={txState === "pending"} className="nano-btn nano-btn-accent" style={{ marginTop: 8, padding: "8px 16px", fontSize: 13 }}>
                 {txState === "pending" ? "Withdrawing..." : "Withdraw"}
               </button>
             )}
@@ -103,25 +103,23 @@ export function Earnings() {
 
           {campaignBreakdown.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 10 }}>Earnings by Campaign</div>
-              <div style={{ border: "1px solid #1a1a2e", borderRadius: 6, overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Earnings by Campaign</div>
+              <div style={{ borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
+                <table className="nano-table" style={{ width: "100%" }}>
                   <thead>
-                    <tr style={{ background: "#0f0f1a" }}>
+                    <tr>
                       {["Campaign", "Total Paid", "Impressions", "Settlements"].map((h) => (
-                        <th key={h} style={{ padding: "6px 10px", color: "#555", fontSize: 11, textAlign: "left" }}>{h}</th>
+                        <th key={h}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {campaignBreakdown.map((c) => (
-                      <tr key={c.campaignId} style={{ borderTop: "1px solid #0f0f1a" }}>
-                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>#{c.campaignId}</td>
-                        <td style={{ padding: "6px 10px", fontSize: 12 }}>
-                          <DOTAmount planck={c.totalPublisherPayment} />
-                        </td>
-                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>{c.totalImpressions.toLocaleString()}</td>
-                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>{c.settlementCount}</td>
+                      <tr key={c.campaignId}>
+                        <td>#{c.campaignId}</td>
+                        <td><DOTAmount planck={c.totalPublisherPayment} /></td>
+                        <td>{c.totalImpressions.toLocaleString()}</td>
+                        <td>{c.settlementCount}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -131,29 +129,27 @@ export function Earnings() {
           )}
 
           <div>
-            <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 10 }}>Recent Settlements (last 5000 blocks)</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Recent Settlements (last 5000 blocks)</div>
             {events.length === 0 ? (
-              <div style={{ color: "#555", fontSize: 13 }}>No recent settlements found.</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>No recent settlements found.</div>
             ) : (
-              <div style={{ border: "1px solid #1a1a2e", borderRadius: 6, overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
+                <table className="nano-table" style={{ width: "100%" }}>
                   <thead>
-                    <tr style={{ background: "#0f0f1a" }}>
+                    <tr>
                       {["Campaign", "User", "Paid"].map((h) => (
-                        <th key={h} style={{ padding: "6px 10px", color: "#555", fontSize: 11, textAlign: "left" }}>{h}</th>
+                        <th key={h}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {events.map((e: any, i) => (
-                      <tr key={i} style={{ borderTop: "1px solid #0f0f1a" }}>
-                        <td style={{ padding: "6px 10px", color: "#888", fontSize: 12 }}>#{String(e.args?.campaignId ?? "?")}</td>
-                        <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 11, color: "#666" }}>
+                      <tr key={i}>
+                        <td>#{String(e.args?.campaignId ?? "?")}</td>
+                        <td style={{ fontFamily: "monospace", fontSize: 11 }}>
                           {(e.args?.user ?? "")?.slice(0, 10)}...
                         </td>
-                        <td style={{ padding: "6px 10px", fontSize: 12 }}>
-                          <DOTAmount planck={BigInt(e.args?.publisherPayment ?? 0)} />
-                        </td>
+                        <td><DOTAmount planck={BigInt(e.args?.publisherPayment ?? 0)} /></td>
                       </tr>
                     ))}
                   </tbody>

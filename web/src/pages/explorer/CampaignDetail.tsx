@@ -90,9 +90,9 @@ export function CampaignDetail() {
     }
   }
 
-  if (loading) return <div style={{ color: "#555", padding: 20 }}>Loading campaign #{id}...</div>;
-  if (error) return <div style={errorBox}>Error: {error}</div>;
-  if (!campaign) return <div style={{ color: "#555" }}>Campaign not found.</div>;
+  if (loading) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Loading campaign #{id}...</div>;
+  if (error) return <div className="nano-info nano-info--error">Error: {error}</div>;
+  if (!campaign) return <div style={{ color: "var(--text-muted)" }}>Campaign not found.</div>;
 
   const totalVotes = governance ? governance.ayeWeighted + governance.nayWeighted : 0n;
   const ayePct = totalVotes > 0n ? Number(governance!.ayeWeighted * 100n / totalVotes) : 0;
@@ -100,10 +100,10 @@ export function CampaignDetail() {
   const isOpen = campaign.publisher === ethers.ZeroAddress;
 
   return (
-    <div style={{ maxWidth: 800 }}>
+    <div className="nano-fade" style={{ maxWidth: 800 }}>
       <div style={{ marginBottom: 20 }}>
-        <Link to="/campaigns" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, marginTop: 8 }}>
+        <Link to="/campaigns" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>
           Campaign #{campaign.id}
           <StatusBadge status={campaign.status} style={{ marginLeft: 12, verticalAlign: "middle" }} />
         </h1>
@@ -115,31 +115,31 @@ export function CampaignDetail() {
         </InfoCard>
         <InfoCard label="Publisher">
           {isOpen
-            ? <span style={{ color: "#888" }}>Open (any publisher)</span>
+            ? <span style={{ color: "var(--text)" }}>Open (any publisher)</span>
             : <AddressDisplay address={campaign.publisher} />}
         </InfoCard>
         <InfoCard label="Bid CPM">
           <DOTAmount planck={campaign.bidCpmPlanck} />
         </InfoCard>
         <InfoCard label="Take Rate">
-          <span style={{ color: "#e0e0e0" }}>{(campaign.snapshotTakeRateBps / 100).toFixed(0)}%</span>
+          <span style={{ color: "var(--text-strong)" }}>{(campaign.snapshotTakeRateBps / 100).toFixed(0)}%</span>
         </InfoCard>
       </div>
 
       {budget && (
-        <section style={sectionStyle}>
-          <h2 style={sectionTitle}>Budget</h2>
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Budget</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
             <InfoCard label="Remaining"><DOTAmount planck={budget.remaining} /></InfoCard>
             <InfoCard label="Daily Cap"><DOTAmount planck={budget.dailyCap} /></InfoCard>
           </div>
           {budget.lastSettlementBlock > 0 && blockNumber && (
-            <div style={{ color: "#555", fontSize: 12, marginTop: 8 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 8 }}>
               Last settlement: block #{budget.lastSettlementBlock}
               {" · "}
               {formatBlockDelta(blockNumber - budget.lastSettlementBlock)} ago
               {campaign.status === CampaignStatus.Active && blockNumber - budget.lastSettlementBlock > 432_000 && (
-                <span style={{ color: "#ff9040", marginLeft: 8 }}>⚠ Inactivity timeout eligible</span>
+                <span style={{ color: "var(--warn)", marginLeft: 8 }}>⚠ Inactivity timeout eligible</span>
               )}
             </div>
           )}
@@ -147,30 +147,29 @@ export function CampaignDetail() {
       )}
 
       {governance && (
-        <section style={sectionStyle}>
-          <h2 style={sectionTitle}>Governance</h2>
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Governance</h2>
           <div style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#888", marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
               <span>Aye {ayePct}%</span>
               <span>Nay {100 - ayePct}%</span>
             </div>
-            <div style={{ background: "#1a1a1a", borderRadius: 4, height: 12, overflow: "hidden" }}>
-              <div style={{ width: `${ayePct}%`, height: "100%", background: "#40a040" }} />
+            <div style={{ background: "var(--bg-raised)", borderRadius: 4, height: 12, overflow: "hidden", border: "1px solid var(--border)" }}>
+              <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.6 }} />
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#555", marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
               <span><DOTAmount planck={governance.ayeWeighted} /> aye</span>
               <span><DOTAmount planck={governance.nayWeighted} /> nay</span>
             </div>
           </div>
-          <div style={{ fontSize: 12, color: "#666" }}>
+          <div style={{ fontSize: 12, color: "var(--text)" }}>
             Quorum: {quorumPct}% of {<DOTAmount planck={governance.quorum} />} threshold
-            {governance.resolved && <span style={{ color: "#60c060", marginLeft: 8 }}>✓ Resolved</span>}
+            {governance.resolved && <span style={{ color: "var(--ok)", marginLeft: 8 }}>✓ Resolved</span>}
           </div>
           {campaign.status <= 1 && (
-            <Link to={`/governance/vote/${campaign.id}`} style={{
+            <Link to={`/governance/vote/${campaign.id}`} className="nano-btn nano-btn-accent" style={{
               display: "inline-block", marginTop: 10,
-              padding: "6px 14px", background: "#1a1a3a", color: "#a0a0ff",
-              border: "1px solid #4a4a8a", borderRadius: 4, fontSize: 12, textDecoration: "none",
+              padding: "6px 14px", fontSize: 12, textDecoration: "none",
             }}>
               Vote on this campaign
             </Link>
@@ -178,8 +177,8 @@ export function CampaignDetail() {
         </section>
       )}
 
-      <section style={sectionStyle}>
-        <h2 style={sectionTitle}>Creative</h2>
+      <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+        <h2 style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Creative</h2>
         <IPFSPreview metadataHash={metadataHash} />
       </section>
     </div>
@@ -188,13 +187,9 @@ export function CampaignDetail() {
 
 function InfoCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "#111", border: "1px solid #1a1a2e", borderRadius: 6, padding: "10px 14px" }}>
-      <div style={{ color: "#555", fontSize: 11, marginBottom: 4 }}>{label}</div>
-      <div style={{ color: "#e0e0e0", fontSize: 14 }}>{children}</div>
+    <div className="nano-card" style={{ padding: "10px 14px" }}>
+      <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: "var(--text-strong)", fontSize: 14 }}>{children}</div>
     </div>
   );
 }
-
-const sectionStyle: React.CSSProperties = { background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 16, marginBottom: 16 };
-const sectionTitle: React.CSSProperties = { color: "#a0a0ff", fontSize: 14, fontWeight: 600, marginBottom: 12 };
-const errorBox: React.CSSProperties = { padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ff8080", fontSize: 13 };

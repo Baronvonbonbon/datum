@@ -27,7 +27,7 @@ export function AddressDisplay({ address, chars = 6, mono = true, style }: Props
       style={{
         cursor: "pointer",
         fontFamily: mono ? "monospace" : undefined,
-        color: copied ? "#60c060" : "#a0a0ff",
+        color: copied ? "var(--ok)" : "var(--accent)",
         fontSize: "inherit",
         ...style,
       }}

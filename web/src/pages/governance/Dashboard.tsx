@@ -154,28 +154,28 @@ export function GovernanceDashboard() {
     : campaigns;
 
   return (
-    <div>
+    <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>Governance</h1>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Governance</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <Link to="/governance/my-votes" style={navBtn}>My Votes</Link>
-          <Link to="/governance/parameters" style={navBtn}>Parameters</Link>
+          <Link to="/governance/my-votes" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>My Votes</Link>
+          <Link to="/governance/parameters" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Parameters</Link>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button onClick={() => setFilter("active")} style={{ ...filterBtn, ...(filter === "active" ? filterBtnActive : {}) }}>Active / Pending</button>
-        <button onClick={() => setFilter("all")} style={{ ...filterBtn, ...(filter === "all" ? filterBtnActive : {}) }}>All Campaigns</button>
-        <button onClick={() => load()} style={{ ...filterBtn, marginLeft: "auto" }}>Refresh</button>
+        <button onClick={() => setFilter("active")} className={filter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>
+        <button onClick={() => setFilter("all")} className={filter === "all" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>All Campaigns</button>
+        <button onClick={() => load()} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, marginLeft: "auto" }}>Refresh</button>
       </div>
 
       {actionMsg && (
-        <div style={{ padding: "8px 12px", background: "#0d0d18", border: "1px solid #2a2a4a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, marginBottom: 12 }}>
+        <div className="nano-info nano-info--muted" style={{ marginBottom: 12 }}>
           {actionMsg}
         </div>
       )}
 
-      {loading && <div style={{ color: "#555" }}>Loading campaigns...</div>}
+      {loading && <div style={{ color: "var(--text-muted)" }}>Loading campaigns...</div>}
 
       {displayed.map((c) => {
         const total = c.ayeWeighted + c.nayWeighted;
@@ -184,16 +184,16 @@ export function GovernanceDashboard() {
           && blockNumber - c.lastSettlementBlock > 432_000;
 
         return (
-          <div key={c.id} style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 14, marginBottom: 10 }}>
+          <div key={c.id} className="nano-card" style={{ padding: 14, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ color: "#a0a0ff", fontWeight: 700 }}>#{c.id}</span>
+                <span style={{ color: "var(--accent)", fontWeight: 700 }}>#{c.id}</span>
                 <StatusBadge status={c.status} />
-                {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "#60c060", fontWeight: 600 }}>✓ Voted Aye</span>}
-                {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "#ff8080", fontWeight: 600 }}>✗ Voted Nay</span>}
-                {c.resolved && <span style={{ fontSize: 11, color: "#555" }}>Resolved</span>}
+                {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Voted Aye</span>}
+                {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Voted Nay</span>}
+                {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
               </div>
-              <Link to={`/governance/vote/${c.id}`} style={{ padding: "4px 10px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 12, textDecoration: "none" }}>
+              <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
                 Vote
               </Link>
             </div>
@@ -204,10 +204,10 @@ export function GovernanceDashboard() {
 
             {total > 0n && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ background: "#1a1a1a", borderRadius: 3, height: 8, overflow: "hidden" }}>
-                  <div style={{ width: `${ayePct}%`, height: "100%", background: "#406040" }} />
+                <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 8, overflow: "hidden" }}>
+                  <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.5 }} />
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#555", marginTop: 2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                   <span>Aye {ayePct}% · <DOTAmount planck={c.ayeWeighted} /></span>
                   <span>Nay {100 - ayePct}% · <DOTAmount planck={c.nayWeighted} /></span>
                 </div>
@@ -216,36 +216,31 @@ export function GovernanceDashboard() {
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {(c.status <= 2) && signer && (
-                <button onClick={() => evaluate(c.id)} disabled={actionBusy === c.id} style={smallActionBtn}>
+                <button onClick={() => evaluate(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12 }}>
                   Evaluate
                 </button>
               )}
               {inactiveEligible && signer && (
-                <button onClick={() => expireInactive(c.id)} disabled={actionBusy === c.id} style={{ ...smallActionBtn, color: "#ff9040", border: "1px solid #4a3a0a" }}>
+                <button onClick={() => expireInactive(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, color: "var(--warn)" }}>
                   Expire (Inactive)
                 </button>
               )}
               {c.status === 0 && signer && (
-                <button onClick={() => expirePending(c.id)} disabled={actionBusy === c.id} style={{ ...smallActionBtn, color: "#888" }}>
+                <button onClick={() => expirePending(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12 }}>
                   Expire (Pending Timeout)
                 </button>
               )}
-              {actionBusy === c.id && <span style={{ color: "#555", fontSize: 11, alignSelf: "center" }}>Processing...</span>}
+              {actionBusy === c.id && <span style={{ color: "var(--text-muted)", fontSize: 11, alignSelf: "center" }}>Processing...</span>}
             </div>
           </div>
         );
       })}
 
       {!loading && displayed.length === 0 && (
-        <div style={{ color: "#555", padding: 20, textAlign: "center" }}>
+        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
           {filter === "active" ? "No active or pending campaigns." : "No campaigns found."}
         </div>
       )}
     </div>
   );
 }
-
-const navBtn: React.CSSProperties = { padding: "5px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, textDecoration: "none" };
-const filterBtn: React.CSSProperties = { padding: "5px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#666", fontSize: 12, cursor: "pointer" };
-const filterBtnActive: React.CSSProperties = { background: "#1a1a3a", border: "1px solid #4a4a8a", color: "#a0a0ff" };
-const smallActionBtn: React.CSSProperties = { padding: "4px 10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 3, color: "#888", fontSize: 12, cursor: "pointer" };

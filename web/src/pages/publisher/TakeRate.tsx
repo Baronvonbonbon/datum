@@ -72,28 +72,28 @@ export function TakeRate() {
   const blocksRemaining = pending && blockNumber ? Math.max(0, pending.effectiveBlock - blockNumber) : null;
 
   return (
-    <div style={{ maxWidth: 480 }}>
-      <Link to="/publisher" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Take Rate</h1>
+    <div className="nano-fade" style={{ maxWidth: 480 }}>
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Take Rate</h1>
 
       {current !== null && (
-        <div style={{ padding: 12, background: "#111", border: "1px solid #1a1a2e", borderRadius: 6, marginBottom: 16 }}>
-          <div style={{ color: "#555", fontSize: 12 }}>Current Rate</div>
-          <div style={{ color: "#a0a0ff", fontSize: 24, fontWeight: 700 }}>{(current / 100).toFixed(0)}%</div>
+        <div className="nano-card" style={{ padding: 12, marginBottom: 16 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Current Rate</div>
+          <div style={{ color: "var(--accent)", fontSize: 24, fontWeight: 700 }}>{(current / 100).toFixed(0)}%</div>
         </div>
       )}
 
       {pending && (
-        <div style={{ padding: 12, background: "#1a1a0a", border: "1px solid #3a3a0a", borderRadius: 6, marginBottom: 16 }}>
-          <div style={{ color: "#c0c060", fontWeight: 600, marginBottom: 4 }}>Pending Update: {(pending.rate / 100).toFixed(0)}%</div>
-          <div style={{ color: "#888", fontSize: 12 }}>
+        <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Pending Update: {(pending.rate / 100).toFixed(0)}%</div>
+          <div style={{ fontSize: 12 }}>
             Effective block: #{pending.effectiveBlock}
             {blocksRemaining !== null && blocksRemaining > 0 && (
               <span> · {formatBlockDelta(blocksRemaining)} remaining</span>
             )}
           </div>
           {canApply && (
-            <button onClick={handleApply} disabled={txState === "pending"} style={{ marginTop: 10, padding: "6px 14px", background: "#1a3a1a", border: "1px solid #2a5a2a", borderRadius: 4, color: "#60c060", fontSize: 13, cursor: "pointer" }}>
+            <button onClick={handleApply} disabled={txState === "pending"} className="nano-btn" style={{ marginTop: 10, padding: "6px 14px", fontSize: 13, color: "var(--ok)", border: "1px solid rgba(110,231,183,0.3)" }}>
               Apply Update Now
             </button>
           )}
@@ -103,14 +103,14 @@ export function TakeRate() {
       {!pending && (
         <form onSubmit={handleQueue} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ color: "#888", fontSize: 13, display: "block", marginBottom: 6 }}>
-              New Rate: <span style={{ color: "#a0a0ff", fontWeight: 700 }}>{newRate}%</span>
+            <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>
+              New Rate: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{newRate}%</span>
             </label>
-            <input type="range" min={30} max={80} value={newRate} onChange={(e) => setNewRate(Number(e.target.value))} style={{ width: "100%", accentColor: "#a0a0ff" }} />
+            <input type="range" min={30} max={80} value={newRate} onChange={(e) => setNewRate(Number(e.target.value))} style={{ width: "100%", accentColor: "var(--accent)" }} />
           </div>
-          <div style={{ color: "#555", fontSize: 12 }}>Rate changes are delayed by the configured timelock period (~7 days).</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Rate changes are delayed by the configured timelock period (~7 days).</div>
           <TransactionStatus state={txState} message={txMsg} />
-          <button type="submit" disabled={txState === "pending" || !signer} style={{ padding: "8px 16px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, cursor: "pointer" }}>
+          <button type="submit" disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13 }}>
             Queue Rate Change
           </button>
         </form>

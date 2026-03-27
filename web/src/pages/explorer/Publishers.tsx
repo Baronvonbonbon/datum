@@ -60,48 +60,43 @@ export function Publishers() {
   }
 
   return (
-    <div>
+    <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>Publishers</h1>
-        <button onClick={load} style={btnStyle}>Refresh</button>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Publishers</h1>
+        <button onClick={load} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
       </div>
 
-      {error && <div style={errorBox}>{error}</div>}
-      {loading && <div style={{ color: "#555" }}>Loading publishers...</div>}
+      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
+      {loading && <div style={{ color: "var(--text-muted)" }}>Loading publishers...</div>}
 
       {!loading && publishers.length === 0 && !error && (
-        <div style={{ color: "#555", padding: 20, textAlign: "center" }}>No publishers registered yet.</div>
+        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>No publishers registered yet.</div>
       )}
 
       {publishers.map((pub) => {
         const categories = bitmaskToCategories(pub.categoryBitmask);
         return (
-          <div key={pub.address} style={{
-            background: "#0d0d18",
-            border: `1px solid ${pub.blocked ? "#3a1a1a" : "#1a1a2e"}`,
-            borderRadius: 8,
+          <div key={pub.address} className="nano-card" style={{
+            border: `1px solid ${pub.blocked ? "rgba(252,165,165,0.3)" : "var(--border)"}`,
             padding: 16,
             marginBottom: 10,
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
               <div>
-                <AddressDisplay address={pub.address} chars={8} style={{ fontSize: 14, color: "#e0e0e0" }} />
+                <AddressDisplay address={pub.address} chars={8} style={{ fontSize: 14, color: "var(--text-strong)" }} />
                 {pub.blocked && (
-                  <span style={{ marginLeft: 8, fontSize: 11, color: "#ff6060", fontWeight: 600 }}>BLOCKED</span>
+                  <span style={{ marginLeft: 8, fontSize: 11, color: "var(--error)", fontWeight: 600 }}>BLOCKED</span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#888" }}>
-                <span>Take: <span style={{ color: "#e0e0e0" }}>{(pub.takeRateBps / 100).toFixed(0)}%</span></span>
-                <span>Allowlist: <span style={{ color: pub.allowlistEnabled ? "#c0c060" : "#555" }}>{pub.allowlistEnabled ? "On" : "Off"}</span></span>
+              <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--text)" }}>
+                <span>Take: <span style={{ color: "var(--text-strong)" }}>{(pub.takeRateBps / 100).toFixed(0)}%</span></span>
+                <span>Allowlist: <span style={{ color: pub.allowlistEnabled ? "var(--warn)" : "var(--text-muted)" }}>{pub.allowlistEnabled ? "On" : "Off"}</span></span>
               </div>
             </div>
             {categories.size > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {[...categories].map((id) => (
-                  <span key={id} style={{
-                    padding: "2px 6px", background: "#1a1a2e", border: "1px solid #2a2a4a",
-                    borderRadius: 3, fontSize: 11, color: "#888",
-                  }}>
+                  <span key={id} className="nano-badge">
                     {CATEGORY_NAMES[id] ?? `Cat ${id}`}
                   </span>
                 ))}
@@ -113,6 +108,3 @@ export function Publishers() {
     </div>
   );
 }
-
-const btnStyle: React.CSSProperties = { padding: "5px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, cursor: "pointer" };
-const errorBox: React.CSSProperties = { padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ff8080", fontSize: 13, marginBottom: 12 };

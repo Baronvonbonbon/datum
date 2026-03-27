@@ -105,14 +105,10 @@ export function Campaigns() {
   const totalPages = Math.ceil(totalCampaigns / PAGE_SIZE);
 
   return (
-    <div>
+    <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>Campaigns</h1>
-        <Link to="/advertiser/create" style={{
-          padding: "6px 14px", background: "#1a1a3a", color: "#a0a0ff",
-          border: "1px solid #4a4a8a", borderRadius: 4, fontSize: 13,
-          textDecoration: "none",
-        }}>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Campaigns</h1>
+        <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
           + Create Campaign
         </Link>
       </div>
@@ -122,7 +118,8 @@ export function Campaigns() {
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(Number(e.target.value))}
-          style={selectStyle}
+          className="nano-select"
+          style={{ fontSize: 12 }}
         >
           <option value={-1}>All Statuses</option>
           <option value={0}>Pending</option>
@@ -135,30 +132,33 @@ export function Campaigns() {
         <select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as "all" | "open" | "targeted")}
-          style={selectStyle}
+          className="nano-select"
+          style={{ fontSize: 12 }}
         >
           <option value="all">All Types</option>
           <option value="open">Open Campaigns</option>
           <option value="targeted">Targeted Campaigns</option>
         </select>
-        <button onClick={() => load()} style={btnStyle}>Refresh</button>
+        <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
       </div>
 
       {!settings.contractAddresses.campaigns && (
-        <div style={warningBox}>No contracts configured. Go to <Link to="/settings" style={{ color: "#a0a0ff" }}>Settings</Link>.</div>
+        <div className="nano-info nano-info--warn" style={{ marginBottom: 12 }}>
+          No contracts configured. Go to <Link to="/settings" style={{ color: "var(--accent)" }}>Settings</Link>.
+        </div>
       )}
 
-      {error && <div style={errorBox}>{error}</div>}
-      {loading && <div style={{ color: "#555", padding: 12 }}>Loading campaigns...</div>}
+      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
+      {loading && <div style={{ color: "var(--text-muted)", padding: 12 }}>Loading campaigns...</div>}
 
       {/* Table */}
       {!loading && filtered.length > 0 && (
-        <div style={{ border: "1px solid #1a1a2e", borderRadius: 6, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
+          <table className="nano-table" style={{ width: "100%" }}>
             <thead>
-              <tr style={{ background: "#0f0f1a", borderBottom: "1px solid #1a1a2e" }}>
+              <tr>
                 {["ID", "Status", "Advertiser", "Publisher", "Bid CPM", "Take Rate", ""].map((h) => (
-                  <th key={h} style={{ padding: "8px 12px", color: "#555", fontSize: 11, fontWeight: 600, textAlign: "left" }}>{h}</th>
+                  <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -167,33 +167,29 @@ export function Campaigns() {
                 <>
                   <tr
                     key={row.id}
-                    style={{
-                      borderBottom: "1px solid #0f0f1a",
-                      background: i % 2 === 0 ? "#0a0a12" : "#0c0c16",
-                      cursor: "pointer",
-                    }}
+                    style={{ cursor: "pointer" }}
                     onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
                   >
-                    <td style={tdStyle}>
-                      <Link to={`/campaigns/${row.id}`} onClick={(e) => e.stopPropagation()} style={{ color: "#a0a0ff" }}>
+                    <td>
+                      <Link to={`/campaigns/${row.id}`} onClick={(e) => e.stopPropagation()} style={{ color: "var(--accent)" }}>
                         #{row.id}
                       </Link>
                     </td>
-                    <td style={tdStyle}><StatusBadge status={row.status} /></td>
-                    <td style={tdStyle}><AddressDisplay address={row.advertiser} chars={4} style={{ fontSize: 12 }} /></td>
-                    <td style={tdStyle}>
+                    <td><StatusBadge status={row.status} /></td>
+                    <td><AddressDisplay address={row.advertiser} chars={4} style={{ fontSize: 12 }} /></td>
+                    <td>
                       {row.publisher === ZERO_ADDR
-                        ? <span style={{ color: "#555", fontSize: 12 }}>Open</span>
+                        ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Open</span>
                         : <AddressDisplay address={row.publisher} chars={4} style={{ fontSize: 12 }} />}
                     </td>
-                    <td style={tdStyle}><DOTAmount planck={row.bidCpmPlanck} style={{ fontSize: 12 }} /></td>
-                    <td style={tdStyle}><span style={{ fontSize: 12, color: "#888" }}>{(row.snapshotTakeRateBps / 100).toFixed(0)}%</span></td>
-                    <td style={tdStyle}>
-                      <Link to={`/campaigns/${row.id}`} style={{ color: "#4a4a8a", fontSize: 12 }}>Detail →</Link>
+                    <td><DOTAmount planck={row.bidCpmPlanck} style={{ fontSize: 12 }} /></td>
+                    <td><span style={{ fontSize: 12, color: "var(--text)" }}>{(row.snapshotTakeRateBps / 100).toFixed(0)}%</span></td>
+                    <td>
+                      <Link to={`/campaigns/${row.id}`} style={{ color: "var(--accent-dim)", fontSize: 12 }}>Detail →</Link>
                     </td>
                   </tr>
                   {expandedId === row.id && (
-                    <tr key={`${row.id}-expanded`} style={{ background: "#0d0d18" }}>
+                    <tr key={`${row.id}-expanded`} style={{ background: "var(--bg-raised)" }}>
                       <td colSpan={7} style={{ padding: "12px 16px" }}>
                         <IPFSPreview metadataHash={row.metadataHash} />
                       </td>
@@ -207,23 +203,17 @@ export function Campaigns() {
       )}
 
       {!loading && filtered.length === 0 && !error && (
-        <div style={{ color: "#555", padding: 20, textAlign: "center" }}>No campaigns found.</div>
+        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>No campaigns found.</div>
       )}
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div style={{ display: "flex", gap: 8, marginTop: 16, alignItems: "center" }}>
-          <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} style={btnStyle}>← Prev</button>
-          <span style={{ color: "#666", fontSize: 12 }}>Page {page + 1} / {totalPages}</span>
-          <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} style={btnStyle}>Next →</button>
+          <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="nano-btn" style={{ fontSize: 12 }}>← Prev</button>
+          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Page {page + 1} / {totalPages}</span>
+          <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="nano-btn" style={{ fontSize: 12 }}>Next →</button>
         </div>
       )}
     </div>
   );
 }
-
-const tdStyle: React.CSSProperties = { padding: "8px 12px", verticalAlign: "middle" };
-const selectStyle: React.CSSProperties = { padding: "5px 8px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, cursor: "pointer" };
-const btnStyle: React.CSSProperties = { padding: "5px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, cursor: "pointer" };
-const warningBox: React.CSSProperties = { padding: "10px 14px", background: "#1a1a0a", border: "1px solid #3a3a0a", borderRadius: 6, color: "#c0c060", fontSize: 13, marginBottom: 12 };
-const errorBox: React.CSSProperties = { padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ff8080", fontSize: 13, marginBottom: 12 };

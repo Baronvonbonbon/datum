@@ -41,70 +41,57 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
   }, [metadataHash, settings.ipfsGateway]);
 
   if (!metadataHash || metadataHash === ZERO_HASH) {
-    return <span style={{ color: "#555", fontSize: 12 }}>No metadata</span>;
+    return <span style={{ color: "var(--text-muted)", fontSize: 12 }}>No metadata</span>;
   }
 
-  if (loading) return <span style={{ color: "#555", fontSize: 12 }}>Loading metadata...</span>;
-  if (error) return <span style={{ color: "#ff8080", fontSize: 12 }}>Metadata error: {error}</span>;
+  if (loading) return <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Loading metadata...</span>;
+  if (error) return <span style={{ color: "var(--error)", fontSize: 12 }}>Metadata error: {error}</span>;
   if (!metadata) return null;
 
   const safeUrl = sanitizeCtaUrl(metadata.creative.ctaUrl);
 
   if (compact) {
     return (
-      <span style={{ color: "#a0a0ff", fontSize: 12 }}>
+      <span style={{ color: "var(--accent)", fontSize: 12 }}>
         {metadata.title}
       </span>
     );
   }
 
   return (
-    <div style={{
-      background: "#111",
-      border: "1px solid #2a2a4a",
-      borderRadius: 6,
-      padding: 12,
-    }}>
-      <div style={{ color: "#e0e0e0", fontWeight: 600, marginBottom: 4 }}>{metadata.title}</div>
-      <div style={{ color: "#888", fontSize: 12, marginBottom: 8 }}>{metadata.description}</div>
+    <div className="nano-card" style={{ padding: 12 }}>
+      <div style={{ color: "var(--text-strong)", fontWeight: 600, marginBottom: 4 }}>{metadata.title}</div>
+      <div style={{ color: "var(--text)", fontSize: 12, marginBottom: 8 }}>{metadata.description}</div>
       <div style={{
-        background: "#1a1a2e",
-        border: "1px solid #2a2a4a",
-        borderRadius: 4,
+        background: "var(--bg-raised)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
         padding: "8px 12px",
         marginBottom: 8,
       }}>
-        <div style={{ color: "#ccc", fontSize: 13, marginBottom: 6 }}>{metadata.creative.text}</div>
+        <div style={{ color: "var(--text)", fontSize: 13, marginBottom: 6 }}>{metadata.creative.text}</div>
         {safeUrl ? (
           <a
             href={safeUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              display: "inline-block",
-              padding: "4px 12px",
-              background: "#2a2a5a",
-              color: "#a0a0ff",
-              border: "1px solid #4a4a8a",
-              borderRadius: 4,
-              fontSize: 12,
-              textDecoration: "none",
-            }}
+            className="nano-btn nano-btn-accent"
+            style={{ display: "inline-block", padding: "4px 12px", fontSize: 12, textDecoration: "none" }}
           >
             {metadata.creative.cta}
           </a>
         ) : (
-          <span style={{ color: "#555", fontSize: 12 }}>{metadata.creative.cta}</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{metadata.creative.cta}</span>
         )}
       </div>
-      <div style={{ fontSize: 11, color: "#555" }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
         Category: {metadata.category}
         {" · "}
         <a
           href={metadataUrl(metadataHash, settings.ipfsGateway) ?? "#"}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "#4a4a8a" }}
+          style={{ color: "var(--accent-dim)" }}
         >
           View on IPFS
         </a>

@@ -67,22 +67,25 @@ export function PauseRegistryAdmin() {
   }
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Pause Registry</h1>
+    <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Pause Registry</h1>
 
-      <div style={{ padding: "6px 10px", background: "#0a0a14", border: "1px solid #1a1a2e", borderRadius: 4, color: "#888", fontSize: 12, marginBottom: 16 }}>
+      <div className="nano-info nano-info--muted" style={{ marginBottom: 16, fontSize: 12 }}>
         The pause registry provides a single on-chain flag checked by all protocol contracts. In an emergency, pausing here suspends all user-facing operations simultaneously.
       </div>
 
       {loading ? (
-        <div style={{ color: "#555" }}>Loading...</div>
+        <div style={{ color: "var(--text-muted)" }}>Loading...</div>
       ) : (
         <>
-          <div style={{ padding: 16, background: "#0d0d18", border: `1px solid ${paused ? "#5a2a2a" : "#1a2e1a"}`, borderRadius: 8, marginBottom: 16 }}>
+          <div className="nano-card" style={{
+            border: `1px solid ${paused ? "rgba(252,165,165,0.3)" : "rgba(110,231,183,0.2)"}`,
+            padding: 16, marginBottom: 16,
+          }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>Protocol Status</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: paused ? "#ff6060" : "#60c060" }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>Protocol Status</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: paused ? "var(--error)" : "var(--ok)" }}>
                   {paused === null ? "Unknown" : paused ? "PAUSED" : "ACTIVE"}
                 </div>
               </div>
@@ -90,15 +93,13 @@ export function PauseRegistryAdmin() {
                 <button
                   onClick={paused ? handleUnpause : handlePause}
                   disabled={txState === "pending"}
+                  className="nano-btn"
                   style={{
                     padding: "8px 18px",
-                    background: paused ? "#0a2a0a" : "#2a0a0a",
-                    border: `1px solid ${paused ? "#2a5a2a" : "#5a2a2a"}`,
-                    borderRadius: 4,
-                    color: paused ? "#60c060" : "#ff8080",
                     fontSize: 13,
                     fontWeight: 600,
-                    cursor: "pointer",
+                    color: paused ? "var(--ok)" : "var(--error)",
+                    border: paused ? "1px solid rgba(110,231,183,0.3)" : "1px solid rgba(252,165,165,0.3)",
                   }}
                 >
                   {txState === "pending" ? "Processing..." : paused ? "Unpause Protocol" : "Pause Protocol"}
@@ -109,19 +110,19 @@ export function PauseRegistryAdmin() {
 
           <TransactionStatus state={txState} message={txMsg} />
 
-          <div style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 14 }}>
-            <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Affected Contracts</div>
+          <div className="nano-card" style={{ padding: 14 }}>
+            <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Affected Contracts</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {PAUSED_CONTRACTS.map((name) => (
-                <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #0f0f1a" }}>
-                  <span style={{ color: "#888", fontSize: 13 }}>{name}</span>
-                  <span style={{ fontSize: 11, color: paused ? "#ff8080" : "#60c060" }}>
+                <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text)", fontSize: 13 }}>{name}</span>
+                  <span style={{ fontSize: 11, color: paused ? "var(--error)" : "var(--ok)" }}>
                     {paused ? "Paused" : "Active"}
                   </span>
                 </div>
               ))}
             </div>
-            <div style={{ color: "#444", fontSize: 11, marginTop: 10 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 10 }}>
               BudgetLedger, PaymentVault, CampaignLifecycle, GovernanceSlash, and Timelock are not pause-gated (allow safe resolution of in-progress actions).
             </div>
           </div>

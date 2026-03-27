@@ -44,22 +44,22 @@ export function Categories() {
   }
 
   return (
-    <div>
-      <Link to="/publisher" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
+    <div className="nano-fade">
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 16px" }}>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>Ad Categories</h1>
-        <span style={{ color: "#666", fontSize: 13 }}>{selected.size} / 26 selected</span>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Ad Categories</h1>
+        <span style={{ color: "var(--text)", fontSize: 13 }}>{selected.size} / 26 selected</span>
       </div>
-      <p style={{ color: "#666", fontSize: 13, marginBottom: 16 }}>
+      <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Select the content categories your site covers. Only matching campaigns will be shown.
       </p>
 
-      {loading ? <div style={{ color: "#555" }}>Loading...</div> : (
+      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
         <>
           <CategoryPicker value={selected} onChange={setSelected} />
           <div style={{ marginTop: 16 }}>
             <TransactionStatus state={txState} message={txMsg} />
-            <button onClick={handleSave} disabled={txState === "pending" || !signer} style={{ marginTop: 12, padding: "8px 16px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, cursor: "pointer" }}>
+            <button onClick={handleSave} disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>
               {txState === "pending" ? "Saving..." : "Save Categories"}
             </button>
           </div>

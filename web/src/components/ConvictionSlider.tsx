@@ -16,16 +16,16 @@ export function ConvictionSlider({ value, onChange, amount }: Props) {
           max={8}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          style={{ flex: 1, accentColor: "#a0a0ff" }}
+          style={{ flex: 1, accentColor: "var(--accent)" }}
         />
-        <span style={{ color: "#a0a0ff", fontWeight: 700, minWidth: 32, textAlign: "right" }}>
+        <span style={{ color: "var(--accent)", fontWeight: 700, minWidth: 32, textAlign: "right" }}>
           {CONVICTION_WEIGHTS[value]}x
         </span>
       </div>
-      <div style={{ color: "#888", fontSize: 12, marginBottom: 8 }}>
-        Lockup: <span style={{ color: "#c0c0ff" }}>{CONVICTION_LOCKUP_LABELS[value]}</span>
+      <div style={{ color: "var(--text)", fontSize: 12, marginBottom: 8 }}>
+        Lockup: <span style={{ color: "var(--accent)" }}>{CONVICTION_LOCKUP_LABELS[value]}</span>
         {amount !== undefined && amount > 0n && (
-          <span style={{ marginLeft: 12, color: "#a0a0ff" }}>
+          <span style={{ marginLeft: 12, color: "var(--accent)" }}>
             Effective weight: {CONVICTION_WEIGHTS[value]}x
           </span>
         )}
@@ -35,7 +35,7 @@ export function ConvictionSlider({ value, onChange, amount }: Props) {
         gridTemplateColumns: "repeat(9, 1fr)",
         gap: 2,
         fontSize: 9,
-        color: "#555",
+        color: "var(--text-muted)",
       }}>
         {CONVICTION_WEIGHTS.map((w, i) => (
           <div
@@ -46,9 +46,9 @@ export function ConvictionSlider({ value, onChange, amount }: Props) {
               padding: "3px 0",
               borderRadius: 2,
               cursor: "pointer",
-              background: i === value ? "#2a2a5a" : "#111",
-              color: i === value ? "#a0a0ff" : "#555",
-              border: i === value ? "1px solid #4a4a8a" : "1px solid #222",
+              background: i === value ? "rgba(160,160,255,0.15)" : "var(--bg-raised)",
+              color: i === value ? "var(--accent)" : "var(--text-muted)",
+              border: i === value ? "1px solid rgba(160,160,255,0.3)" : "1px solid var(--border)",
             }}
           >
             <div style={{ fontWeight: 600 }}>{w}x</div>

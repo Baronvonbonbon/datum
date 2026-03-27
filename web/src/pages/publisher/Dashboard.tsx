@@ -57,8 +57,8 @@ export function PublisherDashboard() {
     }
   }
 
-  if (!address) return <div style={{ padding: 20, color: "#666" }}>Connect your wallet to manage your publisher profile.</div>;
-  if (loading) return <div style={{ color: "#555", padding: 20 }}>Loading...</div>;
+  if (!address) return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect your wallet to manage your publisher profile.</div>;
+  if (loading) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Loading...</div>;
 
   const isRegistered = info?.registered === true || info?.[0] === true;
   const takeRateBps = Number(info?.takeRateBps ?? info?.[1] ?? 0);
@@ -66,19 +66,19 @@ export function PublisherDashboard() {
   const categories = bitmaskToCategories(categoryBitmask);
 
   return (
-    <div>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Publisher Dashboard</h1>
+    <div className="nano-fade">
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Publisher Dashboard</h1>
 
       {blocked && (
-        <div style={{ padding: "10px 14px", background: "#2a0a0a", border: "1px solid #5a1a1a", borderRadius: 6, color: "#ff6060", fontWeight: 600, marginBottom: 16 }}>
+        <div className="nano-info nano-info--error" style={{ fontWeight: 600, marginBottom: 16 }}>
           ⚠ This address is blocked by the protocol admin. New registrations and campaigns are restricted.
         </div>
       )}
 
       {!isRegistered ? (
-        <div style={{ padding: 20, background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8 }}>
-          <div style={{ color: "#888", marginBottom: 12 }}>You are not registered as a publisher.</div>
-          <Link to="/publisher/register" style={{ padding: "8px 16px", background: "#1a1a3a", color: "#a0a0ff", border: "1px solid #4a4a8a", borderRadius: 4, fontSize: 13, textDecoration: "none" }}>
+        <div className="nano-card" style={{ padding: 20 }}>
+          <div style={{ color: "var(--text)", marginBottom: 12 }}>You are not registered as a publisher.</div>
+          <Link to="/publisher/register" className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13, textDecoration: "none" }}>
             Register as Publisher
           </Link>
         </div>
@@ -87,15 +87,15 @@ export function PublisherDashboard() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
             <InfoCard label="Take Rate" value={`${(takeRateBps / 100).toFixed(0)}%`} />
             <InfoCard label="Categories" value={`${categories.size} selected`} />
-            <InfoCard label="Status" value="Registered" color="#60c060" />
+            <InfoCard label="Status" value="Registered" color="var(--ok)" />
           </div>
 
           {categories.size > 0 && (
-            <div style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 6, padding: 12 }}>
-              <div style={{ color: "#555", fontSize: 12, marginBottom: 6 }}>Active Categories</div>
+            <div className="nano-card" style={{ padding: 12 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 6 }}>Active Categories</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {[...categories].map((id) => (
-                  <span key={id} style={{ padding: "2px 8px", background: "#1a1a2e", border: "1px solid #2a2a4a", borderRadius: 3, fontSize: 11, color: "#a0a0ff" }}>
+                  <span key={id} className="nano-badge" style={{ color: "var(--accent)" }}>
                     {CATEGORY_NAMES[id]}
                   </span>
                 ))}
@@ -104,14 +104,14 @@ export function PublisherDashboard() {
           )}
 
           {/* Earnings */}
-          <div style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 16 }}>
-            <div style={{ color: "#a0a0ff", fontWeight: 600, marginBottom: 10 }}>Earnings</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#e0e0e0", marginBottom: 10 }}>
+          <div className="nano-card" style={{ padding: 16 }}>
+            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Earnings</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-strong)", marginBottom: 10 }}>
               {balance !== null ? <DOTAmount planck={balance} /> : "—"}
             </div>
-            {msg && <div style={{ color: msg.includes("successful") ? "#60c060" : "#ff8080", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
+            {msg && <div style={{ color: msg.includes("successful") ? "var(--ok)" : "var(--error)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
             {signer && balance !== null && balance > 0n && (
-              <button onClick={handleWithdraw} disabled={withdrawing} style={actionBtn}>
+              <button onClick={handleWithdraw} disabled={withdrawing} className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13 }}>
                 {withdrawing ? "Withdrawing..." : "Withdraw Earnings"}
               </button>
             )}
@@ -119,11 +119,11 @@ export function PublisherDashboard() {
 
           {/* Quick links */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Link to="/publisher/rate" style={navBtn}>Update Take Rate</Link>
-            <Link to="/publisher/categories" style={navBtn}>Manage Categories</Link>
-            <Link to="/publisher/allowlist" style={navBtn}>Allowlist</Link>
-            <Link to="/publisher/earnings" style={navBtn}>Full Earnings</Link>
-            <Link to="/publisher/sdk" style={navBtn}>SDK Setup</Link>
+            <Link to="/publisher/rate" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Update Take Rate</Link>
+            <Link to="/publisher/categories" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Categories</Link>
+            <Link to="/publisher/allowlist" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Allowlist</Link>
+            <Link to="/publisher/earnings" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Full Earnings</Link>
+            <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>
           </div>
         </div>
       )}
@@ -133,12 +133,9 @@ export function PublisherDashboard() {
 
 function InfoCard({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ background: "#111", border: "1px solid #1a1a2e", borderRadius: 6, padding: "10px 14px" }}>
-      <div style={{ color: "#555", fontSize: 11, marginBottom: 4 }}>{label}</div>
-      <div style={{ color: color ?? "#e0e0e0", fontSize: 18, fontWeight: 700 }}>{value}</div>
+    <div className="nano-card" style={{ padding: "10px 14px" }}>
+      <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: color ?? "var(--text-strong)", fontSize: 18, fontWeight: 700 }}>{value}</div>
     </div>
   );
 }
-
-const actionBtn: React.CSSProperties = { padding: "8px 16px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 4, color: "#a0a0ff", fontSize: 13, cursor: "pointer" };
-const navBtn: React.CSSProperties = { padding: "6px 12px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 12, textDecoration: "none" };

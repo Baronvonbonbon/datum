@@ -43,17 +43,18 @@ export function Settings() {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Settings</h1>
+    <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Settings</h1>
 
       {/* Network */}
       <Section title="Network">
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Network</label>
+          <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Network</label>
           <select
             value={settings.network}
             onChange={(e) => handleNetworkChange(e.target.value)}
-            style={{ ...inputStyle, cursor: "pointer" }}
+            className="nano-select"
+            style={{ cursor: "pointer" }}
           >
             {Object.entries(NETWORK_CONFIGS)
               .filter(([_, cfg]) => Object.values(cfg.addresses).some((a) => a !== ""))
@@ -63,12 +64,12 @@ export function Settings() {
           </select>
         </div>
         <div>
-          <label style={labelStyle}>RPC URL</label>
+          <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>RPC URL</label>
           <input
             value={settings.rpcUrl}
             onChange={(e) => updateSettings({ rpcUrl: e.target.value })}
             placeholder="https://..."
-            style={inputStyle}
+            className="nano-input"
           />
         </div>
       </Section>
@@ -76,15 +77,15 @@ export function Settings() {
       {/* Pinata */}
       <Section title="IPFS / Pinata">
         <div>
-          <label style={labelStyle}>Pinata API Key (for uploading campaign metadata)</label>
+          <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Pinata API Key (for uploading campaign metadata)</label>
           <input
             type="password"
             value={settings.pinataApiKey ?? ""}
             onChange={(e) => updateSettings({ pinataApiKey: e.target.value })}
             placeholder="pk_..."
-            style={inputStyle}
+            className="nano-input"
           />
-          <div style={{ color: "#444", fontSize: 11, marginTop: 4 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
             Required to upload metadata when creating campaigns. Leave blank to use IPFS gateways for viewing only.
           </div>
         </div>
@@ -94,7 +95,7 @@ export function Settings() {
       <Section title="Contract Addresses">
         <button
           onClick={() => setShowContracts(!showContracts)}
-          style={{ background: "none", border: "none", color: "#a0a0ff", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: showContracts ? 12 : 0 }}
+          style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: showContracts ? 12 : 0 }}
         >
           {showContracts ? "▼ Hide addresses" : "▶ Show addresses"}
         </button>
@@ -102,16 +103,17 @@ export function Settings() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {Object.keys(CONTRACT_LABELS).map((key) => (
               <div key={key}>
-                <label style={labelStyle}>{CONTRACT_LABELS[key]}</label>
+                <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>{CONTRACT_LABELS[key]}</label>
                 <input
                   value={(settings.contractAddresses as any)[key] ?? ""}
                   onChange={(e) => setContractAddress(key as any, e.target.value)}
                   placeholder="0x..."
-                  style={{ ...inputStyle, fontFamily: "monospace" }}
+                  className="nano-input"
+                  style={{ fontFamily: "monospace" }}
                 />
               </div>
             ))}
-            <div style={{ color: "#444", fontSize: 11 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
               Changing the network above auto-fills known addresses. Manual overrides are preserved.
             </div>
           </div>
@@ -122,21 +124,28 @@ export function Settings() {
       <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
         <button
           onClick={handleSave}
-          style={{ padding: "8px 18px", background: saved ? "#0a2a0a" : "#1a1a3a", border: `1px solid ${saved ? "#2a5a2a" : "#4a4a8a"}`, borderRadius: 4, color: saved ? "#60c060" : "#a0a0ff", fontSize: 13, cursor: "pointer" }}
+          className={saved ? "nano-btn" : "nano-btn nano-btn-accent"}
+          style={{
+            padding: "8px 18px",
+            fontSize: 13,
+            color: saved ? "var(--ok)" : undefined,
+            border: saved ? "1px solid rgba(110,231,183,0.3)" : undefined,
+          }}
         >
           {saved ? "Saved!" : "Save Settings"}
         </button>
         <button
           onClick={handleReset}
-          style={{ padding: "8px 18px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#888", fontSize: 13, cursor: "pointer" }}
+          className="nano-btn"
+          style={{ padding: "8px 18px", fontSize: 13 }}
         >
           Reset to Defaults
         </button>
       </div>
 
       {/* Version info */}
-      <div style={{ marginTop: 24, padding: "10px 14px", background: "#0a0a14", border: "1px solid #0f0f1a", borderRadius: 6 }}>
-        <div style={{ color: "#444", fontSize: 11 }}>
+      <div className="nano-card" style={{ marginTop: 24, padding: "10px 14px" }}>
+        <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
           DATUM Web App · Alpha-2 · Network: {NETWORK_CONFIGS[settings.network]?.name ?? settings.network}
         </div>
       </div>
@@ -146,12 +155,9 @@ export function Settings() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 8, padding: 14, marginBottom: 12 }}>
-      <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{title}</div>
+    <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
+      <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{title}</div>
       {children}
     </div>
   );
 }
-
-const labelStyle: React.CSSProperties = { color: "#888", fontSize: 12, display: "block", marginBottom: 4 };
-const inputStyle: React.CSSProperties = { padding: "6px 8px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#e0e0e0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" };

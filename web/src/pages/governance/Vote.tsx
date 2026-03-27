@@ -85,8 +85,8 @@ export function Vote() {
     }
   }
 
-  if (loading) return <div style={{ color: "#555", padding: 20 }}>Loading campaign #{id}...</div>;
-  if (!campaign) return <div style={{ color: "#555" }}>Campaign not found.</div>;
+  if (loading) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Loading campaign #{id}...</div>;
+  if (!campaign) return <div style={{ color: "var(--text-muted)" }}>Campaign not found.</div>;
 
   const total = gov ? gov.ayeWeighted + gov.nayWeighted : 0n;
   const ayePct = total > 0n ? Number(gov!.ayeWeighted * 100n / total) : 0;
@@ -94,86 +94,79 @@ export function Vote() {
   const amountPlanck = (() => { try { return parseDOT(amount); } catch { return 0n; } })();
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <Link to="/governance" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
+    <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
 
       <div style={{ margin: "12px 0 16px" }}>
-        <span style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700 }}>Vote on Campaign #{id}</span>
+        <span style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Vote on Campaign #{id}</span>
         <StatusBadge status={campaign.status} style={{ marginLeft: 10 }} />
       </div>
 
       <IPFSPreview metadataHash={metadataHash} />
 
       {gov && (
-        <div style={{ margin: "16px 0", padding: 12, background: "#0d0d18", border: "1px solid #1a1a2e", borderRadius: 6 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#888", marginBottom: 4 }}>
+        <div className="nano-card" style={{ margin: "16px 0", padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
             <span>Aye {ayePct}% · <DOTAmount planck={gov.ayeWeighted} /></span>
             <span>Nay {100 - ayePct}% · <DOTAmount planck={gov.nayWeighted} /></span>
           </div>
-          <div style={{ background: "#1a1a1a", borderRadius: 3, height: 10, overflow: "hidden" }}>
-            <div style={{ width: `${ayePct}%`, height: "100%", background: "#406040" }} />
+          <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 10, overflow: "hidden" }}>
+            <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.5 }} />
           </div>
-          <div style={{ color: "#555", fontSize: 11, marginTop: 6 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
             Quorum: <DOTAmount planck={gov.quorum} /> required
-            {gov.resolved && <span style={{ color: "#60c060", marginLeft: 8 }}>✓ Resolved</span>}
+            {gov.resolved && <span style={{ color: "var(--ok)", marginLeft: 8 }}>✓ Resolved</span>}
           </div>
         </div>
       )}
 
       {myVote ? (
-        <div style={{ padding: 12, background: "#0a1a0a", border: "1px solid #1a3a1a", borderRadius: 6, marginBottom: 16 }}>
-          <div style={{ color: "#60c060", fontWeight: 600, marginBottom: 4 }}>
+        <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
             You voted {myVote.direction === 1 ? "Aye" : "Nay"}
           </div>
-          <div style={{ color: "#888", fontSize: 13 }}>
+          <div style={{ fontSize: 13 }}>
             <DOTAmount planck={myVote.lockAmount} /> · conviction {myVote.conviction} ({CONVICTION_WEIGHTS[myVote.conviction]}x weight)
           </div>
           <div style={{ marginTop: 8 }}>
-            <Link to="/governance/my-votes" style={{ color: "#a0a0ff", fontSize: 12 }}>Manage your vote →</Link>
+            <Link to="/governance/my-votes" style={{ color: "var(--accent)", fontSize: 12 }}>Manage your vote →</Link>
           </div>
         </div>
       ) : address ? (
         <form onSubmit={handleVote} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
           <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" onClick={() => setIsAye(true)} style={{ ...dirBtn, ...(isAye ? ayeActive : {}) }}>
+            <button type="button" onClick={() => setIsAye(true)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: isAye ? "var(--ok)" : undefined, border: isAye ? "1px solid rgba(110,231,183,0.3)" : undefined, background: isAye ? "rgba(110,231,183,0.08)" : undefined }}>
               Aye (Support)
             </button>
-            <button type="button" onClick={() => setIsAye(false)} style={{ ...dirBtn, ...(!isAye ? nayActive : {}) }}>
+            <button type="button" onClick={() => setIsAye(false)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: !isAye ? "var(--error)" : undefined, border: !isAye ? "1px solid rgba(252,165,165,0.3)" : undefined, background: !isAye ? "rgba(252,165,165,0.08)" : undefined }}>
               Nay (Oppose)
             </button>
           </div>
 
           <div>
-            <label style={labelStyle}>Stake Amount ({sym})</label>
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0.000001" step="0.01" style={inputStyle} required />
+            <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Stake Amount ({sym})</label>
+            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0.000001" step="0.01" className="nano-input" required />
             {amountPlanck > 0n && (
-              <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                 Effective weight: {formatDOT(amountPlanck * BigInt(effectiveWeight))} {sym}
               </div>
             )}
           </div>
 
           <div>
-            <label style={labelStyle}>Conviction</label>
+            <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Conviction</label>
             <ConvictionSlider value={conviction} onChange={setConviction} amount={amountPlanck} />
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />
 
-          <button type="submit" disabled={txState === "pending" || !signer} style={submitBtn}>
+          <button type="submit" disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600 }}>
             {txState === "pending" ? "Voting..." : `Vote ${isAye ? "Aye" : "Nay"} with ${amount} ${sym}`}
           </button>
         </form>
       ) : (
-        <div style={{ color: "#666", padding: 12 }}>Connect your wallet to vote.</div>
+        <div style={{ color: "var(--text)", padding: 12 }}>Connect your wallet to vote.</div>
       )}
     </div>
   );
 }
-
-const labelStyle: React.CSSProperties = { color: "#888", fontSize: 13, display: "block", marginBottom: 6 };
-const inputStyle: React.CSSProperties = { padding: "8px 10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#e0e0e0", fontSize: 13, outline: "none", width: "100%" };
-const dirBtn: React.CSSProperties = { flex: 1, padding: "10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, cursor: "pointer", fontSize: 14, color: "#666" };
-const ayeActive: React.CSSProperties = { background: "#0a2a0a", border: "1px solid #2a5a2a", color: "#60c060" };
-const nayActive: React.CSSProperties = { background: "#2a0a0a", border: "1px solid #5a2a2a", color: "#ff8080" };
-const submitBtn: React.CSSProperties = { padding: "10px 20px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 6, color: "#a0a0ff", fontSize: 14, cursor: "pointer", fontWeight: 600 };

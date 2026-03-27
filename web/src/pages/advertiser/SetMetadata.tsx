@@ -83,52 +83,52 @@ export function SetMetadata() {
     }
   }
 
-  if (!signer) return <div style={{ color: "#666", padding: 20 }}>Connect your wallet to set metadata.</div>;
+  if (!signer) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Connect your wallet to set metadata.</div>;
 
   return (
-    <div style={{ maxWidth: 600 }}>
+    <div className="nano-fade" style={{ maxWidth: 600 }}>
       <div style={{ marginBottom: 20 }}>
-        <Link to={`/advertiser/campaign/${id}`} style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Campaign #{id}</Link>
-        <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Set Campaign Metadata</h1>
-        <p style={{ color: "#555", fontSize: 13, marginTop: 4 }}>
+        <Link to={`/advertiser/campaign/${id}`} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaign #{id}</Link>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Set Campaign Metadata</h1>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>
           Metadata is pinned to IPFS and the hash stored on-chain. Requires a Pinata API key in{" "}
-          <Link to="/settings" style={{ color: "#a0a0ff" }}>Settings</Link>.
+          <Link to="/settings" style={{ color: "var(--accent)" }}>Settings</Link>.
         </p>
       </div>
 
       {!settings.pinataApiKey && (
-        <div style={{ padding: "10px 14px", background: "#1a1a0a", border: "1px solid #3a3a0a", borderRadius: 6, color: "#c0c060", fontSize: 13, marginBottom: 16 }}>
-          No Pinata API key configured. <Link to="/settings" style={{ color: "#a0a0ff" }}>Add it in Settings.</Link>
+        <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
+          No Pinata API key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add it in Settings.</Link>
         </div>
       )}
 
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Field label="Title" maxLen={128}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={128} required style={inputStyle} placeholder="e.g. Polkadot Hub — Build the Future" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={128} required className="nano-input" placeholder="e.g. Polkadot Hub — Build the Future" />
         </Field>
         <Field label="Description" maxLen={256}>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={256} required rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="Brief description of your product or service" />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={256} required rows={3} className="nano-input" style={{ resize: "vertical" }} placeholder="Brief description of your product or service" />
         </Field>
         <Field label="Category label" maxLen={64}>
-          <input value={category} onChange={(e) => setCategory(e.target.value)} maxLength={64} required style={inputStyle} placeholder="e.g. Crypto & Web3" />
+          <input value={category} onChange={(e) => setCategory(e.target.value)} maxLength={64} required className="nano-input" placeholder="e.g. Crypto & Web3" />
         </Field>
         <Field label="Ad Text" maxLen={512}>
-          <textarea value={creativeText} onChange={(e) => setCreativeText(e.target.value)} maxLength={512} required rows={4} style={{ ...inputStyle, resize: "vertical" }} placeholder="The main body text of your advertisement" />
+          <textarea value={creativeText} onChange={(e) => setCreativeText(e.target.value)} maxLength={512} required rows={4} className="nano-input" style={{ resize: "vertical" }} placeholder="The main body text of your advertisement" />
         </Field>
         <Field label="CTA Button Label" maxLen={64}>
-          <input value={cta} onChange={(e) => setCta(e.target.value)} maxLength={64} required style={inputStyle} />
+          <input value={cta} onChange={(e) => setCta(e.target.value)} maxLength={64} required className="nano-input" />
         </Field>
         <Field label="CTA URL (HTTPS only)" maxLen={2048}>
-          <input type="url" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} maxLength={2048} required style={inputStyle} placeholder="https://..." />
+          <input type="url" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
         </Field>
         <Field label="Image URL (optional, HTTPS or IPFS gateway)">
-          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} style={inputStyle} placeholder="https://..." />
+          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="nano-input" placeholder="https://..." />
         </Field>
 
-        {pinStatus && <div style={{ color: "#60c060", fontSize: 12 }}>{pinStatus}</div>}
+        {pinStatus && <div style={{ color: "var(--ok)", fontSize: 12 }}>{pinStatus}</div>}
         <TransactionStatus state={txState} message={txMsg} />
 
-        <button type="submit" disabled={txState === "pending" || !signer} style={submitBtn}>
+        <button type="submit" disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600 }}>
           {txState === "pending" ? "Saving..." : "Pin & Set Metadata"}
         </button>
       </form>
@@ -139,13 +139,10 @@ export function SetMetadata() {
 function Field({ label, maxLen, children }: { label: string; maxLen?: number; children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ color: "#888", fontSize: 13 }}>
-        {label}{maxLen ? <span style={{ color: "#444", fontSize: 11 }}> ({maxLen} max)</span> : ""}
+      <label style={{ color: "var(--text)", fontSize: 13 }}>
+        {label}{maxLen ? <span style={{ color: "var(--text-muted)", fontSize: 11 }}> ({maxLen} max)</span> : ""}
       </label>
       {children}
     </div>
   );
 }
-
-const inputStyle: React.CSSProperties = { padding: "8px 10px", background: "#111", border: "1px solid #2a2a4a", borderRadius: 4, color: "#e0e0e0", fontSize: 13, outline: "none", width: "100%" };
-const submitBtn: React.CSSProperties = { padding: "10px 20px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 6, color: "#a0a0ff", fontSize: 14, cursor: "pointer", fontWeight: 600 };

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
@@ -13,77 +13,77 @@ const NAV_ITEMS = [
   { path: "/publisher", label: "Publisher" },
   { path: "/governance", label: "Governance" },
   { path: "/settings", label: "Settings" },
-  { path: "/demo/", label: "Demo", external: true },
+  { path: "/demo/", label: "Demo ↗", external: true },
 ];
 
-const navLinkStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
-  display: "block",
-  padding: "10px 16px",
-  color: isActive ? "#a0a0ff" : "#666",
-  background: isActive ? "#1a1a2e" : "transparent",
-  borderLeft: isActive ? "2px solid #a0a0ff" : "2px solid transparent",
-  textDecoration: "none",
-  fontSize: 14,
-  fontWeight: isActive ? 600 : 400,
-  transition: "color 0.1s",
-});
+/** Trigger the Nano staggered fade-in on every route change. */
+function useFadeIn() {
+  const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    // Reset — remove show class, force reflow, re-add with stagger
+    const items = el.querySelectorAll<HTMLElement>(".nano-fade");
+    items.forEach((item) => item.classList.remove("nano-fade--show"));
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    items.forEach((item, i) => {
+      timers.push(setTimeout(() => item.classList.add("nano-fade--show"), i * 120));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [location.pathname]);
+
+  return mainRef;
+}
 
 export function Layout() {
   const { address, disconnect, method } = useWallet();
   const { blockNumber, connected } = useBlock();
   const { settings } = useSettings();
   const [showConnect, setShowConnect] = useState(false);
-
-  const sym = getCurrencySymbol(settings.network);
+  const mainRef = useFadeIn();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      {/* Header */}
-      <header style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 24px",
-        height: 52,
-        background: "#0f0f1a",
-        borderBottom: "1px solid #1a1a2e",
-        flexShrink: 0,
-      }}>
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header className="nano-header">
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontWeight: 700, color: "#a0a0ff", fontSize: 18, letterSpacing: 1 }}>DATUM</span>
-          {/* Chain status dot */}
+          <span style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em" }}>
+            DATUM
+          </span>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "monospace" }}>
             <span style={{
               width: 6, height: 6, borderRadius: "50%",
-              background: connected ? "#40c040" : "#c04040",
+              background: connected ? "var(--ok)" : "var(--error)",
               display: "inline-block",
+              boxShadow: connected ? "0 0 6px var(--ok)" : "none",
             }} />
             {connected
-              ? <span style={{ color: "#608060" }}>#{blockNumber} · {getNetworkDisplayName(settings.network)}</span>
-              : <span style={{ color: "#806060" }}>Disconnected</span>
+              ? <span style={{ color: "var(--text-muted)" }}>#{blockNumber} · {getNetworkDisplayName(settings.network)}</span>
+              : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {address ? (
             <>
               {method === "manual" && (
-                <span style={{ fontSize: 10, color: "#ff9040", fontWeight: 600 }}>TEST KEY</span>
+                <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, letterSpacing: "0.06em" }}>TEST KEY</span>
               )}
-              <AddressDisplay address={address} style={{ fontSize: 13 }} />
+              <AddressDisplay address={address} style={{ fontSize: 12, color: "var(--text)" }} />
               <button
                 onClick={disconnect}
-                style={{ padding: "4px 12px", background: "#1a0a0a", color: "#ff8080", border: "1px solid #3a1a1a", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+                className="nano-btn"
+                style={{ fontSize: 12, padding: "4px 10px" }}
               >
                 Disconnect
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setShowConnect(true)}
-              style={{ padding: "6px 16px", background: "#1a1a3a", color: "#a0a0ff", border: "1px solid #4a4a8a", borderRadius: 4, cursor: "pointer", fontSize: 13 }}
-            >
+            <button onClick={() => setShowConnect(true)} className="nano-btn nano-btn-accent">
               Connect Wallet
             </button>
           )}
@@ -91,45 +91,29 @@ export function Layout() {
       </header>
 
       <div style={{ display: "flex", flex: 1 }}>
-        {/* Sidebar */}
-        <nav style={{
-          width: 180,
-          flexShrink: 0,
-          background: "#0a0a12",
-          borderRight: "1px solid #1a1a2e",
-          paddingTop: 16,
-        }}>
+        {/* ── Sidebar ──────────────────────────────────────────────────── */}
+        <nav className="nano-sidebar">
           {NAV_ITEMS.map((item) => (
-              <div key={item.path}>
-                {(item as any).external ? (
-                  <a
-                    href={item.path}
-                    style={{
-                      display: "block",
-                      padding: "10px 16px",
-                      color: "#666",
-                      borderLeft: "2px solid transparent",
-                      textDecoration: "none",
-                      fontSize: 14,
-                    }}
-                  >
-                    {item.label} ↗
-                  </a>
-                ) : (
+            <div key={item.path}>
+              {(item as any).external ? (
+                <a href={item.path} className="nano-navlink" style={{ color: "var(--text-muted)" }}>
+                  {item.label}
+                </a>
+              ) : (
                 <NavLink
                   to={item.path}
                   end={item.exact}
-                  style={navLinkStyle}
+                  className={({ isActive }) => `nano-navlink${isActive ? " active" : ""}`}
                 >
                   {item.label}
                 </NavLink>
-                )}
-              </div>
+              )}
+            </div>
           ))}
         </nav>
 
-        {/* Main content */}
-        <main style={{ flex: 1, overflow: "auto", padding: 24 }}>
+        {/* ── Main content ─────────────────────────────────────────────── */}
+        <main ref={mainRef} style={{ flex: 1, overflow: "auto", padding: "28px 32px", maxWidth: "none" }}>
           <Outlet />
         </main>
       </div>

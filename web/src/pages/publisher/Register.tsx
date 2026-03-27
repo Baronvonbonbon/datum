@@ -31,38 +31,38 @@ export function Register() {
     }
   }
 
-  if (!address) return <div style={{ padding: 20, color: "#666" }}>Connect your wallet to register.</div>;
+  if (!address) return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect your wallet to register.</div>;
 
   return (
-    <div style={{ maxWidth: 480 }}>
-      <Link to="/publisher" style={{ color: "#555", fontSize: 13, textDecoration: "none" }}>← Publisher Dashboard</Link>
-      <h1 style={{ color: "#e0e0e0", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Register as Publisher</h1>
-      <p style={{ color: "#666", fontSize: 13, marginBottom: 20 }}>
+    <div className="nano-fade" style={{ maxWidth: 480 }}>
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Publisher Dashboard</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Register as Publisher</h1>
+      <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 20 }}>
         Set your take rate (30–80%). Campaigns targeting you will snapshot this rate at creation time.
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
-          <label style={{ color: "#888", fontSize: 13, display: "block", marginBottom: 6 }}>
-            Take Rate: <span style={{ color: "#a0a0ff", fontWeight: 700 }}>{takeRate}%</span>
+          <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>
+            Take Rate: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{takeRate}%</span>
           </label>
           <input
             type="range" min={30} max={80} value={takeRate}
             onChange={(e) => setTakeRate(Number(e.target.value))}
-            style={{ width: "100%", accentColor: "#a0a0ff" }}
+            style={{ width: "100%", accentColor: "var(--accent)" }}
           />
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#444", fontSize: 11 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: 11 }}>
             <span>30% (min)</span>
             <span>80% (max)</span>
           </div>
-          <div style={{ color: "#555", fontSize: 12, marginTop: 6 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 6 }}>
             Publisher share per impression: {takeRate}% · User share: {Math.round((100 - takeRate) * 0.75)}% · Protocol: {Math.round((100 - takeRate) * 0.25)}%
           </div>
         </div>
 
         <TransactionStatus state={txState} message={txMsg} />
 
-        <button type="submit" disabled={txState === "pending" || !signer} style={{ padding: "10px 20px", background: "#1a1a3a", border: "1px solid #4a4a8a", borderRadius: 6, color: "#a0a0ff", fontSize: 14, cursor: "pointer", fontWeight: 600 }}>
+        <button type="submit" disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600 }}>
           {txState === "pending" ? "Registering..." : "Register Publisher"}
         </button>
       </form>

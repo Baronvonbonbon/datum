@@ -33,18 +33,14 @@ export function CategoryPicker({ value, onChange, maxCategories }: Props) {
             key={id}
             type="button"
             onClick={() => toggle(id)}
+            className={selected ? "nano-btn nano-btn-accent" : "nano-btn"}
             style={{
               padding: "6px 10px",
-              borderRadius: 4,
-              border: `1px solid ${selected ? "#4a4a8a" : "#2a2a4a"}`,
-              background: selected ? "#1a1a3a" : "#111",
-              color: selected ? "#a0a0ff" : "#666",
               fontSize: 12,
-              cursor: "pointer",
               textAlign: "left",
             }}
           >
-            <span style={{ marginRight: 4, fontSize: 10, color: "#555" }}>{id}</span>
+            <span style={{ marginRight: 4, fontSize: 10, color: "var(--text-muted)" }}>{id}</span>
             {CATEGORY_NAMES[id]}
           </button>
         );
