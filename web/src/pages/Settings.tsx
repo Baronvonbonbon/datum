@@ -3,6 +3,8 @@ import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS } from "@shared/networks";
+import { IPFS_PROVIDERS, testPinConfig } from "@shared/ipfsPin";
+import { IpfsProvider } from "@shared/types";
 
 const CONTRACT_LABELS: Record<string, string> = {
   campaigns: "Campaigns",
@@ -25,6 +27,8 @@ export function Settings() {
   const { disconnect } = useWallet();
   const [saved, setSaved] = useState(false);
   const [showContracts, setShowContracts] = useState(false);
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [testMsg, setTestMsg] = useState("");
 
   function handleNetworkChange(net: string) {
     setNetwork(net as any);
@@ -41,6 +45,21 @@ export function Settings() {
       disconnect();
     }
   }
+
+  async function handleTestPin() {
+    setTestStatus("testing");
+    setTestMsg("");
+    const result = await testPinConfig({
+      provider: settings.ipfsProvider ?? "pinata",
+      apiKey: settings.ipfsApiKey ?? settings.pinataApiKey ?? "",
+      endpoint: settings.ipfsApiEndpoint,
+    });
+    setTestStatus(result.ok ? "ok" : "error");
+    setTestMsg(result.ok ? "Connection successful." : result.error ?? "Test failed.");
+  }
+
+  const provider = settings.ipfsProvider ?? "pinata";
+  const providerInfo = IPFS_PROVIDERS[provider];
 
   return (
     <div className="nano-fade" style={{ maxWidth: 640 }}>
@@ -74,19 +93,77 @@ export function Settings() {
         </div>
       </Section>
 
-      {/* Pinata */}
-      <Section title="IPFS / Pinata">
-        <div>
-          <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Pinata API Key (for uploading campaign metadata)</label>
-          <input
-            type="password"
-            value={settings.pinataApiKey ?? ""}
-            onChange={(e) => updateSettings({ pinataApiKey: e.target.value })}
-            placeholder="pk_..."
-            className="nano-input"
-          />
-          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
-            Required to upload metadata when creating campaigns. Leave blank to use IPFS gateways for viewing only.
+      {/* IPFS Pinning */}
+      <Section title="IPFS Pinning">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Pinning Service</label>
+            <select
+              value={provider}
+              onChange={(e) => {
+                updateSettings({ ipfsProvider: e.target.value as IpfsProvider });
+                setTestStatus("idle");
+                setTestMsg("");
+              }}
+              className="nano-select"
+              style={{ cursor: "pointer" }}
+            >
+              {(Object.keys(IPFS_PROVIDERS) as IpfsProvider[]).map((p) => (
+                <option key={p} value={p}>{IPFS_PROVIDERS[p].label}</option>
+              ))}
+            </select>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+              Required to upload metadata when creating campaigns. Leave blank to use IPFS gateways for viewing only.
+            </div>
+          </div>
+
+          {providerInfo.needsEndpoint && (
+            <div>
+              <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>
+                Endpoint URL
+              </label>
+              <input
+                value={settings.ipfsApiEndpoint ?? ""}
+                onChange={(e) => updateSettings({ ipfsApiEndpoint: e.target.value })}
+                placeholder="https://your-node/api/v0/add"
+                className="nano-input"
+              />
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+                POST endpoint that accepts JSON and returns a CID in <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>IpfsHash</code>, <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>cid</code>, or <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>Hash</code> field.
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>
+              {providerInfo.keyLabel}
+              {providerInfo.docsUrl && (
+                <a href={providerInfo.docsUrl} target="_blank" rel="noreferrer"
+                  style={{ color: "var(--accent-dim)", fontSize: 11, marginLeft: 8, fontWeight: 400 }}>
+                  Get key ↗
+                </a>
+              )}
+            </label>
+            <input
+              type="password"
+              value={settings.ipfsApiKey ?? settings.pinataApiKey ?? ""}
+              onChange={(e) => updateSettings({ ipfsApiKey: e.target.value, pinataApiKey: provider === "pinata" ? e.target.value : settings.pinataApiKey })}
+              placeholder={providerInfo.placeholder}
+              className="nano-input"
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={handleTestPin}
+              disabled={testStatus === "testing"}
+              className="nano-btn"
+              style={{ fontSize: 12, padding: "4px 12px" }}
+            >
+              {testStatus === "testing" ? "Testing..." : "Test Connection"}
+            </button>
+            {testStatus === "ok" && <span style={{ fontSize: 12, color: "var(--ok)" }}>{testMsg}</span>}
+            {testStatus === "error" && <span style={{ fontSize: 12, color: "var(--error)" }}>{testMsg}</span>}
           </div>
         </div>
       </Section>

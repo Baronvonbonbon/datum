@@ -86,4 +86,7 @@ export const DEFAULT_SETTINGS: WebAppSettings = {
   contractAddresses: NETWORK_CONFIGS.polkadotTestnet.addresses,
   ipfsGateway: "https://dweb.link/ipfs/",
   pinataApiKey: "",
+  ipfsProvider: "pinata",
+  ipfsApiKey: "",
+  ipfsApiEndpoint: "",
 };

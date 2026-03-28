@@ -263,10 +263,22 @@ export interface ContractAddresses {
   attestationVerifier: string;
 }
 
+export type IpfsProvider =
+  | "pinata"
+  | "web3storage"
+  | "filebase"
+  | "nftstorage"
+  | "custom";
+
 export interface WebAppSettings {
   rpcUrl: string;
   network: NetworkName;
   contractAddresses: ContractAddresses;
   ipfsGateway: string;
+  /** Legacy — kept for migration. Use ipfsProvider + ipfsApiKey instead. */
   pinataApiKey: string;
+  ipfsProvider: IpfsProvider;
+  ipfsApiKey: string;
+  /** Only used when ipfsProvider === "custom" */
+  ipfsApiEndpoint: string;
 }

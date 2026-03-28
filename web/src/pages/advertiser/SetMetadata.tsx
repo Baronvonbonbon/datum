@@ -53,8 +53,9 @@ export function SetMetadata() {
       return;
     }
 
-    if (!settings.pinataApiKey) {
-      setTxMsg("No Pinata API key configured. Go to Settings to add your Pinata JWT.");
+    const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
+    if (!apiKey && settings.ipfsProvider !== "custom") {
+      setTxMsg(`No API key configured for IPFS pinning. Go to Settings to add your ${settings.ipfsProvider ?? "Pinata"} key.`);
       setTxState("error");
       return;
     }
@@ -63,7 +64,11 @@ export function SetMetadata() {
     setPinStatus("Pinning to IPFS...");
 
     try {
-      const pinResult = await pinToIPFS(settings.pinataApiKey, validated);
+      const pinResult = await pinToIPFS({
+        provider: settings.ipfsProvider ?? "pinata",
+        apiKey,
+        endpoint: settings.ipfsApiEndpoint,
+      }, validated);
       if (!pinResult.ok || !pinResult.cid) {
         throw new Error(pinResult.error ?? "IPFS pin failed");
       }
@@ -91,14 +96,14 @@ export function SetMetadata() {
         <Link to={`/advertiser/campaign/${id}`} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaign #{id}</Link>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Set Campaign Metadata</h1>
         <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>
-          Metadata is pinned to IPFS and the hash stored on-chain. Requires a Pinata API key in{" "}
+          Metadata is pinned to IPFS and the hash stored on-chain. Requires an IPFS pinning key in{" "}
           <Link to="/settings" style={{ color: "var(--accent)" }}>Settings</Link>.
         </p>
       </div>
 
-      {!settings.pinataApiKey && (
+      {!(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
-          No Pinata API key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add it in Settings.</Link>
+          No IPFS pinning key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add it in Settings.</Link>
         </div>
       )}
 

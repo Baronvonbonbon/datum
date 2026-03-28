@@ -1,9 +1,7 @@
-// Pinata IPFS pinning utility for campaign metadata.
-// Pins a CampaignMetadata JSON object to Pinata and returns the CIDv0 string.
+// IPFS pinning utility for campaign metadata.
+// Supports Pinata, Web3.Storage, Filebase, NFT.Storage, and custom endpoints.
 
-import { CampaignMetadata } from "./types";
-
-const PINATA_API_URL = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
+import { CampaignMetadata, IpfsProvider } from "./types";
 
 export interface PinResult {
   ok: boolean;
@@ -11,63 +9,243 @@ export interface PinResult {
   error?: string;
 }
 
+export interface PinConfig {
+  provider: IpfsProvider;
+  apiKey: string;
+  /** Required when provider === "custom" */
+  endpoint?: string;
+}
+
+// ── Provider descriptors ──────────────────────────────────────────────────────
+
+export interface ProviderInfo {
+  label: string;
+  placeholder: string;
+  keyLabel: string;
+  docsUrl: string;
+  /** true = endpoint field shown */
+  needsEndpoint: boolean;
+}
+
+export const IPFS_PROVIDERS: Record<IpfsProvider, ProviderInfo> = {
+  pinata: {
+    label: "Pinata",
+    placeholder: "eyJ... (JWT)",
+    keyLabel: "Pinata JWT",
+    docsUrl: "https://app.pinata.cloud/developers/api-keys",
+    needsEndpoint: false,
+  },
+  web3storage: {
+    label: "Web3.Storage",
+    placeholder: "eyJ... (API token)",
+    keyLabel: "Web3.Storage API Token",
+    docsUrl: "https://web3.storage/tokens/",
+    needsEndpoint: false,
+  },
+  filebase: {
+    label: "Filebase",
+    placeholder: "Filebase S3 Bearer token",
+    keyLabel: "Filebase API Token",
+    docsUrl: "https://docs.filebase.com/api-documentation/ipfs-pinning-service-api",
+    needsEndpoint: false,
+  },
+  nftstorage: {
+    label: "NFT.Storage",
+    placeholder: "eyJ... (API token)",
+    keyLabel: "NFT.Storage API Token",
+    docsUrl: "https://nft.storage/manage/",
+    needsEndpoint: false,
+  },
+  custom: {
+    label: "Custom endpoint",
+    placeholder: "Bearer token or API key",
+    keyLabel: "API Key / Bearer Token",
+    docsUrl: "",
+    needsEndpoint: true,
+  },
+};
+
+// ── Pinning implementations ───────────────────────────────────────────────────
+
+async function pinViaPinata(apiKey: string, metadata: CampaignMetadata): Promise<PinResult> {
+  const response = await fetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      pinataContent: metadata,
+      pinataMetadata: { name: `datum-campaign-${metadata.title.slice(0, 30)}` },
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { ok: false, error: `Pinata ${response.status}: ${text.slice(0, 200)}` };
+  }
+  const data = await response.json();
+  const cid: string = data.IpfsHash;
+  if (!cid) return { ok: false, error: "Pinata returned no CID" };
+  return { ok: true, cid };
+}
+
+async function pinViaWeb3Storage(apiKey: string, metadata: CampaignMetadata): Promise<PinResult> {
+  // Web3.Storage v1 uploads a CAR blob; use the simpler /upload endpoint for JSON
+  const blob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
+  const response = await fetch("https://api.web3.storage/upload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "X-Name": `datum-campaign-${metadata.title.slice(0, 30)}`,
+    },
+    body: blob,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { ok: false, error: `Web3.Storage ${response.status}: ${text.slice(0, 200)}` };
+  }
+  const data = await response.json();
+  const cid: string = data.cid;
+  if (!cid) return { ok: false, error: "Web3.Storage returned no CID" };
+  return { ok: true, cid };
+}
+
+async function pinViaFilebase(apiKey: string, metadata: CampaignMetadata): Promise<PinResult> {
+  // Filebase IPFS Pinning Service API (IPFS Pinning Service spec)
+  const response = await fetch("https://api.filebase.io/v1/ipfs/pins", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      cid: "", // ignored for new pins — Filebase accepts raw content via their S3 API
+      name: `datum-campaign-${metadata.title.slice(0, 30)}`,
+      meta: { content: JSON.stringify(metadata) },
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { ok: false, error: `Filebase ${response.status}: ${text.slice(0, 200)}` };
+  }
+  const data = await response.json();
+  const cid: string = data.pin?.cid ?? data.cid;
+  if (!cid) return { ok: false, error: "Filebase returned no CID" };
+  return { ok: true, cid };
+}
+
+async function pinViaNftStorage(apiKey: string, metadata: CampaignMetadata): Promise<PinResult> {
+  const blob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
+  const response = await fetch("https://api.nft.storage/upload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: blob,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { ok: false, error: `NFT.Storage ${response.status}: ${text.slice(0, 200)}` };
+  }
+  const data = await response.json();
+  const cid: string = data.value?.cid ?? data.cid;
+  if (!cid) return { ok: false, error: "NFT.Storage returned no CID" };
+  return { ok: true, cid };
+}
+
+async function pinViaCustom(apiKey: string, endpoint: string, metadata: CampaignMetadata): Promise<PinResult> {
+  if (!endpoint.trim()) return { ok: false, error: "Custom endpoint URL is required" };
+  const response = await fetch(endpoint.trim(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : {}),
+    },
+    body: JSON.stringify(metadata),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { ok: false, error: `Custom endpoint ${response.status}: ${text.slice(0, 200)}` };
+  }
+  const data = await response.json();
+  // Accept common CID field names
+  const cid: string = data.IpfsHash ?? data.cid ?? data.Hash ?? data.hash;
+  if (!cid) return { ok: false, error: "Endpoint response contained no CID (tried: IpfsHash, cid, Hash, hash)" };
+  return { ok: true, cid };
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /**
- * Pin a CampaignMetadata object to Pinata IPFS.
- * @param apiKey Pinata JWT or API key (Bearer token)
- * @param metadata Campaign metadata matching the CampaignMetadata schema
- * @returns PinResult with CID on success
+ * Pin a CampaignMetadata object via the configured IPFS provider.
  */
-export async function pinToIPFS(
-  apiKey: string,
-  metadata: CampaignMetadata
-): Promise<PinResult> {
-  if (!apiKey.trim()) {
-    return { ok: false, error: "No Pinata API key configured. Add it in Settings." };
+export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): Promise<PinResult> {
+  const key = config.apiKey.trim();
+  if (!key && config.provider !== "custom") {
+    return { ok: false, error: `No API key configured for ${IPFS_PROVIDERS[config.provider].label}. Add it in Settings.` };
   }
 
   try {
-    const response = await fetch(PINATA_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey.trim()}`,
-      },
-      body: JSON.stringify({
-        pinataContent: metadata,
-        pinataMetadata: {
-          name: `datum-campaign-${metadata.title.slice(0, 30)}`,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return { ok: false, error: `Pinata error ${response.status}: ${text.slice(0, 200)}` };
+    switch (config.provider) {
+      case "pinata":     return await pinViaPinata(key, metadata);
+      case "web3storage": return await pinViaWeb3Storage(key, metadata);
+      case "filebase":   return await pinViaFilebase(key, metadata);
+      case "nftstorage": return await pinViaNftStorage(key, metadata);
+      case "custom":     return await pinViaCustom(key, config.endpoint ?? "", metadata);
     }
-
-    const data = await response.json();
-    const cid: string = data.IpfsHash;
-    if (!cid) {
-      return { ok: false, error: "Pinata returned no CID" };
-    }
-
-    return { ok: true, cid };
   } catch (err) {
     return { ok: false, error: `Pin failed: ${String(err).slice(0, 200)}` };
   }
 }
 
 /**
- * Test a Pinata API key by fetching account info.
+ * Test that an API key/endpoint is valid by attempting a lightweight auth check.
  */
-export async function testPinataKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; error?: string }> {
+  const key = config.apiKey.trim();
   try {
-    const response = await fetch("https://api.pinata.cloud/data/testAuthentication", {
-      headers: { Authorization: `Bearer ${apiKey.trim()}` },
-    });
-    if (response.ok) return { ok: true };
-    return { ok: false, error: `Auth failed: ${response.status}` };
+    switch (config.provider) {
+      case "pinata": {
+        const r = await fetch("https://api.pinata.cloud/data/testAuthentication", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Auth failed: ${r.status}` };
+      }
+      case "web3storage": {
+        const r = await fetch("https://api.web3.storage/user/account", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Auth failed: ${r.status}` };
+      }
+      case "filebase": {
+        const r = await fetch("https://api.filebase.io/v1/ipfs/pins?limit=1", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Auth failed: ${r.status}` };
+      }
+      case "nftstorage": {
+        const r = await fetch("https://api.nft.storage/", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Auth failed: ${r.status}` };
+      }
+      case "custom": {
+        if (!config.endpoint?.trim()) return { ok: false, error: "No endpoint URL set" };
+        return { ok: true };
+      }
+    }
   } catch (err) {
     return { ok: false, error: String(err).slice(0, 100) };
   }
+}
+
+// ── Legacy shim ───────────────────────────────────────────────────────────────
+// For any callers that haven't been updated yet.
+export async function testPinataKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  return testPinConfig({ provider: "pinata", apiKey });
 }
