@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useBlock } from "../../hooks/useBlock";
@@ -123,6 +123,9 @@ export function Overview() {
         <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
       </div>
 
+      {/* How Does This Work */}
+      <HowItWorks />
+
       {/* Browse */}
       <div className="nano-fade" style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Browse</h2>
@@ -166,5 +169,182 @@ function QuickLink({ to, label, desc }: { to: string; label: string; desc: strin
         <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{desc}</div>
       </div>
     </Link>
+  );
+}
+
+// ── "How Does This Work?" expandable role walkthroughs ────────────────────────
+
+interface RoleWalkthrough {
+  icon: string;
+  role: string;
+  tagline: string;
+  color: string;
+  steps: string[];
+  cta: { label: string; to: string };
+}
+
+const WALKTHROUGHS: RoleWalkthrough[] = [
+  {
+    icon: "👤",
+    role: "I'm a User",
+    tagline: "I browse the web and get paid for my attention.",
+    color: "var(--ok)",
+    steps: [
+      "Install the DATUM browser extension. It comes with a built-in wallet — no MetaMask needed.",
+      "Browse the web like you normally do. When you visit a site running the DATUM SDK, the extension quietly matches you with a relevant ad campaign.",
+      "Ads appear inline on the page (or as a subtle overlay). Your browsing data never leaves your device — only a cryptographic receipt that says \"yes, I saw this.\"",
+      "The extension tracks your impressions locally and builds hash-chain claims. Think of it like a tamper-proof receipt book.",
+      "When you're ready, hit Submit Claims from the extension (or let auto-submit handle it). The smart contract verifies your receipts and credits your balance.",
+      "Withdraw your earnings anytime from the Earnings tab. The DOT goes straight to your wallet — no middlemen, no minimum thresholds.",
+    ],
+    cta: { label: "Get the Extension", to: "/settings" },
+  },
+  {
+    icon: "📢",
+    role: "I'm an Advertiser",
+    tagline: "I want real humans to see my ads, and I want proof it happened.",
+    color: "var(--accent)",
+    steps: [
+      "Connect your wallet on this web app. You'll need some PAS (testnet DOT) — grab some from the faucet if you're on Paseo.",
+      "Head to the Advertiser section and create a campaign. Set your budget, daily spend cap, and bid CPM (cost per 1,000 impressions).",
+      "Choose whether to target a specific publisher or go open (any publisher whose categories match can serve your ad).",
+      "Write your ad creative — title, body, call-to-action button, and landing URL. It gets pinned to IPFS so it's tamper-proof and decentralized.",
+      "Your campaign starts in Pending status. Governance voters review your creative and vote to activate it. Think of it as community-powered ad approval.",
+      "Once activated, your ads start appearing to real users. Settlement happens on-chain — you can see exactly where every planck went in the campaign detail page.",
+      "When your budget runs out (or you're done), complete the campaign and any remaining balance is refunded to your wallet.",
+    ],
+    cta: { label: "Create a Campaign", to: "/advertiser/create" },
+  },
+  {
+    icon: "🌐",
+    role: "I'm a Publisher",
+    tagline: "I have a website and I'd like to earn by serving relevant ads to my visitors.",
+    color: "var(--warn)",
+    steps: [
+      "Register as a publisher from the Publisher section. Pick your take rate (the percentage you keep from each impression — between 30% and 80%).",
+      "Select your content categories from 26 options (tech, finance, gaming, etc.). This tells the system which campaigns are a good fit for your audience.",
+      "Copy the SDK snippet and add it to your site — it's one script tag and one div. That's it. No ad server, no tracking pixels, no cookie banners.",
+      "When a DATUM user visits your site, the extension and your SDK do a cryptographic handshake to prove the impression is real. Two-party attestation, no trust required.",
+      "As impressions settle on-chain, your share accumulates in the PaymentVault. Withdraw whenever you want from the Publisher Earnings page.",
+      "Want more control? Enable your per-publisher allowlist to approve specific advertisers, or let the open marketplace match you automatically.",
+    ],
+    cta: { label: "Register as Publisher", to: "/publisher/register" },
+  },
+  {
+    icon: "⚖️",
+    role: "I'm a Governance Voter",
+    tagline: "I review campaigns and help keep the network honest. (And earn rewards for it.)",
+    color: "var(--accent)",
+    steps: [
+      "Browse pending campaigns on the Governance page. Each one shows the ad creative, bid, and advertiser address.",
+      "Found one you trust? Vote Aye with some DOT. Choose your conviction level (0–8) — higher conviction means more voting power but a longer lockup. Conviction 0 has no lockup at all, so you can dip a toe in risk-free.",
+      "Think a campaign is sketchy? Vote Nay. If enough weighted nay votes hit the termination quorum, the campaign gets shut down and 10% of the budget goes to nay voters as a reward.",
+      "Once a campaign has enough aye votes above quorum, anyone can call Evaluate to activate it. You can do this from the Governance dashboard — it's a public service action.",
+      "After a campaign ends, the losing side's voters pay a 10% slash. Winners can claim their share of the slash pool. Fortune favors the diligent reviewer.",
+      "Your vote stake unlocks after your chosen lockup period. Conviction 1 is just one day. Conviction 8 is a full year — but with 21x voting power. Choose wisely.",
+    ],
+    cta: { label: "Start Voting", to: "/governance" },
+  },
+];
+
+function HowItWorks() {
+  const [open, setOpen] = useState<number | null>(null);
+
+  const toggle = useCallback((idx: number) => {
+    setOpen((prev) => prev === idx ? null : idx);
+  }, []);
+
+  return (
+    <div className="nano-fade" style={{ marginBottom: 32 }}>
+      <h2 style={{
+        fontSize: 14, fontWeight: 600, color: "var(--text-muted)",
+        letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12,
+      }}>
+        How Does This Work?
+      </h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {WALKTHROUGHS.map((w, i) => (
+          <RoleTile key={w.role} walkthrough={w} isOpen={open === i} onToggle={() => toggle(i)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoleTile({ walkthrough: w, isOpen, onToggle }: {
+  walkthrough: RoleWalkthrough;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="nano-card" style={{
+      borderColor: isOpen ? w.color : undefined,
+      transition: "border-color 300ms ease-in-out",
+    }}>
+      {/* Header — always visible, clickable */}
+      <button
+        onClick={onToggle}
+        style={{
+          display: "flex", alignItems: "center", gap: 12,
+          width: "100%", padding: "14px 16px",
+          background: "none", border: "none", cursor: "pointer",
+          textAlign: "left", fontFamily: "inherit",
+        }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{w.icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: "var(--text-strong)", fontWeight: 600, fontSize: 14 }}>{w.role}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>{w.tagline}</div>
+        </div>
+        <span style={{
+          color: "var(--text-muted)", fontSize: 12, flexShrink: 0,
+          transition: "transform 300ms ease-in-out",
+          transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+          display: "inline-block",
+        }}>
+          ▶
+        </span>
+      </button>
+
+      {/* Expandable body */}
+      <div style={{
+        maxHeight: isOpen ? 600 : 0,
+        overflow: "hidden",
+        transition: "max-height 400ms ease-in-out",
+      }}>
+        <div style={{ padding: "0 16px 16px 50px" }}>
+          <ol style={{
+            listStyle: "none", counterReset: "step", padding: 0, margin: 0,
+            display: "flex", flexDirection: "column", gap: 10,
+          }}>
+            {w.steps.map((step, i) => (
+              <li key={i} style={{
+                counterIncrement: "step",
+                display: "flex", gap: 10, alignItems: "flex-start",
+                fontSize: 13, color: "var(--text)", lineHeight: 1.55,
+              }}>
+                <span style={{
+                  color: w.color, fontWeight: 700, fontSize: 12,
+                  minWidth: 20, paddingTop: 1, opacity: 0.7,
+                  fontFamily: "monospace",
+                }}>
+                  {i + 1}.
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <div style={{ marginTop: 14 }}>
+            <Link
+              to={w.cta.to}
+              className="nano-btn nano-btn-accent"
+              style={{ fontSize: 12, padding: "6px 14px", textDecoration: "none" }}
+            >
+              {w.cta.label} →
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
