@@ -233,15 +233,16 @@ npx hardhat run scripts/setup-testnet.ts --network substrate
 
 ### Paseo testnet (live)
 
-13 alpha-2 contracts are deployed on Paseo (Chain ID 420420417) with an active test campaign.
+13 alpha-2 contracts are deployed on Paseo (Chain ID 420420417) with an active test campaign. The web app is live at **https://datum.javcon.io**.
 
 | Resource | URL |
 |----------|-----|
+| Web App | https://datum.javcon.io |
 | RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | https://blockscout-testnet.polkadot.io/ |
 | Faucet | https://faucet.polkadot.io/ (select "Paseo") |
 
-Contract addresses and deployment details are in [alpha-2/DEPLOY-TESTNET.md](alpha-2/DEPLOY-TESTNET.md).
+Contract addresses are in `alpha-2/deployed-addresses.json`. Deployment details are in `STATUS.md`.
 
 ```bash
 cd alpha-2

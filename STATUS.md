@@ -1,8 +1,9 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-03-25
+**Last Updated:** 2026-03-27
 **Current Phase:** Alpha-2 (canonical)
 **Testnet:** Paseo (Chain ID 420420417)
+**Web App:** https://datum.javcon.io
 
 ---
 
@@ -10,7 +11,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-The protocol is live on Paseo testnet with 9 alpha contracts. Alpha-2 (13 contracts) is fully tested but not yet deployed. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). Deploy scripts are ready (13-contract deploy + setup-testnet). A web app covers all advanced flows. The critical path to mainnet is alpha-2 Paseo deployment and E2E validation.
+Alpha-2 is deployed. 13 contracts are live on Paseo testnet (deployed 2026-03-26). The web app is live at **https://datum.javcon.io**. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). The critical path to mainnet is E2E browser validation (extension + relay + web app on Paseo) and open testing.
 
 ---
 
@@ -96,13 +97,33 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations, process
 | RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | `https://blockscout-testnet.polkadot.io/` |
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
+| Web App | `https://datum.javcon.io` |
 | Currency | PAS |
+| Deployed | 2026-03-26 |
 | Deployer | Alice `0x94CC36412EE0c099BfE7D61a35092e40342F62D7` |
 | Publisher 1 | Diana `0xcA5668fB864Acab0aC7f4CFa73949174720b58D0` (50% take, all 26 categories) |
 | Campaign #1 | Bob → Diana, 10 PAS, Active |
 | Vote #1 | Frank, Aye, 100 PAS |
 
-9 alpha contracts deployed + wired + ownership transferred. 6 accounts funded. Private keys in gitignored `alpha/DEPLOY-TESTNET.md`.
+### Alpha-2 Contract Addresses (13 contracts, Paseo)
+
+| Contract | Address |
+|----------|---------|
+| PauseRegistry | `0xEE1C347bDd5A552DC7CEDFdC51903ec7C82EC52D` |
+| Timelock | `0x7CE40Ff62073f64fA6061A39023342Ab6Cf7c8Cc` |
+| ZKVerifier | `0x80C547a15C59e26317C85C32C730e85F8067D87D` |
+| Publishers | `0x903D787B06B4b1E0036b162C3EfFd9984e73620b` |
+| BudgetLedger | `0xbCB853B7306fa27866717847FAD0a11f5bd65261` |
+| PaymentVault | `0x31D64e88318937CeA791A4E54Bc9abCeab51d23C` |
+| Campaigns | `0xd14f889c1DafC1AD47788bfA47890353596380b9` |
+| CampaignLifecycle | `0xb789c62b90d525871ECCF54E5d0D5Eae87BF62fe` |
+| Settlement | `0x13bF0d24C67b7a5354c675e00D7154bcc4A5738E` |
+| GovernanceV2 | `0xcb2B5b586E0726A7422eb4E5bD049382a19769A4` |
+| GovernanceSlash | `0x7A3032672bd5AeA348aD203287DedA58A62401ae` |
+| Relay | `0x4D8B2CE56D40a3c423A7C1b91861C6186ceb59Ef` |
+| AttestationVerifier | `0x1d84219251e8750FB7121AE92b2994887dDd9E18` |
+
+16 wiring ops + 22 validation checks completed. Campaigns + Settlement ownership transferred to Timelock. 6 accounts funded. Private keys in gitignored `alpha/DEPLOY-TESTNET.md`.
 
 ---
 
@@ -134,9 +155,13 @@ Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`.
 
 Usage: `npx hardhat run scripts/deploy.ts --network polkadotTestnet`
 
-### 3. Alpha-2 Testnet Deploy
+### ~~3. Alpha-2 Testnet Deploy~~ — DONE
 
-Deploy 13 contracts to Paseo, run setup-testnet.ts, verify E2E.
+13 contracts deployed to Paseo 2026-03-26. setup-testnet.ts run. Web app live at https://datum.javcon.io. Contract addresses in `alpha-2/deployed-addresses.json`.
+
+### 3. E2E Browser Validation
+
+Full flow on Paseo: load extension with live addresses, create impression, submit claim via AttestationVerifier, verify settlement on-chain, confirm user + publisher earnings.
 
 ### 4. A3.5 Open Testing
 
