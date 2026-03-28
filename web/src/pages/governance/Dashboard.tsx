@@ -186,15 +186,16 @@ export function GovernanceDashboard() {
         return (
           <div key={c.id} className="nano-card" style={{ padding: 14, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ color: "var(--accent)", fontWeight: 700 }}>#{c.id}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <Link to={`/campaigns/${c.id}`} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none", fontSize: 15 }}>#{c.id}</Link>
                 <StatusBadge status={c.status} />
-                {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Voted Aye</span>}
-                {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Voted Nay</span>}
+                <AddressDisplay address={c.advertiser} chars={4} style={{ fontSize: 11, color: "var(--text-muted)" }} />
+                {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Aye</span>}
+                {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Nay</span>}
                 {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
               </div>
-              <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
-                Vote
+              <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", flexShrink: 0 }}>
+                Vote →
               </Link>
             </div>
 

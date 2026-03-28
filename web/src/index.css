@@ -229,6 +229,32 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.nano-badge--ok    { background: rgba(110,231,183,0.1); border-color: rgba(110,231,183,0.2); color: var(--ok); }
+.nano-badge--warn  { background: rgba(252,211,77,0.1);  border-color: rgba(252,211,77,0.2);  color: var(--warn); }
+.nano-badge--error { background: rgba(252,165,165,0.1); border-color: rgba(252,165,165,0.2); color: var(--error); }
+.nano-badge--accent { background: rgba(160,160,255,0.1); border-color: rgba(160,160,255,0.2); color: var(--accent); }
+
+/* Skeleton loading shimmer */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.nano-skeleton {
+  background: linear-gradient(90deg, var(--bg-raised) 25%, rgba(255,255,255,0.06) 50%, var(--bg-raised) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* Section heading utility */
+.nano-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
 }
 
 /* Block number flash on new block */

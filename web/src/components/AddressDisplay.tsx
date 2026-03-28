@@ -4,14 +4,28 @@ interface Props {
   address: string;
   chars?: number; // chars to show on each side (default 6)
   mono?: boolean;
+  explorerBase?: string; // e.g. "https://blockscout-testnet.polkadot.io" — click opens explorer
   style?: React.CSSProperties;
 }
 
-export function AddressDisplay({ address, chars = 6, mono = true, style }: Props) {
+export function AddressDisplay({ address, chars = 6, mono = true, explorerBase, style }: Props) {
   const [copied, setCopied] = useState(false);
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (explorerBase) {
+      window.open(`${explorerBase}/address/${address}`, "_blank", "noreferrer");
+    } else {
+      navigator.clipboard.writeText(address).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    }
+  }
 
   function handleCopy(e: React.MouseEvent) {
     e.stopPropagation();
+    e.preventDefault();
     navigator.clipboard.writeText(address).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -19,11 +33,13 @@ export function AddressDisplay({ address, chars = 6, mono = true, style }: Props
   }
 
   const truncated = `${address.slice(0, chars + 2)}…${address.slice(-4)}`;
+  const title = explorerBase ? `${address} — click to open in explorer` : `${address} — click to copy`;
 
   return (
     <span
-      onClick={handleCopy}
-      title={`${address} — click to copy`}
+      onClick={handleClick}
+      onContextMenu={handleCopy}
+      title={title}
       style={{
         cursor: "pointer",
         fontFamily: mono ? "monospace" : undefined,

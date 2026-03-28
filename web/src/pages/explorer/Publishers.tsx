@@ -5,6 +5,8 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { bitmaskToCategories } from "../../components/CategoryPicker";
 import { CATEGORY_NAMES } from "@shared/types";
 
+const EXPLORER = "https://blockscout-testnet.polkadot.io";
+
 interface PublisherRow {
   address: string;
   takeRateBps: number;
@@ -83,7 +85,7 @@ export function Publishers() {
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
               <div>
-                <AddressDisplay address={pub.address} chars={8} style={{ fontSize: 14, color: "var(--text-strong)" }} />
+                <AddressDisplay address={pub.address} chars={8} explorerBase={EXPLORER} style={{ fontSize: 14, color: "var(--text-strong)" }} />
                 {pub.blocked && (
                   <span style={{ marginLeft: 8, fontSize: 11, color: "var(--error)", fontWeight: 600 }}>BLOCKED</span>
                 )}

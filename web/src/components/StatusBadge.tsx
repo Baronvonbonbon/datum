@@ -1,12 +1,12 @@
 import { CampaignStatus } from "@shared/types";
 
-const STATUS_CONFIG: Record<number, { label: string; color: string; border: string }> = {
-  [CampaignStatus.Pending]:    { label: "Pending",    color: "var(--warn)",   border: "rgba(252,211,77,0.3)" },
-  [CampaignStatus.Active]:     { label: "Active",     color: "var(--ok)",     border: "rgba(110,231,183,0.3)" },
-  [CampaignStatus.Paused]:     { label: "Paused",     color: "var(--warn)",   border: "rgba(252,211,77,0.3)" },
-  [CampaignStatus.Completed]:  { label: "Completed",  color: "var(--accent)", border: "var(--accent-dim)" },
-  [CampaignStatus.Terminated]: { label: "Terminated", color: "var(--error)",  border: "rgba(252,165,165,0.3)" },
-  [CampaignStatus.Expired]:    { label: "Expired",    color: "var(--text-muted)", border: "var(--border)" },
+const STATUS_CONFIG: Record<number, { label: string; cls: string }> = {
+  [CampaignStatus.Pending]:    { label: "Pending",    cls: "nano-badge nano-badge--warn" },
+  [CampaignStatus.Active]:     { label: "Active",     cls: "nano-badge nano-badge--ok" },
+  [CampaignStatus.Paused]:     { label: "Paused",     cls: "nano-badge nano-badge--warn" },
+  [CampaignStatus.Completed]:  { label: "Completed",  cls: "nano-badge nano-badge--accent" },
+  [CampaignStatus.Terminated]: { label: "Terminated", cls: "nano-badge nano-badge--error" },
+  [CampaignStatus.Expired]:    { label: "Expired",    cls: "nano-badge" },
 };
 
 interface Props {
@@ -15,19 +15,9 @@ interface Props {
 }
 
 export function StatusBadge({ status, style }: Props) {
-  const cfg = STATUS_CONFIG[status] ?? { label: `Status ${status}`, color: "var(--text-muted)", border: "var(--border)" };
+  const cfg = STATUS_CONFIG[status] ?? { label: `Status ${status}`, cls: "nano-badge" };
   return (
-    <span style={{
-      display: "inline-block",
-      padding: "2px 8px",
-      borderRadius: 3,
-      fontSize: 11,
-      fontWeight: 600,
-      background: "var(--bg-raised)",
-      color: cfg.color,
-      border: `1px solid ${cfg.border}`,
-      ...style,
-    }}>
+    <span className={cfg.cls} style={style}>
       {cfg.label}
     </span>
   );

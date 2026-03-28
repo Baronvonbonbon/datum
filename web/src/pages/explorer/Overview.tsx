@@ -9,6 +9,7 @@ interface Stats {
   totalCampaigns: number;
   activeCampaigns: number;
   pendingCampaigns: number;
+  totalImpressions: number;
   paused: boolean;
 }
 
@@ -51,7 +52,15 @@ export function Overview() {
         } catch { /* skip */ }
       }));
 
-      setStats({ totalCampaigns: total, activeCampaigns: active, pendingCampaigns: pending, paused: Boolean(paused) });
+      // Count total impressions from ClaimSettled events
+      let totalImpressions = 0;
+      try {
+        const filter = contracts.settlement.filters.ClaimSettled();
+        const logs = await contracts.settlement.queryFilter(filter);
+        totalImpressions = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
+      } catch { /* settlement not configured */ }
+
+      setStats({ totalCampaigns: total, activeCampaigns: active, pendingCampaigns: pending, totalImpressions, paused: Boolean(paused) });
     } catch (err) {
       setError(String(err).slice(0, 200));
     } finally {
@@ -110,6 +119,7 @@ export function Overview() {
         <StatCard label="Total Campaigns" value={stats?.totalCampaigns ?? "—"} />
         <StatCard label="Active" value={stats?.activeCampaigns ?? "—"} color={stats ? "var(--ok)" : undefined} />
         <StatCard label="Pending Votes" value={stats?.pendingCampaigns ?? "—"} color={stats ? "var(--warn)" : undefined} />
+        <StatCard label="Impressions Settled" value={stats ? stats.totalImpressions.toLocaleString() : "—"} color={stats && stats.totalImpressions > 0 ? "var(--ok)" : undefined} />
         <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
       </div>
 

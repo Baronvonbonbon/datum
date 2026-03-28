@@ -103,6 +103,12 @@ export function Layout() {
             {connected
               ? <span className={blockFlash ? "nano-block-flash" : undefined} style={{ color: "var(--text-muted)" }}>
                   #{blockNumber} · {getNetworkDisplayName(settings.network)}
+                  {settings.network === "polkadotTestnet" && (
+                    <a href="https://blockscout-testnet.polkadot.io" target="_blank" rel="noreferrer"
+                      style={{ color: "var(--accent-dim)", marginLeft: 8, fontSize: 10, textDecoration: "none" }}>
+                      Explorer ↗
+                    </a>
+                  )}
                 </span>
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
