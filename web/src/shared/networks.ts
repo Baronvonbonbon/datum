@@ -28,17 +28,19 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   attestationVerifier: "",
 };
 
-export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; addresses: ContractAddresses }> = {
+export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; explorerUrl: string; addresses: ContractAddresses }> = {
   local: {
     name: "Local Devnet",
     chainId: 31337,
     rpcUrl: "http://localhost:8545",
+    explorerUrl: "",
     addresses: { ...EMPTY_ADDRESSES },
   },
   polkadotTestnet: {
     name: "Paseo Testnet",
     chainId: 420420417,
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
+    explorerUrl: "https://blockscout-testnet.polkadot.io",
     addresses: {
       // Alpha-2 (13 contracts) — deployed on Paseo 2026-03-26
       campaigns: "0xd14f889c1DafC1AD47788bfA47890353596380b9",
@@ -60,21 +62,28 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     name: "Westend",
     chainId: 420420421,
     rpcUrl: "https://westend-asset-hub-eth-rpc.polkadot.io",
+    explorerUrl: "https://blockscout-westend.polkadot.io",
     addresses: { ...EMPTY_ADDRESSES },
   },
   kusama: {
     name: "Kusama",
     chainId: 420420424,
     rpcUrl: "https://kusama-asset-hub-eth-rpc.polkadot.io",
+    explorerUrl: "https://blockscout-kusama.polkadot.io",
     addresses: { ...EMPTY_ADDRESSES },
   },
   polkadotHub: {
     name: "Polkadot Hub",
     chainId: 420420416,
     rpcUrl: "https://polkadot-asset-hub-eth-rpc.polkadot.io",
+    explorerUrl: "https://blockscout.polkadot.io",
     addresses: { ...EMPTY_ADDRESSES },
   },
 };
+
+export function getExplorerUrl(network: NetworkName): string {
+  return NETWORK_CONFIGS[network]?.explorerUrl ?? "";
+}
 
 export function getNetworkDisplayName(network: NetworkName): string {
   return NETWORK_CONFIGS[network]?.name ?? network;

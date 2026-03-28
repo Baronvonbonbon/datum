@@ -4,8 +4,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { bitmaskToCategories } from "../../components/CategoryPicker";
 import { CATEGORY_NAMES } from "@shared/types";
-
-const EXPLORER = "https://blockscout-testnet.polkadot.io";
+import { getExplorerUrl } from "@shared/networks";
 
 interface PublisherRow {
   address: string;
@@ -18,6 +17,7 @@ interface PublisherRow {
 export function Publishers() {
   const contracts = useContracts();
   const { settings } = useSettings();
+  const EXPLORER = getExplorerUrl(settings.network);
   const [publishers, setPublishers] = useState<PublisherRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

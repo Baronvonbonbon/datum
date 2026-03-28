@@ -9,9 +9,8 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
+import { getExplorerUrl } from "@shared/networks";
 import { ethers } from "ethers";
-
-const EXPLORER = "https://blockscout-testnet.polkadot.io";
 
 interface SettlementEvent {
   txHash: string;
@@ -29,6 +28,7 @@ export function CampaignDetail() {
   const contracts = useContracts();
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
+  const EXPLORER = getExplorerUrl(settings.network);
   const [campaign, setCampaign] = useState<any>(null);
   const [budget, setBudget] = useState<any>(null);
   const [governance, setGovernance] = useState<any>(null);

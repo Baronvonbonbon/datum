@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { TransactionStatus } from "../components/TransactionStatus";
-import { NETWORK_CONFIGS } from "@shared/networks";
+import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, testPinConfig } from "@shared/ipfsPin";
 import { IpfsProvider } from "@shared/types";
 
@@ -178,18 +178,35 @@ export function Settings() {
         </button>
         {showContracts && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {Object.keys(CONTRACT_LABELS).map((key) => (
-              <div key={key}>
-                <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>{CONTRACT_LABELS[key]}</label>
-                <input
-                  value={(settings.contractAddresses as any)[key] ?? ""}
-                  onChange={(e) => setContractAddress(key as any, e.target.value)}
-                  placeholder="0x..."
-                  className="nano-input"
-                  style={{ fontFamily: "monospace" }}
-                />
-              </div>
-            ))}
+            {Object.keys(CONTRACT_LABELS).map((key) => {
+              const addr = (settings.contractAddresses as any)[key] ?? "";
+              const explorer = getExplorerUrl(settings.network);
+              return (
+                <div key={key}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <label style={{ color: "var(--text)", fontSize: 12 }}>{CONTRACT_LABELS[key]}</label>
+                    {explorer && addr && (
+                      <a
+                        href={`${explorer}/address/${addr}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`View ${CONTRACT_LABELS[key]} on block explorer`}
+                        style={{ color: "var(--accent-dim)", fontSize: 10, textDecoration: "none", lineHeight: 1 }}
+                      >
+                        ↗
+                      </a>
+                    )}
+                  </div>
+                  <input
+                    value={addr}
+                    onChange={(e) => setContractAddress(key as any, e.target.value)}
+                    placeholder="0x..."
+                    className="nano-input"
+                    style={{ fontFamily: "monospace" }}
+                  />
+                </div>
+              );
+            })}
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
               Changing the network above auto-fills known addresses. Manual overrides are preserved.
             </div>

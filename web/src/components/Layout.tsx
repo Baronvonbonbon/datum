@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
-import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
+import { getCurrencySymbol, getNetworkDisplayName, getExplorerUrl } from "@shared/networks";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 
@@ -103,8 +103,8 @@ export function Layout() {
             {connected
               ? <span className={blockFlash ? "nano-block-flash" : undefined} style={{ color: "var(--text-muted)" }}>
                   #{blockNumber} · {getNetworkDisplayName(settings.network)}
-                  {settings.network === "polkadotTestnet" && (
-                    <a href="https://blockscout-testnet.polkadot.io" target="_blank" rel="noreferrer"
+                  {getExplorerUrl(settings.network) && (
+                    <a href={getExplorerUrl(settings.network)} target="_blank" rel="noreferrer"
                       style={{ color: "var(--accent-dim)", marginLeft: 8, fontSize: 10, textDecoration: "none" }}>
                       Explorer ↗
                     </a>
