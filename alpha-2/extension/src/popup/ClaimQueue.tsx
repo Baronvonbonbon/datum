@@ -611,16 +611,16 @@ export function ClaimQueue({ address }: Props) {
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Pending Claims</span>
+        <span style={{ color: "var(--accent)", fontWeight: 600 }}>Pending Claims</span>
         {pendingCount > 0 && (
-          <span style={{ color: "#888", fontSize: 12 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
             {pendingCount} claim{pendingCount !== 1 ? "s" : ""}
           </span>
         )}
       </div>
 
       {pendingCount === 0 ? (
-        <div style={{ color: "#555", fontSize: 13 }}>
+        <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
           No pending claims. Browse pages to earn {sym}.
         </div>
       ) : (
@@ -634,13 +634,13 @@ export function ClaimQueue({ address }: Props) {
             return (
               <div key={cid} style={claimRowStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#a0a0ff" }}>Campaign #{cid}</span>
-                  <span style={{ color: "#888", fontSize: 12 }}>
+                  <span style={{ color: "var(--accent)" }}>Campaign #{cid}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
                     {count} impression{count !== 1 ? "s" : ""}
                   </span>
                 </div>
                 {estPlanck !== null && (
-                  <div style={{ color: "#60c060", fontSize: 11, marginTop: 2 }}>
+                  <div style={{ color: "var(--ok)", fontSize: 11, marginTop: 2 }}>
                     ~{formatDOT(estPlanck)} {sym} est. earnings
                   </div>
                 )}
@@ -711,7 +711,7 @@ export function ClaimQueue({ address }: Props) {
               </div>
             </div>
           ) : (
-            <div style={{ color: "#666", fontSize: 12, marginTop: 8 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 8 }}>
               Connect wallet to submit claims.
             </div>
           )}
@@ -719,12 +719,12 @@ export function ClaimQueue({ address }: Props) {
       )}
 
       {result && (
-        <div style={{ marginTop: 12, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13 }}>
-          <div style={{ color: "#60c060" }}>
+        <div style={{ marginTop: 12, padding: 10, background: "rgba(110,231,183,0.08)", border: "1px solid rgba(110,231,183,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13 }}>
+          <div style={{ color: "var(--ok)" }}>
             ✓ Settled: {result.settledCount.toString()} · Rejected: {result.rejectedCount.toString()}
           </div>
           {result.totalPaid > 0n && (
-            <div style={{ color: "#888", fontSize: 12, marginTop: 2 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>
               Total paid: {formatDOT(result.totalPaid)} {sym}
             </div>
           )}
@@ -732,9 +732,9 @@ export function ClaimQueue({ address }: Props) {
       )}
 
       {signedCount !== null && (
-        <div style={{ marginTop: 12, padding: 10, background: "#0a1a2a", borderRadius: 6, fontSize: 13, color: "#60a0ff" }}>
+        <div style={{ marginTop: 12, padding: 10, background: "rgba(160,160,255,0.08)", border: "1px solid rgba(160,160,255,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--accent)" }}>
           ✓ Signed {signedCount} batch{signedCount !== 1 ? "es" : ""} for publisher relay.
-          <div style={{ color: "#888", fontSize: 11, marginTop: 2 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
             The publisher will submit these on your behalf.
           </div>
           <AttestationBadges />
@@ -742,20 +742,20 @@ export function ClaimQueue({ address }: Props) {
       )}
 
       {importResult && !importResult.error && (
-        <div style={{ marginTop: 12, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13, color: "#60c060" }}>
+        <div style={{ marginTop: 12, padding: 10, background: "rgba(110,231,183,0.08)", border: "1px solid rgba(110,231,183,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--ok)" }}>
           Import complete: {importResult.chainsImported} chain{importResult.chainsImported !== 1 ? "s" : ""}, {importResult.claimsImported} claim{importResult.claimsImported !== 1 ? "s" : ""} imported
           {importResult.skippedStale > 0 && (
-            <span style={{ color: "#888" }}> ({importResult.skippedStale} skipped — already settled)</span>
+            <span style={{ color: "var(--text-muted)" }}> ({importResult.skippedStale} skipped — already settled)</span>
           )}
         </div>
       )}
 
       {/* PU-3: Attestation warnings */}
       {Object.keys(attestationWarnings).length > 0 && (
-        <div style={{ marginTop: 12, padding: 10, background: "#2a1a0a", borderRadius: 6, border: "1px solid #4a3a2a", fontSize: 12 }}>
-          <div style={{ color: "#c09060", fontWeight: 600, marginBottom: 4 }}>Attestation warnings:</div>
+        <div style={{ marginTop: 12, padding: 10, background: "rgba(252,211,77,0.07)", borderRadius: "var(--radius-sm)", border: "1px solid rgba(252,211,77,0.2)", fontSize: 12 }}>
+          <div style={{ color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>Attestation warnings:</div>
           {Object.entries(attestationWarnings).map(([cid, reason]) => (
-            <div key={cid} style={{ color: "#c09060", marginTop: 2 }}>
+            <div key={cid} style={{ color: "var(--warn)", marginTop: 2 }}>
               Campaign #{cid}: {reason}
             </div>
           ))}
@@ -763,22 +763,22 @@ export function ClaimQueue({ address }: Props) {
       )}
 
       {error && (
-        <div style={{ marginTop: 8, color: "#ff8080", fontSize: 12 }}>
+        <div style={{ marginTop: 8, padding: 8, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.2)", borderRadius: "var(--radius-sm)", color: "var(--error)", fontSize: 12 }}>
           {error}
         </div>
       )}
 
       {autoFlushResult && (
-        <div style={{ marginTop: 12, padding: 8, background: "#111", borderRadius: 4, fontSize: 11 }}>
-          <span style={{ color: "#555" }}>Auto-submit </span>
+        <div style={{ marginTop: 12, padding: 8, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: 11 }}>
+          <span style={{ color: "var(--text-muted)" }}>Auto-submit </span>
           {autoFlushResult.error ? (
-            <span style={{ color: "#ff6060" }}>failed: {autoFlushResult.error.slice(0, 80)}</span>
+            <span style={{ color: "var(--error)" }}>failed: {autoFlushResult.error.slice(0, 80)}</span>
           ) : (
-            <span style={{ color: "#508050" }}>
+            <span style={{ color: "var(--ok)" }}>
               ✓ {autoFlushResult.settledCount} settled · {autoFlushResult.rejectedCount} rejected
             </span>
           )}
-          <span style={{ color: "#444", marginLeft: 6 }}>
+          <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 6 }}>
             {new Date(autoFlushResult.timestamp).toLocaleTimeString()}
           </span>
         </div>
@@ -786,13 +786,13 @@ export function ClaimQueue({ address }: Props) {
 
       {/* CL-2: Stale claims pruned notification */}
       {stalePruned > 0 && (
-        <div style={{ marginTop: 8, padding: 8, background: "#1a1a0a", borderRadius: 4, fontSize: 11, color: "#c0c060" }}>
+        <div style={{ marginTop: 8, padding: 8, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--warn)" }}>
           {stalePruned} claim{stalePruned !== 1 ? "s" : ""} pruned — already settled on-chain (publisher relay or external submission).
         </div>
       )}
 
       {queueState?.lastFlush && (
-        <div style={{ marginTop: 4, color: "#444", fontSize: 11 }}>
+        <div style={{ marginTop: 4, color: "rgba(255,255,255,0.2)", fontSize: 11 }}>
           Last auto-flush attempt: {new Date(queueState.lastFlush).toLocaleTimeString()}
         </div>
       )}
@@ -826,16 +826,16 @@ function AttestationBadges() {
         const attested = b.publisherSig && b.publisherSig !== "0x" && b.publisherSig.length > 2;
         return (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, fontSize: 11 }}>
-            <span style={{ color: "#888" }}>Campaign #{b.campaignId}</span>
+            <span style={{ color: "var(--text-muted)" }}>Campaign #{b.campaignId}</span>
             <span
               style={{
                 padding: "1px 6px",
                 borderRadius: 3,
                 fontSize: 10,
                 fontWeight: 600,
-                background: attested ? "#0a2a0a" : "#2a1a0a",
-                color: attested ? "#60c060" : "#c09060",
-                border: `1px solid ${attested ? "#2a4a2a" : "#4a3a2a"}`,
+                background: attested ? "rgba(110,231,183,0.08)" : "rgba(252,211,77,0.07)",
+                color: attested ? "var(--ok)" : "var(--warn)",
+                border: `1px solid ${attested ? "rgba(110,231,183,0.2)" : "rgba(252,211,77,0.2)"}`,
               }}
               title={attested
                 ? "Publisher co-signed this batch — stronger fraud protection"
@@ -921,55 +921,60 @@ async function resyncFromChain(
 
 const claimRowStyle: React.CSSProperties = {
   padding: "8px 12px",
-  background: "#1a1a2e",
-  borderRadius: 6,
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
   marginBottom: 6,
   fontSize: 13,
 };
 
 const primaryBtn: React.CSSProperties = {
-  background: "#2a2a5a",
-  color: "#a0a0ff",
-  border: "1px solid #4a4a8a",
-  borderRadius: 6,
-  padding: "10px 16px",
+  background: "rgba(160,160,255,0.1)",
+  color: "var(--accent)",
+  border: "1px solid rgba(160,160,255,0.3)",
+  borderRadius: "var(--radius-sm)",
+  padding: "8px 14px",
   fontSize: 13,
   cursor: "pointer",
   width: "100%",
+  fontFamily: "inherit",
+  fontWeight: 500,
 };
 
 const secondaryBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#1a2a1a",
-  color: "#60c060",
-  border: "1px solid #2a4a2a",
+  background: "var(--bg-raised)",
+  color: "var(--ok)",
+  border: "1px solid rgba(110,231,183,0.2)",
 };
 
 const portabilityBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#1a1a1a",
-  color: "#888",
-  border: "1px solid #333",
+  background: "var(--bg-raised)",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
   padding: "6px 10px",
   fontSize: 11,
 };
 
 const campaignBtn: React.CSSProperties = {
-  background: "#1a1a2e",
-  color: "#a0a0ff",
-  border: "1px solid #3a3a6a",
-  borderRadius: 4,
+  background: "rgba(160,160,255,0.08)",
+  color: "var(--accent)",
+  border: "1px solid rgba(160,160,255,0.2)",
+  borderRadius: "var(--radius-sm)",
   padding: "3px 10px",
   fontSize: 11,
   cursor: "pointer",
+  fontFamily: "inherit",
 };
 
 const campaignDiscardBtn: React.CSSProperties = {
-  background: "#1a1a1a",
-  color: "#888",
-  border: "1px solid #333",
-  borderRadius: 4,
+  background: "var(--bg-raised)",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
   padding: "3px 10px",
   fontSize: 11,
   cursor: "pointer",
+  fontFamily: "inherit",
 };

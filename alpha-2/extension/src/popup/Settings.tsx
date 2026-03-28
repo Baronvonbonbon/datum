@@ -201,7 +201,7 @@ export function Settings({ address }: { address: string | null }) {
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12 }}>
-        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Settings</span>
+        <span style={{ color: "var(--accent)", fontWeight: 600 }}>Settings</span>
       </div>
 
       {/* Wallet address (read-only, selectable) */}
@@ -248,19 +248,19 @@ export function Settings({ address }: { address: string | null }) {
           placeholder="http://localhost:8545"
         />
         {rpcWarning && (
-          <div style={{ color: "#ffb060", fontSize: 11, marginTop: 4 }}>{rpcWarning}</div>
+          <div style={{ color: "var(--warn)", fontSize: 11, marginTop: 4 }}>{rpcWarning}</div>
         )}
         {/* SI-1: RPC connectivity test */}
         <div style={{ marginTop: 4 }}>
           <button
             onClick={testRpcConnection}
             disabled={rpcTesting}
-            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer" }}
+            style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--accent)", fontSize: 10, padding: "2px 8px", cursor: "pointer", fontFamily: "inherit" }}
           >
             {rpcTesting ? "Testing..." : "Test Connection"}
           </button>
           {rpcTestResult && (
-            <span style={{ fontSize: 10, marginLeft: 6, color: rpcTestResult.ok ? "#60c060" : "#ff8080" }}>
+            <span style={{ fontSize: 10, marginLeft: 6, color: rpcTestResult.ok ? "var(--ok)" : "var(--error)" }}>
               {rpcTestResult.ok
                 ? `Connected — block #${rpcTestResult.blockNumber} (${rpcTestResult.latencyMs}ms)`
                 : `Failed: ${rpcTestResult.error}`}
@@ -269,7 +269,7 @@ export function Settings({ address }: { address: string | null }) {
         </div>
         {/* SI-2: Network/contract mismatch warning */}
         {contractWarning && (
-          <div style={{ color: "#ff9040", fontSize: 11, marginTop: 4, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
+          <div style={{ color: "var(--warn)", fontSize: 11, marginTop: 4, padding: "4px 8px", background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
             {contractWarning}
           </div>
         )}
@@ -280,6 +280,7 @@ export function Settings({ address }: { address: string | null }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <div style={labelStyle}>Contract Addresses</div>
           <button
+            style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--accent)", fontSize: 10, padding: "2px 8px", cursor: "pointer", fontFamily: "inherit" }}
             onClick={async () => {
               try {
                 const url = chrome.runtime.getURL("deployed-addresses.json");
@@ -315,7 +316,6 @@ export function Settings({ address }: { address: string | null }) {
                 alert("Could not load deployed addresses. Run deploy.ts first, then rebuild the extension.");
               }
             }}
-            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer" }}
           >
             Load Deployed
           </button>
@@ -333,7 +333,7 @@ export function Settings({ address }: { address: string | null }) {
               placeholder="0x..."
             />
             {addressErrors[key] && (
-              <div style={{ color: "#ff8080", fontSize: 10, marginTop: 2 }}>{addressErrors[key]}</div>
+              <div style={{ color: "var(--error)", fontSize: 10, marginTop: 2 }}>{addressErrors[key]}</div>
             )}
           </div>
         ))}
@@ -362,7 +362,7 @@ export function Settings({ address }: { address: string | null }) {
           placeholder="Leave blank to use connected wallet"
         />
         {addressErrors.publisherAddress && (
-          <div style={{ color: "#ff8080", fontSize: 10, marginTop: 2 }}>{addressErrors.publisherAddress}</div>
+          <div style={{ color: "var(--error)", fontSize: 10, marginTop: 2 }}>{addressErrors.publisherAddress}</div>
         )}
       </div>
 
@@ -398,17 +398,17 @@ export function Settings({ address }: { address: string | null }) {
               const result = await testPinataKey(settings.pinataApiKey);
               setPinataTestResult(result.ok ? "Valid" : result.error ?? "Failed");
             }}
-            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 10, padding: "2px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+            style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--accent)", fontSize: 10, padding: "2px 8px", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" }}
           >
             Test
           </button>
         </div>
         {pinataTestResult && (
-          <div style={{ fontSize: 10, marginTop: 3, color: pinataTestResult === "Valid" ? "#60c060" : pinataTestResult === "Testing..." ? "#888" : "#ff8080" }}>
+          <div style={{ fontSize: 10, marginTop: 3, color: pinataTestResult === "Valid" ? "var(--ok)" : pinataTestResult === "Testing..." ? "var(--text-muted)" : "var(--error)" }}>
             {pinataTestResult}
           </div>
         )}
-        <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
+        <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 2 }}>
           Get a free key at pinata.cloud. Used to pin campaign metadata from My Ads tab.
         </div>
       </div>
@@ -426,8 +426,8 @@ export function Settings({ address }: { address: string | null }) {
 
       {/* WS-3: Auto-submit deauth warning */}
       {settings.autoSubmit && !autoSubmitKeySet && (
-        <div style={{ padding: "6px 10px", marginBottom: 8, background: "#2a1a0a", border: "1px solid #4a2a0a", borderRadius: 4 }}>
-          <div style={{ color: "#ff9040", fontSize: 11 }}>
+        <div style={{ padding: "6px 10px", marginBottom: 8, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
+          <div style={{ color: "var(--warn)", fontSize: 11 }}>
             Auto-submit not authorized. Claims will queue but not auto-submit until you enter your password below.
           </div>
         </div>
@@ -451,7 +451,7 @@ export function Settings({ address }: { address: string | null }) {
           </div>
           {autoSubmitKeySet ? (
             <div style={{ ...sectionStyle, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "#60c060", fontSize: 11 }}>Auto-submit authorized (this session)</span>
+              <span style={{ color: "var(--ok)", fontSize: 11 }}>Auto-submit authorized (this session)</span>
               <button
                 onClick={async () => {
                   await chrome.runtime.sendMessage({ type: "REVOKE_AUTO_SUBMIT" });
@@ -464,7 +464,7 @@ export function Settings({ address }: { address: string | null }) {
             </div>
           ) : (
             <div style={sectionStyle}>
-              <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
                 Enter your wallet password to authorize auto-submit. Authorization lasts until browser restart.
               </div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -493,7 +493,7 @@ export function Settings({ address }: { address: string | null }) {
                 </button>
               </div>
               {autoSubmitError && (
-                <div style={{ color: "#ff8080", fontSize: 11, marginTop: 4 }}>{autoSubmitError}</div>
+                <div style={{ color: "var(--error)", fontSize: 11, marginTop: 4 }}>{autoSubmitError}</div>
               )}
             </div>
           )}
@@ -506,8 +506,8 @@ export function Settings({ address }: { address: string | null }) {
       </button>
 
       {/* Ad Preferences */}
-      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12, marginBottom: 16 }}>
-        <div style={{ ...labelStyle, fontSize: 13, color: "#a0a0ff", marginBottom: 8, fontWeight: 600 }}>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
+        <div style={{ ...labelStyle, fontSize: 13, color: "var(--accent)", marginBottom: 8, fontWeight: 600 }}>
           Ad Preferences
         </div>
 
@@ -520,7 +520,7 @@ export function Settings({ address }: { address: string | null }) {
             onChange={(e) => setPrefs((p) => ({ ...p, maxAdsPerHour: Number(e.target.value) }))}
             style={{ width: "100%" }}
           />
-          <div style={{ color: "#888", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerHour} / hour</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerHour} / hour</div>
         </div>
 
         <div style={sectionStyle}>
@@ -536,7 +536,7 @@ export function Settings({ address }: { address: string | null }) {
 
         <div style={sectionStyle}>
           <label style={labelStyle}>Silenced categories ({prefs.silencedCategories.length} silenced)</label>
-          <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid #2a2a4a", borderRadius: 4, padding: 4 }}>
+          <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 4 }}>
             {categoryHierarchy.map((group) => {
               const groupState = isGroupSilenced(group);
               const isOpen = expandedGroups.has(group.id);
@@ -546,20 +546,20 @@ export function Settings({ address }: { address: string | null }) {
                     {group.children.length > 0 && (
                       <button
                         onClick={() => toggleGroup(group.id)}
-                        style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 10, padding: "0 2px", width: 14 }}
-                      >{isOpen ? "v" : ">"}</button>
+                        style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 10, padding: "0 2px", width: 14, fontFamily: "inherit" }}
+                      >{isOpen ? "▾" : "▸"}</button>
                     )}
                     {group.children.length === 0 && <span style={{ width: 14 }} />}
                     <button
                       onClick={() => toggleGroupSilence(group)}
                       style={{
-                        background: groupState === "all" ? "#2a0a0a" : groupState === "some" ? "#1a0a1a" : "#1a1a2e",
-                        color: groupState === "all" ? "#ff8080" : groupState === "some" ? "#c080c0" : "#aaa",
-                        border: `1px solid ${groupState !== "none" ? "#4a1a1a" : "#2a2a4a"}`,
-                        borderRadius: 3, padding: "1px 6px", fontSize: 10, cursor: "pointer", flex: 1, textAlign: "left",
+                        background: groupState === "all" ? "rgba(252,165,165,0.08)" : groupState === "some" ? "rgba(160,160,255,0.06)" : "var(--bg-raised)",
+                        color: groupState === "all" ? "var(--error)" : groupState === "some" ? "var(--accent)" : "var(--text)",
+                        border: `1px solid ${groupState !== "none" ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
+                        borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 10, cursor: "pointer", flex: 1, textAlign: "left", fontFamily: "inherit",
                       }}
                     >
-                      {groupState === "all" ? "x " : groupState === "some" ? "- " : ""}{group.name}
+                      {groupState === "all" ? "× " : groupState === "some" ? "- " : ""}{group.name}
                     </button>
                   </div>
                   {isOpen && group.children.length > 0 && (
@@ -579,13 +579,13 @@ export function Settings({ address }: { address: string | null }) {
                             }}
                             style={{
                               display: "block", width: "100%", textAlign: "left", marginBottom: 1,
-                              background: silenced ? "#2a0a0a" : "#111122",
-                              color: silenced ? "#ff8080" : "#888",
-                              border: `1px solid ${silenced ? "#4a1a1a" : "#1a1a2e"}`,
-                              borderRadius: 2, padding: "1px 6px", fontSize: 9, cursor: "pointer",
+                              background: silenced ? "rgba(252,165,165,0.08)" : "transparent",
+                              color: silenced ? "var(--error)" : "var(--text-muted)",
+                              border: `1px solid ${silenced ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
+                              borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
                             }}
                           >
-                            {silenced ? "x " : ""}{child.name}
+                            {silenced ? "× " : ""}{child.name}
                           </button>
                         );
                       })}
@@ -603,8 +603,8 @@ export function Settings({ address }: { address: string | null }) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
               {prefs.blockedCampaigns.map((id) => (
                 <span key={id} style={{
-                  background: "#2a0a0a", color: "#ff8080", fontSize: 10,
-                  padding: "2px 6px", borderRadius: 3, display: "inline-flex", alignItems: "center", gap: 4,
+                  background: "rgba(252,165,165,0.08)", color: "var(--error)", fontSize: 10,
+                  padding: "2px 6px", borderRadius: "var(--radius-sm)", border: "1px solid rgba(252,165,165,0.2)", display: "inline-flex", alignItems: "center", gap: 4,
                 }}>
                   #{id}
                   <button
@@ -612,8 +612,8 @@ export function Settings({ address }: { address: string | null }) {
                       ...p,
                       blockedCampaigns: p.blockedCampaigns.filter((c) => c !== id),
                     }))}
-                    style={{ background: "none", border: "none", color: "#ff8080", cursor: "pointer", fontSize: 10, padding: 0 }}
-                  >x</button>
+                    style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", fontSize: 10, padding: 0, fontFamily: "inherit" }}
+                  >×</button>
                 </span>
               ))}
             </div>
@@ -639,22 +639,22 @@ export function Settings({ address }: { address: string | null }) {
       </div>
 
       {/* Interest Profile — collapsible */}
-      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12, marginBottom: 16 }}>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
         <button
           onClick={() => setProfileExpanded(!profileExpanded)}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%" }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%", fontFamily: "inherit" }}
         >
-          <span style={{ color: "#666", fontSize: 10 }}>{profileExpanded ? "v" : ">"}</span>
-          <span style={{ fontSize: 13, color: "#a0a0ff", fontWeight: 600 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{profileExpanded ? "▾" : "▸"}</span>
+          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>
             Your Interest Profile
           </span>
-          <span style={{ color: "#555", fontSize: 11, marginLeft: "auto" }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: "auto" }}>
             {interestProfile ? Object.keys(interestProfile.weights).length : 0} categories
           </span>
         </button>
         {profileExpanded && (
           <div>
-            <div style={{ color: "#666", fontSize: 11, marginBottom: 8 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
               This data never leaves your browser. It personalizes ad selection based on your browsing.
             </div>
             {interestProfile && Object.keys(interestProfile.weights).length > 0 ? (
@@ -663,14 +663,14 @@ export function Settings({ address }: { address: string | null }) {
                   .sort(([, a], [, b]) => b - a)
                   .map(([cat, weight]) => (
                     <div key={cat} style={{ marginBottom: 4 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 2 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text)", marginBottom: 2 }}>
                         <span>{cat}</span>
                         <span>{weight.toFixed(2)} ({interestProfile.visitCounts[cat] ?? 0} visits)</span>
                       </div>
-                      <div style={{ background: "#1a1a2e", borderRadius: 3, height: 8 }}>
+                      <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 6 }}>
                         <div style={{
                           width: `${Math.round(weight * 100)}%`,
-                          background: "#4a4a8a",
+                          background: "var(--accent-dim)",
                           height: "100%",
                           borderRadius: 3,
                           minWidth: 2,
@@ -684,7 +684,7 @@ export function Settings({ address }: { address: string | null }) {
                   </button>
                 ) : (
                   <div style={{ marginTop: 8 }}>
-                    <div style={{ color: "#ff8080", fontSize: 11, marginBottom: 4 }}>Clear all interest data?</div>
+                    <div style={{ color: "var(--error)", fontSize: 11, marginBottom: 4 }}>Clear all interest data?</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={resetInterestProfile} style={{ ...dangerBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Yes</button>
                       <button onClick={() => setResetProfileConfirm(false)} style={{ ...secondaryBtn, flex: 1, fontSize: 11, padding: "6px 8px" }}>Cancel</button>
@@ -693,7 +693,7 @@ export function Settings({ address }: { address: string | null }) {
                 )}
               </div>
             ) : (
-              <div style={{ color: "#555", fontSize: 11, fontStyle: "italic" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, fontStyle: "italic" }}>
                 No browsing data yet. Visit pages matching campaign categories to build your profile.
               </div>
             )}
@@ -702,8 +702,8 @@ export function Settings({ address }: { address: string | null }) {
       </div>
 
       {/* Danger zone */}
-      <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
-        <div style={{ color: "#555", fontSize: 11, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+        <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
           Danger zone
         </div>
 
@@ -713,7 +713,7 @@ export function Settings({ address }: { address: string | null }) {
           </button>
         ) : (
           <div style={{ marginBottom: 8 }}>
-            <div style={{ color: "#ff8080", fontSize: 12, marginBottom: 6 }}>
+            <div style={{ color: "var(--error)", fontSize: 12, marginBottom: 6 }}>
               This discards all pending unsettled claims. Continue?
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -729,7 +729,7 @@ export function Settings({ address }: { address: string | null }) {
           </button>
         ) : (
           <div style={{ marginTop: 8 }}>
-            <div style={{ color: "#ff8080", fontSize: 12, marginBottom: 6 }}>
+            <div style={{ color: "var(--error)", fontSize: 12, marginBottom: 6 }}>
               Wipes local nonce/hash chain. Claims will re-sync from chain. Continue?
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -749,7 +749,7 @@ const sectionStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   display: "block",
-  color: "#888",
+  color: "var(--text-muted)",
   fontSize: 12,
   marginBottom: 4,
 };
@@ -757,12 +757,13 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "6px 8px",
-  background: "#1a1a2e",
-  border: "1px solid #2a2a4a",
-  borderRadius: 4,
-  color: "#e0e0e0",
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text)",
   fontSize: 12,
   outline: "none",
+  fontFamily: "inherit",
 };
 
 const selectStyle: React.CSSProperties = {
@@ -771,30 +772,33 @@ const selectStyle: React.CSSProperties = {
 };
 
 const primaryBtn: React.CSSProperties = {
-  background: "#2a2a5a",
-  color: "#a0a0ff",
-  border: "1px solid #4a4a8a",
-  borderRadius: 6,
-  padding: "10px 16px",
+  background: "rgba(160,160,255,0.1)",
+  color: "var(--accent)",
+  border: "1px solid rgba(160,160,255,0.3)",
+  borderRadius: "var(--radius-sm)",
+  padding: "8px 14px",
   fontSize: 13,
   cursor: "pointer",
   width: "100%",
+  fontFamily: "inherit",
+  fontWeight: 500,
 };
 
 const secondaryBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#1a1a1a",
-  color: "#666",
-  border: "1px solid #333",
+  background: "var(--bg-raised)",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
 };
 
 const dangerBtn: React.CSSProperties = {
-  background: "#2a0a0a",
-  color: "#ff8080",
-  border: "1px solid #4a1a1a",
-  borderRadius: 6,
-  padding: "8px 16px",
+  background: "rgba(252,165,165,0.08)",
+  color: "var(--error)",
+  border: "1px solid rgba(252,165,165,0.2)",
+  borderRadius: "var(--radius-sm)",
+  padding: "8px 14px",
   fontSize: 12,
   cursor: "pointer",
   width: "100%",
+  fontFamily: "inherit",
 };

@@ -99,26 +99,26 @@ export function UserPanel({ address }: Props) {
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12 }}>
-        <span style={{ color: "#a0a0ff", fontWeight: 600 }}>Your Earnings</span>
+        <span style={{ color: "var(--accent)", fontWeight: 600 }}>Your Earnings</span>
       </div>
 
       {loading ? (
-        <div style={{ color: "#555", fontSize: 13 }}>Loading...</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading...</div>
       ) : (
         <>
           <div style={cardStyle}>
-            <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
-            <div style={{ color: "#e0e0e0", fontSize: 18, fontWeight: 600 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 600 }}>
               {balance !== null ? formatDOT(balance) : "--"} {sym}
             </div>
-            <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
+            <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 11, marginTop: 4 }}>
               75% of settled impressions
             </div>
           </div>
 
           {/* EA-4: Withdrawal minimum display (denomination rounding: value % 10^6 >= 500k rejected) */}
           {balance !== null && balance > 0n && balance < 1_000_000n && (
-            <div style={{ color: "#c09060", fontSize: 11, marginTop: 8, padding: "4px 8px", background: "#1a1a0a", borderRadius: 3 }}>
+            <div style={{ color: "var(--warn)", fontSize: 11, marginTop: 8, padding: "4px 8px", background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
               Balance below minimum withdrawal (0.0001 {sym} / 1M planck).
             </div>
           )}
@@ -140,31 +140,31 @@ export function UserPanel({ address }: Props) {
 
       {/* Engagement Stats */}
       {totalEvents > 0 && (
-        <div style={{ marginTop: 16, borderTop: "1px solid #2a2a2a", paddingTop: 12 }}>
-          <div style={{ color: "#a0a0ff", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
             Engagement
           </div>
 
           <div style={{ ...cardStyle, marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ color: "#888", fontSize: 12 }}>Total impressions tracked</span>
-              <span style={{ color: "#e0e0e0", fontSize: 12 }}>{totalEvents}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Total impressions tracked</span>
+              <span style={{ color: "var(--text)", fontSize: 12 }}>{totalEvents}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ color: "#888", fontSize: 12 }}>Avg dwell time</span>
-              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Avg dwell time</span>
+              <span style={{ color: "var(--text)", fontSize: 12 }}>
                 {totalEvents > 0 ? (totalDwell / totalEvents / 1000).toFixed(1) : "0"}s
               </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ color: "#888", fontSize: 12 }}>Avg viewable time</span>
-              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Avg viewable time</span>
+              <span style={{ color: "var(--text)", fontSize: 12 }}>
                 {totalEvents > 0 ? (totalViewable / totalEvents / 1000).toFixed(1) : "0"}s
               </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#888", fontSize: 12 }}>Viewability rate</span>
-              <span style={{ color: "#e0e0e0", fontSize: 12 }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Viewability rate</span>
+              <span style={{ color: "var(--text)", fontSize: 12 }}>
                 {totalEvents > 0 ? ((totalIabViewable / totalEvents) * 100).toFixed(1) : "0"}%
               </span>
             </div>
@@ -175,8 +175,8 @@ export function UserPanel({ address }: Props) {
             <div style={{ maxHeight: 120, overflowY: "auto" }}>
               {behaviorChains.map((c) => (
                 <div key={c.campaignId} style={{
-                  padding: "4px 8px", background: "#111122", borderRadius: 3,
-                  marginBottom: 2, fontSize: 11, color: "#888",
+                  padding: "4px 8px", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                  marginBottom: 2, fontSize: 11, color: "var(--text-muted)",
                   display: "flex", justifyContent: "space-between",
                 }}>
                   <span>Campaign #{c.campaignId}</span>
@@ -191,7 +191,7 @@ export function UserPanel({ address }: Props) {
 
           {/* Behavior chain head hash */}
           {behaviorChains.length > 0 && (
-            <div style={{ color: "#555", fontSize: 10, marginTop: 4, fontFamily: "monospace", wordBreak: "break-all" }}>
+            <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 4, fontFamily: "monospace", wordBreak: "break-all" }}>
               Chain head: {behaviorChains[0].headHash.slice(0, 18)}...
             </div>
           )}
@@ -199,13 +199,13 @@ export function UserPanel({ address }: Props) {
       )}
 
       {txResult && (
-        <div style={{ marginTop: 8, padding: 10, background: "#0a2a0a", borderRadius: 6, fontSize: 13, color: "#60c060" }}>
+        <div style={{ marginTop: 8, padding: 10, background: "rgba(110,231,183,0.08)", border: "1px solid rgba(110,231,183,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--ok)" }}>
           {txResult}
         </div>
       )}
 
       {error && (
-        <div style={{ marginTop: 8, color: "#ff8080", fontSize: 12 }}>
+        <div style={{ marginTop: 8, padding: 8, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.2)", borderRadius: "var(--radius-sm)", color: "var(--error)", fontSize: 12 }}>
           {error}
         </div>
       )}
@@ -215,32 +215,35 @@ export function UserPanel({ address }: Props) {
 
 const cardStyle: React.CSSProperties = {
   padding: "10px 12px",
-  background: "#1a1a2e",
-  borderRadius: 6,
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
   fontSize: 13,
 };
 
 const primaryBtn: React.CSSProperties = {
-  background: "#2a2a5a",
-  color: "#a0a0ff",
-  border: "1px solid #4a4a8a",
-  borderRadius: 6,
-  padding: "10px 16px",
+  background: "rgba(160,160,255,0.1)",
+  color: "var(--accent)",
+  border: "1px solid rgba(160,160,255,0.3)",
+  borderRadius: "var(--radius-sm)",
+  padding: "8px 14px",
   fontSize: 13,
   cursor: "pointer",
   width: "100%",
+  fontFamily: "inherit",
+  fontWeight: 500,
 };
 
 const secondaryBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#1a1a1a",
-  color: "#666",
-  border: "1px solid #333",
+  background: "var(--bg-raised)",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
 };
 
 const emptyStyle: React.CSSProperties = {
   padding: 24,
   textAlign: "center",
-  color: "#666",
+  color: "var(--text-muted)",
   fontSize: 13,
 };

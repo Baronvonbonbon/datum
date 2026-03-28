@@ -318,8 +318,8 @@ export function App() {
 
   // M3: Password strength indicator
   function getPasswordStrength(pw: string): { label: string; color: string; level: number } {
-    if (pw.length === 0) return { label: "", color: "#555", level: 0 };
-    if (pw.length < 8) return { label: "Too short (8+ required)", color: "#ff4040", level: 0 }; // WS-2
+    if (pw.length === 0) return { label: "", color: "var(--text-muted)", level: 0 };
+    if (pw.length < 8) return { label: "Too short (8+ required)", color: "var(--error)", level: 0 }; // WS-2
     let score = 0;
     if (pw.length >= 8) score++;
     if (pw.length >= 12) score++;
@@ -330,9 +330,9 @@ export function App() {
     const weak = ["password", "12345678", "qwerty", "abcdef", "datum"];
     if (weak.some((w) => pw.toLowerCase().includes(w))) score = Math.min(score, 1);
 
-    if (score <= 2) return { label: "Fair", color: "#c0c040", level: 2 };
-    if (score <= 3) return { label: "Good", color: "#60c060", level: 3 };
-    return { label: "Strong", color: "#40c080", level: 4 };
+    if (score <= 2) return { label: "Fair", color: "var(--warn)", level: 2 };
+    if (score <= 3) return { label: "Good", color: "var(--ok)", level: 3 };
+    return { label: "Strong", color: "var(--ok)", level: 4 };
   }
 
   const strength = getPasswordStrength(password);
@@ -341,28 +341,28 @@ export function App() {
 
   // Setup / unlock screens
   if (walletState === "loading") {
-    return <div style={{ padding: 24, color: "#666", textAlign: "center" }}>Loading...</div>;
+    return <div style={{ padding: 24, color: "var(--text-muted)", textAlign: "center" }}>Loading...</div>;
   }
 
   if (walletState === "no-wallet" || setupMode) {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <span style={{ fontWeight: 700, color: "#a0a0ff", fontSize: 16 }}>DATUM</span>
-          <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>
+          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
             {accounts.length > 0 ? "Add another account" : "Set up your wallet"}
           </div>
         </div>
 
         {/* Testing warning */}
         <div style={{
-          padding: 10, marginBottom: 12, borderRadius: 6,
-          background: "#2a1a0a", border: "1px solid #4a2a0a",
+          padding: 10, marginBottom: 12, borderRadius: "var(--radius-sm)",
+          background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)",
         }}>
-          <div style={{ color: "#ff9040", fontSize: 11, fontWeight: 600, marginBottom: 2 }}>
+          <div style={{ color: "var(--warn)", fontSize: 11, fontWeight: 600, marginBottom: 2 }}>
             TESTING ONLY — NO SECURITY GUARANTEES
           </div>
-          <div style={{ color: "#c08040", fontSize: 10, lineHeight: 1.4 }}>
+          <div style={{ color: "rgba(252,211,77,0.6)", fontSize: 10, lineHeight: 1.4 }}>
             This wallet is for development and testing only.
             Do NOT use keys that control real funds.
             No independent security audit has been performed.
@@ -372,18 +372,18 @@ export function App() {
 
         {/* WS-1: Backup warning for freshly generated key — with copy button */}
         {generatedKey && (
-          <div style={{ padding: 10, background: "#2a2a0a", border: "1px solid #4a4a2a", borderRadius: 6, marginBottom: 12 }}>
-            <div style={{ color: "#c0c060", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ padding: 10, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)", marginBottom: 12 }}>
+            <div style={{ color: "var(--warn)", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
               Back up your private key now!
             </div>
             <div style={{
-              fontFamily: "monospace", fontSize: 11, color: "#e0e0e0",
-              background: "#1a1a1a", padding: 8, borderRadius: 4, wordBreak: "break-all",
+              fontFamily: "monospace", fontSize: 11, color: "var(--text-strong)",
+              background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, wordBreak: "break-all",
               userSelect: "all",
             }}>
               {generatedKey}
             </div>
-            <div style={{ color: "#888", fontSize: 11, marginTop: 4 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
               This key controls your DATUM earnings. Copy it somewhere safe. It will not be shown again.
             </div>
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
@@ -491,7 +491,7 @@ export function App() {
                 maxLength={32}
               />
             </div>
-            <div style={{ color: "#888", fontSize: 12, marginBottom: 8 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8 }}>
               A new random key will be generated. You must back it up immediately.
             </div>
             <div style={sectionStyle}>
@@ -521,7 +521,7 @@ export function App() {
         )}
 
         {error && (
-          <div style={{ marginTop: 8, padding: 8, background: "#3a1a1a", color: "#ff8080", fontSize: 12, borderRadius: 4 }}>
+          <div style={{ marginTop: 8, padding: 8, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.2)", color: "var(--error)", fontSize: 12, borderRadius: "var(--radius-sm)" }}>
             {error}
           </div>
         )}
@@ -533,10 +533,10 @@ export function App() {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <span style={{ fontWeight: 700, color: "#a0a0ff", fontSize: 16 }}>DATUM</span>
+          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
           {/* MA-2: Show active account name + address */}
           {activeAccount && (
-            <div style={{ color: "#a0a0ff", fontSize: 12, marginTop: 4, fontWeight: 600 }}>
+            <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 4, fontWeight: 600 }}>
               {activeAccount}
             </div>
           )}
@@ -544,12 +544,12 @@ export function App() {
             <div
               onClick={() => { navigator.clipboard.writeText(address); }}
               title="Click to copy address"
-              style={{ color: "#888", fontSize: 11, marginTop: 2, fontFamily: "monospace", cursor: "pointer" }}
+              style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2, fontFamily: "monospace", cursor: "pointer" }}
             >
               {address.slice(0, 6)}...{address.slice(-4)}
             </div>
           )}
-          <div style={{ color: "#666", fontSize: 12, marginTop: 4 }}>Wallet locked</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>Wallet locked</div>
         </div>
         <div style={sectionStyle}>
           <label style={labelStyle}>Password</label>
@@ -569,27 +569,27 @@ export function App() {
 
         {/* MA-2: Account list for switching */}
         {accounts.length > 1 && (
-          <div style={{ marginTop: 16, borderTop: "1px solid #2a2a4a", paddingTop: 12 }}>
-            <div style={{ color: "#888", fontSize: 11, marginBottom: 6 }}>Switch account</div>
+          <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 6 }}>Switch account</div>
             {accounts.map((acc) => (
               <div key={acc.name} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "4px 8px", marginBottom: 2, borderRadius: 3,
-                background: acc.name === activeAccount ? "#1a1a3a" : "#111",
-                border: acc.name === activeAccount ? "1px solid #3a3a6a" : "1px solid #222",
+                background: acc.name === activeAccount ? "rgba(160,160,255,0.08)" : "transparent",
+                border: acc.name === activeAccount ? "1px solid rgba(160,160,255,0.2)" : "1px solid var(--border)",
               }}>
                 <div>
-                  <span style={{ color: acc.name === activeAccount ? "#a0a0ff" : "#888", fontSize: 11, fontWeight: acc.name === activeAccount ? 600 : 400 }}>
+                  <span style={{ color: acc.name === activeAccount ? "var(--accent)" : "var(--text-muted)", fontSize: 11, fontWeight: acc.name === activeAccount ? 600 : 400 }}>
                     {acc.name}
                   </span>
-                  <span style={{ color: "#555", fontSize: 9, marginLeft: 6, fontFamily: "monospace" }}>
+                  <span style={{ color: "rgba(255,255,255,0.2)", fontSize: 9, marginLeft: 6, fontFamily: "monospace" }}>
                     {acc.address.slice(0, 6)}...{acc.address.slice(-4)}
                   </span>
                 </div>
                 {acc.name !== activeAccount && (
                   <button
                     onClick={() => handleSwitchAccount(acc.name)}
-                    style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 9, padding: "2px 6px", cursor: "pointer" }}
+                    style={{ background: "none", border: "1px solid var(--border)", borderRadius: 3, color: "var(--accent)", fontSize: 9, padding: "2px 6px", cursor: "pointer" }}
                   >Switch</button>
                 )}
               </div>
@@ -608,7 +608,7 @@ export function App() {
         </div>
 
         {error && (
-          <div style={{ marginTop: 8, padding: 8, background: "#3a1a1a", color: "#ff8080", fontSize: 12, borderRadius: 4 }}>
+          <div style={{ marginTop: 8, padding: 8, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.2)", color: "var(--error)", fontSize: 12, borderRadius: "var(--radius-sm)" }}>
             {error}
           </div>
         )}
@@ -621,14 +621,15 @@ export function App() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div style={{
-        padding: "12px 16px",
-        background: "#1a1a2e",
-        borderBottom: "1px solid #2a2a4a",
+        padding: "10px 14px",
+        background: "rgba(28,25,23,0.85)",
+        borderBottom: "1px solid var(--border)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        backdropFilter: "blur(8px)",
       }}>
-        <span style={{ fontWeight: 700, color: "#a0a0ff", fontSize: 16 }}>DATUM</span>
+        <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 14, letterSpacing: "0.06em" }}>DATUM</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
           {/* MA-2: Account name + address with dropdown */}
           <button
@@ -639,7 +640,7 @@ export function App() {
             }}
           >
             {activeAccount && (
-              <span style={{ color: "#a0a0ff", fontSize: 11, fontWeight: 600 }}>{activeAccount}</span>
+              <span style={{ color: "var(--accent)", fontSize: 11, fontWeight: 600 }}>{activeAccount}</span>
             )}
             <span
               onClick={(e) => {
@@ -651,25 +652,26 @@ export function App() {
                 }
               }}
               title={address ? "Click to copy address" : ""}
-              style={{ color: addressCopied ? "#60c060" : "#888", fontSize: 11, fontFamily: "monospace" }}
+              style={{ color: addressCopied ? "var(--ok)" : "var(--text-muted)", fontSize: 11, fontFamily: "monospace" }}
             >
               {addressCopied ? "Copied!" : address ? `${address.slice(0, 6)}...${address.slice(-4)}` : ""}
             </span>
-            {accounts.length > 1 && <span style={{ color: "#555", fontSize: 8 }}>v</span>}
+            {accounts.length > 1 && <span style={{ color: "var(--text-muted)", fontSize: 8 }}>▾</span>}
           </button>
 
           {/* MA-2: Account dropdown menu */}
           {showAccountMenu && (
             <div style={{
               position: "absolute", top: "100%", right: 0, zIndex: 20,
-              background: "#1a1a2e", border: "1px solid #2a2a4a", borderRadius: 4,
+              background: "#232120", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
               minWidth: 220, marginTop: 4, padding: 4,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             }}>
               {accounts.map((acc) => (
                 <div key={acc.name} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "4px 8px", borderRadius: 3, marginBottom: 2,
-                  background: acc.name === activeAccount ? "#2a2a4a" : "transparent",
+                  background: acc.name === activeAccount ? "rgba(160,160,255,0.08)" : "transparent",
                 }}>
                   {renamingAccount === acc.name ? (
                     <div style={{ display: "flex", gap: 4, flex: 1 }}>
@@ -681,16 +683,16 @@ export function App() {
                         autoFocus
                         maxLength={32}
                       />
-                      <button onClick={() => handleRenameAccount(acc.name)} style={{ background: "none", border: "none", color: "#60c060", fontSize: 9, cursor: "pointer" }}>ok</button>
-                      <button onClick={() => setRenamingAccount(null)} style={{ background: "none", border: "none", color: "#888", fontSize: 9, cursor: "pointer" }}>x</button>
+                      <button onClick={() => handleRenameAccount(acc.name)} style={{ background: "none", border: "none", color: "var(--ok)", fontSize: 9, cursor: "pointer" }}>ok</button>
+                      <button onClick={() => setRenamingAccount(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 9, cursor: "pointer" }}>×</button>
                     </div>
                   ) : (
                     <>
                       <div style={{ flex: 1 }}>
-                        <div style={{ color: acc.name === activeAccount ? "#a0a0ff" : "#aaa", fontSize: 11, fontWeight: acc.name === activeAccount ? 600 : 400 }}>
+                        <div style={{ color: acc.name === activeAccount ? "var(--accent)" : "var(--text)", fontSize: 11, fontWeight: acc.name === activeAccount ? 600 : 400 }}>
                           {acc.name}
                         </div>
-                        <div style={{ color: "#555", fontSize: 9, fontFamily: "monospace" }}>
+                        <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 9, fontFamily: "monospace" }}>
                           {acc.address.slice(0, 10)}...{acc.address.slice(-4)}
                         </div>
                       </div>
@@ -698,32 +700,32 @@ export function App() {
                         {acc.name !== activeAccount && (
                           <button
                             onClick={() => handleSwitchAccount(acc.name)}
-                            style={{ background: "none", border: "1px solid #2a2a4a", borderRadius: 3, color: "#a0a0ff", fontSize: 9, padding: "2px 6px", cursor: "pointer" }}
+                            style={{ background: "none", border: "1px solid var(--border)", borderRadius: 3, color: "var(--accent)", fontSize: 9, padding: "2px 6px", cursor: "pointer" }}
                           >Switch</button>
                         )}
                         <button
                           onClick={() => { setRenamingAccount(acc.name); setRenameInput(acc.name); }}
-                          style={{ background: "none", border: "none", color: "#666", fontSize: 9, cursor: "pointer" }}
+                          style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 9, cursor: "pointer" }}
                         >edit</button>
                         <button
                           onClick={() => handleDeleteAccount(acc.name)}
-                          style={{ background: "none", border: "none", color: "#ff6060", fontSize: 9, cursor: "pointer" }}
-                        >x</button>
+                          style={{ background: "none", border: "none", color: "var(--error)", fontSize: 9, cursor: "pointer" }}
+                        >×</button>
                       </div>
                     </>
                   )}
                 </div>
               ))}
-              <div style={{ borderTop: "1px solid #2a2a4a", paddingTop: 4, marginTop: 2 }}>
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 4, marginTop: 2 }}>
                 <button
                   onClick={() => { setShowAccountMenu(false); setSetupMode("import"); }}
-                  style={{ background: "none", border: "none", color: "#a0a0ff", fontSize: 10, cursor: "pointer", padding: "4px 8px", width: "100%", textAlign: "left" }}
+                  style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 10, cursor: "pointer", padding: "4px 8px", width: "100%", textAlign: "left" }}
                 >+ Add Account</button>
               </div>
             </div>
           )}
 
-          <button onClick={handleLock} style={btnStyle("#333", "#888")}>
+          <button onClick={handleLock} style={btnStyle("var(--bg-raised)", "var(--text-muted)")}>
             Lock
           </button>
         </div>
@@ -731,9 +733,9 @@ export function App() {
 
       {/* Chain heartbeat */}
       <div style={{
-        padding: "4px 16px",
-        background: chainStatus.connected ? "#0a1a0a" : "#2a0a0a",
-        borderBottom: "1px solid #2a2a4a",
+        padding: "4px 14px",
+        background: "var(--bg-raised)",
+        borderBottom: "1px solid var(--border)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -742,33 +744,34 @@ export function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{
-            width: 6, height: 6, borderRadius: "50%", display: "inline-block",
-            background: chainStatus.connected ? "#40c040" : "#c04040",
+            width: 6, height: 6, borderRadius: "50%", display: "inline-block", flexShrink: 0,
+            background: chainStatus.connected ? "var(--ok)" : "var(--error)",
+            boxShadow: chainStatus.connected ? "0 0 4px var(--ok)" : "none",
           }} />
           {chainStatus.connected ? (
-            <span style={{ color: "#608060" }}>
+            <span style={{ color: "var(--text-muted)" }}>
               #{chainStatus.blockNumber}
               {chainStatus.blockHash && (
-                <span style={{ color: "#405040", marginLeft: 4 }}>
+                <span style={{ color: "rgba(255,255,255,0.18)", marginLeft: 4 }}>
                   {chainStatus.blockHash.slice(0, 10)}...
                 </span>
               )}
             </span>
           ) : (
-            <span style={{ color: "#c06060" }}>
+            <span style={{ color: "var(--error)" }}>
               {chainStatus.error ? "RPC error" : "Disconnected"}
             </span>
           )}
         </div>
         <div>
           {chainStatus.nativeBalance !== null ? (
-            <span style={{ color: "#60a060" }}>
+            <span style={{ color: "var(--ok)" }}>
               {formatDOT(chainStatus.nativeBalance)} {sym}
             </span>
           ) : chainStatus.connected ? (
-            <span style={{ color: "#555" }}>...</span>
+            <span style={{ color: "var(--text-muted)" }}>...</span>
           ) : (
-            <span style={{ color: "#804040", fontSize: 9 }}>
+            <span style={{ color: "rgba(252,165,165,0.5)", fontSize: 9 }}>
               {chainStatus.rpcUrl || "No RPC"}
             </span>
           )}
@@ -778,16 +781,16 @@ export function App() {
       {/* H2: Timelock pending change warning */}
       {timelockWarning > 0 && (
         <div style={{
-          padding: "4px 16px", background: "#2a1a0a", borderBottom: "1px solid #4a2a0a",
-          fontSize: 11, color: "#ff9040", display: "flex", alignItems: "center", gap: 6,
+          padding: "4px 14px", background: "rgba(252,211,77,0.07)", borderBottom: "1px solid rgba(252,211,77,0.2)",
+          fontSize: 11, color: "var(--warn)", display: "flex", alignItems: "center", gap: 6,
         }}>
-          <span>!</span>
+          <span>⚠</span>
           <span>{timelockWarning} pending admin change{timelockWarning > 1 ? "s" : ""} (Timelock)</span>
         </div>
       )}
 
       {/* Tab bar */}
-      <div style={{ display: "flex", borderBottom: "1px solid #2a2a4a" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <button
             key={t}
@@ -795,13 +798,14 @@ export function App() {
             style={{
               flex: 1,
               padding: "8px 4px",
-              background: tab === t ? "#1a1a2e" : "transparent",
-              color: tab === t ? "#a0a0ff" : "#666",
+              background: tab === t ? "var(--bg-raised)" : "transparent",
+              color: tab === t ? "var(--accent)" : "var(--text-muted)",
               border: "none",
-              borderBottom: tab === t ? "2px solid #a0a0ff" : "2px solid transparent",
+              borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent",
               cursor: "pointer",
               fontSize: 12,
               fontWeight: tab === t ? 600 : 400,
+              fontFamily: "inherit",
             }}
           >
             {TAB_LABELS[t]}
@@ -823,37 +827,40 @@ function btnStyle(bg: string, color: string) {
   return {
     background: bg,
     color,
-    border: `1px solid ${color}`,
-    borderRadius: 4,
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
     padding: "4px 10px",
-    fontSize: 12,
+    fontSize: 11,
     cursor: "pointer",
+    fontFamily: "inherit",
   } as const;
 }
 
 const primaryBtn: React.CSSProperties = {
-  background: "#2a2a5a",
-  color: "#a0a0ff",
-  border: "1px solid #4a4a8a",
-  borderRadius: 6,
-  padding: "10px 16px",
+  background: "rgba(160,160,255,0.1)",
+  color: "var(--accent)",
+  border: "1px solid rgba(160,160,255,0.3)",
+  borderRadius: "var(--radius-sm)",
+  padding: "8px 14px",
   fontSize: 13,
   cursor: "pointer",
   width: "100%",
+  fontFamily: "inherit",
+  fontWeight: 500,
 };
 
 const secondaryBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#1a1a1a",
-  color: "#666",
-  border: "1px solid #333",
+  background: "var(--bg-raised)",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
 };
 
 const dangerBtn: React.CSSProperties = {
   ...primaryBtn,
-  background: "#2a0a0a",
-  color: "#ff8080",
-  border: "1px solid #4a1a1a",
+  background: "rgba(252,165,165,0.08)",
+  color: "var(--error)",
+  border: "1px solid rgba(252,165,165,0.2)",
 };
 
 const sectionStyle: React.CSSProperties = {
@@ -862,7 +869,7 @@ const sectionStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   display: "block",
-  color: "#888",
+  color: "var(--text-muted)",
   fontSize: 12,
   marginBottom: 4,
 };
@@ -870,10 +877,11 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "6px 8px",
-  background: "#1a1a2e",
-  border: "1px solid #2a2a4a",
-  borderRadius: 4,
-  color: "#e0e0e0",
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text)",
   fontSize: 12,
   outline: "none",
+  fontFamily: "inherit",
 };
