@@ -43,7 +43,7 @@ export type PopupToBackground =
   | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
   | { type: "BLOCK_CAMPAIGN"; campaignId: string }
   | { type: "UNBLOCK_CAMPAIGN"; campaignId: string }
-  | { type: "AUTHORIZE_AUTO_SUBMIT"; privateKey: string }
+  | { type: "AUTHORIZE_AUTO_SUBMIT"; password: string }
   | { type: "REVOKE_AUTO_SUBMIT" }
   | { type: "CHECK_AUTO_SUBMIT" }
   | { type: "GET_TIMELOCK_PENDING" }

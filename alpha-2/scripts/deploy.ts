@@ -208,6 +208,7 @@ async function main() {
       BASE_GRACE_BLOCKS,
       GRACE_PER_QUORUM,
       MAX_GRACE_BLOCKS,
+      addresses.pauseRegistry,
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumGovernanceV2 — ${err}`);

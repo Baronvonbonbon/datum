@@ -177,9 +177,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Message handler
 // -------------------------------------------------------------------------
 
+/** Check if a message sender is the extension itself (popup or background). */
+function isExtensionOrigin(sender: chrome.runtime.MessageSender): boolean {
+  return sender.id === chrome.runtime.id && !sender.tab;
+}
+
 chrome.runtime.onMessage.addListener(
-  (msg: ContentToBackground | PopupToBackground, _sender, sendResponse) => {
-    handleMessage(msg)
+  (msg: ContentToBackground | PopupToBackground, sender, sendResponse) => {
+    handleMessage(msg, sender)
       .then(sendResponse)
       .catch((err) => {
         console.error("[DATUM background] message error:", err);
@@ -189,8 +194,19 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
+// Safe RPC methods that content scripts can proxy without approval
+const SAFE_RPC_METHODS = new Set([
+  "eth_accounts", "eth_requestAccounts", "eth_chainId", "eth_blockNumber",
+  "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getBalance",
+  "eth_getCode", "eth_getStorageAt", "eth_call", "eth_estimateGas",
+  "eth_gasPrice", "eth_getTransactionCount", "eth_getTransactionByHash",
+  "eth_getTransactionReceipt", "eth_getLogs", "eth_getBlockTransactionCountByHash",
+  "eth_getBlockTransactionCountByNumber", "net_version", "web3_clientVersion",
+]);
+
 async function handleMessage(
-  msg: ContentToBackground | PopupToBackground
+  msg: ContentToBackground | PopupToBackground,
+  sender: chrome.runtime.MessageSender,
 ): Promise<unknown> {
   switch (msg.type) {
     case "IMPRESSION_RECORDED": {
@@ -524,7 +540,7 @@ async function handleMessage(
 
     // B1: Auto-submit key management (encrypted)
     case "AUTHORIZE_AUTO_SUBMIT": {
-      await authorizeAutoSubmit(msg.privateKey);
+      await authorizeAutoSubmit(msg.password);
       return { ok: true };
     }
 
@@ -571,6 +587,10 @@ async function handleMessage(
     }
 
     case "PROVIDER_SIGN_TYPED_DATA": {
+      // Only allow signing from the extension's own web app pages, not arbitrary content scripts
+      if (!isExtensionOrigin(sender)) {
+        return { error: "Signing requests must originate from the DATUM extension." };
+      }
       const { getUnlockedWallet } = await import("@shared/walletManager");
       const wallet = getUnlockedWallet();
       if (!wallet) return { error: "Wallet is locked. Unlock it in the extension popup first." };
@@ -583,6 +603,9 @@ async function handleMessage(
     }
 
     case "PROVIDER_PERSONAL_SIGN": {
+      if (!isExtensionOrigin(sender)) {
+        return { error: "Signing requests must originate from the DATUM extension." };
+      }
       const { getUnlockedWallet: getWallet } = await import("@shared/walletManager");
       const w = getWallet();
       if (!w) return { error: "Wallet is locked. Unlock it in the extension popup first." };
@@ -595,8 +618,10 @@ async function handleMessage(
     }
 
     case "PROVIDER_RPC_PROXY": {
-      // Proxy arbitrary RPC calls (eth_call, eth_getCode, eth_blockNumber, etc.)
-      // to the extension's configured RPC endpoint
+      // Only allow safe read-only RPC methods — reject state-changing or admin calls
+      if (!SAFE_RPC_METHODS.has(msg.method)) {
+        return { error: `RPC method '${msg.method}' is not allowed through the provider bridge.` };
+      }
       const s2 = await getSettings();
       try {
         const provider = new JsonRpcProvider(s2.rpcUrl);
@@ -644,14 +669,20 @@ const AUTO_SUBMIT_ENCRYPTED_KEY = "autoSubmitKeyEncrypted";
 // Session-scoped password: random, held in memory, lost on SW restart
 let autoSubmitSessionPassword: string | null = null;
 
-/** Authorize auto-submit: encrypt the private key with a random session password. */
-async function authorizeAutoSubmit(walletPrivateKey: string): Promise<void> {
+/** Authorize auto-submit: decrypt wallet with user password, re-encrypt with random session password. */
+async function authorizeAutoSubmit(walletPassword: string): Promise<void> {
+  // Decrypt the wallet's private key using the user-supplied password
+  const { getActiveWalletEncrypted } = await import("@shared/walletManager");
+  const walletEncrypted = await getActiveWalletEncrypted();
+  if (!walletEncrypted) throw new Error("No wallet found");
+  const privateKey = await decryptPrivateKey(walletEncrypted, walletPassword);
+
   // Generate a random session password (32 bytes hex)
   const sessionBytes = crypto.getRandomValues(new Uint8Array(32));
   autoSubmitSessionPassword = hexlify(sessionBytes);
 
-  // Encrypt the private key using PBKDF2+AES-256-GCM (same as walletManager)
-  const encrypted = await encryptPrivateKey(walletPrivateKey, autoSubmitSessionPassword);
+  // Re-encrypt with session password (session-scoped, lost on SW restart)
+  const encrypted = await encryptPrivateKey(privateKey, autoSubmitSessionPassword);
   await chrome.storage.local.set({ [AUTO_SUBMIT_ENCRYPTED_KEY]: encrypted });
 }
 

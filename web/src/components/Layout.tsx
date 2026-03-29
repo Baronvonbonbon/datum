@@ -32,8 +32,9 @@ const NAV_ITEMS = [
 ];
 
 /** Trigger the Nano staggered fade-in on every route change.
- *  A MutationObserver also catches elements added after async data loads
- *  and shows them immediately (no stagger for late arrivals). */
+ *  Elements default to visible (opacity:1). On route change, elements present
+ *  at render time get briefly hidden then revealed with stagger. Elements that
+ *  mount later (async data) are immediately visible — no observer needed. */
 function useFadeIn() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
@@ -44,27 +45,16 @@ function useFadeIn() {
 
     // Staggered reveal for elements present at route render time
     const items = el.querySelectorAll<HTMLElement>(".nano-fade");
-    items.forEach((item) => item.classList.remove("nano-fade--show"));
+    items.forEach((item) => item.classList.add("nano-fade--hide"));
     const timers: ReturnType<typeof setTimeout>[] = [];
     items.forEach((item, i) => {
-      timers.push(setTimeout(() => item.classList.add("nano-fade--show"), i * 120));
+      timers.push(setTimeout(() => item.classList.remove("nano-fade--hide"), i * 120));
     });
-
-    // Immediately show any .nano-fade elements added later (async data)
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (!(node instanceof HTMLElement)) continue;
-          if (node.classList.contains("nano-fade")) node.classList.add("nano-fade--show");
-          node.querySelectorAll<HTMLElement>(".nano-fade").forEach((child) => child.classList.add("nano-fade--show"));
-        }
-      }
-    });
-    observer.observe(el, { childList: true, subtree: true });
 
     return () => {
       timers.forEach(clearTimeout);
-      observer.disconnect();
+      // Ensure nothing stays hidden if cleanup fires early (StrictMode)
+      items.forEach((item) => item.classList.remove("nano-fade--hide"));
     };
   }, [location.pathname]);
 

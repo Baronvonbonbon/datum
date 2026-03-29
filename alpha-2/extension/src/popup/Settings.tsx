@@ -479,8 +479,8 @@ export function Settings({ address }: { address: string | null }) {
                   onClick={async () => {
                     setAutoSubmitError(null);
                     try {
-                      const wallet = await unlock(autoSubmitPassword);
-                      await chrome.runtime.sendMessage({ type: "AUTHORIZE_AUTO_SUBMIT", privateKey: wallet.privateKey });
+                      await unlock(autoSubmitPassword); // validate password
+                      await chrome.runtime.sendMessage({ type: "AUTHORIZE_AUTO_SUBMIT", password: autoSubmitPassword });
                       setAutoSubmitKeySet(true);
                       setAutoSubmitPassword("");
                     } catch {

@@ -223,7 +223,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             abi.encodeWithSelector(bytes4(0xcdbb1755),
                 claim.campaignId, totalPayment, paymentVault)
         );
-        require(dOk, "E16");
+        require(dOk && dRet.length >= 32, "E16");
         bool exhausted = abi.decode(dRet, (bool));
 
         // Record balance split in PaymentVault (DOT already there from BudgetLedger)

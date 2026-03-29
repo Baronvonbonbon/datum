@@ -74,6 +74,9 @@ contract DatumGovernanceV2 {
     address public campaigns;
     address public slashContract;
     IDatumCampaignLifecycle public lifecycle;
+    address public pauseRegistry;
+
+    uint256 private _locked;
 
     uint256 public quorumWeighted;
     uint256 public slashBps;
@@ -120,9 +123,11 @@ contract DatumGovernanceV2 {
         uint256 _terminationQuorum,
         uint256 _baseGrace,
         uint256 _gracePerQuorum,
-        uint256 _maxGrace
+        uint256 _maxGrace,
+        address _pauseRegistry
     ) {
         require(_campaigns != address(0), "E00");
+        require(_pauseRegistry != address(0), "E00");
         require(_maxGrace >= _baseGrace, "E00");
         owner = msg.sender;
         campaigns = _campaigns;
@@ -132,6 +137,7 @@ contract DatumGovernanceV2 {
         baseGraceBlocks = _baseGrace;
         gracePerQuorum = _gracePerQuorum;
         maxGraceBlocks = _maxGrace;
+        pauseRegistry = _pauseRegistry;
     }
 
     receive() external payable {}
@@ -159,6 +165,8 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function vote(uint256 campaignId, bool aye, uint8 conviction) external payable {
+        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(abi.encodeWithSelector(bytes4(0x5c975abb)));
+        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
         require(conviction <= MAX_CONVICTION, "E40");
         require(msg.value > 0, "E41");
 
@@ -193,6 +201,8 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function withdraw(uint256 campaignId) external {
+        require(_locked == 0, "E57");
+        _locked = 1;
         Vote storage v = _votes[campaignId][msg.sender];
         require(v.direction != 0, "E44");
         require(block.number >= v.lockedUntilBlock, "E45");
@@ -232,6 +242,7 @@ contract DatumGovernanceV2 {
         require(ok, "E02");
 
         emit VoteWithdrawn(campaignId, msg.sender, refund, slash);
+        _locked = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -239,6 +250,8 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function evaluateCampaign(uint256 campaignId) external {
+        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(abi.encodeWithSelector(bytes4(0x5c975abb)));
+        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
 
         uint256 total = ayeWeighted[campaignId] + nayWeighted[campaignId];
@@ -283,6 +296,8 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external {
+        require(_locked == 0, "E57");
+        _locked = 1;
         require(msg.sender == slashContract, "E19");
         if (action == 0) {
             if (SYSTEM_ADDR.code.length > 0) {
@@ -292,6 +307,7 @@ contract DatumGovernanceV2 {
             (bool ok,) = target.call{value: value}("");
             require(ok, "E02");
         }
+        _locked = 0;
     }
 
     // -------------------------------------------------------------------------

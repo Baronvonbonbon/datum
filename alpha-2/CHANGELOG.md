@@ -482,3 +482,71 @@ New contract: `DatumAttestationVerifier` wraps `settleClaims()` with mandatory E
 6. ~~**Blake2 migration (extension):**~~ — **Done.** claimBuilder, behaviorChain, behaviorCommit all use `@noble/hashes/blake2.js` with `dkLen: 32`.
 7. ~~**Blake2 migration (relay):**~~ — **Done.** Relay bot `test-submit.mjs` uses `blake2Hash()` from `@noble/hashes/blake2.js`. `relay-bot.mjs` has `blake2Hash` utility for future server-side validation.
 8. ~~**Phase 3 UX polish:**~~ — **Done.** 7 extension/web items: SI-3 address validation, UP-5 mechanism badge, UP-7 per-campaign claim management, AD-2 report button, PU-3 attestation error display, GV-4 timelock ABI decoding (28 selectors), EA-2 per-campaign earnings breakdown. 165/165 tests, 0 webpack errors.
+
+---
+
+## Security Audit Fixes (2026-03-28)
+
+Applied all CRITICAL and HIGH findings from SECURITY-AUDIT.md. 187/187 contract tests, 165/165 extension tests.
+
+### Contract Fixes
+
+| ID | Severity | Contract | Fix |
+|----|----------|----------|-----|
+| C-1 | **CRITICAL** | DatumGovernanceSlash | Slash pool double-drain prevention. Added `totalClaimed[campaignId]` tracking in `claimSlashReward()` and `sweepSlashPool()`. |
+| C-2 | **CRITICAL** | DatumGovernanceV2 | Added manual `_locked` reentrancy guard on `withdraw()` and `slashAction()`. |
+| H-1 | **HIGH** | DatumTimelock | Prevent proposal overwrite. `propose()` now reverts E35 when a pending proposal exists. Must `cancel()` before submitting new proposal. |
+| H-2 | **HIGH** | DatumSettlement | Return data validation. `deductAndTransfer` staticcall now checks `dRet.length >= 32` in addition to success flag. |
+| H-3 | **HIGH** | DatumGovernanceV2 | Added pause registry as 8th constructor param. `vote()` and `evaluateCampaign()` now check global pause via inline staticcall. |
+
+**GovernanceV2 constructor change:** Now takes 8 params (added `address _pauseRegistry` as last). Deploy script and all test files updated.
+
+### Extension Fixes
+
+| ID | Severity | Fix |
+|----|----------|-----|
+| 1.1 | **CRITICAL** | Added `isExtensionOrigin(sender)` check for signing operations in background. |
+| 1.2 | **HIGH** | Added `SAFE_RPC_METHODS` allowlist (20 read-only methods) to RPC proxy. |
+| 1.3 | **HIGH** | Auto-submit now receives password only (not private key). Background decrypts wallet internally. |
+| 2.1 | **HIGH** | Conditional provider injection via `shouldInjectProvider()` — SDK detection + MutationObserver gating. |
+
+### Web App Fix
+
+| ID | Severity | Fix |
+|----|----------|-----|
+| F-01 | **HIGH** | `manualKey` zeroed immediately after wallet connect (before async `connect()` call). |
+
+---
+
+## Web App: Fade-In Fix (2026-03-29)
+
+Fixed "loads then disappears" bug on 14 of 24 pages. Content with `nano-fade` CSS class rendered invisible after async data loads.
+
+**Root cause:** `.nano-fade` defaulted to `opacity: 0`, requiring JS to add `.nano-fade--show` for visibility. Pages that unmounted the `.nano-fade` div during loading states (early returns or ternary conditionals) lost the class on remount.
+
+**Fix:** Inverted the default — `.nano-fade` now starts at `opacity: 1` (visible). Route transitions briefly apply `.nano-fade--hide` for the stagger animation. Elements that mount after async loads are immediately visible without needing observer intervention. Removed the `MutationObserver` from `useFadeIn` (no longer needed).
+
+**Files changed:**
+- `web/src/index.css` — `.nano-fade` default visible, new `.nano-fade--hide` class
+- `web/src/components/Layout.tsx` — `useFadeIn` uses `--hide` add/remove pattern; cleanup ensures nothing stays hidden (StrictMode safe)
+
+**Affected pages (all fixed):** publisher/Dashboard, Categories, Allowlist, Earnings; explorer/Campaigns, CampaignDetail, Publishers; advertiser/Dashboard; governance/Dashboard, MyVotes, Parameters; admin/PauseRegistry, Blocklist, ProtocolFees.
+
+---
+
+## Extension: Provider Injection — DATUM Domain Hardcoded (2026-03-29)
+
+The security fix for finding 2.1 (conditional provider injection) blocked `window.datum` on the DATUM web app when hosted on non-localhost domains. MetaMask/SubWallet worked (injected via `window.ethereum`) but the DATUM extension's own provider bridge was not injected.
+
+**Fix:** `shouldInjectProvider()` now allows injection on:
+- `localhost` / `127.0.0.1` / `[::1]` (development)
+- `datum.javcon.io` + subdomains (alpha hardcoded)
+- Pages with `<meta name="datum-app">` tag (web app self-identification)
+- Pages with datum-sdk script tag or `#datum-ad-slot` div (publisher sites)
+- `chrome-extension:` protocol
+
+**Files changed:**
+- `alpha-2/extension/src/content/provider.ts` — added domain check + meta tag check + deferred observer for late-loaded meta tags
+- `web/index.html` — added `<meta name="datum-app" content="web">`
+
+**Note:** Domain hardcoding is an alpha convenience. For mainnet, tighten to meta-tag or SDK-only detection (documented as `TODO(mainnet)` in source).

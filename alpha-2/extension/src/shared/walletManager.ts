@@ -136,6 +136,15 @@ export async function getActiveWalletName(): Promise<string | null> {
   return stored.activeWalletName ?? null;
 }
 
+/** Get the active wallet's encrypted data (for re-encryption in background). */
+export async function getActiveWalletEncrypted(): Promise<EncryptedWalletData | null> {
+  const entries = await getWalletEntries();
+  const name = await getActiveWalletName();
+  if (!name) return null;
+  const entry = entries.find((e) => e.name === name);
+  return entry?.encrypted ?? null;
+}
+
 /** Import an existing private key into a named account. Encrypts and stores it. */
 export async function importKey(privateKeyHex: string, password: string, accountName?: string): Promise<string> {
   const normalized = privateKeyHex.startsWith("0x") ? privateKeyHex : `0x${privateKeyHex}`;

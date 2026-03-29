@@ -75,6 +75,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
     const calldata = campaigns.interface.encodeFunctionData("setSettlementContract", [newAddr.address]);
     await timelock.propose(await campaigns.getAddress(), calldata);
     await expect(timelock.execute()).to.be.revertedWith("E37");
+    await timelock.cancel(); // cleanup: must cancel before next propose (H-1 fix)
   });
 
   // T2: execute after 48h succeeds
@@ -189,19 +190,20 @@ describe("Admin Timelock (DatumTimelock)", function () {
     await expect(timelock.cancel()).to.be.revertedWith("E35");
   });
 
-  // T4-2: propose() overwrites pending proposal (resets timer)
-  it("T4-2: propose() overwrites pending proposal (resets timer)", async function () {
+  // T4-2: propose() reverts when pending proposal exists (H-1 fix)
+  it("T4-2: propose() reverts E35 when pending proposal exists", async function () {
     const calldata1 = campaigns.interface.encodeFunctionData("setSettlementContract", [other.address]);
     await timelock.propose(await campaigns.getAddress(), calldata1);
-    await advanceTime(TIMELOCK_DELAY / 2);
 
     const calldata2 = campaigns.interface.encodeFunctionData("setSettlementContract", [newAddr.address]);
+    await expect(
+      timelock.propose(await campaigns.getAddress(), calldata2)
+    ).to.be.revertedWith("E35");
+
+    // Must cancel first, then propose new
+    await timelock.cancel();
     await timelock.propose(await campaigns.getAddress(), calldata2);
-
-    await advanceTime(TIMELOCK_DELAY / 2);
-    await expect(timelock.execute()).to.be.revertedWith("E37");
-
-    await advanceTime(TIMELOCK_DELAY / 2 + 1);
+    await advanceTime(TIMELOCK_DELAY);
     await timelock.execute();
     expect(await campaigns.settlementContract()).to.equal(newAddr.address);
   });
@@ -212,5 +214,6 @@ describe("Admin Timelock (DatumTimelock)", function () {
     await timelock.propose(await settlement.getAddress(), badCalldata);
     await advanceTime(TIMELOCK_DELAY);
     await expect(timelock.execute()).to.be.revertedWith("E02");
+    await timelock.cancel(); // cleanup: proposal still pending after failed execute
   });
 });

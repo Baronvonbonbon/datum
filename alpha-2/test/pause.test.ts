@@ -70,7 +70,8 @@ describe("Global Pause (DatumPauseRegistry)", function () {
       QUORUM_WEIGHTED,
       SLASH_BPS,
       QUORUM_WEIGHTED,
-      10n, 20n, 50n
+      10n, 20n, 50n,
+      await pauseReg.getAddress()
     );
 
     const SlashFactory = await ethers.getContractFactory("DatumGovernanceSlash");

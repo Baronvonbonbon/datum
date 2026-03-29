@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumGovernanceV2, DatumGovernanceSlash, MockCampaigns } from "../typechain-types";
+import { DatumGovernanceV2, DatumGovernanceSlash, DatumPauseRegistry, MockCampaigns } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { mineBlocks, fundSigners } from "./helpers/mine";
@@ -17,6 +17,7 @@ describe("DatumGovernanceV2", function () {
   let v2: DatumGovernanceV2;
   let slash: DatumGovernanceSlash;
   let mock: MockCampaigns;
+  let pauseReg: DatumPauseRegistry;
 
   let owner: HardhatEthersSigner;
   let voter1: HardhatEthersSigner;
@@ -48,11 +49,14 @@ describe("DatumGovernanceV2", function () {
     await fundSigners();
     [owner, voter1, voter2, voter3, other] = await ethers.getSigners();
 
-    // Deploy MockCampaigns
+    // Deploy MockCampaigns + PauseRegistry
     const MockFactory = await ethers.getContractFactory("MockCampaigns");
     mock = await MockFactory.deploy();
 
-    // Deploy GovernanceV2 (alpha-2: 7 params with scaled grace)
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await PauseFactory.deploy();
+
+    // Deploy GovernanceV2 (alpha-2: 8 params with scaled grace + pauseRegistry)
     const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");
     v2 = await V2Factory.deploy(
       await mock.getAddress(),
@@ -61,7 +65,8 @@ describe("DatumGovernanceV2", function () {
       TERMINATION_QUORUM,
       BASE_GRACE,
       GRACE_PER_QUORUM,
-      MAX_GRACE
+      MAX_GRACE,
+      await pauseReg.getAddress()
     );
 
     // Deploy GovernanceSlash

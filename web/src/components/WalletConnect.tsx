@@ -17,7 +17,10 @@ export function WalletConnect({ onClose }: Props) {
     setBusy(true);
     clearError();
     try {
-      await connect(method, method === "manual" ? { privateKey: manualKey, rpcUrl: settings.rpcUrl } : undefined);
+      // Capture and immediately clear private key from state
+      const key = manualKey;
+      setManualKey("");
+      await connect(method, method === "manual" ? { privateKey: key, rpcUrl: settings.rpcUrl } : undefined);
       onClose();
     } finally {
       setBusy(false);

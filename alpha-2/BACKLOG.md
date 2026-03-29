@@ -15,7 +15,7 @@
 5. [Extension UX — Deferred to Beta](#5-extension-ux--deferred-to-beta)
 6. [Extension UX — Governance Improvements](#6-extension-ux--governance-improvements)
 7. [Feature Development — Post-Alpha / Beta](#7-feature-development--post-alpha--beta)
-8. [Trust Model Gaps](#8-trust-model-gaps)
+8. [Bot Mitigation & Anti-Fraud](#8-bot-mitigation--anti-fraud)
 9. [Architectural / Long-Term](#9-architectural--long-term)
 10. [Phase 4 — Kusama & Mainnet](#10-phase-4--kusama--mainnet)
 11. [Accepted Known Limitations](#11-accepted-known-limitations)
@@ -142,7 +142,7 @@ Major features planned for post-alpha development.
 | 1 | P7 | **Contract upgrade path** | UUPS proxy or migration pattern for PaymentVault (holds user balances). Required before Kusama mainnet. | None | Open |
 | 2 | P1 | **Mandatory publisher attestation** | `DatumAttestationVerifier` wrapper contract — enforces EIP-712 publisher co-sig for direct settlement. 35,920 B PVM. Settlement `setAttestationVerifier()` + auth check (+836 B). 4 tests (H1-H4). | P21 (done) | **DONE** |
 | 3 | P17 | **External wallet integration** | WalletConnect v2 for SubWallet/Talisman/Polkadot.js. Embedded wallet uses secp256k1/EIP-712; external wallets may use sr25519. | None | Open |
-| 4 | P9 | **ZK proof Phase 1** | Replace stub DatumZKVerifier with real Groth16/PLONK circuit for auction clearing and behavioral proofs. In-browser WASM prover (~5-30s per batch). | BN128 pairing precompile on Polkadot Hub | Open |
+| 4 | P9 | **ZK proof Phase 1** | Replace stub DatumZKVerifier with real Groth16 circuit for engagement quality proofs. BN128 precompiles (0x06-0x08) confirmed in pallet-revive. Circom circuit + snarkjs verifier. Poseidon hash in-circuit. See **§8.2 BM-1** for full plan. | BN128 precompiles (confirmed available) | Open |
 | 5 | P20 | **Campaign inactivity timeout** | `expireInactiveCampaign()` on CampaignLifecycle. `lastSettlementBlock` tracking on BudgetLedger. 30-day default (432,000 blocks). Permissionless. E64 error. 5 tests (LC10-LC14). | None | **DONE** |
 | 6 | ~~M4~~ | ~~**Governance sweep**~~ | ~~`sweepSlashPool()` + `sweepAbandonedBudget()` for locked funds with no claimant.~~ | — | **DONE** |
 | 7 | F7 | **sr25519 signature verification** | Native Polkadot wallet signatures via system precompile. Eliminates EIP-712/secp256k1 requirement. | P17, sr25519Verify precompile stability | Open |
@@ -154,19 +154,87 @@ Major features planned for post-alpha development.
 
 ---
 
-## 8. Trust Model Gaps
+## 8. Bot Mitigation & Anti-Fraud
+
+Comprehensive defense layers against impression fraud, Sybil attacks, and campaign budget draining.
+
+### 8.1 Current Defenses (alpha-2)
+
+| Layer | Defense | On-Chain? | Bypass Difficulty | Status |
+|-------|---------|-----------|-------------------|--------|
+| **Hash chain + nonce** | Sequential claim chaining (Blake2-256). Replay/tamper impossible. | Yes | Very Hard | **DONE** |
+| **EIP-712 user signature** | Claims signed by user's key. Can't impersonate. | Yes | Very Hard | **DONE** |
+| **Publisher co-signature (P1)** | AttestationVerifier requires publisher to co-sign every batch. | Yes | Very Hard | **DONE** |
+| **Daily budget caps** | BudgetLedger enforces per-campaign daily spend. | Yes | Hard | **DONE** |
+| **S12 blocklist** | Known bad addresses blocked at creation + settlement. | Yes | Hard | **DONE** |
+| **Per-publisher allowlist** | Publishers restrict which advertisers target them. | Yes | Hard | **DONE** |
+| **Batch size limit** | Max 50 claims per batch (E28). | Yes | N/A | **DONE** |
+| **Quality scoring** | Dwell, focus, viewability, scroll — gates claim creation. | No (ext) | Moderate | **DONE** |
+| **Behavior hash chain** | Per-(user,campaign) engagement commitment. | No (ext) | Moderate | **DONE** |
+| **Rate limiting** | `maxAdsPerHour` sliding window. | No (ext) | Low | **DONE** |
+| **Relay IP rate limit** | Publisher relay-bot per-IP throttle. | No (relay) | Low | **DONE** |
+
+### 8.2 Bot Mitigation Backlog
+
+| Priority | ID | Item | Description | Dependency | Effort | Status |
+|----------|-----|------|-------------|------------|--------|--------|
+| **1** | **BM-1** | **ZK engagement proof (Groth16)** | Prove engagement quality in zero knowledge using BN128 precompiles (0x06-0x08) on pallet-revive. Circom circuit proves: hash chain integrity, aggregate quality computation, commitment match. Poseidon hash in-circuit (~250 constraints/hash vs ~30K for Blake2). snarkjs verifier contract deployed as standalone (~6 KB Solidity). Settlement calls verifier. ~3,000 constraints for 10 events. **Precompiles confirmed available in pallet-revive production build.** | BN128 precompiles on Polkadot Hub (confirmed in code) | 3-4 weeks | Open |
+| **2** | **BM-2** | **Per-user per-campaign settlement cap** | On-chain limit on impressions/spend per user per campaign per day. Prevents single bot draining entire daily budget. `mapping(user => mapping(campaign => mapping(day => uint256)))` in Settlement or BudgetLedger. | Settlement PVM headroom (1,100 B spare — **needs satellite contract**) | 1-2 weeks | Open |
+| **3** | **BM-3** | **Sybil resistance: claim CAPTCHA** | Proof-of-human gate before claim submission. Options: (A) reCAPTCHA/hCaptcha in extension popup before batch submit — cheap but centralized. (B) Polkadot Proof-of-Personhood (PoP) on-chain identity tie — decentralized but ecosystem-dependent. (C) Deposit-and-slash: user bonds small amount per claim batch, slashable if fraud proven — economic deterrent. Recommended: start with (A), migrate to (B) when PoP stabilizes. | None for (A); PoP pallet for (B) | 1 week (A), 3-4 weeks (B) | Open |
+| **4** | **BM-4** | **Publisher-side fraud detection** | ML/heuristic fraud scoring in relay-bot before co-signing. Features: impression velocity per user, time-of-day distribution, engagement metric variance, IP geolocation, device fingerprint diversity. Publisher refuses attestation for suspicious batches. Reference implementation in relay-bot-template. | None (publisher infrastructure) | 2-3 weeks | Open |
+| **5** | **BM-5** | **On-chain settlement rate limiter** | Per-user global settlement rate limit enforced in Settlement contract. E.g., max N batches per user per day across all campaigns. Prevents bot farms from scaling linearly with wallet count + daily cap. Satellite contract pattern (Settlement has 1,100 B spare). | Settlement satellite contract | 1-2 weeks | Open |
+| **6** | **BM-6** | **Viewability dispute mechanism** | 7-day challenge window after settlement. Advertiser bonds 10% of payment. Challenger provides counter-evidence (e.g., page analytics showing no real traffic). Arbiter: governance vote or ZK proof. Slashes fraudulent claims retroactively. | P9 (ZK) or governance oracle | 4-6 weeks | Open |
+| **7** | **BM-7** | **Publisher SDK integrity verification** | On-chain SDK version hash registry. Extension rejects claims from unregistered SDK versions. Prevents modified SDKs that auto-generate fake engagement. `mapping(bytes32 => bool) public approvedSdkVersions` on Publishers contract. | Publishers PVM headroom (13,411 B spare — feasible) | 1 week | Open |
+| **8** | **BM-8** | **Reputation scoring** | On-chain reputation accumulator per user. Settlement success rate, dispute rate, account age. Publishers can set minimum reputation threshold for attestation. Progressive trust: new accounts get lower daily caps, scaling up with clean history. | BM-6 (disputes), new satellite contract | 3-4 weeks | Open |
+| **9** | **BM-9** | **Cross-campaign anomaly detection** | Off-chain analytics service monitors settlement events across all campaigns. Flags: same user settling on many campaigns simultaneously, identical engagement patterns across users, settlement bursts from new wallets. Feeds into BM-4 (publisher fraud detection) and S12 blocklist. | BM-4, analytics infrastructure | 2-3 weeks | Open |
+
+### 8.3 Recommended Implementation Order
+
+**Phase A — Quick wins (weeks 1-2):**
+- BM-3(A): CAPTCHA gate in extension (1 week). Immediately raises bot cost.
+- BM-7: SDK version registry on Publishers (1 week). Blocks modified SDK attacks.
+
+**Phase B — Core ZK (weeks 3-6):**
+- BM-1: Circom circuit + snarkjs verifier + integration test on revive-dev-node. This is the single biggest upgrade — moves engagement quality from client-side trust to cryptographic proof.
+
+**Phase C — Economic deterrents (weeks 7-9):**
+- BM-2: Per-user settlement cap (satellite contract).
+- BM-5: Global settlement rate limiter.
+- BM-8: Reputation scoring (progressive trust).
+
+**Phase D — Advanced (weeks 10+):**
+- BM-4: Publisher ML fraud detection (relay-bot enhancement).
+- BM-6: Viewability disputes (requires governance or ZK arbiter).
+- BM-9: Cross-campaign analytics.
+- BM-3(B): Migrate CAPTCHA to Polkadot PoP when available.
+
+### 8.4 Attack Scenarios & Coverage
+
+| Attack | Current Defense | After BM-1 (ZK) | After BM-2+5 (caps) | After BM-3 (CAPTCHA) | Full Stack |
+|--------|----------------|------------------|----------------------|----------------------|------------|
+| **Bot farm (many wallets)** | Publisher co-sig only | ZK per claim | Rate-limited per user | Human gate per wallet | Blocked |
+| **Single bot (one wallet)** | Quality scoring (client) | ZK proves quality | Daily cap per user | CAPTCHA on submit | Blocked |
+| **Modified SDK** | Handshake (bypassable) | N/A | N/A | N/A | BM-7 blocks |
+| **Colluding publisher** | Blocklist (reactive) | ZK proves user engagement | Rate limits cap damage | N/A | BM-6 disputes |
+| **Budget draining** | Daily cap (campaign-wide) | N/A | Per-user cap | N/A | Capped per-user + per-campaign |
+| **Replay/tamper** | Hash chain + nonce | N/A | N/A | N/A | Already blocked |
+
+---
+
+## 8.5 Trust Model Gaps
 
 Areas where the system currently relies on trust assumptions rather than cryptographic guarantees.
 
 | Component | Current State | Trust Assumption | Full Solution |
 |-----------|--------------|------------------|---------------|
-| **Impression count** | Extension self-reports | Publisher co-sig mandatory (P1 done) | TEE/ZK for full trustlessness |
-| **Clearing CPM** | On-device second-price auction (P19) | Deterministic from inputs, no proof | ZK proof of auction outcome (P9) |
-| **Engagement quality** | On-device behavior hash chain (P16) | Quality scoring in trusted background context | Selective disclosure; ZK behavior proofs (P9) |
+| **Impression count** | Extension self-reports | Publisher co-sig mandatory (P1 done) | BM-1 ZK proof + BM-4 publisher fraud detection |
+| **Clearing CPM** | On-device second-price auction (P19) | Deterministic from inputs, no proof | ZK proof of auction outcome (P9/BM-1) |
+| **Engagement quality** | On-device behavior hash chain (P16) | Quality scoring in trusted background context | BM-1 ZK behavior proofs (Groth16) |
 | **Claim state persistence** | Browser `chrome.storage.local` | Lost if browser data cleared | Encrypted export/import (P6 done); deterministic derivation from seed + on-chain state |
 | **Dust transfer prevention** | GovernanceV2 + PaymentVault check `minimumBalance()` (E58) | Settlement/Relay skip check | PaymentVault done (O3). Settlement/Relay still PVM-constrained. BudgetLedger sends budget-scale amounts — guard unnecessary. |
 | **Open campaign take rate** | Fixed 50% snapshot (`DEFAULT_TAKE_RATE_BPS`) | Static default, not market-driven | Dynamic per-publisher rates (PVM constraint) |
 | **Publisher domain resolution** | `data-relay` SDK attribute → local storage | URL changes require page update | On-chain publisher domain registry |
+| **Sybil resistance** | None — permissionless wallet creation | Publisher co-sig is only gate | BM-3 CAPTCHA/PoP + BM-8 reputation + BM-2 per-user caps |
 | ~~**Direct submission attestation**~~ | ~~No co-sig enforcement for direct `settleClaims()`~~ | — | **RESOLVED** — `DatumAttestationVerifier.settleClaimsAttested()` enforces publisher co-sig for all campaigns (P1) |
 
 ---
@@ -291,14 +359,15 @@ Explicit TODO/stub markers in source code.
 | Extension UX deferred to beta | 11 | 2 (SI-3, PU-3) | 9 | Beta |
 | Extension UX governance improvements | 8 | 0 | 8 | Beta |
 | Feature development (post-alpha/beta) | 12 | 3 (M4, P1, P20) | 9 | Beta / post-beta |
-| Trust model gaps | 8 | 2 resolved | 6 | Long-term |
+| **Bot mitigation & anti-fraud** | **9** | **0** | **9** | **Post-alpha (phased)** |
+| Trust model gaps | 9 | 2 resolved | 7 | Long-term |
 | Architectural / long-term | 13 | 0 | 13 | Mainnet+ |
 | Pre-mainnet gate | 6 | 1 | 5 | Before mainnet |
 | Phase 4 (Kusama/mainnet) milestones | 6 | 0 | 6 | Post-testnet |
 | Accepted known limitations | 17 | 6 resolved | 11 accepted | Documented |
 | Code-level stubs | 5 | 0 | 5 | Various |
 | Low priority / nice-to-have | 5 | 0 | 5 | Someday |
-| **Total** | **125** | **37** | **88** | |
+| **Total** | **134** | **37** | **97** | |
 
 ### Contract Status: FROZEN FOR ALPHA (2026-03-24)
 

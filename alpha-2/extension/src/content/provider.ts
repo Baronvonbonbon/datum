@@ -190,6 +190,49 @@ function listenForRequests() {
   });
 }
 
-// Initialize provider bridge
-injectProvider();
-listenForRequests();
+/** Only inject provider on pages that should have access.
+ *  Alpha: relaxed — allows known DATUM domains + localhost + SDK pages.
+ *  TODO(mainnet): tighten to meta-tag or SDK-only detection. */
+function shouldInjectProvider(): boolean {
+  const host = window.location.hostname;
+  // Always inject on localhost / development
+  if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") return true;
+  // Inject on known DATUM domains (alpha hardcoded)
+  if (host === "datum.javcon.io" || host.endsWith(".datum.javcon.io")) return true;
+  // Inject on the DATUM web app (identified by meta tag)
+  if (document.querySelector('meta[name="datum-app"]')) return true;
+  // Inject if DATUM SDK script tag is present
+  if (document.querySelector('script[src*="datum-sdk"]')) return true;
+  // Inject if the page has a datum ad slot
+  if (document.getElementById("datum-ad-slot")) return true;
+  // Inject on extension pages
+  if (window.location.protocol === "chrome-extension:") return true;
+  return false;
+}
+
+// Initialize provider bridge only on relevant pages
+if (shouldInjectProvider()) {
+  injectProvider();
+  listenForRequests();
+} else {
+  // Deferred injection: watch for SDK being loaded after initial page parse
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        const isSDK = node.tagName === "SCRIPT" && (node as HTMLScriptElement).src?.includes("datum-sdk");
+        const isSlot = node.id === "datum-ad-slot";
+        const isApp = node.tagName === "META" && (node as HTMLMetaElement).name === "datum-app";
+        if (isSDK || isSlot || isApp) {
+          observer.disconnect();
+          injectProvider();
+          listenForRequests();
+          return;
+        }
+      }
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  // Stop observing after 10 seconds to avoid permanent overhead
+  setTimeout(() => observer.disconnect(), 10000);
+}

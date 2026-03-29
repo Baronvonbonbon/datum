@@ -135,7 +135,8 @@ describe("Integration", function () {
       TERMINATION_QUORUM,
       BASE_GRACE,
       GRACE_PER_QUORUM,
-      MAX_GRACE
+      MAX_GRACE,
+      await pauseReg.getAddress()
     );
 
     const SlashFactory = await ethers.getContractFactory("DatumGovernanceSlash");

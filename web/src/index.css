@@ -69,17 +69,19 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
 /* ─── Nano fade-in animation ─────────────────────────────────────────────── */
 /*
    Apply .nano-fade to any element you want to animate in.
-   JS adds .nano-fade--show after mount, with optional stagger via
-   --stagger-index CSS custom property.
+   Default: visible. JS adds .nano-fade--hide briefly during route transitions
+   then removes it after a stagger delay to create the reveal.
+   Elements that (re)mount after the stagger (async data loads) are immediately
+   visible — no class manipulation needed.
 */
 .nano-fade {
-  opacity: 0;
-  transform: translateY(10px);
-  transition: opacity 700ms ease-out, transform 700ms ease-out;
-}
-.nano-fade--show {
   opacity: 1;
   transform: translateY(0);
+  transition: opacity 700ms ease-out, transform 700ms ease-out;
+}
+.nano-fade--hide {
+  opacity: 0;
+  transform: translateY(10px);
 }
 
 /* ─── Common UI chrome ───────────────────────────────────────────────────── */

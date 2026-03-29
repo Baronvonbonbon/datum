@@ -1,7 +1,7 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-03-27
-**Current Phase:** Alpha-2 (canonical)
+**Last Updated:** 2026-03-29
+**Current Phase:** Alpha-2 (canonical) / Alpha-3 (planning, `alpha-3` branch)
 **Testnet:** Paseo (Chain ID 420420417)
 **Web App:** https://datum.javcon.io
 
@@ -11,7 +11,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-Alpha-2 is deployed. 13 contracts are live on Paseo testnet (deployed 2026-03-26). The web app is live at **https://datum.javcon.io**. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). The critical path to mainnet is E2E browser validation (extension + relay + web app on Paseo) and open testing.
+Alpha-2 is deployed. 13 contracts are live on Paseo testnet (deployed 2026-03-26). The web app is live at **https://datum.javcon.io**. The alpha-2 browser extension is built (165/165 tests, Blake2-256, P1 attestation, EIP-1193 provider bridge). All CRITICAL and HIGH security findings fixed (2026-03-28). Web app fade-in bug fixed + DATUM extension provider injection fixed for datum.javcon.io (2026-03-29). Alpha-3 backlog created (131 items, 17 sections) on `alpha-3` branch — covers targeting redesign, bot mitigation, satellite extraction, and all remaining security findings.
 
 ---
 
@@ -44,6 +44,8 @@ Alpha-2 is deployed. 13 contracts are live on Paseo testnet (deployed 2026-03-26
 - O1: Blake2-256 claim hashing on PolkaVM (keccak256 fallback on EVM)
 - O3: Existential deposit dust guard in PaymentVault
 - Escalating conviction curve: weights [1,2,3,4,6,9,14,18,21], lockups [0,1d,3d,7d,21d,90d,180d,270d,365d]
+
+**Security fixes applied (2026-03-28):** C-1 slash pool drain, C-2 reentrancy guard, H-1 timelock overwrite, H-2 return data validation, H-3 GovernanceV2 pause. GovernanceV2 constructor now 8 params (added pauseRegistry).
 
 **Toolchain:** Solidity 0.8.24, resolc 1.0.0, Hardhat 2.22, OZ 5.0
 
@@ -171,15 +173,26 @@ Publish addresses, document external tester flow, monitor events.
 
 ## Backlog
 
-| ID | Item | Notes |
-|----|------|-------|
-| BL-1 | Claim submit CAPTCHA | Bot-resistance before settlement (PoW puzzle, publisher-hosted, or nonce commitment) |
-| BL-2 | ZK proof integration | Replace zkProofStub with real Groth16 circuit. Needs BN128 precompile on PolkaVM. |
-| 4D-P3 | UI polish | UP-2 blocklist UI, UP-4/5/7/8, GV-4 timelock decode, EA-1/2, AD-1/2 |
-| — | S12 mainnet migration | Blocklist must be timelock-gated before mainnet. Governance-managed (Option C hybrid). |
-| — | Relay settlement web UI | Web page for `DatumRelay.settleClaimsFor()` (currently extension-only) |
-| — | Attested settlement web UI | Web page for `DatumAttestationVerifier.settleClaimsAttested()` |
-| ~~—~~ | ~~Relay Blake2 migration~~ | **DONE** — relay bot migrated to `@noble/hashes/blake2.js` |
+**Alpha-3 backlog** (131 items) in `alpha-3/BACKLOG.md` on the `alpha-3` branch. Key sections:
+
+| Section | Items | Priority |
+|---------|-------|----------|
+| Targeting redesign (TX-*) | 7 | Alpha-3 core — replaces category bitmask with tag-based attributes |
+| Bot mitigation (BM-*) | 9 | Alpha-3 core — ZK proofs, settlement caps, SDK integrity |
+| Satellite extraction (SE-*) | 4 | Alpha-3 core — free PVM headroom in frozen contracts |
+| Contract security (SM/SL-*) | 16 | MEDIUM + LOW from security audit |
+| Extension security (XM/XL-*) | 20 | MEDIUM + LOW from security audit |
+| Web app security (WS-*) | 12 | MEDIUM + LOW from security audit |
+| Pre-mainnet gate (MG-*) | 7 | Timelock blocklist, external audit, Kusama |
+
+**Alpha-2 remaining:**
+
+| Item | Status |
+|------|--------|
+| E2E browser validation on Paseo | Pending — extension + relay + web app full flow |
+| Open testing (3+ external testers) | Pending |
+| ~~Security audit (CRITICAL/HIGH)~~ | **DONE** (2026-03-28) |
+| ~~Relay Blake2 migration~~ | **DONE** |
 
 ---
 
@@ -188,11 +201,13 @@ Publish addresses, document external tester flow, monitor events.
 ```
 datum/
 ├── alpha-2/          # Canonical contracts (13), tests, extension (165 tests), process flows
+├── alpha-3/          # Alpha-3 planning (BACKLOG.md — 131 items, on alpha-3 branch)
 ├── web/              # Web app (React + Vite, 24 pages)
 ├── sdk/              # Publisher SDK (datum-sdk.js)
 ├── docs/             # Demo page + relay template
 ├── relay-bot/        # Publisher relay (gitignored)
 ├── archive/          # PoC, alpha contracts, alpha extension, old extension, superseded docs
+├── SECURITY-AUDIT.md # 3-part audit with fix status tracker
 ├── STATUS.md         # This file
 └── README.md         # Project overview
 ```

@@ -22,6 +22,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
     mapping(uint256 => bool) public finalized;
     mapping(uint256 => uint256) public finalizedBlock;
     mapping(uint256 => mapping(address => bool)) public claimed;
+    mapping(uint256 => uint256) public totalClaimed;
 
     constructor(address _voting, address _campaigns) {
         require(_voting != address(0), "E00");
@@ -73,6 +74,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         require(share > 0, "E61");
 
         claimed[campaignId][msg.sender] = true;
+        totalClaimed[campaignId] += share;
 
         DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, msg.sender, share);
     }
@@ -84,10 +86,13 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         require(block.number >= finalizedBlock[campaignId] + SWEEP_DEADLINE_BLOCKS, "E24");
 
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
-        require(pool > 0, "E61");
+        uint256 remaining = pool - totalClaimed[campaignId];
+        require(remaining > 0, "E61");
+
+        totalClaimed[campaignId] += remaining;
 
         // Transfer remaining pool to owner (protocol treasury)
-        DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, owner, pool);
+        DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, owner, remaining);
     }
 
     /// @notice View: claimable slash reward for a voter
