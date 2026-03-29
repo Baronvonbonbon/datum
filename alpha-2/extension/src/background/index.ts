@@ -182,6 +182,32 @@ function isExtensionOrigin(sender: chrome.runtime.MessageSender): boolean {
   return sender.id === chrome.runtime.id && !sender.tab;
 }
 
+/** Approved domains for provider signing (alpha — relaxed for testing).
+ *  These match shouldInjectProvider() in content/provider.ts.
+ *  TODO(mainnet): tighten to dynamic allowlist or popup approval flow. */
+const APPROVED_SIGNING_DOMAINS = new Set([
+  "datum.javcon.io",
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+]);
+
+/** Check if a content-script sender is from an approved domain. */
+function isApprovedSigningOrigin(sender: chrome.runtime.MessageSender): boolean {
+  // Extension popup/background — always approved
+  if (isExtensionOrigin(sender)) return true;
+  // Content script — check the tab URL against approved domains
+  if (sender.tab?.url) {
+    try {
+      const url = new URL(sender.tab.url);
+      if (APPROVED_SIGNING_DOMAINS.has(url.hostname)) return true;
+      if (url.hostname.endsWith(".datum.javcon.io")) return true;
+      if (url.protocol === "chrome-extension:") return true;
+    } catch { /* malformed URL — reject */ }
+  }
+  return false;
+}
+
 chrome.runtime.onMessage.addListener(
   (msg: ContentToBackground | PopupToBackground, sender, sendResponse) => {
     handleMessage(msg, sender)
@@ -571,8 +597,21 @@ async function handleMessage(
     // -----------------------------------------------------------------------
 
     case "PROVIDER_GET_ADDRESS": {
-      const stored = await chrome.storage.local.get("connectedAddress");
-      return { address: stored.connectedAddress ?? null };
+      // Return the active wallet address — try connectedAddress first, then wallet entries
+      const stored = await chrome.storage.local.get(["connectedAddress", "activeWalletName"]);
+      if (stored.connectedAddress) return { address: stored.connectedAddress };
+      // Fallback: look up address from wallet entries (wallet may not be unlocked yet)
+      if (stored.activeWalletName) {
+        const { listWallets } = await import("@shared/walletManager");
+        const wallets = await listWallets();
+        const active = wallets.find((w) => w.name === stored.activeWalletName);
+        if (active) {
+          // Sync connectedAddress for future calls
+          await chrome.storage.local.set({ connectedAddress: active.address });
+          return { address: active.address };
+        }
+      }
+      return { address: null };
     }
 
     case "PROVIDER_GET_CHAIN_ID": {
@@ -587,9 +626,9 @@ async function handleMessage(
     }
 
     case "PROVIDER_SIGN_TYPED_DATA": {
-      // Only allow signing from the extension's own web app pages, not arbitrary content scripts
-      if (!isExtensionOrigin(sender)) {
-        return { error: "Signing requests must originate from the DATUM extension." };
+      // Only allow signing from approved origins (extension popup or approved domains)
+      if (!isApprovedSigningOrigin(sender)) {
+        return { error: "Signing requests must originate from an approved DATUM domain." };
       }
       const { getUnlockedWallet } = await import("@shared/walletManager");
       const wallet = getUnlockedWallet();
@@ -603,8 +642,8 @@ async function handleMessage(
     }
 
     case "PROVIDER_PERSONAL_SIGN": {
-      if (!isExtensionOrigin(sender)) {
-        return { error: "Signing requests must originate from the DATUM extension." };
+      if (!isApprovedSigningOrigin(sender)) {
+        return { error: "Signing requests must originate from an approved DATUM domain." };
       }
       const { getUnlockedWallet: getWallet } = await import("@shared/walletManager");
       const w = getWallet();
@@ -612,6 +651,34 @@ async function handleMessage(
       try {
         const signature = await w.signMessage(msg.message);
         return { signature };
+      } catch (err) {
+        return { error: String(err instanceof Error ? err.message : err) };
+      }
+    }
+
+    case "PROVIDER_SEND_TRANSACTION": {
+      if (!isApprovedSigningOrigin(sender)) {
+        return { error: "Transaction requests must originate from an approved DATUM domain." };
+      }
+      const { getUnlockedWallet: getTxWallet } = await import("@shared/walletManager");
+      const txWallet = getTxWallet();
+      if (!txWallet) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      try {
+        const s3 = await getSettings();
+        const provider = new JsonRpcProvider(s3.rpcUrl);
+        const signer = txWallet.connect(provider);
+        const txReq = msg.tx ?? {};
+        const txResp = await signer.sendTransaction({
+          to: txReq.to,
+          data: txReq.data,
+          value: txReq.value,
+          gasLimit: txReq.gas || txReq.gasLimit,
+          ...(txReq.maxFeePerGas ? { maxFeePerGas: txReq.maxFeePerGas } : {}),
+          ...(txReq.maxPriorityFeePerGas ? { maxPriorityFeePerGas: txReq.maxPriorityFeePerGas } : {}),
+          ...(txReq.gasPrice ? { gasPrice: txReq.gasPrice } : {}),
+          ...(txReq.nonce != null ? { nonce: txReq.nonce } : {}),
+        });
+        return { hash: txResp.hash };
       } catch (err) {
         return { error: String(err instanceof Error ? err.message : err) };
       }
