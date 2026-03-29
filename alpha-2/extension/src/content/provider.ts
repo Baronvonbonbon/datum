@@ -76,6 +76,9 @@ const PROVIDER_SCRIPT = `
         case 'eth_signTypedData_v4':
           return dispatchRequest('eth_signTypedData_v4', params);
 
+        case 'eth_sendTransaction':
+          return dispatchRequest('eth_sendTransaction', params);
+
         default:
           // Proxy all other RPC calls (eth_call, eth_getCode, etc.)
           return dispatchRequest(method, params);
@@ -163,6 +166,17 @@ function listenForRequests() {
           });
           if (resp?.error) throw new Error(resp.error);
           result = resp?.signature ?? null;
+          break;
+        }
+
+        case "eth_sendTransaction": {
+          const resp = await chrome.runtime.sendMessage({
+            type: "PROVIDER_SEND_TRANSACTION",
+            tx: params?.[0] ?? {},
+            requestId,
+          });
+          if (resp?.error) throw new Error(resp.error);
+          result = resp?.hash ?? null;
           break;
         }
 

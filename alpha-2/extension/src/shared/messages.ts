@@ -16,6 +16,7 @@ export type ContentToBackground =
   | { type: "PROVIDER_GET_CHAIN_ID" }
   | { type: "PROVIDER_SIGN_TYPED_DATA"; domain: any; types: any; value: any; requestId: string }
   | { type: "PROVIDER_PERSONAL_SIGN"; message: string; address: string; requestId: string }
+  | { type: "PROVIDER_SEND_TRANSACTION"; tx: any; requestId: string }
   | { type: "PROVIDER_RPC_PROXY"; method: string; params: any[]; requestId: string }
   | { type: "PROVIDER_DISCONNECT" };
 

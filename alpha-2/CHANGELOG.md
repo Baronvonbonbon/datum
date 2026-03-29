@@ -550,3 +550,26 @@ The security fix for finding 2.1 (conditional provider injection) blocked `windo
 - `web/index.html` — added `<meta name="datum-app" content="web">`
 
 **Note:** Domain hardcoding is an alpha convenience. For mainnet, tighten to meta-tag or SDK-only detection (documented as `TODO(mainnet)` in source).
+
+---
+
+## Extension: Provider Bridge — Transaction Signing + Domain-Based Auth (2026-03-29)
+
+The DATUM extension's EIP-1193 provider bridge (`window.datum`) could return the wallet address but could not sign transactions or messages from the web app. Two issues:
+
+1. **Signing blocked by `isExtensionOrigin` check:** `PROVIDER_SIGN_TYPED_DATA` and `PROVIDER_PERSONAL_SIGN` handlers required `!sender.tab` (extension popup only). Content script messages always have `sender.tab`, so the web app could never sign.
+2. **`eth_sendTransaction` not handled:** ethers `BrowserProvider.getSigner()` returns a `JsonRpcSigner` that sends transactions via `eth_sendTransaction`. This method was not in `SAFE_RPC_METHODS` and had no dedicated handler, so all contract calls from the web app failed silently.
+
+**Fix:**
+- Replaced `isExtensionOrigin` gate on signing with `isApprovedSigningOrigin` — validates `sender.tab.url` hostname against approved domains (`datum.javcon.io`, `localhost`, `127.0.0.1`, `[::1]`, `*.datum.javcon.io`, `chrome-extension:`).
+- Added `PROVIDER_SEND_TRANSACTION` handler — signs and submits transaction using the extension's unlocked wallet connected to the configured RPC.
+- `PROVIDER_GET_ADDRESS` now falls back to wallet entries if `connectedAddress` is not set in storage.
+
+**Files changed:**
+- `alpha-2/extension/src/background/index.ts` — `isApprovedSigningOrigin()`, `PROVIDER_SEND_TRANSACTION` handler, enhanced `PROVIDER_GET_ADDRESS`
+- `alpha-2/extension/src/content/provider.ts` — `eth_sendTransaction` case in page-side provider + content script forwarder
+- `alpha-2/extension/src/shared/messages.ts` — added `PROVIDER_SEND_TRANSACTION` type
+
+**Result:** Web app can now connect via DATUM extension, read wallet address, and send contract transactions (register publisher, create campaign, vote, etc.) — all signed by the extension's embedded wallet.
+
+**Security:** Signing gated to approved domains only. `TODO(mainnet)` for popup approval flow on sensitive operations.
