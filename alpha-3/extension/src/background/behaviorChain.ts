@@ -92,3 +92,26 @@ async function setChainState(
   const key = `${CHAIN_KEY_PREFIX}${userAddress}:${campaignId}`;
   await chrome.storage.local.set({ [key]: state });
 }
+
+/**
+ * UB-2: Clean up behavior chain storage for campaigns that are no longer active.
+ * Called during campaign poll alarm to prevent unbounded storage growth.
+ * Returns the number of chain states removed.
+ */
+export async function cleanupTerminalChains(activeCampaignIds: Set<string>): Promise<number> {
+  const all = await chrome.storage.local.get(null);
+  const keysToRemove: string[] = [];
+  for (const key of Object.keys(all)) {
+    if (!key.startsWith(CHAIN_KEY_PREFIX)) continue;
+    // Key format: behaviorChain:{address}:{campaignId}
+    const parts = key.slice(CHAIN_KEY_PREFIX.length).split(":");
+    const campaignId = parts[parts.length - 1];
+    if (campaignId && !activeCampaignIds.has(campaignId)) {
+      keysToRemove.push(key);
+    }
+  }
+  if (keysToRemove.length > 0) {
+    await chrome.storage.local.remove(keysToRemove);
+  }
+  return keysToRemove.length;
+}

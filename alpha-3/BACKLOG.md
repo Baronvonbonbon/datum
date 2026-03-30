@@ -249,7 +249,7 @@
 | XM-2 | 1.5 | Unlocked wallet accessible to all imports | walletManager.ts | Architectural. WalletConnect for production |
 | XM-3 | 2.2 | Relay URL override by any page | background/index.ts | Validate relay ownership or domain match | **DONE** |
 | XM-4 | 3.1 | SDK detection trusts DOM | sdkDetector.ts | Verify publisher identity on-chain or DNS TXT |
-| XM-5 | 5.1 | Non-atomic mutex (TOCTOU) | claimQueue.ts | Use in-memory lock in service worker |
+| XM-5 | 5.1 | Non-atomic mutex (TOCTOU) | claimQueue.ts | Use in-memory lock in service worker | **DONE** |
 | XM-6 | 5.2 | Chain state sync trusts popup | background/index.ts | Background verify on-chain state directly |
 | XM-7 | 6.1 | IPFS content not hash-verified | background/index.ts | SHA-256 verify response against CID | **DONE** |
 | XM-8 | 7.1 | Phishing list fail-open | phishingList.ts | Bundle baseline list at build time | **DONE** |
@@ -386,7 +386,7 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 | ID | Origin | Item | Description |
 |----|--------|------|-------------|
 | UB-1 | AD-3 | Advanced content blocklist | Unicode normalization, leetspeak detection for obfuscation bypass |
-| UB-2 | EA-3 | Behavior chain storage cleanup | Clean up `behaviorChain:*` keys for terminal campaigns or cap per user |
+| UB-2 | EA-3 | Behavior chain storage cleanup | Clean up `behaviorChain:*` keys for terminal campaigns or cap per user | **DONE** |
 | UB-3 | WS-4 | Typed DELETE confirmation | Require typing "DELETE" for wallet removal |
 | UB-4 | UP-6 | Ads-per-hour counter display | Show "X/12 ads shown this hour" in UI |
 | UB-5 | E-M2 | Interest profile storage race | Non-atomic `get→mutate→set` — multi-tab race condition |
@@ -516,9 +516,9 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - BM-1: Groth16 circuit + verifier + campaign toggle — Blocked on BN128 precompile
 - CH-1: Real ZK verifier replaces stub — Blocked
 
-### Phase 6: Hardening + Beta UX — **6/14 XM DONE**
-- XM-1, XM-3, XM-7, XM-8, XM-9, XM-10, XM-14: Extension security mediums — **DONE**
-- XM-2, XM-4, XM-5, XM-6, XM-11, XM-12, XM-13: Extension security mediums — Open
+### Phase 6: Hardening + Beta UX — **8/14 XM DONE**
+- XM-1, XM-3, XM-5, XM-7, XM-8, XM-9, XM-10, XM-14: Extension security mediums — **DONE**
+- XM-2, XM-4, XM-6, XM-11, XM-12, XM-13: Extension security mediums — Open
 - UB-*: Beta UX features — Open
 - BM-3 through BM-9: Remaining bot mitigation — Open
 - TX-6, TX-7: Tag UI — Open

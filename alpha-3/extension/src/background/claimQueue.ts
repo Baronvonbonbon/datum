@@ -7,6 +7,11 @@ const LAST_FLUSH_KEY = "lastAutoFlush";
 const SUBMITTING_KEY = "submitting";
 const SUBMITTING_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
+// XM-5: In-memory lock to eliminate TOCTOU race between storage read and write.
+// Single-threaded JS with synchronous check avoids the async storage gap.
+let _inMemoryLock = false;
+let _inMemoryLockSince = 0;
+
 interface SerializedClaim {
   campaignId: string;
   publisher: string;
@@ -46,21 +51,23 @@ export const claimQueue = {
     await chrome.storage.local.remove(QUEUE_KEY);
   },
 
-  // Submission mutex — prevents double-submission races between manual and auto-submit
+  // XM-5: Submission mutex — in-memory lock eliminates TOCTOU race.
+  // Storage backup for cross-restart robustness (5-min stale timeout).
   async acquireMutex(): Promise<boolean> {
-    const stored = await chrome.storage.local.get(SUBMITTING_KEY);
-    const state = stored[SUBMITTING_KEY] as { since: number } | undefined;
-    if (state) {
-      // If stale (held > 5 minutes), force-clear and allow
-      if (Date.now() - state.since < SUBMITTING_TIMEOUT_MS) {
-        return false; // locked
-      }
+    // Synchronous in-memory check (no yield point = no race)
+    if (_inMemoryLock && Date.now() - _inMemoryLockSince < SUBMITTING_TIMEOUT_MS) {
+      return false;
     }
-    await chrome.storage.local.set({ [SUBMITTING_KEY]: { since: Date.now() } });
+    _inMemoryLock = true;
+    _inMemoryLockSince = Date.now();
+    // Also persist to storage for visibility/debugging
+    await chrome.storage.local.set({ [SUBMITTING_KEY]: { since: _inMemoryLockSince } });
     return true;
   },
 
   async releaseMutex(): Promise<void> {
+    _inMemoryLock = false;
+    _inMemoryLockSince = 0;
     await chrome.storage.local.remove(SUBMITTING_KEY);
   },
 

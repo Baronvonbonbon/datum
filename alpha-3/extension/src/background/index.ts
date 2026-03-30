@@ -10,7 +10,7 @@ import { selectCampaign } from "./campaignMatcher";
 import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
 import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
-import { appendEvent } from "./behaviorChain";
+import { appendEvent, cleanupTerminalChains } from "./behaviorChain";
 import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
@@ -152,6 +152,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
           console.log(`[DATUM] Cleaned ${prefs.blockedCampaigns.length - stillRelevant.length} stale blocked campaign IDs`);
         }
       }
+
+      // UB-2: Clean up behavior chain storage for terminal campaigns
+      const chainsCleaned = await cleanupTerminalChains(activeIds);
+      if (chainsCleaned > 0) console.log(`[DATUM] Cleaned ${chainsCleaned} behavior chain entries for terminal campaigns`);
+
+      // CL-4: Clean up metadata + impression dedup storage for terminal campaigns
+      try {
+        const allKeys = await chrome.storage.local.get(null);
+        const staleKeys: string[] = [];
+        for (const key of Object.keys(allKeys)) {
+          const metaMatch = key.match(/^metadata:(\d+)$/) || key.match(/^metadata_ts:(\d+)$/);
+          const impMatch = key.match(/^impression:(\d+):/);
+          const id = metaMatch?.[1] ?? impMatch?.[1];
+          if (id && !activeIds.has(id)) staleKeys.push(key);
+        }
+        if (staleKeys.length > 0) {
+          await chrome.storage.local.remove(staleKeys);
+          console.log(`[DATUM] Cleaned ${staleKeys.length} stale metadata/impression keys`);
+        }
+      } catch { /* non-critical */ }
     }
 
     // E-M4: Remove expired signed relay batches from storage
