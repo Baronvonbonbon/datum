@@ -124,7 +124,9 @@ describe("Integration", function () {
     vault = await VaultFactory.deploy();
 
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
-    campaigns = await CampaignsFactory.deploy(MIN_CPM, PENDING_TIMEOUT, await publishers.getAddress(), await pauseReg.getAddress());
+    const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+    campaigns = await CampaignsFactory.deploy(MIN_CPM, PENDING_TIMEOUT, await campaignValidator.getAddress(), await pauseReg.getAddress());
 
     const LifecycleFactory = await ethers.getContractFactory("DatumCampaignLifecycle");
     lifecycle = await LifecycleFactory.deploy(await pauseReg.getAddress(), 432000n);

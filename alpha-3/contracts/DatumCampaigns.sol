@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumCampaigns.sol";
-import "./interfaces/IDatumPublishers.sol";
+import "./interfaces/IDatumCampaignValidator.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 
@@ -55,7 +55,7 @@ contract DatumCampaigns is IDatumCampaigns {
     address public settlementContract;
     address public governanceContract;
     address public lifecycleContract;
-    IDatumPublishers public publishers;
+    IDatumCampaignValidator public campaignValidator;
     IDatumBudgetLedger public budgetLedger;
 
     // -------------------------------------------------------------------------
@@ -73,15 +73,15 @@ contract DatumCampaigns is IDatumCampaigns {
     constructor(
         uint256 _minimumCpmFloor,
         uint256 _pendingTimeoutBlocks,
-        address _publishers,
+        address _campaignValidator,
         address _pauseRegistry
     ) {
-        require(_publishers != address(0), "E00");
+        require(_campaignValidator != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         owner = msg.sender;
         minimumCpmFloor = _minimumCpmFloor;
         pendingTimeoutBlocks = _pendingTimeoutBlocks;
-        publishers = IDatumPublishers(_publishers);
+        campaignValidator = IDatumCampaignValidator(_campaignValidator);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         nextCampaignId = 1;
     }
@@ -106,6 +106,12 @@ contract DatumCampaigns is IDatumCampaigns {
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("lifecycle", lifecycleContract, addr);
         lifecycleContract = addr;
+    }
+
+    function setCampaignValidator(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        emit ContractReferenceChanged("campaignValidator", address(campaignValidator), addr);
+        campaignValidator = IDatumCampaignValidator(addr);
     }
 
     function setBudgetLedger(address addr) external onlyOwner {
@@ -135,23 +141,9 @@ contract DatumCampaigns is IDatumCampaigns {
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
 
-        // S12: Blocklist — reject blocked advertisers and publishers
-        require(!publishers.isBlocked(msg.sender), "E62");
-
-        uint16 snapshot;
-        if (publisher != address(0)) {
-            require(!publishers.isBlocked(publisher), "E62");
-            IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
-            require(pub.registered, "E17");
-            snapshot = pub.takeRateBps;
-
-            // S12: Per-publisher allowlist
-            if (publishers.allowlistEnabled(publisher)) {
-                require(publishers.isAllowedAdvertiser(publisher, msg.sender), "E63");
-            }
-        } else {
-            snapshot = 5000; // DEFAULT_TAKE_RATE_BPS
-        }
+        // SE-3: Delegate blocklist/allowlist/registration checks to CampaignValidator
+        (bool valid, uint16 snapshot) = campaignValidator.validateCreation(msg.sender, publisher);
+        require(valid, "E62");
         campaignId = nextCampaignId++;
 
         _campaigns[campaignId] = Campaign({

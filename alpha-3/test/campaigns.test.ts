@@ -53,12 +53,16 @@ describe("DatumCampaigns", function () {
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
 
+    // Deploy CampaignValidator (SE-3)
+    const ValFactory = await ethers.getContractFactory("DatumCampaignValidator");
+    const campaignValidator = await ValFactory.deploy(await publishers.getAddress());
+
     // Deploy Campaigns
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     campaigns = await CampaignsFactory.deploy(
       MIN_CPM,
       PENDING_TIMEOUT,
-      await publishers.getAddress(),
+      await campaignValidator.getAddress(),
       await pauseReg.getAddress()
     );
 
@@ -106,14 +110,14 @@ describe("DatumCampaigns", function () {
     expect(takeRate).to.equal(5000); // DEFAULT_TAKE_RATE_BPS
   });
 
-  // L3: Create campaign with unregistered publisher reverts
-  it("L3: createCampaign with unregistered publisher reverts E17", async function () {
+  // L3: Create campaign with unregistered publisher reverts (SE-3: validator returns E62)
+  it("L3: createCampaign with unregistered publisher reverts E62", async function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         other.address, DAILY_CAP, BID_CPM, 0,
         { value: BUDGET }
       )
-    ).to.be.revertedWith("E17");
+    ).to.be.revertedWith("E62");
   });
 
   // L4: Create campaign with zero value reverts

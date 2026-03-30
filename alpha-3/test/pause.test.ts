@@ -63,7 +63,9 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     vault = await VaultFactory.deploy();
 
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
-    campaigns = await CampaignsFactory.deploy(0n, 100n, await publishers.getAddress(), await pauseReg.getAddress());
+    const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+    campaigns = await CampaignsFactory.deploy(0n, 100n, await campaignValidator.getAddress(), await pauseReg.getAddress());
 
     const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");
     v2 = await V2Factory.deploy(

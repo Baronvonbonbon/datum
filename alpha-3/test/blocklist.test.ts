@@ -46,11 +46,14 @@ describe("S12: Blocklist & Allowlist", function () {
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
 
+    const ValFactory = await ethers.getContractFactory("DatumCampaignValidator");
+    const campaignValidator = await ValFactory.deploy(await publishers.getAddress());
+
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     campaigns = await CampaignsFactory.deploy(
       0n,
       100n,
-      await publishers.getAddress(),
+      await campaignValidator.getAddress(),
       await pauseReg.getAddress()
     );
 
@@ -232,13 +235,13 @@ describe("S12: Blocklist & Allowlist", function () {
     expect(id).to.be.gt(0n);
   });
 
-  it("AL4: createCampaign rejects non-allowed advertiser (E63)", async function () {
-    // other is not on publisher's allowlist
+  it("AL4: createCampaign rejects non-allowed advertiser (SE-3: E62)", async function () {
+    // other is not on publisher's allowlist — validator returns (false, 0)
     await expect(
       campaigns.connect(other).createCampaign(
         publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
       )
-    ).to.be.revertedWith("E63");
+    ).to.be.revertedWith("E62");
   });
 
   it("AL5: open campaign (publisher=0) bypasses allowlist", async function () {

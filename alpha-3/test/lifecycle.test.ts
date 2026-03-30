@@ -50,9 +50,12 @@ describe("DatumCampaignLifecycle", function () {
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
 
+    const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     campaigns = await CampaignsFactory.deploy(
-      0n, PENDING_TIMEOUT, await publishers.getAddress(), await pauseReg.getAddress()
+      0n, PENDING_TIMEOUT, await campaignValidator.getAddress(), await pauseReg.getAddress()
     );
 
     // Deploy Lifecycle
