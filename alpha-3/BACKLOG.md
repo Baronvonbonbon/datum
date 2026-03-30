@@ -217,12 +217,12 @@
 | SL-1 | L-1 | sweepDust sends to owner | BudgetLedger | Owner can change between dust accumulation and sweep |
 | SL-2 | L-2 | receive() accepts arbitrary deposits | GovernanceV2 | Mixes with voter stakes |
 | SL-3 | L-3 | No events on Settlement.configure() | Settlement | Unlike other admin setters | **DONE** |
-| SL-4 | L-4 | setSlashContract once-only | GovernanceV2 | Prevents correction if wrong address |
+| SL-4 | L-4 | setSlashContract once-only | GovernanceV2 | Prevents correction if wrong address | **DONE** |
 | SL-5 | L-5 | Relay deadline front-run | Relay | Validator can delay inclusion past deadline |
 | SL-6 | L-6 | No max batch size in Relay | Relay | Large arrays could hit gas limit | **DONE** |
 | SL-7 | L-7 | categoryId unbounded (0-255) | Campaigns | System uses 1-26 only. Alpha-3: replaced by tags (TX-2) |
 | SL-8 | L-8 | PaymentVault E58 blocks small withdrawals | PaymentVault | Known design tradeoff — dust permanently locked |
-| SL-9 | L-9 | slashAction unrestricted parameter | GovernanceV2 | Only action==0 implemented; others silently ignored |
+| SL-9 | L-9 | slashAction unrestricted parameter | GovernanceV2 | Only action==0 implemented; others silently ignored | **DONE** |
 
 ---
 
@@ -245,20 +245,20 @@
 
 | ID | Audit ID | Title | File | Description |
 |----|----------|-------|------|-------------|
-| XM-1 | 1.4 | Generated key displayed without timeout | popup/App.tsx | Add 60s auto-clear for `generatedKey` |
+| XM-1 | 1.4 | Generated key displayed without timeout | popup/App.tsx | Add 60s auto-clear for `generatedKey` | **DONE** |
 | XM-2 | 1.5 | Unlocked wallet accessible to all imports | walletManager.ts | Architectural. WalletConnect for production |
-| XM-3 | 2.2 | Relay URL override by any page | background/index.ts | Validate relay ownership or domain match |
+| XM-3 | 2.2 | Relay URL override by any page | background/index.ts | Validate relay ownership or domain match | **DONE** |
 | XM-4 | 3.1 | SDK detection trusts DOM | sdkDetector.ts | Verify publisher identity on-chain or DNS TXT |
 | XM-5 | 5.1 | Non-atomic mutex (TOCTOU) | claimQueue.ts | Use in-memory lock in service worker |
 | XM-6 | 5.2 | Chain state sync trusts popup | background/index.ts | Background verify on-chain state directly |
-| XM-7 | 6.1 | IPFS content not hash-verified | background/index.ts | SHA-256 verify response against CID |
-| XM-8 | 7.1 | Phishing list fail-open | phishingList.ts | Bundle baseline list at build time |
-| XM-9 | 8.1 | Shadow DOM open mode | adSlot.ts | Switch to `mode: "closed"` |
-| XM-10 | 10.1 | Handshake uses SHA-256 not crypto sig | handshake.ts | Use HMAC or asymmetric signature |
+| XM-7 | 6.1 | IPFS content not hash-verified | background/index.ts | SHA-256 verify response against CID | **DONE** |
+| XM-8 | 7.1 | Phishing list fail-open | phishingList.ts | Bundle baseline list at build time | **DONE** |
+| XM-9 | 8.1 | Shadow DOM open mode | adSlot.ts | Switch to `mode: "closed"` | **DONE** |
+| XM-10 | 10.1 | Handshake uses SHA-256 not crypto sig | handshake.ts | Use HMAC or asymmetric signature | **DONE** |
 | XM-11 | 11.1 | Pinata API key plaintext | Settings.tsx | Encrypt with PBKDF2+AES-GCM or session storage |
 | XM-12 | 12.1 | `<all_urls>` manifest permission | manifest.json | Document necessity or switch to `activeTab` |
 | XM-13 | 14.1 | Import overwrites during RPC outage | claimExport.ts | Add warning when on-chain state unverifiable |
-| XM-14 | 13.1 | No SW restart notification | background/index.ts | Notify user that auto-submit de-authorized on restart |
+| XM-14 | 13.1 | No SW restart notification | background/index.ts | Notify user that auto-submit de-authorized on restart | **DONE** |
 
 ---
 
@@ -268,7 +268,7 @@
 |----|----------|-------|------|
 | XL-1 | 3.2 | Content script reads chrome.storage.local | content/index.ts |
 | XL-2 | 6.2 | Arbitrary HTTPS image URLs enable tracking | adSlot.ts |
-| XL-3 | 8.3 | Inline onerror on img tag | adSlot.ts |
+| XL-3 | 8.3 | Inline onerror on img tag | adSlot.ts | **DONE** |
 | XL-4 | 12.3 | `tabs` permission may be unnecessary | manifest.json |
 | XL-5 | 13.2 | Encrypted auto-submit key persists after SW restart | background/index.ts |
 | XL-6 | 14.2 | Import doesn't validate claim hash chain | claimExport.ts |
@@ -516,8 +516,9 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - BM-1: Groth16 circuit + verifier + campaign toggle — Blocked on BN128 precompile
 - CH-1: Real ZK verifier replaces stub — Blocked
 
-### Phase 6: Hardening + Beta UX
-- XM-*: Extension security mediums — Open
+### Phase 6: Hardening + Beta UX — **6/14 XM DONE**
+- XM-1, XM-3, XM-7, XM-8, XM-9, XM-10, XM-14: Extension security mediums — **DONE**
+- XM-2, XM-4, XM-5, XM-6, XM-11, XM-12, XM-13: Extension security mediums — Open
 - UB-*: Beta UX features — Open
 - BM-3 through BM-9: Remaining bot mitigation — Open
 - TX-6, TX-7: Tag UI — Open

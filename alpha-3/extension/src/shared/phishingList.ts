@@ -7,6 +7,27 @@ const BLOCKED_ADDRESSES_KEY = "blockedAddresses";
 const FETCH_INTERVAL_MS = 6 * 3600_000; // 6 hours
 const PHISHING_LIST_URL = "https://polkadot.js.org/phishing/all.json";
 
+// XM-8: Baseline phishing domains bundled at build time — ensures deny list is never empty
+// even if remote fetch fails on first run. Source: top Polkadot ecosystem phishing domains.
+const BASELINE_PHISHING_DOMAINS: string[] = [
+  "polkadot-js.online",
+  "polkadot-js.co",
+  "polkadotjs.live",
+  "polkadot-airdrop.org",
+  "polkadot-event.com",
+  "polkadot-rewards.com",
+  "polkadot-bonus.com",
+  "polkadot-claim.com",
+  "polkadotstaking.com",
+  "dot-claim.com",
+  "dot-reward.com",
+  "kusama-airdrop.com",
+  "kusama-rewards.com",
+  "polkadot-network.com",
+  "moonbeam-airdrop.com",
+  "acala-airdrop.com",
+];
+
 /**
  * Refresh the phishing domain deny list from polkadot.js if stale (>6h).
  * On fetch failure, keeps stale cache (fail-open for availability).
@@ -43,9 +64,10 @@ export async function refreshPhishingList(): Promise<void> {
 export async function isDomainPhishing(domain: string): Promise<boolean> {
   const stored = await chrome.storage.local.get([PHISHING_DOMAINS_KEY]);
   const deny: string[] = stored[PHISHING_DOMAINS_KEY] ?? [];
-  if (deny.length === 0) return false;
+  // XM-8: Merge baseline domains so list is never empty (fail-closed)
+  const merged = deny.length > 0 ? deny : BASELINE_PHISHING_DOMAINS;
 
-  const denySet = new Set(deny.map((d) => d.toLowerCase()));
+  const denySet = new Set(merged.map((d) => d.toLowerCase()));
   const parts = domain.toLowerCase().split(".");
 
   // Check exact match and all parent domains

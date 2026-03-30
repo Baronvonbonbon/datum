@@ -526,10 +526,12 @@ describe("DatumGovernanceV2", function () {
     expect(await v2.firstNayBlock(cid)).to.equal(0n);
   });
 
-  it("D4: setSlashContract can only be set once (E51)", async function () {
-    // Already set in before() — second call should revert
-    await expect(
-      v2.setSlashContract(other.address)
-    ).to.be.revertedWith("E51");
+  // SL-4: setSlashContract now allows re-setting (removed once-only guard)
+  it("D4: setSlashContract can be re-set by owner", async function () {
+    const prev = await v2.slashContract();
+    await v2.setSlashContract(other.address);
+    expect(await v2.slashContract()).to.equal(other.address);
+    // Restore for remaining tests
+    await v2.setSlashContract(prev);
   });
 });

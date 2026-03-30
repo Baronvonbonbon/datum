@@ -147,9 +147,9 @@ contract DatumGovernanceV2 {
     // Admin
     // -------------------------------------------------------------------------
 
+    // SL-4: Removed once-only guard — allows correction if wrong address was set
     function setSlashContract(address _slash) external {
         require(msg.sender == owner, "E18");
-        require(slashContract == address(0), "E51");
         emit ContractReferenceChanged("slashContract", slashContract, _slash);
         slashContract = _slash;
     }
@@ -301,15 +301,15 @@ contract DatumGovernanceV2 {
     // Slash contract callback
     // -------------------------------------------------------------------------
 
+    // SL-9: Validate action parameter — only action 0 (transfer) is implemented
     function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external {
         require(_locked == 0, "E57");
         _locked = 1;
         require(msg.sender == slashContract, "E19");
-        if (action == 0) {
-            helper.checkMinBalance(value);
-            (bool ok,) = target.call{value: value}("");
-            require(ok, "E02");
-        }
+        require(action == 0, "E65");
+        helper.checkMinBalance(value);
+        (bool ok,) = target.call{value: value}("");
+        require(ok, "E02");
         _locked = 0;
     }
 

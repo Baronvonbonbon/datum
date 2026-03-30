@@ -209,6 +209,8 @@ export function App() {
       const result = await generateKey(password, name);
       setAddress(result.address);
       setGeneratedKey(result.privateKey);
+      // XM-1: Auto-clear generated key from UI after 60 seconds
+      setTimeout(() => setGeneratedKey(null), 60_000);
       await chrome.storage.local.set({ connectedAddress: result.address });
       chrome.runtime.sendMessage({ type: "WALLET_CONNECTED", address: result.address });
       setWalletState("unlocked");

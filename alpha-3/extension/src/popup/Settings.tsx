@@ -21,6 +21,8 @@ export function Settings({ address }: { address: string | null }) {
   const [autoSubmitPassword, setAutoSubmitPassword] = useState("");
   const [autoSubmitKeySet, setAutoSubmitKeySet] = useState(false);
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
+  // XM-14: SW restart deauth notice
+  const [autoSubmitDeauthNotice, setAutoSubmitDeauthNotice] = useState(false);
   const [rpcWarning, setRpcWarning] = useState<string | null>(null);
   const [pinataTestResult, setPinataTestResult] = useState<string | null>(null);
   // SI-1: RPC connectivity test
@@ -47,6 +49,13 @@ export function Settings({ address }: { address: string | null }) {
     // Check auto-submit authorization via background (B1: encrypted)
     chrome.runtime.sendMessage({ type: "CHECK_AUTO_SUBMIT" }).then((resp) => {
       if (resp?.authorized) setAutoSubmitKeySet(true);
+    });
+    // XM-14: Check if SW restarted and deauthorized auto-submit
+    chrome.storage.local.get("autoSubmitDeauthNotice").then((stored) => {
+      if (stored.autoSubmitDeauthNotice) {
+        setAutoSubmitDeauthNotice(true);
+        chrome.storage.local.remove("autoSubmitDeauthNotice");
+      }
     });
     loadInterestProfile();
     loadPreferences();
@@ -424,8 +433,17 @@ export function Settings({ address }: { address: string | null }) {
         />
       </div>
 
+      {/* XM-14: Browser restart deauth notice */}
+      {autoSubmitDeauthNotice && settings.autoSubmit && !autoSubmitKeySet && (
+        <div style={{ padding: "6px 10px", marginBottom: 8, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.2)", borderRadius: "var(--radius-sm)" }}>
+          <div style={{ color: "var(--error)", fontSize: 11 }}>
+            Auto-submit was deauthorized after browser restart. Re-enter your password below to resume.
+          </div>
+        </div>
+      )}
+
       {/* WS-3: Auto-submit deauth warning */}
-      {settings.autoSubmit && !autoSubmitKeySet && (
+      {settings.autoSubmit && !autoSubmitKeySet && !autoSubmitDeauthNotice && (
         <div style={{ padding: "6px 10px", marginBottom: 8, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
           <div style={{ color: "var(--warn)", fontSize: 11 }}>
             Auto-submit not authorized. Claims will queue but not auto-submit until you enter your password below.

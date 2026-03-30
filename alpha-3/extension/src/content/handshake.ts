@@ -1,7 +1,7 @@
 // Challenge-response handshake with the DATUM Publisher SDK.
 // Generates a random challenge, dispatches it via CustomEvent,
 // and waits for the SDK's signed response.
-// Verifies the SHA-256 signature to prevent spoofing by malicious page scripts.
+// XM-10: Verifies HMAC-SHA-256 signature (keyed by publisher address) to prevent spoofing.
 
 export interface Attestation {
   publisher: string;
@@ -12,15 +12,20 @@ export interface Attestation {
 }
 
 /**
- * Compute the expected SHA-256 signature for a handshake response.
- * Must match the SDK's computation: SHA-256(publisher + ":" + challenge + ":" + nonce)
+ * XM-10: Compute HMAC-SHA-256 signature for handshake verification.
+ * Key = publisher address, message = challenge + ":" + nonce.
+ * HMAC prevents length-extension attacks and binds the signature to the publisher key.
+ * Must match the SDK's computation: HMAC-SHA-256(key=publisher, msg=challenge:nonce)
  */
 async function computeExpectedSignature(publisher: string, challenge: string, nonce: string): Promise<string> {
-  const data = `${publisher}:${challenge}:${nonce}`;
-  const encoded = new TextEncoder().encode(data);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return "0x" + hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const keyData = new TextEncoder().encode(publisher);
+  const msgData = new TextEncoder().encode(`${challenge}:${nonce}`);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sigBuffer = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
+  const sigArray = Array.from(new Uint8Array(sigBuffer));
+  return "0x" + sigArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

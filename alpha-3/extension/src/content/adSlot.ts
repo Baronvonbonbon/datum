@@ -125,8 +125,8 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
     z-index: 2147483647;
   `;
 
-  // Shadow DOM: isolates ad content from host page CSS/JS
-  const shadow = host.attachShadow({ mode: "open" }); // upgrade to "closed" post-alpha
+  // Shadow DOM: isolates ad content from host page CSS/JS (XM-9: closed mode)
+  const shadow = host.attachShadow({ mode: "closed" });
 
   const wrapper = document.createElement("div");
   wrapper.style.cssText = `
@@ -175,7 +175,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
       ? `<img src="${escapeHtml(imageUrl)}" alt="" style="
           max-width:100%;max-height:160px;border-radius:4px;margin-bottom:8px;
           display:block;object-fit:cover;
-        " onerror="this.style.display='none'" />`
+        " class="datum-ad-img" />`
       : "";
 
     wrapper.innerHTML = `
@@ -232,6 +232,11 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   shadow.appendChild(wrapper);
   document.body.appendChild(host);
 
+  // XL-3: Programmatic error handler instead of inline onerror attribute
+  shadow.querySelectorAll(".datum-ad-img").forEach((img) => {
+    (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
+  });
+
   // Close button via shadow DOM query
   shadow.querySelector(".datum-close")?.addEventListener("click", () => {
     host.remove();
@@ -251,10 +256,12 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
  * Uses Shadow DOM for isolation. Does not use fixed positioning — renders in-flow.
  */
 export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): HTMLElement | null {
-  // Don't inject twice
-  if (target.shadowRoot?.querySelector(".datum-inline-wrapper")) return null;
+  // XM-9: closed shadow DOM — store ref on element since .shadowRoot returns null for closed
+  const shadow = (target as any).__datumShadow ?? target.attachShadow({ mode: "closed" });
+  (target as any).__datumShadow = shadow;
 
-  const shadow = target.shadowRoot ?? target.attachShadow({ mode: "open" });
+  // Don't inject twice
+  if (shadow.querySelector(".datum-inline-wrapper")) return null;
 
   const wrapper = document.createElement("div");
   wrapper.className = "datum-inline-wrapper";
@@ -300,7 +307,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
       ? `<img src="${escapeHtml(imageUrl)}" alt="" style="
           max-width:100%;max-height:200px;border-radius:4px;margin-bottom:8px;
           display:block;object-fit:cover;
-        " onerror="this.style.display='none'" />`
+        " class="datum-ad-img" />`
       : "";
 
     wrapper.innerHTML = `
@@ -364,6 +371,11 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
 
   shadow.appendChild(wrapper);
 
+  // XL-3: Programmatic error handler instead of inline onerror attribute
+  shadow.querySelectorAll(".datum-ad-img").forEach((img) => {
+    (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
+  });
+
   // Report button: block campaign + remove inline ad content
   shadow.querySelector(".datum-report")?.addEventListener("click", () => {
     config.onReport?.();
@@ -413,7 +425,8 @@ export function injectDefaultAd(): HTMLElement | null {
     z-index: 2147483647;
   `;
 
-  const shadow = host.attachShadow({ mode: "open" });
+  // XM-9: closed shadow DOM
+  const shadow = host.attachShadow({ mode: "closed" });
 
   const wrapper = document.createElement("div");
   wrapper.style.cssText = `
@@ -467,9 +480,12 @@ export function injectDefaultAd(): HTMLElement | null {
  * Points to Polkadot philosophy page. No earning, no campaign tracking.
  */
 export function injectDefaultAdInline(target: HTMLElement): HTMLElement | null {
-  if (target.shadowRoot?.querySelector(".datum-inline-wrapper")) return null;
+  // XM-9: closed shadow DOM — reuse stored ref
+  const existing = (target as any).__datumShadow;
+  if (existing?.querySelector(".datum-inline-wrapper")) return null;
 
-  const shadow = target.shadowRoot ?? target.attachShadow({ mode: "open" });
+  const shadow = existing ?? target.attachShadow({ mode: "closed" });
+  (target as any).__datumShadow = shadow;
 
   const wrapper = document.createElement("div");
   wrapper.className = "datum-inline-wrapper";

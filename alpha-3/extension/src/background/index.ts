@@ -41,6 +41,8 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log("[DATUM] Extension started");
+  // XM-14: Flag that auto-submit was deauthorized (session password lost on SW restart)
+  await chrome.storage.local.set({ autoSubmitDeauthNotice: true });
   await initAlarms();
   await immediateInitialPoll();
 });
@@ -256,11 +258,31 @@ async function handleMessage(
     }
 
     case "SET_PUBLISHER_RELAY": {
-      // Content script detected a publisher relay URL from the SDK data-relay attribute
+      // XM-3: Validate relay URL — only accept HTTPS and verify sender tab domain matches relay domain
       const { publisher: pub, relay: relayUrl } = msg as any;
       if (pub && relayUrl && /^0x[0-9a-fA-F]{40}$/.test(pub)) {
         // Strip protocol — publisherAttestation.ts builds https:// URL from bare domain
         const domain = relayUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+        // Reject non-HTTPS relay URLs (except localhost for development)
+        const isLocal = domain === "localhost" || domain.startsWith("localhost:") || domain.startsWith("127.0.0.1");
+        if (!isLocal && !relayUrl.startsWith("https://")) {
+          console.warn(`[DATUM] Rejected non-HTTPS relay URL from content script: ${domain}`);
+          return { ok: false, reason: "relay_must_be_https" };
+        }
+        // Verify sender tab's domain matches the relay domain (prevents cross-origin relay hijacking)
+        if (sender.tab?.url) {
+          try {
+            const tabHost = new URL(sender.tab.url).hostname;
+            const relayHost = domain.split(":")[0]; // strip port
+            const tabMatches = tabHost === relayHost || tabHost.endsWith("." + relayHost);
+            if (!tabMatches && !isLocal) {
+              console.warn(`[DATUM] Rejected relay URL: tab domain ${tabHost} != relay domain ${relayHost}`);
+              return { ok: false, reason: "relay_domain_mismatch" };
+            }
+          } catch { /* malformed URL — reject */
+            return { ok: false, reason: "invalid_sender_url" };
+          }
+        }
         const key = `publisherDomain:${pub.toLowerCase()}`;
         await chrome.storage.local.set({ [key]: domain });
         console.log(`[DATUM] Publisher relay set: ${pub.slice(0, 10)}... → ${domain}`);
@@ -290,6 +312,13 @@ async function handleMessage(
       // Deduplicate (in case primaryGateway is already in the list)
       const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
 
+      // XM-7: Extract expected SHA-256 digest from CIDv0 bytes32 hash for verification
+      let expectedDigest: string | null = null;
+      try {
+        // mHash is bytes32 = raw SHA-256 digest (CIDv0 stripped of 0x1220 prefix)
+        expectedDigest = mHash.toLowerCase();
+      } catch { /* if hash format is unexpected, skip verification */ }
+
       for (const gw of uniqueGateways) {
         const url = metadataUrl(mHash, gw);
         if (!url) continue;
@@ -300,11 +329,24 @@ async function handleMessage(
             console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} returned ${resp.status}`);
             continue;
           }
-          const bodyText = await resp.text();
-          if (bodyText.length > MAX_METADATA_BYTES) {
-            console.warn(`[DATUM] FETCH_IPFS_METADATA: body too large (${bodyText.length})`);
+          const bodyBytes = new Uint8Array(await resp.arrayBuffer());
+          if (bodyBytes.length > MAX_METADATA_BYTES) {
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: body too large (${bodyBytes.length})`);
             return { metadata: null };
           }
+
+          // XM-7: Verify SHA-256 hash of content matches on-chain CIDv0 digest
+          if (expectedDigest) {
+            const hashBuffer = await crypto.subtle.digest("SHA-256", bodyBytes);
+            const actualDigest = "0x" + Array.from(new Uint8Array(hashBuffer))
+              .map(b => b.toString(16).padStart(2, "0")).join("");
+            if (actualDigest.toLowerCase() !== expectedDigest) {
+              console.warn(`[DATUM] FETCH_IPFS_METADATA: hash mismatch from ${gw} (expected ${expectedDigest.slice(0,18)}..., got ${actualDigest.slice(0,18)}...)`);
+              continue; // try next gateway — this one returned tampered content
+            }
+          }
+
+          const bodyText = new TextDecoder().decode(bodyBytes);
           const meta = validateAndSanitize(JSON.parse(bodyText));
           if (!meta) {
             console.warn(`[DATUM] FETCH_IPFS_METADATA: validation failed`);
@@ -321,7 +363,7 @@ async function handleMessage(
           // Cache for future use
           const metaKey = `metadata:${cid}`;
           await chrome.storage.local.set({ [metaKey]: meta, [`metadata_ts:${cid}`]: Date.now() });
-          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw}`);
+          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw} (hash verified)`);
           return { metadata: meta };
         } catch (err) {
           console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} error:`, err);
