@@ -28,10 +28,14 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
     mapping(address => bool) public allowlistEnabled;
     mapping(address => mapping(address => bool)) private _allowedAdvertisers;
 
+    // BM-7: Publisher SDK version hash (integrity verification)
+    mapping(address => bytes32) public sdkVersionHash;
+
     event AddressBlocked(address indexed addr);
     event AddressUnblocked(address indexed addr);
     event AllowlistToggled(address indexed publisher, bool enabled);
     event AdvertiserAllowlistUpdated(address indexed publisher, address indexed advertiser, bool allowed);
+    event SdkVersionRegistered(address indexed publisher, bytes32 hash);
 
     constructor(uint256 _takeRateUpdateDelayBlocks, address _pauseRegistry) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
@@ -153,5 +157,20 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
 
     function isAllowedAdvertiser(address publisher, address advertiser) external view returns (bool) {
         return _allowedAdvertisers[publisher][advertiser];
+    }
+
+    // -------------------------------------------------------------------------
+    // BM-7: SDK version registry (integrity verification)
+    // -------------------------------------------------------------------------
+
+    function registerSdkVersion(bytes32 hash) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(hash != bytes32(0), "E00");
+        sdkVersionHash[msg.sender] = hash;
+        emit SdkVersionRegistered(msg.sender, hash);
+    }
+
+    function getSdkVersion(address publisher) external view returns (bytes32) {
+        return sdkVersionHash[publisher];
     }
 }

@@ -32,6 +32,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
+    // BM-2: Per-user per-campaign cumulative settlement tracking
+    mapping(address => mapping(uint256 => uint256)) public userCampaignSettled;
+    uint256 public constant MAX_USER_IMPRESSIONS = 100000;
+
     constructor(address _pauseRegistry) {
         require(_pauseRegistry != address(0), "E00");
         owner = msg.sender;
@@ -146,6 +150,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 emit ClaimRejected(claim.campaignId, user, claim.nonce, reasonCode);
                 continue;
             }
+
+            // BM-2: Per-user settlement cap check
+            uint256 newTotal = userCampaignSettled[user][claim.campaignId] + claim.impressionCount;
+            if (newTotal > MAX_USER_IMPRESSIONS) {
+                result.rejectedCount++;
+                emit ClaimRejected(claim.campaignId, user, claim.nonce, 13);
+                gapFound = true;
+                continue;
+            }
+            userCampaignSettled[user][claim.campaignId] = newTotal;
 
             // Store hash from validator before settling
             lastClaimHash[user][claim.campaignId] = computedHash;
