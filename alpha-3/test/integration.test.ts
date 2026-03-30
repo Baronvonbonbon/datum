@@ -160,8 +160,12 @@ describe("Integration", function () {
     relay = await RelayFactory.deploy(await settlement.getAddress(), await campaigns.getAddress(), await pauseReg.getAddress());
 
     // Wire all contracts (alpha-2 extended wiring)
+    const HelperFactory = await ethers.getContractFactory("DatumGovernanceHelper");
+    const govHelper = await HelperFactory.deploy(await campaigns.getAddress());
+
     await v2.setSlashContract(await slash.getAddress());
     await v2.setLifecycle(await lifecycle.getAddress());
+    await v2.setHelper(await govHelper.getAddress());
 
     await campaigns.setGovernanceContract(await v2.getAddress());
     await campaigns.setSettlementContract(await settlement.getAddress());

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
-import "./interfaces/ISystem.sol";
+import "./interfaces/IDatumGovernanceHelper.sol";
 
 /// @title DatumGovernanceV2
 /// @notice Dynamic conviction-based governance: vote/withdraw/re-vote, campaign evaluation,
@@ -29,9 +29,6 @@ import "./interfaces/ISystem.sol";
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
 contract DatumGovernanceV2 {
     uint8 public constant MAX_CONVICTION = 8;
-
-    ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
-    address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
     // -------------------------------------------------------------------------
     // Conviction lookup (hardcoded — no storage arrays, saves PVM bytecode)
@@ -75,6 +72,7 @@ contract DatumGovernanceV2 {
     address public slashContract;
     IDatumCampaignLifecycle public lifecycle;
     address public pauseRegistry;
+    IDatumGovernanceHelper public helper;
 
     uint256 private _locked;
 
@@ -163,6 +161,13 @@ contract DatumGovernanceV2 {
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
     }
 
+    function setHelper(address _helper) external {
+        require(msg.sender == owner, "E18");
+        require(_helper != address(0), "E00");
+        emit ContractReferenceChanged("helper", address(helper), _helper);
+        helper = IDatumGovernanceHelper(_helper);
+    }
+
     // -------------------------------------------------------------------------
     // Voting
     // -------------------------------------------------------------------------
@@ -220,21 +225,14 @@ contract DatumGovernanceV2 {
         }
 
         if (resolved[campaignId]) {
-            (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
-            bool loser = (status == 3 && v.direction == 2)
-                      || (status == 4 && v.direction == 1);
-            if (loser) {
-                slash = v.lockAmount * slashBps / 10000;
+            slash = helper.computeSlash(campaignId, v.direction, v.lockAmount, slashBps);
+            if (slash > 0) {
                 slashCollected[campaignId] += slash;
             }
         }
 
         uint256 refund = v.lockAmount - slash;
-
-        if (SYSTEM_ADDR.code.length > 0) {
-            uint256 minBal = SYSTEM.minimumBalance();
-            require(refund >= minBal, "E58");
-        }
+        helper.checkMinBalance(refund);
 
         v.direction = 0;
         v.lockAmount = 0;
@@ -308,10 +306,7 @@ contract DatumGovernanceV2 {
         _locked = 1;
         require(msg.sender == slashContract, "E19");
         if (action == 0) {
-            if (SYSTEM_ADDR.code.length > 0) {
-                uint256 minBal = SYSTEM.minimumBalance();
-                require(value >= minBal, "E58");
-            }
+            helper.checkMinBalance(value);
             (bool ok,) = target.call{value: value}("");
             require(ok, "E02");
         }

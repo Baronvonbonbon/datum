@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumGovernanceV2, DatumGovernanceSlash, DatumPauseRegistry, MockCampaigns } from "../typechain-types";
+import { DatumGovernanceV2, DatumGovernanceSlash, DatumGovernanceHelper, DatumPauseRegistry, MockCampaigns } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { mineBlocks, fundSigners } from "./helpers/mine";
@@ -76,8 +76,13 @@ describe("DatumGovernanceV2", function () {
       await mock.getAddress()
     );
 
+    // Deploy GovernanceHelper (SE-2)
+    const HelperFactory = await ethers.getContractFactory("DatumGovernanceHelper");
+    const helper = await HelperFactory.deploy(await mock.getAddress());
+
     // Wire
     await v2.setSlashContract(await slash.getAddress());
+    await v2.setHelper(await helper.getAddress());
     await mock.setGovernanceContract(await v2.getAddress());
   });
 
