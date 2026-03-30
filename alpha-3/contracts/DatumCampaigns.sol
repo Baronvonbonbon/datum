@@ -65,6 +65,7 @@ contract DatumCampaigns is IDatumCampaigns {
     uint256 public nextCampaignId;
 
     mapping(uint256 => Campaign) private _campaigns;
+    mapping(uint256 => bytes32[]) private _campaignTags;
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -134,15 +135,17 @@ contract DatumCampaigns is IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        uint8 categoryId
+        uint8 categoryId,
+        bytes32[] calldata requiredTags
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > 0, "E11");
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
+        require(requiredTags.length <= 8, "E66");
 
-        // SE-3: Delegate blocklist/allowlist/registration checks to CampaignValidator
-        (bool valid, uint16 snapshot) = campaignValidator.validateCreation(msg.sender, publisher);
+        // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator
+        (bool valid, uint16 snapshot) = campaignValidator.validateCreation(msg.sender, publisher, requiredTags);
         require(valid, "E62");
         campaignId = nextCampaignId++;
 
@@ -156,6 +159,13 @@ contract DatumCampaigns is IDatumCampaigns {
             status: CampaignStatus.Pending,
             categoryId: categoryId
         });
+
+        // Store required tags in separate mapping (not in struct — PVM size)
+        if (requiredTags.length > 0) {
+            for (uint256 i = 0; i < requiredTags.length; i++) {
+                _campaignTags[campaignId].push(requiredTags[i]);
+            }
+        }
 
         // Escrow budget in BudgetLedger
         budgetLedger.initializeBudget{value: msg.value}(campaignId, msg.value, dailyCapPlanck);
@@ -254,6 +264,10 @@ contract DatumCampaigns is IDatumCampaigns {
 
     function getPendingExpiryBlock(uint256 campaignId) external view returns (uint256) {
         return _campaigns[campaignId].pendingExpiryBlock;
+    }
+
+    function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory) {
+        return _campaignTags[campaignId];
     }
 
     /// @dev Alpha-2: returns 4 values (no remainingBudget — now on BudgetLedger).

@@ -49,7 +49,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
     ledger = await LedgerFactory.deploy();
 
     const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
-    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress(), ethers.ZeroAddress);
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     campaigns = await CampaignsFactory.deploy(0n, 100n, await campaignValidator.getAddress(), await pauseReg.getAddress());
     await campaigns.setBudgetLedger(await ledger.getAddress());

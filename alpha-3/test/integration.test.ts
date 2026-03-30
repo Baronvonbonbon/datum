@@ -95,7 +95,7 @@ describe("Integration", function () {
 
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, 0, { value: budget }
+      pub.address, dailyCap, bidCpm, 0, [], { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -125,7 +125,7 @@ describe("Integration", function () {
 
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
-    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress(), ethers.ZeroAddress);
     campaigns = await CampaignsFactory.deploy(MIN_CPM, PENDING_TIMEOUT, await campaignValidator.getAddress(), await pauseReg.getAddress());
 
     const LifecycleFactory = await ethers.getContractFactory("DatumCampaignLifecycle");
@@ -610,7 +610,7 @@ describe("Integration", function () {
   it("H5: attested settlement on open campaign verifies serving publisher", async function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -657,7 +657,7 @@ describe("Integration", function () {
   // H6: open campaign attestation with wrong signer reverts E34
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;

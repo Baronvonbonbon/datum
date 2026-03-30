@@ -32,7 +32,7 @@ interface IDatumCampaigns {
         uint256 bidCpmPlanck;
         uint16 snapshotTakeRateBps;
         CampaignStatus status;
-        uint8 categoryId;
+        uint8 categoryId; // Deprecated: use requiredTags via getCampaignTags()
     }
 
     // -------------------------------------------------------------------------
@@ -63,7 +63,8 @@ interface IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        uint8 categoryId
+        uint8 categoryId,
+        bytes32[] calldata requiredTags
     ) external payable returns (uint256 campaignId);
 
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external;
@@ -85,6 +86,7 @@ interface IDatumCampaigns {
     function getCampaignStatus(uint256 campaignId) external view returns (CampaignStatus);
     function getCampaignAdvertiser(uint256 campaignId) external view returns (address);
     function getCampaignPublisher(uint256 campaignId) external view returns (address);
+    function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory);
     function getCampaignForSettlement(uint256 campaignId) external view returns (
         uint8 status, address publisher, uint256 bidCpmPlanck,
         uint16 snapshotTakeRateBps

@@ -51,7 +51,7 @@ describe("DatumCampaignLifecycle", function () {
     ledger = await LedgerFactory.deploy();
 
     const CampValFactory = await ethers.getContractFactory("DatumCampaignValidator");
-    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress());
+    const campaignValidator = await CampValFactory.deploy(await publishers.getAddress(), ethers.ZeroAddress);
 
     const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
     campaigns = await CampaignsFactory.deploy(
@@ -82,7 +82,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createAndActivate(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
     // Activate via governance
@@ -92,7 +92,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createPending(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
     );
     return (await campaigns.nextCampaignId()) - 1n;
   }
