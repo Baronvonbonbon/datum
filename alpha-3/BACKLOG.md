@@ -269,8 +269,8 @@
 | XL-1 | 3.2 | Content script reads chrome.storage.local | content/index.ts |
 | XL-2 | 6.2 | Arbitrary HTTPS image URLs enable tracking | adSlot.ts |
 | XL-3 | 8.3 | Inline onerror on img tag | adSlot.ts | **DONE** |
-| XL-4 | 12.3 | `tabs` permission may be unnecessary | manifest.json |
-| XL-5 | 13.2 | Encrypted auto-submit key persists after SW restart | background/index.ts |
+| XL-4 | 12.3 | `tabs` permission may be unnecessary | manifest.json | **DONE** (removed tabs+activeTab+offscreen) |
+| XL-5 | 13.2 | Encrypted auto-submit key persists after SW restart | background/index.ts | **DONE** |
 | XL-6 | 14.2 | Import doesn't validate claim hash chain | claimExport.ts |
 
 ---

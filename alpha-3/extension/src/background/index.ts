@@ -43,6 +43,8 @@ chrome.runtime.onStartup.addListener(async () => {
   console.log("[DATUM] Extension started");
   // XM-14: Flag that auto-submit was deauthorized (session password lost on SW restart)
   await chrome.storage.local.set({ autoSubmitDeauthNotice: true });
+  // XL-5: Clean up orphaned encrypted auto-submit key (session password is gone)
+  await chrome.storage.local.remove("autoSubmitKeyEncrypted");
   await initAlarms();
   await immediateInitialPoll();
 });
