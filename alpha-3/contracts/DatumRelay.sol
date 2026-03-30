@@ -64,6 +64,7 @@ contract DatumRelay {
         returns (IDatumSettlement.SettlementResult memory result)
     {
         require(!pauseRegistry.paused(), "P");
+        require(batches.length <= 10, "E28");
         IDatumSettlement.ClaimBatch[] memory forwardBatches = new IDatumSettlement.ClaimBatch[](batches.length);
 
         for (uint256 b = 0; b < batches.length; b++) {

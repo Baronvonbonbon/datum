@@ -29,6 +29,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public attestationVerifier;
     address public claimValidator;
 
+    event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
+
     mapping(address => mapping(uint256 => uint256)) public lastNonce;
     mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
 
@@ -61,6 +63,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         paymentVault = _paymentVault;
         lifecycle = _lifecycle;
         relayContract = _relay;
+        emit SettlementConfigured(_budgetLedger, _paymentVault, _lifecycle, _relay);
     }
 
     function setClaimValidator(address addr) external {
