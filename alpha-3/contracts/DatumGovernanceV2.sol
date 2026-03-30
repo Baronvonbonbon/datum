@@ -103,6 +103,9 @@ contract DatumGovernanceV2 {
     mapping(uint256 => mapping(address => Vote)) private _votes;
     mapping(uint256 => uint256) public firstNayBlock;
 
+    // SM-5: Snapshot winning weight at resolution time (not finalization)
+    mapping(uint256 => uint256) public resolvedWinningWeight;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -276,15 +279,20 @@ contract DatumGovernanceV2 {
             require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + grace, "E53");
             lifecycle.terminateCampaign(campaignId);
             resolved[campaignId] = true;
+            // SM-5: Snapshot winning weight (nay won → terminated)
+            resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
             emit CampaignEvaluated(campaignId, 4);
         } else if (status == 3) {
             // Completed -> mark resolved
             require(!resolved[campaignId], "E49");
             resolved[campaignId] = true;
+            // SM-5: Snapshot winning weight (aye won → completed)
+            resolvedWinningWeight[campaignId] = ayeWeighted[campaignId];
             emit CampaignEvaluated(campaignId, 3);
         } else if (status == 4 && !resolved[campaignId]) {
-            // Terminated -> mark resolved
+            // Terminated -> mark resolved (e.g., terminated via lifecycle directly)
             resolved[campaignId] = true;
+            resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
             emit CampaignEvaluated(campaignId, 4);
         } else {
             revert("E50");

@@ -209,9 +209,27 @@ describe("DatumCampaigns", function () {
       campaigns.connect(other).setCampaignStatus(id, 3) // Completed
     ).to.be.revertedWith("E25");
 
-    // Lifecycle mock can call it
-    await campaigns.connect(lifecycleMock).setCampaignStatus(id, 3);
+    // Activate first (governance), then complete via lifecycle (SM-7 valid transition)
+    await campaigns.setGovernanceContract(owner.address);
+    await campaigns.connect(owner).activateCampaign(id);
+    await campaigns.connect(lifecycleMock).setCampaignStatus(id, 3); // Active→Completed
     expect(await campaigns.getCampaignStatus(id)).to.equal(3);
+  });
+
+  it("SM-7: setCampaignStatus rejects invalid transition (E67)", async function () {
+    await campaigns.connect(advertiser).createCampaign(
+      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+    );
+    const id = await campaigns.nextCampaignId() - 1n;
+
+    // Pending → Completed is invalid
+    await expect(
+      campaigns.connect(lifecycleMock).setCampaignStatus(id, 3)
+    ).to.be.revertedWith("E67");
+
+    // Pending → Expired is valid
+    await campaigns.connect(lifecycleMock).setCampaignStatus(id, 5);
+    expect(await campaigns.getCampaignStatus(id)).to.equal(5);
   });
 
   it("setTerminationBlock only callable by lifecycleContract", async function () {

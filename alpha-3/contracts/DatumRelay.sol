@@ -102,12 +102,16 @@ contract DatumRelay {
 
             // Publisher co-signature (4-value return)
             // Required for all campaigns when provided. Open campaigns verify
-            // against claims[0].publisher (the actual serving publisher).
+            // against claims[0].publisher and enforce all claims use same publisher (SM-1).
             if (sb.publisherSig.length > 0) {
                 (, address cPublisher,,) = campaigns.getCampaignForSettlement(sb.campaignId);
                 address expectedPub = cPublisher;
                 if (expectedPub == address(0)) {
                     expectedPub = sb.claims[0].publisher;
+                    // SM-1: Verify all claims target the same publisher for open campaigns
+                    for (uint256 i = 1; i < sb.claims.length; i++) {
+                        require(sb.claims[i].publisher == expectedPub, "E34");
+                    }
                 }
                 if (expectedPub != address(0)) {
                     bytes32 pubStructHash = keccak256(abi.encode(

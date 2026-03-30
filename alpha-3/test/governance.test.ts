@@ -463,6 +463,8 @@ describe("DatumGovernanceV2", function () {
   it("S5: losing voter cannot claim (E56)", async function () {
     const cid = await setupCampaign(0);
     await v2.connect(voter1).vote(cid, true, 0, { value: parseDOT("1") });
+    // Need a nay voter so resolvedWinningWeight > 0 (SM-5)
+    await v2.connect(voter2).vote(cid, false, 0, { value: parseDOT("1") });
 
     // Force terminate (aye loses)
     await mock.setStatus(Number(cid), 4);

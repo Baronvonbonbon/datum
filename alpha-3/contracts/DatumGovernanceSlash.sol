@@ -34,18 +34,14 @@ contract DatumGovernanceSlash is ReentrancyGuard {
 
     receive() external payable {}
 
-    /// @notice Snapshot winning side weight after resolution
+    /// @notice Finalize slash using weight snapshot from resolution time (SM-5)
     function finalizeSlash(uint256 campaignId) external {
         require(!finalized[campaignId], "E59");
         require(DatumGovernanceV2(payable(voting)).resolved(campaignId), "E60");
 
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
-        uint256 w;
-        if (status == 3) {
-            w = DatumGovernanceV2(payable(voting)).ayeWeighted(campaignId);
-        } else {
-            w = DatumGovernanceV2(payable(voting)).nayWeighted(campaignId);
-        }
+        // SM-5: Use weight snapshotted at resolution, not live values
+        uint256 w = DatumGovernanceV2(payable(voting)).resolvedWinningWeight(campaignId);
+        require(w > 0, "E61");
 
         winningWeight[campaignId] = w;
         finalized[campaignId] = true;

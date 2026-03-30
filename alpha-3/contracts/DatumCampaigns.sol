@@ -237,7 +237,18 @@ contract DatumCampaigns is IDatumCampaigns {
     /// @inheritdoc IDatumCampaigns
     function setCampaignStatus(uint256 campaignId, CampaignStatus newStatus) external {
         require(msg.sender == lifecycleContract, "E25");
+        // SM-7: Validate status transitions
+        CampaignStatus current = _campaigns[campaignId].status;
+        require(_validTransition(current, newStatus), "E67");
         _campaigns[campaignId].status = newStatus;
+    }
+
+    function _validTransition(CampaignStatus from, CampaignStatus to) internal pure returns (bool) {
+        if (from == CampaignStatus.Active && to == CampaignStatus.Completed) return true;
+        if (from == CampaignStatus.Active && to == CampaignStatus.Terminated) return true;
+        if (from == CampaignStatus.Paused && to == CampaignStatus.Completed) return true;
+        if (from == CampaignStatus.Pending && to == CampaignStatus.Expired) return true;
+        return false;
     }
 
     /// @inheritdoc IDatumCampaigns
