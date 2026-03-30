@@ -82,13 +82,13 @@
 
 | ID | Item | Description | Effort | Deps |
 |----|------|-------------|--------|------|
-| TX-1 | `DatumTargetingRegistry` contract | New satellite contract. `setTags(bytes32[])`, `getTags(publisher)`, `hasAllTags(publisher, bytes32[])`. Max 32 tags/publisher, storage via mapping. | 1 week | — |
-| TX-2 | Campaign `requiredTags` field | Add `bytes32[] requiredTags` to campaign creation (max 8). Stored in new mapping `campaignTags[id]` (not in struct — PVM size). | 1 week | TX-1 |
-| TX-3 | Tag matching in auction | Extension auction.ts: filter campaigns where publisher has all required tags. Replace `categoryBitmask` overlap check. | 3 days | TX-1, TX-2 |
-| TX-4 | SDK tag declaration | Update `datum-sdk.js` to use `data-tags` attribute. Deprecate `data-categories`. | 2 days | TX-3 |
-| TX-5 | Standard tag dictionary | Define initial tag dimensions: `topic:*` (replaces categories), `locale:*` (BCP 47), `geo:*` (ISO 3166-2 region codes), `city:*` (slug), `platform:*` (desktop/mobile/tablet), `interest:*` (open-ended hobbies). Publish as IPFS-pinned JSON. | 3 days | TX-1 |
-| TX-6 | Publisher tag management UI | Replace category checkboxes in extension PublisherPanel with tag picker. Autocomplete from standard dictionary + custom tags. | 1 week | TX-5 |
-| TX-7 | Campaign tag picker UI | Advertiser selects required tags at campaign creation (web app + extension). Show estimated publisher reach per tag combination. | 1 week | TX-5 |
+| TX-1 | `DatumTargetingRegistry` contract | New satellite contract. `setTags(bytes32[])`, `getTags(publisher)`, `hasAllTags(publisher, bytes32[])`. Max 32 tags/publisher, storage via mapping. | 1 week | — | **DONE** |
+| TX-2 | Campaign `requiredTags` field | Add `bytes32[] requiredTags` to campaign creation (max 8). Stored in new mapping `campaignTags[id]` (not in struct — PVM size). | 1 week | TX-1 | **DONE** |
+| TX-3 | Tag matching in auction | Extension auction.ts: filter campaigns where publisher has all required tags. Replace `categoryBitmask` overlap check. | 3 days | TX-1, TX-2 | **DONE** |
+| TX-4 | SDK tag declaration | Update `datum-sdk.js` to use `data-tags` attribute. Deprecate `data-categories`. | 2 days | TX-3 | **DONE** |
+| TX-5 | Standard tag dictionary | Define initial tag dimensions: `topic:*` (replaces categories), `locale:*` (BCP 47), `platform:*` (desktop/mobile/tablet), `audience:*`. City/geo/interest removed (unverifiable by extension). | 3 days | TX-1 | **DONE** |
+| TX-6 | Publisher tag management UI | Replace category checkboxes in extension PublisherPanel with tag picker. Autocomplete from standard dictionary + custom tags. | 1 week | TX-5 | Open |
+| TX-7 | Campaign tag picker UI | Advertiser selects required tags at campaign creation (web app + extension). Show estimated publisher reach per tag combination. | 1 week | TX-5 | Open |
 
 **Tag dimension examples:**
 
@@ -126,8 +126,8 @@
 
 | Priority | ID | Item | Effort | Deps | Status |
 |----------|-----|------|--------|------|--------|
-| 1 | BM-7 | Publisher SDK integrity verification | 1 week | — | **Open** |
-| 2 | BM-2 | Per-user per-campaign settlement cap | 1-2 weeks | Satellite contract | **Open** |
+| 1 | BM-7 | Publisher SDK integrity verification | 1 week | — | **DONE** |
+| 2 | BM-2 | Per-user per-campaign settlement cap | 1-2 weeks | Satellite contract | **DONE** |
 | 3 | BM-1 | ZK engagement proof (Groth16) | 3-4 weeks | BN128 precompile | **Open** |
 | 4 | BM-3 | Sybil resistance: claim CAPTCHA | 1w (A), 3-4w (B) | — | **Open** |
 | 5 | BM-4 | Publisher-side fraud detection | 2-3 weeks | Relay API | **Open** |
@@ -200,13 +200,13 @@
 
 | ID | Audit ID | Title | Contract | Description | Recommendation |
 |----|----------|-------|----------|-------------|----------------|
-| SM-1 | M-1 | Relay co-sig validation for open campaigns | DatumRelay | Open campaigns verify against `claims[0].publisher` — re-ordering claims array breaks validation | Verify against ALL claims or require sorted order |
-| SM-2 | M-2 | BudgetLedger daily cap timestamp manipulation | DatumBudgetLedger | `block.timestamp / 86400` day boundary — validators can shift by ±1 block | Accepted for alpha. Use block numbers for mainnet |
-| SM-3 | M-3 | Settlement unbounded batch processing | DatumSettlement | No cap on batch count per call. Could hit gas limit | Add `require(batches.length <= 10)` |
-| SM-4 | M-4 | EIP-712 signature malleability | Relay, AttestationVerifier | No `s`-value canonicalization check | Add `require(uint256(s) <= 0x7FFFFFFF...)` |
-| SM-5 | M-5 | GovernanceSlash weight snapshot timing | DatumGovernanceSlash | `winningWeight` at finalization, not resolution. Early withdrawals reduce denominator | Snapshot at resolution time |
-| SM-6 | M-6 | PauseRegistry single-EOA owner | DatumPauseRegistry | No two-person rule or multisig | Pre-mainnet: deploy behind 2-of-3 multisig |
-| SM-7 | M-7 | setCampaignStatus no transition validation | DatumCampaigns | Lifecycle can set any status without checking valid transitions | Add status transition matrix |
+| SM-1 | M-1 | Relay co-sig validation for open campaigns | DatumRelay | Open campaigns verify against `claims[0].publisher` — re-ordering claims array breaks validation | Verify against ALL claims or require sorted order | **DONE** |
+| SM-2 | M-2 | BudgetLedger daily cap timestamp manipulation | DatumBudgetLedger | `block.timestamp / 86400` day boundary — validators can shift by ±1 block | Accepted for alpha. Use block numbers for mainnet | Accepted |
+| SM-3 | M-3 | Settlement unbounded batch processing | DatumSettlement | No cap on batch count per call. Could hit gas limit | Add `require(batches.length <= 10)` | **DONE** (already in SE-1) |
+| SM-4 | M-4 | EIP-712 signature malleability | Relay, AttestationVerifier | No `s`-value canonicalization check | Add `require(uint256(s) <= 0x7FFFFFFF...)` | **DONE** (already present) |
+| SM-5 | M-5 | GovernanceSlash weight snapshot timing | DatumGovernanceSlash | `winningWeight` at finalization, not resolution. Early withdrawals reduce denominator | Snapshot at resolution time | **DONE** |
+| SM-6 | M-6 | PauseRegistry single-EOA owner | DatumPauseRegistry | No two-person rule or multisig | Pre-mainnet: deploy behind 2-of-3 multisig | Pre-mainnet |
+| SM-7 | M-7 | setCampaignStatus no transition validation | DatumCampaigns | Lifecycle can set any status without checking valid transitions | Add status transition matrix | **DONE** |
 
 ---
 
@@ -216,10 +216,10 @@
 |----|----------|-------|----------|------|
 | SL-1 | L-1 | sweepDust sends to owner | BudgetLedger | Owner can change between dust accumulation and sweep |
 | SL-2 | L-2 | receive() accepts arbitrary deposits | GovernanceV2 | Mixes with voter stakes |
-| SL-3 | L-3 | No events on Settlement.configure() | Settlement | Unlike other admin setters |
+| SL-3 | L-3 | No events on Settlement.configure() | Settlement | Unlike other admin setters | **DONE** |
 | SL-4 | L-4 | setSlashContract once-only | GovernanceV2 | Prevents correction if wrong address |
 | SL-5 | L-5 | Relay deadline front-run | Relay | Validator can delay inclusion past deadline |
-| SL-6 | L-6 | No max batch size in Relay | Relay | Large arrays could hit gas limit |
+| SL-6 | L-6 | No max batch size in Relay | Relay | Large arrays could hit gas limit | **DONE** |
 | SL-7 | L-7 | categoryId unbounded (0-255) | Campaigns | System uses 1-26 only. Alpha-3: replaced by tags (TX-2) |
 | SL-8 | L-8 | PaymentVault E58 blocks small withdrawals | PaymentVault | Known design tradeoff — dust permanently locked |
 | SL-9 | L-9 | slashAction unrestricted parameter | GovernanceV2 | Only action==0 implemented; others silently ignored |
@@ -309,10 +309,10 @@
 
 | ID | Item | Source Contract | Extracted Logic | Est. Savings | New Satellite Size | Priority |
 |----|------|----------------|-----------------|--------------|-------------------|----------|
-| SE-1 | `DatumClaimValidator` | Settlement | `_validateClaim()` — 11 checks (zero impressions, campaign lookup, bid validation, publisher match, blocklist, clearing CPM, nonce chain, hash chain, Blake2/keccak256 hash). Eliminates campaigns + publishers staticcalls from Settlement. | **~2.5 KB** → Settlement at ~3,600 spare | ~18-22 KB | **HIGH** |
-| SE-2 | `DatumGovernanceHelper` | GovernanceV2 | Slash computation + dust check from `withdraw()`. Slash percentage calc, minimumBalance precompile call, loser-side penalty logic. | **~1.5 KB** → GovernanceV2 at ~2,700 spare | ~12-15 KB | MEDIUM |
-| SE-3 | `DatumCampaignValidator` | Campaigns | S12 blocklist + allowlist checks from `createCampaign()` — 4 publishers cross-contract calls (isBlocked×2, allowlistEnabled, isAllowedAdvertiser). | **~1.5 KB** → Campaigns at ~8,200 spare | ~15-18 KB | MEDIUM (aligns with MG-1 timelock migration) |
-| SE-4 | Relay publisher co-sig | Relay | Publisher attestation verification (40 LOC) from `settleClaimsFor()`. Determines expectedPub, verifies co-sig ecrecover. | **~2 KB** → Relay at ~4,300 spare | ~12-15 KB | LOW (Relay is already thin wrapper) |
+| SE-1 | `DatumClaimValidator` | Settlement | `_validateClaim()` — 11 checks. Eliminates campaigns + publishers staticcalls from Settlement. | **~2.5 KB** → Settlement at ~3,600 spare | ~18-22 KB | **DONE** |
+| SE-2 | `DatumGovernanceHelper` | GovernanceV2 | Slash computation + dust check from `withdraw()`. Eliminates ISystem import (~4 KB savings). | **~4 KB** → GovernanceV2 at ~5,200 spare | ~12-15 KB | **DONE** |
+| SE-3 | `DatumCampaignValidator` | Campaigns | S12 blocklist + allowlist + tag checks from `createCampaign()`. | **~1.5 KB** → Campaigns at ~8,200 spare | ~15-18 KB | **DONE** |
+| SE-4 | Relay publisher co-sig | Relay | Publisher attestation verification (40 LOC) from `settleClaimsFor()`. Determines expectedPub, verifies co-sig ecrecover. | **~2 KB** → Relay at ~4,300 spare | ~12-15 KB | LOW (defer) |
 
 ### Extraction Architecture
 
@@ -483,41 +483,44 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 
 ## Implementation Priority (Alpha-3 Phases)
 
-### Phase 1: Security Fixes + Deploy (Weeks 1-2)
-- DV-1: Deploy alpha-2 to Paseo
-- SM-3: Settlement batch size cap
-- SM-4: EIP-712 signature malleability fix
-- XH-1: Full signing approval popup (extends existing origin check)
-- WS-5: Bounded event log fetching (all web app pages)
+### Phase 1: Security Fixes + Deploy — **DONE**
+- ~~SM-3: Settlement batch size cap~~ (already in SE-1)
+- ~~SM-4: EIP-712 signature malleability fix~~ (already present)
+- ~~SM-1: Relay co-sig open campaign enforcement~~
+- ~~SM-5: Governance weight snapshot at resolution~~
+- ~~SM-7: Status transition matrix~~
+- ~~SL-3: Settlement configure event~~
+- ~~SL-6: Relay batch cap~~
+- XH-1: Full signing approval popup — Open (extension)
+- WS-5: Bounded event log fetching — Open (web app)
 
-### Phase 2: Satellite Extraction (Weeks 2-4)
-- **SE-1: `DatumClaimValidator`** — extract from Settlement (HIGH, +2.5 KB headroom)
-- **SE-2: `DatumGovernanceHelper`** — extract from GovernanceV2 (MEDIUM, +1.5 KB headroom)
-- **SE-3: `DatumCampaignValidator`** — extract from Campaigns (MEDIUM, +1.5 KB headroom, enables MG-1)
-- Update deploy script, cross-contract wiring, tests for 14-16 contracts
+### Phase 2: Satellite Extraction — **DONE**
+- ~~SE-1: `DatumClaimValidator`~~ — extract from Settlement (+2.5 KB headroom)
+- ~~SE-2: `DatumGovernanceHelper`~~ — extract from GovernanceV2 (+4 KB headroom)
+- ~~SE-3: `DatumCampaignValidator`~~ — extract from Campaigns (+1.5 KB headroom)
 
-### Phase 3: Targeting Redesign (Weeks 4-6)
-- TX-1: `DatumTargetingRegistry` contract (uses Campaigns headroom from SE-3)
-- TX-2: Campaign `requiredTags` field
-- TX-3: Tag matching in auction
-- TX-4: SDK tag declaration
-- TX-5: Standard tag dictionary
-- TX-6: Publisher tag management UI
-- TX-7: Campaign tag picker UI
+### Phase 3: Targeting Redesign — **5/7 DONE**
+- ~~TX-1: `DatumTargetingRegistry` contract~~
+- ~~TX-2: Campaign `requiredTags` field~~
+- ~~TX-3: Tag matching in auction~~
+- ~~TX-4: SDK tag declaration~~
+- ~~TX-5: Standard tag dictionary~~
+- TX-6: Publisher tag management UI — Open
+- TX-7: Campaign tag picker UI — Open
 
-### Phase 4: Bot Mitigation A (Weeks 6-8)
-- BM-7: SDK version registry on Publishers
-- BM-2: Per-user settlement cap (`DatumSettlementGuard`, uses Settlement headroom from SE-1)
+### Phase 4: Bot Mitigation A — **DONE**
+- ~~BM-7: SDK version registry on Publishers~~
+- ~~BM-2: Per-user settlement cap~~
 
-### Phase 5: ZK Integration (Weeks 9-12)
-- BM-1: Groth16 circuit + verifier + campaign toggle
-- CH-1: Real ZK verifier replaces stub
+### Phase 5: ZK Integration (Blocked)
+- BM-1: Groth16 circuit + verifier + campaign toggle — Blocked on BN128 precompile
+- CH-1: Real ZK verifier replaces stub — Blocked
 
-### Phase 6: Hardening + Beta UX (Weeks 12+)
-- SM-1, SM-5, SM-7: Remaining contract security mediums
-- XM-*: Extension security mediums
-- UB-*: Beta UX features
-- BM-3 through BM-9: Remaining bot mitigation
+### Phase 6: Hardening + Beta UX
+- XM-*: Extension security mediums — Open
+- UB-*: Beta UX features — Open
+- BM-3 through BM-9: Remaining bot mitigation — Open
+- TX-6, TX-7: Tag UI — Open
 
 ### Pre-Mainnet
 - MG-1 through MG-7: All mainnet gate items
