@@ -583,6 +583,15 @@ async function handleMessage(
       return { preferences };
     }
 
+    // UB-4: Return ads-shown-this-hour count
+    case "GET_AD_RATE": {
+      const stored = await chrome.storage.local.get("impressionTimestamps");
+      const timestamps: number[] = stored.impressionTimestamps ?? [];
+      const oneHourAgo = Date.now() - 3600_000;
+      const count = timestamps.filter((t: number) => t >= oneHourAgo).length;
+      return { count };
+    }
+
     case "UPDATE_USER_PREFERENCES": {
       const updated = await updatePreferences(msg.preferences);
       return { preferences: updated };

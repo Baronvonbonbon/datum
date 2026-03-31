@@ -2,9 +2,12 @@ import { useState, useEffect } from "react";
 import { JsonRpcProvider, Contract, isAddress } from "ethers";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
-import { unlock, isConfigured } from "@shared/walletManager";
+import { unlock, isConfigured, getSigner } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
+import { getTargetingRegistryContract, getProvider } from "@shared/contracts";
+import { getBlockedAddresses, addBlockedAddress, removeBlockedAddress } from "@shared/phishingList";
 
 interface InterestProfileData {
   weights: Record<string, number>;
@@ -59,6 +62,12 @@ export function Settings({ address }: { address: string | null }) {
     });
     loadInterestProfile();
     loadPreferences();
+    // UP-2: Load blocked addresses
+    getBlockedAddresses().then(setBlockedAddresses);
+    // UB-4: Load ads-this-hour count
+    chrome.runtime.sendMessage({ type: "GET_AD_RATE" }).then((resp) => {
+      if (resp?.count !== undefined) setAdsThisHour(resp.count);
+    });
   }, []);
 
   async function loadPreferences() {
@@ -178,6 +187,83 @@ export function Settings({ address }: { address: string | null }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [profileExpanded, setProfileExpanded] = useState(false);
   const categoryHierarchy = buildCategoryHierarchy();
+
+  // TX-6: Publisher tag management
+  const [publisherTagsExpanded, setPublisherTagsExpanded] = useState(false);
+  const [currentTags, setCurrentTags] = useState<Set<string>>(new Set());
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsSaving, setTagsSaving] = useState(false);
+  const [tagsResult, setTagsResult] = useState<string | null>(null);
+  const [tagSearch, setTagSearch] = useState("");
+
+  // UP-2: Address blocklist management
+  const [blocklistExpanded, setBlocklistExpanded] = useState(false);
+  const [blockedAddresses, setBlockedAddresses] = useState<string[]>([]);
+  const [newBlockAddr, setNewBlockAddr] = useState("");
+  const [blockAddrError, setBlockAddrError] = useState<string | null>(null);
+
+  // UB-4: Ads-per-hour counter
+  const [adsThisHour, setAdsThisHour] = useState<number | null>(null);
+
+  // TX-6: Load publisher tags from on-chain TargetingRegistry
+  async function loadPublisherTags() {
+    const pubAddr = settings.publisherAddress || address;
+    if (!pubAddr || !settings.contractAddresses.targetingRegistry) return;
+    setTagsLoading(true);
+    setTagsResult(null);
+    try {
+      const provider = getProvider(settings.rpcUrl);
+      const contract = getTargetingRegistryContract(settings.contractAddresses, provider);
+      const hashes: string[] = await contract.getTags(pubAddr);
+      const matched = new Set<string>();
+      for (const tag of ALL_TAGS) {
+        const h = tagHash(tag);
+        if (hashes.some((ch: string) => ch.toLowerCase() === h.toLowerCase())) {
+          matched.add(tag);
+        }
+      }
+      setCurrentTags(matched);
+    } catch (err) {
+      setTagsResult("Failed to load: " + String(err).slice(0, 80));
+    } finally {
+      setTagsLoading(false);
+    }
+  }
+
+  // TX-6: Save tags on-chain
+  async function saveTags() {
+    if (!address) { setTagsResult("No wallet connected"); return; }
+    setTagsSaving(true);
+    setTagsResult(null);
+    try {
+      const signer = await getSigner(null);
+      const contract = getTargetingRegistryContract(settings.contractAddresses, signer);
+      const hashes = Array.from(currentTags).map(tagHash);
+      const tx = await contract.setTags(hashes);
+      await tx.wait();
+      setTagsResult("Tags saved on-chain.");
+    } catch (err) {
+      setTagsResult("Error: " + String(err).slice(0, 100));
+    } finally {
+      setTagsSaving(false);
+    }
+  }
+
+  // UP-2: Add address to blocklist
+  async function handleAddBlock() {
+    const addr = newBlockAddr.trim();
+    if (!isAddress(addr)) { setBlockAddrError("Invalid address"); return; }
+    setBlockAddrError(null);
+    await addBlockedAddress(addr);
+    setBlockedAddresses(await getBlockedAddresses());
+    setNewBlockAddr("");
+  }
+
+  // UP-2: Remove address from blocklist
+  async function handleRemoveBlock(addr: string) {
+    await removeBlockedAddress(addr);
+    setBlockedAddresses(await getBlockedAddresses());
+  }
 
   function toggleGroup(id: number) {
     setExpandedGroups((prev) => {
@@ -538,7 +624,16 @@ export function Settings({ address }: { address: string | null }) {
             onChange={(e) => setPrefs((p) => ({ ...p, maxAdsPerHour: Number(e.target.value) }))}
             style={{ width: "100%" }}
           />
-          <div style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerHour} / hour</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
+            {adsThisHour !== null ? (
+              <span>
+                <span style={{ color: adsThisHour >= prefs.maxAdsPerHour ? "var(--warn)" : "var(--text)" }}>{adsThisHour}</span>
+                <span> / {prefs.maxAdsPerHour} this hour</span>
+              </span>
+            ) : (
+              `${prefs.maxAdsPerHour} / hour`
+            )}
+          </div>
         </div>
 
         <div style={sectionStyle}>
@@ -713,6 +808,161 @@ export function Settings({ address }: { address: string | null }) {
             ) : (
               <div style={{ color: "var(--text-muted)", fontSize: 11, fontStyle: "italic" }}>
                 No browsing data yet. Visit pages matching campaign categories to build your profile.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* TX-6: Publisher tag management */}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
+        <button
+          onClick={() => {
+            if (!publisherTagsExpanded) loadPublisherTags();
+            setPublisherTagsExpanded(!publisherTagsExpanded);
+          }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%", fontFamily: "inherit" }}
+        >
+          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{publisherTagsExpanded ? "▾" : "▸"}</span>
+          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>Publisher Tags</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: "auto" }}>
+            {currentTags.size > 0 ? `${currentTags.size} selected` : "none"}
+          </span>
+        </button>
+        {publisherTagsExpanded && (
+          <div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
+              Select tags that describe your site's content. Advertisers can require tags to match their campaigns.
+            </div>
+            {/* Search */}
+            <input
+              type="text"
+              value={tagSearch}
+              onChange={(e) => setTagSearch(e.target.value)}
+              placeholder="Search tags..."
+              style={{ ...inputStyle, marginBottom: 8 }}
+            />
+            {tagsLoading ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Loading...</div>
+            ) : (
+              <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 4 }}>
+                {(Object.entries(TAG_DICTIONARY) as [string, string[]][]).map(([dim, tags]) => {
+                  const filtered = tags.filter((t) =>
+                    !tagSearch || (TAG_LABELS[t] ?? t).toLowerCase().includes(tagSearch.toLowerCase())
+                  );
+                  if (filtered.length === 0) return null;
+                  return (
+                    <div key={dim} style={{ marginBottom: 4 }}>
+                      <div style={{ color: "var(--text-muted)", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, padding: "2px 4px" }}>
+                        {dim}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                        {filtered.map((tag) => {
+                          const selected = currentTags.has(tag);
+                          return (
+                            <button
+                              key={tag}
+                              onClick={() => setCurrentTags((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(tag)) next.delete(tag);
+                                else next.add(tag);
+                                return next;
+                              })}
+                              style={{
+                                background: selected ? "rgba(160,160,255,0.15)" : "var(--bg-raised)",
+                                color: selected ? "var(--accent)" : "var(--text-muted)",
+                                border: `1px solid ${selected ? "rgba(160,160,255,0.4)" : "var(--border)"}`,
+                                borderRadius: "var(--radius-sm)",
+                                padding: "2px 7px",
+                                fontSize: 10,
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                              }}
+                            >
+                              {TAG_LABELS[tag] ?? tag}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <button
+                onClick={saveTags}
+                disabled={tagsSaving}
+                style={{ ...primaryBtn, flex: 1, fontSize: 11, padding: "6px 10px" }}
+              >
+                {tagsSaving ? "Saving..." : "Save Tags On-Chain"}
+              </button>
+              <button
+                onClick={loadPublisherTags}
+                disabled={tagsLoading}
+                style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11 }}
+              >
+                Reload
+              </button>
+            </div>
+            {tagsResult && (
+              <div style={{ fontSize: 11, marginTop: 4, color: tagsResult.startsWith("Error") || tagsResult.startsWith("Failed") ? "var(--error)" : "var(--ok)" }}>
+                {tagsResult}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* UP-2: Local address blocklist */}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
+        <button
+          onClick={() => setBlocklistExpanded(!blocklistExpanded)}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%", fontFamily: "inherit" }}
+        >
+          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{blocklistExpanded ? "▾" : "▸"}</span>
+          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>Address Blocklist</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: "auto" }}>
+            {blockedAddresses.length} blocked
+          </span>
+        </button>
+        {blocklistExpanded && (
+          <div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
+              Ads from these advertiser addresses will never be shown to you.
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <input
+                type="text"
+                value={newBlockAddr}
+                onChange={(e) => { setNewBlockAddr(e.target.value); setBlockAddrError(null); }}
+                placeholder="0x..."
+                style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 11 }}
+                onKeyDown={(e) => e.key === "Enter" && handleAddBlock()}
+              />
+              <button
+                onClick={handleAddBlock}
+                style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11 }}
+              >
+                Block
+              </button>
+            </div>
+            {blockAddrError && (
+              <div style={{ color: "var(--error)", fontSize: 11, marginBottom: 4 }}>{blockAddrError}</div>
+            )}
+            {blockedAddresses.length === 0 ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 11, fontStyle: "italic" }}>No blocked addresses.</div>
+            ) : (
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {blockedAddresses.map((addr) => (
+                  <div key={addr} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3, padding: "3px 6px", background: "rgba(252,165,165,0.04)", border: "1px solid rgba(252,165,165,0.1)", borderRadius: "var(--radius-sm)" }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>{addr}</span>
+                    <button
+                      onClick={() => handleRemoveBlock(addr)}
+                      style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", fontSize: 12, padding: "0 4px", fontFamily: "inherit" }}
+                    >×</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

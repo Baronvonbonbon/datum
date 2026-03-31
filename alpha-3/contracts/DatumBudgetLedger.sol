@@ -26,6 +26,8 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     address public campaigns;
     address public settlement;
     address public lifecycle;
+    /// @dev SL-1: Dust recipient fixed at deploy — unaffected by ownership transfers.
+    address public immutable treasury;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "E18");
@@ -61,6 +63,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     constructor() {
         owner = msg.sender;
+        treasury = msg.sender; // SL-1: immutable dust recipient
     }
 
     // -------------------------------------------------------------------------
@@ -205,8 +208,8 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
         require(status >= 3, "E14");  // 3=Completed, 4=Terminated, 5=Expired
 
         _budgets[campaignId].remaining = 0;
-        emit DustSwept(campaignId, owner, dust);
-        _send(owner, dust);
+        emit DustSwept(campaignId, treasury, dust);
+        _send(treasury, dust);
     }
 
     // -------------------------------------------------------------------------

@@ -534,4 +534,11 @@ describe("DatumGovernanceV2", function () {
     // Restore for remaining tests
     await v2.setSlashContract(prev);
   });
+
+  // SL-2: GovernanceV2 receive() rejects direct EOA deposits
+  it("D5: SL-2 direct ETH deposit from EOA reverts", async function () {
+    await expect(
+      owner.sendTransaction({ to: await v2.getAddress(), value: 1n })
+    ).to.be.revertedWith("E03");
+  });
 });

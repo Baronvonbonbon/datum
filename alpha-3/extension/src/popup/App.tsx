@@ -56,6 +56,9 @@ export function App() {
   const [addressCopied, setAddressCopied] = useState(false);
   const [renamingAccount, setRenamingAccount] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
+  // UB-3: Typed DELETE confirmation for wallet removal
+  const [deletingAccount, setDeletingAccount] = useState<string | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
 
   // H2: Timelock pending changes
   const [timelockWarning, setTimelockWarning] = useState<number>(0);
@@ -279,11 +282,12 @@ export function App() {
     }
   }
 
-  // MA-2: Delete a specific account
+  // MA-2 / UB-3: Delete a specific account (after typed DELETE confirmation)
   async function handleDeleteAccount(name: string) {
-    if (!confirm(`Delete account "${name}"? This is irreversible.`)) return;
     try {
       await deleteWallet(name);
+      setDeletingAccount(null);
+      setDeleteConfirmInput("");
       await refreshAccountList();
       const wallets = await listWallets();
       if (wallets.length === 0) {
@@ -688,6 +692,30 @@ export function App() {
                       <button onClick={() => handleRenameAccount(acc.name)} style={{ background: "none", border: "none", color: "var(--ok)", fontSize: 9, cursor: "pointer" }}>ok</button>
                       <button onClick={() => setRenamingAccount(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 9, cursor: "pointer" }}>×</button>
                     </div>
+                  ) : deletingAccount === acc.name ? (
+                    // UB-3: Typed DELETE confirmation
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: "var(--error)", fontSize: 10, marginBottom: 3 }}>Type DELETE to confirm removal of "{acc.name}"</div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input
+                          value={deleteConfirmInput}
+                          onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && deleteConfirmInput === "DELETE") handleDeleteAccount(acc.name);
+                            if (e.key === "Escape") { setDeletingAccount(null); setDeleteConfirmInput(""); }
+                          }}
+                          placeholder="DELETE"
+                          style={{ ...inputStyle, fontSize: 10, padding: "2px 4px", flex: 1, borderColor: deleteConfirmInput === "DELETE" ? "var(--error)" : undefined }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleDeleteAccount(acc.name)}
+                          disabled={deleteConfirmInput !== "DELETE"}
+                          style={{ background: "none", border: "none", color: deleteConfirmInput === "DELETE" ? "var(--error)" : "var(--text-muted)", fontSize: 9, cursor: deleteConfirmInput === "DELETE" ? "pointer" : "default" }}
+                        >del</button>
+                        <button onClick={() => { setDeletingAccount(null); setDeleteConfirmInput(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 9, cursor: "pointer" }}>×</button>
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <div style={{ flex: 1 }}>
@@ -710,7 +738,7 @@ export function App() {
                           style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 9, cursor: "pointer" }}
                         >edit</button>
                         <button
-                          onClick={() => handleDeleteAccount(acc.name)}
+                          onClick={() => { setDeletingAccount(acc.name); setDeleteConfirmInput(""); }}
                           style={{ background: "none", border: "none", color: "var(--error)", fontSize: 9, cursor: "pointer" }}
                         >×</button>
                       </div>

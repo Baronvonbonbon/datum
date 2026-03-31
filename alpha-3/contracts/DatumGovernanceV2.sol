@@ -141,7 +141,11 @@ contract DatumGovernanceV2 {
         pauseRegistry = _pauseRegistry;
     }
 
-    receive() external payable {}
+    /// @dev SL-2: Reject unsolicited ETH from EOAs (direct deposits by users).
+    ///      Contract-originated transfers (e.g. BudgetLedger slash fraction) are allowed.
+    receive() external payable {
+        require(msg.sender != tx.origin, "E03");
+    }
 
     // -------------------------------------------------------------------------
     // Admin

@@ -87,7 +87,7 @@
 | TX-3 | Tag matching in auction | Extension auction.ts: filter campaigns where publisher has all required tags. Replace `categoryBitmask` overlap check. | 3 days | TX-1, TX-2 | **DONE** |
 | TX-4 | SDK tag declaration | Update `datum-sdk.js` to use `data-tags` attribute. Deprecate `data-categories`. | 2 days | TX-3 | **DONE** |
 | TX-5 | Standard tag dictionary | Define initial tag dimensions: `topic:*` (replaces categories), `locale:*` (BCP 47), `platform:*` (desktop/mobile/tablet), `audience:*`. City/geo/interest removed (unverifiable by extension). | 3 days | TX-1 | **DONE** |
-| TX-6 | Publisher tag management UI | Replace category checkboxes in extension PublisherPanel with tag picker. Autocomplete from standard dictionary + custom tags. | 1 week | TX-5 | Open |
+| TX-6 | Publisher tag management UI | Replace category checkboxes in extension PublisherPanel with tag picker. Autocomplete from standard dictionary + custom tags. | 1 week | TX-5 | **DONE** |
 | TX-7 | Campaign tag picker UI | Advertiser selects required tags at campaign creation (web app + extension). Show estimated publisher reach per tag combination. | 1 week | TX-5 | Open |
 
 **Tag dimension examples:**
@@ -214,8 +214,8 @@
 
 | ID | Audit ID | Title | Contract | Note |
 |----|----------|-------|----------|------|
-| SL-1 | L-1 | sweepDust sends to owner | BudgetLedger | Owner can change between dust accumulation and sweep |
-| SL-2 | L-2 | receive() accepts arbitrary deposits | GovernanceV2 | Mixes with voter stakes |
+| SL-1 | L-1 | sweepDust sends to owner | BudgetLedger | Owner can change between dust accumulation and sweep | **DONE** (immutable treasury) |
+| SL-2 | L-2 | receive() accepts arbitrary deposits | GovernanceV2 | Mixes with voter stakes | **DONE** (EOA deposits rejected) |
 | SL-3 | L-3 | No events on Settlement.configure() | Settlement | Unlike other admin setters | **DONE** |
 | SL-4 | L-4 | setSlashContract once-only | GovernanceV2 | Prevents correction if wrong address | **DONE** |
 | SL-5 | L-5 | Relay deadline front-run | Relay | Validator can delay inclusion past deadline |
@@ -375,7 +375,7 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 
 | ID | Item | Description |
 |----|------|-------------|
-| UP-2 | Address blocklist management UI | `phishingList.ts` has API but no panel. Users can't manually block addresses |
+| UP-2 | Address blocklist management UI | `phishingList.ts` has API but no panel. Users can't manually block addresses | — | — | **DONE** |
 | UP-4 | Silenced "Uncategorized" ads | `categoryId=0` bypasses silencing. Alpha-3: replaced by tag-based filtering (TX-3) |
 | UP-8 | Per-campaign frequency cap | `maxAdsPerHour` is global. Single high-bid campaign dominates all slots |
 
@@ -387,8 +387,8 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 |----|--------|------|-------------|
 | UB-1 | AD-3 | Advanced content blocklist | Unicode normalization, leetspeak detection for obfuscation bypass |
 | UB-2 | EA-3 | Behavior chain storage cleanup | Clean up `behaviorChain:*` keys for terminal campaigns or cap per user | **DONE** |
-| UB-3 | WS-4 | Typed DELETE confirmation | Require typing "DELETE" for wallet removal |
-| UB-4 | UP-6 | Ads-per-hour counter display | Show "X/12 ads shown this hour" in UI |
+| UB-3 | WS-4 | Typed DELETE confirmation | Require typing "DELETE" for wallet removal | **DONE** |
+| UB-4 | UP-6 | Ads-per-hour counter display | Show "X/12 ads shown this hour" in UI | **DONE** |
 | UB-5 | E-M2 | Interest profile storage race | Non-atomic `get→mutate→set` — multi-tab race condition |
 | UB-6 | E-M3 | Metadata fetch failure retry UI | Failure count tracking + notification for 3+ consecutive failures |
 | UB-7 | E-M6 | Conviction tooltip | Explain conviction weight × lockup relationship |
@@ -505,7 +505,7 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - ~~TX-3: Tag matching in auction~~
 - ~~TX-4: SDK tag declaration~~
 - ~~TX-5: Standard tag dictionary~~
-- TX-6: Publisher tag management UI — Open
+- ~~TX-6: Publisher tag management UI~~
 - TX-7: Campaign tag picker UI — Open
 
 ### Phase 4: Bot Mitigation A — **DONE**
@@ -519,9 +519,10 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 ### Phase 6: Hardening + Beta UX — **8/14 XM DONE**
 - XM-1, XM-3, XM-5, XM-7, XM-8, XM-9, XM-10, XM-14: Extension security mediums — **DONE**
 - XM-2, XM-4, XM-6, XM-11, XM-12, XM-13: Extension security mediums — Open
-- UB-*: Beta UX features — Open
+- ~~UB-2, UB-3, UB-4~~: Done; remaining UB-* open
+- SL-1, SL-2: Contract security lows — **DONE**
+- ~~TX-6~~, TX-7: Tag UI — Open (TX-7 open)
 - BM-3 through BM-9: Remaining bot mitigation — Open
-- TX-6, TX-7: Tag UI — Open
 
 ### Pre-Mainnet
 - MG-1 through MG-7: All mainnet gate items
