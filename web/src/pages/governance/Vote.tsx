@@ -9,7 +9,7 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { StatusBadge } from "../../components/StatusBadge";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS } from "@shared/conviction";
-import { parseDOT, formatDOT } from "@shared/dot";
+import { parseDOT, parseDOTSafe, formatDOT } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -72,7 +72,7 @@ export function Vote() {
     if (!signer) return;
     setTxState("pending");
     try {
-      const planck = parseDOT(amount);
+      const planck = parseDOTSafe(amount);
       const c = contracts.governanceV2.connect(signer);
       const tx = await c.vote(BigInt(id!), isAye, conviction, { value: planck });
       await tx.wait();
@@ -145,7 +145,7 @@ export function Vote() {
 
           <div>
             <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Stake Amount ({sym})</label>
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0.000001" step="0.01" className="nano-input" required />
+            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
             {amountPlanck > 0n && (
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                 Effective weight: {formatDOT(amountPlanck * BigInt(effectiveWeight))} {sym}

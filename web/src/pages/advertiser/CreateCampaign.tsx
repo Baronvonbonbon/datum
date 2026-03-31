@@ -5,7 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CATEGORY_NAMES } from "@shared/types";
-import { parseDOT } from "@shared/dot";
+import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { ethers } from "ethers";
@@ -57,9 +57,9 @@ export function CreateCampaign() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const budgetPlanck = parseDOT(budget);
-      const dailyCapPlanck = parseDOT(dailyCap);
-      const bidCpmPlanck = parseDOT(bidCpm);
+      const budgetPlanck = parseDOTSafe(budget);
+      const dailyCapPlanck = parseDOTSafe(dailyCap);
+      const bidCpmPlanck = parseDOTSafe(bidCpm);
 
       const c = contracts.campaigns.connect(signer);
       const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, categoryId, {
@@ -151,21 +151,21 @@ export function CreateCampaign() {
           {/* Budget */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Total Budget ({sym})</label>
-            <input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} min="0.0001" step="0.1" className="nano-input" required />
+            <input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>This amount will be escrowed in the smart contract.</div>
           </div>
 
           {/* Daily cap */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Daily Cap ({sym})</label>
-            <input type="number" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} min="0.0001" step="0.01" className="nano-input" required />
+            <input type="number" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum spend per 24h period (~14,400 blocks).</div>
           </div>
 
           {/* Bid CPM */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Bid CPM ({sym} per 1,000 impressions)</label>
-            <input type="number" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)} min="0.000001" step="0.001" className="nano-input" required />
+            <input type="number" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum CPM you'll pay. Actual cost is second-price (Vickrey auction).</div>
           </div>
 
