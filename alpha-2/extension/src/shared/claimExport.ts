@@ -37,6 +37,8 @@ export interface ImportResult {
   claimsImported: number;
   skippedStale: number;
   error?: string;
+  /** XM-13: Warning when on-chain state couldn't be verified (RPC outage) */
+  warning?: string;
 }
 
 /**
@@ -124,6 +126,7 @@ export async function importClaims(
   let chainsImported = 0;
   let claimsImported = 0;
   let skippedStale = 0;
+  let rpcFailures = 0;
 
   // Merge chain states (keep higher nonce)
   for (const [campaignId, importedChain] of Object.entries(exportData.chains)) {
@@ -140,7 +143,8 @@ export async function importClaims(
           continue; // imported state is behind on-chain
         }
       } catch {
-        // RPC failure — allow import but warn
+        // XM-13: Track RPC failures to warn user
+        rpcFailures++;
       }
     }
 
@@ -184,6 +188,8 @@ export async function importClaims(
     chainsImported,
     claimsImported,
     skippedStale,
+    // XM-13: Warn when on-chain verification failed
+    ...(rpcFailures > 0 ? { warning: `Could not verify ${rpcFailures} chain(s) against on-chain state (RPC unavailable). Imported data may be stale.` } : {}),
   };
 }
 

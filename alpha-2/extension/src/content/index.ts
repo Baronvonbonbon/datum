@@ -23,22 +23,23 @@ async function main() {
   // Update local interest profile with page category
   try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category }); } catch {}
 
-  // Detect Publisher SDK (2s timeout) + fetch campaigns in parallel
+  // Detect Publisher SDK (2s timeout) + fetch campaigns + settings in parallel
   let sdkInfo: SDKInfo | null = null;
   let response: any = null;
-  let settingsStored: Record<string, any> = {};
+  let contentSettings: any = {};
   try {
-    [sdkInfo, response, settingsStored] = await Promise.all([
+    [sdkInfo, response, contentSettings] = await Promise.all([
       detectSDK(),
       chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" }),
-      chrome.storage.local.get("settings"),
+      // XL-1: Request only non-sensitive fields via background instead of reading full storage
+      chrome.runtime.sendMessage({ type: "GET_CONTENT_SETTINGS" }),
     ]);
   } catch { return; } // background inactive — skip this page
 
   // Background returns serialized campaigns (all values are strings)
   const campaigns: Array<Record<string, string>> = response?.campaigns ?? [];
 
-  const publisherAddress: string = sdkInfo?.publisher ?? settingsStored.settings?.publisherAddress ?? "";
+  const publisherAddress: string = sdkInfo?.publisher ?? contentSettings?.publisherAddress ?? "";
   const pageCategoryId = CATEGORY_ID_MAP[category] ?? 0;
 
   // Filter active campaigns
@@ -185,9 +186,9 @@ async function main() {
     ? publisherAddress
     : match.publisher;
 
-  const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
+  const ipfsGateway = contentSettings?.ipfsGateway || "https://dweb.link/ipfs/";
 
-  const currencySymbol = getCurrencySymbol((settingsStored.settings?.network ?? "polkadotHub") as NetworkName);
+  const currencySymbol = getCurrencySymbol((contentSettings?.network ?? "polkadotHub") as NetworkName);
 
   const adConfig = {
     campaignId,

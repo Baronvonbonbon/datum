@@ -5,6 +5,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { ethers } from "ethers";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface BlockedEntry {
   address: string;
@@ -28,8 +29,8 @@ export function BlocklistAdmin() {
       const blockFilter = contracts.publishers.filters.AddressBlocked();
       const unblockFilter = contracts.publishers.filters.AddressUnblocked();
       const [blockLogs, unblockLogs] = await Promise.all([
-        contracts.publishers.queryFilter(blockFilter).catch(() => []),
-        contracts.publishers.queryFilter(unblockFilter).catch(() => []),
+        queryFilterBounded(contracts.publishers, blockFilter),
+        queryFilterBounded(contracts.publishers, unblockFilter),
       ]);
 
       const current = new Map<string, BlockedEntry>();

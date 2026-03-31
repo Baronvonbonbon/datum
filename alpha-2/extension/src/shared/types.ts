@@ -318,6 +318,7 @@ export interface StoredSettings {
   publisherAddress: string;
   autoSubmit: boolean;
   autoSubmitIntervalMinutes: number;
+  pollIntervalMinutes: number;  // LP-2: configurable campaign poll interval
   contractAddresses: ContractAddresses;
   ipfsGateway: string;
   pinataApiKey: string;
@@ -346,6 +347,7 @@ export interface UserPreferences {
   blockedCampaigns: string[];     // campaign IDs blocked by user
   silencedCategories: string[];   // category names user doesn't want
   maxAdsPerHour: number;          // rate limit (default 12)
+  maxAdsPerCampaignPerHour: number; // UP-8: per-campaign cap (default 3)
   minBidCpm: string;              // minimum CPM in planck (default "0")
 }
 

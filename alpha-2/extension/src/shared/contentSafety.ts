@@ -118,20 +118,43 @@ const BLOCKED_PHRASES: string[] = [
   "fake documents",
 ];
 
+// UB-1: Leetspeak substitution map for obfuscation bypass
+const LEET_MAP: Record<string, string> = {
+  "@": "a", "4": "a",
+  "3": "e",
+  "1": "i", "!": "i",
+  "0": "o",
+  "$": "s", "5": "s",
+  "7": "t", "+": "t",
+  "8": "b",
+};
+
+/** UB-1: Normalize text for blocklist matching — unicode NFKD + lowercase + leetspeak decode */
+function normalizeForBlocklist(text: string): string {
+  // NFKD decomposes ligatures and compatibility chars (e.g. ﬁ→fi, ① →1)
+  let normalized = text.normalize("NFKD").toLowerCase();
+  // Strip combining diacritical marks (accents) — e.g. é→e, ñ→n
+  normalized = normalized.replace(/[\u0300-\u036f]/g, "");
+  // Apply leetspeak substitutions
+  normalized = normalized.replace(/[@4310$578!+]/g, (ch) => LEET_MAP[ch] ?? ch);
+  return normalized;
+}
+
 /**
  * Case-insensitive substring match on concatenated text fields.
+ * UB-1: Applies unicode normalization + leetspeak decoding to catch obfuscation.
  * Returns true if metadata passes (no blocked phrases found).
  */
 export function passesContentBlocklist(meta: CampaignMetadata): boolean {
-  const text = [
+  const raw = [
     meta.title,
     meta.description,
     meta.category,
     meta.creative.text,
     meta.creative.cta,
-  ]
-    .join(" ")
-    .toLowerCase();
+  ].join(" ");
+
+  const text = normalizeForBlocklist(raw);
 
   for (const phrase of BLOCKED_PHRASES) {
     if (text.includes(phrase)) return false;

@@ -6,6 +6,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { ethers } from "ethers";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 export function Allowlist() {
   const contracts = useContracts();
@@ -30,7 +31,7 @@ export function Allowlist() {
 
       // Get allowlist from AdvertiserAllowlistUpdated events
       const filter = contracts.publishers.filters.AdvertiserAllowlistUpdated(address);
-      const logs = await contracts.publishers.queryFilter(filter).catch(() => []);
+      const logs = await queryFilterBounded(contracts.publishers, filter);
       const current = new Map<string, boolean>();
       for (const log of logs) {
         const { advertiser, allowed } = (log as any).args ?? {};

@@ -1,5 +1,11 @@
-// Local interest profile — builds an on-device category affinity vector
-// from browsing history. Data never leaves the browser.
+// Local interest profile — builds an on-device tag affinity vector
+// from browsing + ad exposure. Data never leaves the browser.
+//
+// Tags are stored by their TAG_LABELS value (e.g., "Crypto & Web3", "English (US)",
+// "Desktop") so they align with auction.ts::getTagWeight() lookups.
+//
+// Sources: page visits (topic from taxonomy), locale (navigator.language / html lang),
+// platform (UA detection), and campaign tag exposure (ads viewed).
 //
 // Uses exponential decay weighting: recent visits count more than old ones.
 // Half-life = 7 days: a visit 7 days ago has half the weight of one today.
@@ -12,23 +18,24 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // prune visits older than 30 day
 // Pending updates are coalesced: if a lock is held, we queue one extra batch
 // and process it after the current holder finishes.
 let _profileLock = false;
-const _profileQueue: string[] = [];
+const _profileQueue: string[][] = [];
 
-interface CategoryVisit {
+interface TagVisit {
+  /** TAG_LABELS value (e.g., "Crypto & Web3", "Desktop", "English (US)") */
   category: string;
   timestamp: number;
 }
 
 export interface UserInterestProfile {
   /** Raw visit log (pruned to 30 days) */
-  visits: CategoryVisit[];
-  /** Normalized weights per category (0.0 - 1.0, max = 1.0) */
+  visits: TagVisit[];
+  /** Normalized weights per tag label (0.0 - 1.0, max = 1.0) */
   weights: Record<string, number>;
-  /** Visit count per category (for confidence calculation) */
+  /** Visit count per tag label (for confidence calculation) */
   visitCounts: Record<string, number>;
 }
 
-function computeWeights(visits: CategoryVisit[]): {
+function computeWeights(visits: TagVisit[]): {
   weights: Record<string, number>;
   visitCounts: Record<string, number>;
 } {
@@ -54,25 +61,28 @@ function computeWeights(visits: CategoryVisit[]): {
 }
 
 export const interestProfile = {
-  /** Record a category visit and recompute weights.
+  /** Record tag label visits and recompute weights.
+   *  Accepts multiple tag labels per call (topic + locale + platform).
    *  UB-5: In-memory lock prevents concurrent get→mutate→set races.
-   *  Concurrent callers queue their category; the lock holder drains the queue. */
-  async updateProfile(category: string): Promise<void> {
+   *  Concurrent callers queue their tags; the lock holder drains the queue. */
+  async updateProfile(tags: string[]): Promise<void> {
+    if (tags.length === 0) return;
     if (_profileLock) {
-      // Coalesce: queue this visit for the current lock holder to include
-      _profileQueue.push(category);
+      _profileQueue.push(tags);
       return;
     }
     _profileLock = true;
     try {
-      // Collect all queued categories (including any that arrived while we were setting the lock)
-      const categories = [category, ..._profileQueue.splice(0)];
+      // Collect all queued tag arrays
+      const allTagSets = [tags, ..._profileQueue.splice(0)];
 
       const profile = await this.getProfile();
       const now = Date.now();
 
-      for (const cat of categories) {
-        profile.visits.push({ category: cat, timestamp: now });
+      for (const tagSet of allTagSets) {
+        for (const tag of tagSet) {
+          profile.visits.push({ category: tag, timestamp: now });
+        }
       }
 
       // Prune old visits (>30 days)
@@ -101,8 +111,8 @@ export const interestProfile = {
     await chrome.storage.local.remove(STORAGE_KEY);
   },
 
-  /** Get normalized weight for a single category (0.0 if not visited) */
-  getNormalizedWeight(profile: UserInterestProfile, categoryName: string): number {
-    return profile.weights[categoryName] ?? 0;
+  /** Get normalized weight for a single tag label (0.0 if not visited) */
+  getNormalizedWeight(profile: UserInterestProfile, tagLabel: string): number {
+    return profile.weights[tagLabel] ?? 0;
   },
 };

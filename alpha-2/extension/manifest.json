@@ -33,10 +33,7 @@
 
   "permissions": [
     "storage",
-    "alarms",
-    "tabs",
-    "activeTab",
-    "offscreen"
+    "alarms"
   ],
 
   "host_permissions": [

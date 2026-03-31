@@ -36,13 +36,24 @@ export function Settings({ address }: { address: string | null }) {
     blockedCampaigns: [],
     silencedCategories: [],
     maxAdsPerHour: 12,
+    maxAdsPerCampaignPerHour: 3,
     minBidCpm: "0",
   });
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   useEffect(() => {
-    chrome.storage.local.get("settings", (stored) => {
-      if (stored.settings) setSettings(stored.settings);
+    chrome.storage.local.get("settings", async (stored) => {
+      const base = stored.settings ?? DEFAULT_SETTINGS;
+      // XM-11: Load pinataApiKey from session storage (not persisted to disk)
+      try {
+        const session = await chrome.storage.session.get("pinataApiKey");
+        if (session.pinataApiKey) base.pinataApiKey = session.pinataApiKey;
+        // Migrate: if localStorage still has a key, move it to session and clear
+        else if (base.pinataApiKey) {
+          await chrome.storage.session.set({ pinataApiKey: base.pinataApiKey });
+        }
+      } catch { /* session storage unavailable in test env */ }
+      setSettings(base);
     });
     // Check auto-submit authorization via background (B1: encrypted)
     chrome.runtime.sendMessage({ type: "CHECK_AUTO_SUBMIT" }).then((resp) => {
@@ -121,7 +132,12 @@ export function Settings({ address }: { address: string | null }) {
     } else {
       setRpcWarning(null);
     }
-    await chrome.storage.local.set({ settings });
+    // XM-11: Store pinataApiKey in session storage only (not persisted to disk)
+    const safe = { ...settings, pinataApiKey: "" };
+    await chrome.storage.local.set({ settings: safe });
+    try {
+      await chrome.storage.session.set({ pinataApiKey: settings.pinataApiKey });
+    } catch { /* session storage unavailable in test env */ }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     chrome.runtime.sendMessage({ type: "SETTINGS_UPDATED", settings });
@@ -378,6 +394,25 @@ export function Settings({ address }: { address: string | null }) {
         />
       </div>
 
+      {/* LP-2: Campaign poll interval */}
+      <div style={sectionStyle}>
+        <label style={labelStyle}>Campaign poll interval (minutes)</label>
+        <input
+          type="number"
+          value={settings.pollIntervalMinutes ?? 5}
+          min={1}
+          max={30}
+          onChange={(e) => setSettings((s) => ({
+            ...s,
+            pollIntervalMinutes: Math.max(1, Math.min(30, parseInt(e.target.value) || 5)),
+          }))}
+          style={{ ...inputStyle, width: 80 }}
+        />
+        <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 2 }}>
+          How often to check for new campaigns (1-30 min).
+        </div>
+      </div>
+
       {/* Pinata API Key (H3: IPFS pinning) */}
       <div style={sectionStyle}>
         <label style={labelStyle}>Pinata API Key (JWT)</label>
@@ -409,7 +444,7 @@ export function Settings({ address }: { address: string | null }) {
           </div>
         )}
         <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 2 }}>
-          Get a free key at pinata.cloud. Used to pin campaign metadata from My Ads tab.
+          Get a free key at pinata.cloud. Session-only — not persisted to disk.
         </div>
       </div>
 
@@ -512,7 +547,7 @@ export function Settings({ address }: { address: string | null }) {
         </div>
 
         <div style={sectionStyle}>
-          <label style={labelStyle}>Max ads per hour</label>
+          <label style={labelStyle}>Max ads per hour (global)</label>
           <input
             type="range"
             min={1} max={30}
@@ -521,6 +556,18 @@ export function Settings({ address }: { address: string | null }) {
             style={{ width: "100%" }}
           />
           <div style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerHour} / hour</div>
+        </div>
+
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Max per campaign per hour</label>
+          <input
+            type="range"
+            min={1} max={10}
+            value={prefs.maxAdsPerCampaignPerHour ?? 3}
+            onChange={(e) => setPrefs((p) => ({ ...p, maxAdsPerCampaignPerHour: Number(e.target.value) }))}
+            style={{ width: "100%" }}
+          />
+          <div style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>{prefs.maxAdsPerCampaignPerHour ?? 3} / hour per campaign</div>
         </div>
 
         <div style={sectionStyle}>
@@ -626,10 +673,10 @@ export function Settings({ address }: { address: string | null }) {
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, maxAdsPerCampaignPerHour: 3, minBidCpm: "0" });
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" },
+              preferences: { blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, maxAdsPerCampaignPerHour: 3, minBidCpm: "0" },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}

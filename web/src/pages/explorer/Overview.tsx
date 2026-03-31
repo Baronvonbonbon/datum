@@ -4,6 +4,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface Stats {
   totalCampaigns: number;
@@ -56,7 +57,7 @@ export function Overview() {
       let totalImpressions = 0;
       try {
         const filter = contracts.settlement.filters.ClaimSettled();
-        const logs = await contracts.settlement.queryFilter(filter);
+        const logs = await queryFilterBounded(contracts.settlement, filter);
         totalImpressions = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
       } catch { /* settlement not configured */ }
 

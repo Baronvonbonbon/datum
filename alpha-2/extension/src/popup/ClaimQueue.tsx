@@ -747,6 +747,11 @@ export function ClaimQueue({ address }: Props) {
           {importResult.skippedStale > 0 && (
             <span style={{ color: "var(--text-muted)" }}> ({importResult.skippedStale} skipped — already settled)</span>
           )}
+          {importResult.warning && (
+            <div style={{ marginTop: 6, color: "rgba(252,211,77,0.9)", fontSize: 11 }}>
+              {importResult.warning}
+            </div>
+          )}
         </div>
       )}
 

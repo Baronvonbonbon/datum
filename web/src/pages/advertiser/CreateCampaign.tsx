@@ -8,6 +8,7 @@ import { CATEGORY_NAMES } from "@shared/types";
 import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 
 export function CreateCampaign() {
@@ -23,6 +24,9 @@ export function CreateCampaign() {
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.001");
   const [categoryId, setCategoryId] = useState(26);
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [showTags, setShowTags] = useState(false);
+  const [tagSearch, setTagSearch] = useState("");
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
   const [createdId, setCreatedId] = useState<number | null>(null);
@@ -61,8 +65,9 @@ export function CreateCampaign() {
       const dailyCapPlanck = parseDOTSafe(dailyCap);
       const bidCpmPlanck = parseDOTSafe(bidCpm);
 
+      const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const c = contracts.campaigns.connect(signer);
-      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, categoryId, {
+      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, categoryId, tagHashes, {
         value: budgetPlanck,
       });
       const receipt = await tx.wait();
@@ -169,14 +174,81 @@ export function CreateCampaign() {
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum CPM you'll pay. Actual cost is second-price (Vickrey auction).</div>
           </div>
 
-          {/* Category */}
+          {/* Category (legacy) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Category</label>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Primary Category</label>
             <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className="nano-select" style={{ cursor: "pointer" }}>
               {Array.from({ length: 26 }, (_, i) => i + 1).map((id) => (
                 <option key={id} value={id}>{id}. {CATEGORY_NAMES[id]}</option>
               ))}
             </select>
+          </div>
+
+          {/* TX-7: Tag-based targeting */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Targeting Tags</label>
+              <button type="button" onClick={() => setShowTags(!showTags)} style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 12, cursor: "pointer", padding: 0 }}>
+                {showTags ? "▼ Hide" : "▶ Configure"}
+              </button>
+              {selectedTags.size > 0 && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{selectedTags.size} tag{selectedTags.size !== 1 ? "s" : ""} selected</span>
+              )}
+            </div>
+            {selectedTags.size > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                {[...selectedTags].map((tag) => (
+                  <span key={tag} className="nano-badge" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    {TAG_LABELS[tag] ?? tag}
+                    <button type="button" onClick={() => { const s = new Set(selectedTags); s.delete(tag); setSelectedTags(s); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {showTags && (
+              <div className="nano-card" style={{ padding: 10, marginTop: 4 }}>
+                <input
+                  type="text"
+                  value={tagSearch}
+                  onChange={(e) => setTagSearch(e.target.value)}
+                  placeholder="Search tags..."
+                  className="nano-input"
+                  style={{ marginBottom: 8, fontSize: 12 }}
+                />
+                <div style={{ maxHeight: 200, overflow: "auto" }}>
+                  {Object.entries(TAG_DICTIONARY).map(([dimension, tags]) => {
+                    const filtered = tags.filter((t) => {
+                      if (!tagSearch) return true;
+                      const label = (TAG_LABELS[t] ?? t).toLowerCase();
+                      return label.includes(tagSearch.toLowerCase()) || t.includes(tagSearch.toLowerCase());
+                    });
+                    if (filtered.length === 0) return null;
+                    return (
+                      <div key={dimension} style={{ marginBottom: 8 }}>
+                        <div style={{ color: "var(--accent)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{dimension}</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {filtered.map((tag) => {
+                            const active = selectedTags.has(tag);
+                            return (
+                              <button key={tag} type="button" onClick={() => {
+                                const s = new Set(selectedTags);
+                                if (active) s.delete(tag); else if (s.size < 8) s.add(tag);
+                                setSelectedTags(s);
+                              }} className={active ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "3px 8px", fontSize: 11 }}>
+                                {TAG_LABELS[tag] ?? tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>
+                  Max 8 tags. Publishers must declare all selected tags to serve your ad.
+                </div>
+              </div>
+            )}
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />

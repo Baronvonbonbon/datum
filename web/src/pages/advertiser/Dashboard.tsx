@@ -7,6 +7,7 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { ethers } from "ethers";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface MyCampaign {
   id: number;
@@ -32,14 +33,16 @@ export function AdvertiserDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const nextId = Number(await contracts.campaigns.nextCampaignId());
-      const mine: MyCampaign[] = [];
+      // WS-6: Use indexed CampaignCreated event to find user's campaigns
+      // instead of scanning all IDs sequentially
+      const filter = contracts.campaigns.filters.CampaignCreated(null, address);
+      const logs = await queryFilterBounded(contracts.campaigns, filter);
+      const myIds = logs.map((log: any) => Number(log.args?.campaignId ?? log.args?.[0]));
 
+      const mine: MyCampaign[] = [];
       await Promise.all(
-        Array.from({ length: nextId }, (_, i) => i).map(async (id) => {
+        myIds.map(async (id) => {
           try {
-            const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
-            if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
             const c = await contracts.campaigns.getCampaignForSettlement(BigInt(id));
             let remaining = 0n;
             try {
@@ -47,10 +50,10 @@ export function AdvertiserDashboard() {
             } catch { /* no budgetLedger */ }
             let metadataHash = "0x" + "0".repeat(64);
             try {
-              const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-              const logs = await contracts.campaigns.queryFilter(filter);
-              if (logs.length > 0) {
-                metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
+              const mFilter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
+              const mLogs = await queryFilterBounded(contracts.campaigns, mFilter);
+              if (mLogs.length > 0) {
+                metadataHash = (mLogs[mLogs.length - 1] as any).args?.metadataHash ?? metadataHash;
               }
             } catch { /* no events */ }
             mine.push({

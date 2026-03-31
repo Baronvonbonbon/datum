@@ -12,17 +12,102 @@ import { getCurrencySymbol } from "@shared/networks";
 import { NetworkName } from "@shared/types";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
-import { tagHash } from "@shared/tagDictionary";
+import { tagHash, TAG_LABELS } from "@shared/tagDictionary";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
+
+/** Map taxonomy category slug → tag label for profile storage */
+const CATEGORY_TO_TAG_LABEL: Record<string, string> = {
+  "arts-entertainment": "Arts & Entertainment",
+  "autos-vehicles": "Autos & Vehicles",
+  "beauty-fitness": "Beauty & Fitness",
+  "books-literature": "Books & Literature",
+  "business-industrial": "Business & Industrial",
+  "computers-electronics": "Computers & Electronics",
+  "finance": "Finance",
+  "food-drink": "Food & Drink",
+  "games": "Games",
+  "health": "Health",
+  "hobbies-leisure": "Hobbies & Leisure",
+  "home-garden": "Home & Garden",
+  "internet-telecom": "Internet & Telecom",
+  "jobs-education": "Jobs & Education",
+  "law-government": "Law & Government",
+  "news": "News",
+  "online-communities": "Online Communities",
+  "people-society": "People & Society",
+  "pets-animals": "Pets & Animals",
+  "real-estate": "Real Estate",
+  "reference": "Reference",
+  "science": "Science",
+  "shopping": "Shopping",
+  "sports": "Sports",
+  "travel": "Travel",
+  "crypto-web3": "Crypto & Web3",
+};
+
+/** Detect locale tag from page and browser.
+ *  Returns TAG_LABELS value (e.g., "English (US)") or null. */
+function detectLocaleTag(): string | null {
+  // 1. <html lang="..."> attribute (page-level, most specific)
+  const htmlLang = document.documentElement.lang?.trim().toLowerCase();
+  // 2. navigator.language (browser-level fallback)
+  const navLang = navigator.language?.trim().toLowerCase();
+
+  const lang = htmlLang || navLang;
+  if (!lang) return null;
+
+  // Map to closest locale tag — check specific (en-US) before generic (en)
+  const LOCALE_MAP: Record<string, string> = {
+    "en-us": "English (US)",
+    "en-gb": "English (UK)",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "en": "English",
+  };
+
+  // Try exact match first (e.g., "en-us")
+  const exact = LOCALE_MAP[lang];
+  if (exact) return exact;
+
+  // Try base language (e.g., "en-us" → "en")
+  const base = lang.split("-")[0];
+  return LOCALE_MAP[base] ?? null;
+}
+
+/** Detect platform tag from user agent.
+ *  Returns TAG_LABELS value ("Desktop", "Mobile", "Tablet"). */
+function detectPlatformTag(): string {
+  const ua = navigator.userAgent;
+  // Tablet detection: iPad or Android tablet (no "Mobile" token)
+  if (/iPad/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return "Tablet";
+  // Mobile: iPhone, Android+Mobile, various mobile browsers
+  if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return "Mobile";
+  return "Desktop";
+}
 
 async function main() {
   const category = classifyPage(document.title, window.location.hostname);
   if (!category) return;
 
-  // Update local interest profile with page category
-  try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", category }); } catch {}
+  // Build tag labels for this page visit: topic + locale + platform
+  const tags: string[] = [];
+  const topicLabel = CATEGORY_TO_TAG_LABEL[category];
+  if (topicLabel) tags.push(topicLabel);
+  const localeLabel = detectLocaleTag();
+  if (localeLabel) tags.push(localeLabel);
+  const platformLabel = detectPlatformTag();
+  tags.push(platformLabel);
+
+  // Update local interest profile with page tags
+  try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", tags, category }); } catch {}
 
   // Detect Publisher SDK (2s timeout) + fetch campaigns in parallel
   let sdkInfo: SDKInfo | null = null;
@@ -237,6 +322,8 @@ async function main() {
   }
 
   // Notify background to build a claim (with auction clearing CPM + attestation)
+  // Include campaign tags so background can record ad-exposure in interest profile
+  const campaignTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
   try {
     chrome.runtime.sendMessage({
       type: "IMPRESSION_RECORDED",
@@ -246,6 +333,7 @@ async function main() {
       publisherAddress: effectivePublisher,
       clearingCpmPlanck,
       attestation: attestation ?? undefined,
+      campaignTags,
     });
   } catch {}
 }

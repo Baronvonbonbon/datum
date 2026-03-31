@@ -45,6 +45,14 @@ export function bytes32ToCid(hex: string): string {
  */
 export function metadataUrl(hex: string, gateway: string): string | null {
   if (!hex || hex === "0x" + "0".repeat(64)) return null;
+  // Validate gateway is a proper HTTPS URL (or localhost for dev)
+  try {
+    const parsed = new URL(gateway);
+    const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    if (!isLocal && parsed.protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
   const cid = bytes32ToCid(hex);
   // Ensure gateway ends with /
   const gw = gateway.endsWith("/") ? gateway : gateway + "/";

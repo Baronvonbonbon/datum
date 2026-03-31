@@ -97,5 +97,10 @@ export function humanizeError(err: unknown): string {
     return "Insufficient funds for this transaction.";
   }
 
-  return s;
+  // Strip RPC URLs and internal details from error messages
+  const sanitized = s
+    .replace(/https?:\/\/[^\s"')]+/g, "[RPC]")
+    .replace(/at\s+\S+\s+\(.*?\)/g, "")
+    .replace(/\{[^}]{200,}\}/g, "[details omitted]");
+  return sanitized.length > 300 ? sanitized.slice(0, 300) + "…" : sanitized;
 }

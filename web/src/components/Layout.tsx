@@ -134,7 +134,7 @@ export function Layout() {
           {NAV_ITEMS.map((item) => (
             <div key={item.path}>
               {(item as any).external ? (
-                <a href={item.path} className="nano-navlink" style={{ color: "var(--text-muted)" }}>
+                <a href={item.path} className="nano-navlink" style={{ color: "var(--text-muted)" }} target="_blank" rel="noopener noreferrer">
                   {item.label}
                 </a>
               ) : (

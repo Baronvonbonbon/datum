@@ -7,6 +7,7 @@ function defaultPrefs(overrides: Partial<UserPreferences> = {}): UserPreferences
     blockedCampaigns: [],
     silencedCategories: [],
     maxAdsPerHour: 12,
+    maxAdsPerCampaignPerHour: 3,
     minBidCpm: "0",
     ...overrides,
   };

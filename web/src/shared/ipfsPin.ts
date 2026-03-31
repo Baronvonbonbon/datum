@@ -154,8 +154,28 @@ async function pinViaNftStorage(apiKey: string, metadata: CampaignMetadata): Pro
   return { ok: true, cid };
 }
 
+/** Validate custom endpoint URL — reject private/internal IPs and non-HTTPS */
+function validateEndpointUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    // Reject non-HTTPS (allow localhost for dev)
+    const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+    if (!isLocal && parsed.protocol !== "https:") return "Custom endpoint must use HTTPS";
+    // Reject internal/private hostnames
+    const host = parsed.hostname.toLowerCase();
+    if (host === "metadata.google.internal" || host.endsWith(".internal")) return "Internal hostnames are not allowed";
+    if (/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)/.test(host)) return "Private IP addresses are not allowed";
+    if (host === "0.0.0.0" || host === "[::]") return "Invalid hostname";
+    return null;
+  } catch {
+    return "Invalid URL format";
+  }
+}
+
 async function pinViaCustom(apiKey: string, endpoint: string, metadata: CampaignMetadata): Promise<PinResult> {
   if (!endpoint.trim()) return { ok: false, error: "Custom endpoint URL is required" };
+  const urlError = validateEndpointUrl(endpoint.trim());
+  if (urlError) return { ok: false, error: urlError };
   const response = await fetch(endpoint.trim(), {
     method: "POST",
     headers: {

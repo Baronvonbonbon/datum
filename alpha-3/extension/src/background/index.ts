@@ -21,6 +21,7 @@ import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shar
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
+import { tagLabel } from "@shared/tagDictionary";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -276,6 +277,20 @@ async function handleMessage(
         console.error("[DATUM] claimBuilder.onImpression failed:", err);
         return { ok: false, reason: "claim_build_error" };
       }
+
+      // Record ad-exposure tags into interest profile (weighted by viewing)
+      const campaignTags: string[] = (msg as any).campaignTags ?? [];
+      if (campaignTags.length > 0) {
+        const adTagLabels: string[] = [];
+        for (const hash of campaignTags) {
+          const label = tagLabel(hash);
+          if (label) adTagLabels.push(label);
+        }
+        if (adTagLabels.length > 0) {
+          await interestProfile.updateProfile(adTagLabels);
+        }
+      }
+
       return { ok: true };
     }
 
@@ -502,7 +517,7 @@ async function handleMessage(
     }
 
     case "UPDATE_INTEREST": {
-      await interestProfile.updateProfile(msg.category);
+      await interestProfile.updateProfile(msg.tags ?? []);
       return { ok: true };
     }
 

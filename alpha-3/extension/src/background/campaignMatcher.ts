@@ -5,20 +5,7 @@
 // Selection: weighted random (probability proportional to score)
 
 import { UserInterestProfile } from "./interestProfile";
-
-// Maps on-chain categoryId → taxonomy category name
-const CATEGORY_NAME_MAP: Record<number, string> = {
-  1: "crypto",
-  2: "finance",
-  3: "technology",
-  4: "gaming",
-  5: "news",
-  6: "privacy",
-  7: "open-source",
-  8: "science",
-  9: "environment",
-  10: "health",
-};
+import { CATEGORY_TO_TAG, TAG_LABELS } from "@shared/tagDictionary";
 
 interface CampaignCandidate {
   id: string;
@@ -33,7 +20,8 @@ function scoreCampaign(
   profile: UserInterestProfile,
   pageCategory: string
 ): number {
-  const catName = CATEGORY_NAME_MAP[Number(campaign.categoryId)] ?? "";
+  const catTag = CATEGORY_TO_TAG[Number(campaign.categoryId)] ?? "";
+  const catName = catTag ? (TAG_LABELS[catTag] ?? "") : "";
 
   // Interest weight from profile (0.0 if no visits to this category)
   const interestWeight = profile.weights[catName] ?? 0;

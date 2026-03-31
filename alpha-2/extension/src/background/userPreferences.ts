@@ -7,6 +7,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   blockedCampaigns: [],
   silencedCategories: [],
   maxAdsPerHour: 12,
+  maxAdsPerCampaignPerHour: 3,
   minBidCpm: "0",
 };
 
@@ -84,7 +85,7 @@ export async function checkRateLimit(maxAdsPerHour: number): Promise<boolean> {
 }
 
 /** Record an impression timestamp for rate limiting */
-export async function recordImpressionTime(): Promise<void> {
+export async function recordImpressionTime(campaignId?: string): Promise<void> {
   const key = "impressionTimestamps";
   const stored = await chrome.storage.local.get(key);
   const timestamps: number[] = stored[key] ?? [];
@@ -92,4 +93,24 @@ export async function recordImpressionTime(): Promise<void> {
   const recent = timestamps.filter((t) => t >= oneHourAgo);
   recent.push(Date.now());
   await chrome.storage.local.set({ [key]: recent });
+
+  // UP-8: Per-campaign frequency tracking
+  if (campaignId) {
+    const cKey = `campaignImpressions:${campaignId}`;
+    const cStored = await chrome.storage.local.get(cKey);
+    const cTimestamps: number[] = cStored[cKey] ?? [];
+    const cRecent = cTimestamps.filter((t) => t >= oneHourAgo);
+    cRecent.push(Date.now());
+    await chrome.storage.local.set({ [cKey]: cRecent });
+  }
+}
+
+/** UP-8: Check per-campaign rate limit — returns true if within limit */
+export async function checkCampaignRateLimit(campaignId: string, maxPerHour: number): Promise<boolean> {
+  const key = `campaignImpressions:${campaignId}`;
+  const stored = await chrome.storage.local.get(key);
+  const timestamps: number[] = stored[key] ?? [];
+  const oneHourAgo = Date.now() - 3600_000;
+  const recent = timestamps.filter((t) => t >= oneHourAgo);
+  return recent.length < maxPerHour;
 }

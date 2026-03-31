@@ -5,6 +5,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { bitmaskToCategories } from "../../components/CategoryPicker";
 import { CATEGORY_NAMES } from "@shared/types";
 import { getExplorerUrl } from "@shared/networks";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface PublisherRow {
   address: string;
@@ -33,7 +34,7 @@ export function Publishers() {
     try {
       // Get publisher addresses from PublisherRegistered events
       const filter = contracts.publishers.filters.PublisherRegistered();
-      const logs = await contracts.publishers.queryFilter(filter);
+      const logs = await queryFilterBounded(contracts.publishers, filter);
       const addresses = [...new Set(logs.map((l: any) => l.args?.publisher as string).filter(Boolean))];
 
       const rows = await Promise.all(addresses.map(async (addr) => {

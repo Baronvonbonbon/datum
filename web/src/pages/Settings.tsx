@@ -90,6 +90,11 @@ export function Settings() {
             placeholder="https://..."
             className="nano-input"
           />
+          {settings.rpcUrl && settings.rpcUrl.startsWith("http://") && !settings.rpcUrl.startsWith("http://localhost") && !settings.rpcUrl.startsWith("http://127.0.0.1") && (
+            <div style={{ color: "var(--warn)", fontSize: 11, marginTop: 4 }}>
+              Warning: Using unencrypted HTTP. Transactions and wallet data may be intercepted. Use HTTPS.
+            </div>
+          )}
         </div>
       </Section>
 
@@ -151,6 +156,9 @@ export function Settings() {
               placeholder={providerInfo.placeholder}
               className="nano-input"
             />
+            <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
+              Session-only — not persisted to disk. You'll re-enter this after closing the browser.
+            </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -199,11 +207,17 @@ export function Settings() {
                   </div>
                   <input
                     value={addr}
-                    onChange={(e) => setContractAddress(key as any, e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      if (v === "" || /^0x[0-9a-fA-F]{0,40}$/.test(v)) setContractAddress(key as any, v);
+                    }}
                     placeholder="0x..."
                     className="nano-input"
                     style={{ fontFamily: "monospace" }}
                   />
+                  {addr && !/^0x[0-9a-fA-F]{40}$/.test(addr) && (
+                    <div style={{ color: "var(--warn)", fontSize: 10, marginTop: 2 }}>Invalid address format</div>
+                  )}
                 </div>
               );
             })}

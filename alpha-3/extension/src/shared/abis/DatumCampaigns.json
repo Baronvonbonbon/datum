@@ -214,6 +214,11 @@
           "internalType": "uint8",
           "name": "categoryId",
           "type": "uint8"
+        },
+        {
+          "internalType": "bytes32[]",
+          "name": "requiredTags",
+          "type": "bytes32[]"
         }
       ],
       "name": "createCampaign",

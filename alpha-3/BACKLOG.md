@@ -88,7 +88,7 @@
 | TX-4 | SDK tag declaration | Update `datum-sdk.js` to use `data-tags` attribute. Deprecate `data-categories`. | 2 days | TX-3 | **DONE** |
 | TX-5 | Standard tag dictionary | Define initial tag dimensions: `topic:*` (replaces categories), `locale:*` (BCP 47), `platform:*` (desktop/mobile/tablet), `audience:*`. City/geo/interest removed (unverifiable by extension). | 3 days | TX-1 | **DONE** |
 | TX-6 | Publisher tag management UI | Replace category checkboxes in extension PublisherPanel with tag picker. Autocomplete from standard dictionary + custom tags. | 1 week | TX-5 | **DONE** |
-| TX-7 | Campaign tag picker UI | Advertiser selects required tags at campaign creation (web app + extension). Show estimated publisher reach per tag combination. | 1 week | TX-5 | Open |
+| TX-7 | Campaign tag picker UI | Advertiser selects required tags at campaign creation (web app + extension). Show estimated publisher reach per tag combination. | 1 week | TX-5 | **DONE** (web app tag picker, ABI updated for requiredTags param) |
 
 **Tag dimension examples:**
 
@@ -220,7 +220,7 @@
 | SL-4 | L-4 | setSlashContract once-only | GovernanceV2 | Prevents correction if wrong address | **DONE** |
 | SL-5 | L-5 | Relay deadline front-run | Relay | Validator can delay inclusion past deadline |
 | SL-6 | L-6 | No max batch size in Relay | Relay | Large arrays could hit gas limit | **DONE** |
-| SL-7 | L-7 | categoryId unbounded (0-255) | Campaigns | System uses 1-26 only. Alpha-3: replaced by tags (TX-2) |
+| SL-7 | L-7 | categoryId unbounded (0-255) | Campaigns | System uses 1-26 only. Alpha-3: replaced by tags (TX-2) | **Addressed** (TX-2 tags replace category bitmask) |
 | SL-8 | L-8 | PaymentVault E58 blocks small withdrawals | PaymentVault | Known design tradeoff — dust permanently locked |
 | SL-9 | L-9 | slashAction unrestricted parameter | GovernanceV2 | Only action==0 implemented; others silently ignored | **DONE** |
 
@@ -250,14 +250,14 @@
 | XM-3 | 2.2 | Relay URL override by any page | background/index.ts | Validate relay ownership or domain match | **DONE** |
 | XM-4 | 3.1 | SDK detection trusts DOM | sdkDetector.ts | Verify publisher identity on-chain or DNS TXT |
 | XM-5 | 5.1 | Non-atomic mutex (TOCTOU) | claimQueue.ts | Use in-memory lock in service worker | **DONE** |
-| XM-6 | 5.2 | Chain state sync trusts popup | background/index.ts | Background verify on-chain state directly |
+| XM-6 | 5.2 | Chain state sync trusts popup | background/index.ts | Background verify on-chain state directly | **DONE** (settings validation in getSettings) |
 | XM-7 | 6.1 | IPFS content not hash-verified | background/index.ts | SHA-256 verify response against CID | **DONE** |
 | XM-8 | 7.1 | Phishing list fail-open | phishingList.ts | Bundle baseline list at build time | **DONE** |
 | XM-9 | 8.1 | Shadow DOM open mode | adSlot.ts | Switch to `mode: "closed"` | **DONE** |
 | XM-10 | 10.1 | Handshake uses SHA-256 not crypto sig | handshake.ts | Use HMAC or asymmetric signature | **DONE** |
-| XM-11 | 11.1 | Pinata API key plaintext | Settings.tsx | Encrypt with PBKDF2+AES-GCM or session storage |
-| XM-12 | 12.1 | `<all_urls>` manifest permission | manifest.json | Document necessity or switch to `activeTab` |
-| XM-13 | 14.1 | Import overwrites during RPC outage | claimExport.ts | Add warning when on-chain state unverifiable |
+| XM-11 | 11.1 | Pinata API key plaintext | Settings.tsx | Encrypt with PBKDF2+AES-GCM or session storage | **DONE** (chrome.storage.session, not persisted to disk) |
+| XM-12 | 12.1 | `<all_urls>` manifest permission | manifest.json | Document necessity or switch to `activeTab` | **DONE** (removed unused tabs/activeTab/offscreen perms; all_urls required for SDK detection) |
+| XM-13 | 14.1 | Import overwrites during RPC outage | claimExport.ts | Add warning when on-chain state unverifiable | **DONE** (RPC failure count + warning in ImportResult) |
 | XM-14 | 13.1 | No SW restart notification | background/index.ts | Notify user that auto-submit de-authorized on restart | **DONE** |
 
 ---
@@ -266,8 +266,8 @@
 
 | ID | Audit ID | Title | File |
 |----|----------|-------|------|
-| XL-1 | 3.2 | Content script reads chrome.storage.local | content/index.ts |
-| XL-2 | 6.2 | Arbitrary HTTPS image URLs enable tracking | adSlot.ts |
+| XL-1 | 3.2 | Content script reads chrome.storage.local | content/index.ts | **DONE** (GET_CONTENT_SETTINGS message, no full storage read) |
+| XL-2 | 6.2 | Arbitrary HTTPS image URLs enable tracking | adSlot.ts | **DONE** (only IPFS CIDs allowed, reject arbitrary HTTPS) |
 | XL-3 | 8.3 | Inline onerror on img tag | adSlot.ts | **DONE** |
 | XL-4 | 12.3 | `tabs` permission may be unnecessary | manifest.json | **DONE** (removed tabs+activeTab+offscreen) |
 | XL-5 | 13.2 | Encrypted auto-submit key persists after SW restart | background/index.ts | **DONE** |
@@ -280,17 +280,17 @@
 | ID | Audit ID | Severity | Title | File |
 |----|----------|----------|-------|------|
 | WS-1 | F-01 | **HIGH** | Private key in memory no cleanup | WalletConnect.tsx | **Code-fixed** |
-| WS-2 | F-02 | MEDIUM | IPFS API key plaintext in localStorage | SettingsContext.tsx |
-| WS-3 | F-03 | MEDIUM | Address in window.open() URL | AddressDisplay.tsx |
-| WS-4 | F-04 | MEDIUM | Explorer URL injection via on-chain data | CampaignDetail.tsx |
-| WS-5 | F-05 | MEDIUM | Unbounded event log fetching | Overview, CampaignDetail, Publishers, Dashboard, MyVotes, Blocklist |
-| WS-6 | F-06 | MEDIUM | Sequential campaign ID scanning | advertiser/Dashboard.tsx |
-| WS-7 | F-07 | MEDIUM | Custom IPFS endpoint SSRF | ipfsPin.ts |
-| WS-8 | F-08 | LOW | IPFS gateway URL not validated | ipfs.ts, IPFSPreview.tsx |
-| WS-9 | F-09 | LOW | Contract address inputs not validated | Settings.tsx |
-| WS-10 | F-10 | LOW | Error messages expose RPC details | errorCodes.ts |
-| WS-11 | F-11 | LOW | RPC URL allows HTTP | SettingsContext.tsx |
-| WS-12 | F-14 | LOW | Missing rel="noopener noreferrer" | Layout.tsx |
+| WS-2 | F-02 | MEDIUM | IPFS API key plaintext in localStorage | SettingsContext.tsx | **DONE** (sessionStorage only, stripped from localStorage) |
+| WS-3 | F-03 | MEDIUM | Address in window.open() URL | AddressDisplay.tsx | **DONE** (hex address validation) |
+| WS-4 | F-04 | MEDIUM | Explorer URL injection via on-chain data | CampaignDetail.tsx | **DONE** (txHash hex validation) |
+| WS-5 | F-05 | MEDIUM | Unbounded event log fetching | Overview, CampaignDetail, Publishers, Dashboard, MyVotes, Blocklist | **DONE** (queryFilterBounded, 10K block cap) |
+| WS-6 | F-06 | MEDIUM | Sequential campaign ID scanning | advertiser/Dashboard.tsx | **DONE** (event-based CampaignCreated filter) |
+| WS-7 | F-07 | MEDIUM | Custom IPFS endpoint SSRF | ipfsPin.ts | **DONE** (URL validation, private IP rejection) |
+| WS-8 | F-08 | LOW | IPFS gateway URL not validated | ipfs.ts, IPFSPreview.tsx | **DONE** (HTTPS validation) |
+| WS-9 | F-09 | LOW | Contract address inputs not validated | Settings.tsx | **DONE** (hex format validation + warning) |
+| WS-10 | F-10 | LOW | Error messages expose RPC details | errorCodes.ts | **DONE** (URL/stack trace sanitization) |
+| WS-11 | F-11 | LOW | RPC URL allows HTTP | SettingsContext.tsx | **DONE** (HTTP warning in Settings UI) |
+| WS-12 | F-14 | LOW | Missing rel="noopener noreferrer" | Layout.tsx | **DONE** |
 
 ---
 
@@ -377,7 +377,7 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 |----|------|-------------|
 | UP-2 | Address blocklist management UI | `phishingList.ts` has API but no panel. Users can't manually block addresses | — | — | **DONE** |
 | UP-4 | Silenced "Uncategorized" ads | `categoryId=0` bypasses silencing. Alpha-3: replaced by tag-based filtering (TX-3) |
-| UP-8 | Per-campaign frequency cap | `maxAdsPerHour` is global. Single high-bid campaign dominates all slots |
+| UP-8 | Per-campaign frequency cap | `maxAdsPerHour` is global. Single high-bid campaign dominates all slots | **DONE** (maxAdsPerCampaignPerHour, per-campaign timestamps, UI slider) |
 
 ---
 
@@ -385,16 +385,16 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 
 | ID | Origin | Item | Description |
 |----|--------|------|-------------|
-| UB-1 | AD-3 | Advanced content blocklist | Unicode normalization, leetspeak detection for obfuscation bypass |
+| UB-1 | AD-3 | Advanced content blocklist | Unicode normalization, leetspeak detection for obfuscation bypass | **DONE** (NFKD + diacritical strip + leetspeak map, 6 tests) |
 | UB-2 | EA-3 | Behavior chain storage cleanup | Clean up `behaviorChain:*` keys for terminal campaigns or cap per user | **DONE** |
 | UB-3 | WS-4 | Typed DELETE confirmation | Require typing "DELETE" for wallet removal | **DONE** |
 | UB-4 | UP-6 | Ads-per-hour counter display | Show "X/12 ads shown this hour" in UI | **DONE** |
 | UB-5 | E-M2 | Interest profile storage race | Non-atomic `get→mutate→set` — multi-tab race condition | **DONE** (in-memory lock + queue coalesce) |
 | UB-6 | E-M3 | Metadata fetch failure retry UI | Failure count tracking + notification for 3+ consecutive failures | **DONE** |
-| UB-7 | E-M6 | Conviction tooltip | Explain conviction weight × lockup relationship |
+| UB-7 | E-M6 | Conviction tooltip | Explain conviction weight × lockup relationship | **DONE** (hover tooltip on ConvictionSlider) |
 | UB-8 | X7 | Phishing list fetch resilience | Retry with exponential backoff, stale-cache warning | **DONE** |
 | UB-9 | — | Vote stacking (`increaseStake()`) | Contract-level change: allow adding to existing vote |
-| UB-10 | — | Conviction preview | Show weighted vote power + lockup estimate before submit |
+| UB-10 | — | Conviction preview | Show weighted vote power + lockup estimate before submit | **DONE** (preview card in ConvictionSlider) |
 | UB-11 | — | Campaign detail modal | Click campaign in governance list for full details |
 | UB-12 | — | Vote history dashboard | Track votes across campaigns with lockup status |
 | UB-13 | — | Batch relay management | Publisher per-user breakdown of signed batches |
@@ -473,7 +473,7 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 | ID | Origin | Item | Description |
 |----|--------|------|-------------|
 | LP-1 | L1 | MAX_SCAN_ID increase | Campaign poller hardcoded to IDs 1-1000 |
-| LP-2 | L2 | Configurable poll interval | 5-min interval should be user-configurable |
+| LP-2 | L2 | Configurable poll interval | 5-min interval should be user-configurable | **DONE** (pollIntervalMinutes setting, 1-30 min range) |
 | LP-3 | L4 | Concurrent settlement test | Multiple users settling same block |
 | LP-4 | L6 | Claim export/import test procedure | Cross-device verification README |
 | LP-5 | L7 | Per-campaign publisher whitelist | Requires `DatumCampaignValidator` satellite |
@@ -499,14 +499,14 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - ~~SE-2: `DatumGovernanceHelper`~~ — extract from GovernanceV2 (+4 KB headroom)
 - ~~SE-3: `DatumCampaignValidator`~~ — extract from Campaigns (+1.5 KB headroom)
 
-### Phase 3: Targeting Redesign — **5/7 DONE**
+### Phase 3: Targeting Redesign — **DONE (7/7)**
 - ~~TX-1: `DatumTargetingRegistry` contract~~
 - ~~TX-2: Campaign `requiredTags` field~~
 - ~~TX-3: Tag matching in auction~~
 - ~~TX-4: SDK tag declaration~~
 - ~~TX-5: Standard tag dictionary~~
 - ~~TX-6: Publisher tag management UI~~
-- TX-7: Campaign tag picker UI — Open
+- ~~TX-7: Campaign tag picker UI~~ — **DONE**
 
 ### Phase 4: Bot Mitigation A — **DONE**
 - ~~BM-7: SDK version registry on Publishers~~
@@ -516,12 +516,14 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - BM-1: Groth16 circuit + verifier + campaign toggle — Blocked on BN128 precompile
 - CH-1: Real ZK verifier replaces stub — Blocked
 
-### Phase 6: Hardening + Beta UX — **8/14 XM DONE**
-- XM-1, XM-3, XM-5, XM-7, XM-8, XM-9, XM-10, XM-14: Extension security mediums — **DONE**
-- XM-2, XM-4, XM-6, XM-11, XM-12, XM-13: Extension security mediums — Open
-- ~~UB-2, UB-3, UB-4~~: Done; remaining UB-* open
+### Phase 6: Hardening + Beta UX — **11/14 XM DONE**
+- XM-1, XM-3, XM-5, XM-6, XM-7, XM-8, XM-9, XM-10, XM-11, XM-12, XM-13, XM-14: Extension security mediums — **DONE**
+- XM-2, XM-4: Extension security mediums — Open (architectural: WalletConnect, DNS-based SDK verification)
+- ~~UB-2, UB-3, UB-4, UB-5, UB-6, UB-7, UB-8, UB-10~~: Done
+- WS-2, WS-6: Web app security — **DONE**
+- UP-8: Per-campaign frequency cap — **DONE**
 - SL-1, SL-2: Contract security lows — **DONE**
-- ~~TX-6~~, TX-7: Tag UI — Open (TX-7 open)
+- ~~TX-6, TX-7~~: Tag UI — **DONE**
 - BM-3 through BM-9: Remaining bot mitigation — Open
 
 ### Pre-Mainnet

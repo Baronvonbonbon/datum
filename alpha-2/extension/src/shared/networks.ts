@@ -117,6 +117,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   publisherAddress: "",
   autoSubmit: false,
   autoSubmitIntervalMinutes: 10,
+  pollIntervalMinutes: 5,
   contractAddresses: NETWORK_CONFIGS.polkadotTestnet.addresses,
   ipfsGateway: "https://dweb.link/ipfs/",
   pinataApiKey: "",

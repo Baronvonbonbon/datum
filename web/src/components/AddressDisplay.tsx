@@ -13,9 +13,9 @@ export function AddressDisplay({ address, chars = 6, mono = true, explorerBase, 
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
-    if (explorerBase) {
-      window.open(`${explorerBase}/address/${address}`, "_blank", "noreferrer");
-    } else {
+    if (explorerBase && /^0x[0-9a-fA-F]{40}$/.test(address)) {
+      window.open(`${explorerBase}/address/${address}`, "_blank", "noopener,noreferrer");
+    } else if (!explorerBase) {
       navigator.clipboard.writeText(address).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);

@@ -4,6 +4,7 @@
 export type ContentToBackground =
   | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmPlanck?: string }
   | { type: "GET_ACTIVE_CAMPAIGNS" }
+  | { type: "GET_CONTENT_SETTINGS" }
   | { type: "UPDATE_INTEREST"; category: string }
   | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string }
   | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }

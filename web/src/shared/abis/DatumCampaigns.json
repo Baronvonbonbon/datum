@@ -212,6 +212,11 @@
           "internalType": "uint8",
           "name": "categoryId",
           "type": "uint8"
+        },
+        {
+          "internalType": "bytes32[]",
+          "name": "requiredTags",
+          "type": "bytes32[]"
         }
       ],
       "name": "createCampaign",
@@ -223,6 +228,25 @@
         }
       ],
       "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignTags",
+      "outputs": [
+        {
+          "internalType": "bytes32[]",
+          "name": "",
+          "type": "bytes32[]"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {

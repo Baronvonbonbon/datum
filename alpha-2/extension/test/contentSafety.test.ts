@@ -210,6 +210,47 @@ describe("passesContentBlocklist", () => {
     const result = validateMetadata(m);
     expect(passesContentBlocklist(result.data!)).toBe(true);
   });
+
+  // UB-1: Unicode normalization
+  test("unicode homoglyphs detected (NFKD normalization)", () => {
+    // "ﬁrearms" uses the ﬁ ligature (U+FB01) → normalized to "firearms"
+    const m = validMeta({ title: "Buy \uFB01rearms today" });
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(false);
+  });
+
+  test("accented chars normalized (diacritical stripping)", () => {
+    // "càsino gàmes" → "casino games"
+    const m = validMeta({ title: "Best c\u00E0sino g\u00E0mes" });
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(false);
+  });
+
+  // UB-1: Leetspeak detection
+  test("leetspeak substitution blocked (0nline g@mbling)", () => {
+    const m = validMeta({ title: "0nline g@mbling" });
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(false);
+  });
+
+  test("leetspeak substitution blocked ($ports b3tting)", () => {
+    const m = validMeta({ title: "$port$ b3tting tips" });
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(false);
+  });
+
+  test("leetspeak in creative text blocked", () => {
+    const m = validMeta();
+    m.creative.text = "Buy !llegal drug$ here";
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(false);
+  });
+
+  test("clean text with numbers passes (no false positives)", () => {
+    const m = validMeta({ title: "Top 10 Tools for 2025" });
+    const result = validateMetadata(m);
+    expect(passesContentBlocklist(result.data!)).toBe(true);
+  });
 });
 
 describe("validateAndSanitize", () => {

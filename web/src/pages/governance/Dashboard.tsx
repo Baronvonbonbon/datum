@@ -10,6 +10,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { formatBlockDelta } from "@shared/conviction";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface GovCampaign {
   id: number;
@@ -65,7 +66,7 @@ export function GovernanceDashboard() {
             let metadataHash = "0x" + "0".repeat(64);
             try {
               const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-              const logs = await contracts.campaigns.queryFilter(filter);
+              const logs = await queryFilterBounded(contracts.campaigns, filter);
               if (logs.length > 0) metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
             } catch { /* no events */ }
 

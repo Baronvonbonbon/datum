@@ -9,9 +9,10 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { StatusBadge } from "../../components/StatusBadge";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS } from "@shared/conviction";
-import { parseDOT, parseDOTSafe, formatDOT } from "@shared/dot";
+import { parseDOT, parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 export function Vote() {
   const { id } = useParams<{ id: string }>();
@@ -59,7 +60,7 @@ export function Vote() {
 
       try {
         const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(cid));
-        const logs = await contracts.campaigns.queryFilter(filter);
+        const logs = await queryFilterBounded(contracts.campaigns, filter);
         if (logs.length > 0) setMetadataHash((logs[logs.length - 1] as any).args?.metadataHash ?? "0x" + "0".repeat(64));
       } catch { /* no events */ }
     } finally {
@@ -90,7 +91,6 @@ export function Vote() {
 
   const total = gov ? gov.ayeWeighted + gov.nayWeighted : 0n;
   const ayePct = total > 0n ? Number(gov!.ayeWeighted * 100n / total) : 0;
-  const effectiveWeight = CONVICTION_WEIGHTS[conviction];
   const amountPlanck = (() => { try { return parseDOT(amount); } catch { return 0n; } })();
 
   return (
@@ -146,16 +146,11 @@ export function Vote() {
           <div>
             <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Stake Amount ({sym})</label>
             <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
-            {amountPlanck > 0n && (
-              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
-                Effective weight: {formatDOT(amountPlanck * BigInt(effectiveWeight))} {sym}
-              </div>
-            )}
           </div>
 
           <div>
             <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Conviction</label>
-            <ConvictionSlider value={conviction} onChange={setConviction} amount={amountPlanck} />
+            <ConvictionSlider value={conviction} onChange={setConviction} amount={amountPlanck} symbol={sym} />
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />

@@ -11,6 +11,7 @@ import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
 import { getExplorerUrl } from "@shared/networks";
 import { ethers } from "ethers";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface SettlementEvent {
   txHash: string;
@@ -92,7 +93,7 @@ export function CampaignDetail() {
       // Metadata hash from events
       try {
         const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(campaignId));
-        const logs = await contracts.campaigns.queryFilter(filter);
+        const logs = await queryFilterBounded(contracts.campaigns, filter);
         if (logs.length > 0) {
           const last = logs[logs.length - 1] as any;
           setMetadataHash(last.args?.metadataHash ?? "0x" + "0".repeat(64));
@@ -102,7 +103,7 @@ export function CampaignDetail() {
       // Settlement history from ClaimSettled events
       try {
         const filter = contracts.settlement.filters.ClaimSettled(BigInt(campaignId));
-        const logs = await contracts.settlement.queryFilter(filter);
+        const logs = await queryFilterBounded(contracts.settlement, filter);
         const evts: SettlementEvent[] = logs.map((log: any) => ({
           txHash: log.transactionHash,
           blockNumber: log.blockNumber,
@@ -266,10 +267,16 @@ export function CampaignDetail() {
                     <td style={{ fontSize: 12 }}><DOTAmount planck={s.clearingCpmPlanck} /></td>
                     <td style={{ fontSize: 12 }}><DOTAmount planck={s.userPayment} /></td>
                     <td>
-                      <a href={`${EXPLORER}/tx/${s.txHash}`} target="_blank" rel="noreferrer"
-                        style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "monospace" }}>
-                        {s.txHash.slice(0, 8)}…
-                      </a>
+                      {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (
+                        <a href={`${EXPLORER}/tx/${s.txHash}`} target="_blank" rel="noopener noreferrer"
+                          style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "monospace" }}>
+                          {s.txHash.slice(0, 8)}…
+                        </a>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "monospace" }}>
+                          {s.txHash.slice(0, 8)}…
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

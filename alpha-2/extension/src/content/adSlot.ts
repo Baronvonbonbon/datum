@@ -54,19 +54,13 @@ function formatCpm(planckStr?: string): string {
 }
 
 /**
- * Resolve an image URL for rendering. Accepts:
- * - Full HTTPS URL: returned as-is
- * - IPFS CID (Qm...): resolved via gateway
- * Returns null if URL is unsafe.
+ * Resolve an image URL for rendering.
+ * XL-2: Only IPFS CIDs are allowed — arbitrary HTTPS URLs are rejected to prevent
+ * advertiser-side tracking via unique per-user image URLs that leak the user's IP.
+ * Images must be pinned on IPFS alongside campaign metadata.
  */
 function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
-  // Full HTTPS URL
-  try {
-    const parsed = new URL(imageUrl);
-    if (parsed.protocol === "https:") return parsed.href;
-  } catch { /* not a full URL */ }
-
-  // IPFS CID (Qm...)
+  // IPFS CID (Qm...) — only allowed source
   if (imageUrl.startsWith("Qm") && imageUrl.length >= 46) {
     const gw = gateway || "https://dweb.link/ipfs/";
     const base = gw.endsWith("/") ? gw : gw + "/";

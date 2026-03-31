@@ -2,9 +2,9 @@
 
 // Messages sent FROM content script TO background
 export type ContentToBackground =
-  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmPlanck?: string }
+  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmPlanck?: string; campaignTags?: string[] }
   | { type: "GET_ACTIVE_CAMPAIGNS" }
-  | { type: "UPDATE_INTEREST"; category: string }
+  | { type: "UPDATE_INTEREST"; tags: string[]; category?: string }
   | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string }
   | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }

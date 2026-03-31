@@ -8,6 +8,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_BLOCKS, formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
+import { queryFilterBounded } from "@shared/eventQuery";
 
 interface MyVote {
   campaignId: number;
@@ -39,7 +40,7 @@ export function MyVotes() {
     setLoading(true);
     try {
       const filter = contracts.governanceV2.filters.VoteCast(null, address);
-      const logs = await contracts.governanceV2.queryFilter(filter).catch(() => []);
+      const logs = await queryFilterBounded(contracts.governanceV2, filter);
 
       // Deduplicate by campaignId (last vote wins)
       const campaignIds = new Set<number>();

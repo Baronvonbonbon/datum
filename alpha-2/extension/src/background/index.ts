@@ -9,7 +9,7 @@ import { interestProfile } from "./interestProfile";
 import { selectCampaign } from "./campaignMatcher";
 import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
-import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
+import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, checkCampaignRateLimit, recordImpressionTime } from "./userPreferences";
 import { appendEvent } from "./behaviorChain";
 import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
@@ -106,9 +106,10 @@ async function initAlarms() {
   // Clear before recreating — chrome alarms have a minimum 1-min delay
   await chrome.alarms.clear(ALARM_POLL_CAMPAIGNS);
 
-  // Campaign polling: always active (read-only, no wallet needed)
+  // LP-2: Campaign polling interval from settings (default 5min, min 1min)
+  const pollMins = Math.max(settings.pollIntervalMinutes ?? 5, 1);
   await chrome.alarms.create(ALARM_POLL_CAMPAIGNS, {
-    periodInMinutes: 5,
+    periodInMinutes: pollMins,
     delayInMinutes: 0,
   });
 
@@ -244,7 +245,7 @@ async function handleMessage(
         return { ok: false, reason: "rate_limited" };
       }
 
-      await recordImpressionTime();
+      await recordImpressionTime(msg.campaignId ? String(msg.campaignId) : undefined);
       try {
         await claimBuilder.onImpression(msg);
         console.log(`[DATUM] Claim built for campaign ${msg.campaignId}`);
@@ -271,6 +272,16 @@ async function handleMessage(
     case "GET_ACTIVE_CAMPAIGNS": {
       const cached = await campaignPoller.getCachedSerialized();
       return { campaigns: cached };
+    }
+
+    // XL-1: Return only non-sensitive settings fields to content script
+    case "GET_CONTENT_SETTINGS": {
+      const cs = await getSettings();
+      return {
+        publisherAddress: cs.publisherAddress ?? "",
+        ipfsGateway: cs.ipfsGateway ?? "https://dweb.link/ipfs/",
+        network: cs.network ?? "polkadotHub",
+      };
     }
 
     case "FETCH_IPFS_METADATA": {
@@ -469,10 +480,19 @@ async function handleMessage(
 
       if (safeAllowed.length === 0) return { selected: null };
 
+      // UP-8: Per-campaign frequency cap — filter campaigns that exceeded their hourly limit
+      const capPerCampaign = prefs.maxAdsPerCampaignPerHour ?? 3;
+      const capFiltered: typeof safeAllowed = [];
+      for (const c of safeAllowed) {
+        if (c.id && !(await checkCampaignRateLimit(String(c.id), capPerCampaign))) continue;
+        capFiltered.push(c);
+      }
+      if (capFiltered.length === 0) return { selected: null };
+
       // Run auction
       const profile = await interestProfile.getProfile();
       const auctionResult = auctionForPage(
-        safeAllowed as CampaignCandidate[],
+        capFiltered as CampaignCandidate[],
         {}, // pageCategories not used in auction directly
         profile,
       );
@@ -487,7 +507,7 @@ async function handleMessage(
       }
 
       // Fallback to legacy matcher
-      const selected = selectCampaign(safeAllowed, profile, msg.pageCategory);
+      const selected = selectCampaign(capFiltered, profile, msg.pageCategory);
       return { selected };
     }
 
@@ -721,7 +741,19 @@ async function handleMessage(
 
 async function getSettings() {
   const stored = await chrome.storage.local.get("settings");
-  return stored.settings ?? DEFAULT_SETTINGS;
+  const s = stored.settings ?? DEFAULT_SETTINGS;
+  // XM-6: Validate critical fields — defense-in-depth against corrupted storage
+  if (typeof s.rpcUrl !== "string" || !s.rpcUrl) s.rpcUrl = DEFAULT_SETTINGS.rpcUrl;
+  if (s.contractAddresses) {
+    for (const [k, v] of Object.entries(s.contractAddresses)) {
+      if (typeof v === "string" && v && !/^0x[0-9a-fA-F]{40}$/.test(v)) {
+        (s.contractAddresses as any)[k] = "";
+      }
+    }
+  } else {
+    s.contractAddresses = DEFAULT_SETTINGS.contractAddresses;
+  }
+  return s;
 }
 
 // -------------------------------------------------------------------------
