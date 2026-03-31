@@ -1,0 +1,75 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_campaigns",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "campaigns",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "checkMinBalance",
+      "outputs": [],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint8",
+          "name": "voteDirection",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "lockAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "slashBps",
+          "type": "uint256"
+        }
+      ],
+      "name": "computeSlash",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "slash",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+}

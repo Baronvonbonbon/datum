@@ -12,6 +12,10 @@ import DatumBudgetLedgerAbi from "./abis/DatumBudgetLedger.json";
 import DatumPaymentVaultAbi from "./abis/DatumPaymentVault.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
+import DatumTargetingRegistryAbi from "./abis/DatumTargetingRegistry.json";
+import DatumCampaignValidatorAbi from "./abis/DatumCampaignValidator.json";
+import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
+import DatumGovernanceHelperAbi from "./abis/DatumGovernanceHelper.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
@@ -72,4 +76,20 @@ export function getLifecycleContract(addresses: ContractAddresses, provider: Pro
 
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.attestationVerifier, DatumAttestationVerifierAbi.abi, provider);
+}
+
+export function getTargetingRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.targetingRegistry, DatumTargetingRegistryAbi.abi, provider);
+}
+
+export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.campaignValidator, DatumCampaignValidatorAbi.abi, provider);
+}
+
+export function getClaimValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.claimValidator, DatumClaimValidatorAbi.abi, provider);
+}
+
+export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.governanceHelper, DatumGovernanceHelperAbi.abi, provider);
 }

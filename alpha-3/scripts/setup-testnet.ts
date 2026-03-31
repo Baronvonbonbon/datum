@@ -1,21 +1,25 @@
-// setup-testnet.ts — Automated post-deploy testnet setup for Alpha-2
+// setup-testnet.ts — Automated post-deploy testnet setup for Alpha-3
 //
 // Prerequisite: Alice funded via faucet + contracts deployed (npm run deploy:testnet)
 //
 // This script:
 //   1. Funds all non-user accounts from Alice (Bob, Charlie, Diana, Eve, Frank, Grace)
 //   2. Registers Diana + Eve as publishers with categories
-//   3. Creates a test campaign (Bob as advertiser, Diana as publisher)
-//   4. Votes aye (Frank) to activate the campaign
-//   5. Sets metadata hash
-//   6. Verifies everything
+//   3. Sets publisher tags via TargetingRegistry (TX-1)
+//   4. Creates a test campaign (Bob as advertiser, Diana as publisher)
+//   5. Votes aye (Frank) to activate the campaign
+//   6. Sets metadata hash
+//   7. Verifies everything
+//
+// Uses raw JsonRpcProvider to bypass Paseo eth-rpc receipt bug (getTransactionReceipt
+// returns null for confirmed txs). All tx confirmation via nonce polling.
 //
 // Usage:
 //   export DEPLOYER_PRIVATE_KEY="0x..."
 //   npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet
 
-import { ethers } from "hardhat";
-import { Wallet, keccak256, toUtf8Bytes } from "ethers";
+import { ethers, network } from "hardhat";
+import { JsonRpcProvider, Wallet, Interface, keccak256, toUtf8Bytes } from "ethers";
 import { parseDOT, formatDOT } from "../test/helpers/dot";
 import * as fs from "fs";
 
@@ -37,21 +41,122 @@ const FUND_AMOUNT = parseDOT("50"); // 50 PAS each
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
 
+const TX_OPTS = {
+  gasLimit: 500000000n,
+  type: 0,
+  gasPrice: 1000000000000n,
+};
+
 function log(section: string, msg: string) {
   console.log(`[${section}] ${msg}`);
 }
 
-async function main() {
-  const provider = ethers.provider;
+// TX-1: Tag hashes for publisher targeting
+function tagHash(tag: string): string {
+  return keccak256(toUtf8Bytes(tag));
+}
 
-  // Build signers from private keys
-  const alice   = new Wallet(ACCOUNTS.alice.key, provider);
-  const bob     = new Wallet(ACCOUNTS.bob.key, provider);
-  const charlie = new Wallet(ACCOUNTS.charlie.key, provider);
-  const diana   = new Wallet(ACCOUNTS.diana.key, provider);
-  const eve     = new Wallet(ACCOUNTS.eve.key, provider);
-  const frank   = new Wallet(ACCOUNTS.frank.key, provider);
-  const grace   = new Wallet(ACCOUNTS.grace.key, provider);
+// ── Paseo workaround: nonce-based tx confirmation ────────────────────────────
+
+async function waitForNonce(
+  provider: JsonRpcProvider,
+  address: string,
+  targetNonce: number,
+  maxWait = 120,
+): Promise<void> {
+  for (let i = 0; i < maxWait; i++) {
+    const current = await provider.getTransactionCount(address);
+    if (current > targetNonce) return;
+    if (i % 10 === 0 && i > 0) console.log(`    ...waiting for tx confirmation (${i}s)`);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(`Timeout waiting for nonce > ${targetNonce}`);
+}
+
+async function sendCall(
+  signer: Wallet,
+  provider: JsonRpcProvider,
+  to: string,
+  iface: Interface,
+  method: string,
+  args: any[],
+  value?: bigint,
+): Promise<void> {
+  const data = iface.encodeFunctionData(method, args);
+  const nonce = await provider.getTransactionCount(signer.address);
+  await signer.sendTransaction({
+    to,
+    data,
+    value: value ?? 0n,
+    ...TX_OPTS,
+  });
+  await waitForNonce(provider, signer.address, nonce);
+}
+
+async function sendTransfer(
+  signer: Wallet,
+  provider: JsonRpcProvider,
+  to: string,
+  value: bigint,
+): Promise<void> {
+  const nonce = await provider.getTransactionCount(signer.address);
+  await signer.sendTransaction({
+    to,
+    value,
+    ...TX_OPTS,
+  });
+  await waitForNonce(provider, signer.address, nonce);
+}
+
+async function readCall(
+  provider: JsonRpcProvider,
+  to: string,
+  iface: Interface,
+  method: string,
+  args: any[],
+): Promise<string> {
+  const data = iface.encodeFunctionData(method, args);
+  return await provider.call({ to, data });
+}
+
+// ── ABIs (minimal, only what we need) ────────────────────────────────────────
+
+const publishersAbi = [
+  "function getPublisher(address) view returns (bool registered, uint16 takeRateBps, uint256 categoryBitmask)",
+  "function registerPublisher(uint16 takeBps)",
+  "function setCategories(uint256 categories)",
+];
+
+const campaignsAbi = [
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, uint8 category, bytes32[] requiredTags) payable returns (uint256)",
+  "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
+  "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
+  "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
+];
+
+const govV2Abi = [
+  "function quorumWeighted() view returns (uint256)",
+  "function vote(uint256 campaignId, bool aye, uint8 conviction) payable",
+  "function evaluateCampaign(uint256 campaignId)",
+];
+
+const targetingAbi = [
+  "function setTags(bytes32[] tags)",
+];
+
+async function main() {
+  // Raw provider bypasses hardhat-polkadot receipt bug
+  const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
+  const rawProvider = new JsonRpcProvider(rpcUrl);
+
+  // Build signers from private keys using raw provider
+  const alice   = new Wallet(ACCOUNTS.alice.key, rawProvider);
+  const bob     = new Wallet(ACCOUNTS.bob.key, rawProvider);
+  const charlie = new Wallet(ACCOUNTS.charlie.key, rawProvider);
+  const diana   = new Wallet(ACCOUNTS.diana.key, rawProvider);
+  const eve     = new Wallet(ACCOUNTS.eve.key, rawProvider);
+  const frank   = new Wallet(ACCOUNTS.frank.key, rawProvider);
+  const grace   = new Wallet(ACCOUNTS.grace.key, rawProvider);
 
   const wallets: Record<string, Wallet> = { alice, bob, charlie, diana, eve, frank, grace };
 
@@ -68,28 +173,30 @@ async function main() {
   const addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
   log("INIT", "Loaded addresses from " + addrFile);
 
-  // Verify alpha-2 contracts are present (13 keys)
-  const alpha2Keys = [
+  // Verify alpha-3 contracts are present (17 keys)
+  const alpha3Keys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
+    "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
   ];
-  const missing = alpha2Keys.filter(k => !addrs[k]);
+  const missing = alpha3Keys.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
-    console.error("This looks like an alpha (9-contract) deploy. Re-run deploy.ts for alpha-2.");
+    console.error("Re-run deploy.ts for alpha-3 (17-contract deploy).");
     process.exitCode = 1;
     return;
   }
 
-  // Connect to contracts
-  const publishers = await ethers.getContractAt("DatumPublishers", addrs.publishers);
-  const campaigns  = await ethers.getContractAt("DatumCampaigns",  addrs.campaigns);
-  const v2         = await ethers.getContractAt("DatumGovernanceV2", addrs.governanceV2);
+  // Interfaces for ABI encoding
+  const pubIface = new Interface(publishersAbi);
+  const campIface = new Interface(campaignsAbi);
+  const govIface = new Interface(govV2Abi);
+  const targetIface = new Interface(targetingAbi);
 
   // ─── Check Alice's balance ───────────────────────────────────────────────
-  const aliceBal = await provider.getBalance(alice.address);
+  const aliceBal = await rawProvider.getBalance(alice.address);
   log("INIT", `Alice balance: ${formatDOT(aliceBal)} PAS`);
   const needed = FUND_AMOUNT * BigInt(TO_FUND.length);
   if (aliceBal < needed + parseDOT("50")) {
@@ -106,15 +213,14 @@ async function main() {
 
   for (const name of TO_FUND) {
     const w = wallets[name];
-    const bal = await provider.getBalance(w.address);
+    const bal = await rawProvider.getBalance(w.address);
     if (bal >= parseDOT("10")) {
       log("1", `  ${name} already has ${formatDOT(bal)} PAS -- skipping`);
       continue;
     }
     try {
-      const tx = await alice.sendTransaction({ to: w.address, value: FUND_AMOUNT });
-      await tx.wait();
-      const newBal = await provider.getBalance(w.address);
+      await sendTransfer(alice, rawProvider, w.address, FUND_AMOUNT);
+      const newBal = await rawProvider.getBalance(w.address);
       log("1", `  ${name} funded: ${formatDOT(newBal)} PAS`);
     } catch (err) {
       console.error(`  FAILED to fund ${name}: ${String(err).slice(0, 150)}`);
@@ -132,15 +238,19 @@ async function main() {
   const ALL_26_CATEGORIES = (1n << 27n) - 2n; // bits 1..26 set
 
   for (const [name, wallet, takeBps, categories] of [
-    ["diana", diana, 5000, ALL_26_CATEGORIES] as const,
-    ["eve",   eve,   4000, 1n << 26n] as const, // category 26 (other)
+    ["diana", diana, 5000n, ALL_26_CATEGORIES] as const,
+    ["eve",   eve,   4000n, 1n << 26n] as const, // category 26 (other)
   ]) {
-    const info = await publishers.getPublisher(wallet.address);
-    if (info.registered) {
+    // Check if already registered
+    const result = await readCall(rawProvider, addrs.publishers, pubIface, "getPublisher", [wallet.address]);
+    const decoded = pubIface.decodeFunctionResult("getPublisher", result);
+    const registered = decoded[0];
+
+    if (registered) {
       log("2", `  ${name} already registered -- skipping`);
     } else {
       try {
-        await (await publishers.connect(wallet).registerPublisher(takeBps)).wait();
+        await sendCall(wallet, rawProvider, addrs.publishers, pubIface, "registerPublisher", [takeBps]);
         log("2", `  ${name} registered (${takeBps} bps take rate)`);
       } catch (err) {
         console.error(`  FAILED to register ${name}: ${String(err).slice(0, 150)}`);
@@ -148,13 +258,44 @@ async function main() {
         return;
       }
     }
-    // Set categories
+    // Set categories (legacy bitmask)
     try {
-      await (await publishers.connect(wallet).setCategories(categories)).wait();
+      await sendCall(wallet, rawProvider, addrs.publishers, pubIface, "setCategories", [categories]);
       log("2", `  ${name} categories set: 0x${categories.toString(16)}`);
     } catch (err) {
       log("2", `  ${name} categories: ${String(err).slice(0, 80)}`);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2.5. SET PUBLISHER TAGS (TX-1 TargetingRegistry)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("2.5", "--- Setting publisher tags (TargetingRegistry) ---");
+
+  // Diana: broad coverage — crypto, defi, tech, english
+  const dianaTags = [
+    tagHash("topic:crypto"),
+    tagHash("topic:defi"),
+    tagHash("topic:technology"),
+    tagHash("locale:en"),
+  ];
+  try {
+    await sendCall(diana, rawProvider, addrs.targetingRegistry, targetIface, "setTags", [dianaTags]);
+    log("2.5", `  diana: ${dianaTags.length} tags set (crypto, defi, technology, en)`);
+  } catch (err) {
+    log("2.5", `  diana tags: ${String(err).slice(0, 100)}`);
+  }
+
+  // Eve: niche — crypto only, english
+  const eveTags = [
+    tagHash("topic:crypto"),
+    tagHash("locale:en"),
+  ];
+  try {
+    await sendCall(eve, rawProvider, addrs.targetingRegistry, targetIface, "setTags", [eveTags]);
+    log("2.5", `  eve: ${eveTags.length} tags set (crypto, en)`);
+  } catch (err) {
+    log("2.5", `  eve tags: ${String(err).slice(0, 100)}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -165,41 +306,44 @@ async function main() {
   const BUDGET    = parseDOT("10");    // 10 PAS
   const DAILY_CAP = parseDOT("10");    // daily cap = budget
   const BID_CPM   = parseDOT("0.016"); // 0.016 PAS per 1000 impressions
-  const CATEGORY  = 1;                  // crypto
+  const CATEGORY  = 1n;                 // Arts & Entertainment (legacy)
+  const REQUIRED_TAGS: string[] = [];   // No required tags for basic test campaign
 
-  let campaignId: bigint | undefined;
+  // We can't parse CampaignCreated from receipt (no receipts on Paseo),
+  // so read nextCampaignId before and after to determine the ID
+  const campExtraAbi = ["function nextCampaignId() view returns (uint256)"];
+  const campExtraIface = new Interface(campExtraAbi);
+
+  let campaignId: bigint;
 
   try {
-    const tx = await campaigns.connect(bob).createCampaign(
-      diana.address, DAILY_CAP, BID_CPM, CATEGORY,
-      { value: BUDGET }
-    );
-    const receipt = await tx.wait();
+    // Read current nextCampaignId (1-indexed, increments after each create)
+    const nextBefore = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
+    const nextBeforeVal = BigInt(nextBefore);
+    log("3", `  nextCampaignId before: ${nextBeforeVal.toString()}`);
 
-    for (const logEntry of receipt!.logs) {
-      try {
-        const parsed = campaigns.interface.parseLog(logEntry);
-        if (parsed?.name === "CampaignCreated") campaignId = parsed.args.campaignId;
-      } catch { /* different contract event */ }
-    }
+    // Create campaign
+    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
+      [diana.address, DAILY_CAP, BID_CPM, CATEGORY, REQUIRED_TAGS],
+      BUDGET
+    );
+
+    // The created campaign has ID = nextBeforeVal (it was assigned then incremented)
+    campaignId = nextBeforeVal;
+    log("3", `Campaign created: ID ${campaignId.toString()}`);
   } catch (err) {
     console.error(`FAILED to create campaign: ${String(err).slice(0, 200)}`);
     process.exitCode = 1;
     return;
   }
 
-  if (campaignId === undefined) {
-    console.error("CampaignCreated event not found in receipt");
-    process.exitCode = 1;
-    return;
-  }
-  log("3", `Campaign created: ID ${campaignId.toString()}`);
   log("3", `  Advertiser: Bob (${bob.address})`);
   log("3", `  Publisher: Diana (${diana.address})`);
   log("3", `  Budget: 10 PAS, CPM: 0.016 PAS, Category: ${CATEGORY}`);
 
   // Verify Pending
-  const statusBefore = Number(await campaigns.getCampaignStatus(campaignId));
+  const statusResult = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [campaignId]);
+  const statusBefore = Number(BigInt(statusResult));
   log("3", `  Status: ${STATUS_NAMES[statusBefore]}`);
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -207,13 +351,14 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   log("4", "--- Voting + activating campaign ---");
 
-  const quorum = await v2.quorumWeighted();
+  const quorumResult = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
+  const quorum = BigInt(quorumResult);
   log("4", `  Governance quorum: ${formatDOT(quorum)} PAS (conviction-weighted)`);
 
   // Conviction 0 = 1x weight. Stake >= quorum to pass with single voter.
   const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
 
-  const frankBal = await provider.getBalance(frank.address);
+  const frankBal = await rawProvider.getBalance(frank.address);
   if (frankBal < VOTE_STAKE + parseDOT("1")) {
     console.error(`Frank needs ${formatDOT(VOTE_STAKE + parseDOT("1"))} PAS but has ${formatDOT(frankBal)}`);
     process.exitCode = 1;
@@ -221,7 +366,10 @@ async function main() {
   }
 
   try {
-    await (await v2.connect(frank).vote(campaignId, true, 0, { value: VOTE_STAKE })).wait();
+    await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
+      [campaignId, true, 0],
+      VOTE_STAKE
+    );
     log("4", `  Frank voted aye (${formatDOT(VOTE_STAKE)} PAS, conviction 0)`);
   } catch (err) {
     console.error(`FAILED to vote: ${String(err).slice(0, 200)}`);
@@ -229,10 +377,11 @@ async function main() {
     return;
   }
 
-  // Evaluate
+  // Evaluate (use Alice as caller — anyone can call evaluateCampaign)
   try {
-    await (await v2.evaluateCampaign(campaignId)).wait();
-    const statusAfter = Number(await campaigns.getCampaignStatus(campaignId));
+    await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [campaignId]);
+    const statusAfterResult = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [campaignId]);
+    const statusAfter = Number(BigInt(statusAfterResult));
     log("4", `  Status after evaluate: ${STATUS_NAMES[statusAfter]}`);
     if (statusAfter !== 1) {
       log("4", "  WARNING: Campaign did not activate. May need more stake or different quorum.");
@@ -249,7 +398,7 @@ async function main() {
 
   const metaHash = keccak256(toUtf8Bytes("testnet-campaign-" + campaignId.toString()));
   try {
-    await (await campaigns.connect(bob).setMetadata(campaignId, metaHash)).wait();
+    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId, metaHash]);
     log("5", `  Metadata hash: ${metaHash.slice(0, 18)}...`);
   } catch (err) {
     log("5", `  setMetadata failed: ${String(err).slice(0, 100)}`);
@@ -258,7 +407,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log("\n=== Alpha-2 Testnet Setup Complete ===");
+  console.log("\n=== Alpha-3 Testnet Setup Complete ===");
   console.log("Campaign ID :", campaignId.toString());
   console.log("Advertiser  : Bob", bob.address);
   console.log("Publisher   : Diana", diana.address);
@@ -266,20 +415,25 @@ async function main() {
   console.log("");
   console.log("Funded accounts:");
   for (const name of TO_FUND) {
-    const bal = await provider.getBalance(wallets[name].address);
+    const bal = await rawProvider.getBalance(wallets[name].address);
     console.log(`  ${name.padEnd(8)} ${wallets[name].address}  ${formatDOT(bal)} PAS`);
   }
   console.log("");
-  console.log("Alpha-2 contract addresses (13):");
-  const alpha2ContractKeys = [
+  console.log("Alpha-3 contract addresses (17):");
+  const alpha3ContractKeys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
+    "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
   ];
-  for (const key of alpha2ContractKeys) {
+  for (const key of alpha3ContractKeys) {
     console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
   }
+  console.log("");
+  console.log("Publisher tags (TargetingRegistry):");
+  console.log("  diana: topic:crypto, topic:defi, topic:technology, locale:en");
+  console.log("  eve:   topic:crypto, locale:en");
   console.log("");
   console.log("User accounts (fund via faucet for testing):");
   console.log("  hank     0x615BcbE62B43bB033e65533bB6FcCC8b6FcB5BbD");

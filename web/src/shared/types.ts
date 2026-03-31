@@ -261,6 +261,11 @@ export interface ContractAddresses {
   paymentVault: string;
   lifecycle: string;
   attestationVerifier: string;
+  // Alpha-3 satellites
+  targetingRegistry: string;
+  campaignValidator: string;
+  claimValidator: string;
+  governanceHelper: string;
 }
 
 export type IpfsProvider =

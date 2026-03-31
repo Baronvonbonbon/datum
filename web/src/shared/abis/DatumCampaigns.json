@@ -1,5 +1,4 @@
 {
-  "contractName": "DatumCampaigns",
   "abi": [
     {
       "inputs": [
@@ -15,7 +14,7 @@
         },
         {
           "internalType": "address",
-          "name": "_publishers",
+          "name": "_campaignValidator",
           "type": "address"
         },
         {
@@ -192,6 +191,19 @@
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "campaignValidator",
+      "outputs": [
+        {
+          "internalType": "contract IDatumCampaignValidator",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -228,25 +240,6 @@
         }
       ],
       "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaignTags",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "",
-          "type": "bytes32[]"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -335,6 +328,25 @@
           "internalType": "enum IDatumCampaigns.CampaignStatus",
           "name": "",
           "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignTags",
+      "outputs": [
+        {
+          "internalType": "bytes32[]",
+          "name": "",
+          "type": "bytes32[]"
         }
       ],
       "stateMutability": "view",
@@ -451,19 +463,6 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "publishers",
-      "outputs": [
-        {
-          "internalType": "contract IDatumPublishers",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "internalType": "address",
@@ -490,6 +489,19 @@
         }
       ],
       "name": "setCampaignStatus",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
+      "name": "setCampaignValidator",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

@@ -20,6 +20,10 @@ const CONTRACT_LABELS: Record<string, string> = {
   paymentVault: "PaymentVault",
   lifecycle: "CampaignLifecycle",
   attestationVerifier: "AttestationVerifier",
+  targetingRegistry: "TargetingRegistry",
+  campaignValidator: "CampaignValidator",
+  claimValidator: "ClaimValidator",
+  governanceHelper: "GovernanceHelper",
 };
 
 export function Settings() {

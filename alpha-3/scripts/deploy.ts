@@ -1,8 +1,18 @@
-// deploy.ts — Full 13-contract Alpha-2 deployment + wiring + ownership transfer
+// deploy.ts — Full 17-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
 // validates all wiring, and writes deployed-addresses.json.
+//
+// Alpha-3 adds 4 satellite contracts:
+//   - DatumTargetingRegistry  (TX-1: tag-based publisher targeting)
+//   - DatumCampaignValidator  (SE-3: campaign creation validation)
+//   - DatumClaimValidator     (SE-1: claim hash/chain validation)
+//   - DatumGovernanceHelper   (SE-2: slash computation + dust guard)
+//
+// Paseo eth-rpc workaround: getTransactionReceipt is broken for deploy txs.
+// We use raw signed transactions + getCreateAddress(sender, nonce) to derive
+// contract addresses, then verify with getCode().
 //
 // Re-run safe (B2): reads existing deployed-addresses.json and skips
 // already-deployed contracts; checks wiring state before setting.
@@ -15,6 +25,7 @@
 //   DEPLOYER_PRIVATE_KEY — required for testnet deploys
 
 import { ethers, network } from "hardhat";
+import { JsonRpcProvider, Wallet } from "ethers";
 import { parseDOT } from "../test/helpers/dot";
 import * as fs from "fs";
 import * as path from "path";
@@ -45,25 +56,61 @@ const INACTIVITY_TIMEOUT_BLOCKS = 432000n;           // 30 days at 6s/block
 const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
 const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
 
-// ── Required address keys ────────────────────────────────────────────────────
+// ── Required address keys (17 contracts) ─────────────────────────────────────
 
 const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
   "budgetLedger", "paymentVault", "campaignLifecycle",
   "attestationVerifier", "governanceV2", "governanceSlash",
   "settlement", "relay", "zkVerifier",
+  // Alpha-3 satellites
+  "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
 ] as const;
 
-const TOTAL_STEPS = 20; // 13 deploy + 7 wiring/validation sections
+const TOTAL_STEPS = 24; // 17 deploy + 7 wiring/validation sections
+
+// ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
+
+async function waitForNonce(
+  provider: any,
+  address: string,
+  targetNonce: number,
+  maxWait = 120,
+): Promise<void> {
+  for (let i = 0; i < maxWait; i++) {
+    const current = await provider.getTransactionCount(address);
+    if (current > targetNonce) return;
+    if (i % 10 === 0 && i > 0) console.log(`    ...waiting for tx confirmation (${i}s)`);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(`Timeout waiting for nonce > ${targetNonce}`);
+}
+
+async function verifyCode(provider: any, addr: string, maxWait = 30): Promise<boolean> {
+  for (let i = 0; i < maxWait; i++) {
+    const code = await provider.getCode(addr);
+    if (code && code !== "0x" && code.length > 2) return true;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const [deployer] = await ethers.getSigners();
-  console.log("Deploying DATUM Alpha-2 contracts with:", deployer.address);
-  console.log("Network:", network.name);
+  // Use raw ethers provider to bypass hardhat-polkadot plugin receipt waiting bug
+  const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
+  const rawProvider = new JsonRpcProvider(rpcUrl);
+  const accounts = (network.config as any).accounts || [];
+  const deployerKey = accounts[0] || process.env.DEPLOYER_PRIVATE_KEY;
+  if (!deployerKey) throw new Error("No deployer key — set DEPLOYER_PRIVATE_KEY");
+  const deployer = new Wallet(deployerKey, rawProvider);
 
-  const balance = await ethers.provider.getBalance(deployer.address);
+  console.log("Deploying DATUM Alpha-3 contracts with:", deployer.address);
+  console.log("Network:", network.name);
+  console.log("RPC:", rpcUrl);
+
+  const balance = await rawProvider.getBalance(deployer.address);
   console.log("Deployer balance:", balance.toString(), "planck");
 
   // Load existing addresses for re-run safety (B2)
@@ -84,33 +131,78 @@ async function main() {
     console.log(`\n[${step}/${TOTAL_STEPS}] ${label}...`);
   }
 
-  // Helper: deploy if not already deployed, otherwise reuse
+  // Helper: deploy using raw signed tx + nonce-derived address (Paseo workaround)
   async function deployOrReuse(
     key: string,
     contractName: string,
     args: any[] = [],
   ): Promise<string> {
     if (addresses[key] && addresses[key] !== ZERO_ADDRESS) {
-      // Verify the address has code (contract still exists)
-      const code = await ethers.provider.getCode(addresses[key]);
-      if (code && code !== "0x") {
+      const code = await rawProvider.getCode(addresses[key]);
+      if (code && code !== "0x" && code.length > 2) {
         console.log(`  ${contractName}: reusing ${addresses[key]} (already deployed)`);
         return addresses[key];
       }
       console.warn(`  ${contractName}: address ${addresses[key]} has no code — redeploying`);
     }
 
+    // Get PVM bytecode from hardhat artifacts
     const factory = await ethers.getContractFactory(contractName);
-    const contract = await factory.deploy(...args);
-    await contract.waitForDeployment();
-    const addr = await contract.getAddress();
-    addresses[key] = addr;
-    console.log(`  ${contractName}: ${addr}`);
-    return addr;
+    const deployTx = await factory.getDeployTransaction(...args);
+    const nonce = await rawProvider.getTransactionCount(deployer.address);
+
+    // Compute expected contract address from CREATE
+    const expectedAddr = ethers.getCreateAddress({ from: deployer.address, nonce });
+
+    // Send via raw provider (bypasses hardhat-polkadot receipt wait)
+    const tx = await deployer.sendTransaction({
+      data: deployTx.data,
+      gasLimit: 500000000n,
+      type: 0,
+      gasPrice: 1000000000000n,
+    });
+    console.log(`  ${contractName}: tx ${tx.hash} (nonce ${nonce})`);
+
+    // Wait for nonce to advance (confirms tx was included)
+    await waitForNonce(rawProvider, deployer.address, nonce);
+
+    // Verify contract code exists
+    const hasCode = await verifyCode(rawProvider, expectedAddr);
+    if (!hasCode) {
+      throw new Error(`${contractName}: no code at expected address ${expectedAddr}`);
+    }
+
+    addresses[key] = expectedAddr;
+    console.log(`  ${contractName}: ${expectedAddr}`);
+
+    // Save after each deploy for crash recovery
+    fs.writeFileSync(ADDR_FILE, JSON.stringify(addresses, null, 2) + "\n");
+
+    return expectedAddr;
+  }
+
+  // Helper: encode and send a wiring call via raw provider
+  async function sendCall(
+    contractAddr: string,
+    abi: string[],
+    method: string,
+    args: any[],
+  ): Promise<void> {
+    const iface = new ethers.Interface(abi);
+    const data = iface.encodeFunctionData(method, args);
+    const nonce = await rawProvider.getTransactionCount(deployer.address);
+    const tx = await deployer.sendTransaction({
+      to: contractAddr,
+      data,
+      gasLimit: 500000000n,
+      type: 0,
+      gasPrice: 1000000000000n,
+    });
+    await waitForNonce(rawProvider, deployer.address, nonce);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 1: Deploy all 13 contracts in dependency order
+  // PHASE 1: Deploy all 17 contracts in dependency order
   // ═══════════════════════════════════════════════════════════════════════════
 
   // --- Tier 0: No dependencies ---
@@ -162,14 +254,36 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumPaymentVault — ${err}`);
   }
 
-  // --- Tier 2: Depends on Publishers + PauseRegistry ---
+  // --- Tier 1.5: Alpha-3 satellites (depends on Publishers + PauseRegistry) ---
+
+  try {
+    logStep("Deploying DatumTargetingRegistry (TX-1)");
+    await deployOrReuse("targetingRegistry", "DatumTargetingRegistry", [
+      addresses.publishers,
+      addresses.pauseRegistry,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumTargetingRegistry — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumCampaignValidator (SE-3)");
+    await deployOrReuse("campaignValidator", "DatumCampaignValidator", [
+      addresses.publishers,
+      addresses.targetingRegistry,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumCampaignValidator — ${err}`);
+  }
+
+  // --- Tier 2: Depends on CampaignValidator + PauseRegistry ---
 
   try {
     logStep("Deploying DatumCampaigns");
     await deployOrReuse("campaigns", "DatumCampaigns", [
       MIN_CPM_FLOOR,
       PENDING_TIMEOUT_BLOCKS,
-      addresses.publishers,
+      addresses.campaignValidator,
       addresses.pauseRegistry,
     ]);
   } catch (err) {
@@ -186,16 +300,26 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumCampaignLifecycle — ${err}`);
   }
 
-  // --- Tier 3: Depends on Campaigns ---
+  // --- Tier 3: Depends on PauseRegistry (Settlement) / Campaigns (others) ---
 
   try {
     logStep("Deploying DatumSettlement");
     await deployOrReuse("settlement", "DatumSettlement", [
-      addresses.campaigns,
       addresses.pauseRegistry,
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumSettlement — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumClaimValidator (SE-1)");
+    await deployOrReuse("claimValidator", "DatumClaimValidator", [
+      addresses.campaigns,
+      addresses.publishers,
+      addresses.pauseRegistry,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumClaimValidator — ${err}`);
   }
 
   try {
@@ -212,6 +336,15 @@ async function main() {
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumGovernanceV2 — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumGovernanceHelper (SE-2)");
+    await deployOrReuse("governanceHelper", "DatumGovernanceHelper", [
+      addresses.campaigns,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumGovernanceHelper — ${err}`);
   }
 
   try {
@@ -247,7 +380,7 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumAttestationVerifier — ${err}`);
   }
 
-  console.log("\n=== All 13 contracts deployed ===\n");
+  console.log("\n=== All 17 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -259,14 +392,14 @@ async function main() {
   async function readAddr(contractAddr: string, getter: string): Promise<string> {
     const iface = new ethers.Interface([`function ${getter}() view returns (address)`]);
     const data = iface.encodeFunctionData(getter);
-    const result = await ethers.provider.call({ to: contractAddr, data });
+    const result = await rawProvider.call({ to: contractAddr, data });
     return ethers.AbiCoder.defaultAbiCoder().decode(["address"], result)[0].toLowerCase();
   }
 
   // Helper: call a setter only if the current value differs
   async function wireIfNeeded(
     label: string,
-    contractName: string,
+    _contractName: string,
     contractAddr: string,
     getter: string,
     setter: string,
@@ -278,47 +411,46 @@ async function main() {
       return;
     }
 
-    const contract = await ethers.getContractAt(contractName, contractAddr);
-    try {
-      await (await (contract as any)[setter](targetAddr)).wait();
-      console.log(`  SET: ${label}`);
-    } catch (err) {
-      throw new Error(`FAILED wiring ${label}: ${err}`);
-    }
+    await sendCall(
+      contractAddr,
+      [`function ${setter}(address)`],
+      setter,
+      [targetAddr],
+    );
+    console.log(`  SET: ${label}`);
   }
 
-  // ── Settlement.configure(budgetLedger, paymentVault, lifecycle, relay, publishers) ──
-  // configure() is a single 5-arg call — check if all are already set
-  const settlement = await ethers.getContractAt("DatumSettlement", addresses.settlement);
-  const sCurrentBL = (await settlement.budgetLedger()).toLowerCase();
-  const sCurrentPV = (await settlement.paymentVault()).toLowerCase();
-  const sCurrentLC = (await settlement.lifecycle()).toLowerCase();
-  const sCurrentRL = (await settlement.relayContract()).toLowerCase();
-  const sCurrentPB = (await settlement.publishers()).toLowerCase();
+  // ── Settlement.configure(budgetLedger, paymentVault, lifecycle, relay) ──
+  const sCurrentBL = await readAddr(addresses.settlement, "budgetLedger");
+  const sCurrentPV = await readAddr(addresses.settlement, "paymentVault");
+  const sCurrentLC = await readAddr(addresses.settlement, "lifecycle");
+  const sCurrentRL = await readAddr(addresses.settlement, "relayContract");
 
   const settlementConfigured =
     sCurrentBL === addresses.budgetLedger.toLowerCase() &&
     sCurrentPV === addresses.paymentVault.toLowerCase() &&
     sCurrentLC === addresses.campaignLifecycle.toLowerCase() &&
-    sCurrentRL === addresses.relay.toLowerCase() &&
-    sCurrentPB === addresses.publishers.toLowerCase();
+    sCurrentRL === addresses.relay.toLowerCase();
 
   if (settlementConfigured) {
     console.log("  OK (already set): Settlement.configure(...)");
   } else {
-    try {
-      await (await settlement.configure(
-        addresses.budgetLedger,
-        addresses.paymentVault,
-        addresses.campaignLifecycle,
-        addresses.relay,
-        addresses.publishers,
-      )).wait();
-      console.log("  SET: Settlement.configure(budgetLedger, paymentVault, lifecycle, relay, publishers)");
-    } catch (err) {
-      throw new Error(`FAILED wiring Settlement.configure: ${err}`);
-    }
+    await sendCall(
+      addresses.settlement,
+      ["function configure(address,address,address,address)"],
+      "configure",
+      [addresses.budgetLedger, addresses.paymentVault, addresses.campaignLifecycle, addresses.relay],
+    );
+    console.log("  SET: Settlement.configure(budgetLedger, paymentVault, lifecycle, relay)");
   }
+
+  // ── Settlement.setClaimValidator(claimValidator) ──
+  await wireIfNeeded(
+    "Settlement.claimValidator",
+    "DatumSettlement", addresses.settlement,
+    "claimValidator", "setClaimValidator",
+    addresses.claimValidator,
+  );
 
   // ── Settlement.setAttestationVerifier(attestationVerifier) ──
   await wireIfNeeded(
@@ -408,30 +540,25 @@ async function main() {
     addresses.settlement,
   );
 
-  // ── GovernanceV2: setSlashContract (one-time), setLifecycle ──
-  const v2 = await ethers.getContractAt("DatumGovernanceV2", addresses.governanceV2);
-  const currentSlash = (await v2.slashContract()).toLowerCase();
-  if (currentSlash === ZERO_ADDRESS) {
-    try {
-      await (await v2.setSlashContract(addresses.governanceSlash)).wait();
-      console.log("  SET: GovernanceV2.slashContract");
-    } catch (err) {
-      throw new Error(`FAILED wiring GovernanceV2.setSlashContract: ${err}`);
-    }
-  } else if (currentSlash === addresses.governanceSlash.toLowerCase()) {
-    console.log("  OK (already set): GovernanceV2.slashContract");
-  } else {
-    console.warn(`  WARNING: GovernanceV2.slashContract is ${currentSlash} (one-time setter, cannot change)`);
-  }
-
+  // ── GovernanceV2: setSlashContract, setLifecycle, setHelper ──
+  await wireIfNeeded(
+    "GovernanceV2.slashContract",
+    "DatumGovernanceV2", addresses.governanceV2,
+    "slashContract", "setSlashContract",
+    addresses.governanceSlash,
+  );
   await wireIfNeeded(
     "GovernanceV2.lifecycle",
     "DatumGovernanceV2", addresses.governanceV2,
     "lifecycle", "setLifecycle",
     addresses.campaignLifecycle,
   );
-
-  // GovernanceSlash has no post-deploy setters — voting + campaigns are set in constructor
+  await wireIfNeeded(
+    "GovernanceV2.helper",
+    "DatumGovernanceV2", addresses.governanceV2,
+    "helper", "setHelper",
+    addresses.governanceHelper,
+  );
 
   console.log("\n  All wiring complete.");
 
@@ -443,7 +570,7 @@ async function main() {
 
   async function transferOwnershipIfNeeded(
     label: string,
-    contractName: string,
+    _contractName: string,
     contractAddr: string,
   ): Promise<void> {
     const currentOwner = await readAddr(contractAddr, "owner");
@@ -455,16 +582,19 @@ async function main() {
       console.warn(`  WARNING: ${label} owned by ${currentOwner}, not deployer — cannot transfer`);
       return;
     }
-    const contract = await ethers.getContractAt(contractName, contractAddr);
     try {
-      await (await (contract as any).transferOwnership(addresses.timelock)).wait();
+      await sendCall(
+        contractAddr,
+        ["function transferOwnership(address)"],
+        "transferOwnership",
+        [addresses.timelock],
+      );
       console.log(`  TRANSFERRED: ${label} -> Timelock`);
     } catch (err) {
       console.warn(`  WARNING: ${label} ownership transfer failed: ${String(err).slice(0, 100)}`);
     }
   }
 
-  // Transfer Campaigns + Settlement ownership to Timelock
   await transferOwnershipIfNeeded("Campaigns", "DatumCampaigns", addresses.campaigns);
   await transferOwnershipIfNeeded("Settlement", "DatumSettlement", addresses.settlement);
 
@@ -489,46 +619,50 @@ async function main() {
   }
 
   // Settlement
-  const sett = await ethers.getContractAt("DatumSettlement", addresses.settlement);
-  await check("Settlement.budgetLedger", await sett.budgetLedger(), addresses.budgetLedger);
-  await check("Settlement.paymentVault", await sett.paymentVault(), addresses.paymentVault);
-  await check("Settlement.lifecycle", await sett.lifecycle(), addresses.campaignLifecycle);
-  await check("Settlement.relayContract", await sett.relayContract(), addresses.relay);
-  await check("Settlement.publishers", await sett.publishers(), addresses.publishers);
-  await check("Settlement.attestationVerifier", await sett.attestationVerifier(), addresses.attestationVerifier);
-  await check("Settlement.owner", await sett.owner(), addresses.timelock);
+  await check("Settlement.budgetLedger", await readAddr(addresses.settlement, "budgetLedger"), addresses.budgetLedger);
+  await check("Settlement.paymentVault", await readAddr(addresses.settlement, "paymentVault"), addresses.paymentVault);
+  await check("Settlement.lifecycle", await readAddr(addresses.settlement, "lifecycle"), addresses.campaignLifecycle);
+  await check("Settlement.relayContract", await readAddr(addresses.settlement, "relayContract"), addresses.relay);
+  await check("Settlement.claimValidator", await readAddr(addresses.settlement, "claimValidator"), addresses.claimValidator);
+  await check("Settlement.attestationVerifier", await readAddr(addresses.settlement, "attestationVerifier"), addresses.attestationVerifier);
+  await check("Settlement.owner", await readAddr(addresses.settlement, "owner"), addresses.timelock);
 
   // Campaigns
-  const camp = await ethers.getContractAt("DatumCampaigns", addresses.campaigns);
-  await check("Campaigns.budgetLedger", await camp.budgetLedger(), addresses.budgetLedger);
-  await check("Campaigns.lifecycleContract", await camp.lifecycleContract(), addresses.campaignLifecycle);
-  await check("Campaigns.governanceContract", await camp.governanceContract(), addresses.governanceV2);
-  await check("Campaigns.settlementContract", await camp.settlementContract(), addresses.settlement);
-  await check("Campaigns.owner", await camp.owner(), addresses.timelock);
+  await check("Campaigns.budgetLedger", await readAddr(addresses.campaigns, "budgetLedger"), addresses.budgetLedger);
+  await check("Campaigns.lifecycleContract", await readAddr(addresses.campaigns, "lifecycleContract"), addresses.campaignLifecycle);
+  await check("Campaigns.governanceContract", await readAddr(addresses.campaigns, "governanceContract"), addresses.governanceV2);
+  await check("Campaigns.settlementContract", await readAddr(addresses.campaigns, "settlementContract"), addresses.settlement);
+  await check("Campaigns.campaignValidator", await readAddr(addresses.campaigns, "campaignValidator"), addresses.campaignValidator);
+  await check("Campaigns.owner", await readAddr(addresses.campaigns, "owner"), addresses.timelock);
 
   // BudgetLedger
-  const bl = await ethers.getContractAt("DatumBudgetLedger", addresses.budgetLedger);
-  await check("BudgetLedger.campaigns", await bl.campaigns(), addresses.campaigns);
-  await check("BudgetLedger.settlement", await bl.settlement(), addresses.settlement);
-  await check("BudgetLedger.lifecycle", await bl.lifecycle(), addresses.campaignLifecycle);
+  await check("BudgetLedger.campaigns", await readAddr(addresses.budgetLedger, "campaigns"), addresses.campaigns);
+  await check("BudgetLedger.settlement", await readAddr(addresses.budgetLedger, "settlement"), addresses.settlement);
+  await check("BudgetLedger.lifecycle", await readAddr(addresses.budgetLedger, "lifecycle"), addresses.campaignLifecycle);
 
   // PaymentVault
-  const pv = await ethers.getContractAt("DatumPaymentVault", addresses.paymentVault);
-  await check("PaymentVault.settlement", await pv.settlement(), addresses.settlement);
+  await check("PaymentVault.settlement", await readAddr(addresses.paymentVault, "settlement"), addresses.settlement);
 
   // CampaignLifecycle
-  const lc = await ethers.getContractAt("DatumCampaignLifecycle", addresses.campaignLifecycle);
-  await check("Lifecycle.campaigns", await lc.campaigns(), addresses.campaigns);
-  await check("Lifecycle.budgetLedger", await lc.budgetLedger(), addresses.budgetLedger);
-  await check("Lifecycle.governanceContract", await lc.governanceContract(), addresses.governanceV2);
-  await check("Lifecycle.settlementContract", await lc.settlementContract(), addresses.settlement);
+  await check("Lifecycle.campaigns", await readAddr(addresses.campaignLifecycle, "campaigns"), addresses.campaigns);
+  await check("Lifecycle.budgetLedger", await readAddr(addresses.campaignLifecycle, "budgetLedger"), addresses.budgetLedger);
+  await check("Lifecycle.governanceContract", await readAddr(addresses.campaignLifecycle, "governanceContract"), addresses.governanceV2);
+  await check("Lifecycle.settlementContract", await readAddr(addresses.campaignLifecycle, "settlementContract"), addresses.settlement);
 
   // GovernanceV2
-  const g2 = await ethers.getContractAt("DatumGovernanceV2", addresses.governanceV2);
-  await check("GovernanceV2.slashContract", await g2.slashContract(), addresses.governanceSlash);
-  await check("GovernanceV2.lifecycle", await g2.lifecycle(), addresses.campaignLifecycle);
+  await check("GovernanceV2.slashContract", await readAddr(addresses.governanceV2, "slashContract"), addresses.governanceSlash);
+  await check("GovernanceV2.lifecycle", await readAddr(addresses.governanceV2, "lifecycle"), addresses.campaignLifecycle);
+  await check("GovernanceV2.helper", await readAddr(addresses.governanceV2, "helper"), addresses.governanceHelper);
 
-  // ── Validate all 13 addresses present and non-zero ──
+  // ClaimValidator
+  await check("ClaimValidator.campaigns", await readAddr(addresses.claimValidator, "campaigns"), addresses.campaigns);
+  await check("ClaimValidator.publishers", await readAddr(addresses.claimValidator, "publishers"), addresses.publishers);
+
+  // CampaignValidator
+  await check("CampaignValidator.publishers", await readAddr(addresses.campaignValidator, "publishers"), addresses.publishers);
+  await check("CampaignValidator.targetingRegistry", await readAddr(addresses.campaignValidator, "targetingRegistry"), addresses.targetingRegistry);
+
+  // ── Validate all 17 addresses present and non-zero ──
   logStep("Checking all addresses present");
   for (const key of REQUIRED_KEYS) {
     if (!addresses[key] || addresses[key] === ZERO_ADDRESS) {
@@ -554,15 +688,12 @@ async function main() {
 
   logStep("Writing deployed-addresses.json");
 
-  // Add metadata
   addresses.network = network.name;
   addresses.deployedAt = new Date().toISOString();
 
-  // Write to alpha-2/
   fs.writeFileSync(ADDR_FILE, JSON.stringify(addresses, null, 2) + "\n");
   console.log(`  Written: ${ADDR_FILE}`);
 
-  // Write to alpha-2/extension/
   try {
     fs.writeFileSync(EXT_ADDR_FILE, JSON.stringify(addresses, null, 2) + "\n");
     console.log(`  Written: ${EXT_ADDR_FILE}`);
@@ -574,8 +705,8 @@ async function main() {
   // Summary
   // ═══════════════════════════════════════════════════════════════════════════
 
-  console.log("\n=== DATUM Alpha-2 Deployment Complete ===\n");
-  console.log("13 contracts deployed and wired:\n");
+  console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
+  console.log("17 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }

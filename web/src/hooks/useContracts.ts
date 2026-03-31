@@ -15,6 +15,10 @@ import {
   getPaymentVaultContract,
   getLifecycleContract,
   getAttestationVerifierContract,
+  getTargetingRegistryContract,
+  getCampaignValidatorContract,
+  getClaimValidatorContract,
+  getGovernanceHelperContract,
   getProvider,
 } from "@shared/contracts";
 
@@ -38,6 +42,10 @@ export function useContracts() {
       paymentVault: getPaymentVaultContract(addrs, provider),
       lifecycle: getLifecycleContract(addrs, provider),
       attestationVerifier: getAttestationVerifierContract(addrs, provider),
+      targetingRegistry: getTargetingRegistryContract(addrs, provider),
+      campaignValidator: getCampaignValidatorContract(addrs, provider),
+      claimValidator: getClaimValidatorContract(addrs, provider),
+      governanceHelper: getGovernanceHelperContract(addrs, provider),
       // Read-only provider for cases that don't need a signer
       readProvider: getProvider(settings.rpcUrl),
     };
