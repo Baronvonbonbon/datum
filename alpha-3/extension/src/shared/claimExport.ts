@@ -125,6 +125,17 @@ export async function importClaims(
   let claimsImported = 0;
   let skippedStale = 0;
 
+  // XL-6: Validate chain state integrity before importing
+  const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
+  for (const [campaignId, importedChain] of Object.entries(exportData.chains)) {
+    if (typeof importedChain.headHash !== "string" || !BYTES32_RE.test(importedChain.headHash)) {
+      return { imported: false, chainsImported: 0, claimsImported: 0, skippedStale: 0, error: `Invalid headHash for campaign ${campaignId}` };
+    }
+    if (typeof importedChain.lastNonce !== "number" || importedChain.lastNonce < 0) {
+      return { imported: false, chainsImported: 0, claimsImported: 0, skippedStale: 0, error: `Invalid nonce for campaign ${campaignId}` };
+    }
+  }
+
   // Merge chain states (keep higher nonce)
   for (const [campaignId, importedChain] of Object.entries(exportData.chains)) {
     const key = `${CHAIN_STATE_PREFIX}${userAddress}:${campaignId}`;

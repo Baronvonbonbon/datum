@@ -228,6 +228,13 @@ export const campaignPoller = {
         }
         if (!fetched) {
           console.warn(`[DATUM] All gateways failed for campaign ${c.id} metadata`);
+          // UB-6: Track consecutive metadata fetch failures
+          const stored = await chrome.storage.local.get("metadataFetchFailures");
+          const prev = (stored.metadataFetchFailures as number) ?? 0;
+          await chrome.storage.local.set({ metadataFetchFailures: prev + 1 });
+        } else {
+          // Reset failure counter on any success
+          await chrome.storage.local.remove("metadataFetchFailures");
         }
       }
     } catch (err) {

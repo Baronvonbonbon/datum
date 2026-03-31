@@ -28,9 +28,32 @@ const BASELINE_PHISHING_DOMAINS: string[] = [
   "acala-airdrop.com",
 ];
 
+// UB-8: Stale threshold — warn when cache is older than 24h
+const STALE_WARN_MS = 24 * 3600_000;
+// UB-8: Retry up to 3 times with exponential backoff (1s, 2s, 4s)
+const FETCH_RETRIES = 3;
+
+async function fetchWithRetry(url: string): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+    }
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (resp.ok) return resp;
+      lastError = new Error(`HTTP ${resp.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Refresh the phishing domain deny list from polkadot.js if stale (>6h).
- * On fetch failure, keeps stale cache (fail-open for availability).
+ * UB-8: Retries with exponential backoff (1s, 2s, 4s) on failure.
+ * Sets phishingListStale flag in storage if cache is older than 24h after failure.
  */
 export async function refreshPhishingList(): Promise<void> {
   try {
@@ -38,22 +61,24 @@ export async function refreshPhishingList(): Promise<void> {
     const lastFetch = (stored[PHISHING_DOMAINS_TS_KEY] as number) ?? 0;
     if (Date.now() - lastFetch < FETCH_INTERVAL_MS) return;
 
-    const resp = await fetch(PHISHING_LIST_URL, { signal: AbortSignal.timeout(15000) });
-    if (!resp.ok) {
-      console.warn(`[DATUM] Phishing list fetch failed: ${resp.status}`);
-      return;
-    }
-
+    const resp = await fetchWithRetry(PHISHING_LIST_URL);
     const data = await resp.json();
     const deny: string[] = Array.isArray(data?.deny) ? data.deny : [];
 
     await chrome.storage.local.set({
       [PHISHING_DOMAINS_KEY]: deny,
       [PHISHING_DOMAINS_TS_KEY]: Date.now(),
+      phishingListStale: false,
     });
     console.log(`[DATUM] Phishing deny list updated: ${deny.length} domains`);
   } catch (err) {
-    console.warn("[DATUM] Phishing list refresh failed:", err);
+    console.warn("[DATUM] Phishing list refresh failed after retries:", err);
+    // UB-8: Mark stale if cache is older than 24h
+    const stored = await chrome.storage.local.get([PHISHING_DOMAINS_TS_KEY]);
+    const lastFetch = (stored[PHISHING_DOMAINS_TS_KEY] as number) ?? 0;
+    if (Date.now() - lastFetch > STALE_WARN_MS) {
+      await chrome.storage.local.set({ phishingListStale: true });
+    }
   }
 }
 

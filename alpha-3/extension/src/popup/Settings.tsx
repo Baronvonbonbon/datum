@@ -68,6 +68,14 @@ export function Settings({ address }: { address: string | null }) {
     chrome.runtime.sendMessage({ type: "GET_AD_RATE" }).then((resp) => {
       if (resp?.count !== undefined) setAdsThisHour(resp.count);
     });
+    // UB-8: Check if phishing list is stale
+    chrome.storage.local.get("phishingListStale").then((stored) => {
+      setPhishingListStale(!!stored.phishingListStale);
+    });
+    // UB-6: Check metadata fetch failure count
+    chrome.storage.local.get("metadataFetchFailures").then((stored) => {
+      setMetadataFetchFailures((stored.metadataFetchFailures as number) ?? 0);
+    });
   }, []);
 
   async function loadPreferences() {
@@ -204,6 +212,10 @@ export function Settings({ address }: { address: string | null }) {
 
   // UB-4: Ads-per-hour counter
   const [adsThisHour, setAdsThisHour] = useState<number | null>(null);
+  // UB-8: Stale phishing list warning
+  const [phishingListStale, setPhishingListStale] = useState(false);
+  // UB-6: Metadata fetch failure notification
+  const [metadataFetchFailures, setMetadataFetchFailures] = useState(0);
 
   // TX-6: Load publisher tags from on-chain TargetingRegistry
   async function loadPublisherTags() {
@@ -298,6 +310,24 @@ export function Settings({ address }: { address: string | null }) {
       <div style={{ marginBottom: 12 }}>
         <span style={{ color: "var(--accent)", fontWeight: 600 }}>Settings</span>
       </div>
+
+      {/* UB-8: Stale phishing list warning */}
+      {phishingListStale && (
+        <div style={{ padding: "6px 10px", marginBottom: 10, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
+          <div style={{ color: "var(--warn)", fontSize: 11 }}>
+            Phishing protection list is stale (&gt;24h old). Check your network connection.
+          </div>
+        </div>
+      )}
+
+      {/* UB-6: Metadata fetch failure warning */}
+      {metadataFetchFailures >= 3 && (
+        <div style={{ padding: "6px 10px", marginBottom: 10, background: "rgba(252,211,77,0.07)", border: "1px solid rgba(252,211,77,0.2)", borderRadius: "var(--radius-sm)" }}>
+          <div style={{ color: "var(--warn)", fontSize: 11 }}>
+            Ad metadata failed to load {metadataFetchFailures}x in a row. Check IPFS gateway settings.
+          </div>
+        </div>
+      )}
 
       {/* Wallet address (read-only, selectable) */}
       {address && (

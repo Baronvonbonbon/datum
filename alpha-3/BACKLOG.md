@@ -271,7 +271,7 @@
 | XL-3 | 8.3 | Inline onerror on img tag | adSlot.ts | **DONE** |
 | XL-4 | 12.3 | `tabs` permission may be unnecessary | manifest.json | **DONE** (removed tabs+activeTab+offscreen) |
 | XL-5 | 13.2 | Encrypted auto-submit key persists after SW restart | background/index.ts | **DONE** |
-| XL-6 | 14.2 | Import doesn't validate claim hash chain | claimExport.ts |
+| XL-6 | 14.2 | Import doesn't validate claim hash chain | claimExport.ts | **DONE** (headHash + nonce format validation) |
 
 ---
 
@@ -389,10 +389,10 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 | UB-2 | EA-3 | Behavior chain storage cleanup | Clean up `behaviorChain:*` keys for terminal campaigns or cap per user | **DONE** |
 | UB-3 | WS-4 | Typed DELETE confirmation | Require typing "DELETE" for wallet removal | **DONE** |
 | UB-4 | UP-6 | Ads-per-hour counter display | Show "X/12 ads shown this hour" in UI | **DONE** |
-| UB-5 | E-M2 | Interest profile storage race | Non-atomic `get→mutate→set` — multi-tab race condition |
-| UB-6 | E-M3 | Metadata fetch failure retry UI | Failure count tracking + notification for 3+ consecutive failures |
+| UB-5 | E-M2 | Interest profile storage race | Non-atomic `get→mutate→set` — multi-tab race condition | **DONE** (in-memory lock + queue coalesce) |
+| UB-6 | E-M3 | Metadata fetch failure retry UI | Failure count tracking + notification for 3+ consecutive failures | **DONE** |
 | UB-7 | E-M6 | Conviction tooltip | Explain conviction weight × lockup relationship |
-| UB-8 | X7 | Phishing list fetch resilience | Retry with exponential backoff, stale-cache warning |
+| UB-8 | X7 | Phishing list fetch resilience | Retry with exponential backoff, stale-cache warning | **DONE** |
 | UB-9 | — | Vote stacking (`increaseStake()`) | Contract-level change: allow adding to existing vote |
 | UB-10 | — | Conviction preview | Show weighted vote power + lockup estimate before submit |
 | UB-11 | — | Campaign detail modal | Click campaign in governance list for full details |

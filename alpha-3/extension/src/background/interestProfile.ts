@@ -8,6 +8,12 @@ const STORAGE_KEY = "interestProfile";
 const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // prune visits older than 30 days
 
+// UB-5: In-memory lock for updateProfile — prevents concurrent get→mutate→set race.
+// Pending updates are coalesced: if a lock is held, we queue one extra batch
+// and process it after the current holder finishes.
+let _profileLock = false;
+const _profileQueue: string[] = [];
+
 interface CategoryVisit {
   category: string;
   timestamp: number;
@@ -48,24 +54,40 @@ function computeWeights(visits: CategoryVisit[]): {
 }
 
 export const interestProfile = {
-  /** Record a category visit and recompute weights */
+  /** Record a category visit and recompute weights.
+   *  UB-5: In-memory lock prevents concurrent get→mutate→set races.
+   *  Concurrent callers queue their category; the lock holder drains the queue. */
   async updateProfile(category: string): Promise<void> {
-    const profile = await this.getProfile();
-    const now = Date.now();
+    if (_profileLock) {
+      // Coalesce: queue this visit for the current lock holder to include
+      _profileQueue.push(category);
+      return;
+    }
+    _profileLock = true;
+    try {
+      // Collect all queued categories (including any that arrived while we were setting the lock)
+      const categories = [category, ..._profileQueue.splice(0)];
 
-    // Add visit
-    profile.visits.push({ category, timestamp: now });
+      const profile = await this.getProfile();
+      const now = Date.now();
 
-    // Prune old visits (>30 days)
-    const cutoff = now - MAX_AGE_MS;
-    profile.visits = profile.visits.filter((v) => v.timestamp >= cutoff);
+      for (const cat of categories) {
+        profile.visits.push({ category: cat, timestamp: now });
+      }
 
-    // Recompute weights
-    const { weights, visitCounts } = computeWeights(profile.visits);
-    profile.weights = weights;
-    profile.visitCounts = visitCounts;
+      // Prune old visits (>30 days)
+      const cutoff = now - MAX_AGE_MS;
+      profile.visits = profile.visits.filter((v) => v.timestamp >= cutoff);
 
-    await chrome.storage.local.set({ [STORAGE_KEY]: profile });
+      // Recompute weights
+      const { weights, visitCounts } = computeWeights(profile.visits);
+      profile.weights = weights;
+      profile.visitCounts = visitCounts;
+
+      await chrome.storage.local.set({ [STORAGE_KEY]: profile });
+    } finally {
+      _profileLock = false;
+    }
   },
 
   /** Get the current interest profile */
