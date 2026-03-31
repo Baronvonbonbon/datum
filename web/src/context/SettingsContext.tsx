@@ -45,7 +45,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           const v = (parsed as any)[k];
           if (typeof v === "string" && v && !secrets[k]) (secrets as any)[k] = v;
         }
-        return { ...DEFAULT_SETTINGS, ...parsed, ...secrets };
+        // Deep-merge contractAddresses so new keys from DEFAULT_SETTINGS are preserved
+        const mergedAddresses = {
+          ...DEFAULT_SETTINGS.contractAddresses,
+          ...(parsed.contractAddresses ?? {}),
+        };
+        return { ...DEFAULT_SETTINGS, ...parsed, ...secrets, contractAddresses: mergedAddresses };
       }
       return { ...DEFAULT_SETTINGS, ...secrets };
     } catch { /* ignore */ }

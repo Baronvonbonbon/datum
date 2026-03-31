@@ -23,6 +23,7 @@ type Provider = JsonRpcProvider;
 // Returns any-typed contracts so component code doesn't need casts for dynamic ABI methods.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function make(address: string, abi: any[], provider: Provider | Signer): any {
+  if (!address) return null;
   return new Contract(address, abi, provider) as any;
 }
 
