@@ -1,18 +1,23 @@
 /**
- * DATUM Publisher SDK v1.0
+ * DATUM Publisher SDK v2.0
  *
  * Lightweight JS tag (~2 KB) for publishers to embed on their site.
  * Provides two-party attestation via challenge-response handshake
  * with the DATUM browser extension.
  *
  * Usage:
- *   <script src="datum-sdk.js" data-categories="1,6,26" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
+ *   <script src="datum-sdk.js" data-tags="crypto-web3,en,desktop" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
  *   <div id="datum-ad-slot"></div>
+ *
+ * Tag format: comma-separated short values (e.g., "crypto-web3,en,desktop").
+ * The extension resolves these to full dimension:value tags for on-chain matching.
+ *
+ * Legacy: data-categories is still read for backward compatibility but deprecated.
  */
 (function () {
   "use strict";
 
-  var VERSION = "1.0.0";
+  var VERSION = "2.0.0";
 
   // Read config from script tag attributes
   var scriptTag = document.currentScript;
@@ -28,8 +33,16 @@
   }
 
   var publisherAddress = scriptTag ? scriptTag.getAttribute("data-publisher") || "" : "";
-  var categoriesStr = scriptTag ? scriptTag.getAttribute("data-categories") || "" : "";
   var relayUrl = scriptTag ? scriptTag.getAttribute("data-relay") || "" : "";
+
+  // Tags (v2): comma-separated short values like "crypto-web3,en,desktop"
+  var tagsStr = scriptTag ? scriptTag.getAttribute("data-tags") || "" : "";
+  var tags = tagsStr
+    ? tagsStr.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
+    : [];
+
+  // Legacy: read data-categories for backward compatibility
+  var categoriesStr = scriptTag ? scriptTag.getAttribute("data-categories") || "" : "";
   var categories = categoriesStr
     ? categoriesStr.split(",").map(function (s) { return parseInt(s.trim(), 10); }).filter(function (n) { return !isNaN(n); })
     : [];
@@ -56,7 +69,8 @@
       new CustomEvent("datum:sdk-ready", {
         detail: {
           publisher: publisherAddress,
-          categories: categories,
+          tags: tags,
+          categories: categories, // legacy
           relay: relayUrl,
           version: VERSION,
         },

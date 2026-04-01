@@ -89,7 +89,7 @@
         Publishers integrate using a lightweight SDK tag on their site. The SDK establishes
         a challenge-response handshake with the DATUM browser extension to verify legitimate
         impressions. Campaigns can target specific publishers or run as open campaigns matched
-        via category overlap.
+        via tag overlap.
       </p>
     </article>
 
@@ -100,13 +100,13 @@
       <h2>How to Integrate the DATUM SDK</h2>
       <p>Add the following snippet to your page:</p>
       <pre>&lt;script src="datum-sdk.js"
-  data-categories="1,6,26"
+  data-tags="crypto-web3,en,desktop"
   data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
   data-relay="https://your-relay.example.com"&gt;&lt;/script&gt;
 &lt;div id="datum-ad-slot"&gt;&lt;/div&gt;</pre>
       <p>
-        The <code>data-categories</code> attribute declares which ad categories your site
-        accepts (comma-separated IDs from the DATUM taxonomy). The
+        The <code>data-tags</code> attribute declares which tags describe your site
+        (comma-separated values from the DATUM tag dictionary). The
         <code>data-publisher</code> attribute is your registered on-chain publisher address.
         The <code>data-relay</code> attribute points to your publisher relay endpoint URL
         (the extension picks this up automatically &mdash; no rebuild needed when the URL changes).
@@ -117,13 +117,13 @@
     <div class="status" id="sdk-status">
       <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
       <div><span class="label">Publisher:</span> <span id="status-publisher">—</span></div>
-      <div><span class="label">Categories:</span> <span id="status-categories">—</span></div>
+      <div><span class="label">Tags:</span> <span id="status-tags">—</span></div>
       <div><span class="label">Handshake:</span> <span id="status-handshake" class="waiting">Pending</span></div>
     </div>
   </div>
 
-  <!-- DATUM SDK — Diana (Publisher 1) testnet address, Computers & Electronics (6) + Crypto & Web3 (26) -->
-  <script src="datum-sdk.js" data-categories="6,26" data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"></script>
+  <!-- DATUM SDK — Diana (Publisher 1) testnet address, crypto + defi + english tags -->
+  <script src="datum-sdk.js" data-tags="crypto-web3,defi,en" data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"></script>
 
   <script>
     // Status monitoring for demo purposes
@@ -132,7 +132,7 @@
       document.getElementById("status-sdk").textContent = "Ready (v" + d.version + ")";
       document.getElementById("status-sdk").className = "ok";
       document.getElementById("status-publisher").textContent = d.publisher || "—";
-      document.getElementById("status-categories").textContent = (d.categories || []).join(", ") || "—";
+      document.getElementById("status-tags").textContent = (d.tags || []).join(", ") || "—";
     });
 
     document.addEventListener("datum:response", function (e) {
