@@ -1,8 +1,8 @@
-# DATUM Browser Extension (Alpha-2)
+# DATUM Browser Extension (Alpha-3)
 
 Privacy-preserving ad network on Polkadot Hub. Users earn DOT for relevant ad impressions recorded locally in their browser.
 
-**Status:** Alpha-2 build complete. 13-contract support, Blake2-256 claim hashing, mandatory publisher attestation (P1), EIP-1193 provider bridge. 165/165 Jest tests, 0 webpack errors.
+**Status:** Alpha-3 build complete. 17-contract support, Blake2-256 claim hashing, mandatory publisher attestation (P1), event-driven campaign polling with O(1) lookups, EIP-1193 provider bridge. 165/165 Jest tests, 0 webpack errors.
 
 ## Requirements
 
@@ -41,7 +41,7 @@ Open the extension popup -> **Settings** tab:
 |---------|-------|
 | Network | Local (dev) / Paseo / Westend / Kusama / Polkadot Hub |
 | RPC URL | e.g. `http://localhost:8545` for local devchain |
-| Contract Addresses | 13 addresses — auto-loaded from `deployed-addresses.json` or paste from deploy script output |
+| Contract Addresses | 17 addresses — auto-loaded from `deployed-addresses.json` or paste from deploy script output |
 | Publisher Address | Leave blank to use connected wallet address |
 | Auto-submit | Enable to have claims submitted automatically on a timer |
 
@@ -58,7 +58,7 @@ Open the extension popup -> **Settings** tab:
 |-----|-----------|----------|
 | Claims | ClaimQueue | Pending claims, submit via AttestationVerifier, sign for publisher relay, earnings estimate, attestation badges, export/import (P6) |
 | Earnings | UserPanel | User balance (DOT), withdraw from PaymentVault, engagement stats (dwell, viewable, viewability rate), per-campaign breakdown |
-| Settings | Settings | Network, RPC, 13 contract addresses, IPFS gateway, Pinata API key, auto-submit, ad preferences, interest profile, wallet management |
+| Settings | Settings | Network, RPC, 17 contract addresses, IPFS gateway, Pinata API key, auto-submit, ad preferences, interest profile, wallet management |
 
 Advanced flows (Campaigns, Publisher, Advertiser, Governance) are in the [web app](../../web/).
 
@@ -93,14 +93,14 @@ Concurrent requests use per-request IDs to prevent race conditions.
 cd ../
 docker compose up -d
 
-# Deploy 13 contracts with full wiring
+# Deploy 17 contracts with full wiring
 npx hardhat run scripts/deploy.ts --network substrate
 
 # Fund your wallet
 TARGET=0xYourAddress npx hardhat run scripts/fund-wallet.ts --network substrate
 
 # Set up a test campaign (registers publisher, creates + activates campaign)
-npx hardhat run scripts/setup-test-campaign.ts --network substrate
+npx hardhat run scripts/setup-testnet.ts --network substrate
 ```
 
 Deploy script writes `deployed-addresses.json` — the extension auto-loads addresses on reload.
@@ -125,7 +125,7 @@ background/
   behaviorChain.ts      — Per-(user, campaign) engagement hash chain (Blake2-256)
   behaviorCommit.ts     — Behavior commitment bytes32 (Blake2-256)
   campaignMatcher.ts    — Legacy fallback selector
-  campaignPoller.ts     — Polls contracts every 5 min, caches all statuses
+  campaignPoller.ts     — Event-driven poller: CampaignCreated events, Map index, O(1) lookups, batch-parallel RPC
   claimBuilder.ts       — Builds hash-chain claims with Blake2-256 + auction CPM + quality weighting
   claimQueue.ts         — Persists pending claims, provides batches
   interestProfile.ts    — Exponential-decay category weights
@@ -143,24 +143,24 @@ content/
 popup/
   App.tsx               — 3-tab shell (Claims, Earnings, Settings)
   ClaimQueue.tsx        — Claims + submit via AttestationVerifier + relay POST + export/import
-  Settings.tsx          — Full configuration + ad preferences + 13 contract addresses
+  Settings.tsx          — Full configuration + ad preferences + 17 contract addresses
   UserPanel.tsx         — Earnings + engagement stats + PaymentVault withdrawal
   WalletSetup.tsx       — Embedded wallet setup (AES-256-GCM + PBKDF2)
 
 shared/
-  abis/                 — 13 contract ABIs (includes DatumAttestationVerifier)
+  abis/                 — 17 contract ABIs (alpha-3)
   claimExport.ts        — P6 encrypted export/import
-  contracts.ts          — Contract factories (13 contracts)
+  contracts.ts          — Contract factories (17 contracts)
   messages.ts           — Chrome message type definitions
   networks.ts           — Network configs (local, Paseo, Westend, Kusama, Polkadot Hub)
-  types.ts              — TypeScript types, 26 categories, ContractAddresses (13 fields)
+  types.ts              — TypeScript types, 26 categories, ContractAddresses (17 fields)
   walletManager.ts      — Multi-account wallet (AES-256-GCM + PBKDF2, 310k iterations)
   dot.ts                — parseDOT / formatDOT helpers
   qualityScore.ts       — Pure quality scoring (computed in trusted background context)
-  errorCodes.ts         — Human-readable error code map (E00-E64, P, reason codes)
+  errorCodes.ts         — Human-readable error code map (E00-E66, P, reason codes)
 ```
 
-## 13 Contract System
+## 17 Contract System
 
 | Contract | Purpose |
 |----------|---------|
@@ -172,20 +172,30 @@ shared/
 | DatumPaymentVault | Pull-payment vault (publisher/user/protocol balances) |
 | DatumCampaignLifecycle | Complete/terminate/expire + P20 inactivity timeout |
 | DatumAttestationVerifier | P1 mandatory publisher co-signature for all campaigns |
+| DatumTargetingRegistry | Tag-based targeting (bytes32 hashes, AND-logic matching) |
+| DatumCampaignValidator | Cross-contract campaign creation validation |
+| DatumClaimValidator | Claim validation logic (extracted from Settlement) |
 | DatumGovernanceV2 | Conviction voting (9 levels, 0-8), escalating lockups |
 | DatumGovernanceSlash | Symmetric slash on losing voters + sweep |
+| DatumGovernanceHelper | Read-only governance aggregation helpers |
 | DatumSettlement | Blake2-256 hash-chain validation + 3-way payment split |
 | DatumRelay | EIP-712 gasless settlement + publisher co-sig |
 | DatumZKVerifier | Stub ZK verifier (real Groth16 post-alpha) |
 
-## Key Changes from Alpha Extension
+## Key Changes from Alpha-2 Extension
 
-- **3 tabs** (Claims, Earnings, Settings) — down from 7. Advanced flows moved to web app.
-- **Blake2-256 claim hashing** — `@noble/hashes/blake2.js` replaces keccak256. Matches Settlement on PolkaVM.
-- **P1 attestation path** — Claims submitted via `AttestationVerifier.settleClaimsAttested()` with publisher co-signature per batch.
-- **Relay POST** — `signForRelay()` POSTs signed batches to publisher relay endpoints after signing.
-- **EIP-1193 provider bridge** — `window.datum` compatible with `ethers.BrowserProvider`. Supports signing, RPC proxy, concurrent requests.
-- **13-contract support** — PaymentVault, BudgetLedger, CampaignLifecycle, AttestationVerifier added.
+- **Event-driven campaign polling** — CampaignCreated events replace O(n) linear ID scan. Map<id, campaign> index for O(1) lookups. No campaign count limit.
+- **Batch-parallel RPC** — 20 concurrent status refreshes, 5 concurrent IPFS metadata fetches
+- **17-contract support** — 4 new satellites: TargetingRegistry, CampaignValidator, ClaimValidator, GovernanceHelper
+- **Incremental block tracking** — polls only new blocks after first full scan
+- **Tag-based campaign matching** — requiredTags field from TargetingRegistry
+
+### Unchanged from alpha-2
+- 3 tabs (Claims, Earnings, Settings) — advanced flows in web app
+- Blake2-256 claim hashing (`@noble/hashes/blake2.js`)
+- P1 attestation path via `AttestationVerifier.settleClaimsAttested()`
+- Relay POST to publisher relay endpoints
+- EIP-1193 provider bridge (`window.datum`)
 
 ## Testing
 
@@ -198,9 +208,9 @@ Test coverage: Blake2 hashing, claim builder, provider bridge, engagement, quali
 
 ## Next Steps
 
-1. **Alpha-2 testnet deploy** — `npx hardhat run scripts/deploy.ts --network polkadotTestnet` then update `deployed-addresses.json` with live addresses.
-2. **E2E validation** — Full browser E2E on Paseo: create campaign, vote, browse, submit claims, verify settlement.
-3. **Open testing (A3.5)** — External testers complete the full flow.
+1. **E2E validation** — Full browser E2E on Paseo: create campaign, vote, browse, submit claims, verify settlement.
+2. **Open testing** — External testers complete the full flow.
+3. **Bot mitigation** — BM-1 through BM-9 from alpha-3 backlog.
 
 ## Rebuild After Changes
 

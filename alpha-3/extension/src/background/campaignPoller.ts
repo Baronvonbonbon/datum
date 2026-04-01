@@ -1,17 +1,51 @@
-// Polls DatumCampaigns for campaigns and caches them in storage.
-// Alpha-2: uses slim getters (getCampaignStatus, getCampaignAdvertiser) on Campaigns,
-// getRemainingBudget on BudgetLedger, getCampaignForSettlement returns 4 values (no remainingBudget).
+// Event-driven campaign poller with O(1) lookup index.
+//
+// Discovery: CampaignCreated events (1 RPC per poll for new events).
+// First poll: query all historical events. Subsequent polls: query from lastBlock+1.
+// Status refresh: multicall-style batch for known campaign IDs (only active/pending/paused).
+// Storage: Map<id, campaign> serialized as object for O(1) lookups.
+// No MAX_SCAN_ID limit — handles arbitrary campaign counts.
 
-import { JsonRpcProvider } from "ethers";
+import { JsonRpcProvider, Contract } from "ethers";
 import { getCampaignsContract, getBudgetLedgerContract } from "@shared/contracts";
 import { metadataUrl } from "@shared/ipfs";
-import { Campaign, CampaignMetadata, CampaignStatus, ContractAddresses } from "@shared/types";
+import { CampaignStatus, ContractAddresses } from "@shared/types";
 import { validateAndSanitize, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { isUrlPhishing, isAddressBlocked, refreshPhishingList } from "@shared/phishingList";
 
 const STORAGE_KEY = "activeCampaigns";
-const MAX_SCAN_ID = 1000;
-const METADATA_TTL_MS = 3600_000; // 1 hour cache TTL for IPFS metadata
+const INDEX_KEY = "campaignIndex";       // Map<id, campaign> as Record<string,SerializedCampaign>
+const LAST_BLOCK_KEY = "pollLastBlock";  // last block scanned for events
+const METADATA_TTL_MS = 3600_000;        // 1 hour cache TTL for IPFS metadata
+const BATCH_SIZE = 20;                   // parallel RPC calls per batch
+
+// All fields stored as strings (already serialized from BigInt)
+interface SerializedCampaign {
+  id: string;
+  advertiser: string;
+  publisher: string;
+  remainingBudget: string;
+  dailyCap: string;
+  bidCpmPlanck: string;
+  snapshotTakeRateBps: string;
+  status: string;
+  categoryId: string;
+  pendingExpiryBlock: string;
+  terminationBlock: string;
+  metadataHash?: string;
+  requiredTags?: string[];
+}
+
+/** Batch an array of async tasks into groups of `size`, running each group in parallel. */
+async function batchParallel<T>(tasks: (() => Promise<T>)[], size: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < tasks.length; i += size) {
+    const batch = tasks.slice(i, i + size);
+    const batchResults = await Promise.all(batch.map(fn => fn()));
+    results.push(...batchResults);
+  }
+  return results;
+}
 
 export const campaignPoller = {
   async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string): Promise<void> {
@@ -21,143 +55,180 @@ export const campaignPoller = {
         return;
       }
 
-      // Refresh phishing deny list if stale (>6h)
       await refreshPhishingList();
 
       const provider = new JsonRpcProvider(rpcUrl);
-      const campaigns: SerializedCampaign[] = [];
       const contract = getCampaignsContract(addresses, provider);
+      if (!contract) return;
       const ledger = addresses.budgetLedger
         ? getBudgetLedgerContract(addresses, provider) : null;
 
-      // Get next campaign ID to know scan range
-      let nextId: number;
-      try {
-        nextId = Number(await contract.nextCampaignId());
-      } catch {
-        // Fallback: scan until misses
-        nextId = MAX_SCAN_ID;
-      }
+      // Load existing index from storage
+      const stored = await chrome.storage.local.get([INDEX_KEY, LAST_BLOCK_KEY]);
+      const index: Record<string, SerializedCampaign> = stored[INDEX_KEY] ?? {};
+      const lastBlock: number = stored[LAST_BLOCK_KEY] ?? 0;
 
-      // Discover campaigns using slim getters
-      // Alpha-2: getCampaignForSettlement returns 4 values (status, publisher, bidCpmPlanck, snapshotTakeRateBps)
-      // remainingBudget from BudgetLedger; categoryId/dailyCap from events
-      let missCount = 0;
-      for (let id = 1; id < Math.min(nextId, MAX_SCAN_ID); id++) {
-        try {
-          const [status, advertiser] = await Promise.all([
-            contract.getCampaignStatus(BigInt(id)).then(Number),
-            contract.getCampaignAdvertiser(BigInt(id)),
-          ]);
-          // Include Active, Pending, Paused for full visibility
-          if (status === CampaignStatus.Active || status === CampaignStatus.Pending || status === CampaignStatus.Paused) {
-            // Skip campaigns from blocked advertisers
-            if (await isAddressBlocked(advertiser)) {
-              console.warn(`[DATUM] Campaign ${id} advertiser flagged: ${advertiser}`);
-              missCount = 0;
-              continue;
-            }
+      // ── Phase 1: Event-driven discovery ────────────────────────────────
+      // Query CampaignCreated events since lastBlock (or all if first run)
+      const currentBlock = await provider.getBlockNumber();
+      const fromBlock = lastBlock > 0 ? lastBlock + 1 : 0;
+      let newCampaignIds: string[] = [];
 
-            // Alpha-2: getCampaignForSettlement returns 4 values (no remainingBudget)
-            // (status, publisher, bidCpmPlanck, snapshotTakeRateBps)
-            const settlementData = await contract.getCampaignForSettlement(BigInt(id));
-            const remaining = ledger
-              ? await ledger.getRemainingBudget(BigInt(id)).catch(() => 0n) : 0n;
-
-            campaigns.push({
-              id: id.toString(),
-              advertiser,
-              publisher: settlementData[1] ?? "",
-              remainingBudget: BigInt(remaining).toString(),
-              dailyCap: "0", // not exposed by slim getters
-              bidCpmPlanck: BigInt(settlementData[2]).toString(),
-              snapshotTakeRateBps: Number(settlementData[3]).toString(),
-              status: status.toString(),
-              categoryId: "0", // not exposed by slim getters
-              pendingExpiryBlock: "0",
-              terminationBlock: "0",
-            });
-            missCount = 0;
-          } else {
-            // Non-active status — still valid campaign, reset miss counter
-            missCount = 0;
-          }
-        } catch {
-          missCount++;
-          if (missCount >= 3) break;
-        }
-      }
-
-      // TX-3: Fetch required tags for each campaign
-      for (const c of campaigns) {
-        try {
-          const tags: string[] = await contract.getCampaignTags(BigInt(c.id));
-          if (tags.length > 0) {
-            c.requiredTags = tags;
-          }
-        } catch {
-          // getCampaignTags may not exist on older contracts — skip silently
-        }
-      }
-
-      // Enrich with categoryId from CampaignCreated events (only exposed via events)
-      if (campaigns.length > 0) {
+      if (fromBlock <= currentBlock) {
         try {
           const filter = contract.filters.CampaignCreated();
-          const events = await contract.queryFilter(filter);
+          const events = await contract.queryFilter(filter, fromBlock, currentBlock);
           for (const ev of events) {
             const args = (ev as any).args;
             if (!args) continue;
-            const cid = args[0]?.toString() ?? args.campaignId?.toString();
-            const cat = Number(args[7] ?? args.categoryId ?? 0);
-            const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0);
-            const camp = campaigns.find((c) => c.id === cid);
-            if (camp) {
-              camp.categoryId = cat.toString();
-              camp.dailyCap = dailyCap.toString();
+            const cid = (args[0] ?? args.campaignId)?.toString();
+            if (!cid) continue;
+
+            // Bootstrap new campaign entry from event data
+            if (!index[cid]) {
+              const advertiser = (args[1] ?? args.advertiser) ?? "";
+              const publisher = (args[2] ?? args.publisher) ?? "";
+              const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0).toString();
+              const bidCpmPlanck = BigInt(args[5] ?? args.bidCpmPlanck ?? 0).toString();
+              const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
+              const categoryId = Number(args[7] ?? args.categoryId ?? 0).toString();
+
+              index[cid] = {
+                id: cid,
+                advertiser: advertiser.toString(),
+                publisher: publisher.toString(),
+                remainingBudget: "0",
+                dailyCap,
+                bidCpmPlanck,
+                snapshotTakeRateBps,
+                status: CampaignStatus.Pending.toString(),
+                categoryId,
+                pendingExpiryBlock: "0",
+                terminationBlock: "0",
+              };
+              newCampaignIds.push(cid);
             }
           }
         } catch (err) {
-          console.warn("[DATUM] Could not enrich campaign categories from events:", err);
+          console.warn("[DATUM] Event query failed, falling back to nextCampaignId scan:", err);
+          // Fallback: check if any new IDs exist beyond what we know
+          try {
+            const nextId = Number(await contract.nextCampaignId());
+            for (let id = 1; id < nextId; id++) {
+              const sid = id.toString();
+              if (!index[sid]) newCampaignIds.push(sid);
+            }
+          } catch { /* give up on discovery this cycle */ }
         }
       }
 
-      // Enrich with metadataHash from CampaignMetadataSet events
-      if (campaigns.length > 0) {
+      // ── Phase 1b: Metadata events for new campaigns ────────────────────
+      if (fromBlock <= currentBlock) {
         try {
           const metaFilter = contract.filters.CampaignMetadataSet();
-          const metaEvents = await contract.queryFilter(metaFilter);
+          const metaEvents = await contract.queryFilter(metaFilter, fromBlock, currentBlock);
           for (const ev of metaEvents) {
             const args = (ev as any).args;
             if (!args) continue;
             const cid = (args[0] ?? args.campaignId)?.toString();
             const hash: string = args[1] ?? args.metadataHash ?? "";
-            if (!cid || !hash) continue;
-            const camp = campaigns.find((c) => c.id === cid);
-            if (camp) camp.metadataHash = hash;
+            if (cid && hash && index[cid]) {
+              index[cid].metadataHash = hash;
+            }
           }
         } catch (err) {
-          console.warn("[DATUM] Could not enrich metadata hashes from events:", err);
+          console.warn("[DATUM] Metadata event query failed:", err);
         }
       }
 
-      await chrome.storage.local.set({ [STORAGE_KEY]: campaigns });
-      console.log(`[DATUM] Polled ${campaigns.length} campaigns (Active/Pending/Paused)`);
+      // ── Phase 2: Refresh status for all known non-terminal campaigns ───
+      // Only refresh campaigns that are Active, Pending, or Paused
+      const refreshIds = Object.keys(index).filter(id => {
+        const s = Number(index[id].status);
+        return s === CampaignStatus.Active || s === CampaignStatus.Pending || s === CampaignStatus.Paused;
+      });
 
-      // CL-4: Clean up metadata cache for campaigns no longer in active list
-      const activeIdSet = new Set(campaigns.map((c) => c.id));
+      // Batch status + settlement data refresh
+      const statusTasks = refreshIds.map(id => async () => {
+        try {
+          const [status, settlementData] = await Promise.all([
+            contract.getCampaignStatus(BigInt(id)).then(Number),
+            contract.getCampaignForSettlement(BigInt(id)),
+          ]);
+
+          const camp = index[id];
+          camp.status = status.toString();
+          camp.publisher = settlementData[1] ?? camp.publisher;
+          camp.bidCpmPlanck = BigInt(settlementData[2]).toString();
+          camp.snapshotTakeRateBps = Number(settlementData[3]).toString();
+
+          // Check advertiser from settlement data or keep existing
+          const advertiser = camp.advertiser;
+          if (await isAddressBlocked(advertiser)) {
+            // Mark as terminal so we stop polling it
+            camp.status = "99"; // sentinel: blocked
+            return;
+          }
+
+          // Budget refresh
+          if (ledger && (status === CampaignStatus.Active || status === CampaignStatus.Pending)) {
+            try {
+              camp.remainingBudget = BigInt(await ledger.getRemainingBudget(BigInt(id))).toString();
+            } catch { /* keep existing */ }
+          }
+        } catch {
+          // Campaign may not exist or RPC failed — mark terminal after repeated failures
+        }
+      });
+
+      await batchParallel(statusTasks, BATCH_SIZE);
+
+      // ── Phase 2b: Fetch tags for new campaigns ─────────────────────────
+      const tagTasks = newCampaignIds.map(id => async () => {
+        try {
+          const tags: string[] = await contract.getCampaignTags(BigInt(id));
+          if (tags.length > 0) index[id].requiredTags = tags;
+        } catch { /* getCampaignTags may not exist — skip */ }
+      });
+      await batchParallel(tagTasks, BATCH_SIZE);
+
+      // ── Phase 3: Build active list + persist ───────────────────────────
+      // Remove terminal campaigns from index (Completed, Terminated, Expired, blocked)
+      const terminalStatuses = new Set([
+        CampaignStatus.Completed.toString(),
+        CampaignStatus.Terminated.toString(),
+        CampaignStatus.Expired.toString(),
+        "99", // blocked sentinel
+      ]);
+      for (const id of Object.keys(index)) {
+        if (terminalStatuses.has(index[id].status)) {
+          delete index[id];
+        }
+      }
+
+      // Build flat array for backward compat with content script / auction
+      const activeCampaigns = Object.values(index);
+
+      await chrome.storage.local.set({
+        [INDEX_KEY]: index,
+        [LAST_BLOCK_KEY]: currentBlock,
+        [STORAGE_KEY]: activeCampaigns,
+      });
+      console.log(`[DATUM] Polled ${activeCampaigns.length} campaigns (${newCampaignIds.length} new, block ${fromBlock}→${currentBlock})`);
+
+      // ── Phase 4: Metadata cleanup ──────────────────────────────────────
+      const activeIdSet = new Set(activeCampaigns.map(c => c.id));
       const allKeys = await chrome.storage.local.get(null);
-      const staleMetaKeys = Object.keys(allKeys).filter((k) => {
+      const staleMetaKeys = Object.keys(allKeys).filter(k => {
         if (!k.startsWith("metadata:") && !k.startsWith("metadata_ts:") && !k.startsWith("metadata_url:")) return false;
-        const cid = k.replace("metadata:", "").replace("metadata_ts:", "").replace("metadata_url:", "");
+        const cid = k.split(":")[1];
         return !activeIdSet.has(cid);
       });
       if (staleMetaKeys.length > 0) {
         await chrome.storage.local.remove(staleMetaKeys);
-        console.log(`[DATUM] Cleaned ${staleMetaKeys.length} stale metadata cache entries`);
       }
 
-      // Fetch IPFS metadata for campaigns (multi-gateway for reliability)
+      // ── Phase 5: IPFS metadata fetch ───────────────────────────────────
       const primaryGateway = ipfsGateway || "https://dweb.link/ipfs/";
       const gateways = [
         primaryGateway,
@@ -167,76 +238,41 @@ export const campaignPoller = {
       ];
       const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
 
-      for (const c of campaigns) {
-        if (!c.metadataHash) continue;
-
-        const metaKey = `metadata:${c.id}`;
-        const tsKey = `metadata_ts:${c.id}`;
-        const existing = await chrome.storage.local.get([metaKey, tsKey]);
-        if (existing[metaKey]) {
-          const fetchedAt = existing[tsKey] as number | undefined;
-          if (fetchedAt && Date.now() - fetchedAt < METADATA_TTL_MS) continue;
-        }
-
-        let fetched = false;
-        for (const gw of uniqueGateways) {
-          try {
-            const url = metadataUrl(c.metadataHash, gw);
-            if (!url) continue;
-
-            const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-            if (!resp.ok) continue;
-
-            // Size cap: check Content-Length header first, then body length
-            const contentLength = resp.headers.get("content-length");
-            if (contentLength && parseInt(contentLength, 10) > MAX_METADATA_BYTES) {
-              console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (Content-Length: ${contentLength}), skipping`);
-              fetched = true; // Don't retry — content is too large on any gateway
-              break;
-            }
-
-            const bodyText = await resp.text();
-            if (bodyText.length > MAX_METADATA_BYTES) {
-              console.warn(`[DATUM] Metadata for campaign ${c.id} exceeds ${MAX_METADATA_BYTES}B (body: ${bodyText.length}), skipping`);
-              fetched = true;
-              break;
-            }
-
-            const rawMeta = JSON.parse(bodyText);
-            const meta = validateAndSanitize(rawMeta);
-            if (!meta) {
-              console.warn(`[DATUM] Metadata for campaign ${c.id} failed validation, skipping`);
-              fetched = true;
-              break;
-            }
-
-            // Check CTA URL against phishing deny list
-            if (meta.creative.ctaUrl && await isUrlPhishing(meta.creative.ctaUrl)) {
-              console.warn(`[DATUM] Campaign ${c.id} CTA URL flagged as phishing: ${meta.creative.ctaUrl}`);
-              fetched = true;
-              break;
-            }
-
-            await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now() });
-            console.log(`[DATUM] Cached metadata for campaign ${c.id} via ${gw}`);
-            fetched = true;
-            break;
-          } catch {
-            // Try next gateway
-            continue;
+      // Only fetch metadata for campaigns that need it (new or expired TTL)
+      const metaTasks = activeCampaigns
+        .filter(c => c.metadataHash)
+        .map(c => async () => {
+          const metaKey = `metadata:${c.id}`;
+          const tsKey = `metadata_ts:${c.id}`;
+          const existing = await chrome.storage.local.get([metaKey, tsKey]);
+          if (existing[metaKey]) {
+            const fetchedAt = existing[tsKey] as number | undefined;
+            if (fetchedAt && Date.now() - fetchedAt < METADATA_TTL_MS) return;
           }
-        }
-        if (!fetched) {
-          console.warn(`[DATUM] All gateways failed for campaign ${c.id} metadata`);
-          // UB-6: Track consecutive metadata fetch failures
-          const stored = await chrome.storage.local.get("metadataFetchFailures");
-          const prev = (stored.metadataFetchFailures as number) ?? 0;
-          await chrome.storage.local.set({ metadataFetchFailures: prev + 1 });
-        } else {
-          // Reset failure counter on any success
-          await chrome.storage.local.remove("metadataFetchFailures");
-        }
-      }
+
+          for (const gw of uniqueGateways) {
+            try {
+              const url = metadataUrl(c.metadataHash!, gw);
+              if (!url) continue;
+              const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+              if (!resp.ok) continue;
+              const contentLength = resp.headers.get("content-length");
+              if (contentLength && parseInt(contentLength, 10) > MAX_METADATA_BYTES) break;
+              const bodyText = await resp.text();
+              if (bodyText.length > MAX_METADATA_BYTES) break;
+              const rawMeta = JSON.parse(bodyText);
+              const meta = validateAndSanitize(rawMeta);
+              if (!meta) break;
+              if (meta.creative.ctaUrl && await isUrlPhishing(meta.creative.ctaUrl)) break;
+              await chrome.storage.local.set({ [metaKey]: meta, [tsKey]: Date.now() });
+              return; // success
+            } catch { continue; }
+          }
+        });
+
+      // Fetch metadata in batches (avoid overwhelming gateways)
+      await batchParallel(metaTasks, 5);
+
     } catch (err) {
       console.error("[DATUM] campaignPoller.poll failed:", err);
     }
@@ -252,21 +288,16 @@ export const campaignPoller = {
     const stored = await chrome.storage.local.get(STORAGE_KEY);
     return stored[STORAGE_KEY] ?? [];
   },
-};
 
-// All fields stored as strings (already serialized from BigInt)
-interface SerializedCampaign {
-  id: string;
-  advertiser: string;
-  publisher: string;
-  remainingBudget: string;
-  dailyCap: string;
-  bidCpmPlanck: string;
-  snapshotTakeRateBps: string;
-  status: string;
-  categoryId: string;
-  pendingExpiryBlock: string;
-  terminationBlock: string;
-  metadataHash?: string;  // bytes32 from CampaignMetadataSet event
-  requiredTags?: string[];  // TX-3: bytes32 tag hashes from getCampaignTags()
-}
+  /** O(1) lookup by campaign ID from the indexed store. */
+  async getById(campaignId: string): Promise<SerializedCampaign | null> {
+    const stored = await chrome.storage.local.get(INDEX_KEY);
+    const index: Record<string, SerializedCampaign> = stored[INDEX_KEY] ?? {};
+    return index[campaignId] ?? null;
+  },
+
+  /** Reset poller state (forces full re-scan on next poll). */
+  async reset(): Promise<void> {
+    await chrome.storage.local.remove([STORAGE_KEY, INDEX_KEY, LAST_BLOCK_KEY]);
+  },
+};
