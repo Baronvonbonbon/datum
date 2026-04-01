@@ -3,10 +3,8 @@ import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
-import { bitmaskToCategories } from "../../components/CategoryPicker";
-import { CATEGORY_NAMES } from "@shared/types";
-import { formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
+import { tagLabel } from "@shared/tagDictionary";
 
 export function PublisherDashboard() {
   const contracts = useContracts();
@@ -14,10 +12,10 @@ export function PublisherDashboard() {
   const [info, setInfo] = useState<any>(null);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [blocked, setBlocked] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [currentBlock, setCurrentBlock] = useState<number | null>(null);
 
   useEffect(() => { if (address) load(); }, [address]);
 
@@ -25,16 +23,22 @@ export function PublisherDashboard() {
     if (!address) return;
     setLoading(true);
     try {
-      const [pubData, bal, blk, blockNum] = await Promise.all([
+      const [pubData, bal, blk] = await Promise.all([
         contracts.publishers.getPublisher(address).catch(() => null),
         contracts.paymentVault.publisherBalance(address).catch(() => 0n),
         contracts.publishers.isBlocked(address).catch(() => false),
-        contracts.readProvider.getBlockNumber().catch(() => null),
       ]);
       setInfo(pubData);
       setBalance(BigInt(bal));
       setBlocked(Boolean(blk));
-      if (blockNum) setCurrentBlock(blockNum);
+
+      // Fetch tags from TargetingRegistry
+      try {
+        if (contracts.targetingRegistry) {
+          const hashes: string[] = await contracts.targetingRegistry.getTags(address);
+          setTags(hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean));
+        }
+      } catch { /* no targeting registry */ }
     } finally {
       setLoading(false);
     }
@@ -62,8 +66,6 @@ export function PublisherDashboard() {
 
   const isRegistered = info?.registered === true || info?.[0] === true;
   const takeRateBps = Number(info?.takeRateBps ?? info?.[1] ?? 0);
-  const categoryBitmask = BigInt(info?.categoryBitmask ?? info?.[2] ?? 0);
-  const categories = bitmaskToCategories(categoryBitmask);
 
   return (
     <div className="nano-fade">
@@ -71,7 +73,7 @@ export function PublisherDashboard() {
 
       {blocked && (
         <div className="nano-info nano-info--error" style={{ fontWeight: 600, marginBottom: 16 }}>
-          ⚠ This address is blocked by the protocol admin. New registrations and campaigns are restricted.
+          This address is blocked by the protocol admin. New registrations and campaigns are restricted.
         </div>
       )}
 
@@ -86,17 +88,17 @@ export function PublisherDashboard() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
             <InfoCard label="Take Rate" value={`${(takeRateBps / 100).toFixed(0)}%`} />
-            <InfoCard label="Categories" value={`${categories.size} selected`} />
+            <InfoCard label="Tags" value={`${tags.length} active`} />
             <InfoCard label="Status" value="Registered" color="var(--ok)" />
           </div>
 
-          {categories.size > 0 && (
+          {tags.length > 0 && (
             <div className="nano-card" style={{ padding: 12 }}>
-              <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 6 }}>Active Categories</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 6 }}>Active Tags</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {[...categories].map((id) => (
-                  <span key={id} className="nano-badge" style={{ color: "var(--accent)" }}>
-                    {CATEGORY_NAMES[id]}
+                {tags.map((tag, i) => (
+                  <span key={i} className="nano-badge" style={{ color: "var(--accent)" }}>
+                    {tag}
                   </span>
                 ))}
               </div>
@@ -120,7 +122,7 @@ export function PublisherDashboard() {
           {/* Quick links */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Link to="/publisher/rate" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Update Take Rate</Link>
-            <Link to="/publisher/categories" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Categories</Link>
+            <Link to="/publisher/categories" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Tags</Link>
             <Link to="/publisher/allowlist" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Allowlist</Link>
             <Link to="/publisher/earnings" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Full Earnings</Link>
             <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useSettings } from "../../context/SettingsContext";
-import { CampaignStatus, CATEGORY_NAMES } from "@shared/types";
+import { CampaignStatus } from "@shared/types";
 import { StatusBadge } from "../../components/StatusBadge";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { DOTAmount } from "../../components/DOTAmount";
@@ -18,7 +18,6 @@ interface CampaignRow {
   publisher: string;
   bidCpmPlanck: bigint;
   snapshotTakeRateBps: number;
-  categoryId: number;
   metadataHash: string;
 }
 
@@ -36,7 +35,6 @@ export function Campaigns() {
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<number | -1>(-1);
-  const [filterCategory, setFilterCategory] = useState<number | 0>(0);
   const [filterType, setFilterType] = useState<"all" | "open" | "targeted">("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -77,7 +75,6 @@ export function Campaigns() {
             bidCpmPlanck: BigInt(c[2]),
             snapshotTakeRateBps: Number(c[3]),
             advertiser: adv as string,
-            categoryId: 0,
             metadataHash,
           } as CampaignRow;
         } catch {
@@ -97,7 +94,6 @@ export function Campaigns() {
 
   const filtered = rows.filter((r) => {
     if (filterStatus !== -1 && r.status !== filterStatus) return false;
-    if (filterCategory !== 0 && r.categoryId !== filterCategory) return false;
     if (filterType === "open" && r.publisher !== ZERO_ADDR) return false;
     if (filterType === "targeted" && r.publisher === ZERO_ADDR) return false;
     return true;

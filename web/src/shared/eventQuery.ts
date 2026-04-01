@@ -30,3 +30,25 @@ export async function queryFilterBounded(
     }
   }
 }
+
+/**
+ * Query contract events from genesis (block 0).
+ * Use for indexed queries that must find all historical events (e.g. "my campaigns").
+ * Falls back to bounded query if full-range fails.
+ */
+export async function queryFilterAll(
+  contract: Contract,
+  filter: any,
+): Promise<any[]> {
+  try {
+    return await contract.queryFilter(filter, 0, "latest");
+  } catch {
+    // Fallback: try unbounded (some RPCs handle this better)
+    try {
+      return await contract.queryFilter(filter);
+    } catch {
+      // Last resort: bounded recent range
+      return queryFilterBounded(contract, filter);
+    }
+  }
+}

@@ -6,8 +6,9 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
+import { tagLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
 
 interface MyCampaign {
   id: number;
@@ -17,6 +18,7 @@ interface MyCampaign {
   snapshotTakeRateBps: number;
   remaining: bigint;
   metadataHash: string;
+  tags: string[];
 }
 
 export function AdvertiserDashboard() {
@@ -33,10 +35,9 @@ export function AdvertiserDashboard() {
     setLoading(true);
     setError(null);
     try {
-      // WS-6: Use indexed CampaignCreated event to find user's campaigns
-      // instead of scanning all IDs sequentially
+      // Use queryFilterAll to find ALL user campaigns (not just recent 10k blocks)
       const filter = contracts.campaigns.filters.CampaignCreated(null, address);
-      const logs = await queryFilterBounded(contracts.campaigns, filter);
+      const logs = await queryFilterAll(contracts.campaigns, filter);
       const myIds = logs.map((log: any) => Number(log.args?.campaignId ?? log.args?.[0]));
 
       const mine: MyCampaign[] = [];
@@ -51,15 +52,20 @@ export function AdvertiserDashboard() {
             let metadataHash = "0x" + "0".repeat(64);
             try {
               const mFilter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-              const mLogs = await queryFilterBounded(contracts.campaigns, mFilter);
+              const mLogs = await queryFilterAll(contracts.campaigns, mFilter);
               if (mLogs.length > 0) {
                 metadataHash = (mLogs[mLogs.length - 1] as any).args?.metadataHash ?? metadataHash;
               }
             } catch { /* no events */ }
+            let tags: string[] = [];
+            try {
+              const rawTags: string[] = await contracts.campaigns.getCampaignTags(BigInt(id));
+              tags = rawTags.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...");
+            } catch { /* getCampaignTags may not exist */ }
             mine.push({
               id, status: Number(c[0]), publisher: c[1] as string,
               bidCpmPlanck: BigInt(c[2]), snapshotTakeRateBps: Number(c[3]),
-              remaining, metadataHash,
+              remaining, metadataHash, tags,
             });
           } catch { /* skip */ }
         })
@@ -108,9 +114,12 @@ export function AdvertiserDashboard() {
     <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>My Campaigns</h1>
-        <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
-          + New Campaign
-        </Link>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+          <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
+            + New Campaign
+          </Link>
+        </div>
       </div>
 
       {actionResult && (
@@ -155,6 +164,14 @@ export function AdvertiserDashboard() {
               <span style={{ color: "var(--text-strong)" }}>{(c.snapshotTakeRateBps / 100).toFixed(0)}%</span>
             </div>
           </div>
+
+          {c.tags.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+              {c.tags.map((t, i) => (
+                <span key={i} className="nano-badge" style={{ fontSize: 11 }}>{t}</span>
+              ))}
+            </div>
+          )}
 
           <IPFSPreview metadataHash={c.metadataHash} compact />
 

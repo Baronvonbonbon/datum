@@ -1,33 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useWallet } from "../../context/WalletContext";
 import { useContracts } from "../../hooks/useContracts";
-import { bitmaskToCategories } from "../../components/CategoryPicker";
-import { useEffect } from "react";
+import { tagLabel } from "@shared/tagDictionary";
 
 export function SDKSetup() {
   const { address } = useWallet();
   const contracts = useContracts();
-  const [categories, setCategories] = useState<number[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!address) return;
-    contracts.publishers.getPublisher(address)
-      .then((data: any) => {
-        const bitmask = BigInt(data.categoryBitmask ?? data[2] ?? 0);
-        setCategories([...bitmaskToCategories(bitmask)]);
+    if (!address || !contracts.targetingRegistry) return;
+    contracts.targetingRegistry.getTags(address)
+      .then((hashes: string[]) => {
+        setTags(hashes.map((h: string) => tagLabel(h) ?? "").filter(Boolean));
       })
       .catch(() => {});
   }, [address]);
 
   const pubAddr = address ?? "0xYOUR_PUBLISHER_ADDRESS";
-  const catStr = categories.length > 0 ? categories.join(",") : "1,6,26";
+  const tagStr = tags.length > 0 ? tags.join(",") : "crypto-web3,en";
 
   const snippet = `<!-- DATUM Publisher SDK -->
 <script src="https://datum.network/sdk/datum-sdk.js"
         data-publisher="${pubAddr}"
-        data-categories="${catStr}">
+        data-tags="${tagStr}">
 </script>
 <div id="datum-ad-slot"></div>`;
 
@@ -72,7 +70,7 @@ export function SDKSetup() {
           <ol style={{ color: "var(--text)", fontSize: 13, lineHeight: 1.8, paddingLeft: 20 }}>
             <li>User visits your page with the DATUM extension installed</li>
             <li>Extension detects the SDK script tag and verifies authenticity via challenge-response</li>
-            <li>Extension runs a Vickrey second-price auction across active campaigns matching your categories</li>
+            <li>Extension runs a Vickrey second-price auction across active campaigns matching your tags</li>
             <li>Winning ad is rendered into <code style={{ color: "var(--accent)" }}>#datum-ad-slot</code> via Shadow DOM</li>
             <li>User engagement is tracked locally (dwell time, viewability, scroll depth)</li>
             <li>Qualifying impressions build a cryptographic hash chain submitted on-chain</li>

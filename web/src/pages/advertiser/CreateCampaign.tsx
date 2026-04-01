@@ -4,7 +4,6 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
-import { CATEGORY_NAMES } from "@shared/types";
 import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
@@ -23,7 +22,6 @@ export function CreateCampaign() {
   const [budget, setBudget] = useState("1");
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.001");
-  const [categoryId, setCategoryId] = useState(26);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [showTags, setShowTags] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
@@ -41,7 +39,7 @@ export function CreateCampaign() {
       if (blocked) { setPubCheck("This address is blocked."); return; }
       const data = await contracts.publishers.getPublisher(addr);
       if (!data.registered) { setPubCheck("Publisher not registered."); return; }
-      setPubCheck(`✓ Registered · Take rate: ${(Number(data.takeRateBps) / 100).toFixed(0)}%`);
+      setPubCheck(`Registered · Take rate: ${(Number(data.takeRateBps) / 100).toFixed(0)}%`);
     } catch {
       setPubCheck("Could not verify publisher.");
     }
@@ -67,7 +65,8 @@ export function CreateCampaign() {
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const c = contracts.campaigns.connect(signer);
-      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, categoryId, tagHashes, {
+      // categoryId=0 (deprecated — targeting is tag-based now)
+      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, 0, tagHashes, {
         value: budgetPlanck,
       });
       const receipt = await tx.wait();
@@ -146,7 +145,7 @@ export function CreateCampaign() {
                 required
               />
               {pubCheck && (
-                <div style={{ fontSize: 12, marginTop: 4, color: pubCheck.startsWith("✓") ? "var(--ok)" : "var(--error)" }}>
+                <div style={{ fontSize: 12, marginTop: 4, color: pubCheck.startsWith("Registered") ? "var(--ok)" : "var(--error)" }}>
                   {pubCheck}
                 </div>
               )}
@@ -174,17 +173,7 @@ export function CreateCampaign() {
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum CPM you'll pay. Actual cost is second-price (Vickrey auction).</div>
           </div>
 
-          {/* Category (legacy) */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Primary Category</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className="nano-select" style={{ cursor: "pointer" }}>
-              {Array.from({ length: 26 }, (_, i) => i + 1).map((id) => (
-                <option key={id} value={id}>{id}. {CATEGORY_NAMES[id]}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* TX-7: Tag-based targeting */}
+          {/* Tag-based targeting */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Targeting Tags</label>
@@ -194,6 +183,9 @@ export function CreateCampaign() {
               {selectedTags.size > 0 && (
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{selectedTags.size} tag{selectedTags.size !== 1 ? "s" : ""} selected</span>
               )}
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+              Publishers must declare all selected tags to serve your ad. Leave empty for maximum reach.
             </div>
             {selectedTags.size > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
