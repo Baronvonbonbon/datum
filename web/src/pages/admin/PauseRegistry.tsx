@@ -3,6 +3,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 
 const PAUSED_CONTRACTS = [
   "Campaigns",
@@ -15,6 +16,7 @@ const PAUSED_CONTRACTS = [
 export function PauseRegistryAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
+  const { confirmTx } = useTx();
   const [paused, setPaused] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
@@ -39,7 +41,7 @@ export function PauseRegistryAdmin() {
     try {
       const c = contracts.pauseRegistry.connect(signer);
       const tx = await c.pause();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Protocol paused. All contract operations are suspended.");
       load();
@@ -56,7 +58,7 @@ export function PauseRegistryAdmin() {
     try {
       const c = contracts.pauseRegistry.connect(signer);
       const tx = await c.unpause();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Protocol unpaused. Operations resumed.");
       load();

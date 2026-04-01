@@ -5,10 +5,12 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 
 export function ProtocolFeesAdmin() {
   const contracts = useContracts();
   const { signer, address } = useWallet();
+  const { confirmTx } = useTx();
 
   const [protocolBalance, setProtocolBalance] = useState<bigint | null>(null);
   const [owner, setOwner] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function ProtocolFeesAdmin() {
     try {
       const vault = contracts.paymentVault.connect(signer);
       const tx = await vault.withdrawProtocol();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Protocol fee withdrawal successful.");
       load();
@@ -63,7 +65,7 @@ export function ProtocolFeesAdmin() {
     try {
       const c = contracts.governanceSlash.connect(signer);
       const tx = await c.sweepSlashPool(BigInt(sweepCampaignId));
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Slash pool swept for campaign #${sweepCampaignId}.`);
       setSweepCampaignId("");
@@ -83,7 +85,7 @@ export function ProtocolFeesAdmin() {
     try {
       const c = contracts.budgetLedger.connect(signer);
       const tx = await c.sweepDust(BigInt(dustCampaignId));
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Dust swept for campaign #${dustCampaignId}.`);
       setDustCampaignId("");

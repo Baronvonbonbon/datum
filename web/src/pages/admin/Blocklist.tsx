@@ -4,6 +4,7 @@ import { useWallet } from "../../context/WalletContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
 
@@ -15,6 +16,7 @@ interface BlockedEntry {
 export function BlocklistAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
+  const { confirmTx } = useTx();
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [newAddr, setNewAddr] = useState("");
@@ -58,7 +60,7 @@ export function BlocklistAdmin() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.blockAddress(newAddr);
-      await tx.wait();
+      await confirmTx(tx);
       setNewAddr("");
       setTxState("success");
       setTxMsg(`${newAddr.slice(0, 10)}... added to blocklist.`);
@@ -76,7 +78,7 @@ export function BlocklistAdmin() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.unblockAddress(addr);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`${addr.slice(0, 10)}... removed from blocklist.`);
       load();

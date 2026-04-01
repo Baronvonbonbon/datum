@@ -4,12 +4,14 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { tagLabel } from "@shared/tagDictionary";
 import { ConfirmModal } from "../../components/ConfirmModal";
 
 export function PublisherDashboard() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
+  const { confirmTx } = useTx();
   const [info, setInfo] = useState<any>(null);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -53,7 +55,7 @@ export function PublisherDashboard() {
     try {
       const vault = contracts.paymentVault.connect(signer);
       const tx = await vault.withdrawPublisher();
-      await tx.wait();
+      await confirmTx(tx);
       setMsg("Withdrawal successful!");
       load();
     } catch (err) {

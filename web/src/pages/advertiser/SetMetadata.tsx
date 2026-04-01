@@ -9,12 +9,14 @@ import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 
 export function SetMetadata() {
   const { id } = useParams<{ id: string }>();
   const contracts = useContracts();
   const { signer } = useWallet();
   const { settings } = useSettings();
+  const { confirmTx } = useTx();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState("");
@@ -79,7 +81,7 @@ export function SetMetadata() {
       const metadataHash = cidToBytes32(pinResult.cid);
       const c = contracts.campaigns.connect(signer);
       const tx = await c.setMetadata(BigInt(id!), metadataHash);
-      await tx.wait();
+      await confirmTx(tx);
 
       setTxState("success");
       setTxMsg(`Metadata set on-chain. CID: ${pinResult.cid}`);

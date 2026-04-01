@@ -10,6 +10,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { formatBlockDelta } from "@shared/conviction";
+import { useTx } from "../../hooks/useTx";
 import { queryFilterBounded } from "@shared/eventQuery";
 
 interface GovCampaign {
@@ -30,6 +31,7 @@ export function GovernanceDashboard() {
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
+  const { confirmTx } = useTx();
   const [campaigns, setCampaigns] = useState<GovCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
@@ -108,7 +110,7 @@ export function GovernanceDashboard() {
     try {
       const c = contracts.governanceV2.connect(signer);
       const tx = await c.evaluateCampaign(BigInt(id));
-      await tx.wait();
+      await confirmTx(tx);
       setActionMsg(`Campaign #${id} evaluated.`);
       load();
     } catch (err) {
@@ -124,7 +126,7 @@ export function GovernanceDashboard() {
     try {
       const lc = contracts.lifecycle.connect(signer);
       const tx = await lc.expireInactiveCampaign(BigInt(id));
-      await tx.wait();
+      await confirmTx(tx);
       setActionMsg(`Campaign #${id} expired (inactivity).`);
       load();
     } catch (err) {
@@ -140,7 +142,7 @@ export function GovernanceDashboard() {
     try {
       const lc = contracts.lifecycle.connect(signer);
       const tx = await lc.expirePendingCampaign(BigInt(id));
-      await tx.wait();
+      await confirmTx(tx);
       setActionMsg(`Campaign #${id} expired (pending timeout).`);
       load();
     } catch (err) {

@@ -5,6 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
 import { RequirePublisher } from "../../components/RequirePublisher";
@@ -12,6 +13,7 @@ import { RequirePublisher } from "../../components/RequirePublisher";
 export function Allowlist() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
+  const { confirmTx } = useTx();
   const [enabled, setEnabled] = useState(false);
   const [allowedAddresses, setAllowedAddresses] = useState<string[]>([]);
   const [newAddr, setNewAddr] = useState("");
@@ -50,7 +52,7 @@ export function Allowlist() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.setAllowlistEnabled(!enabled);
-      await tx.wait();
+      await confirmTx(tx);
       setEnabled(!enabled);
       setTxState("success");
       setTxMsg(`Allowlist ${!enabled ? "enabled" : "disabled"}.`);
@@ -66,7 +68,7 @@ export function Allowlist() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.setAllowedAdvertiser(newAddr, true);
-      await tx.wait();
+      await confirmTx(tx);
       setNewAddr("");
       setTxState("success");
       setTxMsg(`${newAddr.slice(0, 10)}... added.`);
@@ -83,7 +85,7 @@ export function Allowlist() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.setAllowedAdvertiser(addr, false);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`${addr.slice(0, 10)}... removed.`);
       load();

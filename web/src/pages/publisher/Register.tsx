@@ -4,10 +4,12 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 
 export function Register() {
   const contracts = useContracts();
   const { signer, address } = useWallet();
+  const { confirmTx } = useTx();
   const navigate = useNavigate();
   const [takeRate, setTakeRate] = useState(50);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
@@ -21,7 +23,7 @@ export function Register() {
       const bps = Math.round(takeRate * 100);
       const c = contracts.publishers.connect(signer);
       const tx = await c.registerPublisher(bps);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Registered successfully!");
       setTimeout(() => navigate("/publisher"), 1500);

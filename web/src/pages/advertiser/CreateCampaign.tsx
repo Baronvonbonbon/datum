@@ -7,6 +7,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 
@@ -15,6 +16,7 @@ export function CreateCampaign() {
   const { address, signer } = useWallet();
   const { settings } = useSettings();
   const navigate = useNavigate();
+  const { confirmTx } = useTx();
   const sym = getCurrencySymbol(settings.network);
 
   const [isOpen, setIsOpen] = useState(true);
@@ -78,18 +80,26 @@ export function CreateCampaign() {
       const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, 0, tagHashes, {
         value: budgetPlanck,
       });
-      const receipt = await tx.wait();
+      await confirmTx(tx);
 
-      // Find campaign ID from CampaignCreated event
+      // Find campaign ID — try receipt logs first, fall back to nextCampaignId
       let newId: number | null = null;
-      for (const log of receipt.logs ?? []) {
+      try {
+        const receipt = await tx.wait?.(0).catch(() => null);
+        for (const log of receipt?.logs ?? []) {
+          try {
+            const parsed = contracts.campaigns.interface.parseLog(log);
+            if (parsed?.name === "CampaignCreated") {
+              newId = Number(parsed.args.campaignId ?? parsed.args[0]);
+              break;
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* receipt unavailable on Paseo */ }
+      if (newId === null) {
         try {
-          const parsed = contracts.campaigns.interface.parseLog(log);
-          if (parsed?.name === "CampaignCreated") {
-            newId = Number(parsed.args.campaignId ?? parsed.args[0]);
-            break;
-          }
-        } catch { /* skip */ }
+          newId = Number(await contracts.campaigns.nextCampaignId()) - 1;
+        } catch { /* fallback failed */ }
       }
 
       setCreatedId(newId);

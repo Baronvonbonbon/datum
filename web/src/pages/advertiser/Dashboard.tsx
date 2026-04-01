@@ -6,6 +6,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { tagLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
@@ -25,6 +26,7 @@ interface MyCampaign {
 export function AdvertiserDashboard() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
+  const { confirmTx } = useTx();
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,16 +39,18 @@ export function AdvertiserDashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Use queryFilterAll to find ALL user campaigns (not just recent 10k blocks)
-      const filter = contracts.campaigns.filters.CampaignCreated(null, address);
-      const logs = await queryFilterAll(contracts.campaigns, filter);
-      const myIds = logs.map((log: any) => Number(log.args?.campaignId ?? log.args?.[0]));
+      // Scan all campaigns by ID and filter by advertiser (Paseo indexed event filters are unreliable)
+      const nextId = Number(await contracts.campaigns.nextCampaignId());
+      const allIds = Array.from({ length: Math.min(nextId, 200) }, (_, i) => nextId - 1 - i).filter(i => i >= 0);
 
       const mine: MyCampaign[] = [];
       await Promise.all(
-        myIds.map(async (id) => {
+        allIds.map(async (id) => {
           try {
             const c = await contracts.campaigns.getCampaignForSettlement(BigInt(id));
+            // Check if this campaign belongs to the connected wallet
+            const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
+            if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
             let remaining = 0n;
             try {
               remaining = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(id)));
@@ -96,7 +100,7 @@ export function AdvertiserDashboard() {
         const lc = contracts.lifecycle.connect(signer);
         tx = await lc.completeCampaign(BigInt(id));
       }
-      await tx.wait();
+      await confirmTx(tx);
       setActionResult(`Campaign #${id} ${action}d`);
       load();
     } catch (err) {

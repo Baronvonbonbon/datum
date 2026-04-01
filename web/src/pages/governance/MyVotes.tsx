@@ -8,6 +8,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_BLOCKS, formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
+import { useTx } from "../../hooks/useTx";
 import { queryFilterBounded } from "@shared/eventQuery";
 
 interface MyVote {
@@ -26,6 +27,7 @@ export function MyVotes() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
+  const { confirmTx } = useTx();
 
   const [votes, setVotes] = useState<MyVote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,7 +109,7 @@ export function MyVotes() {
     try {
       const c = contracts.governanceV2.connect(signer);
       const tx = await c.withdraw(BigInt(campaignId));
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Withdrawal for campaign #${campaignId} complete.`);
       load();
@@ -127,7 +129,7 @@ export function MyVotes() {
     try {
       const c = contracts.governanceSlash.connect(signer);
       const tx = await c.finalizeSlash(BigInt(campaignId));
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Slash finalized for campaign #${campaignId}. You can now claim rewards.`);
       load();
@@ -147,7 +149,7 @@ export function MyVotes() {
     try {
       const c = contracts.governanceSlash.connect(signer);
       const tx = await c.claimSlashReward(BigInt(campaignId));
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Slash reward claimed for campaign #${campaignId}.`);
       load();

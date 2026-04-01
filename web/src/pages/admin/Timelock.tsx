@@ -3,6 +3,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 
 interface PendingChange {
@@ -15,6 +16,7 @@ interface PendingChange {
 export function TimelockAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
+  const { confirmTx } = useTx();
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [delay, setDelay] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,7 +176,7 @@ export function TimelockAdmin() {
       const c = contracts.timelock.connect(signer);
       const data = calldata || "0x";
       const tx = await c.propose(target, data);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Proposal submitted. Execute after the timelock delay.");
       setTarget(""); setCalldata("");
@@ -192,7 +194,7 @@ export function TimelockAdmin() {
     try {
       const c = contracts.timelock.connect(signer);
       const tx = await c.execute();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Proposal executed.");
       load();
@@ -209,7 +211,7 @@ export function TimelockAdmin() {
     try {
       const c = contracts.timelock.connect(signer);
       const tx = await c.cancel();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Proposal cancelled.");
       load();

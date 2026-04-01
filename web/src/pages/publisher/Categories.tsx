@@ -4,12 +4,14 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function Categories() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
+  const { confirmTx } = useTx();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tagSearch, setTagSearch] = useState("");
@@ -66,7 +68,7 @@ export function Categories() {
       const hashes = [...selected].map((t) => tagHash(t));
       const registry = contracts.targetingRegistry.connect(signer);
       const tx = await registry.setTags(hashes);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Tags updated (${selected.size} selected).`);
       load();

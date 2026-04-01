@@ -6,12 +6,14 @@ import { useBlock } from "../../hooks/useBlock";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
+import { useTx } from "../../hooks/useTx";
 import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function TakeRate() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
+  const { confirmTx } = useTx();
   const [current, setCurrent] = useState<number | null>(null);
   const [pending, setPending] = useState<{ rate: number; effectiveBlock: number } | null>(null);
   const [newRate, setNewRate] = useState(50);
@@ -43,7 +45,7 @@ export function TakeRate() {
       const bps = Math.round(newRate * 100);
       const c = contracts.publishers.connect(signer);
       const tx = await c.updateTakeRate(bps);
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Take rate update queued.");
       load();
@@ -59,7 +61,7 @@ export function TakeRate() {
     try {
       const c = contracts.publishers.connect(signer);
       const tx = await c.applyTakeRateUpdate();
-      await tx.wait();
+      await confirmTx(tx);
       setTxState("success");
       setTxMsg("Take rate applied.");
       load();
