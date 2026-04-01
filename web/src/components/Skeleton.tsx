@@ -1,3 +1,12 @@
+/** Animated loading text with bouncing dots. */
+export function LoadingText({ text = "Loading" }: { text?: string }) {
+  return (
+    <span className="nano-pending-text" style={{ color: "var(--text-muted)", fontSize: 13 }}>
+      {text}<span className="nano-pending-dots"><span>.</span><span>.</span><span>.</span></span>
+    </span>
+  );
+}
+
 /** Shimmer placeholder for loading states. Uses the .nano-skeleton CSS class. */
 export function Skeleton({ width, height = 16, style }: { width?: number | string; height?: number | string; style?: React.CSSProperties }) {
   return (

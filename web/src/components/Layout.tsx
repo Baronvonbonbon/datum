@@ -94,12 +94,12 @@ export function Layout() {
       </div>
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="nano-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em" }}>
+      <header className="nano-header" style={{ overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
+          <span style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0 }}>
             DATUM
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "monospace" }}>
+          <div className="nano-header-status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             <span className={connected ? "nano-heartbeat" : undefined} style={{
               width: 6, height: 6, borderRadius: "50%",
               background: connected ? "var(--ok)" : "var(--error)",
@@ -109,26 +109,20 @@ export function Layout() {
             {connected
               ? <span className={blockFlash ? "nano-block-flash" : undefined} style={{ color: "var(--text-muted)" }}>
                   #{blockNumber} · {getNetworkDisplayName(settings.network)}
-                  {getExplorerUrl(settings.network) && (
-                    <a href={getExplorerUrl(settings.network)} target="_blank" rel="noreferrer"
-                      style={{ color: "var(--accent-dim)", marginLeft: 8, fontSize: 10, textDecoration: "none" }}>
-                      Explorer ↗
-                    </a>
-                  )}
                 </span>
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {address ? (
             <>
               {method === "manual" && (
-                <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, letterSpacing: "0.06em" }}>TEST KEY</span>
+                <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, letterSpacing: "0.06em" }}>TEST</span>
               )}
               {balance !== null && (
-                <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace", whiteSpace: "nowrap" }}>
                   {formatDOT(balance)} {sym}
                 </span>
               )}
@@ -136,14 +130,14 @@ export function Layout() {
               <button
                 onClick={disconnect}
                 className="nano-btn"
-                style={{ fontSize: 12, padding: "4px 10px" }}
+                style={{ fontSize: 11, padding: "3px 8px" }}
               >
-                Disconnect
+                ✕
               </button>
             </>
           ) : (
-            <button onClick={() => setShowConnect(true)} className="nano-btn nano-btn-accent">
-              Connect Wallet
+            <button onClick={() => setShowConnect(true)} className="nano-btn nano-btn-accent" style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }}>
+              Connect
             </button>
           )}
           {/* Mobile menu toggle */}

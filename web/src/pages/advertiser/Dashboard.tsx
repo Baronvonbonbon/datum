@@ -130,7 +130,7 @@ export function AdvertiserDashboard() {
         </div>
       )}
 
-      {loading && <div style={{ color: "var(--text-muted)" }}>Loading your campaigns...</div>}
+      {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading your campaigns</div>}
       {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {!loading && campaigns.length === 0 && (

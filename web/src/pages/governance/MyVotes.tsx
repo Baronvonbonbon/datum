@@ -177,7 +177,7 @@ export function MyVotes() {
       <TransactionStatus state={txState} message={txMsg} />
 
       {loading ? (
-        <div style={{ color: "var(--text-muted)" }}>Loading your votes...</div>
+        <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading your votes</div>
       ) : votes.length === 0 ? (
         <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
           You haven't voted on any campaigns yet.{" "}

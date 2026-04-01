@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -15,6 +15,7 @@ export function SetMetadata() {
   const contracts = useContracts();
   const { signer } = useWallet();
   const { settings } = useSettings();
+  const navigate = useNavigate();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -82,6 +83,7 @@ export function SetMetadata() {
 
       setTxState("success");
       setTxMsg(`Metadata set on-chain. CID: ${pinResult.cid}`);
+      setTimeout(() => navigate(`/advertiser/campaign/${id}`), 3000);
     } catch (err) {
       setTxMsg(humanizeError(err));
       setTxState("error");

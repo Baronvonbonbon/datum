@@ -7,7 +7,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
-import { TAG_DICTIONARY, TAG_LABELS, tagHash } from "@shared/tagDictionary";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 
 export function CreateCampaign() {
@@ -25,6 +25,8 @@ export function CreateCampaign() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [showTags, setShowTags] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
+  const [customTag, setCustomTag] = useState("");
+  const [customTagError, setCustomTagError] = useState<string | null>(null);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
   const [createdId, setCreatedId] = useState<number | null>(null);
@@ -93,6 +95,10 @@ export function CreateCampaign() {
       setCreatedId(newId);
       setTxState("success");
       setTxMsg(`Campaign #${newId ?? "?"} created!`);
+      // Auto-navigate to metadata page after 3 seconds
+      if (newId !== null) {
+        setTimeout(() => navigate(`/advertiser/campaign/${newId}/metadata`), 3000);
+      }
     } catch (err) {
       setTxMsg(humanizeError(err));
       setTxState("error");
@@ -205,7 +211,7 @@ export function CreateCampaign() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
                 {[...selectedTags].map((tag) => (
                   <span key={tag} className="nano-badge" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    {TAG_LABELS[tag] ?? tag}
+                    {tagDisplayLabel(tag)}
                     <button type="button" onClick={() => { const s = new Set(selectedTags); s.delete(tag); setSelectedTags(s); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                   </span>
                 ))}
@@ -250,6 +256,35 @@ export function CreateCampaign() {
                     );
                   })}
                 </div>
+                {/* Custom tag input */}
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <input
+                    type="text"
+                    value={customTag}
+                    onChange={(e) => { setCustomTag(e.target.value); setCustomTagError(null); }}
+                    placeholder="Custom: dimension:value"
+                    className="nano-input"
+                    style={{ flex: 1, fontSize: 11 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tag = validateCustomTag(customTag);
+                      if (!tag) { setCustomTagError("Format: dimension:value"); return; }
+                      if (selectedTags.size >= 8) { setCustomTagError("Max 8 tags"); return; }
+                      const s = new Set(selectedTags);
+                      s.add(tag);
+                      setSelectedTags(s);
+                      setCustomTag("");
+                      setCustomTagError(null);
+                    }}
+                    className="nano-btn nano-btn-accent"
+                    style={{ padding: "3px 8px", fontSize: 11, whiteSpace: "nowrap" }}
+                  >
+                    + Add
+                  </button>
+                </div>
+                {customTagError && <div style={{ color: "var(--error)", fontSize: 10, marginTop: 2 }}>{customTagError}</div>}
                 <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>
                   Max 8 tags. Publishers must declare all selected tags to serve your ad.
                 </div>

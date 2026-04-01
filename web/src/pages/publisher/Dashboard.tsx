@@ -64,7 +64,7 @@ export function PublisherDashboard() {
   }
 
   if (!address) return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect your wallet to manage your publisher profile.</div>;
-  if (loading) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Loading...</div>;
+  if (loading) return <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 20 }}>Loading</div>;
 
   const isRegistered = info?.registered === true || info?.[0] === true;
   const takeRateBps = Number(info?.takeRateBps ?? info?.[1] ?? 0);

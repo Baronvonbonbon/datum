@@ -170,3 +170,29 @@ for (const tag of ALL_TAGS) {
   const hash = tagHash(tag);
   TAG_HASH_TO_LABEL.set(hash.toLowerCase(), TAG_LABELS[tag] ?? tag);
 }
+
+/**
+ * Validate a custom tag string. Must be "dimension:value" format.
+ * Returns a normalized tag string or null if invalid.
+ */
+export function validateCustomTag(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed.includes(":")) return null;
+  const [dimension, ...rest] = trimmed.split(":");
+  const value = rest.join(":");
+  if (!dimension || !value) return null;
+  // Only allow alphanumeric, hyphens, underscores
+  if (!/^[a-z0-9-]+$/.test(dimension) || !/^[a-z0-9-]+$/.test(value)) return null;
+  return `${dimension}:${value}`;
+}
+
+/**
+ * Get a human-readable label for a tag. Falls back to formatting the raw string.
+ */
+export function tagDisplayLabel(tag: string): string {
+  if (TAG_LABELS[tag]) return TAG_LABELS[tag];
+  // Format "dimension:some-value" → "Some Value"
+  const parts = tag.split(":");
+  const value = parts[parts.length - 1];
+  return value.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}

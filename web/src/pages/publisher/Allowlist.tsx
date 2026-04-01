@@ -103,7 +103,7 @@ export function Allowlist() {
         Open campaigns (publisher=0x0) always bypass the allowlist.
       </p>
 
-      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
+      {loading ? <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading</div> : (
         <>
           <div className="nano-card" style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, marginBottom: 16 }}>
             <div style={{ flex: 1 }}>

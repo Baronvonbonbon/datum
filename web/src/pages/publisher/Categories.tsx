@@ -4,7 +4,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
-import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel } from "@shared/tagDictionary";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function Categories() {
@@ -13,6 +13,8 @@ export function Categories() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tagSearch, setTagSearch] = useState("");
+  const [customTag, setCustomTag] = useState("");
+  const [customTagError, setCustomTagError] = useState<string | null>(null);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
 
@@ -26,17 +28,22 @@ export function Categories() {
         const hashes: string[] = await contracts.targetingRegistry.getTags(address);
         const tags = new Set<string>();
         for (const h of hashes) {
-          const label = tagLabel(h);
-          if (label) {
-            // Find the tag string that produces this hash
-            for (const dimension of Object.values(TAG_DICTIONARY)) {
-              for (const t of dimension) {
-                if (tagHash(t) === h.toLowerCase() || tagHash(t) === h) {
-                  tags.add(t);
-                  break;
-                }
+          let found = false;
+          // Find the tag string that produces this hash
+          for (const dimension of Object.values(TAG_DICTIONARY)) {
+            for (const t of dimension) {
+              if (tagHash(t) === h.toLowerCase() || tagHash(t) === h) {
+                tags.add(t);
+                found = true;
+                break;
               }
             }
+            if (found) break;
+          }
+          // Keep unknown hashes as-is so they're not lost on re-save
+          if (!found) {
+            const label = tagLabel(h);
+            if (label) tags.add(h); // preserves custom tags by hash
           }
         }
         setSelected(tags);
@@ -87,7 +94,7 @@ export function Categories() {
         </div>
       )}
 
-      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
+      {loading ? <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading</div> : (
         <>
           <input
             type="text"
@@ -123,6 +130,62 @@ export function Categories() {
               </div>
             );
           })}
+          {/* Custom tag creation */}
+          <div style={{ marginTop: 8, marginBottom: 12 }}>
+            <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Custom Tag</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={customTag}
+                onChange={(e) => { setCustomTag(e.target.value); setCustomTagError(null); }}
+                placeholder="dimension:value (e.g. topic:my-niche)"
+                className="nano-input"
+                style={{ flex: 1, fontSize: 12 }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const tag = validateCustomTag(customTag);
+                  if (!tag) { setCustomTagError("Format: dimension:value (lowercase, hyphens ok)"); return; }
+                  if (selected.size >= 32) { setCustomTagError("Max 32 tags"); return; }
+                  const next = new Set(selected);
+                  next.add(tag);
+                  setSelected(next);
+                  setCustomTag("");
+                  setCustomTagError(null);
+                }}
+                className="nano-btn nano-btn-accent"
+                style={{ padding: "5px 12px", fontSize: 12, whiteSpace: "nowrap" }}
+              >
+                + Add
+              </button>
+            </div>
+            {customTagError && <div style={{ color: "var(--error)", fontSize: 11, marginTop: 4 }}>{customTagError}</div>}
+            <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>
+              Create tags beyond the standard dictionary. Format: dimension:value (e.g. topic:my-niche, locale:pt-BR)
+            </div>
+          </div>
+
+          {/* Selected custom tags (not in dictionary) */}
+          {[...selected].filter(t => !TAG_LABELS[t]).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ color: "var(--warn)", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Custom</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {[...selected].filter(t => !TAG_LABELS[t]).map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggle(tag)}
+                    className="nano-btn nano-btn-accent"
+                    style={{ padding: "5px 10px", fontSize: 12 }}
+                  >
+                    {tagDisplayLabel(tag)} ×
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 16 }}>
             <TransactionStatus state={txState} message={txMsg} />
             <button onClick={handleSave} disabled={txState === "pending" || !signer || !contracts.targetingRegistry} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>

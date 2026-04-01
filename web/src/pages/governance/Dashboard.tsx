@@ -176,7 +176,7 @@ export function GovernanceDashboard() {
         </div>
       )}
 
-      {loading && <div style={{ color: "var(--text-muted)" }}>Loading campaigns...</div>}
+      {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading campaigns</div>}
 
       {displayed.map((c) => {
         const total = c.ayeWeighted + c.nayWeighted;

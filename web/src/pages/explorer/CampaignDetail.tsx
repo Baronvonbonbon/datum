@@ -124,7 +124,7 @@ export function CampaignDetail() {
     }
   }
 
-  if (loading) return <div style={{ color: "var(--text-muted)", padding: 20 }}>Loading campaign #{id}...</div>;
+  if (loading) return <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 20 }}>Loading campaign #{id}</div>;
   if (error) return <div className="nano-info nano-info--error">Error: {error}</div>;
   if (!campaign) return <div style={{ color: "var(--text-muted)" }}>Campaign not found.</div>;
 

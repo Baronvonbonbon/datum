@@ -93,7 +93,7 @@ export function Earnings() {
         <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
       </div>
 
-      {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
+      {loading ? <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading</div> : (
         <>
           <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
             <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>Available to Withdraw</div>

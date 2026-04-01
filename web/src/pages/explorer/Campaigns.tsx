@@ -146,7 +146,7 @@ export function Campaigns() {
       )}
 
       {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
-      {loading && <div style={{ color: "var(--text-muted)", padding: 12 }}>Loading campaigns...</div>}
+      {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 12 }}>Loading campaigns</div>}
 
       {/* Table */}
       {!loading && filtered.length > 0 && (
