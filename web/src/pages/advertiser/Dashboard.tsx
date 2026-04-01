@@ -9,6 +9,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { tagLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
+import { ConfirmModal } from "../../components/ConfirmModal";
 
 interface MyCampaign {
   id: number;
@@ -29,6 +30,7 @@ export function AdvertiserDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ id: number; action: "pause" | "resume" | "complete" } | null>(null);
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -188,7 +190,7 @@ export function AdvertiserDashboard() {
                 </button>
               )}
               {(c.status === 1 || c.status === 2) && (
-                <button onClick={() => doAction(c.id, "complete")} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}>
+                <button onClick={() => setConfirmAction({ id: c.id, action: "complete" })} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}>
                   Complete Early
                 </button>
               )}
@@ -197,6 +199,17 @@ export function AdvertiserDashboard() {
           )}
         </div>
       ))}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={`Complete Campaign #${confirmAction.id}?`}
+          message="This will end the campaign early and refund unspent budget to your wallet. This cannot be undone."
+          confirmLabel="Complete Campaign"
+          danger
+          onConfirm={() => { doAction(confirmAction.id, confirmAction.action); setConfirmAction(null); }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
 }

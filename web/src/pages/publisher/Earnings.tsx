@@ -5,6 +5,9 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
+import { queryFilterAll } from "@shared/eventQuery";
+import { ConfirmModal } from "../../components/ConfirmModal";
+import { RequirePublisher } from "../../components/RequirePublisher";
 
 interface CampaignEarnings {
   campaignId: string;
@@ -22,6 +25,7 @@ export function Earnings() {
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
 
   useEffect(() => { if (address) load(); }, [address]);
 
@@ -32,14 +36,13 @@ export function Earnings() {
       const bal = await contracts.paymentVault.publisherBalance(address).catch(() => 0n);
       setBalance(BigInt(bal));
 
-      // Fetch ClaimSettled events for this publisher
+      // Fetch all ClaimSettled events for this publisher
       const filter = contracts.settlement.filters.ClaimSettled();
-      const logs = await contracts.settlement.queryFilter(filter, -5000).catch(() => []);
+      const logs = await queryFilterAll(contracts.settlement, filter).catch(() => []);
       const mine = logs
         .filter((l: any) => (l.args?.publisher ?? "").toLowerCase() === address.toLowerCase())
-        .slice(-20)
         .reverse();
-      setEvents(mine);
+      setEvents(mine.slice(0, 50));
 
       // EA-2: Group by campaignId for per-campaign breakdown
       const byCampaign = new Map<string, CampaignEarnings>();
@@ -82,9 +85,13 @@ export function Earnings() {
   }
 
   return (
+    <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 640 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Publisher Earnings</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Publisher Earnings</h1>
+        <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+      </div>
 
       {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : (
         <>
@@ -95,7 +102,7 @@ export function Earnings() {
             </div>
             <TransactionStatus state={txState} message={txMsg} />
             {signer && balance !== null && balance > 0n && (
-              <button onClick={handleWithdraw} disabled={txState === "pending"} className="nano-btn nano-btn-accent" style={{ marginTop: 8, padding: "8px 16px", fontSize: 13 }}>
+              <button onClick={() => setShowWithdrawConfirm(true)} disabled={txState === "pending"} className="nano-btn nano-btn-accent" style={{ marginTop: 8, padding: "8px 16px", fontSize: 13 }}>
                 {txState === "pending" ? "Withdrawing..." : "Withdraw"}
               </button>
             )}
@@ -129,7 +136,7 @@ export function Earnings() {
           )}
 
           <div>
-            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Recent Settlements (last 5000 blocks)</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Recent Settlements ({events.length > 0 ? `${events.length} found` : "all time"})</div>
             {events.length === 0 ? (
               <div style={{ color: "var(--text-muted)", fontSize: 13 }}>No recent settlements found.</div>
             ) : (
@@ -159,6 +166,17 @@ export function Earnings() {
           </div>
         </>
       )}
+
+      {showWithdrawConfirm && (
+        <ConfirmModal
+          title="Withdraw Earnings?"
+          message="This will transfer your full available balance to your wallet."
+          confirmLabel="Withdraw"
+          onConfirm={() => { setShowWithdrawConfirm(false); handleWithdraw(); }}
+          onCancel={() => setShowWithdrawConfirm(false)}
+        />
+      )}
     </div>
+    </RequirePublisher>
   );
 }

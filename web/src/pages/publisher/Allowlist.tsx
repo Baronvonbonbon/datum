@@ -7,6 +7,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
+import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function Allowlist() {
   const contracts = useContracts();
@@ -93,6 +94,7 @@ export function Allowlist() {
   }
 
   return (
+    <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Advertiser Allowlist</h1>
@@ -154,5 +156,6 @@ export function Allowlist() {
         </>
       )}
     </div>
+    </RequirePublisher>
   );
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useWallet } from "../../context/WalletContext";
 import { useContracts } from "../../hooks/useContracts";
 import { tagLabel } from "@shared/tagDictionary";
+import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function SDKSetup() {
   const { address } = useWallet();
@@ -37,6 +38,7 @@ export function SDKSetup() {
   }
 
   return (
+    <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 640 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>SDK Setup</h1>
@@ -96,6 +98,7 @@ export function SDKSetup() {
         </Section>
       </div>
     </div>
+    </RequirePublisher>
   );
 }
 

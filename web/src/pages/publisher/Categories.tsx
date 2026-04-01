@@ -5,6 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel } from "@shared/tagDictionary";
+import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function Categories() {
   const contracts = useContracts();
@@ -69,6 +70,7 @@ export function Categories() {
   }
 
   return (
+    <RequirePublisher>
     <div className="nano-fade">
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 16px" }}>
@@ -130,5 +132,6 @@ export function Categories() {
         </>
       )}
     </div>
+    </RequirePublisher>
   );
 }

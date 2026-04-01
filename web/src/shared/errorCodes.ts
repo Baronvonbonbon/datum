@@ -44,7 +44,7 @@ const ERROR_CODES: Record<string, string> = {
   E37: "Timelock delay not elapsed (48h required).",
 
   // Governance V2
-  E40: "Invalid conviction (must be 0–6).",
+  E40: "Invalid conviction (must be 0–8).",
   E41: "Stake must be greater than zero.",
   E42: "Already voted on this campaign. Withdraw first to change your vote.",
   E43: "Campaign must be Pending or Active to vote.",
@@ -67,6 +67,15 @@ const ERROR_CODES: Record<string, string> = {
   // System
   E57: "Transaction conflict (reentrancy). Try again.",
   E58: "Amount below existential deposit (dust).",
+
+  // Alpha-3 satellites
+  E62: "Address is blocked by the protocol admin.",
+  E63: "Advertiser is not on the publisher's allowlist.",
+  E64: "Campaign has been inactive too long (30+ days with no settlements).",
+  E65: "Invalid tags length.",
+  E66: "Too many tags (max 32 per publisher, 8 per campaign).",
+  E67: "Invalid campaign status transition.",
+
   P: "System is globally paused.",
 };
 

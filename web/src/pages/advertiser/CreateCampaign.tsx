@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
@@ -29,21 +29,28 @@ export function CreateCampaign() {
   const [txMsg, setTxMsg] = useState("");
   const [createdId, setCreatedId] = useState<number | null>(null);
 
-  // Pre-flight checks
+  // Pre-flight checks (debounced to avoid RPC flood on keystrokes)
   const [pubCheck, setPubCheck] = useState<string | null>(null);
+  const [pubChecking, setPubChecking] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function checkPublisher(addr: string) {
-    if (!addr || !ethers.isAddress(addr)) { setPubCheck(null); return; }
-    try {
-      const blocked = await contracts.publishers.isBlocked(addr);
-      if (blocked) { setPubCheck("This address is blocked."); return; }
-      const data = await contracts.publishers.getPublisher(addr);
-      if (!data.registered) { setPubCheck("Publisher not registered."); return; }
-      setPubCheck(`Registered · Take rate: ${(Number(data.takeRateBps) / 100).toFixed(0)}%`);
-    } catch {
-      setPubCheck("Could not verify publisher.");
-    }
-  }
+  const checkPublisher = useCallback((addr: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!addr || !ethers.isAddress(addr)) { setPubCheck(null); setPubChecking(false); return; }
+    setPubChecking(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const blocked = await contracts.publishers.isBlocked(addr);
+        if (blocked) { setPubCheck("This address is blocked."); setPubChecking(false); return; }
+        const data = await contracts.publishers.getPublisher(addr);
+        if (!data.registered) { setPubCheck("Publisher not registered."); setPubChecking(false); return; }
+        setPubCheck(`Registered · Take rate: ${(Number(data.takeRateBps) / 100).toFixed(0)}%`);
+      } catch {
+        setPubCheck("Could not verify publisher.");
+      }
+      setPubChecking(false);
+    }, 400);
+  }, [contracts]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,13 +112,16 @@ export function CreateCampaign() {
 
       {txState === "success" && createdId !== null && (
         <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Campaign #{createdId} created!</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Campaign #{createdId} created!</div>
+          <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 10 }}>
+            Your campaign is now Pending. Set metadata so governance voters can review your creative.
+          </div>
           <div style={{ display: "flex", gap: 10 }}>
             <Link to={`/advertiser/campaign/${createdId}/metadata`} className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
-              Set Metadata (IPFS)
+              Set Metadata (IPFS) — Recommended
             </Link>
             <Link to="/advertiser" className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
-              Back to Dashboard
+              Dashboard
             </Link>
           </div>
         </div>
@@ -144,7 +154,8 @@ export function CreateCampaign() {
                 className="nano-input"
                 required
               />
-              {pubCheck && (
+              {pubChecking && <div style={{ fontSize: 12, marginTop: 4, color: "var(--text-muted)" }}>Checking...</div>}
+              {!pubChecking && pubCheck && (
                 <div style={{ fontSize: 12, marginTop: 4, color: pubCheck.startsWith("Registered") ? "var(--ok)" : "var(--error)" }}>
                   {pubCheck}
                 </div>
@@ -164,6 +175,9 @@ export function CreateCampaign() {
             <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Daily Cap ({sym})</label>
             <input type="number" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum spend per 24h period (~14,400 blocks).</div>
+            {Number(dailyCap) > Number(budget) && (
+              <div style={{ fontSize: 11, color: "var(--warn)" }}>Daily cap exceeds total budget — contract will reject this.</div>
+            )}
           </div>
 
           {/* Bid CPM */}

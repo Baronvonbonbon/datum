@@ -5,6 +5,7 @@ import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { queryFilterBounded } from "@shared/eventQuery";
+import { StatCardSkeleton } from "../../components/Skeleton";
 
 interface Stats {
   totalCampaigns: number;
@@ -106,7 +107,7 @@ export function Overview() {
               : <>No contracts configured. Go to <Link to="/settings">Settings</Link>.</>}
           </div>
         ) : (
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>
+          <div className="nano-skeleton" style={{ height: 38, borderRadius: "var(--radius-sm)" }} />
         )}
       </div>
 
@@ -117,11 +118,17 @@ export function Overview() {
         gap: 12,
         marginBottom: 36,
       }}>
-        <StatCard label="Total Campaigns" value={stats?.totalCampaigns ?? "—"} />
-        <StatCard label="Active" value={stats?.activeCampaigns ?? "—"} color={stats ? "var(--ok)" : undefined} />
-        <StatCard label="Pending Votes" value={stats?.pendingCampaigns ?? "—"} color={stats ? "var(--warn)" : undefined} />
-        <StatCard label="Impressions Settled" value={stats ? stats.totalImpressions.toLocaleString() : "—"} color={stats && stats.totalImpressions > 0 ? "var(--ok)" : undefined} />
-        <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
+        {loading && !stats ? (
+          <>{Array.from({ length: 5 }, (_, i) => <StatCardSkeleton key={i} />)}</>
+        ) : (
+          <>
+            <StatCard label="Total Campaigns" value={stats?.totalCampaigns ?? "—"} />
+            <StatCard label="Active" value={stats?.activeCampaigns ?? "—"} color={stats ? "var(--ok)" : undefined} />
+            <StatCard label="Pending Votes" value={stats?.pendingCampaigns ?? "—"} color={stats ? "var(--warn)" : undefined} />
+            <StatCard label="Impressions Settled" value={stats ? stats.totalImpressions.toLocaleString() : "—"} color={stats && stats.totalImpressions > 0 ? "var(--ok)" : undefined} />
+            <StatCard label="Network" value={getNetworkDisplayName(settings.network)} />
+          </>
+        )}
       </div>
 
       {/* How Does This Work */}
@@ -223,7 +230,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     color: "var(--warn)",
     steps: [
       "Register as a publisher from the Publisher section. Pick your take rate (the percentage you keep from each impression — between 30% and 80%).",
-      "Select your content categories from 26 options (tech, finance, gaming, etc.). This tells the system which campaigns are a good fit for your audience.",
+      "Select your content tags from four dimensions (topic, locale, platform, audience). This tells the system which campaigns are a good fit for your audience.",
       "Copy the SDK snippet and add it to your site — it's one script tag and one div. That's it. No ad server, no tracking pixels, no cookie banners.",
       "When a DATUM user visits your site, the extension and your SDK do a cryptographic handshake to prove the impression is real. Two-party attestation, no trust required.",
       "As impressions settle on-chain, your share accumulates in the PaymentVault. Withdraw whenever you want from the Publisher Earnings page.",

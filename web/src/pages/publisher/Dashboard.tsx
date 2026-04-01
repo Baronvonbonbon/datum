@@ -5,6 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { humanizeError } from "@shared/errorCodes";
 import { tagLabel } from "@shared/tagDictionary";
+import { ConfirmModal } from "../../components/ConfirmModal";
 
 export function PublisherDashboard() {
   const contracts = useContracts();
@@ -16,6 +17,7 @@ export function PublisherDashboard() {
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
 
   useEffect(() => { if (address) load(); }, [address]);
 
@@ -113,7 +115,7 @@ export function PublisherDashboard() {
             </div>
             {msg && <div style={{ color: msg.includes("successful") ? "var(--ok)" : "var(--error)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
             {signer && balance !== null && balance > 0n && (
-              <button onClick={handleWithdraw} disabled={withdrawing} className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13 }}>
+              <button onClick={() => setShowWithdrawConfirm(true)} disabled={withdrawing} className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13 }}>
                 {withdrawing ? "Withdrawing..." : "Withdraw Earnings"}
               </button>
             )}
@@ -128,6 +130,16 @@ export function PublisherDashboard() {
             <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>
           </div>
         </div>
+      )}
+
+      {showWithdrawConfirm && (
+        <ConfirmModal
+          title="Withdraw Earnings?"
+          message="This will transfer your full available balance to your wallet."
+          confirmLabel="Withdraw"
+          onConfirm={() => { setShowWithdrawConfirm(false); handleWithdraw(); }}
+          onCancel={() => setShowWithdrawConfirm(false)}
+        />
       )}
     </div>
   );

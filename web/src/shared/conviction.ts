@@ -1,4 +1,4 @@
-// Alpha-2 escalating conviction curve (9 levels: 0-8)
+// Alpha-3 escalating conviction curve (9 levels: 0-8)
 // Source: DatumGovernanceV2 hardcoded if/else chains
 // Weights: [1, 2, 3, 4, 6, 9, 14, 18, 21]
 // Lockups:  0, 1d, 3d, 7d, 21d, 90d, 180d, 270d, 365d (at 6s/block)

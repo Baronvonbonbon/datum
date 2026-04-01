@@ -163,11 +163,6 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   border-color: var(--border-hover);
   background: rgba(255,255,255,0.07);
 }
-.nano-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 .nano-btn-accent {
   background: rgba(160,160,255,0.1);
   border-color: rgba(160,160,255,0.3);
@@ -289,3 +284,57 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
 .nano-info--error { background: rgba(252,165,165,0.08); border-color: rgba(252,165,165,0.2); color: var(--error); }
 .nano-info--ok    { background: rgba(110,231,183,0.08); border-color: rgba(110,231,183,0.2); color: var(--ok); }
 .nano-info--muted { background: var(--bg-raised);       border-color: var(--border);         color: var(--text-muted); }
+
+/* ─── Mobile hamburger menu ────────────────────────────────────────────── */
+.nano-mobile-menu-btn { display: none; }
+
+/* ─── Improved disabled button ─────────────────────────────────────────── */
+.nano-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+  color: var(--text-muted);
+}
+.nano-btn:disabled:hover {
+  border-color: var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+
+/* ─── Focus-visible indicators ─────────────────────────────────────────── */
+.nano-btn:focus-visible,
+.nano-input:focus-visible,
+.nano-select:focus-visible,
+.nano-navlink:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+
+/* ─── Responsive — mobile breakpoint ───────────────────────────────────── */
+@media (max-width: 640px) {
+  .nano-mobile-menu-btn { display: inline-flex; }
+
+  .nano-sidebar {
+    display: none;
+    position: fixed;
+    top: 52px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 40;
+    background: var(--bg);
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    overflow-y: auto;
+  }
+  .nano-sidebar--open {
+    display: block;
+  }
+
+  .nano-header { padding: 0 12px; }
+  .nano-warning-banner { padding: 7px 12px; font-size: 11px; }
+
+  main { padding: 16px 12px !important; }
+}

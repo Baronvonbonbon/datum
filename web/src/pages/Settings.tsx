@@ -258,7 +258,7 @@ export function Settings() {
       {/* Version info */}
       <div className="nano-card" style={{ marginTop: 24, padding: "10px 14px" }}>
         <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-          DATUM Web App · Alpha-2 · Network: {NETWORK_CONFIGS[settings.network]?.name ?? settings.network}
+          DATUM Web App · Alpha-3 · Network: {NETWORK_CONFIGS[settings.network]?.name ?? settings.network}
         </div>
       </div>
     </div>

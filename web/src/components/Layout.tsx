@@ -4,8 +4,10 @@ import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName, getExplorerUrl } from "@shared/networks";
+import { formatDOT } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
+import { JsonRpcProvider } from "ethers";
 
 /** Animates the block number ticking up when it changes. */
 function useBlockFlash(blockNumber: number | null) {
@@ -66,8 +68,22 @@ export function Layout() {
   const { blockNumber, connected } = useBlock();
   const { settings } = useSettings();
   const [showConnect, setShowConnect] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [balance, setBalance] = useState<bigint | null>(null);
   const mainRef = useFadeIn();
   const blockFlash = useBlockFlash(blockNumber);
+  const location = useLocation();
+  const sym = getCurrencySymbol(settings.network);
+
+  // Close mobile menu on navigation
+  useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
+
+  // Fetch wallet balance
+  useEffect(() => {
+    if (!address || !settings.rpcUrl) { setBalance(null); return; }
+    const provider = new JsonRpcProvider(settings.rpcUrl);
+    provider.getBalance(address).then(setBalance).catch(() => setBalance(null));
+  }, [address, settings.rpcUrl, blockNumber]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -111,6 +127,11 @@ export function Layout() {
               {method === "manual" && (
                 <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, letterSpacing: "0.06em" }}>TEST KEY</span>
               )}
+              {balance !== null && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
+                  {formatDOT(balance)} {sym}
+                </span>
+              )}
               <AddressDisplay address={address} style={{ fontSize: 12, color: "var(--text)" }} />
               <button
                 onClick={disconnect}
@@ -125,12 +146,21 @@ export function Layout() {
               Connect Wallet
             </button>
           )}
+          {/* Mobile menu toggle */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="nano-btn nano-mobile-menu-btn"
+            style={{ fontSize: 16, padding: "4px 8px", lineHeight: 1 }}
+            aria-label="Toggle navigation menu"
+          >
+            {mobileMenuOpen ? "✕" : "☰"}
+          </button>
         </div>
       </header>
 
       <div style={{ display: "flex", flex: 1 }}>
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <nav className="nano-sidebar">
+        <nav className={`nano-sidebar${mobileMenuOpen ? " nano-sidebar--open" : ""}`}>
           {NAV_ITEMS.map((item) => (
             <div key={item.path}>
               {(item as any).external ? (

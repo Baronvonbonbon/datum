@@ -6,6 +6,7 @@ import { useBlock } from "../../hooks/useBlock";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
+import { RequirePublisher } from "../../components/RequirePublisher";
 
 export function TakeRate() {
   const contracts = useContracts();
@@ -72,6 +73,7 @@ export function TakeRate() {
   const blocksRemaining = pending && blockNumber ? Math.max(0, pending.effectiveBlock - blockNumber) : null;
 
   return (
+    <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 480 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Take Rate</h1>
@@ -120,5 +122,6 @@ export function TakeRate() {
         <TransactionStatus state={txState} message={txMsg} />
       )}
     </div>
+    </RequirePublisher>
   );
 }
