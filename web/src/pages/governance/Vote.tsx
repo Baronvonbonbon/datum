@@ -99,21 +99,26 @@ export function Vote() {
     <div style={{ maxWidth: 640 }}>
       <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
 
-      <div style={{ margin: "12px 0 16px" }}>
-        <span style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Vote on Campaign #{id}</span>
-        <StatusBadge status={campaign.status} style={{ marginLeft: 10 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 16px" }}>
+        <div>
+          <span style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Vote on Campaign #{id}</span>
+          <StatusBadge status={campaign.status} style={{ marginLeft: 10 }} />
+        </div>
+        <Link to={`/campaigns/${id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Campaign Detail</Link>
       </div>
 
       <IPFSPreview metadataHash={metadataHash} />
 
       {gov && (
         <div className="nano-card" style={{ margin: "16px 0", padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
-            <span>Aye {ayePct}% · <DOTAmount planck={gov.ayeWeighted} /></span>
-            <span>Nay {100 - ayePct}% · <DOTAmount planck={gov.nayWeighted} /></span>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+            <span style={{ color: "var(--ok)" }}>Aye {ayePct}% · <DOTAmount planck={gov.ayeWeighted} /></span>
+            <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}% · <DOTAmount planck={gov.nayWeighted} /></span>
           </div>
-          <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 10, overflow: "hidden" }}>
-            <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.5 }} />
+          <div style={{ position: "relative", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 10, overflow: "hidden", display: "flex" }}>
+            <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
+            <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+            <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
           </div>
           <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
             Quorum: <DOTAmount planck={gov.quorum} /> required

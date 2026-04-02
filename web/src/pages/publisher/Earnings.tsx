@@ -165,7 +165,7 @@ export function Earnings() {
                   <tbody>
                     {campaignBreakdown.map((c) => (
                       <tr key={c.campaignId}>
-                        <td>#{c.campaignId}</td>
+                        <td><Link to={`/campaigns/${c.campaignId}`} style={{ color: "var(--accent)", textDecoration: "none" }}>#{c.campaignId}</Link></td>
                         <td><DOTAmount planck={c.totalPublisherPayment} /></td>
                         <td>{c.totalImpressions.toLocaleString()}</td>
                         <td>{c.settlementCount}</td>
@@ -194,7 +194,7 @@ export function Earnings() {
                   <tbody>
                     {events.map((e: any, i) => (
                       <tr key={i}>
-                        <td>#{String(e.args?.campaignId ?? "?")}</td>
+                        <td><Link to={`/campaigns/${String(e.args?.campaignId ?? "0")}`} style={{ color: "var(--accent)", textDecoration: "none" }}>#{String(e.args?.campaignId ?? "?")}</Link></td>
                         <td style={{ fontFamily: "monospace", fontSize: 11 }}>
                           {(e.args?.user ?? "")?.slice(0, 10)}...
                         </td>

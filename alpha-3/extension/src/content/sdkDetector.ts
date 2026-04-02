@@ -3,8 +3,8 @@
 
 export interface SDKInfo {
   publisher: string;       // Publisher's on-chain address
-  categories: number[];    // Category IDs declared by the SDK (deprecated — use tags)
-  tags: string[];          // TX-4: Tag strings declared by the SDK (e.g., "topic:defi,locale:en")
+  tags: string[];          // Tag strings declared by the SDK (e.g., "topic:defi", "locale:en")
+  excludedTags: string[];  // Publisher-side tag blacklist (e.g., "topic:gambling")
   relay: string;           // Publisher relay URL (empty = none declared)
   version: string;         // SDK version string
   hasAdSlot: boolean;      // Whether <div id="datum-ad-slot"> exists
@@ -36,11 +36,11 @@ export function detectSDK(): Promise<SDKInfo | null> {
       if (detail && detail.publisher) {
         resolve({
           publisher: String(detail.publisher),
-          categories: Array.isArray(detail.categories)
-            ? detail.categories.map(Number).filter((n: number) => !isNaN(n))
-            : [],
           tags: Array.isArray(detail.tags)
             ? detail.tags.map(String)
+            : [],
+          excludedTags: Array.isArray(detail.excludedTags)
+            ? detail.excludedTags.map(String)
             : [],
           relay: String(detail.relay ?? ""),
           version: String(detail.version ?? "unknown"),
@@ -69,7 +69,7 @@ function findSDKScript(): HTMLScriptElement | null {
   for (let i = 0; i < scripts.length; i++) {
     const el = scripts[i] as HTMLScriptElement;
     const src = el.src || "";
-    if (src.includes("datum-sdk") || el.hasAttribute("data-categories")) {
+    if (src.includes("datum-sdk") || el.hasAttribute("data-tags")) {
       return el;
     }
   }
@@ -80,21 +80,22 @@ function parseScriptTag(el: HTMLScriptElement): SDKInfo | null {
   const publisher = el.getAttribute("data-publisher") || "";
   if (!publisher) return null;
 
-  const catStr = el.getAttribute("data-categories") || "";
-  const categories = catStr
-    ? catStr.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n))
-    : [];
-
-  // TX-4: Parse data-tags attribute (comma-separated dimension:value strings)
+  // Parse data-tags attribute (comma-separated dimension:value strings)
   const tagStr = el.getAttribute("data-tags") || "";
   const tags = tagStr
     ? tagStr.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
+  // Parse data-excluded-tags attribute (publisher-side tag blacklist)
+  const excludedStr = el.getAttribute("data-excluded-tags") || "";
+  const excludedTags = excludedStr
+    ? excludedStr.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
   return {
     publisher,
-    categories,
     tags,
+    excludedTags,
     relay: el.getAttribute("data-relay") || "",
     version: "detected",
     hasAdSlot: !!document.getElementById("datum-ad-slot"),

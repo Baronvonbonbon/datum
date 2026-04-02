@@ -5,7 +5,7 @@
 // Selection: weighted random (probability proportional to score)
 
 import { UserInterestProfile } from "./interestProfile";
-import { CATEGORY_TO_TAG, TAG_LABELS } from "@shared/tagDictionary";
+import { tagStringFromHash, tagStringFromSlug } from "@shared/tagDictionary";
 
 interface CampaignCandidate {
   id: string;
@@ -13,6 +13,7 @@ interface CampaignCandidate {
   status: number | string;
   bidCpmPlanck: string;
   categoryId: number | string;
+  requiredTags?: string[];
 }
 
 function scoreCampaign(
@@ -20,18 +21,40 @@ function scoreCampaign(
   profile: UserInterestProfile,
   pageCategory: string
 ): number {
-  const catTag = CATEGORY_TO_TAG[Number(campaign.categoryId)] ?? "";
-  const catName = catTag ? (TAG_LABELS[catTag] ?? "") : "";
+  // Resolve campaign's tag strings for profile weight lookup
+  let interestWeight = 0;
+  let matchCount = 0;
 
-  // Interest weight from profile (0.0 if no visits to this category)
-  const interestWeight = profile.weights[catName] ?? 0;
+  const tags: string[] = Array.isArray(campaign.requiredTags) ? campaign.requiredTags : [];
+  if (tags.length > 0) {
+    for (const hash of tags) {
+      const tagStr = tagStringFromHash(hash);
+      if (tagStr) {
+        interestWeight += profile.weights[tagStr] ?? 0;
+        matchCount++;
+      }
+    }
+    if (matchCount > 0) interestWeight /= matchCount;
+  }
 
-  // Confidence: saturates at 20 visits (avoids runaway bias from heavy browsing in one category)
-  const visits = profile.visitCounts[catName] ?? 0;
+  // Confidence: saturates at 20 visits
+  // Use first matched tag string for visit count lookup
+  let visitKey = "";
+  if (tags.length > 0) {
+    visitKey = tagStringFromHash(tags[0]) ?? "";
+  }
+  const visits = visitKey ? (profile.visitCounts[visitKey] ?? 0) : 0;
   const confidence = Math.min(visits, 20) / 20;
 
   // Contextual boost: 50% bonus when page category matches campaign category
-  const pageBoost = catName === pageCategory ? 1.5 : 1.0;
+  const pageCategoryTag = tagStringFromSlug(pageCategory);
+  let pageBoost = 1.0;
+  if (pageCategoryTag && tags.length > 0) {
+    for (const hash of tags) {
+      const tagStr = tagStringFromHash(hash);
+      if (tagStr === pageCategoryTag) { pageBoost = 1.5; break; }
+    }
+  }
 
   // Bid weight: higher-bidding campaigns get proportionally more impressions
   const bidWeight = Number(campaign.bidCpmPlanck);

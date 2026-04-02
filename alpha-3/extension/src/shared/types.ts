@@ -71,6 +71,7 @@ export enum CampaignStatus {
   Expired = 5,
 }
 
+/** @deprecated Use tag strings from tagDictionary.ts instead. Kept for backward compat. */
 // 26 top-level categories for ad classification
 // IDs 1-26 are top-level; subcategories use parent*100+sub scheme (e.g., 101=Celebrities under Arts)
 export const CATEGORY_NAMES: Record<number, string> = {
@@ -349,7 +350,9 @@ export interface ContractAddresses {
 // User ad preferences — persisted in chrome.storage.local
 export interface UserPreferences {
   blockedCampaigns: string[];     // campaign IDs blocked by user
+  /** @deprecated Use blockedTags. Migrated on read. */
   silencedCategories: string[];   // category names user doesn't want
+  blockedTags: string[];          // tag strings user doesn't want (e.g., "topic:gambling")
   maxAdsPerHour: number;          // rate limit (default 12)
   minBidCpm: string;              // minimum CPM in planck (default "0")
 }

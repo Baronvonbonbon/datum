@@ -181,8 +181,11 @@ export function Campaigns() {
                     </td>
                     <td><DOTAmount planck={row.bidCpmPlanck} style={{ fontSize: 12 }} /></td>
                     <td><span style={{ fontSize: 12, color: "var(--text)" }}>{(row.snapshotTakeRateBps / 100).toFixed(0)}%</span></td>
-                    <td>
-                      <Link to={`/campaigns/${row.id}`} style={{ color: "var(--accent-dim)", fontSize: 12 }}>Detail →</Link>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <Link to={`/campaigns/${row.id}`} style={{ color: "var(--accent-dim)", fontSize: 12 }}>Detail</Link>
+                      {row.status <= 1 && (
+                        <Link to={`/governance/vote/${row.id}`} style={{ color: "var(--accent)", fontSize: 12, marginLeft: 8 }}>Vote</Link>
+                      )}
                     </td>
                   </tr>
                   {expandedId === row.id && (

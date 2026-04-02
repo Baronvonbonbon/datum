@@ -3,11 +3,10 @@
 // Clearing CPM = secondEffectiveBid / winnerInterestWeight, clamped to [bidCpm*30%, bidCpm]
 //
 // TX-3: Tag-based interest weighting. Campaigns carry requiredTags (bytes32[]).
-// Interest weight = max tag weight from profile (falls back to categoryId for backward compat).
+// Interest weight = average tag weight from profile using tag strings.
 
 import { UserInterestProfile } from "./interestProfile";
-import { CATEGORY_NAMES } from "@shared/types";
-import { tagLabel, CATEGORY_TO_TAG, TAG_LABELS } from "@shared/tagDictionary";
+import { tagStringFromHash } from "@shared/tagDictionary";
 
 export interface CampaignCandidate {
   id: string;
@@ -97,32 +96,23 @@ export function auctionForPage(
 
 /**
  * TX-3: Get interest weight for a campaign using tag-based matching.
- * Uses requiredTags if available, falls back to categoryId for backward compat.
- * Returns the max weight across all matched tags (best dimension match wins).
+ * Uses requiredTags → tag strings → profile weights.
+ * Returns the average weight across all matched tags.
  */
 function getTagWeight(profile: UserInterestProfile, c: CampaignCandidate): number {
-  // TX-3: If campaign has required tags, use tag-based weighting
   if (c.requiredTags && c.requiredTags.length > 0) {
-    let maxWeight = 0;
+    let totalWeight = 0;
+    let matchCount = 0;
     for (const hash of c.requiredTags) {
-      const label = tagLabel(hash);
-      if (label) {
-        // Check profile for tag label (e.g., "Crypto & Web3")
-        const w = profile.weights[label] ?? 0;
-        if (w > maxWeight) maxWeight = w;
+      // Resolve hash → tag string → profile weight
+      const tagStr = tagStringFromHash(hash);
+      if (tagStr) {
+        totalWeight += profile.weights[tagStr] ?? 0;
+        matchCount++;
       }
     }
-    return maxWeight;
+    return matchCount > 0 ? totalWeight / matchCount : 0;
   }
 
-  // Backward compat: use categoryId → tag label → profile weight
-  const catTag = CATEGORY_TO_TAG[c.categoryId];
-  if (catTag) {
-    const label = TAG_LABELS[catTag];
-    if (label) return profile.weights[label] ?? 0;
-  }
-
-  // Legacy fallback: direct category name lookup
-  const catName = CATEGORY_NAMES[c.categoryId] ?? "";
-  return profile.weights[catName] ?? 0;
+  return 0;
 }

@@ -12,6 +12,7 @@ import { metadataUrl } from "@shared/ipfs";
 import { CampaignStatus, ContractAddresses } from "@shared/types";
 import { validateAndSanitize, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { isUrlPhishing, isAddressBlocked, refreshPhishingList } from "@shared/phishingList";
+import { CATEGORY_TO_TAG, tagHash } from "@shared/tagDictionary";
 
 const STORAGE_KEY = "activeCampaigns";
 const INDEX_KEY = "campaignIndex";       // Map<id, campaign> as Record<string,SerializedCampaign>
@@ -29,6 +30,7 @@ interface SerializedCampaign {
   bidCpmPlanck: string;
   snapshotTakeRateBps: string;
   status: string;
+  /** @deprecated Use requiredTags for matching. Kept for backward compat synthesis. */
   categoryId: string;
   pendingExpiryBlock: string;
   terminationBlock: string;
@@ -191,6 +193,21 @@ export const campaignPoller = {
         } catch { /* getCampaignTags may not exist — skip */ }
       });
       await batchParallel(tagTasks, BATCH_SIZE);
+
+      // ── Phase 2c: Synthesize requiredTags from categoryId (backward compat) ──
+      // For campaigns with categoryId > 0 and no requiredTags, generate a synthetic
+      // requiredTags array. This centralizes backward compat so downstream code
+      // (content script matching, auction) only needs to check requiredTags.
+      for (const id of Object.keys(index)) {
+        const camp = index[id];
+        const catId = Number(camp.categoryId);
+        if (catId > 0 && (!camp.requiredTags || camp.requiredTags.length === 0)) {
+          const tagStr = CATEGORY_TO_TAG[catId];
+          if (tagStr) {
+            camp.requiredTags = [tagHash(tagStr)];
+          }
+        }
+      }
 
       // ── Phase 3: Build active list + persist ───────────────────────────
       // Remove terminal campaigns from index (Completed, Terminated, Expired, blocked)

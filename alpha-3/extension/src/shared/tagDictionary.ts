@@ -78,7 +78,91 @@ export const TAG_DICTIONARY: Record<string, string[]> = {
   ],
 };
 
-/** Map from old categoryId to equivalent topic tag */
+/** Map taxonomy category slug → tag string (e.g., "crypto-web3" → "topic:crypto-web3") */
+export function tagStringFromSlug(slug: string): string | null {
+  const SLUG_TO_TAG: Record<string, string> = {
+    "arts-entertainment": "topic:arts-entertainment",
+    "autos-vehicles": "topic:autos-vehicles",
+    "beauty-fitness": "topic:beauty-fitness",
+    "books-literature": "topic:books-literature",
+    "business-industrial": "topic:business-industrial",
+    "computers-electronics": "topic:computers-electronics",
+    "finance": "topic:finance",
+    "food-drink": "topic:food-drink",
+    "games": "topic:gaming",
+    "gaming": "topic:gaming",
+    "health": "topic:health",
+    "hobbies-leisure": "topic:hobbies-leisure",
+    "home-garden": "topic:home-garden",
+    "internet-telecom": "topic:internet-telecom",
+    "jobs-education": "topic:jobs-education",
+    "law-government": "topic:law-government",
+    "news": "topic:news",
+    "online-communities": "topic:online-communities",
+    "people-society": "topic:people-society",
+    "pets-animals": "topic:pets-animals",
+    "real-estate": "topic:real-estate",
+    "reference": "topic:reference",
+    "science": "topic:science",
+    "shopping": "topic:shopping",
+    "sports": "topic:sports",
+    "travel": "topic:travel",
+    "crypto-web3": "topic:crypto-web3",
+    "crypto": "topic:crypto-web3",
+    "technology": "topic:computers-electronics",
+    "privacy": "topic:internet-telecom",
+    "open-source": "topic:computers-electronics",
+    "environment": "topic:science",
+  };
+  return SLUG_TO_TAG[slug] ?? null;
+}
+
+/** Map locale string → tag string (e.g., "en-us" → "locale:en-US") */
+export function tagStringFromLocale(lang: string): string | null {
+  const lower = lang.trim().toLowerCase();
+  const LOCALE_MAP: Record<string, string> = {
+    "en-us": "locale:en-US",
+    "en-gb": "locale:en-GB",
+    "es": "locale:es",
+    "fr": "locale:fr",
+    "de": "locale:de",
+    "ja": "locale:ja",
+    "ko": "locale:ko",
+    "zh": "locale:zh",
+    "pt": "locale:pt",
+    "ru": "locale:ru",
+    "en": "locale:en",
+  };
+  // Try exact match first
+  if (LOCALE_MAP[lower]) return LOCALE_MAP[lower];
+  // Try base language (e.g., "en-us" → "en")
+  const base = lower.split("-")[0];
+  return LOCALE_MAP[base] ?? null;
+}
+
+/** Map user agent → tag string (e.g., "platform:desktop") */
+export function tagStringFromPlatform(ua: string): string {
+  if (/iPad/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return "platform:tablet";
+  if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return "platform:mobile";
+  return "platform:desktop";
+}
+
+/** Reverse lookup: TAG_LABELS display value → tag string */
+const TAG_LABEL_TO_STRING = new Map<string, string>();
+// populated after TAG_LABELS is defined (see bottom of file)
+
+export function tagStringFromLabel(label: string): string | null {
+  return TAG_LABEL_TO_STRING.get(label) ?? null;
+}
+
+/** Reverse lookup: tag hash → tag string (if known) */
+export function tagStringFromHash(hash: string): string | null {
+  const label = TAG_HASH_TO_LABEL.get(hash.toLowerCase());
+  if (!label) return null;
+  return TAG_LABEL_TO_STRING.get(label) ?? null;
+}
+
+/** @deprecated Use tag strings directly. Map from old categoryId to equivalent topic tag */
 export const CATEGORY_TO_TAG: Record<number, string> = {
   1: "topic:arts-entertainment",
   2: "topic:autos-vehicles",
@@ -164,9 +248,40 @@ export const TAG_LABELS: Record<string, string> = {
   "audience:investor": "Investors",
 };
 
-// Build reverse lookup: hash → label
+// Build reverse lookup: hash → display label
 const TAG_HASH_TO_LABEL = new Map<string, string>();
 for (const tag of ALL_TAGS) {
   const hash = tagHash(tag);
   TAG_HASH_TO_LABEL.set(hash.toLowerCase(), TAG_LABELS[tag] ?? tag);
+}
+
+// Build reverse lookup: display label → tag string
+for (const [tagStr, label] of Object.entries(TAG_LABELS)) {
+  TAG_LABEL_TO_STRING.set(label, tagStr);
+}
+
+/**
+ * Validate a custom tag string. Must be "dimension:value" format.
+ * Returns a normalized tag string or null if invalid.
+ */
+export function validateCustomTag(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed.includes(":")) return null;
+  const [dimension, ...rest] = trimmed.split(":");
+  const value = rest.join(":");
+  if (!dimension || !value) return null;
+  // Only allow alphanumeric, hyphens, underscores
+  if (!/^[a-z0-9-]+$/.test(dimension) || !/^[a-z0-9-]+$/.test(value)) return null;
+  return `${dimension}:${value}`;
+}
+
+/**
+ * Get a human-readable label for a tag. Falls back to formatting the raw string.
+ */
+export function tagDisplayLabel(tag: string): string {
+  if (TAG_LABELS[tag]) return TAG_LABELS[tag];
+  // Format "dimension:some-value" → "Some Value"
+  const parts = tag.split(":");
+  const value = parts[parts.length - 1];
+  return value.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
+import { useWallet } from "../../context/WalletContext";
 import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -26,9 +27,10 @@ interface SettlementEvent {
   publisherPayment: bigint;
 }
 
-export function CampaignDetail() {
+export function CampaignDetail({ backLink, backLabel }: { backLink?: string; backLabel?: string } = {}) {
   const { id } = useParams<{ id: string }>();
   const contracts = useContracts();
+  const { address } = useWallet();
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
   const EXPLORER = getExplorerUrl(settings.network);
@@ -152,15 +154,23 @@ export function CampaignDetail() {
   return (
     <div className="nano-fade" style={{ maxWidth: 860 }}>
       <div style={{ marginBottom: 20 }}>
-        <Link to="/campaigns" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
+        <Link to={backLink ?? "/campaigns"} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>{backLabel ?? "← Campaigns"}</Link>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
           <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Campaign #{campaign.id}</h1>
           <StatusBadge status={campaign.status} />
-          {campaign.status <= 1 && (
-            <Link to={`/governance/vote/${campaign.id}`} className="nano-btn nano-btn-accent" style={{ marginLeft: "auto", padding: "5px 14px", fontSize: 12, textDecoration: "none" }}>
-              Vote →
-            </Link>
-          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+              <>
+                <Link to={`/advertiser/campaign/${campaign.id}/metadata`} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Edit Metadata</Link>
+                <Link to="/advertiser" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>My Campaigns</Link>
+              </>
+            )}
+            {campaign.status <= 1 && (
+              <Link to={`/governance/vote/${campaign.id}`} className="nano-btn nano-btn-accent" style={{ padding: "5px 14px", fontSize: 12, textDecoration: "none" }}>
+                Vote →
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
@@ -237,20 +247,29 @@ export function CampaignDetail() {
           <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Governance</h2>
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
-              <span>Aye {ayePct}%</span>
-              <span>Nay {100 - ayePct}%</span>
+              <span style={{ color: "var(--ok)" }}>Aye {ayePct}%</span>
+              <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}%</span>
             </div>
-            <div style={{ background: "var(--bg-raised)", borderRadius: 4, height: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
-              <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.5 }} />
+            <div style={{ position: "relative", background: "var(--bg-raised)", borderRadius: 4, height: 10, overflow: "hidden", border: "1px solid var(--border)", display: "flex" }}>
+              <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
+              <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+              <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
               <span><DOTAmount planck={governance.ayeWeighted} /> aye</span>
               <span><DOTAmount planck={governance.nayWeighted} /> nay</span>
             </div>
           </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            Quorum: {quorumPct}% of <DOTAmount planck={governance.quorum} /> threshold
-            {governance.resolved && <span style={{ color: "var(--ok)", marginLeft: 8 }}>✓ Resolved</span>}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Quorum: {quorumPct}% of <DOTAmount planck={governance.quorum} /> threshold
+              {governance.resolved && <span style={{ color: "var(--ok)", marginLeft: 8 }}>✓ Resolved</span>}
+            </div>
+            {campaign.status <= 2 && (
+              <Link to={`/governance/vote/${campaign.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
+                Cast Vote →
+              </Link>
+            )}
           </div>
         </section>
       )}

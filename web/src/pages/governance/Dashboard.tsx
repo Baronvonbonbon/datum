@@ -197,9 +197,12 @@ export function GovernanceDashboard() {
                 {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Nay</span>}
                 {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
               </div>
-              <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", flexShrink: 0 }}>
-                Vote →
-              </Link>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <Link to={`/campaigns/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Detail</Link>
+                <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
+                  Vote →
+                </Link>
+              </div>
             </div>
 
             <div style={{ marginBottom: 8 }}>
@@ -208,12 +211,14 @@ export function GovernanceDashboard() {
 
             {total > 0n && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 8, overflow: "hidden" }}>
-                  <div style={{ width: `${ayePct}%`, height: "100%", background: "var(--ok)", opacity: 0.5 }} />
+                <div style={{ position: "relative", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 8, overflow: "hidden", display: "flex" }}>
+                  <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
+                  <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+                  <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                  <span>Aye {ayePct}% · <DOTAmount planck={c.ayeWeighted} /></span>
-                  <span>Nay {100 - ayePct}% · <DOTAmount planck={c.nayWeighted} /></span>
+                  <span style={{ color: "var(--ok)" }}>Aye {ayePct}% · <DOTAmount planck={c.ayeWeighted} /></span>
+                  <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}% · <DOTAmount planck={c.nayWeighted} /></span>
                 </div>
               </div>
             )}

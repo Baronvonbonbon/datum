@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { JsonRpcProvider, Contract, isAddress } from "ethers";
-import { StoredSettings, NetworkName, ContractAddresses, UserPreferences, CATEGORY_NAMES, buildCategoryHierarchy, CategoryGroup } from "@shared/types";
+import { StoredSettings, NetworkName, ContractAddresses, UserPreferences } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { unlock, isConfigured, getSigner } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
-import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS, tagDisplayLabel, validateCustomTag } from "@shared/tagDictionary";
 import { getTargetingRegistryContract, getProvider } from "@shared/contracts";
 import { getBlockedAddresses, addBlockedAddress, removeBlockedAddress } from "@shared/phishingList";
 
@@ -40,9 +40,13 @@ export function Settings({ address }: { address: string | null }) {
   const [prefs, setPrefs] = useState<UserPreferences>({
     blockedCampaigns: [],
     silencedCategories: [],
+    blockedTags: [],
     maxAdsPerHour: 12,
     minBidCpm: "0",
   });
+  const [blockTagSearch, setBlockTagSearch] = useState("");
+  const [customBlockTag, setCustomBlockTag] = useState("");
+  const [customBlockTagError, setCustomBlockTagError] = useState<string | null>(null);
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   useEffect(() => {
@@ -191,10 +195,7 @@ export function Settings({ address }: { address: string | null }) {
     setResetConfirm(false);
   }
 
-  // Category hierarchy for collapsible silencing
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [profileExpanded, setProfileExpanded] = useState(false);
-  const categoryHierarchy = buildCategoryHierarchy();
 
   // TX-6: Publisher tag management
   const [publisherTagsExpanded, setPublisherTagsExpanded] = useState(false);
@@ -277,32 +278,16 @@ export function Settings({ address }: { address: string | null }) {
     setBlockedAddresses(await getBlockedAddresses());
   }
 
-  function toggleGroup(id: number) {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  function toggleBlockTag(tag: string) {
+    setPrefs((p) => {
+      const blocked = p.blockedTags ?? [];
+      return {
+        ...p,
+        blockedTags: blocked.includes(tag)
+          ? blocked.filter((t) => t !== tag)
+          : [...blocked, tag],
+      };
     });
-  }
-
-  function isGroupSilenced(group: CategoryGroup): "all" | "some" | "none" {
-    const names = [group.name, ...group.children.map((c) => c.name)];
-    const silenced = names.filter((n) => prefs.silencedCategories.includes(n));
-    if (silenced.length === 0) return "none";
-    if (silenced.length === names.length) return "all";
-    return "some";
-  }
-
-  function toggleGroupSilence(group: CategoryGroup) {
-    const names = [group.name, ...group.children.map((c) => c.name)];
-    const state = isGroupSilenced(group);
-    setPrefs((p) => ({
-      ...p,
-      silencedCategories: state === "all"
-        ? p.silencedCategories.filter((c) => !names.includes(c))
-        : [...p.silencedCategories.filter((c) => !names.includes(c)), ...names],
-    }));
   }
 
   return (
@@ -678,66 +663,98 @@ export function Settings({ address }: { address: string | null }) {
         </div>
 
         <div style={sectionStyle}>
-          <label style={labelStyle}>Silenced categories ({prefs.silencedCategories.length} silenced)</label>
+          <label style={labelStyle}>Blocked tags ({(prefs.blockedTags ?? []).length} blocked)</label>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 6 }}>
+            Campaigns with blocked tags will not be shown. Toggle tags to block/unblock.
+          </div>
+          <input
+            type="text"
+            value={blockTagSearch}
+            onChange={(e) => setBlockTagSearch(e.target.value)}
+            placeholder="Search tags..."
+            style={{ ...inputStyle, fontSize: 10, marginBottom: 6, padding: "3px 6px" }}
+          />
           <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 4 }}>
-            {categoryHierarchy.map((group) => {
-              const groupState = isGroupSilenced(group);
-              const isOpen = expandedGroups.has(group.id);
+            {Object.entries(TAG_DICTIONARY).map(([dimension, tags]) => {
+              const filtered = tags.filter((t) => {
+                if (!blockTagSearch) return true;
+                const label = (TAG_LABELS[t] ?? t).toLowerCase();
+                return label.includes(blockTagSearch.toLowerCase()) || t.includes(blockTagSearch.toLowerCase());
+              });
+              if (filtered.length === 0) return null;
               return (
-                <div key={group.id} style={{ marginBottom: 2 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    {group.children.length > 0 && (
-                      <button
-                        onClick={() => toggleGroup(group.id)}
-                        style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 10, padding: "0 2px", width: 14, fontFamily: "inherit" }}
-                      >{isOpen ? "▾" : "▸"}</button>
-                    )}
-                    {group.children.length === 0 && <span style={{ width: 14 }} />}
-                    <button
-                      onClick={() => toggleGroupSilence(group)}
-                      style={{
-                        background: groupState === "all" ? "rgba(252,165,165,0.08)" : groupState === "some" ? "rgba(160,160,255,0.06)" : "var(--bg-raised)",
-                        color: groupState === "all" ? "var(--error)" : groupState === "some" ? "var(--accent)" : "var(--text)",
-                        border: `1px solid ${groupState !== "none" ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
-                        borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 10, cursor: "pointer", flex: 1, textAlign: "left", fontFamily: "inherit",
-                      }}
-                    >
-                      {groupState === "all" ? "× " : groupState === "some" ? "- " : ""}{group.name}
-                    </button>
+                <div key={dimension} style={{ marginBottom: 6 }}>
+                  <div style={{ color: "var(--accent)", fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{dimension}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                    {filtered.map((tag) => {
+                      const blocked = (prefs.blockedTags ?? []).includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          onClick={() => toggleBlockTag(tag)}
+                          style={{
+                            background: blocked ? "rgba(252,165,165,0.08)" : "var(--bg-raised)",
+                            color: blocked ? "var(--error)" : "var(--text)",
+                            border: `1px solid ${blocked ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
+                            borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >
+                          {blocked ? "× " : ""}{TAG_LABELS[tag] ?? tag}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {isOpen && group.children.length > 0 && (
-                    <div style={{ marginLeft: 18, marginTop: 2 }}>
-                      {group.children.map((child) => {
-                        const silenced = prefs.silencedCategories.includes(child.name);
-                        return (
-                          <button
-                            key={child.id}
-                            onClick={() => {
-                              setPrefs((p) => ({
-                                ...p,
-                                silencedCategories: silenced
-                                  ? p.silencedCategories.filter((c) => c !== child.name)
-                                  : [...p.silencedCategories, child.name],
-                              }));
-                            }}
-                            style={{
-                              display: "block", width: "100%", textAlign: "left", marginBottom: 1,
-                              background: silenced ? "rgba(252,165,165,0.08)" : "transparent",
-                              color: silenced ? "var(--error)" : "var(--text-muted)",
-                              border: `1px solid ${silenced ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
-                              borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
-                            }}
-                          >
-                            {silenced ? "× " : ""}{child.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
+          {/* Custom tag blocking */}
+          <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+            <input
+              type="text"
+              value={customBlockTag}
+              onChange={(e) => { setCustomBlockTag(e.target.value); setCustomBlockTagError(null); }}
+              placeholder="Custom: dimension:value"
+              style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "2px 6px" }}
+            />
+            <button
+              onClick={() => {
+                const tag = validateCustomTag(customBlockTag);
+                if (!tag) { setCustomBlockTagError("Format: dimension:value"); return; }
+                setPrefs((p) => ({
+                  ...p,
+                  blockedTags: [...(p.blockedTags ?? []).filter((t) => t !== tag), tag],
+                }));
+                setCustomBlockTag("");
+                setCustomBlockTagError(null);
+              }}
+              style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "2px 6px", fontSize: 9, cursor: "pointer", color: "var(--accent)", fontFamily: "inherit" }}
+            >
+              + Block
+            </button>
+          </div>
+          {customBlockTagError && <div style={{ color: "var(--error)", fontSize: 9, marginTop: 2 }}>{customBlockTagError}</div>}
+          {/* Show currently blocked custom tags (not in dictionary) */}
+          {(prefs.blockedTags ?? []).filter((t) => !TAG_LABELS[t]).length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ color: "var(--warn)", fontSize: 9, fontWeight: 600, marginBottom: 2 }}>Custom blocked</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {(prefs.blockedTags ?? []).filter((t) => !TAG_LABELS[t]).map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => toggleBlockTag(tag)}
+                    style={{
+                      background: "rgba(252,165,165,0.08)", color: "var(--error)",
+                      border: "1px solid rgba(252,165,165,0.2)",
+                      borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    × {tagDisplayLabel(tag)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {prefs.blockedCampaigns.length > 0 && (
@@ -769,10 +786,10 @@ export function Settings({ address }: { address: string | null }) {
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0" });
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], maxAdsPerHour: 12, minBidCpm: "0" },
+              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0" },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}
@@ -792,7 +809,7 @@ export function Settings({ address }: { address: string | null }) {
             Your Interest Profile
           </span>
           <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: "auto" }}>
-            {interestProfile ? Object.keys(interestProfile.weights).length : 0} categories
+            {interestProfile ? Object.keys(interestProfile.weights).length : 0} tags
           </span>
         </button>
         {profileExpanded && (

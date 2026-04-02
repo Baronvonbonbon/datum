@@ -183,6 +183,9 @@ export function AdvertiserDashboard() {
               <StatusBadge status={c.status} style={{ marginLeft: 10 }} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
+              {c.status === 0 && (
+                <Link to={`/governance/vote/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none", color: "var(--warn)" }}>Needs Votes</Link>
+              )}
               <Link to={`/advertiser/campaign/${c.id}/metadata`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Edit Metadata</Link>
               <Link to={`/advertiser/campaign/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Detail</Link>
             </div>

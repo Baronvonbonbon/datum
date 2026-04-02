@@ -223,7 +223,7 @@ export function MyVotes() {
               <div key={v.campaignId} className="nano-card" style={{ padding: 14, marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Link to={`/governance/vote/${v.campaignId}`} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
+                    <Link to={`/campaigns/${v.campaignId}`} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
                       Campaign #{v.campaignId}
                     </Link>
                     <StatusBadge status={v.campaignStatus} />

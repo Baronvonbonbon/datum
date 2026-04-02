@@ -94,6 +94,51 @@ Key improvements:
 - Test campaign: Bob → Diana, 10 PAS, Active
 - setup-testnet.ts rewritten with raw JsonRpcProvider (Paseo receipt bug workaround)
 
+## Open Tag Ecosystem (2026-04-02)
+
+Deprecates `categoryId` (uint8 bitmask) across the entire stack and makes `dimension:value` tag strings the universal matching primitive. No contract changes — `TargetingRegistry` already accepts arbitrary `bytes32` hashes.
+
+### Tag strings as canonical keys
+
+- All internal references now use `dimension:value` format (e.g., `"topic:crypto-web3"`, `"locale:en-US"`, `"platform:desktop"`) instead of display labels or numeric category IDs
+- New helpers in shared `tagDictionary.ts`: `tagStringFromSlug()`, `tagStringFromLocale()`, `tagStringFromPlatform()`, `tagStringFromLabel()`, `tagStringFromHash()`
+- `CATEGORY_TO_TAG`, `CATEGORY_NAMES`, `CATEGORY_ID_MAP` marked `@deprecated`
+
+### Extension — tag-first matching
+
+- **Interest profile:** Stores tag strings as keys (was display labels). Auto-migrates old `category` field → `tag` field, old display labels → tag strings on read.
+- **Taxonomy:** New `classifyPageToTags()` returns multiple tag strings per page (multi-category, threshold 0.3). `SLUG_TO_TAG` map replaces `CATEGORY_ID_MAP`.
+- **Content script:** Complete rewrite of campaign matching — removed all `categoryId` paths. New flow: classify page → tag hashes → merge SDK tags → filter by `excludedTags` → AND-logic on `requiredTags`.
+- **Auction:** `getTagWeight()` resolves tag hashes → tag strings → profile weights. Returns **average** weight across matched tags (was max).
+- **Campaign matcher:** Tag string lookups via `tagStringFromHash()` replace `CATEGORY_TO_TAG`/`TAG_LABELS` chain.
+- **Campaign poller:** Phase 2c synthesizes `requiredTags` from `categoryId` for old campaigns without tags (backward compat).
+- **User preferences:** `blockedTags: string[]` replaces `silencedCategories`. Auto-migration on read. New `blockTag()`/`unblockTag()` functions.
+- **Settings popup:** Tag-based blacklist picker (grouped by dimension) replaces category hierarchy tree. Custom tag blocking supported.
+
+### SDK v3.0.0
+
+- Removed `data-categories` attribute entirely
+- Added `data-excluded-tags` — publisher-side tag blacklist (comma-separated tag strings)
+- Short-form tag resolution: `"defi"` → `"topic:defi"` via `SHORT_FORM_MAP`
+- `datum:sdk-ready` event detail: `excludedTags` replaces `categories`
+
+### SDK detector
+
+- `SDKInfo`: removed `categories: number[]`, added `excludedTags: string[]`
+- Detection by `data-tags` attribute instead of `data-categories`
+
+### 4-layer tag blacklist
+
+1. **SDK:** `data-excluded-tags` attribute filters campaigns at page level
+2. **Publisher registration:** Implicit via tag selection (unselected tags won't match targeted campaigns)
+3. **User extension:** `blockedTags` in preferences filters campaigns from auction
+4. **Campaign creation:** Tag validation in web app
+
+### Web app
+
+- Publisher Categories page: added guidance about `data-excluded-tags` for open campaigns
+- Demo page (`web/public/demo/index.html`): complete rewrite with tag-based wording, 17-contract layout, SDK v3 integration
+
 ## Test Totals
 
 | Component | Tests | Status |

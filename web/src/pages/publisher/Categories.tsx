@@ -88,6 +88,9 @@ export function Categories() {
       </div>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Select the tags that describe your site. Campaigns targeting these tags will be eligible to serve ads on your site.
+        Tags you don't select will not be matched for targeted campaigns. For open campaigns (no required tags), use the SDK{" "}
+        <code style={{ fontSize: 12, background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>data-excluded-tags</code>{" "}
+        attribute to filter unwanted content.
       </p>
 
       {!contracts.targetingRegistry && (

@@ -169,7 +169,59 @@ export const TAXONOMY: TaxonomyEntry[] = [
   },
 ];
 
-// Reverse map: taxonomy category slug → on-chain categoryId
+/** Map taxonomy slug → tag string (replaces CATEGORY_ID_MAP for new flow) */
+export const SLUG_TO_TAG: Record<string, string> = {
+  "arts-entertainment": "topic:arts-entertainment",
+  "autos-vehicles": "topic:autos-vehicles",
+  "beauty-fitness": "topic:beauty-fitness",
+  "books-literature": "topic:books-literature",
+  "business-industrial": "topic:business-industrial",
+  "computers-electronics": "topic:computers-electronics",
+  "finance": "topic:finance",
+  "food-drink": "topic:food-drink",
+  "games": "topic:gaming",
+  "health": "topic:health",
+  "hobbies-leisure": "topic:hobbies-leisure",
+  "home-garden": "topic:home-garden",
+  "internet-telecom": "topic:internet-telecom",
+  "jobs-education": "topic:jobs-education",
+  "law-government": "topic:law-government",
+  "news": "topic:news",
+  "online-communities": "topic:online-communities",
+  "people-society": "topic:people-society",
+  "pets-animals": "topic:pets-animals",
+  "real-estate": "topic:real-estate",
+  "reference": "topic:reference",
+  "science": "topic:science",
+  "shopping": "topic:shopping",
+  "sports": "topic:sports",
+  "travel": "topic:travel",
+  "crypto-web3": "topic:crypto-web3",
+};
+
+/**
+ * Classify the current page into tag strings — multi-category.
+ * Returns an array of tag strings for all categories above confidence threshold 0.3.
+ * E.g., ["topic:crypto-web3", "topic:defi"]
+ */
+export function classifyPageToTags(
+  title: string,
+  hostname: string,
+  metaDescription?: string,
+  metaKeywords?: string,
+): string[] {
+  const scores = classifyPageMulti(title, hostname, metaDescription, metaKeywords);
+  const tags: string[] = [];
+  for (const [slug, confidence] of Object.entries(scores)) {
+    if (confidence >= 0.3) {
+      const tag = SLUG_TO_TAG[slug];
+      if (tag) tags.push(tag);
+    }
+  }
+  return tags;
+}
+
+/** @deprecated Use classifyPageToTags. Reverse map: taxonomy category slug → on-chain categoryId */
 export const CATEGORY_ID_MAP: Record<string, number> = {
   "arts-entertainment": 1,
   "autos-vehicles": 2,

@@ -9,19 +9,19 @@ import { interestProfile } from "./interestProfile";
 import { selectCampaign } from "./campaignMatcher";
 import { auctionForPage, CampaignCandidate } from "./auction";
 import { requestPublisherAttestation } from "./publisherAttestation";
-import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
+import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
 import { appendEvent, cleanupTerminalChains } from "./behaviorChain";
 import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS } from "@shared/networks";
-import { ClaimBatch, SerializedClaimBatch, CATEGORY_NAMES } from "@shared/types";
+import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
-import { tagLabel } from "@shared/tagDictionary";
+import { tagStringFromHash } from "@shared/tagDictionary";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -281,13 +281,13 @@ async function handleMessage(
       // Record ad-exposure tags into interest profile (weighted by viewing)
       const campaignTags: string[] = (msg as any).campaignTags ?? [];
       if (campaignTags.length > 0) {
-        const adTagLabels: string[] = [];
+        const adTagStrings: string[] = [];
         for (const hash of campaignTags) {
-          const label = tagLabel(hash);
-          if (label) adTagLabels.push(label);
+          const tagStr = tagStringFromHash(hash);
+          if (tagStr) adTagStrings.push(tagStr);
         }
-        if (adTagLabels.length > 0) {
-          await interestProfile.updateProfile(adTagLabels);
+        if (adTagStrings.length > 0) {
+          await interestProfile.updateProfile(adTagStrings);
         }
       }
 
@@ -526,9 +526,8 @@ async function handleMessage(
       const prefs = await getPreferences();
       const allowed = msg.campaigns.filter((c: any) =>
         isCampaignAllowed(
-          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck },
+          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck, requiredTags: c.requiredTags },
           prefs,
-          CATEGORY_NAMES,
         )
       );
 

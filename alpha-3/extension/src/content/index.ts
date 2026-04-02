@@ -3,7 +3,7 @@
 // records impressions with engagement-weighted CPM, tracks engagement,
 // and injects an ad slot.
 
-import { classifyPage, CATEGORY_ID_MAP } from "./taxonomy";
+import { classifyPageToTags, classifyPage } from "./taxonomy";
 import { injectAdSlot, injectAdSlotInline, injectDefaultAd, injectDefaultAdInline } from "./adSlot";
 import { startTracking, computeQualityScore } from "./engagement";
 import { validateMetadata, passesContentBlocklist, sanitizeCtaUrl } from "@shared/contentSafety";
@@ -12,43 +12,13 @@ import { getCurrencySymbol } from "@shared/networks";
 import { NetworkName } from "@shared/types";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
-import { tagHash, TAG_LABELS } from "@shared/tagDictionary";
+import { tagHash, tagStringFromLocale, tagStringFromPlatform, tagStringFromHash } from "@shared/tagDictionary";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
 
-/** Map taxonomy category slug → tag label for profile storage */
-const CATEGORY_TO_TAG_LABEL: Record<string, string> = {
-  "arts-entertainment": "Arts & Entertainment",
-  "autos-vehicles": "Autos & Vehicles",
-  "beauty-fitness": "Beauty & Fitness",
-  "books-literature": "Books & Literature",
-  "business-industrial": "Business & Industrial",
-  "computers-electronics": "Computers & Electronics",
-  "finance": "Finance",
-  "food-drink": "Food & Drink",
-  "games": "Games",
-  "health": "Health",
-  "hobbies-leisure": "Hobbies & Leisure",
-  "home-garden": "Home & Garden",
-  "internet-telecom": "Internet & Telecom",
-  "jobs-education": "Jobs & Education",
-  "law-government": "Law & Government",
-  "news": "News",
-  "online-communities": "Online Communities",
-  "people-society": "People & Society",
-  "pets-animals": "Pets & Animals",
-  "real-estate": "Real Estate",
-  "reference": "Reference",
-  "science": "Science",
-  "shopping": "Shopping",
-  "sports": "Sports",
-  "travel": "Travel",
-  "crypto-web3": "Crypto & Web3",
-};
-
 /** Detect locale tag from page and browser.
- *  Returns TAG_LABELS value (e.g., "English (US)") or null. */
+ *  Returns tag string (e.g., "locale:en-US") or null. */
 function detectLocaleTag(): string | null {
   // 1. <html lang="..."> attribute (page-level, most specific)
   const htmlLang = document.documentElement.lang?.trim().toLowerCase();
@@ -58,56 +28,42 @@ function detectLocaleTag(): string | null {
   const lang = htmlLang || navLang;
   if (!lang) return null;
 
-  // Map to closest locale tag — check specific (en-US) before generic (en)
-  const LOCALE_MAP: Record<string, string> = {
-    "en-us": "English (US)",
-    "en-gb": "English (UK)",
-    "es": "Spanish",
-    "fr": "French",
-    "de": "German",
-    "ja": "Japanese",
-    "ko": "Korean",
-    "zh": "Chinese",
-    "pt": "Portuguese",
-    "ru": "Russian",
-    "en": "English",
-  };
-
-  // Try exact match first (e.g., "en-us")
-  const exact = LOCALE_MAP[lang];
-  if (exact) return exact;
-
-  // Try base language (e.g., "en-us" → "en")
-  const base = lang.split("-")[0];
-  return LOCALE_MAP[base] ?? null;
+  return tagStringFromLocale(lang);
 }
 
 /** Detect platform tag from user agent.
- *  Returns TAG_LABELS value ("Desktop", "Mobile", "Tablet"). */
+ *  Returns tag string (e.g., "platform:desktop"). */
 function detectPlatformTag(): string {
-  const ua = navigator.userAgent;
-  // Tablet detection: iPad or Android tablet (no "Mobile" token)
-  if (/iPad/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return "Tablet";
-  // Mobile: iPhone, Android+Mobile, various mobile browsers
-  if (/Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return "Mobile";
-  return "Desktop";
+  return tagStringFromPlatform(navigator.userAgent);
 }
 
 async function main() {
+  // Multi-category classification → tag strings
+  let metaDescription: string | undefined;
+  let metaKeywords: string | undefined;
+  if (typeof document !== "undefined") {
+    metaDescription =
+      document.querySelector('meta[name="description"]')?.getAttribute("content") ?? undefined;
+    metaKeywords =
+      document.querySelector('meta[name="keywords"]')?.getAttribute("content") ?? undefined;
+  }
+
+  const pageTags = classifyPageToTags(
+    document.title, window.location.hostname, metaDescription, metaKeywords
+  );
+  // Also get single-category slug for backward compat (SELECT_CAMPAIGN pageCategory)
   const category = classifyPage(document.title, window.location.hostname);
-  if (!category) return;
+  if (pageTags.length === 0 && !category) return;
 
-  // Build tag labels for this page visit: topic + locale + platform
-  const tags: string[] = [];
-  const topicLabel = CATEGORY_TO_TAG_LABEL[category];
-  if (topicLabel) tags.push(topicLabel);
-  const localeLabel = detectLocaleTag();
-  if (localeLabel) tags.push(localeLabel);
-  const platformLabel = detectPlatformTag();
-  tags.push(platformLabel);
+  // Build tag strings for this page visit: topics + locale + platform
+  const tags: string[] = [...pageTags];
+  const localeTag = detectLocaleTag();
+  if (localeTag) tags.push(localeTag);
+  const platformTag = detectPlatformTag();
+  tags.push(platformTag);
 
-  // Update local interest profile with page tags
-  try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", tags, category }); } catch {}
+  // Update local interest profile with page tag strings
+  try { chrome.runtime.sendMessage({ type: "UPDATE_INTEREST", tags }); } catch {}
 
   // Detect Publisher SDK (2s timeout) + fetch campaigns in parallel
   let sdkInfo: SDKInfo | null = null;
@@ -125,50 +81,61 @@ async function main() {
   const campaigns: Array<Record<string, string>> = response?.campaigns ?? [];
 
   const publisherAddress: string = sdkInfo?.publisher ?? settingsStored.settings?.publisherAddress ?? "";
-  const pageCategoryId = CATEGORY_ID_MAP[category] ?? 0;
 
   // Filter active campaigns
   const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1 /* Active */);
 
+  // Build page tag hash set for matching
+  const pageTagHashes = new Set(tags.map((t) => tagHash(t).toLowerCase()));
+
+  // If SDK present with data-tags, merge SDK tag hashes into page set
+  if (sdkInfo && sdkInfo.tags.length > 0) {
+    for (const t of sdkInfo.tags) {
+      pageTagHashes.add(tagHash(t).toLowerCase());
+    }
+  }
+
+  // SDK excluded tags (publisher-side blacklist)
+  const excludedTagHashes = new Set<string>();
+  if (sdkInfo?.excludedTags && sdkInfo.excludedTags.length > 0) {
+    for (const t of sdkInfo.excludedTags) {
+      excludedTagHashes.add(tagHash(t).toLowerCase());
+    }
+  }
+
   let pool: Array<Record<string, string>>;
 
-  if (sdkInfo) {
-    // TX-3: SDK present — filter by tag overlap or legacy category overlap
-    const sdkTagHashes = sdkInfo.tags.length > 0
-      ? new Set(sdkInfo.tags.map((t) => tagHash(t).toLowerCase()))
-      : null;
-    const sdkCatSet = new Set(sdkInfo.categories);
+  // Tag-first campaign matching
+  pool = activeCampaigns.filter((c) => {
+    // Publisher match: open campaigns (publisher=0x0...) or matching this publisher
+    const publisherMatch = c.publisher === "0x0000000000000000000000000000000000000000" ||
+      c.publisher.toLowerCase() === publisherAddress.toLowerCase();
+    if (!publisherMatch) return false;
 
+    // Campaign requiredTags (already synthesized from categoryId by poller for backward compat)
+    const campaignTags: string[] = Array.isArray(c.requiredTags) ? c.requiredTags : [];
+
+    // Check excluded tags: if any campaign tag is in publisher's excluded set, skip
+    if (excludedTagHashes.size > 0 && campaignTags.length > 0) {
+      if (campaignTags.some((t) => excludedTagHashes.has(t.toLowerCase()))) return false;
+    }
+
+    if (campaignTags.length > 0) {
+      // Campaign requires ALL tags (AND logic, matching on-chain)
+      return campaignTags.every((t) => pageTagHashes.has(t.toLowerCase()));
+    }
+
+    // No requiredTags: open match (any page)
+    return true;
+  });
+
+  // If no matching campaigns, fall back to all active campaigns (broad match)
+  if (pool.length === 0) {
     pool = activeCampaigns.filter((c) => {
-      // Open campaigns (publisher=0x0...) or campaigns matching this SDK publisher
       const publisherMatch = c.publisher === "0x0000000000000000000000000000000000000000" ||
         c.publisher.toLowerCase() === publisherAddress.toLowerCase();
-      if (!publisherMatch) return false;
-
-      // TX-3: Tag-based matching (if campaign has requiredTags)
-      const campaignTags: string[] = Array.isArray(c.requiredTags) ? c.requiredTags : [];
-      if (campaignTags.length > 0 && sdkTagHashes) {
-        // Campaign requires ALL tags — check publisher SDK declares them all
-        return campaignTags.every((t) => sdkTagHashes.has(t.toLowerCase()));
-      }
-
-      // Legacy fallback: category-based matching
-      const cCat = Number(c.categoryId);
-      return cCat === 0 || sdkCatSet.has(cCat);
+      return publisherMatch;
     });
-
-    // Fallback: if no SDK-matched campaigns, try all category-matched
-    if (pool.length === 0) {
-      pool = activeCampaigns.filter(
-        (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
-      );
-    }
-  } else {
-    // No SDK: original behavior — category match, then any
-    const categoryMatched = activeCampaigns.filter(
-      (c) => Number(c.categoryId) === pageCategoryId || Number(c.categoryId) === 0
-    );
-    pool = categoryMatched.length > 0 ? categoryMatched : activeCampaigns;
   }
 
   if (pool.length === 0) {
@@ -190,7 +157,7 @@ async function main() {
     selectionResponse = await chrome.runtime.sendMessage({
       type: "SELECT_CAMPAIGN",
       campaigns: pool,
-      pageCategory: category,
+      pageCategory: category ?? "",
     });
   } catch { return; } // background inactive
   let match = selectionResponse?.selected ?? null;
@@ -290,7 +257,7 @@ async function main() {
   const adConfig = {
     campaignId,
     publisherAddress: effectivePublisher,
-    category,
+    category: category ?? "",
     metadata: validatedMeta,
     metadataHash: match.metadataHash || undefined,
     auctionMechanism: auctionMechanism as any,
@@ -329,7 +296,7 @@ async function main() {
       type: "IMPRESSION_RECORDED",
       campaignId,
       url: window.location.href,
-      category,
+      category: category ?? "",
       publisherAddress: effectivePublisher,
       clearingCpmPlanck,
       attestation: attestation ?? undefined,
