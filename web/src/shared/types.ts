@@ -275,6 +275,8 @@ export type IpfsProvider =
   | "nftstorage"
   | "custom";
 
+export type ThemeName = "dark" | "light";
+
 export interface WebAppSettings {
   rpcUrl: string;
   network: NetworkName;
@@ -286,4 +288,5 @@ export interface WebAppSettings {
   ipfsApiKey: string;
   /** Only used when ipfsProvider === "custom" */
   ipfsApiEndpoint: string;
+  theme: ThemeName;
 }

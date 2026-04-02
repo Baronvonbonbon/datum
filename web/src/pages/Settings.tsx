@@ -180,6 +180,29 @@ export function Settings() {
         </div>
       </Section>
 
+      {/* Theme */}
+      <Section title="Appearance">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ color: "var(--text)", fontSize: 12 }}>Theme</label>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={() => updateSettings({ theme: "dark" })}
+              className={`nano-btn${settings.theme !== "light" ? " nano-btn-accent" : ""}`}
+              style={{ fontSize: 12, padding: "4px 12px" }}
+            >
+              Dark
+            </button>
+            <button
+              onClick={() => updateSettings({ theme: "light" })}
+              className={`nano-btn${settings.theme === "light" ? " nano-btn-accent" : ""}`}
+              style={{ fontSize: 12, padding: "4px 12px" }}
+            >
+              Light
+            </button>
+          </div>
+        </div>
+      </Section>
+
       {/* Contract Addresses */}
       <Section title="Contract Addresses">
         <button

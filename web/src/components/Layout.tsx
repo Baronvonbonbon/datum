@@ -3,7 +3,9 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
-import { getCurrencySymbol, getNetworkDisplayName, getExplorerUrl } from "@shared/networks";
+import { useRoles } from "../hooks/useRoles";
+import { usePaused } from "../hooks/usePaused";
+import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
@@ -66,7 +68,9 @@ function useFadeIn() {
 export function Layout() {
   const { address, disconnect, method } = useWallet();
   const { blockNumber, connected } = useBlock();
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
+  const { isAdvertiser, isPublisher, isVoter } = useRoles();
+  const protocolPaused = usePaused();
   const [showConnect, setShowConnect] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -92,6 +96,13 @@ export function Layout() {
         ⚠ Experimental build — Paseo testnet only. Do not connect a wallet holding real funds.
         If you don't know why, close this tab, step away from the computer, raise your hand, and wait for an adult.
       </div>
+
+      {/* ── Protocol paused banner ──────────────────────────────────────── */}
+      {protocolPaused && (
+        <div className="nano-pause-banner">
+          Protocol is paused — transactions will be rejected until an admin unpauses the system.
+        </div>
+      )}
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="nano-header" style={{ overflow: "hidden" }}>
@@ -127,6 +138,11 @@ export function Layout() {
                 </span>
               )}
               <AddressDisplay address={address} style={{ fontSize: 12, color: "var(--text)" }} />
+              <div className="nano-role-badges" style={{ display: "flex", gap: 3 }}>
+                {isAdvertiser && <span className="nano-badge nano-badge--accent" style={{ fontSize: 9, padding: "1px 5px" }}>ADV</span>}
+                {isPublisher && <span className="nano-badge nano-badge--ok" style={{ fontSize: 9, padding: "1px 5px" }}>PUB</span>}
+                {isVoter && <span className="nano-badge nano-badge--warn" style={{ fontSize: 9, padding: "1px 5px" }}>GOV</span>}
+              </div>
               <button
                 onClick={disconnect}
                 className="nano-btn"
@@ -172,6 +188,16 @@ export function Layout() {
               )}
             </div>
           ))}
+          <div style={{ padding: "12px 16px", marginTop: "auto", borderTop: "1px solid var(--border)" }}>
+            <button
+              onClick={() => updateSettings({ theme: settings.theme === "light" ? "dark" : "light" })}
+              className="nano-btn"
+              style={{ fontSize: 11, padding: "3px 10px", width: "100%" }}
+              title="Toggle light/dark theme"
+            >
+              {settings.theme === "light" ? "Dark Mode" : "Light Mode"}
+            </button>
+          </div>
         </nav>
 
         {/* ── Main content ─────────────────────────────────────────────── */}

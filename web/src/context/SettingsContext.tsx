@@ -66,6 +66,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     saveSessionSecrets(settings);
   }, [settings]);
 
+  // Apply theme to document
+  useEffect(() => {
+    const theme = settings.theme ?? "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.style.colorScheme = theme;
+  }, [settings.theme]);
+
   function updateSettings(patch: Partial<WebAppSettings>) {
     setSettings((s) => ({ ...s, ...patch }));
   }

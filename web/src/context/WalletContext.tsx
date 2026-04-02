@@ -38,6 +38,34 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [datumReady]);
 
+  // Listen for account changes on injected wallets (MetaMask, SubWallet, etc.)
+  useEffect(() => {
+    if (!connection || connection.method !== "injected" || !window.ethereum) return;
+
+    const handleAccountsChanged = async (...args: unknown[]) => {
+      const accounts = args[0] as string[];
+      if (!accounts || accounts.length === 0) {
+        // User disconnected all accounts
+        setConnection(null);
+        return;
+      }
+      const newAddr = accounts[0];
+      if (newAddr.toLowerCase() !== connection.address.toLowerCase()) {
+        // Reconnect with the new account
+        try {
+          const conn = await connectInjected();
+          setConnection(conn);
+        } catch (err) {
+          setError(humanizeError(err));
+          setConnection(null);
+        }
+      }
+    };
+
+    window.ethereum.on("accountsChanged", handleAccountsChanged);
+    return () => { window.ethereum?.removeListener("accountsChanged", handleAccountsChanged); };
+  }, [connection]);
+
   const connect = useCallback(async (
     method: ConnectionMethod,
     opts?: { privateKey?: string; rpcUrl?: string }

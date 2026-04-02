@@ -11,7 +11,9 @@ import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
 import { getExplorerUrl } from "@shared/networks";
 import { ethers } from "ethers";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll, queryFilterBounded } from "@shared/eventQuery";
+import { toCSV, downloadCSV } from "@shared/csvExport";
+import { formatDOT } from "@shared/dot";
 
 interface SettlementEvent {
   txHash: string;
@@ -35,6 +37,8 @@ export function CampaignDetail() {
   const [governance, setGovernance] = useState<any>(null);
   const [metadataHash, setMetadataHash] = useState<string>("0x" + "0".repeat(64));
   const [settlements, setSettlements] = useState<SettlementEvent[]>([]);
+  const [settlementPage, setSettlementPage] = useState(0);
+  const SETTLEMENTS_PER_PAGE = 15;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,10 +71,17 @@ export function CampaignDetail() {
           contracts.budgetLedger.getDailyCap(BigInt(campaignId)).catch(() => 0n),
           contracts.budgetLedger.lastSettlementBlock(BigInt(campaignId)).catch(() => 0),
         ]);
+        let originalBudget = 0n;
+        try {
+          const bFilter = contracts.budgetLedger.filters.BudgetInitialized(BigInt(campaignId));
+          const bLogs = await queryFilterAll(contracts.budgetLedger, bFilter);
+          if (bLogs.length > 0) originalBudget = BigInt((bLogs[0] as any).args?.budget ?? 0);
+        } catch { /* no event */ }
         setBudget({
           remaining: BigInt(remaining),
           dailyCap: BigInt(dailyCap),
           lastSettlementBlock: Number(lastBlock),
+          originalBudget,
         });
       } catch { /* BudgetLedger not configured */ }
 
@@ -103,7 +114,7 @@ export function CampaignDetail() {
       // Settlement history from ClaimSettled events
       try {
         const filter = contracts.settlement.filters.ClaimSettled(BigInt(campaignId));
-        const logs = await queryFilterBounded(contracts.settlement, filter);
+        const logs = await queryFilterAll(contracts.settlement, filter);
         const evts: SettlementEvent[] = logs.map((log: any) => ({
           txHash: log.transactionHash,
           blockNumber: log.blockNumber,
@@ -192,6 +203,20 @@ export function CampaignDetail() {
       {budget && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
           <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Budget</h2>
+          {budget.originalBudget > 0n && (() => {
+            const pct = Number(budget.remaining * 100n / budget.originalBudget);
+            return (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>
+                  <span><DOTAmount planck={budget.remaining} /> remaining</span>
+                  <span>{pct}% of <DOTAmount planck={budget.originalBudget} /></span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: "var(--bg-raised)", overflow: "hidden", border: "1px solid var(--border)" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: pct > 20 ? "var(--ok)" : "var(--warn)", borderRadius: 3, transition: "width 300ms ease-out" }} />
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
             <InfoCard label="Remaining"><DOTAmount planck={budget.remaining} /></InfoCard>
             <InfoCard label="Daily Cap"><DOTAmount planck={budget.dailyCap} /></InfoCard>
@@ -240,49 +265,99 @@ export function CampaignDetail() {
         <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
           Settlement History
           {settlements.length > 0 && <span style={{ color: "var(--text-muted)", fontWeight: 400, marginLeft: 8, textTransform: "none", fontSize: 12 }}>{settlements.length} event{settlements.length !== 1 ? "s" : ""}</span>}
+          {settlements.length > 0 && (
+            <button
+              onClick={() => {
+                const rows = settlements.map((s) => ({
+                  Block: s.blockNumber,
+                  User: s.user,
+                  Publisher: s.publisher,
+                  Impressions: s.impressionCount.toString(),
+                  CPM: formatDOT(s.clearingCpmPlanck),
+                  "User Earned": formatDOT(s.userPayment),
+                  "Publisher Earned": formatDOT(s.publisherPayment),
+                  Tx: s.txHash,
+                }));
+                downloadCSV(`campaign-${id}-settlements.csv`, toCSV(["Block", "User", "Publisher", "Impressions", "CPM", "User Earned", "Publisher Earned", "Tx"], rows));
+              }}
+              className="nano-btn"
+              style={{ fontSize: 10, padding: "2px 8px", marginLeft: 8, textTransform: "none", fontWeight: 400, float: "right" }}
+            >
+              Export CSV
+            </button>
+          )}
         </h2>
         {settlements.length === 0 ? (
           <div style={{ color: "var(--text-muted)", fontSize: 13 }}>No settlements yet.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="nano-table">
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>User</th>
-                  <th>Publisher</th>
-                  <th>Impressions</th>
-                  <th>CPM</th>
-                  <th>User Earned</th>
-                  <th>Tx</th>
-                </tr>
-              </thead>
-              <tbody>
-                {settlements.map((s, i) => (
-                  <tr key={i}>
-                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>#{s.blockNumber}</td>
-                    <td><AddressDisplay address={s.user} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
-                    <td><AddressDisplay address={s.publisher} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
-                    <td style={{ color: "var(--ok)", fontSize: 12 }}>{s.impressionCount.toString()}</td>
-                    <td style={{ fontSize: 12 }}><DOTAmount planck={s.clearingCpmPlanck} /></td>
-                    <td style={{ fontSize: 12 }}><DOTAmount planck={s.userPayment} /></td>
-                    <td>
-                      {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (
-                        <a href={`${EXPLORER}/tx/${s.txHash}`} target="_blank" rel="noopener noreferrer"
-                          style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "monospace" }}>
-                          {s.txHash.slice(0, 8)}…
-                        </a>
-                      ) : (
-                        <span style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "monospace" }}>
-                          {s.txHash.slice(0, 8)}…
-                        </span>
-                      )}
-                    </td>
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <table className="nano-table">
+                <thead>
+                  <tr>
+                    <th>Block</th>
+                    <th>User</th>
+                    <th>Publisher</th>
+                    <th>Impressions</th>
+                    <th>CPM</th>
+                    <th>User Earned</th>
+                    <th>Tx</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {settlements
+                    .slice(settlementPage * SETTLEMENTS_PER_PAGE, (settlementPage + 1) * SETTLEMENTS_PER_PAGE)
+                    .map((s, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: "monospace", fontSize: 12 }}>#{s.blockNumber}</td>
+                      <td><AddressDisplay address={s.user} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
+                      <td><AddressDisplay address={s.publisher} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
+                      <td style={{ color: "var(--ok)", fontSize: 12 }}>{s.impressionCount.toString()}</td>
+                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.clearingCpmPlanck} /></td>
+                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.userPayment} /></td>
+                      <td>
+                        {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (
+                          <a href={`${EXPLORER}/tx/${s.txHash}`} target="_blank" rel="noopener noreferrer"
+                            style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "monospace" }}>
+                            {s.txHash.slice(0, 8)}…
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "monospace" }}>
+                            {s.txHash.slice(0, 8)}…
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {settlements.length > SETTLEMENTS_PER_PAGE && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  Showing {settlementPage * SETTLEMENTS_PER_PAGE + 1}–{Math.min((settlementPage + 1) * SETTLEMENTS_PER_PAGE, settlements.length)} of {settlements.length}
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => setSettlementPage((p) => Math.max(0, p - 1))}
+                    disabled={settlementPage === 0}
+                    className="nano-btn"
+                    style={{ fontSize: 11, padding: "3px 10px" }}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    onClick={() => setSettlementPage((p) => p + 1)}
+                    disabled={(settlementPage + 1) * SETTLEMENTS_PER_PAGE >= settlements.length}
+                    className="nano-btn"
+                    style={{ fontSize: 11, padding: "3px 10px" }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>

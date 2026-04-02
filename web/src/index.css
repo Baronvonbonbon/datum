@@ -33,6 +33,29 @@
   --radius-sm: 4px;
 }
 
+/* ─── Light theme ────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:          #fafaf9;
+  --bg-raised:   rgba(0,0,0,0.03);
+  --bg-header:   rgba(250,250,249,0.85);
+  --text:        rgba(0,0,0,0.7);
+  --text-strong: #1c1917;
+  --text-muted:  rgba(0,0,0,0.4);
+  --border:      rgba(0,0,0,0.1);
+  --border-hover:rgba(0,0,0,0.2);
+  --accent:      rgba(90,90,220,0.9);
+  --accent-dim:  rgba(90,90,220,0.4);
+  --ok:    #059669;
+  --warn:  #d97706;
+  --error: #dc2626;
+}
+[data-theme="light"] { color-scheme: light; }
+[data-theme="light"] .nano-select option { background: #fafaf9; }
+[data-theme="light"] .nano-skeleton {
+  background: linear-gradient(90deg, var(--bg-raised) 25%, rgba(0,0,0,0.04) 50%, var(--bg-raised) 75%);
+  background-size: 800px 100%;
+}
+
 /* ─── Reset & base ───────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -110,6 +133,8 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   background: transparent;
   border-right: 1px solid var(--border);
   padding-top: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .nano-navlink {
@@ -273,6 +298,17 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   letter-spacing: 0.01em;
 }
 
+/* Protocol paused banner */
+.nano-pause-banner {
+  background: rgba(252,165,165,0.1);
+  border-bottom: 1px solid rgba(252,165,165,0.25);
+  padding: 8px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--error);
+  text-align: center;
+}
+
 /* Status / inline info boxes */
 .nano-info {
   padding: 10px 14px;
@@ -349,12 +385,13 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
     overflow-y: auto;
   }
   .nano-sidebar--open {
-    display: block;
+    display: flex;
   }
 
   .nano-header { padding: 0 10px; gap: 6px; }
   .nano-warning-banner { padding: 7px 10px; font-size: 10px; }
   .nano-header-status { display: none; }
+  .nano-role-badges { display: none !important; }
 
   main { padding: 16px 12px !important; }
 }

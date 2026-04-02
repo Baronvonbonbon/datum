@@ -10,6 +10,8 @@ import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
 import { useTx } from "../../hooks/useTx";
 import { queryFilterBounded } from "@shared/eventQuery";
+import { toCSV, downloadCSV } from "@shared/csvExport";
+import { formatDOT } from "@shared/dot";
 
 interface MyVote {
   campaignId: number;
@@ -174,7 +176,31 @@ export function MyVotes() {
   return (
     <div className="nano-fade" style={{ maxWidth: 640 }}>
       <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>My Votes</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>My Votes</h1>
+        {votes.length > 0 && (
+          <button
+            onClick={() => {
+              const rows = votes.map((v) => ({
+                Campaign: v.campaignId,
+                Direction: v.direction === 1 ? "Aye" : "Nay",
+                Staked: formatDOT(v.lockAmount),
+                Conviction: v.conviction,
+                Weight: CONVICTION_WEIGHTS[v.conviction],
+                "Effective Stake": formatDOT(v.lockAmount * BigInt(CONVICTION_WEIGHTS[v.conviction])),
+                "Unlock Block": v.unlockBlock,
+                Status: v.campaignResolved ? "Resolved" : "Active",
+                Claimable: v.claimable > 0n ? formatDOT(v.claimable) : "",
+              }));
+              downloadCSV("my-votes.csv", toCSV(["Campaign", "Direction", "Staked", "Conviction", "Weight", "Effective Stake", "Unlock Block", "Status", "Claimable"], rows));
+            }}
+            className="nano-btn"
+            style={{ fontSize: 12 }}
+          >
+            Export CSV
+          </button>
+        )}
+      </div>
 
       <TransactionStatus state={txState} message={txMsg} />
 

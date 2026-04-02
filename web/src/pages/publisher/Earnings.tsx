@@ -9,6 +9,8 @@ import { useTx } from "../../hooks/useTx";
 import { queryFilterAll } from "@shared/eventQuery";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { RequirePublisher } from "../../components/RequirePublisher";
+import { toCSV, downloadCSV } from "@shared/csvExport";
+import { formatDOT } from "@shared/dot";
 
 interface CampaignEarnings {
   campaignId: string;
@@ -92,7 +94,26 @@ export function Earnings() {
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Publisher Earnings</h1>
-        <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+        <div style={{ display: "flex", gap: 6 }}>
+          {campaignBreakdown.length > 0 && (
+            <button
+              onClick={() => {
+                const rows = campaignBreakdown.map((c) => ({
+                  Campaign: `#${c.campaignId}`,
+                  "Total Paid": formatDOT(c.totalPublisherPayment),
+                  Impressions: c.totalImpressions.toString(),
+                  Settlements: c.settlementCount,
+                }));
+                downloadCSV("datum-earnings.csv", toCSV(["Campaign", "Total Paid", "Impressions", "Settlements"], rows));
+              }}
+              className="nano-btn"
+              style={{ fontSize: 12 }}
+            >
+              Export CSV
+            </button>
+          )}
+          <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+        </div>
       </div>
 
       {loading ? <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading</div> : (

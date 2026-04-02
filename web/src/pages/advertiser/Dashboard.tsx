@@ -8,8 +8,9 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { tagLabel } from "@shared/tagDictionary";
-import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
+import { toCSV, downloadCSV } from "@shared/csvExport";
+import { formatDOT } from "@shared/dot";
 import { ConfirmModal } from "../../components/ConfirmModal";
 
 interface MyCampaign {
@@ -19,6 +20,7 @@ interface MyCampaign {
   bidCpmPlanck: bigint;
   snapshotTakeRateBps: number;
   remaining: bigint;
+  originalBudget: bigint;
   metadataHash: string;
   tags: string[];
 }
@@ -52,8 +54,15 @@ export function AdvertiserDashboard() {
             const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
             if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
             let remaining = 0n;
+            let originalBudget = 0n;
             try {
               remaining = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(id)));
+              // Try to get original budget from BudgetInitialized event
+              const bFilter = contracts.budgetLedger.filters.BudgetInitialized(BigInt(id));
+              const bLogs = await queryFilterAll(contracts.budgetLedger, bFilter);
+              if (bLogs.length > 0) {
+                originalBudget = BigInt((bLogs[0] as any).args?.budget ?? 0);
+              }
             } catch { /* no budgetLedger */ }
             let metadataHash = "0x" + "0".repeat(64);
             try {
@@ -71,7 +80,7 @@ export function AdvertiserDashboard() {
             mine.push({
               id, status: Number(c[0]), publisher: c[1] as string,
               bidCpmPlanck: BigInt(c[2]), snapshotTakeRateBps: Number(c[3]),
-              remaining, metadataHash, tags,
+              remaining, originalBudget, metadataHash, tags,
             });
           } catch { /* skip */ }
         })
@@ -121,6 +130,28 @@ export function AdvertiserDashboard() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>My Campaigns</h1>
         <div style={{ display: "flex", gap: 8 }}>
+          {campaigns.length > 0 && (
+            <button
+              onClick={() => {
+                const STATUS = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
+                const rows = campaigns.map((c) => ({
+                  ID: c.id,
+                  Status: STATUS[c.status] ?? String(c.status),
+                  Publisher: c.publisher,
+                  "Bid CPM": formatDOT(c.bidCpmPlanck),
+                  "Take Rate": `${(c.snapshotTakeRateBps / 100).toFixed(0)}%`,
+                  Remaining: formatDOT(c.remaining),
+                  "Original Budget": c.originalBudget > 0n ? formatDOT(c.originalBudget) : "",
+                  Tags: c.tags.join("; "),
+                }));
+                downloadCSV("my-campaigns.csv", toCSV(["ID", "Status", "Publisher", "Bid CPM", "Take Rate", "Remaining", "Original Budget", "Tags"], rows));
+              }}
+              className="nano-btn"
+              style={{ fontSize: 12 }}
+            >
+              Export CSV
+            </button>
+          )}
           <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
           <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
             + New Campaign
@@ -160,6 +191,22 @@ export function AdvertiserDashboard() {
             <div className="nano-card" style={{ padding: "8px 10px" }}>
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Remaining</div>
               <DOTAmount planck={c.remaining} />
+              {c.originalBudget > 0n && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 2 }}>
+                    {Number(c.remaining * 100n / c.originalBudget)}% of <DOTAmount planck={c.originalBudget} />
+                  </div>
+                  <div style={{ height: 3, borderRadius: 2, background: "var(--bg-raised)", overflow: "hidden" }}>
+                    <div style={{
+                      width: `${Number(c.remaining * 100n / c.originalBudget)}%`,
+                      height: "100%",
+                      background: Number(c.remaining * 100n / c.originalBudget) > 20 ? "var(--ok)" : "var(--warn)",
+                      borderRadius: 2,
+                      transition: "width 300ms ease-out",
+                    }} />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="nano-card" style={{ padding: "8px 10px" }}>
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Bid CPM</div>

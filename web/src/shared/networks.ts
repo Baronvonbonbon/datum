@@ -106,4 +106,5 @@ export const DEFAULT_SETTINGS: WebAppSettings = {
   ipfsProvider: "pinata",
   ipfsApiKey: "",
   ipfsApiEndpoint: "",
+  theme: "dark",
 };
