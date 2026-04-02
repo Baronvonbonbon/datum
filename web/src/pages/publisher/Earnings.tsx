@@ -11,6 +11,7 @@ import { ConfirmModal } from "../../components/ConfirmModal";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
+import { MiniBarChart } from "../../components/MiniBarChart";
 
 interface CampaignEarnings {
   campaignId: string;
@@ -130,6 +131,24 @@ export function Earnings() {
               </button>
             )}
           </div>
+
+          {campaignBreakdown.length > 1 && (
+            <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Earnings Distribution</div>
+              <MiniBarChart
+                bars={campaignBreakdown.slice(0, 12).map((c) => ({
+                  label: `#${c.campaignId}`,
+                  value: Number(c.totalPublisherPayment) / 1e10,
+                  color: "rgba(110,231,183,0.6)",
+                }))}
+                height={120}
+                formatValue={(v) => v >= 1 ? `${v.toFixed(1)}` : v >= 0.01 ? `${v.toFixed(3)}` : `${v.toFixed(4)}`}
+              />
+              <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 6 }}>
+                Earnings in DOT per campaign (top {Math.min(12, campaignBreakdown.length)})
+              </div>
+            </div>
+          )}
 
           {campaignBreakdown.length > 0 && (
             <div style={{ marginBottom: 16 }}>

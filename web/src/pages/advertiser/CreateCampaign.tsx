@@ -9,6 +9,10 @@ import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
+import { CampaignMetadata } from "@shared/types";
+import { validateAndSanitize } from "@shared/contentSafety";
+import { pinToIPFS } from "@shared/ipfsPin";
+import { cidToBytes32 } from "@shared/ipfs";
 import { ethers } from "ethers";
 
 export function CreateCampaign() {
@@ -32,6 +36,19 @@ export function CreateCampaign() {
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
   const [createdId, setCreatedId] = useState<number | null>(null);
+
+  // Step 2: Inline metadata (wizard flow)
+  const [step, setStep] = useState<1 | 2>(1);
+  const [metaTitle, setMetaTitle] = useState("");
+  const [metaDesc, setMetaDesc] = useState("");
+  const [metaCategory, setMetaCategory] = useState("");
+  const [metaText, setMetaText] = useState("");
+  const [metaCta, setMetaCta] = useState("Learn More");
+  const [metaCtaUrl, setMetaCtaUrl] = useState("");
+  const [metaImageUrl, setMetaImageUrl] = useState("");
+  const [metaTxState, setMetaTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
+  const [metaTxMsg, setMetaTxMsg] = useState("");
+  const [pinStatus, setPinStatus] = useState<string | null>(null);
 
   // Pre-flight checks (debounced to avoid RPC flood on keystrokes)
   const [pubCheck, setPubCheck] = useState<string | null>(null);
@@ -105,13 +122,55 @@ export function CreateCampaign() {
       setCreatedId(newId);
       setTxState("success");
       setTxMsg(`Campaign #${newId ?? "?"} created!`);
-      // Auto-navigate to metadata page after 3 seconds
-      if (newId !== null) {
-        setTimeout(() => navigate(`/advertiser/campaign/${newId}/metadata`), 3000);
-      }
+      // Move to step 2 (metadata) instead of navigating away
+      setStep(2);
     } catch (err) {
       setTxMsg(humanizeError(err));
       setTxState("error");
+    }
+  }
+
+  async function handleMetadataSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!signer || createdId === null) return;
+
+    const metadata: CampaignMetadata = {
+      title: metaTitle.trim(), description: metaDesc.trim(), category: metaCategory.trim(),
+      creative: {
+        type: "text", text: metaText.trim(), cta: metaCta.trim(), ctaUrl: metaCtaUrl.trim(),
+        ...(metaImageUrl.trim() ? { imageUrl: metaImageUrl.trim() } : {}),
+      },
+      version: 1,
+    };
+
+    const validated = validateAndSanitize(metadata);
+    if (!validated) { setMetaTxMsg("Content validation failed."); setMetaTxState("error"); return; }
+
+    const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
+    if (!apiKey && settings.ipfsProvider !== "custom") {
+      setMetaTxMsg("No IPFS pinning key. Add one in Settings.");
+      setMetaTxState("error");
+      return;
+    }
+
+    setMetaTxState("pending");
+    setPinStatus("Pinning to IPFS...");
+    try {
+      const pinResult = await pinToIPFS({ provider: settings.ipfsProvider ?? "pinata", apiKey, endpoint: settings.ipfsApiEndpoint }, validated);
+      if (!pinResult.ok || !pinResult.cid) throw new Error(pinResult.error ?? "IPFS pin failed");
+      setPinStatus(`Pinned: ${pinResult.cid}`);
+
+      const metadataHash = cidToBytes32(pinResult.cid);
+      const c = contracts.campaigns.connect(signer);
+      const tx = await c.setMetadata(BigInt(createdId), metadataHash);
+      await confirmTx(tx);
+
+      setMetaTxState("success");
+      setMetaTxMsg(`Metadata set! CID: ${pinResult.cid}`);
+      setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
+    } catch (err) {
+      setMetaTxMsg(humanizeError(err));
+      setMetaTxState("error");
     }
   }
 
@@ -124,26 +183,81 @@ export function CreateCampaign() {
       <div style={{ marginBottom: 20 }}>
         <Link to="/advertiser" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← My Campaigns</Link>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Create Campaign</h1>
+        {/* Wizard step indicator */}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <StepIndicator n={1} label="Campaign" active={step === 1} done={step > 1} />
+          <div style={{ color: "var(--text-muted)", alignSelf: "center" }}>→</div>
+          <StepIndicator n={2} label="Metadata" active={step === 2} done={metaTxState === "success"} />
+        </div>
       </div>
 
-      {txState === "success" && createdId !== null && (
-        <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Campaign #{createdId} created!</div>
-          <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 10 }}>
-            Your campaign is now Pending. Set metadata so governance voters can review your creative.
+      {/* Step 2: Inline metadata form */}
+      {step === 2 && createdId !== null && (
+        <>
+          <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 600 }}>Campaign #{createdId} created!</div>
+            <div style={{ fontSize: 12, color: "var(--text)", marginTop: 4 }}>
+              Now add metadata so governance voters can review your creative.
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Link to={`/advertiser/campaign/${createdId}/metadata`} className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
-              Set Metadata (IPFS) — Recommended
-            </Link>
-            <Link to="/advertiser" className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
-              Dashboard
-            </Link>
-          </div>
-        </div>
+
+          {metaTxState === "success" ? (
+            <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600 }}>{metaTxMsg}</div>
+              <div style={{ fontSize: 12, marginTop: 4, display: "flex", gap: 8 }}>
+                <Link to={`/advertiser/campaign/${createdId}`} className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>View Campaign</Link>
+                <Link to="/advertiser" className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>Dashboard</Link>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleMetadataSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {!(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && (
+                <div className="nano-info nano-info--warn" style={{ marginBottom: 4, fontSize: 12 }}>
+                  No IPFS key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add one in Settings</Link> or{" "}
+                  <Link to={`/advertiser/campaign/${createdId}/metadata`} style={{ color: "var(--accent)" }}>set metadata later</Link>.
+                </div>
+              )}
+              <WizardField label="Title" maxLen={128}>
+                <input value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} maxLength={128} required className="nano-input" placeholder="e.g. Polkadot Hub — Build the Future" />
+              </WizardField>
+              <WizardField label="Description" maxLen={256}>
+                <textarea value={metaDesc} onChange={(e) => setMetaDesc(e.target.value)} maxLength={256} required rows={2} className="nano-input" style={{ resize: "vertical" }} placeholder="Brief description" />
+              </WizardField>
+              <WizardField label="Category" maxLen={64}>
+                <input value={metaCategory} onChange={(e) => setMetaCategory(e.target.value)} maxLength={64} required className="nano-input" placeholder="e.g. Crypto & Web3" />
+              </WizardField>
+              <WizardField label="Ad Text" maxLen={512}>
+                <textarea value={metaText} onChange={(e) => setMetaText(e.target.value)} maxLength={512} required rows={3} className="nano-input" style={{ resize: "vertical" }} placeholder="Main body text of your ad" />
+              </WizardField>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <WizardField label="CTA Button" maxLen={64}>
+                  <input value={metaCta} onChange={(e) => setMetaCta(e.target.value)} maxLength={64} required className="nano-input" />
+                </WizardField>
+                <WizardField label="CTA URL" maxLen={2048}>
+                  <input type="url" value={metaCtaUrl} onChange={(e) => setMetaCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
+                </WizardField>
+              </div>
+              <WizardField label="Image URL (optional)">
+                <input value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)} className="nano-input" placeholder="https://..." />
+              </WizardField>
+
+              {pinStatus && <div style={{ color: "var(--ok)", fontSize: 12 }}>{pinStatus}</div>}
+              <TransactionStatus state={metaTxState} message={metaTxMsg} />
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={metaTxState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600, flex: 1 }}>
+                  {metaTxState === "pending" ? "Saving..." : "Pin & Set Metadata"}
+                </button>
+                <Link to={`/advertiser/campaign/${createdId}`} className="nano-btn" style={{ padding: "10px 16px", fontSize: 13, textDecoration: "none" }}>
+                  Skip
+                </Link>
+              </div>
+            </form>
+          )}
+        </>
       )}
 
-      {txState !== "success" && (
+      {step === 1 && txState !== "success" && (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Campaign type */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -309,6 +423,34 @@ export function CreateCampaign() {
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+function StepIndicator({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: active || done ? 1 : 0.4 }}>
+      <span style={{
+        width: 22, height: 22, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: 11, fontWeight: 700,
+        background: done ? "rgba(110,231,183,0.15)" : active ? "rgba(160,160,255,0.15)" : "var(--bg-raised)",
+        border: `1px solid ${done ? "rgba(110,231,183,0.3)" : active ? "rgba(160,160,255,0.3)" : "var(--border)"}`,
+        color: done ? "var(--ok)" : active ? "var(--accent)" : "var(--text-muted)",
+      }}>
+        {done ? "✓" : n}
+      </span>
+      <span style={{ fontSize: 12, color: active ? "var(--text-strong)" : "var(--text-muted)", fontWeight: active ? 600 : 400 }}>{label}</span>
+    </div>
+  );
+}
+
+function WizardField({ label, maxLen, children }: { label: string; maxLen?: number; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <label style={{ color: "var(--text)", fontSize: 12 }}>
+        {label}{maxLen ? <span style={{ color: "var(--text-muted)", fontSize: 10 }}> ({maxLen})</span> : ""}
+      </label>
+      {children}
     </div>
   );
 }

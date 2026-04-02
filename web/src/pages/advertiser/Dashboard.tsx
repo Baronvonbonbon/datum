@@ -152,6 +152,7 @@ export function AdvertiserDashboard() {
               Export CSV
             </button>
           )}
+          <Link to="/advertiser/analytics" className="nano-btn" style={{ fontSize: 12, textDecoration: "none" }}>Analytics</Link>
           <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
           <Link to="/advertiser/create" className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}>
             + New Campaign

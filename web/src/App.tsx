@@ -14,6 +14,7 @@ import { AdvertiserDashboard } from "./pages/advertiser/Dashboard";
 import { CreateCampaign } from "./pages/advertiser/CreateCampaign";
 import { AdvertiserCampaignDetail } from "./pages/advertiser/CampaignDetail";
 import { SetMetadata } from "./pages/advertiser/SetMetadata";
+import { CampaignAnalytics } from "./pages/advertiser/Analytics";
 
 // Publisher
 import { PublisherDashboard } from "./pages/publisher/Dashboard";
@@ -57,6 +58,7 @@ export function App() {
               <Route path="/advertiser/create" element={<CreateCampaign />} />
               <Route path="/advertiser/campaign/:id" element={<AdvertiserCampaignDetail />} />
               <Route path="/advertiser/campaign/:id/metadata" element={<SetMetadata />} />
+              <Route path="/advertiser/analytics" element={<CampaignAnalytics />} />
 
               {/* Publisher */}
               <Route path="/publisher" element={<PublisherDashboard />} />
