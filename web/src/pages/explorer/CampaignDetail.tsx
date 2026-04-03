@@ -48,6 +48,31 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     if (id !== undefined) load(Number(id));
   }, [id]);
 
+  // Refresh settlement list whenever a new block arrives (after initial load)
+  useEffect(() => {
+    if (id !== undefined && campaign !== null && blockNumber !== null) {
+      loadSettlements(Number(id));
+    }
+  }, [blockNumber]);
+
+  async function loadSettlements(campaignId: number) {
+    try {
+      const filter = contracts.settlement.filters.ClaimSettled(BigInt(campaignId));
+      const logs = await queryFilterAll(contracts.settlement, filter);
+      const evts: SettlementEvent[] = logs.map((log: any) => ({
+        txHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        user: log.args?.user ?? "",
+        publisher: log.args?.publisher ?? "",
+        impressionCount: BigInt(log.args?.impressionCount ?? 0),
+        clearingCpmPlanck: BigInt(log.args?.clearingCpmPlanck ?? 0),
+        userPayment: BigInt(log.args?.userPayment ?? 0),
+        publisherPayment: BigInt(log.args?.publisherPayment ?? 0),
+      }));
+      setSettlements(evts.reverse()); // newest first
+    } catch { /* no settlement contract */ }
+  }
+
   async function load(campaignId: number) {
     setLoading(true);
     setError(null);
@@ -113,22 +138,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         }
       } catch { /* no events */ }
 
-      // Settlement history from ClaimSettled events
-      try {
-        const filter = contracts.settlement.filters.ClaimSettled(BigInt(campaignId));
-        const logs = await queryFilterAll(contracts.settlement, filter);
-        const evts: SettlementEvent[] = logs.map((log: any) => ({
-          txHash: log.transactionHash,
-          blockNumber: log.blockNumber,
-          user: log.args?.user ?? "",
-          publisher: log.args?.publisher ?? "",
-          impressionCount: BigInt(log.args?.impressionCount ?? 0),
-          clearingCpmPlanck: BigInt(log.args?.clearingCpmPlanck ?? 0),
-          userPayment: BigInt(log.args?.userPayment ?? 0),
-          publisherPayment: BigInt(log.args?.publisherPayment ?? 0),
-        }));
-        setSettlements(evts.reverse()); // newest first
-      } catch { /* no settlement contract */ }
+      // Initial settlement load
+      await loadSettlements(campaignId);
 
     } catch (err) {
       setError(String(err).slice(0, 300));

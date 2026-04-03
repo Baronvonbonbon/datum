@@ -1,9 +1,9 @@
 /**
- * Gas benchmarks for DATUM Alpha-2 contracts on Paseo testnet.
+ * Gas benchmarks for DATUM Alpha-3 contracts on Paseo testnet.
  *
- * Uses the already-deployed 13 contracts and pre-funded test accounts.
+ * Uses the already-deployed 17 contracts and pre-funded test accounts.
  * Measures weight (gas units) and DOT cost for key operations, then runs
- * batch-scaling tests from 1 to 50 claims.
+ * batch-scaling tests from 1 to 10 claims (inner cap = 50 claims/batch in alpha-3).
  *
  * Usage:
  *   DEPLOYER_PRIVATE_KEY="0x6eda..." \
@@ -15,8 +15,13 @@
  *
  * NOTE: Claim hashes use Blake2-256 on Paseo (PolkaVM), matching Settlement's
  *       ISystem(0x900).hashBlake256() precompile.
+ *
+ * Paseo receipt workaround: eth_getTransactionReceipt returns null for confirmed txs.
+ * Gas measurements use eth_estimateGas (static call) against live contract state.
+ * State-advancing transactions use raw JsonRpcProvider + nonce polling (no receipt needed).
  */
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
+import { JsonRpcProvider, Wallet, Interface } from "ethers";
 import { parseDOT } from "../test/helpers/dot";
 import * as fs from "fs";
 
@@ -27,14 +32,12 @@ let blake2bFn: ((data: Uint8Array, opts: { dkLen: number }) => Uint8Array) | nul
 
 async function initBlake2(): Promise<void> {
   try {
-    // Dynamic import — must use Function constructor to prevent tsc from transpiling to require()
     const dynamicImport = new Function("specifier", "return import(specifier)");
     const mod = await dynamicImport("@noble/hashes/blake2.js");
     blake2bFn = mod.blake2b;
     console.log("Blake2-256 claim hashing loaded (matches PolkaVM Settlement)");
   } catch (e: any) {
     console.error("FATAL: @noble/hashes not installed or import failed:", e.message);
-    console.error("Run: npm install --save-dev @noble/hashes");
     process.exit(1);
   }
 }
@@ -82,6 +85,64 @@ function formatWeiAsDOT(wei: bigint): string {
 }
 
 // ---------------------------------------------------------------------------
+// Paseo workaround: nonce polling (receipt unavailable on Paseo)
+// ---------------------------------------------------------------------------
+const TX_OPTS = {
+  gasLimit: 5000000n,     // 5M weight units — 5 DOT reservation at gasPrice 1T; scales to all signers
+  type: 0,
+  gasPrice: 1000000000000n,
+};
+
+async function waitForNonce(
+  provider: JsonRpcProvider,
+  address: string,
+  targetNonce: number,
+  maxWait = 120,
+): Promise<void> {
+  for (let i = 0; i < maxWait; i++) {
+    const current = await provider.getTransactionCount(address);
+    if (current > targetNonce) return;
+    if (i % 10 === 0 && i > 0) console.log(`    ...waiting for confirmation (${i}s)`);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(`Timeout waiting for nonce > ${targetNonce}`);
+}
+
+// Send a state-changing call and wait for it to be mined (no receipt needed)
+async function sendCall(
+  signer: Wallet,
+  provider: JsonRpcProvider,
+  to: string,
+  iface: Interface,
+  method: string,
+  args: any[],
+  value = 0n,
+): Promise<void> {
+  const data = iface.encodeFunctionData(method, args);
+  const nonce = await provider.getTransactionCount(signer.address);
+  await signer.sendTransaction({ to, data, value, ...TX_OPTS });
+  await waitForNonce(provider, signer.address, nonce);
+}
+
+// Estimate gas for a call (static, no state change) — Paseo-safe gas measurement
+async function estimateGas(
+  provider: JsonRpcProvider,
+  from: string,
+  to: string,
+  data: string,
+  value = 0n,
+): Promise<bigint> {
+  const result = await provider.send("eth_estimateGas", [{
+    from, to, data,
+    value: "0x" + value.toString(16),
+    gasLimit: "0x" + TX_OPTS.gasLimit.toString(16),
+    gasPrice: "0x" + TX_OPTS.gasPrice.toString(16),
+    type: "0x0",
+  }]);
+  return BigInt(result);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 interface Measurement { label: string; gasUsed: bigint; costPlanck: bigint }
@@ -89,219 +150,236 @@ interface Measurement { label: string; gasUsed: bigint; costPlanck: bigint }
 async function main() {
   await initBlake2();
 
-  const signers = await ethers.getSigners();
-  if (signers.length < 5) {
-    console.error("Need 5 signers: Alice (deployer) + Bob (advertiser) + Diana (publisher) + Frank (voter) + Hank (user)");
-    console.error('Set TESTNET_ACCOUNTS="bob_key,diana_key,frank_key,hank_key"');
+  const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
+  const rawProvider = new JsonRpcProvider(rpcUrl);
+  const accounts = (network.config as any).accounts || [];
+
+  const deployerKey = accounts[0] || process.env.DEPLOYER_PRIVATE_KEY;
+  if (!deployerKey) throw new Error("No deployer key — set DEPLOYER_PRIVATE_KEY");
+
+  const testnetKeys = (process.env.TESTNET_ACCOUNTS || "").split(",").filter(Boolean);
+  if (testnetKeys.length < 4) {
+    console.error("Need TESTNET_ACCOUNTS=bob_key,diana_key,frank_key,hank_key");
     process.exitCode = 1;
     return;
   }
 
-  const [alice, bob, diana, frank, hank] = signers;
+  const alice = new Wallet(deployerKey, rawProvider);
+  const bob   = new Wallet(testnetKeys[0], rawProvider);
+  const diana = new Wallet(testnetKeys[1], rawProvider);
+  const frank = new Wallet(testnetKeys[2], rawProvider);
+  const hank  = new Wallet(testnetKeys[3], rawProvider);
+
   console.log(`Alice   (deployer):   ${alice.address}`);
   console.log(`Bob     (advertiser): ${bob.address}`);
   console.log(`Diana   (publisher):  ${diana.address}`);
   console.log(`Frank   (voter):      ${frank.address}`);
   console.log(`Hank    (user):       ${hank.address}`);
 
-  // Load deployed addresses
   const addrs = JSON.parse(fs.readFileSync(__dirname + "/../deployed-addresses.json", "utf-8"));
   console.log(`\nUsing deployed contracts from: ${addrs.network} (deployed ${addrs.deployedAt})`);
 
-  const net = await ethers.provider.getNetwork();
-  const feeData = await ethers.provider.getFeeData();
-  const gasPrice = feeData.gasPrice ?? 1n;
+  const net = await rawProvider.getNetwork();
+  const gasPrice = TX_OPTS.gasPrice;
   console.log(`Network: chainId=${net.chainId}  gasPrice=${gasPrice}\n`);
 
-  // Check balances
   for (const [name, signer] of [["Alice", alice], ["Bob", bob], ["Diana", diana], ["Frank", frank], ["Hank", hank]] as const) {
-    const bal = await ethers.provider.getBalance((signer as any).address);
+    const bal = await rawProvider.getBalance((signer as Wallet).address);
     console.log(`  ${name} balance: ${formatWeiAsDOT(bal)} DOT`);
   }
   console.log();
 
-  // Attach to deployed contracts
-  const publishers    = await ethers.getContractAt("DatumPublishers", addrs.publishers);
-  const campaigns     = await ethers.getContractAt("DatumCampaigns", addrs.campaigns);
-  const budgetLedger  = await ethers.getContractAt("DatumBudgetLedger", addrs.budgetLedger);
-  const paymentVault  = await ethers.getContractAt("DatumPaymentVault", addrs.paymentVault);
-  const settlement    = await ethers.getContractAt("DatumSettlement", addrs.settlement);
-  const governance    = await ethers.getContractAt("DatumGovernanceV2", addrs.governanceV2);
-  const lifecycle     = await ethers.getContractAt("DatumCampaignLifecycle", addrs.campaignLifecycle);
+  // Load contract interfaces from typechain artifacts
+  const campaignsIface  = new Interface((await ethers.getContractFactory("DatumCampaigns")).interface.formatJson());
+  const govIface        = new Interface((await ethers.getContractFactory("DatumGovernanceV2")).interface.formatJson());
+  const settlementIface = new Interface((await ethers.getContractFactory("DatumSettlement")).interface.formatJson());
+  const vaultIface      = new Interface((await ethers.getContractFactory("DatumPaymentVault")).interface.formatJson());
 
-  const results: Measurement[] = [];
+  const campaignsAddr  = addrs.campaigns;
+  const govAddr        = addrs.governanceV2;
+  const settlementAddr = addrs.settlement;
+  const vaultAddr      = addrs.paymentVault;
 
-  async function measure(label: string, txPromise: Promise<any>): Promise<bigint> {
-    const tx = await txPromise;
-    const receipt = await tx.wait();
-    const gasUsed = receipt.gasUsed as bigint;
-    const costPlanck = gasUsed * gasPrice;
-    results.push({ label, gasUsed, costPlanck });
-    console.log(`  ${label}: gas=${gasUsed}  cost=${formatWeiAsDOT(costPlanck)} DOT`);
-    return gasUsed;
-  }
-
-  const BID_CPM   = parseDOT("0.016");  // clean denomination (10^6 multiple)
-  const BUDGET    = parseDOT("10");
-  const DAILY_CAP = parseDOT("10");
-  const CATEGORY  = 6; // Computers & Electronics
-
-  // Fund Hank if needed (he's the user/claim-sender, needs gas)
-  // Note: eth-rpc uses 18-decimal denomination, so 5 DOT = 5×10^18 wei
-  {
-    const hankBal = await ethers.provider.getBalance(hank.address);
-    const MIN_BALANCE = 5n * 10n ** 18n; // 5 DOT in 18-decimal wei
-    if (hankBal < MIN_BALANCE) {
-      const FUND_AMOUNT = 50n * 10n ** 18n; // 50 DOT in 18-decimal wei
-      console.log(`Hank balance too low (${formatWeiAsDOT(hankBal)}), funding with 50 DOT from Alice...`);
-      const tx = await alice.sendTransaction({ to: hank.address, value: FUND_AMOUNT });
-      await tx.wait();
-      const newBal = await ethers.provider.getBalance(hank.address);
-      console.log(`Hank funded: ${formatWeiAsDOT(newBal)} DOT\n`);
-    }
-  }
-
-  // Check governance quorum
-  const quorum = await governance.quorumWeighted();
+  // Read governance quorum (view call)
+  const quorumRaw = await rawProvider.call({ to: govAddr, data: govIface.encodeFunctionData("quorumWeighted") });
+  const quorum = BigInt(quorumRaw);
   const STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
   console.log(`Governance quorum: ${quorum}  stake: ${STAKE}\n`);
 
-  // Helper: parse campaign ID from CampaignCreated event
-  function parseCampaignId(receipt: any): bigint {
-    for (const log of receipt.logs) {
-      try {
-        const parsed = campaigns.interface.parseLog(log);
-        if (parsed?.name === "CampaignCreated") return parsed.args.campaignId;
-      } catch {}
-    }
-    throw new Error("CampaignCreated event not found");
+  const results: Measurement[] = [];
+
+  async function measure(label: string, gasUsed: bigint): Promise<void> {
+    const costPlanck = gasUsed * gasPrice;
+    results.push({ label, gasUsed, costPlanck });
+    console.log(`  ${label}: gas=${gasUsed}  cost=${formatWeiAsDOT(costPlanck)} DOT`);
   }
 
-  // Helper: create + vote aye + evaluate → Active campaign
+  // Get next campaign ID
+  async function getNextCampaignId(): Promise<bigint> {
+    const raw = await rawProvider.call({ to: campaignsAddr, data: campaignsIface.encodeFunctionData("nextCampaignId") });
+    return BigInt(raw);
+  }
+
+  const BID_CPM   = parseDOT("0.016");
+  const BUDGET    = parseDOT("10");
+  const DAILY_CAP = parseDOT("10");
+
+  // Fund Hank if needed — needs ~200 DOT for ~30 benchmark txs at 5M gasLimit × 1T gasPrice
+  {
+    const hankBal = await rawProvider.getBalance(hank.address);
+    if (hankBal < 200n * 10n ** 18n) {
+      const topUp = 250n * 10n ** 18n - hankBal;
+      console.log(`Hank balance (${formatWeiAsDOT(hankBal)}) below threshold, topping up to 250 DOT from Alice...`);
+      const nonce = await rawProvider.getTransactionCount(alice.address);
+      await alice.sendTransaction({ to: hank.address, value: topUp, ...TX_OPTS });
+      await waitForNonce(rawProvider, alice.address, nonce);
+      console.log(`Hank funded: ${formatWeiAsDOT(await rawProvider.getBalance(hank.address))} DOT\n`);
+    }
+  }
+
+  // Helper: create + vote aye + evaluate → Active campaign; returns cid
   async function createAndActivate(budget = BUDGET): Promise<bigint> {
-    const tx = await campaigns.connect(bob).createCampaign(
-      diana.address, DAILY_CAP, BID_CPM, CATEGORY, { value: budget }
-    );
-    const receipt = await tx.wait();
-    const cid = parseCampaignId(receipt);
-    await (await governance.connect(frank).vote(cid, true, 0, { value: STAKE })).wait();
-    await (await governance.connect(alice).evaluateCampaign(cid)).wait();
+    const cid = await getNextCampaignId();
+    await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
+      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], budget);
+    await sendCall(frank, rawProvider, govAddr, govIface,
+      "vote", [cid, true, 0], STAKE);
+    await sendCall(alice, rawProvider, govAddr, govIface,
+      "evaluateCampaign", [cid]);
     return cid;
   }
 
   // =========================================================================
-  // BENCHMARKS
+  // BENCHMARKS — gas measured via eth_estimateGas on live state
   // =========================================================================
 
   // ─── 1. createCampaign ──────────────────────────────────────────────────
   console.log("1. createCampaign");
-  await measure("createCampaign",
-    campaigns.connect(bob).createCampaign(
-      diana.address, DAILY_CAP, BID_CPM, CATEGORY, { value: BUDGET }
-    )
-  );
+  {
+    const data = campaignsIface.encodeFunctionData("createCampaign",
+      [diana.address, DAILY_CAP, BID_CPM, 0, []]);
+    await measure("createCampaign",
+      await estimateGas(rawProvider, bob.address, campaignsAddr, data, BUDGET));
+    // send for real so campaign exists
+    await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
+      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], BUDGET);
+  }
 
   // ─── 2. vote (aye) ─────────────────────────────────────────────────────
   console.log("2. vote (aye)");
-  const cidVoteTx = await campaigns.connect(bob).createCampaign(
-    diana.address, DAILY_CAP, BID_CPM, CATEGORY, { value: BUDGET }
-  );
-  const cidVoteReceipt = await cidVoteTx.wait();
-  const cidVote = parseCampaignId(cidVoteReceipt);
-  await measure("vote (aye)",
-    governance.connect(frank).vote(cidVote, true, 0, { value: STAKE })
-  );
+  {
+    // create a campaign to vote on
+    const cidVote = await getNextCampaignId();
+    await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
+      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], BUDGET);
+    const voteData = govIface.encodeFunctionData("vote", [cidVote, true, 0]);
+    await measure("vote (aye)",
+      await estimateGas(rawProvider, frank.address, govAddr, voteData, STAKE));
+    await sendCall(frank, rawProvider, govAddr, govIface, "vote", [cidVote, true, 0], STAKE);
 
-  // ─── 3. evaluateCampaign (Pending→Active) ────────────────────────────
-  console.log("3. evaluateCampaign");
-  // cidVote has an aye vote meeting quorum — evaluate should transition Pending→Active
-  await measure("evaluateCampaign (activate)",
-    governance.connect(alice).evaluateCampaign(cidVote)
-  );
+    // ─── 3. evaluateCampaign ─────────────────────────────────────────────
+    console.log("3. evaluateCampaign");
+    const evalData = govIface.encodeFunctionData("evaluateCampaign", [cidVote]);
+    await measure("evaluateCampaign (activate)",
+      await estimateGas(rawProvider, alice.address, govAddr, evalData));
+    await sendCall(alice, rawProvider, govAddr, govIface, "evaluateCampaign", [cidVote]);
+  }
 
   // ─── 4. settleClaims (1 claim) ─────────────────────────────────────────
   console.log("4. settleClaims (1 claim)");
-  const cidSettle1 = await createAndActivate();
-  console.log(`  Campaign: ${cidSettle1}`);
-  const claims1 = buildClaimChain(cidSettle1, diana.address, hank.address, 1, BID_CPM, 1000n);
-  await measure("settleClaims (1 claim)",
-    settlement.connect(hank).settleClaims([
-      { user: hank.address, campaignId: cidSettle1, claims: claims1 }
-    ])
-  );
+  {
+    const cidSettle1 = await createAndActivate();
+    console.log(`  Campaign: ${cidSettle1}`);
+    const claims1 = buildClaimChain(cidSettle1, diana.address, hank.address, 1, BID_CPM, 1000n);
+    const data1 = settlementIface.encodeFunctionData("settleClaims",
+      [[{ user: hank.address, campaignId: cidSettle1, claims: claims1 }]]);
+    await measure("settleClaims (1 claim)",
+      await estimateGas(rawProvider, hank.address, settlementAddr, data1));
+    await sendCall(hank, rawProvider, settlementAddr, settlementIface,
+      "settleClaims", [[{ user: hank.address, campaignId: cidSettle1, claims: claims1 }]]);
+  }
 
   // ─── 5. settleClaims (5 claims) ────────────────────────────────────────
   console.log("5. settleClaims (5 claims)");
-  const cidSettle5 = await createAndActivate(parseDOT("100")); // larger budget for 5 claims
-  console.log(`  Campaign: ${cidSettle5}`);
-  const claims5 = buildClaimChain(cidSettle5, diana.address, hank.address, 5, BID_CPM, 1000n);
-  await measure("settleClaims (5 claims)",
-    settlement.connect(hank).settleClaims([
-      { user: hank.address, campaignId: cidSettle5, claims: claims5 }
-    ])
-  );
+  {
+    const cidSettle5 = await createAndActivate(parseDOT("100"));
+    console.log(`  Campaign: ${cidSettle5}`);
+    const claims5 = buildClaimChain(cidSettle5, diana.address, hank.address, 5, BID_CPM, 1000n);
+    const data5 = settlementIface.encodeFunctionData("settleClaims",
+      [[{ user: hank.address, campaignId: cidSettle5, claims: claims5 }]]);
+    await measure("settleClaims (5 claims)",
+      await estimateGas(rawProvider, hank.address, settlementAddr, data5));
+    await sendCall(hank, rawProvider, settlementAddr, settlementIface,
+      "settleClaims", [[{ user: hank.address, campaignId: cidSettle5, claims: claims5 }]]);
+  }
 
-  // ─── 6. withdrawUser (PaymentVault) ────────────────────────────────────
+  // ─── 6. withdrawUser ───────────────────────────────────────────────────
   console.log("6. withdrawUser");
   {
-    const bal = await paymentVault.userBalance(hank.address);
+    const balRaw = await rawProvider.call({
+      to: vaultAddr, data: vaultIface.encodeFunctionData("userBalance", [hank.address])
+    });
+    const bal = BigInt(balRaw);
     console.log(`  Hank user balance: ${formatWeiAsDOT(bal)} DOT`);
-    // E58: dust guard — balance below existential deposit. Need to accumulate
-    // more earnings or use a higher CPM. Try to settle more claims first.
     if (bal < 1n * 10n ** 18n) {
-      console.log("  Balance below withdrawal threshold — settling more claims to build up balance...");
+      console.log("  Building balance with extra settlements...");
       for (let i = 0; i < 3; i++) {
         const cid = await createAndActivate(parseDOT("100"));
         const cls = buildClaimChain(cid, diana.address, hank.address, 5, BID_CPM, 1000n);
-        await (await settlement.connect(hank).settleClaims([
-          { user: hank.address, campaignId: cid, claims: cls }
-        ])).wait();
+        await sendCall(hank, rawProvider, settlementAddr, settlementIface,
+          "settleClaims", [[{ user: hank.address, campaignId: cid, claims: cls }]]);
       }
-      const newBal = await paymentVault.userBalance(hank.address);
-      console.log(`  Hank user balance after top-up: ${formatWeiAsDOT(newBal)} DOT`);
+      const newBal = BigInt(await rawProvider.call({
+        to: vaultAddr, data: vaultIface.encodeFunctionData("userBalance", [hank.address])
+      }));
+      console.log(`  Balance after top-up: ${formatWeiAsDOT(newBal)} DOT`);
     }
-  }
-  try {
-    await measure("withdrawUser",
-      paymentVault.connect(hank).withdrawUser()
-    );
-  } catch (e: any) {
-    console.log(`  withdrawUser FAILED: ${e.message?.slice(0, 120)}`);
-    console.log("  (E58 = balance below existential deposit dust guard)");
+    try {
+      const withdrawData = vaultIface.encodeFunctionData("withdrawUser");
+      await measure("withdrawUser",
+        await estimateGas(rawProvider, hank.address, vaultAddr, withdrawData));
+      await sendCall(hank, rawProvider, vaultAddr, vaultIface, "withdrawUser", []);
+    } catch (e: any) {
+      console.log(`  withdrawUser FAILED: ${e.message?.slice(0, 120)}`);
+    }
   }
 
-  // ─── 7. withdrawPublisher (PaymentVault) ───────────────────────────────
+  // ─── 7. withdrawPublisher ──────────────────────────────────────────────
   console.log("7. withdrawPublisher");
   {
-    const bal = await paymentVault.publisherBalance(diana.address);
+    const balRaw = await rawProvider.call({
+      to: vaultAddr, data: vaultIface.encodeFunctionData("publisherBalance", [diana.address])
+    });
+    const bal = BigInt(balRaw);
     console.log(`  Diana publisher balance: ${formatWeiAsDOT(bal)} DOT`);
     if (bal < 1n * 10n ** 18n) {
-      console.log("  Balance below withdrawal threshold — settling more claims to build up balance...");
+      console.log("  Building balance with extra settlements...");
       for (let i = 0; i < 3; i++) {
         const cid = await createAndActivate(parseDOT("100"));
         const cls = buildClaimChain(cid, diana.address, hank.address, 5, BID_CPM, 1000n);
-        await (await settlement.connect(hank).settleClaims([
-          { user: hank.address, campaignId: cid, claims: cls }
-        ])).wait();
+        await sendCall(hank, rawProvider, settlementAddr, settlementIface,
+          "settleClaims", [[{ user: hank.address, campaignId: cid, claims: cls }]]);
       }
-      const newBal = await paymentVault.publisherBalance(diana.address);
-      console.log(`  Diana publisher balance after top-up: ${formatWeiAsDOT(newBal)} DOT`);
+      const newBal = BigInt(await rawProvider.call({
+        to: vaultAddr, data: vaultIface.encodeFunctionData("publisherBalance", [diana.address])
+      }));
+      console.log(`  Balance after top-up: ${formatWeiAsDOT(newBal)} DOT`);
     }
-  }
-  try {
-    await measure("withdrawPublisher",
-      paymentVault.connect(diana).withdrawPublisher()
-    );
-  } catch (e: any) {
-    console.log(`  withdrawPublisher FAILED: ${e.message?.slice(0, 120)}`);
-    console.log("  (E58 = balance below existential deposit dust guard)");
+    try {
+      const withdrawData = vaultIface.encodeFunctionData("withdrawPublisher");
+      await measure("withdrawPublisher",
+        await estimateGas(rawProvider, diana.address, vaultAddr, withdrawData));
+      await sendCall(diana, rawProvider, vaultAddr, vaultIface, "withdrawPublisher", []);
+    } catch (e: any) {
+      console.log(`  withdrawPublisher FAILED: ${e.message?.slice(0, 120)}`);
+    }
   }
 
   // =========================================================================
   // Main results table
   // =========================================================================
   console.log("\n" + "=".repeat(95));
-  console.log("DATUM Alpha-2 Testnet Gas Benchmarks — Paseo (Chain ID 420420417)");
+  console.log("DATUM Alpha-3 Testnet Gas Benchmarks — Paseo (Chain ID 420420417)");
   console.log("=".repeat(95));
   console.log(`${"Function".padEnd(30)} | ${"Gas (weight)".padEnd(16)} | ${"Cost (DOT)".padEnd(16)} | Cost (USD @$5)`);
   console.log("-".repeat(90));
@@ -314,30 +392,26 @@ async function main() {
   const s1 = results.find(r => r.label === "settleClaims (1 claim)");
   const s5 = results.find(r => r.label === "settleClaims (5 claims)");
   if (s1 && s5) {
-    const s1Dot = Number(s1.costPlanck) / 1e18;
     const s5Dot = Number(s5.costPlanck) / 1e18;
+    const s1Dot = Number(s1.costPlanck) / 1e18;
     console.log(`\nSettlement scale: 5-claim / 1-claim = ${(Number(s5.gasUsed) / Number(s1.gasUsed)).toFixed(2)}x`);
     console.log(`Per-claim cost in 5-batch: ${(s5Dot / 5).toFixed(6)} DOT vs single: ${s1Dot.toFixed(6)} DOT`);
   }
 
   // =========================================================================
-  // Batch scaling benchmark (1 → 50)
+  // Batch scaling benchmark (1 → 10)
   // =========================================================================
   console.log("\n" + "=".repeat(95));
-  console.log("Batch Scaling Benchmark — settleClaims (1 to 50 claims)");
+  console.log("Batch Scaling Benchmark — settleClaims (1 to 10 claims)");
   console.log("=".repeat(95) + "\n");
 
-  const BATCH_SIZES = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50];
+  const BATCH_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const SCALE_IMPRESSIONS = 100n;
-  const SCALE_BUDGET = parseDOT("500"); // large budget to avoid exhaustion
+  const SCALE_BUDGET = parseDOT("500");
 
   interface ScalingResult {
-    size: number;
-    gasUsed: bigint;
-    perClaim: bigint;
-    scaleVs1: string;
-    dotCost: number;
-    perClaimDot: number;
+    size: number; gasUsed: bigint; perClaim: bigint;
+    scaleVs1: string; dotCost: number; perClaimDot: number;
   }
   const scalingResults: ScalingResult[] = [];
   let baseScaleGas = 0n;
@@ -346,20 +420,14 @@ async function main() {
     try {
       const cid = await createAndActivate(SCALE_BUDGET);
       const claims = buildClaimChain(cid, diana.address, hank.address, size, BID_CPM, SCALE_IMPRESSIONS);
-
-      const tx = await settlement.connect(hank).settleClaims([
-        { user: hank.address, campaignId: cid, claims }
-      ]);
-      const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed as bigint;
+      const data = settlementIface.encodeFunctionData("settleClaims",
+        [[{ user: hank.address, campaignId: cid, claims }]]);
+      const gasUsed = await estimateGas(rawProvider, hank.address, settlementAddr, data);
       const perClaim = gasUsed / BigInt(size);
       if (size === 1) baseScaleGas = gasUsed;
-      const scale = baseScaleGas > 0n
-        ? (Number(gasUsed) / Number(baseScaleGas)).toFixed(2)
-        : "---";
+      const scale = baseScaleGas > 0n ? (Number(gasUsed) / Number(baseScaleGas)).toFixed(2) : "---";
       const dotCost = Number(gasUsed * gasPrice) / 1e18;
       const perClaimDot = dotCost / size;
-
       scalingResults.push({ size, gasUsed, perClaim, scaleVs1: scale, dotCost, perClaimDot });
       console.log(`  Batch ${String(size).padStart(2)}: gas=${gasUsed}  per-claim=${perClaim}  scale=${scale}x  cost=${dotCost.toFixed(6)} DOT`);
     } catch (err: any) {
@@ -373,7 +441,7 @@ async function main() {
   }
 
   // =========================================================================
-  // Print all tables
+  // Scaling table
   // =========================================================================
   console.log("\n" + "=".repeat(95));
   console.log("SCALING TABLE");
@@ -386,7 +454,6 @@ async function main() {
     );
   }
 
-  // Marginal cost analysis
   if (scalingResults.length >= 2) {
     const first = scalingResults[0];
     const last = scalingResults[scalingResults.length - 1];
@@ -400,17 +467,17 @@ async function main() {
   }
 
   // =========================================================================
-  // Markdown output (for BENCHMARKS.md)
+  // Markdown output
   // =========================================================================
   const date = new Date().toISOString().slice(0, 10);
-
   console.log(`\n${"=".repeat(95)}`);
   console.log(`MARKDOWN OUTPUT (copy to BENCHMARKS.md)`);
   console.log(`${"=".repeat(95)}\n`);
 
-  console.log(`## Alpha-2 Testnet Benchmarks — Paseo\n`);
-  console.log(`Measured ${date} on Paseo (Chain ID ${net.chainId}). gasPrice=${gasPrice} (eth-rpc 18-decimal).`);
-  console.log(`Alpha-2: 13 contracts, resolc 1.0.0, Blake2-256 claim hashing.\n`);
+  console.log(`## Paseo Testnet\n`);
+  console.log(`Measured ${date} on Paseo (Chain ID ${net.chainId}). gasPrice=${gasPrice} (eth-rpc 18-decimal wei).`);
+  console.log(`Alpha-3: 17 contracts, resolc 1.0.0, Blake2-256 claim hashing.`);
+  console.log(`Gas measured via \`eth_estimateGas\` against live contract state (Paseo receipt unavailable).\n`);
 
   console.log(`### Main Operations\n`);
   console.log(`| Function | Gas (weight) | Cost (DOT) | Cost (USD @$5) |`);
@@ -435,8 +502,8 @@ async function main() {
     console.log(`\n**Scaling analysis:** Fixed overhead ~${first.gasUsed} gas. Marginal cost per additional claim: ~${marginal.toFixed(0)} gas. Efficiency gain at batch ${last.size}: ${((1 - Number(last.perClaim) / Number(first.gasUsed)) * 100).toFixed(1)}% per-claim savings.`);
   }
 
-  console.log(`\n_Contracts: PauseRegistry + Timelock + ZKVerifier + Publishers + BudgetLedger + PaymentVault + Campaigns + CampaignLifecycle + Settlement + GovernanceV2 + GovernanceSlash + Relay + AttestationVerifier._`);
-  console.log(`_Claim hashing: Blake2-256 (ISystem 0x900 precompile on PolkaVM). Cost denomination: eth-rpc 18-decimal (cost DOT = gas × gasPrice / 10^18)._`);
+  console.log(`\n_Contracts: PauseRegistry · Timelock · ZKVerifier · Publishers · TargetingRegistry · BudgetLedger · PaymentVault · CampaignValidator · Campaigns · ClaimValidator · GovernanceHelper · CampaignLifecycle · Settlement · GovernanceV2 · GovernanceSlash · Relay · AttestationVerifier._`);
+  console.log(`_Claim hashing: Blake2-256 (ISystem 0x900 precompile on PolkaVM). Cost: gas × gasPrice / 10^18 DOT (eth-rpc 18-decimal)._`);
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });

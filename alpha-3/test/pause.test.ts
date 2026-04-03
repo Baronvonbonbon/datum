@@ -11,6 +11,7 @@ import {
   DatumBudgetLedger,
   DatumPaymentVault,
   DatumClaimValidator,
+  DatumTargetingRegistry,
   MockCampaigns,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
@@ -30,6 +31,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   let slash: DatumGovernanceSlash;
   let ledger: DatumBudgetLedger;
   let vault: DatumPaymentVault;
+  let targeting: DatumTargetingRegistry;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -55,6 +57,12 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
+
+    const TargetingFactory = await ethers.getContractFactory("DatumTargetingRegistry");
+    targeting = await TargetingFactory.deploy(
+      await publishers.getAddress(),
+      await pauseReg.getAddress()
+    );
 
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
@@ -203,14 +211,15 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     ).to.be.revertedWith("P");
   });
 
-  it("P10: setCategories reverts when globally paused", async function () {
-    // Register first while unpaused
+  it("P10: setTags reverts when globally paused", async function () {
+    // Register first while unpaused (alpha-3: tag management via TargetingRegistry)
     await publishers.connect(other).registerPublisher(5000);
 
     await pauseReg.pause();
 
+    const TAG = ethers.keccak256(ethers.toUtf8Bytes("topic:test"));
     await expect(
-      publishers.connect(other).setCategories(1n)
+      targeting.connect(other).setTags([TAG])
     ).to.be.revertedWith("P");
   });
 

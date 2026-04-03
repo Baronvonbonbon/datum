@@ -9,7 +9,7 @@ import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_BLOCKS, formatBlockDelta } from "
 import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
 import { useTx } from "../../hooks/useTx";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 
@@ -44,7 +44,7 @@ export function MyVotes() {
     setLoading(true);
     try {
       const filter = contracts.governanceV2.filters.VoteCast(null, address);
-      const logs = await queryFilterBounded(contracts.governanceV2, filter);
+      const logs = await queryFilterAll(contracts.governanceV2, filter);
 
       // Deduplicate by campaignId (last vote wins)
       const campaignIds = new Set<number>();

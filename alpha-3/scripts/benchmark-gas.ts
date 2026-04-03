@@ -1,5 +1,5 @@
 /**
- * Gas benchmarks for DATUM Alpha-2 contracts (13-contract architecture).
+ * Gas benchmarks for DATUM Alpha-3 contracts (17-contract architecture).
  *
  * Measures weight (gas units) for seven key operations:
  *   1. createCampaign     (Campaigns -> BudgetLedger escrow)
@@ -36,7 +36,6 @@ async function initHashFunction(): Promise<void> {
   useBlake2 = await isSubstrate();
   if (useBlake2) {
     try {
-      // Dynamic import for blake2b — only needed on substrate
       const mod = await import("@noble/hashes/blake2.js");
       blake2bFn = mod.blake2b;
       console.log("Using Blake2-256 claim hashing (substrate/PVM)");
@@ -65,13 +64,11 @@ function computeClaimHash(
   const values = [campaignId, publisher, user, impressionCount, clearingCpmPlanck, nonce, previousClaimHash];
 
   if (useBlake2 && blake2bFn) {
-    // Blake2-256: matches ISystem(0x900).hashBlake256(abi.encodePacked(...)) on PolkaVM
     const packed = ethers.solidityPacked(types, values);
     const bytes = ethers.getBytes(packed);
     const hash = blake2bFn(bytes, { dkLen: 32 });
     return ethers.hexlify(hash);
   } else {
-    // keccak256: matches EVM fallback in Settlement._validateClaim()
     return ethers.solidityPackedKeccak256(types, values);
   }
 }
@@ -149,9 +146,9 @@ async function main() {
   const IMPRESSIONS_5 = 200n; // 5 claims x 200 impressions each
 
   // ---------------------------------------------------------------------------
-  // Deploy all 13 contracts in dependency order
+  // Deploy all 17 contracts in dependency order (alpha-3)
   // ---------------------------------------------------------------------------
-  console.log("Deploying 13 contracts...\n");
+  console.log("Deploying 17 contracts...\n");
 
   // Tier 0: No dependencies
   const pauseRegistry = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy();
@@ -163,49 +160,75 @@ async function main() {
   const zkVerifier = await (await ethers.getContractFactory("DatumZKVerifier")).deploy();
   console.log("  ZKVerifier:", await zkVerifier.getAddress());
 
-  // Tier 1: Depends on PauseRegistry
-  const publishers = await (await ethers.getContractFactory("DatumPublishers")).deploy(
-    TAKE_RATE_DELAY, await pauseRegistry.getAddress()
-  );
-  console.log("  Publishers:", await publishers.getAddress());
-
   const budgetLedger = await (await ethers.getContractFactory("DatumBudgetLedger")).deploy();
   console.log("  BudgetLedger:", await budgetLedger.getAddress());
 
   const paymentVault = await (await ethers.getContractFactory("DatumPaymentVault")).deploy();
   console.log("  PaymentVault:", await paymentVault.getAddress());
 
+  // Tier 1: Depends on PauseRegistry
+  const publishers = await (await ethers.getContractFactory("DatumPublishers")).deploy(
+    TAKE_RATE_DELAY, await pauseRegistry.getAddress()
+  );
+  console.log("  Publishers:", await publishers.getAddress());
+
   // Tier 2: Depends on Publishers + PauseRegistry
-  const campaigns = await (await ethers.getContractFactory("DatumCampaigns")).deploy(
-    MIN_CPM_FLOOR, PENDING_TIMEOUT,
+  const targeting = await (await ethers.getContractFactory("DatumTargetingRegistry")).deploy(
     await publishers.getAddress(), await pauseRegistry.getAddress()
   );
-  console.log("  Campaigns:", await campaigns.getAddress());
+  console.log("  TargetingRegistry:", await targeting.getAddress());
 
   const lifecycle = await (await ethers.getContractFactory("DatumCampaignLifecycle")).deploy(
     await pauseRegistry.getAddress(), INACTIVITY_TIMEOUT
   );
   console.log("  CampaignLifecycle:", await lifecycle.getAddress());
 
-  // Tier 3: Depends on Campaigns
+  // Tier 3: Depends on Publishers + TargetingRegistry
+  const campaignValidator = await (await ethers.getContractFactory("DatumCampaignValidator")).deploy(
+    await publishers.getAddress(), await targeting.getAddress()
+  );
+  console.log("  CampaignValidator:", await campaignValidator.getAddress());
+
+  // Tier 4: Depends on CampaignValidator + PauseRegistry
+  const campaigns = await (await ethers.getContractFactory("DatumCampaigns")).deploy(
+    MIN_CPM_FLOOR, PENDING_TIMEOUT,
+    await campaignValidator.getAddress(), await pauseRegistry.getAddress()
+  );
+  console.log("  Campaigns:", await campaigns.getAddress());
+
+  // Tier 5: Depends on Campaigns + Publishers + PauseRegistry
+  const claimValidator = await (await ethers.getContractFactory("DatumClaimValidator")).deploy(
+    await campaigns.getAddress(),
+    await publishers.getAddress(),
+    await pauseRegistry.getAddress()
+  );
+  console.log("  ClaimValidator:", await claimValidator.getAddress());
+
+  const governanceHelper = await (await ethers.getContractFactory("DatumGovernanceHelper")).deploy(
+    await campaigns.getAddress()
+  );
+  console.log("  GovernanceHelper:", await governanceHelper.getAddress());
+
   const settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(
-    await campaigns.getAddress(), await pauseRegistry.getAddress()
+    await pauseRegistry.getAddress()
   );
   console.log("  Settlement:", await settlement.getAddress());
 
   const governance = await (await ethers.getContractFactory("DatumGovernanceV2")).deploy(
     await campaigns.getAddress(),
     QUORUM, SLASH_BPS,
-    TERMINATION_QUORUM, BASE_GRACE, GRACE_PER_QUORUM, MAX_GRACE
+    TERMINATION_QUORUM, BASE_GRACE, GRACE_PER_QUORUM, MAX_GRACE,
+    await pauseRegistry.getAddress()
   );
   console.log("  GovernanceV2:", await governance.getAddress());
 
+  // Tier 6: Depends on GovernanceV2 + Campaigns
   const governanceSlash = await (await ethers.getContractFactory("DatumGovernanceSlash")).deploy(
     await governance.getAddress(), await campaigns.getAddress()
   );
   console.log("  GovernanceSlash:", await governanceSlash.getAddress());
 
-  // Tier 4: Depends on Settlement + Campaigns
+  // Tier 7: Depends on Settlement + Campaigns + PauseRegistry
   const relay = await (await ethers.getContractFactory("DatumRelay")).deploy(
     await settlement.getAddress(),
     await campaigns.getAddress(),
@@ -220,20 +243,19 @@ async function main() {
   console.log("  AttestationVerifier:", await attestationVerifier.getAddress());
 
   // ---------------------------------------------------------------------------
-  // Wire cross-contract references (16 ops, same as deploy.ts)
+  // Wire cross-contract references (18 ops, alpha-3)
   // ---------------------------------------------------------------------------
   console.log("\nWiring cross-contract references...");
 
-  // Settlement.configure(budgetLedger, paymentVault, lifecycle, relay, publishers)
+  // Settlement.configure(budgetLedger, paymentVault, lifecycle, relay) — 4 args (alpha-3)
   await (await settlement.configure(
     await budgetLedger.getAddress(),
     await paymentVault.getAddress(),
     await lifecycle.getAddress(),
-    await relay.getAddress(),
-    await publishers.getAddress()
+    await relay.getAddress()
   )).wait();
 
-  // Settlement.setAttestationVerifier
+  await (await settlement.setClaimValidator(await claimValidator.getAddress())).wait();
   await (await settlement.setAttestationVerifier(await attestationVerifier.getAddress())).wait();
 
   // Campaigns: 4 setters
@@ -256,14 +278,15 @@ async function main() {
   await (await lifecycle.setGovernanceContract(await governance.getAddress())).wait();
   await (await lifecycle.setSettlementContract(await settlement.getAddress())).wait();
 
-  // GovernanceV2: 2 setters
+  // GovernanceV2: 3 setters
   await (await governance.setSlashContract(await governanceSlash.getAddress())).wait();
   await (await governance.setLifecycle(await lifecycle.getAddress())).wait();
+  await (await governance.setHelper(await governanceHelper.getAddress())).wait();
 
   // Register publisher
   await (await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS)).wait();
 
-  console.log("All 13 contracts deployed and wired.\n");
+  console.log("All 17 contracts deployed and wired.\n");
 
   // ---------------------------------------------------------------------------
   // Measurement infrastructure
@@ -283,7 +306,7 @@ async function main() {
   // Parse campaign ID from CampaignCreated event
   async function createCampaignAndGetId(signer: any, budget = BUDGET): Promise<bigint> {
     const tx = await campaigns.connect(signer).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, { value: budget }
+      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: budget }
     );
     const receipt = await tx.wait();
     const log = receipt!.logs.find((l: any) => {
@@ -311,7 +334,7 @@ async function main() {
   console.log("1. createCampaign");
   await measure("createCampaign",
     campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
     )
   );
 
@@ -339,16 +362,12 @@ async function main() {
   console.log("3. vote (nay)");
   await activateCampaign(cidVote, voter1);
 
-  // Cast nay vote
   await measure("vote (nay)",
     governance.connect(voter2).vote(cidVote, false, 0, { value: QUORUM })
   );
 
   // Mine past the grace period, then evaluate to terminate
-  // Grace = baseGrace + total * gracePerQuorum / quorum
-  // Aye (voter1, conv 0) = 1×QUORUM, Nay (voter2, conv 0) = 1×QUORUM → total = 2×QUORUM
-  // Grace = BASE_GRACE + 2 * GRACE_PER_QUORUM
-  const graceBlocks = Number(BASE_GRACE) + 2 * Number(GRACE_PER_QUORUM) + 1; // +1 buffer for >= check
+  const graceBlocks = Number(BASE_GRACE) + 2 * Number(GRACE_PER_QUORUM) + 1;
   if (substrate) {
     await mineBlocks(graceBlocks);
   } else {
@@ -369,7 +388,6 @@ async function main() {
   }
   const claims1 = buildClaimChain(cidSettle1, publisher.address, user.address, 1, BID_CPM, IMPRESSIONS_1);
 
-  // Static call to verify
   try {
     const sr = await settlement.connect(user).settleClaims.staticCall([
       { user: user.address, campaignId: cidSettle1, claims: claims1 }
@@ -411,7 +429,6 @@ async function main() {
     const userBal = await paymentVault.userBalance(user.address);
     console.log(`  userBalance: ${userBal}`);
     if (userBal === 0n) {
-      // Ensure user has a balance by settling one more claim
       console.log("  Re-settling to fund user balance...");
       const cidW = await createCampaignAndGetId(advertiser);
       await activateCampaign(cidW, voter1);
@@ -435,7 +452,6 @@ async function main() {
     const pubBal = await paymentVault.publisherBalance(publisher.address);
     console.log(`  publisherBalance: ${pubBal}`);
     if (pubBal === 0n) {
-      // Ensure publisher has a balance
       console.log("  Re-settling to fund publisher balance...");
       const cidW = await createCampaignAndGetId(advertiser);
       await activateCampaign(cidW, voter1);
@@ -464,7 +480,6 @@ async function main() {
     console.log(`${r.label.padEnd(30)} | ${r.gasUsed.toString().padEnd(22)} | ${cost}`);
   }
 
-  // Scale factor: 5 claims / 1 claim
   const settle1Gas = results.find(r => r.label === "settleClaims (1 claim)")!.gasUsed;
   const settle5Gas = results.find(r => r.label === "settleClaims (5 claims)")!.gasUsed;
   console.log(`\nsettleClaims scale: 5-claim / 1-claim = ${(Number(settle5Gas) / Number(settle1Gas)).toFixed(2)}x`);
@@ -474,11 +489,11 @@ async function main() {
   // Batch scaling section
   // =========================================================================
   console.log("\n=== Batch Scaling Benchmark ===\n");
-  console.log("Testing settleClaims at batch sizes 1-20 (contract cap raised to 50 for benchmarking)...\n");
+  console.log("Testing settleClaims at batch sizes 1-10 (contract inner cap = 50 claims/batch)...\n");
 
-  const BATCH_SIZES = [1, 5, 10, 15, 20, 25, 30, 40, 50];
-  const SCALE_IMPRESSIONS = 100n; // small per-claim to avoid budget exhaustion
-  const SCALE_BUDGET = parseDOT("5000"); // large budget for extended scaling tests
+  const BATCH_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const SCALE_IMPRESSIONS = 100n;
+  const SCALE_BUDGET = parseDOT("5000");
 
   interface ScalingResult {
     size: number;
@@ -490,7 +505,6 @@ async function main() {
   let baseScaleGas = 0n;
 
   for (const size of BATCH_SIZES) {
-    // Each batch size gets its own campaign + fresh nonce chain
     const cid = await createCampaignAndGetId(advertiser, SCALE_BUDGET);
     await activateCampaign(cid, voter1);
 
@@ -514,14 +528,10 @@ async function main() {
     } catch (err: any) {
       const reason = err.message?.slice(0, 120) ?? String(err).slice(0, 120);
       console.log(`  Batch size ${size}: FAILED — ${reason}`);
-      if (reason.includes("E28")) {
-        console.log(`\n  Hit batch cap (E28) at size ${size}. Contract limit: 5.`);
-        break;
-      }
+      break;
     }
   }
 
-  // Print scaling table
   console.log("| Batch Size | Gas Used | Per-Claim Gas | Scaling vs 1 |");
   console.log("|------------|----------|---------------|--------------|");
   for (const r of scalingResults) {
@@ -530,7 +540,6 @@ async function main() {
     );
   }
 
-  // Marginal cost analysis
   if (scalingResults.length >= 2) {
     const first = scalingResults[0];
     const last = scalingResults[scalingResults.length - 1];
@@ -567,8 +576,8 @@ async function main() {
     console.log(`| ${r.size} | ${r.gasUsed} | ${r.perClaim} | ${r.scaleVs1}x |`);
   }
 
-  console.log(`\n_Measured ${date} on ${netName}. Alpha-2 (13 contracts, resolc 1.0)._`);
-  console.log(`_Contracts: PauseRegistry + Timelock + ZKVerifier + Publishers + BudgetLedger + PaymentVault + Campaigns + CampaignLifecycle + Settlement + GovernanceV2 + GovernanceSlash + Relay + AttestationVerifier._`);
+  console.log(`\n_Measured ${date} on ${netName}. Alpha-3 (17 contracts, resolc 1.0)._`);
+  console.log(`_Contracts: PauseRegistry + Timelock + ZKVerifier + Publishers + TargetingRegistry + BudgetLedger + PaymentVault + CampaignValidator + Campaigns + ClaimValidator + GovernanceHelper + CampaignLifecycle + Settlement + GovernanceV2 + GovernanceSlash + Relay + AttestationVerifier._`);
 }
 
 main().catch((e) => {
