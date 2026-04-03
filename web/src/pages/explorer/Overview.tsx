@@ -5,6 +5,7 @@ import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
+import { humanizeError } from "@shared/errorCodes";
 import { StatCardSkeleton } from "../../components/Skeleton";
 
 interface Stats {
@@ -64,7 +65,7 @@ export function Overview() {
 
       setStats({ totalCampaigns: total, activeCampaigns: active, pendingCampaigns: pending, totalImpressions, paused: Boolean(paused) });
     } catch (err) {
-      setError(String(err).slice(0, 200));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }

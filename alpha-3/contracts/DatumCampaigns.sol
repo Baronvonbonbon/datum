@@ -135,7 +135,6 @@ contract DatumCampaigns is IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        uint8 categoryId,
         bytes32[] calldata requiredTags
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
@@ -156,8 +155,7 @@ contract DatumCampaigns is IDatumCampaigns {
             terminationBlock: 0,
             bidCpmPlanck: bidCpmPlanck,
             snapshotTakeRateBps: snapshot,
-            status: CampaignStatus.Pending,
-            categoryId: categoryId
+            status: CampaignStatus.Pending
         });
 
         // Store required tags in separate mapping (not in struct — PVM size)
@@ -177,8 +175,7 @@ contract DatumCampaigns is IDatumCampaigns {
             msg.value,
             dailyCapPlanck,
             bidCpmPlanck,
-            snapshot,
-            categoryId
+            snapshot
         );
     }
 

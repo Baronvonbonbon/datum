@@ -9,7 +9,8 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { bytes32ToCid } from "@shared/ipfs";
 import { ethers } from "ethers";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
+import { humanizeError } from "@shared/errorCodes";
 
 interface CampaignRow {
   id: number;
@@ -61,7 +62,7 @@ export function Campaigns() {
           let metadataHash = "0x" + "0".repeat(64);
           try {
             const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-            const logs = await queryFilterBounded(contracts.campaigns, filter);
+            const logs = await queryFilterAll(contracts.campaigns, filter);
             if (logs.length > 0) {
               const last = logs[logs.length - 1] as any;
               metadataHash = last.args?.metadataHash ?? metadataHash;
@@ -84,7 +85,7 @@ export function Campaigns() {
 
       setRows(results.filter(Boolean) as CampaignRow[]);
     } catch (err) {
-      setError(String(err).slice(0, 200));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }

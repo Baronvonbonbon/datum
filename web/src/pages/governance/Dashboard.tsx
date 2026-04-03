@@ -11,7 +11,7 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { formatBlockDelta } from "@shared/conviction";
 import { useTx } from "../../hooks/useTx";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
 
 interface GovCampaign {
   id: number;
@@ -68,7 +68,7 @@ export function GovernanceDashboard() {
             let metadataHash = "0x" + "0".repeat(64);
             try {
               const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-              const logs = await queryFilterBounded(contracts.campaigns, filter);
+              const logs = await queryFilterAll(contracts.campaigns, filter);
               if (logs.length > 0) metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
             } catch { /* no events */ }
 

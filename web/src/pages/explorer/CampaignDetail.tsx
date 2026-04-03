@@ -12,7 +12,8 @@ import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
 import { getExplorerUrl } from "@shared/networks";
 import { ethers } from "ethers";
-import { queryFilterAll, queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
+import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 
@@ -131,7 +132,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       // Metadata hash from events
       try {
         const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(campaignId));
-        const logs = await queryFilterBounded(contracts.campaigns, filter);
+        const logs = await queryFilterAll(contracts.campaigns, filter);
         if (logs.length > 0) {
           const last = logs[logs.length - 1] as any;
           setMetadataHash(last.args?.metadataHash ?? "0x" + "0".repeat(64));
@@ -142,7 +143,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       await loadSettlements(campaignId);
 
     } catch (err) {
-      setError(String(err).slice(0, 300));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }

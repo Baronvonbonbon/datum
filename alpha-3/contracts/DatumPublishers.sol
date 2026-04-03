@@ -62,7 +62,6 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
             takeRateBps: takeRateBps,
             pendingTakeRateBps: 0,
             takeRateEffectiveBlock: 0,
-            categoryBitmask: 0,
             registered: true
         });
 
@@ -98,19 +97,8 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
         emit PublisherTakeRateApplied(msg.sender, pub.takeRateBps);
     }
 
-    /// @inheritdoc IDatumPublishers
-    function setCategories(uint256 bitmask) external whenNotPaused {
-        require(_publishers[msg.sender].registered, "Not registered");
-        _publishers[msg.sender].categoryBitmask = bitmask;
-        emit CategoriesUpdated(msg.sender, bitmask);
-    }
-
     function getPublisher(address publisher) external view returns (Publisher memory) {
         return _publishers[publisher];
-    }
-
-    function getCategories(address publisher) external view returns (uint256) {
-        return _publishers[publisher].categoryBitmask;
     }
 
     function isRegisteredWithRate(address publisher) external view returns (bool, uint16) {

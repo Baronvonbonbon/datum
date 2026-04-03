@@ -84,6 +84,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         owner = newOwner;
     }
 
+    /// @notice Reject accidental ETH deposits (S6)
+    receive() external payable { revert("E03"); }
+
     // -------------------------------------------------------------------------
     // Settlement
     // -------------------------------------------------------------------------

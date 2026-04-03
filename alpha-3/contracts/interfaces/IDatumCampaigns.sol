@@ -32,7 +32,6 @@ interface IDatumCampaigns {
         uint256 bidCpmPlanck;
         uint16 snapshotTakeRateBps;
         CampaignStatus status;
-        uint8 categoryId; // Deprecated: use requiredTags via getCampaignTags()
     }
 
     // -------------------------------------------------------------------------
@@ -46,8 +45,7 @@ interface IDatumCampaigns {
         uint256 budgetPlanck,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps,
-        uint8 categoryId
+        uint16 snapshotTakeRateBps
     );
     event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash);
     event CampaignActivated(uint256 indexed campaignId);
@@ -63,7 +61,6 @@ interface IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        uint8 categoryId,
         bytes32[] calldata requiredTags
     ) external payable returns (uint256 campaignId);
 

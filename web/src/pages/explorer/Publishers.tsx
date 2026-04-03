@@ -3,7 +3,8 @@ import { useContracts } from "../../hooks/useContracts";
 import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { getExplorerUrl } from "@shared/networks";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
+import { humanizeError } from "@shared/errorCodes";
 import { tagLabel } from "@shared/tagDictionary";
 
 interface PublisherRow {
@@ -33,7 +34,7 @@ export function Publishers() {
     try {
       // Get publisher addresses from PublisherRegistered events
       const filter = contracts.publishers.filters.PublisherRegistered();
-      const logs = await queryFilterBounded(contracts.publishers, filter);
+      const logs = await queryFilterAll(contracts.publishers, filter);
       const addresses = [...new Set(logs.map((l: any) => l.args?.publisher as string).filter(Boolean))];
 
       const rows = await Promise.all(addresses.map(async (addr) => {
@@ -62,7 +63,7 @@ export function Publishers() {
 
       setPublishers(rows.filter(Boolean) as PublisherRow[]);
     } catch (err) {
-      setError(String(err).slice(0, 200));
+      setError(humanizeError(err));
     } finally {
       setLoading(false);
     }

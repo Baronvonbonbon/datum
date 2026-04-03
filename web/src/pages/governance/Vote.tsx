@@ -13,7 +13,7 @@ import { parseDOT, parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
-import { queryFilterBounded } from "@shared/eventQuery";
+import { queryFilterAll } from "@shared/eventQuery";
 
 export function Vote() {
   const { id } = useParams<{ id: string }>();
@@ -62,7 +62,7 @@ export function Vote() {
 
       try {
         const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(cid));
-        const logs = await queryFilterBounded(contracts.campaigns, filter);
+        const logs = await queryFilterAll(contracts.campaigns, filter);
         if (logs.length > 0) setMetadataHash((logs[logs.length - 1] as any).args?.metadataHash ?? "0x" + "0".repeat(64));
       } catch { /* no events */ }
     } finally {

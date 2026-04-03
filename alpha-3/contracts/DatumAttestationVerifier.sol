@@ -30,17 +30,20 @@ contract DatumAttestationVerifier {
 
     IDatumSettlement public immutable settlement;
     IDatumCampaignsSettlement public immutable campaigns;
+    address public immutable pauseRegistry;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _settlement, address _campaigns) {
+    constructor(address _settlement, address _campaigns, address _pauseRegistry) {
         require(_settlement != address(0), "E00");
         require(_campaigns != address(0), "E00");
+        require(_pauseRegistry != address(0), "E00");
         settlement = IDatumSettlement(_settlement);
         campaigns = IDatumCampaignsSettlement(_campaigns);
+        pauseRegistry = _pauseRegistry;
         DOMAIN_SEPARATOR = keccak256(abi.encode(
             keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
             keccak256("DatumAttestationVerifier"),
@@ -69,6 +72,12 @@ contract DatumAttestationVerifier {
         external
         returns (IDatumSettlement.SettlementResult memory result)
     {
+        // S4: Pause check (mirrors Settlement.settleClaims)
+        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
+            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
+        );
+        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+
         IDatumSettlement.ClaimBatch[] memory forwardBatches =
             new IDatumSettlement.ClaimBatch[](batches.length);
 

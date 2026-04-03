@@ -375,6 +375,7 @@ async function main() {
     await deployOrReuse("attestationVerifier", "DatumAttestationVerifier", [
       addresses.settlement,
       addresses.campaigns,
+      addresses.pauseRegistry,
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumAttestationVerifier — ${err}`);

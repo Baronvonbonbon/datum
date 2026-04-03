@@ -4,7 +4,7 @@
 //
 // This script:
 //   1. Funds all non-user accounts from Alice (Bob, Charlie, Diana, Eve, Frank, Grace)
-//   2. Registers Diana + Eve as publishers with categories
+//   2. Registers Diana + Eve as publishers
 //   3. Sets publisher tags via TargetingRegistry (TX-1)
 //   4. Creates a test campaign (Bob as advertiser, Diana as publisher)
 //   5. Votes aye (Frank) to activate the campaign
@@ -122,13 +122,12 @@ async function readCall(
 // ── ABIs (minimal, only what we need) ────────────────────────────────────────
 
 const publishersAbi = [
-  "function getPublisher(address) view returns (bool registered, uint16 takeRateBps, uint256 categoryBitmask)",
+  "function getPublisher(address) view returns (bool registered, uint16 takeRateBps)",
   "function registerPublisher(uint16 takeBps)",
-  "function setCategories(uint256 categories)",
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, uint8 category, bytes32[] requiredTags) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -234,13 +233,10 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   log("2", "--- Registering publishers ---");
 
-  // Diana: 50% take rate, all 26 categories (bitmask: bits 1-26)
-  const ALL_26_CATEGORIES = (1n << 27n) - 2n; // bits 1..26 set
-
-  for (const [name, wallet, takeBps, categories] of [
-    ["diana", diana, 5000n, ALL_26_CATEGORIES] as const,
-    ["eve",   eve,   4000n, 1n << 26n] as const, // category 26 (other)
-  ]) {
+  for (const [name, wallet, takeBps] of [
+    ["diana", diana, 5000n] as const,
+    ["eve",   eve,   4000n] as const,
+  ] as [string, typeof diana, bigint][]) {
     // Check if already registered
     const result = await readCall(rawProvider, addrs.publishers, pubIface, "getPublisher", [wallet.address]);
     const decoded = pubIface.decodeFunctionResult("getPublisher", result);
@@ -257,13 +253,6 @@ async function main() {
         process.exitCode = 1;
         return;
       }
-    }
-    // Set categories (legacy bitmask)
-    try {
-      await sendCall(wallet, rawProvider, addrs.publishers, pubIface, "setCategories", [categories]);
-      log("2", `  ${name} categories set: 0x${categories.toString(16)}`);
-    } catch (err) {
-      log("2", `  ${name} categories: ${String(err).slice(0, 80)}`);
     }
   }
 
@@ -306,7 +295,6 @@ async function main() {
   const BUDGET    = parseDOT("10");    // 10 PAS
   const DAILY_CAP = parseDOT("10");    // daily cap = budget
   const BID_CPM   = parseDOT("0.016"); // 0.016 PAS per 1000 impressions
-  const CATEGORY  = 1n;                 // Arts & Entertainment (legacy)
   const REQUIRED_TAGS: string[] = [];   // No required tags for basic test campaign
 
   // We can't parse CampaignCreated from receipt (no receipts on Paseo),
@@ -324,7 +312,7 @@ async function main() {
 
     // Create campaign
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, CATEGORY, REQUIRED_TAGS],
+      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS],
       BUDGET
     );
 
@@ -339,7 +327,7 @@ async function main() {
 
   log("3", `  Advertiser: Bob (${bob.address})`);
   log("3", `  Publisher: Diana (${diana.address})`);
-  log("3", `  Budget: 10 PAS, CPM: 0.016 PAS, Category: ${CATEGORY}`);
+  log("3", `  Budget: 10 PAS, CPM: 0.016 PAS`);
 
   // Verify Pending
   const statusResult = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [campaignId]);
