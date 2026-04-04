@@ -9,4 +9,6 @@ interface IDatumCampaignsSettlement {
         uint8 status, address publisher, uint256 bidCpmPlanck,
         uint16 snapshotTakeRateBps
     );
+    function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
+    function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
 }

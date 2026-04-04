@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumClaimValidator.sol";
+import "./interfaces/IDatumSettlementRateLimiter.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches and distributes payments.
@@ -28,6 +29,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public pauseRegistry;
     address public attestationVerifier;
     address public claimValidator;
+    // BM-5: optional rate limiter (address(0) = disabled)
+    address public rateLimiter;
+    // S12: publishers ref for settlement-level blocklist check (address(0) = disabled)
+    address public publishers;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
 
@@ -76,6 +81,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         require(msg.sender == owner, "E18");
         require(addr != address(0), "E00");
         attestationVerifier = addr;
+    }
+
+    /// @notice Set the BM-5 rate limiter satellite. Pass address(0) to disable.
+    function setRateLimiter(address addr) external {
+        require(msg.sender == owner, "E18");
+        rateLimiter = addr;
+    }
+
+    /// @notice Set publishers ref for S12 settlement-level blocklist check. Pass address(0) to disable.
+    function setPublishers(address addr) external {
+        require(msg.sender == owner, "E18");
+        publishers = addr;
     }
 
     function transferOwnership(address newOwner) external {
@@ -139,6 +156,19 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 continue;
             }
 
+            // S12: Settlement-level blocklist check
+            if (publishers != address(0)) {
+                (bool blOk, bytes memory blRet) = publishers.staticcall(
+                    abi.encodeWithSelector(bytes4(0xfbac3951), claim.publisher)  // isBlocked(address)
+                );
+                if (!blOk || blRet.length < 32 || abi.decode(blRet, (bool))) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
+                    gapFound = true;
+                    continue;
+                }
+            }
+
             // Delegate validation to ClaimValidator satellite (SE-1)
             uint256 expectedNonce = lastNonce[user][claim.campaignId] + 1;
             bytes32 expectedPrevHash = lastClaimHash[user][claim.campaignId];
@@ -166,6 +196,19 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 continue;
             }
             userCampaignSettled[user][claim.campaignId] = newTotal;
+
+            // BM-5: Per-publisher window rate limit check (optional)
+            if (rateLimiter != address(0)) {
+                bool allowed = IDatumSettlementRateLimiter(rateLimiter).checkAndIncrement(
+                    claim.publisher, claim.impressionCount
+                );
+                if (!allowed) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(claim.campaignId, user, claim.nonce, 14);
+                    gapFound = true;
+                    continue;
+                }
+            }
 
             // Store hash from validator before settling
             lastClaimHash[user][claim.campaignId] = computedHash;

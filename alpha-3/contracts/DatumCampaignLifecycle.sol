@@ -37,6 +37,11 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         _;
     }
 
+    modifier whenNotPaused() {
+        require(!pauseRegistry.paused(), "P");
+        _;
+    }
+
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
 
     // -------------------------------------------------------------------------
@@ -173,7 +178,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     /// @notice Expire an Active/Paused campaign that has had no settlement activity
     ///         for `inactivityTimeoutBlocks`. Permissionless — anyone can call.
     ///         Full remaining budget refunded to advertiser.
-    function expireInactiveCampaign(uint256 campaignId) external nonReentrant {
+    function expireInactiveCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
 

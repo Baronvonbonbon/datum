@@ -15,12 +15,15 @@ interface IDatumPublishers {
     event PublisherRegistered(address indexed publisher, uint16 takeRateBps);
     event PublisherTakeRateQueued(address indexed publisher, uint16 newTakeRateBps, uint256 effectiveBlock);
     event PublisherTakeRateApplied(address indexed publisher, uint16 newTakeRateBps);
+    event RelaySignerUpdated(address indexed publisher, address indexed signer);
+    event ProfileUpdated(address indexed publisher, bytes32 hash);
 
     function registerPublisher(uint16 takeRateBps) external;
     function updateTakeRate(uint16 newTakeRateBps) external;
     function applyTakeRateUpdate() external;
 
     function getPublisher(address publisher) external view returns (Publisher memory);
+    function isRegisteredWithRate(address publisher) external view returns (bool, uint16);
     function takeRateUpdateDelayBlocks() external view returns (uint256);
     function DEFAULT_TAKE_RATE_BPS() external view returns (uint16);
 
@@ -30,4 +33,10 @@ interface IDatumPublishers {
     // S12: Per-publisher allowlist
     function allowlistEnabled(address publisher) external view returns (bool);
     function isAllowedAdvertiser(address publisher, address advertiser) external view returns (bool);
+
+    // Publisher profile (hot key + metadata hash)
+    function relaySigner(address publisher) external view returns (address);
+    function profileHash(address publisher) external view returns (bytes32);
+    function setRelaySigner(address signer) external;
+    function setProfile(bytes32 hash) external;
 }

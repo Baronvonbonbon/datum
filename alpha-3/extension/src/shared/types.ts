@@ -345,6 +345,8 @@ export interface ContractAddresses {
   campaignValidator: string;    // SE-3: campaign creation validation
   claimValidator: string;       // SE-1: claim validation satellite
   governanceHelper: string;     // SE-2: governance slash helper
+  reports: string;              // community reporting satellite
+  rateLimiter: string;          // BM-5: settlement rate limiter
 }
 
 // User ad preferences — persisted in chrome.storage.local
@@ -355,6 +357,8 @@ export interface UserPreferences {
   blockedTags: string[];          // tag strings user doesn't want (e.g., "topic:gambling")
   maxAdsPerHour: number;          // rate limit (default 12)
   minBidCpm: string;              // minimum CPM in planck (default "0")
+  filterMode: "all" | "selected"; // "all" = opt-out (default), "selected" = opt-in
+  allowedTopics: string[];        // used when filterMode === "selected"
 }
 
 // Engagement tracking (Phase 6 / P16)

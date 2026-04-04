@@ -1,14 +1,16 @@
-// deploy.ts — Full 17-contract Alpha-3 deployment + wiring + ownership transfer
+// deploy.ts — Full 19-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
 // validates all wiring, and writes deployed-addresses.json.
 //
-// Alpha-3 adds 4 satellite contracts:
+// Alpha-3 adds 6 satellite contracts:
 //   - DatumTargetingRegistry  (TX-1: tag-based publisher targeting)
 //   - DatumCampaignValidator  (SE-3: campaign creation validation)
 //   - DatumClaimValidator     (SE-1: claim hash/chain validation)
 //   - DatumGovernanceHelper   (SE-2: slash computation + dust guard)
+//   - DatumReports            (community reporting — pages + ads)
+//   - DatumSettlementRateLimiter (BM-5: per-publisher window rate limiter)
 //
 // Paseo eth-rpc workaround: getTransactionReceipt is broken for deploy txs.
 // We use raw signed transactions + getCreateAddress(sender, nonce) to derive
@@ -56,7 +58,7 @@ const INACTIVITY_TIMEOUT_BLOCKS = 432000n;           // 30 days at 6s/block
 const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
 const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
 
-// ── Required address keys (17 contracts) ─────────────────────────────────────
+// ── Required address keys (18 contracts) ─────────────────────────────────────
 
 const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
@@ -65,9 +67,14 @@ const REQUIRED_KEYS = [
   "settlement", "relay", "zkVerifier",
   // Alpha-3 satellites
   "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
+  "reports", "rateLimiter",
 ] as const;
 
-const TOTAL_STEPS = 24; // 17 deploy + 7 wiring/validation sections
+// BM-5 rate limiter deployment parameters
+const RATE_LIMITER_WINDOW_BLOCKS = 100n;              // ~10 minutes at 6s/block
+const RATE_LIMITER_MAX_IMPRESSIONS = 500_000n;        // 500K impressions per publisher per window
+
+const TOTAL_STEPS = 26; // 19 deploy + 7 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -381,7 +388,26 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumAttestationVerifier — ${err}`);
   }
 
-  console.log("\n=== All 17 contracts deployed ===\n");
+  try {
+    logStep("Deploying DatumReports");
+    await deployOrReuse("reports", "DatumReports", [
+      addresses.campaigns,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumReports — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumSettlementRateLimiter (BM-5)");
+    await deployOrReuse("rateLimiter", "DatumSettlementRateLimiter", [
+      RATE_LIMITER_WINDOW_BLOCKS,
+      RATE_LIMITER_MAX_IMPRESSIONS,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumSettlementRateLimiter — ${err}`);
+  }
+
+  console.log("\n=== All 19 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -459,6 +485,22 @@ async function main() {
     "DatumSettlement", addresses.settlement,
     "attestationVerifier", "setAttestationVerifier",
     addresses.attestationVerifier,
+  );
+
+  // ── Settlement.setRateLimiter(rateLimiter) — BM-5 ──
+  await wireIfNeeded(
+    "Settlement.rateLimiter",
+    "DatumSettlement", addresses.settlement,
+    "rateLimiter", "setRateLimiter",
+    addresses.rateLimiter,
+  );
+
+  // ── Settlement.setPublishers(publishers) — S12 settlement-level blocklist ──
+  await wireIfNeeded(
+    "Settlement.publishers",
+    "DatumSettlement", addresses.settlement,
+    "publishers", "setPublishers",
+    addresses.publishers,
   );
 
   // ── Campaigns: setBudgetLedger, setLifecycleContract, setGovernanceContract, setSettlementContract ──
@@ -541,6 +583,22 @@ async function main() {
     addresses.settlement,
   );
 
+  // ── ClaimValidator: setCampaigns (needed when Campaigns is redeployed) ──
+  await wireIfNeeded(
+    "ClaimValidator.campaigns",
+    "DatumClaimValidator", addresses.claimValidator,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+
+  // ── ClaimValidator: setZKVerifier(zkVerifier) ──
+  await wireIfNeeded(
+    "ClaimValidator.zkVerifier",
+    "DatumClaimValidator", addresses.claimValidator,
+    "zkVerifier", "setZKVerifier",
+    addresses.zkVerifier,
+  );
+
   // ── GovernanceV2: setSlashContract, setLifecycle, setHelper ──
   await wireIfNeeded(
     "GovernanceV2.slashContract",
@@ -598,6 +656,8 @@ async function main() {
 
   await transferOwnershipIfNeeded("Campaigns", "DatumCampaigns", addresses.campaigns);
   await transferOwnershipIfNeeded("Settlement", "DatumSettlement", addresses.settlement);
+  // S12: Blocklist admin (blockAddress/unblockAddress) must go through 48h timelock for mainnet transparency
+  await transferOwnershipIfNeeded("Publishers", "DatumPublishers", addresses.publishers);
 
   console.log("\n  Future admin changes go through:");
   console.log("    timelock.propose(target, abi.encodeCall(...)) -> 48h -> timelock.execute()");
@@ -626,6 +686,8 @@ async function main() {
   await check("Settlement.relayContract", await readAddr(addresses.settlement, "relayContract"), addresses.relay);
   await check("Settlement.claimValidator", await readAddr(addresses.settlement, "claimValidator"), addresses.claimValidator);
   await check("Settlement.attestationVerifier", await readAddr(addresses.settlement, "attestationVerifier"), addresses.attestationVerifier);
+  await check("Settlement.rateLimiter", await readAddr(addresses.settlement, "rateLimiter"), addresses.rateLimiter);
+  await check("Settlement.publishers", await readAddr(addresses.settlement, "publishers"), addresses.publishers);
   await check("Settlement.owner", await readAddr(addresses.settlement, "owner"), addresses.timelock);
 
   // Campaigns
@@ -635,6 +697,8 @@ async function main() {
   await check("Campaigns.settlementContract", await readAddr(addresses.campaigns, "settlementContract"), addresses.settlement);
   await check("Campaigns.campaignValidator", await readAddr(addresses.campaigns, "campaignValidator"), addresses.campaignValidator);
   await check("Campaigns.owner", await readAddr(addresses.campaigns, "owner"), addresses.timelock);
+  // S12: Publishers must be timelock-owned so blockAddress/unblockAddress require 48h delay
+  await check("Publishers.owner", await readAddr(addresses.publishers, "owner"), addresses.timelock);
 
   // BudgetLedger
   await check("BudgetLedger.campaigns", await readAddr(addresses.budgetLedger, "campaigns"), addresses.campaigns);
@@ -658,6 +722,7 @@ async function main() {
   // ClaimValidator
   await check("ClaimValidator.campaigns", await readAddr(addresses.claimValidator, "campaigns"), addresses.campaigns);
   await check("ClaimValidator.publishers", await readAddr(addresses.claimValidator, "publishers"), addresses.publishers);
+  await check("ClaimValidator.zkVerifier", await readAddr(addresses.claimValidator, "zkVerifier"), addresses.zkVerifier);
 
   // CampaignValidator
   await check("CampaignValidator.publishers", await readAddr(addresses.campaignValidator, "publishers"), addresses.publishers);
@@ -707,7 +772,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("17 contracts deployed and wired:\n");
+  console.log("19 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }
@@ -716,6 +781,7 @@ async function main() {
   console.log("\nOwnership transferred to Timelock:");
   console.log("  - DatumCampaigns");
   console.log("  - DatumSettlement");
+  console.log("  - DatumPublishers (S12: blocklist admin gated)");
   console.log("\nTo configure the extension, addresses auto-load from deployed-addresses.json.");
   console.log("To set up testnet: npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet");
 }

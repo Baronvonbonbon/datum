@@ -266,6 +266,8 @@ export interface ContractAddresses {
   campaignValidator: string;
   claimValidator: string;
   governanceHelper: string;
+  reports: string;
+  rateLimiter: string;
 }
 
 export type IpfsProvider =

@@ -122,7 +122,9 @@ contract DatumAttestationVerifier {
             }
             require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
             address pubSigner = ecrecover(digest, v, r, s);
-            require(pubSigner != address(0) && pubSigner == expectedPublisher, "E34");
+            address relaySig = campaigns.getCampaignRelaySigner(ab.campaignId);
+            address expectedSigner = (relaySig != address(0)) ? relaySig : expectedPublisher;
+            require(pubSigner != address(0) && pubSigner == expectedSigner, "E34");
 
             // Build ClaimBatch for forwarding
             IDatumSettlement.Claim[] memory memoryClaims =

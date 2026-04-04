@@ -12,7 +12,7 @@ import { getCurrencySymbol } from "@shared/networks";
 import { NetworkName } from "@shared/types";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
-import { tagHash, tagStringFromLocale, tagStringFromPlatform, tagStringFromHash } from "@shared/tagDictionary";
+import { tagHash, tagStringFromLocale, tagStringFromPlatform, tagStringFromHash, TAG_LABELS } from "@shared/tagDictionary";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
@@ -103,6 +103,19 @@ async function main() {
     }
   }
 
+  // Defense-in-depth: if this publisher has allowlist enabled, open campaigns must not show.
+  // Contract enforces this at settlement; we also filter client-side to avoid showing the ad.
+  let publisherAllowlistEnabled = false;
+  if (publisherAddress) {
+    try {
+      const alResp = await chrome.runtime.sendMessage({
+        type: "CHECK_PUBLISHER_ALLOWLIST",
+        publisher: publisherAddress,
+      });
+      publisherAllowlistEnabled = alResp?.allowlistEnabled ?? false;
+    } catch { /* background inactive — conservative: allow */ }
+  }
+
   let pool: Array<Record<string, string>>;
 
   // Tag-first campaign matching
@@ -111,6 +124,9 @@ async function main() {
     const publisherMatch = c.publisher === "0x0000000000000000000000000000000000000000" ||
       c.publisher.toLowerCase() === publisherAddress.toLowerCase();
     if (!publisherMatch) return false;
+
+    // Open campaigns cannot be served by publishers with allowlist enabled
+    if (c.publisher === "0x0000000000000000000000000000000000000000" && publisherAllowlistEnabled) return false;
 
     // Campaign requiredTags (already synthesized from categoryId by poller for backward compat)
     const campaignTags: string[] = Array.isArray(c.requiredTags) ? c.requiredTags : [];
@@ -132,9 +148,11 @@ async function main() {
   // If no matching campaigns, fall back to all active campaigns (broad match)
   if (pool.length === 0) {
     pool = activeCampaigns.filter((c) => {
-      const publisherMatch = c.publisher === "0x0000000000000000000000000000000000000000" ||
-        c.publisher.toLowerCase() === publisherAddress.toLowerCase();
-      return publisherMatch;
+      if (c.publisher === "0x0000000000000000000000000000000000000000") {
+        if (publisherAllowlistEnabled) return false;
+        return true;
+      }
+      return c.publisher.toLowerCase() === publisherAddress.toLowerCase();
     });
   }
 
@@ -286,6 +304,85 @@ async function main() {
   // Start engagement tracking
   if (adElement) {
     startTracking(campaignId, adElement);
+
+    // Append dismiss controls (✕ button + 3-option popover)
+    adElement.style.position = "relative";
+    const dismissBtn = document.createElement("button");
+    dismissBtn.textContent = "✕";
+    dismissBtn.title = "Ad options";
+    Object.assign(dismissBtn.style, {
+      position: "absolute", top: "4px", right: "4px", zIndex: "9999",
+      background: "rgba(0,0,0,0.45)", color: "#fff", border: "none",
+      borderRadius: "3px", width: "18px", height: "18px", fontSize: "10px",
+      cursor: "pointer", lineHeight: "1", padding: "0", fontFamily: "inherit",
+      opacity: "0.7",
+    });
+
+    const popover = document.createElement("div");
+    Object.assign(popover.style, {
+      display: "none", position: "absolute", top: "24px", right: "4px", zIndex: "10000",
+      background: "#1a1a1a", border: "1px solid #444", borderRadius: "4px",
+      padding: "4px 0", minWidth: "160px", boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+      fontFamily: "system-ui, sans-serif",
+    });
+
+    const firstTopicTag = (() => {
+      const tags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
+      for (const hash of tags) {
+        const tagStr = tagStringFromHash(hash);
+        if (!tagStr || !tagStr.startsWith("topic:")) continue;
+        const label = TAG_LABELS[tagStr] ?? tagStr.replace("topic:", "");
+        return { hash, label };
+      }
+      return null;
+    })();
+
+    function addOption(text: string, onClick: () => void) {
+      const btn = document.createElement("button");
+      btn.textContent = text;
+      Object.assign(btn.style, {
+        display: "block", width: "100%", background: "none", border: "none",
+        color: "#ddd", fontSize: "11px", padding: "5px 10px", cursor: "pointer",
+        textAlign: "left", fontFamily: "inherit",
+      });
+      btn.addEventListener("mouseenter", () => { btn.style.background = "#333"; });
+      btn.addEventListener("mouseleave", () => { btn.style.background = "none"; });
+      btn.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+      popover.appendChild(btn);
+    }
+
+    addOption("Hide this ad", () => {
+      try { chrome.runtime.sendMessage({ type: "BLOCK_CAMPAIGN", campaignId }); } catch { /* */ }
+      adElement!.style.display = "none";
+    });
+
+    if (firstTopicTag) {
+      addOption(`Hide topic ads`, () => {
+        try { chrome.runtime.sendMessage({ type: "BLOCK_TAG", tag: firstTopicTag.hash }); } catch { /* */ }
+        adElement!.style.display = "none";
+      });
+    }
+
+    addOption("Not interested", () => {
+      try {
+        chrome.runtime.sendMessage({
+          type: "UPDATE_INTEREST",
+          tags: Array.isArray(match.requiredTags) ? match.requiredTags : [],
+          delta: -1,
+        });
+      } catch { /* */ }
+      popover.style.display = "none";
+    });
+
+    dismissBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      popover.style.display = popover.style.display === "none" ? "block" : "none";
+    });
+
+    document.addEventListener("click", () => { popover.style.display = "none"; }, { once: false });
+
+    adElement.appendChild(dismissBtn);
+    adElement.appendChild(popover);
   }
 
   // Notify background to build a claim (with auction clearing CPM + attestation)

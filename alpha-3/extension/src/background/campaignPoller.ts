@@ -36,6 +36,8 @@ interface SerializedCampaign {
   terminationBlock: string;
   metadataHash?: string;
   requiredTags?: string[];
+  relaySigner?: string;
+  requiresZkProof?: boolean;
 }
 
 /** Batch an array of async tasks into groups of `size`, running each group in parallel. */
@@ -153,9 +155,11 @@ export const campaignPoller = {
       // Batch status + settlement data refresh
       const statusTasks = refreshIds.map(id => async () => {
         try {
-          const [status, settlementData] = await Promise.all([
+          const [status, settlementData, relaySigner, requiresZkProof] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
             contract.getCampaignForSettlement(BigInt(id)),
+            contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
+            contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
           ]);
 
           const camp = index[id];
@@ -163,6 +167,10 @@ export const campaignPoller = {
           camp.publisher = settlementData[1] ?? camp.publisher;
           camp.bidCpmPlanck = BigInt(settlementData[2]).toString();
           camp.snapshotTakeRateBps = Number(settlementData[3]).toString();
+          if (relaySigner && relaySigner !== "0x0000000000000000000000000000000000000000") {
+            camp.relaySigner = relaySigner;
+          }
+          camp.requiresZkProof = !!requiresZkProof;
 
           // Check advertiser from settlement data or keep existing
           const advertiser = camp.advertiser;

@@ -12,6 +12,8 @@ import DatumBudgetLedgerAbi from "./abis/DatumBudgetLedger.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
 import DatumTargetingRegistryAbi from "./abis/DatumTargetingRegistry.json";
+import DatumReportsAbi from "./abis/DatumReports.json";
+import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
@@ -66,6 +68,14 @@ export function getAttestationVerifierContract(addresses: ContractAddresses, pro
 
 export function getTargetingRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.targetingRegistry, DatumTargetingRegistryAbi.abi, provider);
+}
+
+export function getReportsContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.reports, DatumReportsAbi.abi, provider);
+}
+
+export function getRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.rateLimiter, DatumSettlementRateLimiterAbi.abi, provider);
 }
 
 // Helper: create a read-only provider for the given RPC URL

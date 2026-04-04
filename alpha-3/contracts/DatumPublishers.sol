@@ -31,6 +31,10 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
     // BM-7: Publisher SDK version hash (integrity verification)
     mapping(address => bytes32) public sdkVersionHash;
 
+    // Publisher profile: hot relay signing key + IPFS metadata hash
+    mapping(address => address) public relaySigner;
+    mapping(address => bytes32) public profileHash;
+
     event AddressBlocked(address indexed addr);
     event AddressUnblocked(address indexed addr);
     event AllowlistToggled(address indexed publisher, bool enabled);
@@ -75,6 +79,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
             newTakeRateBps >= MIN_TAKE_RATE_BPS && newTakeRateBps <= MAX_TAKE_RATE_BPS,
             "Take rate out of range"
         );
+        require(newTakeRateBps != _publishers[msg.sender].takeRateBps, "E15");
 
         Publisher storage pub = _publishers[msg.sender];
         pub.pendingTakeRateBps = newTakeRateBps;
@@ -160,5 +165,25 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
 
     function getSdkVersion(address publisher) external view returns (bytes32) {
         return sdkVersionHash[publisher];
+    }
+
+    // -------------------------------------------------------------------------
+    // Publisher profile: relay signer + IPFS metadata hash
+    // -------------------------------------------------------------------------
+
+    /// @notice Set (or clear) the relay signing key for this publisher.
+    ///         signer == address(0) clears the relay signer (falls back to publisher wallet).
+    function setRelaySigner(address signer) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        relaySigner[msg.sender] = signer;
+        emit RelaySignerUpdated(msg.sender, signer);
+    }
+
+    /// @notice Set the IPFS CID (as bytes32) for publisher off-chain metadata.
+    function setProfile(bytes32 hash) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(hash != bytes32(0), "E00");
+        profileHash[msg.sender] = hash;
+        emit ProfileUpdated(msg.sender, hash);
     }
 }

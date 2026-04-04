@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { JsonRpcProvider } from "ethers";
 import { ClaimQueue } from "./ClaimQueue";
 import { UserPanel } from "./UserPanel";
+import { FiltersTab } from "./FiltersTab";
 import { Settings } from "./Settings";
 import {
   isConfigured,
@@ -23,11 +24,12 @@ import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 import { humanizeError } from "@shared/errorCodes";
 
-type Tab = "claims" | "user" | "settings";
+type Tab = "claims" | "user" | "filters" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
   claims: "Claims",
   user: "Earnings",
+  filters: "Filters",
   settings: "Settings",
 };
 
@@ -847,6 +849,7 @@ export function App() {
       <div style={{ flex: 1, overflowY: "auto" }}>
         {tab === "claims" && <ClaimQueue key={refreshKey} address={address} />}
         {tab === "user" && <UserPanel key={refreshKey} address={address} />}
+        {tab === "filters" && <FiltersTab />}
         {tab === "settings" && <Settings key={refreshKey} address={address} />}
       </div>
     </div>

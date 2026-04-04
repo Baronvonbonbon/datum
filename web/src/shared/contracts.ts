@@ -16,6 +16,8 @@ import DatumTargetingRegistryAbi from "./abis/DatumTargetingRegistry.json";
 import DatumCampaignValidatorAbi from "./abis/DatumCampaignValidator.json";
 import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
 import DatumGovernanceHelperAbi from "./abis/DatumGovernanceHelper.json";
+import DatumReportsAbi from "./abis/DatumReports.json";
+import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
@@ -93,4 +95,12 @@ export function getClaimValidatorContract(addresses: ContractAddresses, provider
 
 export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.governanceHelper, DatumGovernanceHelperAbi.abi, provider);
+}
+
+export function getReportsContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.reports, DatumReportsAbi.abi, provider);
+}
+
+export function getRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.rateLimiter, DatumSettlementRateLimiterAbi.abi, provider);
 }

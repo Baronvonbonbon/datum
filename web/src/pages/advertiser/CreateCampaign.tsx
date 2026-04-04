@@ -29,6 +29,7 @@ export function CreateCampaign() {
   const [dailyCap, setDailyCap] = useState("0.1");
   const [bidCpm, setBidCpm] = useState("0.001");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [requireZkProof, setRequireZkProof] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const [customTag, setCustomTag] = useState("");
@@ -93,8 +94,7 @@ export function CreateCampaign() {
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const c = contracts.campaigns.connect(signer);
-      // categoryId=0 (deprecated — targeting is tag-based now)
-      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, 0, tagHashes, {
+      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, tagHashes, requireZkProof, {
         value: budgetPlanck,
       });
       await confirmTx(tx);
@@ -414,6 +414,25 @@ export function CreateCampaign() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ZK proof requirement */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", background: "var(--surface2)", borderRadius: 6, border: requireZkProof ? "1px solid var(--accent)" : "1px solid transparent" }}>
+            <input
+              type="checkbox"
+              id="requireZkProof"
+              checked={requireZkProof}
+              onChange={(e) => setRequireZkProof(e.target.checked)}
+              style={{ marginTop: 2, cursor: "pointer", accentColor: "var(--accent)" }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <label htmlFor="requireZkProof" style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                Require ZK proof of impression
+              </label>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                When enabled, impressions must include a zero-knowledge proof that the user genuinely saw the ad and the second-price clearing was computed honestly. Stronger fraud guarantee; slightly higher settlement overhead.
+              </div>
+            </div>
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />

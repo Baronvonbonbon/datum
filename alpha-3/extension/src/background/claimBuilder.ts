@@ -5,6 +5,7 @@
 import { solidityPacked, ZeroHash } from "ethers";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { Claim, ClaimChainState, Impression } from "@shared/types";
+import { generateStubProof } from "./zkProofStub";
 
 /** Blake2-256 hash of ABI-packed values. Matches ISystem(0x900).hashBlake256() on PolkaVM. */
 function blake2Hash(types: string[], values: unknown[]): string {
@@ -59,7 +60,6 @@ export const claimBuilder = {
     const lockKey = `${userAddress}:${msg.campaignId}`;
     await withLock(lockKey, async () => {
       const campaignId = BigInt(msg.campaignId);
-      const chainState = await getChainState(userAddress, msg.campaignId);
 
       // Fetch bidCpmPlanck from cached campaigns
       const cached = await chrome.storage.local.get("activeCampaigns");
@@ -69,6 +69,24 @@ export const claimBuilder = {
         console.warn(`[DATUM] Impression dropped: campaign ${msg.campaignId} not in activeCampaigns cache`);
         return;
       }
+
+      // Validate publisher address before touching chain state.
+      // A zero/missing/mismatched publisher causes settlement rejection, permanently
+      // corrupting the hash chain for this (user, campaign) pair.
+      const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+      const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/i;
+      if (!msg.publisherAddress || !ETH_ADDR_RE.test(msg.publisherAddress) ||
+          msg.publisherAddress.toLowerCase() === ZERO_ADDRESS) {
+        console.warn(`[DATUM] Impression dropped: invalid publisherAddress "${msg.publisherAddress}"`);
+        return;
+      }
+      if (campaign.publisher && campaign.publisher !== ZERO_ADDRESS &&
+          campaign.publisher.toLowerCase() !== msg.publisherAddress.toLowerCase()) {
+        console.warn(`[DATUM] Impression dropped: publisher mismatch for campaign ${msg.campaignId} (expected ${campaign.publisher}, got ${msg.publisherAddress})`);
+        return;
+      }
+
+      const chainState = await getChainState(userAddress, msg.campaignId);
 
       const impressionCount = 1n;
       // Use auction clearing CPM if provided, otherwise fall back to bid CPM
@@ -94,6 +112,9 @@ export const claimBuilder = {
         ]
       );
 
+      // Generate ZK proof if campaign requires it (stub for alpha; real Groth16 in P9)
+      const zkProof = campaign.requiresZkProof ? generateStubProof(claimHash) : "0x";
+
       const claim: Claim = {
         campaignId,
         publisher: msg.publisherAddress,
@@ -102,7 +123,7 @@ export const claimBuilder = {
         nonce,
         previousClaimHash,
         claimHash,
-        zkProof: "0x",
+        zkProof,
       };
 
       // Persist updated chain state

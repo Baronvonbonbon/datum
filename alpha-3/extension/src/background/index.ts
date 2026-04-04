@@ -1,7 +1,7 @@
 // DATUM background service worker entry point
 // Handles alarms, message routing, and scheduled tasks.
 
-import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes } from "ethers";
+import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes, ZeroHash } from "ethers";
 import { campaignPoller } from "./campaignPoller";
 import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
@@ -332,6 +332,22 @@ async function handleMessage(
       return { campaigns: cached };
     }
 
+    case "CHECK_PUBLISHER_ALLOWLIST": {
+      const { publisher: pubAddr } = msg as any;
+      if (!pubAddr || !/^0x[0-9a-fA-F]{40}$/.test(pubAddr)) return { allowlistEnabled: false };
+      const s = await getSettings();
+      if (!s.contractAddresses?.publishers) return { allowlistEnabled: false };
+      try {
+        const { getPublishersContract } = await import("@shared/contracts");
+        const provider = new JsonRpcProvider(s.rpcUrl);
+        const contract = getPublishersContract(s.contractAddresses, provider);
+        const result = await contract.allowlistEnabled(pubAddr);
+        return { allowlistEnabled: !!result };
+      } catch {
+        return { allowlistEnabled: false };
+      }
+    }
+
     case "FETCH_IPFS_METADATA": {
       // Content script requests metadata fetch (background has no CSP restrictions)
       const { campaignId: cid, metadataHash: mHash } = msg as any;
@@ -457,7 +473,19 @@ async function handleMessage(
 
     case "DISCARD_CAMPAIGN_CLAIMS": {
       const removed = await claimQueue.discardCampaignClaims(msg.userAddress, msg.campaignId);
+      // Also reset chain state so future impressions don't extend from the discarded hash chain.
+      await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, 0, ZeroHash);
       return { removed };
+    }
+
+    case "DISCARD_REJECTED_CLAIMS": {
+      // Triggered by offscreen after parsing ClaimRejected events from a settlement tx.
+      // Reset chain state for each affected campaign so future impressions start fresh.
+      for (const campaignId of msg.campaignIds) {
+        await claimQueue.discardCampaignClaims(msg.userAddress, campaignId);
+        await claimBuilder.syncFromChain(msg.userAddress, campaignId, 0, ZeroHash);
+      }
+      return { ok: true };
     }
 
     case "SIGN_FOR_RELAY": {
@@ -619,6 +647,18 @@ async function handleMessage(
 
     case "UNBLOCK_CAMPAIGN": {
       await unblockCampaign(msg.campaignId);
+      const preferences = await getPreferences();
+      return { preferences };
+    }
+
+    case "BLOCK_TAG": {
+      await blockTag(msg.tag);
+      const preferences = await getPreferences();
+      return { preferences };
+    }
+
+    case "UNBLOCK_TAG": {
+      await unblockTag(msg.tag);
       const preferences = await getPreferences();
       return { preferences };
     }
@@ -968,6 +1008,7 @@ async function autoFlushDirect() {
 
     let settledCount = 0;
     let rejectedCount = 0;
+    const rejectedCampaignIds = new Set<string>();
 
     const tx = await attestationVerifier.settleClaimsAttested(attestedBatches);
     const receipt = await tx.wait();
@@ -977,8 +1018,12 @@ async function autoFlushDirect() {
       for (const log of receipt.logs) {
         try {
           const parsed = iface.parseLog(log);
-          if (parsed?.name === "ClaimSettled") settledCount++;
-          else if (parsed?.name === "ClaimRejected") rejectedCount++;
+          if (parsed?.name === "ClaimSettled") {
+            settledCount++;
+          } else if (parsed?.name === "ClaimRejected") {
+            rejectedCount++;
+            rejectedCampaignIds.add(parsed.args.campaignId.toString());
+          }
         } catch {
           // log from different contract
         }
@@ -992,6 +1037,13 @@ async function autoFlushDirect() {
         settledNonces.set(cid, b.claims.map((c) => c.nonce));
       }
       await claimQueue.removeSettled(userAddress, settledNonces);
+    }
+
+    // Reset chain state for any campaign with rejected claims so future impressions
+    // don't extend from a permanently invalid hash chain.
+    for (const campaignId of rejectedCampaignIds) {
+      await claimQueue.discardCampaignClaims(userAddress, campaignId);
+      await claimBuilder.syncFromChain(userAddress, campaignId, 0, ZeroHash);
     }
 
     const result = {

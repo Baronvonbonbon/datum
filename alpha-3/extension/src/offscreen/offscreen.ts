@@ -71,6 +71,7 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
 
   let settledCount = 0;
   let rejectedCount = 0;
+  const rejectedCampaignIds = new Set<string>();
 
   try {
     const tx = await settlement.settleClaims(contractBatches);
@@ -81,8 +82,12 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       for (const log of receipt.logs) {
         try {
           const parsed = iface.parseLog(log);
-          if (parsed?.name === "ClaimSettled") settledCount++;
-          else if (parsed?.name === "ClaimRejected") rejectedCount++;
+          if (parsed?.name === "ClaimSettled") {
+            settledCount++;
+          } else if (parsed?.name === "ClaimRejected") {
+            rejectedCount++;
+            rejectedCampaignIds.add(parsed.args.campaignId.toString());
+          }
         } catch {
           // log from different contract
         }
@@ -100,6 +105,17 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
         type: "REMOVE_SETTLED_CLAIMS",
         userAddress: msg.userAddress,
         settledNonces,
+      });
+    }
+
+    // Ask background to reset chain state for campaigns with rejected claims.
+    // A rejected claim means the on-chain nonce expectation diverged from local state;
+    // discarding the queue and resetting to nonce=0 unblocks future impressions.
+    if (rejectedCampaignIds.size > 0) {
+      await chrome.runtime.sendMessage({
+        type: "DISCARD_REJECTED_CLAIMS",
+        userAddress: msg.userAddress,
+        campaignIds: Array.from(rejectedCampaignIds),
       });
     }
 

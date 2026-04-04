@@ -5,8 +5,8 @@ import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/ne
 import { unlock, isConfigured, getSigner } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
-import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS, tagDisplayLabel, validateCustomTag } from "@shared/tagDictionary";
-import { getTargetingRegistryContract, getProvider } from "@shared/contracts";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
+import { getTargetingRegistryContract, getPublishersContract, getProvider } from "@shared/contracts";
 import { getBlockedAddresses, addBlockedAddress, removeBlockedAddress } from "@shared/phishingList";
 
 interface InterestProfileData {
@@ -43,10 +43,9 @@ export function Settings({ address }: { address: string | null }) {
     blockedTags: [],
     maxAdsPerHour: 12,
     minBidCpm: "0",
+    filterMode: "all",
+    allowedTopics: [],
   });
-  const [blockTagSearch, setBlockTagSearch] = useState("");
-  const [customBlockTag, setCustomBlockTag] = useState("");
-  const [customBlockTagError, setCustomBlockTagError] = useState<string | null>(null);
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   useEffect(() => {
@@ -205,6 +204,18 @@ export function Settings({ address }: { address: string | null }) {
   const [tagsResult, setTagsResult] = useState<string | null>(null);
   const [tagSearch, setTagSearch] = useState("");
 
+  // A5: Publisher profile (relaySigner + profileHash)
+  const [publisherProfileExpanded, setPublisherProfileExpanded] = useState(false);
+  const [relaySignerValue, setRelaySignerValue] = useState<string | null>(null);
+  const [relaySignerInput, setRelaySignerInput] = useState("");
+  const [relaySignerBusy, setRelaySignerBusy] = useState(false);
+  const [relaySignerResult, setRelaySignerResult] = useState<string | null>(null);
+  const [profileHashValue, setProfileHashValue] = useState<string | null>(null);
+  const [profileHashInput, setProfileHashInput] = useState("");
+  const [profileHashBusy, setProfileHashBusy] = useState(false);
+  const [profileHashResult, setProfileHashResult] = useState<string | null>(null);
+  const [publisherProfileLoading, setPublisherProfileLoading] = useState(false);
+
   // UP-2: Address blocklist management
   const [blocklistExpanded, setBlocklistExpanded] = useState(false);
   const [blockedAddresses, setBlockedAddresses] = useState<string[]>([]);
@@ -262,6 +273,64 @@ export function Settings({ address }: { address: string | null }) {
     }
   }
 
+  // A5: Load publisher profile (relaySigner + profileHash)
+  async function loadPublisherProfile() {
+    const pubAddr = settings.publisherAddress || address;
+    if (!pubAddr || !settings.contractAddresses.publishers) return;
+    setPublisherProfileLoading(true);
+    try {
+      const provider = getProvider(settings.rpcUrl);
+      const contract = getPublishersContract(settings.contractAddresses, provider);
+      const [rs, ph] = await Promise.all([
+        contract.relaySigner(pubAddr).catch(() => null),
+        contract.profileHash(pubAddr).catch(() => null),
+      ]);
+      setRelaySignerValue(rs ?? "");
+      setProfileHashValue(ph ?? "");
+    } catch (err) {
+      setRelaySignerResult("Failed to load: " + String(err).slice(0, 80));
+    } finally {
+      setPublisherProfileLoading(false);
+    }
+  }
+
+  async function setRelaySignerOnChain() {
+    if (!address) { setRelaySignerResult("No wallet connected"); return; }
+    setRelaySignerBusy(true);
+    setRelaySignerResult(null);
+    try {
+      const signer = await getSigner(null);
+      const contract = getPublishersContract(settings.contractAddresses, signer);
+      const tx = await contract.setRelaySigner(relaySignerInput.trim() || "0x0000000000000000000000000000000000000000");
+      await tx.wait();
+      setRelaySignerValue(relaySignerInput.trim());
+      setRelaySignerResult("Relay signer updated.");
+    } catch (err) {
+      setRelaySignerResult("Error: " + String(err).slice(0, 100));
+    } finally {
+      setRelaySignerBusy(false);
+    }
+  }
+
+  async function setProfileHashOnChain() {
+    if (!address) { setProfileHashResult("No wallet connected"); return; }
+    setProfileHashBusy(true);
+    setProfileHashResult(null);
+    try {
+      const signer = await getSigner(null);
+      const contract = getPublishersContract(settings.contractAddresses, signer);
+      const hashBytes = profileHashInput.trim();
+      const tx = await contract.setProfile(hashBytes);
+      await tx.wait();
+      setProfileHashValue(hashBytes);
+      setProfileHashResult("Profile hash updated.");
+    } catch (err) {
+      setProfileHashResult("Error: " + String(err).slice(0, 100));
+    } finally {
+      setProfileHashBusy(false);
+    }
+  }
+
   // UP-2: Add address to blocklist
   async function handleAddBlock() {
     const addr = newBlockAddr.trim();
@@ -276,18 +345,6 @@ export function Settings({ address }: { address: string | null }) {
   async function handleRemoveBlock(addr: string) {
     await removeBlockedAddress(addr);
     setBlockedAddresses(await getBlockedAddresses());
-  }
-
-  function toggleBlockTag(tag: string) {
-    setPrefs((p) => {
-      const blocked = p.blockedTags ?? [];
-      return {
-        ...p,
-        blockedTags: blocked.includes(tag)
-          ? blocked.filter((t) => t !== tag)
-          : [...blocked, tag],
-      };
-    });
   }
 
   return (
@@ -662,101 +719,6 @@ export function Settings({ address }: { address: string | null }) {
           />
         </div>
 
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Blocked tags ({(prefs.blockedTags ?? []).length} blocked)</label>
-          <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 6 }}>
-            Campaigns with blocked tags will not be shown. Toggle tags to block/unblock.
-          </div>
-          <input
-            type="text"
-            value={blockTagSearch}
-            onChange={(e) => setBlockTagSearch(e.target.value)}
-            placeholder="Search tags..."
-            style={{ ...inputStyle, fontSize: 10, marginBottom: 6, padding: "3px 6px" }}
-          />
-          <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 4 }}>
-            {Object.entries(TAG_DICTIONARY).map(([dimension, tags]) => {
-              const filtered = tags.filter((t) => {
-                if (!blockTagSearch) return true;
-                const label = (TAG_LABELS[t] ?? t).toLowerCase();
-                return label.includes(blockTagSearch.toLowerCase()) || t.includes(blockTagSearch.toLowerCase());
-              });
-              if (filtered.length === 0) return null;
-              return (
-                <div key={dimension} style={{ marginBottom: 6 }}>
-                  <div style={{ color: "var(--accent)", fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{dimension}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {filtered.map((tag) => {
-                      const blocked = (prefs.blockedTags ?? []).includes(tag);
-                      return (
-                        <button
-                          key={tag}
-                          onClick={() => toggleBlockTag(tag)}
-                          style={{
-                            background: blocked ? "rgba(252,165,165,0.08)" : "var(--bg-raised)",
-                            color: blocked ? "var(--error)" : "var(--text)",
-                            border: `1px solid ${blocked ? "rgba(252,165,165,0.2)" : "var(--border)"}`,
-                            borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
-                          }}
-                        >
-                          {blocked ? "× " : ""}{TAG_LABELS[tag] ?? tag}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {/* Custom tag blocking */}
-          <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-            <input
-              type="text"
-              value={customBlockTag}
-              onChange={(e) => { setCustomBlockTag(e.target.value); setCustomBlockTagError(null); }}
-              placeholder="Custom: dimension:value"
-              style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "2px 6px" }}
-            />
-            <button
-              onClick={() => {
-                const tag = validateCustomTag(customBlockTag);
-                if (!tag) { setCustomBlockTagError("Format: dimension:value"); return; }
-                setPrefs((p) => ({
-                  ...p,
-                  blockedTags: [...(p.blockedTags ?? []).filter((t) => t !== tag), tag],
-                }));
-                setCustomBlockTag("");
-                setCustomBlockTagError(null);
-              }}
-              style={{ background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "2px 6px", fontSize: 9, cursor: "pointer", color: "var(--accent)", fontFamily: "inherit" }}
-            >
-              + Block
-            </button>
-          </div>
-          {customBlockTagError && <div style={{ color: "var(--error)", fontSize: 9, marginTop: 2 }}>{customBlockTagError}</div>}
-          {/* Show currently blocked custom tags (not in dictionary) */}
-          {(prefs.blockedTags ?? []).filter((t) => !TAG_LABELS[t]).length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              <div style={{ color: "var(--warn)", fontSize: 9, fontWeight: 600, marginBottom: 2 }}>Custom blocked</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {(prefs.blockedTags ?? []).filter((t) => !TAG_LABELS[t]).map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleBlockTag(tag)}
-                    style={{
-                      background: "rgba(252,165,165,0.08)", color: "var(--error)",
-                      border: "1px solid rgba(252,165,165,0.2)",
-                      borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: 9, cursor: "pointer", fontFamily: "inherit",
-                    }}
-                  >
-                    × {tagDisplayLabel(tag)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
         {prefs.blockedCampaigns.length > 0 && (
           <div style={sectionStyle}>
             <label style={labelStyle}>Blocked campaigns</label>
@@ -960,6 +922,86 @@ export function Settings({ address }: { address: string | null }) {
           </div>
         )}
       </div>
+
+      {/* A5: Publisher profile (relaySigner + profileHash) */}
+      {(settings.publisherAddress || address) && (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
+          <button
+            onClick={() => {
+              if (!publisherProfileExpanded) loadPublisherProfile();
+              setPublisherProfileExpanded(!publisherProfileExpanded);
+            }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%", fontFamily: "inherit" }}
+          >
+            <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{publisherProfileExpanded ? "▾" : "▸"}</span>
+            <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>Publisher Profile</span>
+          </button>
+          {publisherProfileExpanded && (
+            <div>
+              {publisherProfileLoading ? (
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Loading...</div>
+              ) : (
+                <div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={labelStyle}>Relay Signer</label>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 4, fontFamily: "monospace", wordBreak: "break-all" }}>
+                      {relaySignerValue || "(not set)"}
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input
+                        type="text"
+                        value={relaySignerInput}
+                        onChange={(e) => setRelaySignerInput(e.target.value)}
+                        placeholder="0x... (blank to clear)"
+                        style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 10 }}
+                      />
+                      <button
+                        onClick={setRelaySignerOnChain}
+                        disabled={relaySignerBusy}
+                        style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11 }}
+                      >
+                        {relaySignerBusy ? "..." : "Set"}
+                      </button>
+                    </div>
+                    {relaySignerResult && (
+                      <div style={{ fontSize: 11, marginTop: 4, color: relaySignerResult.startsWith("Error") || relaySignerResult.startsWith("Failed") ? "var(--error)" : "var(--ok)" }}>
+                        {relaySignerResult}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Profile Hash</label>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 4, fontFamily: "monospace", wordBreak: "break-all" }}>
+                      {profileHashValue || "(not set)"}
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input
+                        type="text"
+                        value={profileHashInput}
+                        onChange={(e) => setProfileHashInput(e.target.value)}
+                        placeholder="0x... IPFS hash bytes"
+                        style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 10 }}
+                      />
+                      <button
+                        onClick={setProfileHashOnChain}
+                        disabled={profileHashBusy}
+                        style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11 }}
+                      >
+                        {profileHashBusy ? "..." : "Set"}
+                      </button>
+                    </div>
+                    {profileHashResult && (
+                      <div style={{ fontSize: 11, marginTop: 4, color: profileHashResult.startsWith("Error") || profileHashResult.startsWith("Failed") ? "var(--error)" : "var(--ok)" }}>
+                        {profileHashResult}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* UP-2: Local address blocklist */}
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>

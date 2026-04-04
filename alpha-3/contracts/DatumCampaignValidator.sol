@@ -58,31 +58,37 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
         address advertiser,
         address publisher,
         bytes32[] calldata requiredTags
-    ) external view override returns (bool, uint16) {
+    ) external view override returns (bool, uint16, address, bytes32[] memory) {
         // S12: reject blocked advertisers
-        if (publishers.isBlocked(advertiser)) return (false, 0);
+        if (publishers.isBlocked(advertiser)) return (false, 0, address(0), new bytes32[](0));
 
         if (publisher != address(0)) {
             // Targeted campaign: check publisher blocklist, registration, allowlist
-            if (publishers.isBlocked(publisher)) return (false, 0);
+            if (publishers.isBlocked(publisher)) return (false, 0, address(0), new bytes32[](0));
 
             IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
-            if (!pub.registered) return (false, 0);
+            if (!pub.registered) return (false, 0, address(0), new bytes32[](0));
 
             // S12: per-publisher allowlist
             if (publishers.allowlistEnabled(publisher)) {
-                if (!publishers.isAllowedAdvertiser(publisher, advertiser)) return (false, 0);
+                if (!publishers.isAllowedAdvertiser(publisher, advertiser)) return (false, 0, address(0), new bytes32[](0));
             }
 
             // TX-1: tag matching — publisher must have ALL required tags
             if (requiredTags.length > 0 && address(targetingRegistry) != address(0)) {
-                if (!targetingRegistry.hasAllTags(publisher, requiredTags)) return (false, 0);
+                if (!targetingRegistry.hasAllTags(publisher, requiredTags)) return (false, 0, address(0), new bytes32[](0));
             }
 
-            return (true, pub.takeRateBps);
+            // Snapshot relay signer and publisher tag set at creation time
+            address snapRelaySigner = publishers.relaySigner(publisher);
+            bytes32[] memory snapTags = (address(targetingRegistry) != address(0))
+                ? targetingRegistry.getTags(publisher)
+                : new bytes32[](0);
+
+            return (true, pub.takeRateBps, snapRelaySigner, snapTags);
         }
 
-        // Open campaign: default take rate, no tag check (matched at auction time)
-        return (true, DEFAULT_TAKE_RATE_BPS);
+        // Open campaign: default take rate, no relay signer, no tags
+        return (true, DEFAULT_TAKE_RATE_BPS, address(0), new bytes32[](0));
     }
 }

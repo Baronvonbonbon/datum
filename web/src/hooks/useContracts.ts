@@ -19,6 +19,8 @@ import {
   getCampaignValidatorContract,
   getClaimValidatorContract,
   getGovernanceHelperContract,
+  getReportsContract,
+  getRateLimiterContract,
   getProvider,
 } from "@shared/contracts";
 
@@ -46,6 +48,8 @@ export function useContracts() {
       campaignValidator: getCampaignValidatorContract(addrs, provider),
       claimValidator: getClaimValidatorContract(addrs, provider),
       governanceHelper: getGovernanceHelperContract(addrs, provider),
+      reports: getReportsContract(addrs, provider),
+      rateLimiter: getRateLimiterContract(addrs, provider),
       // Read-only provider for cases that don't need a signer
       readProvider: getProvider(settings.rpcUrl),
     };

@@ -70,6 +70,7 @@ contract DatumRelay {
         for (uint256 b = 0; b < batches.length; b++) {
             IDatumSettlement.SignedClaimBatch calldata sb = batches[b];
             require(block.number <= sb.deadline, "E29");
+            require(sb.claims.length > 0, "E28");
 
             // EIP-712 user signature verification
             bytes32 structHash = keccak256(abi.encode(

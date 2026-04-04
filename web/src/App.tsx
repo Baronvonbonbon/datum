@@ -24,6 +24,7 @@ import { Categories } from "./pages/publisher/Categories";
 import { Allowlist } from "./pages/publisher/Allowlist";
 import { Earnings } from "./pages/publisher/Earnings";
 import { SDKSetup } from "./pages/publisher/SDKSetup";
+import { PublisherProfile } from "./pages/publisher/Profile";
 
 // Governance
 import { GovernanceDashboard } from "./pages/governance/Dashboard";
@@ -36,6 +37,7 @@ import { TimelockAdmin } from "./pages/admin/Timelock";
 import { PauseRegistryAdmin } from "./pages/admin/PauseRegistry";
 import { BlocklistAdmin } from "./pages/admin/Blocklist";
 import { ProtocolFeesAdmin } from "./pages/admin/ProtocolFees";
+import { RateLimiterAdmin } from "./pages/admin/RateLimiter";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -68,6 +70,7 @@ export function App() {
               <Route path="/publisher/allowlist" element={<Allowlist />} />
               <Route path="/publisher/earnings" element={<Earnings />} />
               <Route path="/publisher/sdk" element={<SDKSetup />} />
+              <Route path="/publisher/profile" element={<PublisherProfile />} />
 
               {/* Governance */}
               <Route path="/governance" element={<GovernanceDashboard />} />
@@ -81,6 +84,7 @@ export function App() {
               <Route path="/admin/pause" element={<PauseRegistryAdmin />} />
               <Route path="/admin/blocklist" element={<BlocklistAdmin />} />
               <Route path="/admin/protocol" element={<ProtocolFeesAdmin />} />
+              <Route path="/admin/rate-limiter" element={<RateLimiterAdmin />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />

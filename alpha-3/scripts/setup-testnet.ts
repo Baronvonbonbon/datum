@@ -127,7 +127,7 @@ const publishersAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -141,6 +141,13 @@ const govV2Abi = [
 
 const targetingAbi = [
   "function setTags(bytes32[] tags)",
+];
+
+const reportsAbi = [
+  "function reportPage(uint256 campaignId, uint8 reason)",
+  "function reportAd(uint256 campaignId, uint8 reason)",
+  "function pageReports(uint256) view returns (uint256)",
+  "function adReports(uint256) view returns (uint256)",
 ];
 
 async function main() {
@@ -172,18 +179,19 @@ async function main() {
   const addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
   log("INIT", "Loaded addresses from " + addrFile);
 
-  // Verify alpha-3 contracts are present (17 keys)
+  // Verify alpha-3 contracts are present (18 keys)
   const alpha3Keys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
+    "reports",
   ];
   const missing = alpha3Keys.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
-    console.error("Re-run deploy.ts for alpha-3 (17-contract deploy).");
+    console.error("Re-run deploy.ts for alpha-3 (18-contract deploy).");
     process.exitCode = 1;
     return;
   }
@@ -193,6 +201,7 @@ async function main() {
   const campIface = new Interface(campaignsAbi);
   const govIface = new Interface(govV2Abi);
   const targetIface = new Interface(targetingAbi);
+  const reportsIface = new Interface(reportsAbi);
 
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
@@ -312,7 +321,7 @@ async function main() {
 
     // Create campaign
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS],
+      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false],
       BUDGET
     );
 
@@ -393,6 +402,23 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 5.5. TEST REPORTS (Grace reports both page and ad)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("5.5", "--- Submitting test reports ---");
+  try {
+    await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportPage", [campaignId, 2]); // misleading
+    log("5.5", "  grace reported page (reason=2 misleading)");
+  } catch (err) {
+    log("5.5", `  reportPage failed: ${String(err).slice(0, 100)}`);
+  }
+  try {
+    await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportAd", [campaignId, 3]); // inappropriate
+    log("5.5", "  grace reported ad (reason=3 inappropriate)");
+  } catch (err) {
+    log("5.5", `  reportAd failed: ${String(err).slice(0, 100)}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n=== Alpha-3 Testnet Setup Complete ===");
@@ -407,13 +433,14 @@ async function main() {
     console.log(`  ${name.padEnd(8)} ${wallets[name].address}  ${formatDOT(bal)} PAS`);
   }
   console.log("");
-  console.log("Alpha-3 contract addresses (17):");
+  console.log("Alpha-3 contract addresses (18):");
   const alpha3ContractKeys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
+    "reports",
   ];
   for (const key of alpha3ContractKeys) {
     console.log(`  ${key.padEnd(24)} ${addrs[key]}`);

@@ -67,6 +67,13 @@ contract DatumCampaigns is IDatumCampaigns {
     mapping(uint256 => Campaign) private _campaigns;
     mapping(uint256 => bytes32[]) private _campaignTags;
 
+    // Snapshots from validateCreation — immutable record of publisher state at creation
+    mapping(uint256 => address)   private _campaignRelaySigners;
+    mapping(uint256 => bytes32[]) private _campaignPublisherTags;
+
+    // ZK proof requirement — set at creation, immutable per campaign
+    mapping(uint256 => bool) private _campaignRequiresZkProof;
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -135,7 +142,8 @@ contract DatumCampaigns is IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        bytes32[] calldata requiredTags
+        bytes32[] calldata requiredTags,
+        bool requireZkProof
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > 0, "E11");
@@ -144,7 +152,8 @@ contract DatumCampaigns is IDatumCampaigns {
         require(requiredTags.length <= 8, "E66");
 
         // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator
-        (bool valid, uint16 snapshot) = campaignValidator.validateCreation(msg.sender, publisher, requiredTags);
+        (bool valid, uint16 snapshot, address snapRelaySigner, bytes32[] memory snapPubTags) =
+            campaignValidator.validateCreation(msg.sender, publisher, requiredTags);
         require(valid, "E62");
         campaignId = nextCampaignId++;
 
@@ -164,6 +173,15 @@ contract DatumCampaigns is IDatumCampaigns {
                 _campaignTags[campaignId].push(requiredTags[i]);
             }
         }
+
+        // Store publisher snapshots (relay signer + tag set at creation time)
+        _campaignRelaySigners[campaignId] = snapRelaySigner;
+        for (uint256 i = 0; i < snapPubTags.length; i++) {
+            _campaignPublisherTags[campaignId].push(snapPubTags[i]);
+        }
+
+        // Store ZK proof requirement (immutable per campaign)
+        if (requireZkProof) _campaignRequiresZkProof[campaignId] = true;
 
         // Escrow budget in BudgetLedger
         budgetLedger.initializeBudget{value: msg.value}(campaignId, msg.value, dailyCapPlanck);
@@ -276,6 +294,18 @@ contract DatumCampaigns is IDatumCampaigns {
 
     function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory) {
         return _campaignTags[campaignId];
+    }
+
+    function getCampaignRelaySigner(uint256 campaignId) external view returns (address) {
+        return _campaignRelaySigners[campaignId];
+    }
+
+    function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory) {
+        return _campaignPublisherTags[campaignId];
+    }
+
+    function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool) {
+        return _campaignRequiresZkProof[campaignId];
     }
 
     /// @dev Alpha-2: returns 4 values (no remainingBudget — now on BudgetLedger).

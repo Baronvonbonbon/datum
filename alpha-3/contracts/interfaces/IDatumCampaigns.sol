@@ -61,7 +61,8 @@ interface IDatumCampaigns {
         address publisher,
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
-        bytes32[] calldata requiredTags
+        bytes32[] calldata requiredTags,
+        bool requireZkProof
     ) external payable returns (uint256 campaignId);
 
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external;
@@ -84,6 +85,9 @@ interface IDatumCampaigns {
     function getCampaignAdvertiser(uint256 campaignId) external view returns (address);
     function getCampaignPublisher(uint256 campaignId) external view returns (address);
     function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory);
+    function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
+    function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory);
+    function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
     function getCampaignForSettlement(uint256 campaignId) external view returns (
         uint8 status, address publisher, uint256 bidCpmPlanck,
         uint16 snapshotTakeRateBps

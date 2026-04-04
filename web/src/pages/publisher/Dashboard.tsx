@@ -130,6 +130,7 @@ export function PublisherDashboard() {
             <Link to="/publisher/allowlist" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Allowlist</Link>
             <Link to="/publisher/earnings" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Full Earnings</Link>
             <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>
+            <Link to="/publisher/profile" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Profile</Link>
           </div>
         </div>
       )}

@@ -10,6 +10,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   blockedTags: [],
   maxAdsPerHour: 12,
   minBidCpm: "0",
+  filterMode: "all",
+  allowedTopics: [],
 };
 
 export async function getPreferences(): Promise<UserPreferences> {
@@ -83,6 +85,18 @@ export function isCampaignAllowed(
     for (const hash of campaign.requiredTags) {
       const tagStr = tagStringFromHash(hash);
       if (tagStr && prefs.blockedTags.includes(tagStr)) return false;
+    }
+  }
+
+  // Selected topics mode: campaign must have at least one allowed topic tag.
+  // Open campaigns (no requiredTags) always pass through.
+  if (prefs.filterMode === "selected" && prefs.allowedTopics && prefs.allowedTopics.length > 0) {
+    if (campaign.requiredTags && campaign.requiredTags.length > 0) {
+      const hasAllowedTopic = campaign.requiredTags.some(hash => {
+        const tagStr = tagStringFromHash(hash);
+        return tagStr && tagStr.startsWith("topic:") && prefs.allowedTopics.includes(tagStr);
+      });
+      if (!hasAllowedTopic) return false;
     }
   }
 

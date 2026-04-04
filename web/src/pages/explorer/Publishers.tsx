@@ -13,6 +13,7 @@ interface PublisherRow {
   tags: string[];
   allowlistEnabled: boolean;
   blocked: boolean;
+  relaySigner: string | null;
 }
 
 export function Publishers() {
@@ -37,11 +38,13 @@ export function Publishers() {
       const logs = await queryFilterAll(contracts.publishers, filter);
       const addresses = [...new Set(logs.map((l: any) => l.args?.publisher as string).filter(Boolean))];
 
+      const ZERO = "0x0000000000000000000000000000000000000000";
       const rows = await Promise.all(addresses.map(async (addr) => {
         try {
           const data = await contracts.publishers.getPublisher(addr);
           const allowlist = await contracts.publishers.allowlistEnabled(addr).catch(() => false);
           const blocked = await contracts.publishers.isBlocked(addr).catch(() => false);
+          const relayRaw = await contracts.publishers.relaySigner(addr).catch(() => ZERO);
           let tags: string[] = [];
           try {
             if (contracts.targetingRegistry) {
@@ -55,6 +58,7 @@ export function Publishers() {
             tags,
             allowlistEnabled: Boolean(allowlist),
             blocked: Boolean(blocked),
+            relaySigner: relayRaw && relayRaw !== ZERO ? relayRaw as string : null,
           };
         } catch {
           return null;
@@ -101,6 +105,12 @@ export function Publishers() {
               <span>Allowlist: <span style={{ color: pub.allowlistEnabled ? "var(--warn)" : "var(--text-muted)" }}>{pub.allowlistEnabled ? "On" : "Off"}</span></span>
             </div>
           </div>
+          {pub.relaySigner && (
+            <div style={{ marginBottom: pub.tags.length > 0 ? 6 : 0 }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 11, marginRight: 6 }}>Relay:</span>
+              <AddressDisplay address={pub.relaySigner} chars={6} explorerBase={EXPLORER} style={{ fontSize: 12 }} />
+            </div>
+          )}
           {pub.tags.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
               {pub.tags.map((tag, i) => (

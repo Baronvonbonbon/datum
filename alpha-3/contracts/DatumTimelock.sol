@@ -29,6 +29,7 @@ contract DatumTimelock {
 
     function propose(address target, bytes calldata data) external onlyOwner {
         require(target != address(0), "E00");
+        require(data.length >= 4, "E36");
         require(pendingTarget == address(0), "E35");
         pendingTarget = target;
         pendingData = data;

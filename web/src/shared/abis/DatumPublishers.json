@@ -119,25 +119,6 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "bitmask",
-          "type": "uint256"
-        }
-      ],
-      "name": "CategoriesUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
           "name": "previousOwner",
           "type": "address"
         },
@@ -149,6 +130,25 @@
         }
       ],
       "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "hash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "ProfileUpdated",
       "type": "event"
     },
     {
@@ -212,6 +212,25 @@
         }
       ],
       "name": "PublisherTakeRateQueued",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "signer",
+          "type": "address"
+        }
+      ],
+      "name": "RelaySignerUpdated",
       "type": "event"
     },
     {
@@ -338,25 +357,6 @@
           "type": "address"
         }
       ],
-      "name": "getCategories",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
       "name": "getPublisher",
       "outputs": [
         {
@@ -379,11 +379,6 @@
             {
               "internalType": "uint256",
               "name": "takeRateEffectiveBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "categoryBitmask",
               "type": "uint256"
             },
             {
@@ -515,6 +510,25 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "profileHash",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "uint16",
           "name": "takeRateBps",
           "type": "uint16"
@@ -536,6 +550,25 @@
       "name": "registerSdkVersion",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "relaySigner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -598,12 +631,25 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "bitmask",
-          "type": "uint256"
+          "internalType": "bytes32",
+          "name": "hash",
+          "type": "bytes32"
         }
       ],
-      "name": "setCategories",
+      "name": "setProfile",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "signer",
+          "type": "address"
+        }
+      ],
+      "name": "setRelaySigner",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

@@ -24,6 +24,7 @@ const CONTRACT_LABELS: Record<string, string> = {
   campaignValidator: "CampaignValidator",
   claimValidator: "ClaimValidator",
   governanceHelper: "GovernanceHelper",
+  reports: "Reports",
 };
 
 export function Settings() {

@@ -4,13 +4,16 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
+import { useTx } from "../../hooks/useTx";
 import { StatusBadge } from "../../components/StatusBadge";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
+import { TransactionStatus } from "../../components/TransactionStatus";
 import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
 import { getExplorerUrl } from "@shared/networks";
+import { tagLabel } from "@shared/tagDictionary";
 import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
@@ -28,17 +31,35 @@ interface SettlementEvent {
   publisherPayment: bigint;
 }
 
+const REPORT_REASONS: Record<number, string> = {
+  1: "Spam",
+  2: "Misleading",
+  3: "Inappropriate",
+  4: "Broken",
+  5: "Other",
+};
+
 export function CampaignDetail({ backLink, backLabel }: { backLink?: string; backLabel?: string } = {}) {
   const { id } = useParams<{ id: string }>();
   const contracts = useContracts();
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
+  const { confirmTx } = useTx();
   const EXPLORER = getExplorerUrl(settings.network);
   const [campaign, setCampaign] = useState<any>(null);
   const [budget, setBudget] = useState<any>(null);
   const [governance, setGovernance] = useState<any>(null);
   const [metadataHash, setMetadataHash] = useState<string>("0x" + "0".repeat(64));
+  const [snapshotRelaySigner, setSnapshotRelaySigner] = useState<string | null>(null);
+  const [snapshotTags, setSnapshotTags] = useState<string[]>([]);
+  const [pageReportCount, setPageReportCount] = useState<bigint>(0n);
+  const [adReportCount, setAdReportCount] = useState<bigint>(0n);
+  const [reportReason, setReportReason] = useState(1);
+  const [reportingPage, setReportingPage] = useState(false);
+  const [reportingAd, setReportingAd] = useState(false);
+  const [reportMsg, setReportMsg] = useState<string | null>(null);
+  const [reportState, setReportState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [settlements, setSettlements] = useState<SettlementEvent[]>([]);
   const [settlementPage, setSettlementPage] = useState(0);
   const SETTLEMENTS_PER_PAGE = 15;
@@ -129,6 +150,26 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         });
       } catch { /* GovernanceV2 not configured */ }
 
+      // Snapshot relay signer + publisher tags
+      try {
+        const [relayAddr, pubTags] = await Promise.all([
+          contracts.campaigns.getCampaignRelaySigner(BigInt(campaignId)).catch(() => ethers.ZeroAddress),
+          contracts.campaigns.getCampaignPublisherTags(BigInt(campaignId)).catch(() => []),
+        ]);
+        setSnapshotRelaySigner(relayAddr !== ethers.ZeroAddress ? relayAddr as string : null);
+        setSnapshotTags((pubTags as string[]).map((h: string) => tagLabel(h) ?? h.slice(0, 10) + "..."));
+      } catch { /* not deployed */ }
+
+      // Report counts
+      try {
+        const [pr, ar] = await Promise.all([
+          contracts.reports.pageReports(BigInt(campaignId)).catch(() => 0n),
+          contracts.reports.adReports(BigInt(campaignId)).catch(() => 0n),
+        ]);
+        setPageReportCount(BigInt(pr));
+        setAdReportCount(BigInt(ar));
+      } catch { /* no reports contract */ }
+
       // Metadata hash from events
       try {
         const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(campaignId));
@@ -146,6 +187,46 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       setError(humanizeError(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleReportPage() {
+    if (!signer || !campaign) return;
+    setReportingPage(true);
+    setReportState("pending");
+    setReportMsg(null);
+    try {
+      const rep = contracts.reports.connect(signer);
+      const tx = await rep.reportPage(BigInt(campaign.id), reportReason);
+      await confirmTx(tx);
+      setPageReportCount((c) => c + 1n);
+      setReportState("success");
+      setReportMsg("Page reported.");
+    } catch (err) {
+      setReportState("error");
+      setReportMsg(humanizeError(err));
+    } finally {
+      setReportingPage(false);
+    }
+  }
+
+  async function handleReportAd() {
+    if (!signer || !campaign) return;
+    setReportingAd(true);
+    setReportState("pending");
+    setReportMsg(null);
+    try {
+      const rep = contracts.reports.connect(signer);
+      const tx = await rep.reportAd(BigInt(campaign.id), reportReason);
+      await confirmTx(tx);
+      setAdReportCount((c) => c + 1n);
+      setReportState("success");
+      setReportMsg("Ad reported.");
+    } catch (err) {
+      setReportState("error");
+      setReportMsg(humanizeError(err));
+    } finally {
+      setReportingAd(false);
     }
   }
 
@@ -203,6 +284,30 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           <span style={{ color: "var(--text-strong)" }}>{(campaign.snapshotTakeRateBps / 100).toFixed(0)}%</span>
         </InfoCard>
       </div>
+
+      {/* Publisher Snapshot */}
+      {!isOpen && (snapshotRelaySigner || snapshotTags.length > 0) && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Publisher Snapshot</h2>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 10 }}>Values snapshotted at campaign creation.</div>
+          {snapshotRelaySigner && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Relay Signer</div>
+              <AddressDisplay address={snapshotRelaySigner} explorerBase={EXPLORER} />
+            </div>
+          )}
+          {snapshotTags.length > 0 && (
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Tags at Creation</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {snapshotTags.map((tag, i) => (
+                  <span key={i} className="nano-badge" style={{ color: "var(--accent)" }}>{tag}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Settlement totals — always shown once loaded */}
       {settlements.length > 0 && (
@@ -289,6 +394,63 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
         <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Creative</h2>
         <IPFSPreview metadataHash={metadataHash} />
+      </section>
+
+      {/* Community Feedback */}
+      <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+        <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Community Feedback</h2>
+        <div style={{ display: "flex", gap: 20, marginBottom: 14 }}>
+          <div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Page Reports</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 700 }}>{pageReportCount.toString()}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Ad Reports</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 700 }}>{adReportCount.toString()}</div>
+          </div>
+        </div>
+        {signer ? (
+          <div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ color: "var(--text)", fontSize: 12, marginRight: 8 }}>Reason:</label>
+              <select
+                className="nano-select"
+                value={reportReason}
+                onChange={(e) => setReportReason(Number(e.target.value))}
+                style={{ fontSize: 12, padding: "3px 8px" }}
+              >
+                {Object.entries(REPORT_REASONS).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="nano-btn"
+                onClick={handleReportPage}
+                disabled={reportingPage || reportingAd}
+                style={{ fontSize: 12, padding: "5px 12px" }}
+              >
+                {reportingPage ? "Reporting..." : "Report Page"}
+              </button>
+              <button
+                className="nano-btn"
+                onClick={handleReportAd}
+                disabled={reportingPage || reportingAd}
+                style={{ fontSize: 12, padding: "5px 12px" }}
+              >
+                {reportingAd ? "Reporting..." : "Report Ad"}
+              </button>
+            </div>
+            {(reportMsg || reportState !== "idle") && (
+              <div style={{ marginTop: 8 }}>
+                <TransactionStatus state={reportState} message={reportMsg ?? undefined} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Connect wallet to report.</div>
+        )}
       </section>
 
       {/* Settlement history */}

@@ -177,6 +177,7 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     function vote(uint256 campaignId, bool aye, uint8 conviction) external payable {
+        require(_locked == 0, "E57");
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(abi.encodeWithSelector(bytes4(0x5c975abb)));
         require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
         require(conviction <= MAX_CONVICTION, "E40");

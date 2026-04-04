@@ -1,5 +1,5 @@
 /**
- * DATUM Publisher SDK v3.0
+ * DATUM Publisher SDK v3.1
  *
  * Lightweight JS tag (~2 KB) for publishers to embed on their site.
  * Provides two-party attestation via challenge-response handshake
@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "3.0.0";
+  var VERSION = "3.1.0";
 
   // Known short-form → dimension:value mappings for convenience
   var SHORT_FORM_MAP = {

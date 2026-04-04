@@ -10,6 +10,7 @@ export type ContentToBackground =
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
   | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean }
   | { type: "SET_PUBLISHER_RELAY"; publisher: string; relay: string }
+  | { type: "CHECK_PUBLISHER_ALLOWLIST"; publisher: string }
   // window.datum provider bridge (EIP-1193 compatible)
   | { type: "PROVIDER_CONNECT" }
   | { type: "PROVIDER_GET_ADDRESS" }
@@ -44,11 +45,14 @@ export type PopupToBackground =
   | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
   | { type: "BLOCK_CAMPAIGN"; campaignId: string }
   | { type: "UNBLOCK_CAMPAIGN"; campaignId: string }
+  | { type: "BLOCK_TAG"; tag: string }
+  | { type: "UNBLOCK_TAG"; tag: string }
   | { type: "AUTHORIZE_AUTO_SUBMIT"; password: string }
   | { type: "REVOKE_AUTO_SUBMIT" }
   | { type: "CHECK_AUTO_SUBMIT" }
   | { type: "GET_TIMELOCK_PENDING" }
-  | { type: "PROVIDER_APPROVAL_RESPONSE"; requestId: string; approved: boolean };
+  | { type: "PROVIDER_APPROVAL_RESPONSE"; requestId: string; approved: boolean }
+  | { type: "DISCARD_REJECTED_CLAIMS"; userAddress: string; campaignIds: string[] };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {
