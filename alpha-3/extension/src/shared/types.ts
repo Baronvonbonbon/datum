@@ -347,6 +347,7 @@ export interface ContractAddresses {
   governanceHelper: string;     // SE-2: governance slash helper
   reports: string;              // community reporting satellite
   rateLimiter: string;          // BM-5: settlement rate limiter
+  reputation: string;           // BM-8/BM-9: publisher reputation + anomaly detection
 }
 
 // User ad preferences — persisted in chrome.storage.local

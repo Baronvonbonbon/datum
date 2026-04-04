@@ -55,8 +55,8 @@ _Review date: 2026-04-04 | Last updated: 2026-04-04_
 | **E2E on Paseo** | Open | Extension + relay end-to-end validation — run setup-testnet.ts to re-seed |
 | **BM-3** | Open | Bot mitigation — needs spec |
 | **BM-6** | Open | Bot mitigation — needs spec |
-| **BM-8** | Open | Bot mitigation — needs spec |
-| **BM-9** | Open | Bot mitigation — needs spec |
+| **BM-8** | ✅ Done | Publisher reputation scoring: `DatumPublisherReputation.recordSettlement()`. Relay bot wired. Web admin at `/admin/reputation`. Deploy pending. |
+| **BM-9** | ✅ Done | Cross-campaign anomaly detection: `isAnomaly(publisher, campaignId)` — campaign rejection rate > 2× global rate, min sample 10. Built into DatumPublisherReputation. |
 
 ### Targeting Backlog
 

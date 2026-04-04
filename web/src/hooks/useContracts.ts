@@ -21,6 +21,7 @@ import {
   getGovernanceHelperContract,
   getReportsContract,
   getRateLimiterContract,
+  getReputationContract,
   getProvider,
 } from "@shared/contracts";
 
@@ -50,6 +51,7 @@ export function useContracts() {
       governanceHelper: getGovernanceHelperContract(addrs, provider),
       reports: getReportsContract(addrs, provider),
       rateLimiter: getRateLimiterContract(addrs, provider),
+      reputation: getReputationContract(addrs, provider),
       // Read-only provider for cases that don't need a signer
       readProvider: getProvider(settings.rpcUrl),
     };

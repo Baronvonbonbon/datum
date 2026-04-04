@@ -38,6 +38,7 @@ import { PauseRegistryAdmin } from "./pages/admin/PauseRegistry";
 import { BlocklistAdmin } from "./pages/admin/Blocklist";
 import { ProtocolFeesAdmin } from "./pages/admin/ProtocolFees";
 import { RateLimiterAdmin } from "./pages/admin/RateLimiter";
+import { ReputationAdmin } from "./pages/admin/Reputation";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -85,6 +86,7 @@ export function App() {
               <Route path="/admin/blocklist" element={<BlocklistAdmin />} />
               <Route path="/admin/protocol" element={<ProtocolFeesAdmin />} />
               <Route path="/admin/rate-limiter" element={<RateLimiterAdmin />} />
+              <Route path="/admin/reputation" element={<ReputationAdmin />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />

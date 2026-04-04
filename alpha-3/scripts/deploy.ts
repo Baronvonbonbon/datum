@@ -1,16 +1,17 @@
-// deploy.ts — Full 19-contract Alpha-3 deployment + wiring + ownership transfer
+// deploy.ts — Full 20-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
 // validates all wiring, and writes deployed-addresses.json.
 //
-// Alpha-3 adds 6 satellite contracts:
-//   - DatumTargetingRegistry  (TX-1: tag-based publisher targeting)
-//   - DatumCampaignValidator  (SE-3: campaign creation validation)
-//   - DatumClaimValidator     (SE-1: claim hash/chain validation)
-//   - DatumGovernanceHelper   (SE-2: slash computation + dust guard)
-//   - DatumReports            (community reporting — pages + ads)
+// Alpha-3 adds 7 satellite contracts:
+//   - DatumTargetingRegistry    (TX-1: tag-based publisher targeting)
+//   - DatumCampaignValidator    (SE-3: campaign creation validation)
+//   - DatumClaimValidator       (SE-1: claim hash/chain validation)
+//   - DatumGovernanceHelper     (SE-2: slash computation + dust guard)
+//   - DatumReports              (community reporting — pages + ads)
 //   - DatumSettlementRateLimiter (BM-5: per-publisher window rate limiter)
+//   - DatumPublisherReputation  (BM-8+BM-9: reputation score + anomaly detection)
 //
 // Paseo eth-rpc workaround: getTransactionReceipt is broken for deploy txs.
 // We use raw signed transactions + getCreateAddress(sender, nonce) to derive
@@ -58,7 +59,7 @@ const INACTIVITY_TIMEOUT_BLOCKS = 432000n;           // 30 days at 6s/block
 const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
 const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
 
-// ── Required address keys (18 contracts) ─────────────────────────────────────
+// ── Required address keys (20 contracts) ─────────────────────────────────────
 
 const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
@@ -67,14 +68,14 @@ const REQUIRED_KEYS = [
   "settlement", "relay", "zkVerifier",
   // Alpha-3 satellites
   "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-  "reports", "rateLimiter",
+  "reports", "rateLimiter", "reputation",
 ] as const;
 
 // BM-5 rate limiter deployment parameters
 const RATE_LIMITER_WINDOW_BLOCKS = 100n;              // ~10 minutes at 6s/block
 const RATE_LIMITER_MAX_IMPRESSIONS = 500_000n;        // 500K impressions per publisher per window
 
-const TOTAL_STEPS = 26; // 19 deploy + 7 wiring/validation sections
+const TOTAL_STEPS = 27; // 20 deploy + 7 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -407,7 +408,14 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumSettlementRateLimiter — ${err}`);
   }
 
-  console.log("\n=== All 19 contracts deployed ===\n");
+  try {
+    logStep("Deploying DatumPublisherReputation (BM-8/BM-9)");
+    await deployOrReuse("reputation", "DatumPublisherReputation");
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPublisherReputation — ${err}`);
+  }
+
+  console.log("\n=== All 20 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -772,7 +780,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("19 contracts deployed and wired:\n");
+  console.log("20 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }

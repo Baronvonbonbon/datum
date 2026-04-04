@@ -32,6 +32,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   governanceHelper: "",
   reports: "",
   rateLimiter: "",
+  reputation: "",
 };
 
 export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; explorerUrl: string; addresses: ContractAddresses }> = {
@@ -68,6 +69,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
       governanceHelper: "0xdDC82a51f33820Bdd92b26380eD797ed60d332Fa",
       reports: "0x0bf309ba45aE61dEF6398AAE161E72770E6027CA",
       rateLimiter: "0x5C128CCF8795394Ad2411b76CD9d8f158d6929F8",
+      reputation: "0xbFfb416b8f0A239BF041D60A267BD7F3c0ddb79E",
     },
   },
   westend: {

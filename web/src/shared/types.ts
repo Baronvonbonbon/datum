@@ -268,6 +268,7 @@ export interface ContractAddresses {
   governanceHelper: string;
   reports: string;
   rateLimiter: string;
+  reputation: string;          // BM-8/BM-9: publisher reputation + anomaly detection
 }
 
 export type IpfsProvider =

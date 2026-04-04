@@ -150,6 +150,11 @@ const reportsAbi = [
   "function adReports(uint256) view returns (uint256)",
 ];
 
+const reputationAbi = [
+  "function addReporter(address reporter)",
+  "function reporters(address) view returns (bool)",
+];
+
 async function main() {
   // Raw provider bypasses hardhat-polkadot receipt bug
   const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
@@ -179,19 +184,19 @@ async function main() {
   const addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
   log("INIT", "Loaded addresses from " + addrFile);
 
-  // Verify alpha-3 contracts are present (18 keys)
+  // Verify alpha-3 contracts are present (20 keys)
   const alpha3Keys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-    "reports",
+    "reports", "rateLimiter", "reputation",
   ];
   const missing = alpha3Keys.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
-    console.error("Re-run deploy.ts for alpha-3 (18-contract deploy).");
+    console.error("Re-run deploy.ts for alpha-3 (20-contract deploy).");
     process.exitCode = 1;
     return;
   }
@@ -202,6 +207,7 @@ async function main() {
   const govIface = new Interface(govV2Abi);
   const targetIface = new Interface(targetingAbi);
   const reportsIface = new Interface(reportsAbi);
+  const reputationIface = new Interface(reputationAbi);
 
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
@@ -419,6 +425,32 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 5.7. WIRE REPUTATION REPORTER (Diana = relay bot stand-in for testnet)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("5.7", "--- Wiring reputation reporter (BM-8/BM-9) ---");
+  if (addrs.reputation) {
+    try {
+      // Check if Diana is already a reporter
+      const isReporter = await rawProvider.call({
+        to: addrs.reputation,
+        data: reputationIface.encodeFunctionData("reporters", [diana.address]),
+      });
+      const alreadyReporter = reputationIface.decodeFunctionResult("reporters", isReporter)[0];
+      if (alreadyReporter) {
+        log("5.7", `  diana already approved as reporter -- skipping`);
+      } else {
+        // Alice (owner) adds Diana as reporter
+        await sendCall(alice, rawProvider, addrs.reputation, reputationIface, "addReporter", [diana.address]);
+        log("5.7", `  diana (${diana.address}) added as reporter`);
+      }
+    } catch (err) {
+      log("5.7", `  addReporter failed: ${String(err).slice(0, 100)}`);
+    }
+  } else {
+    log("5.7", "  reputation address not set -- skipping (deploy pending)");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n=== Alpha-3 Testnet Setup Complete ===");
@@ -433,14 +465,14 @@ async function main() {
     console.log(`  ${name.padEnd(8)} ${wallets[name].address}  ${formatDOT(bal)} PAS`);
   }
   console.log("");
-  console.log("Alpha-3 contract addresses (18):");
+  console.log("Alpha-3 contract addresses (20):");
   const alpha3ContractKeys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-    "reports",
+    "reports", "rateLimiter", "reputation",
   ];
   for (const key of alpha3ContractKeys) {
     console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
