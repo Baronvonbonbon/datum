@@ -5,7 +5,7 @@
 import { solidityPacked, ZeroHash } from "ethers";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { Claim, ClaimChainState, Impression } from "@shared/types";
-import { generateStubProof } from "./zkProofStub";
+import { generateZKProof } from "./zkProof";
 
 /** Blake2-256 hash of ABI-packed values. Matches ISystem(0x900).hashBlake256() on PolkaVM. */
 function blake2Hash(types: string[], values: unknown[]): string {
@@ -112,8 +112,10 @@ export const claimBuilder = {
         ]
       );
 
-      // Generate ZK proof if campaign requires it (stub for alpha; real Groth16 in P9)
-      const zkProof = campaign.requiresZkProof ? generateStubProof(claimHash) : "0x";
+      // Generate real Groth16 proof if campaign requires it (impression.circom, BN254)
+      const zkProof = campaign.requiresZkProof
+        ? await generateZKProof(claimHash, impressionCount, nonce)
+        : "0x";
 
       const claim: Claim = {
         campaignId,

@@ -233,7 +233,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   document.body.appendChild(host);
 
   // XL-3: Programmatic error handler instead of inline onerror attribute
-  shadow.querySelectorAll(".datum-ad-img").forEach((img) => {
+  shadow.querySelectorAll(".datum-ad-img").forEach((img: Element) => {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
   });
 
@@ -372,7 +372,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   shadow.appendChild(wrapper);
 
   // XL-3: Programmatic error handler instead of inline onerror attribute
-  shadow.querySelectorAll(".datum-ad-img").forEach((img) => {
+  shadow.querySelectorAll(".datum-ad-img").forEach((img: Element) => {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
   });
 

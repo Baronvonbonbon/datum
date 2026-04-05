@@ -260,7 +260,7 @@ export function Settings({ address }: { address: string | null }) {
     setTagsSaving(true);
     setTagsResult(null);
     try {
-      const signer = await getSigner(null);
+      const signer = getSigner(settings.rpcUrl);
       const contract = getTargetingRegistryContract(settings.contractAddresses, signer);
       const hashes = Array.from(currentTags).map(tagHash);
       const tx = await contract.setTags(hashes);
@@ -299,7 +299,7 @@ export function Settings({ address }: { address: string | null }) {
     setRelaySignerBusy(true);
     setRelaySignerResult(null);
     try {
-      const signer = await getSigner(null);
+      const signer = getSigner(settings.rpcUrl);
       const contract = getPublishersContract(settings.contractAddresses, signer);
       const tx = await contract.setRelaySigner(relaySignerInput.trim() || "0x0000000000000000000000000000000000000000");
       await tx.wait();
@@ -317,7 +317,7 @@ export function Settings({ address }: { address: string | null }) {
     setProfileHashBusy(true);
     setProfileHashResult(null);
     try {
-      const signer = await getSigner(null);
+      const signer = getSigner(settings.rpcUrl);
       const contract = getPublishersContract(settings.contractAddresses, signer);
       const hashBytes = profileHashInput.trim();
       const tx = await contract.setProfile(hashBytes);
@@ -475,6 +475,13 @@ export function Settings({ address }: { address: string | null }) {
                     budgetLedger: addrs.budgetLedger ?? "",
                     lifecycle: addrs.lifecycle ?? "",
                     attestationVerifier: addrs.attestationVerifier ?? "",
+                    targetingRegistry: addrs.targetingRegistry ?? "",
+                    campaignValidator: addrs.campaignValidator ?? "",
+                    claimValidator: addrs.claimValidator ?? "",
+                    governanceHelper: addrs.governanceHelper ?? "",
+                    reports: addrs.reports ?? "",
+                    rateLimiter: addrs.rateLimiter ?? "",
+                    reputation: addrs.reputation ?? "",
                   },
                 }));
                 // SI-3: Clear validation errors for loaded addresses
@@ -748,10 +755,10 @@ export function Settings({ address }: { address: string | null }) {
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0" });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [] });
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0" },
+              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [] },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}

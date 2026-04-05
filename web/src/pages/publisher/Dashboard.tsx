@@ -18,6 +18,7 @@ export function PublisherDashboard() {
   const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [reputation, setReputation] = useState<{ settled: bigint; rejected: bigint; scoreBps: bigint } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
 
@@ -43,6 +44,18 @@ export function PublisherDashboard() {
           setTags(hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean));
         }
       } catch { /* no targeting registry */ }
+
+      // Fetch reputation stats
+      try {
+        if (contracts.reputation) {
+          const stats = await contracts.reputation.getPublisherStats(address);
+          setReputation({
+            settled: BigInt(stats[0] ?? stats.totalSettled ?? 0),
+            rejected: BigInt(stats[1] ?? stats.totalRejected ?? 0),
+            scoreBps: BigInt(stats[2] ?? stats.scoreBps ?? 0),
+          });
+        }
+      } catch { /* no reputation contract */ }
     } finally {
       setLoading(false);
     }
@@ -105,6 +118,27 @@ export function PublisherDashboard() {
                     {tag}
                   </span>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Reputation */}
+          {reputation && (
+            <div className="nano-card" style={{ padding: 16 }}>
+              <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Reputation</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Settled</div>
+                  <div style={{ color: "var(--ok)", fontWeight: 700, fontSize: 18 }}>{reputation.settled.toString()}</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Rejected</div>
+                  <div style={{ color: reputation.rejected > 0n ? "var(--error)" : "var(--text-strong)", fontWeight: 700, fontSize: 18 }}>{reputation.rejected.toString()}</div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Score</div>
+                  <div style={{ color: "var(--text-strong)", fontWeight: 700, fontSize: 18 }}>{(Number(reputation.scoreBps) / 100).toFixed(0)}%</div>
+                </div>
               </div>
             </div>
           )}

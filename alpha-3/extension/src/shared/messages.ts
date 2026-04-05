@@ -52,7 +52,10 @@ export type PopupToBackground =
   | { type: "CHECK_AUTO_SUBMIT" }
   | { type: "GET_TIMELOCK_PENDING" }
   | { type: "PROVIDER_APPROVAL_RESPONSE"; requestId: string; approved: boolean }
-  | { type: "DISCARD_REJECTED_CLAIMS"; userAddress: string; campaignIds: string[] };
+  | { type: "DISCARD_REJECTED_CLAIMS"; userAddress: string; campaignIds: string[] }
+  | { type: "GET_AD_RATE" }
+  | { type: "REPORT_PAGE"; campaignId: string; reason: number }
+  | { type: "REPORT_AD"; campaignId: string; reason: number };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

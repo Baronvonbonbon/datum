@@ -3,6 +3,7 @@ import { JsonRpcProvider } from "ethers";
 import { ClaimQueue } from "./ClaimQueue";
 import { UserPanel } from "./UserPanel";
 import { FiltersTab } from "./FiltersTab";
+import { ReportsTab } from "./ReportsTab";
 import { Settings } from "./Settings";
 import {
   isConfigured,
@@ -24,12 +25,13 @@ import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { formatDOT } from "@shared/dot";
 import { humanizeError } from "@shared/errorCodes";
 
-type Tab = "claims" | "user" | "filters" | "settings";
+type Tab = "claims" | "user" | "filters" | "reports" | "settings";
 
 const TAB_LABELS: Record<Tab, string> = {
   claims: "Claims",
   user: "Earnings",
   filters: "Filters",
+  reports: "Report",
   settings: "Settings",
 };
 
@@ -850,6 +852,7 @@ export function App() {
         {tab === "claims" && <ClaimQueue key={refreshKey} address={address} />}
         {tab === "user" && <UserPanel key={refreshKey} address={address} />}
         {tab === "filters" && <FiltersTab />}
+        {tab === "reports" && <ReportsTab />}
         {tab === "settings" && <Settings key={refreshKey} address={address} />}
       </div>
     </div>

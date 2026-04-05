@@ -53,6 +53,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [metadataHash, setMetadataHash] = useState<string>("0x" + "0".repeat(64));
   const [snapshotRelaySigner, setSnapshotRelaySigner] = useState<string | null>(null);
   const [snapshotTags, setSnapshotTags] = useState<string[]>([]);
+  const [requiresZkProof, setRequiresZkProof] = useState(false);
   const [pageReportCount, setPageReportCount] = useState<bigint>(0n);
   const [adReportCount, setAdReportCount] = useState<bigint>(0n);
   const [reportReason, setReportReason] = useState(1);
@@ -150,14 +151,16 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         });
       } catch { /* GovernanceV2 not configured */ }
 
-      // Snapshot relay signer + publisher tags
+      // Snapshot relay signer + publisher tags + ZK requirement
       try {
-        const [relayAddr, pubTags] = await Promise.all([
+        const [relayAddr, pubTags, zkReq] = await Promise.all([
           contracts.campaigns.getCampaignRelaySigner(BigInt(campaignId)).catch(() => ethers.ZeroAddress),
           contracts.campaigns.getCampaignPublisherTags(BigInt(campaignId)).catch(() => []),
+          contracts.campaigns.getCampaignRequiresZkProof(BigInt(campaignId)).catch(() => false),
         ]);
         setSnapshotRelaySigner(relayAddr !== ethers.ZeroAddress ? relayAddr as string : null);
         setSnapshotTags((pubTags as string[]).map((h: string) => tagLabel(h) ?? h.slice(0, 10) + "..."));
+        setRequiresZkProof(Boolean(zkReq));
       } catch { /* not deployed */ }
 
       // Report counts
@@ -283,6 +286,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         <InfoCard label="Take Rate">
           <span style={{ color: "var(--text-strong)" }}>{(campaign.snapshotTakeRateBps / 100).toFixed(0)}%</span>
         </InfoCard>
+        {requiresZkProof && (
+          <InfoCard label="ZK Proof">
+            <span className="nano-badge" style={{ color: "var(--accent)", fontSize: 12 }}>Required</span>
+          </InfoCard>
+        )}
       </div>
 
       {/* Publisher Snapshot */}

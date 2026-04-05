@@ -12,6 +12,10 @@ import DatumBudgetLedgerAbi from "./abis/DatumBudgetLedger.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
 import DatumTargetingRegistryAbi from "./abis/DatumTargetingRegistry.json";
+import DatumZKVerifierAbi from "./abis/DatumZKVerifier.json";
+import DatumCampaignValidatorAbi from "./abis/DatumCampaignValidator.json";
+import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
+import DatumGovernanceHelperAbi from "./abis/DatumGovernanceHelper.json";
 import DatumReportsAbi from "./abis/DatumReports.json";
 import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
@@ -81,6 +85,22 @@ export function getRateLimiterContract(addresses: ContractAddresses, provider: P
 
 export function getReputationContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.reputation, DatumPublisherReputationAbi.abi, provider);
+}
+
+export function getZKVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.zkVerifier, DatumZKVerifierAbi.abi, provider);
+}
+
+export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.campaignValidator, DatumCampaignValidatorAbi.abi, provider);
+}
+
+export function getClaimValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.claimValidator, DatumClaimValidatorAbi.abi, provider);
+}
+
+export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.governanceHelper, DatumGovernanceHelperAbi.abi, provider);
 }
 
 // Helper: create a read-only provider for the given RPC URL

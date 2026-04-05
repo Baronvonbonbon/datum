@@ -94,6 +94,9 @@ const config = (
           { from: "manifest.json", to: "manifest.json" },
           { from: "icons", to: "icons", noErrorOnMissing: true },
           { from: "deployed-addresses.json", to: "deployed-addresses.json", noErrorOnMissing: true },
+          // Circuit files for real Groth16 proof generation (impression.circom)
+          { from: "../../circuits/impression_js/impression.wasm", to: "circuits/impression.wasm", noErrorOnMissing: true },
+          { from: "../../circuits/impression.zkey", to: "circuits/impression.zkey", noErrorOnMissing: true },
         ],
       }),
 

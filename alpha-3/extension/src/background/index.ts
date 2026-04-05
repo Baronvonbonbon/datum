@@ -663,6 +663,27 @@ async function handleMessage(
       return { preferences };
     }
 
+    case "REPORT_PAGE":
+    case "REPORT_AD": {
+      const s = await getSettings();
+      if (!s.contractAddresses.reports) return { ok: false, error: "Reports contract not configured" };
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const userAddress: string | undefined = stored.connectedAddress;
+      if (!userAddress) return { ok: false, error: "Wallet not connected" };
+      try {
+        const { getReportsContract } = await import("@shared/contracts");
+        const { getSigner: getWalletSigner } = await import("@shared/walletManager");
+        const signer = getWalletSigner(s.rpcUrl);
+        const reports = getReportsContract(s.contractAddresses, signer);
+        const fn = msg.type === "REPORT_PAGE" ? reports.reportPage : reports.reportAd;
+        const tx = await fn(BigInt(msg.campaignId), msg.reason);
+        await tx.wait();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: String(err).slice(0, 120) };
+      }
+    }
+
     // Engagement tracking — quality score computed here (trusted background),
     // not in content script (untrusted). Low-quality impressions are rejected.
     case "ENGAGEMENT_RECORDED": {
