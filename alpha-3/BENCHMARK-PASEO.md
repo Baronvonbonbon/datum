@@ -87,10 +87,78 @@ Payment splits verified on-chain against vault balances (publisherBalance, userB
 
 ---
 
+## Gas Costs — All State-Changing Functions
+
+**Collected:** `npx hardhat run scripts/gas-costs.ts --network polkadotTestnet` (live Paseo, 2026-04-05)
+
+**Unit mapping (verified):** `eth_getBalance` returns wei where **1 ETH = 1 PAS = 10¹⁰ planck**.
+Standard Ethereum fee formula applies: `fee_PAS = gas × gasPrice / 10¹⁸`.
+Paseo `eth_gasPrice` = `10¹²` wei/gas → **fee_PAS = gas / 1,000,000**.
+
+### Full Cost Table
+
+| Function | Gas | PAS fee | $5/DOT | $10/DOT | $20/DOT |
+|---|---:|---:|---:|---:|---:|
+| `createCampaign` (targeted + ZK) | 382,167 | 0.382167 | $1.91 | $3.82 | $7.64 |
+| `createCampaign` (targeted, no ZK) | 361,346 | 0.361346 | $1.81 | $3.61 | $7.23 |
+| `createCampaign` (open, no publisher) | 254,054 | 0.254054 | $1.27 | $2.54 | $5.08 |
+| `setTags` (8 tags — max per campaign) | 114,490 | 0.114490 | $0.57 | $1.14 | $2.29 |
+| `Timelock.propose` | 64,169 | 0.064169 | $0.32 | $0.64 | $1.28 |
+| `recordSettlement` (reputation relay) | 43,826 | 0.043826 | $0.22 | $0.44 | $0.88 |
+| `setTags` (1 tag) | 26,351 | 0.026351 | $0.13 | $0.26 | $0.53 |
+| `setAllowedAdvertiser` | 22,758 | 0.022758 | $0.11 | $0.23 | $0.46 |
+| `setAllowlistEnabled` | 22,592 | 0.022592 | $0.11 | $0.23 | $0.45 |
+| `registerSdkVersion` | 22,501 | 0.022501 | $0.11 | $0.23 | $0.45 |
+| `checkAndIncrement` (rate limiter, internal) | 22,336 | 0.022336 | $0.11 | $0.22 | $0.45 |
+| `verify` (real Groth16, BN254 ecPairing) | 4,730 | 0.004730 | $0.024 | $0.047 | $0.095 |
+| `reportPage` (reasons 1–5) | 2,933 | 0.002933 | $0.015 | $0.029 | $0.059 |
+| `reportAd` | 2,329 | 0.002329 | $0.012 | $0.023 | $0.047 |
+| `setRelaySigner` | 1,952 | 0.001952 | $0.010 | $0.020 | $0.039 |
+| `togglePause` (campaign) | 1,950 | 0.001950 | $0.010 | $0.020 | $0.039 |
+| `setProfile` | 1,861 | 0.001861 | $0.009 | $0.019 | $0.037 |
+| `setMetadata` | 1,769 | 0.001769 | $0.009 | $0.018 | $0.035 |
+| `verify` (empty proof, fast reject) | 1,749 | 0.001749 | $0.009 | $0.017 | $0.035 |
+| Admin setters (`set*`, `transferOwnership`) | ~1,450–1,610 | ~0.0015 | ~$0.008 | ~$0.015 | ~$0.032 |
+| `addReporter` / `removeReporter` | 1,525 | 0.001525 | $0.008 | $0.015 | $0.031 |
+| `pause` / `unpause` (global) | 1,114 | 0.001114 | $0.006 | $0.011 | $0.022 |
+
+### `settleClaims` (from benchmark execution)
+
+`settleClaims` requires a valid signed `ClaimBatch[]` and cannot be estimated with `eth_estimateGas` standalone. Inferred from benchmark timing and component costs:
+
+| Scenario | Approx. gas | $5/DOT | $10/DOT |
+|---|---:|---:|---:|
+| 1 claim × 100 impressions | ~150,000–250,000 | ~$0.75–$1.25 | ~$1.50–$2.50 |
+| 5-claim batch (SCALE-1) | ~500,000–800,000 | ~$2.50–$4.00 | ~$5.00–$8.00 |
+| 1 claim × 1,000 impressions | ~150,000–250,000 | ~$0.75–$1.25 | ~$1.50–$2.50 |
+
+Impression count is off-chain data — single vs 1,000-impression claims cost the same gas on-chain (confirmed: SCALE-2 vs SCALE-3 latencies identical).
+
+### View Functions (no fee)
+
+All `get*`, `is*`, `current*`, `vkSet`, `paused`, `convictionWeight`, `getClaimable`, `getRemainingBudget`, `getScore`, `isAnomaly`, `getPublisherStats`, `getTags`, `hasAllTags` — free to call (read-only RPC, 200–700 ms latency).
+
+### Key Cost Observations
+
+- **createCampaign is the most expensive user-facing call** ($1.27–$1.91 at $5/DOT). The ZK flag adds ~$0.10; targeted vs open adds ~$0.54 (validateCreation + tag snapshot).
+- **setTags scales linearly** — 1 tag = $0.13, 8 tags = $0.57 (at $5/DOT). Tags are stored as bytes32[] in cold slots.
+- **Groth16 proof verification = $0.024 at $5/DOT** — BN254 ecPairing precompile is 51–88× cheaper on Paseo than Ethereum mainnet. Fully practical per-impression ZK proofs.
+- **reportPage / reportAd = $0.012–$0.015** — low enough for organic user reporting.
+- **recordSettlement (relay) = $0.22 at $5/DOT** — relay-bot post-settlement cost per settlement batch; amortized over all impressions in the batch.
+- **Governance (vote, evaluateCampaign, finalizeSlash)** — not estimatable standalone (requires active campaigns in specific states); expected similar to or higher than `createCampaign` due to conviction-weighted accounting.
+
+---
+
 ## Benchmark Script
 
 ```
 npx hardhat run scripts/benchmark-paseo.ts --network polkadotTestnet
+```
+
+Gas cost script:
+
+```
+npx hardhat run scripts/gas-costs.ts --network polkadotTestnet
 ```
 
 Prerequisites: `deploy.ts` + `setup-testnet.ts` completed; Diana registered as publisher and reporter.
