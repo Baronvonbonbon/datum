@@ -230,7 +230,7 @@ async function main() {
   }
 
   try {
-    logStep("Deploying DatumZKVerifier (stub)");
+    logStep("Deploying DatumZKVerifier (Groth16 / BN254)");
     await deployOrReuse("zkVerifier", "DatumZKVerifier");
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumZKVerifier — ${err}`);
@@ -606,6 +606,37 @@ async function main() {
     "zkVerifier", "setZKVerifier",
     addresses.zkVerifier,
   );
+
+  // ── ZKVerifier: setVerifyingKey (Groth16 VK from trusted setup) ──
+  // Reads circuits/setVK-calldata.json produced by `node scripts/setup-zk.mjs`.
+  // Skips if vkSet is already true (idempotent) or if calldata file is absent.
+  {
+    const vkCalldataPath = path.join(__dirname, "..", "circuits", "setVK-calldata.json");
+    const zkIface = new ethers.Interface([
+      "function vkSet() view returns (bool)",
+      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)",
+    ]);
+
+    const vkSetData = zkIface.encodeFunctionData("vkSet");
+    const vkSetRaw  = await rawProvider.call({ to: addresses.zkVerifier, data: vkSetData });
+    const alreadySet = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], vkSetRaw)[0];
+
+    if (alreadySet) {
+      console.log("  OK (already set): ZKVerifier.vk");
+    } else if (!fs.existsSync(vkCalldataPath)) {
+      console.warn("  SKIP: ZKVerifier.setVerifyingKey — circuits/setVK-calldata.json not found");
+      console.warn("        Run `node scripts/setup-zk.mjs` to generate it, then re-run deploy.ts.");
+    } else {
+      const vkCalldata = JSON.parse(fs.readFileSync(vkCalldataPath, "utf-8"));
+      await sendCall(
+        addresses.zkVerifier,
+        ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)"],
+        "setVerifyingKey",
+        [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1],
+      );
+      console.log("  SET: ZKVerifier.vk (Groth16 verifying key)");
+    }
+  }
 
   // ── GovernanceV2: setSlashContract, setLifecycle, setHelper ──
   await wireIfNeeded(

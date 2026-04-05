@@ -57,7 +57,7 @@ export const NETWORK_CONFIGS: Record<
       relay:               "0x143e6A59D4eeF103F417fC45cf685fD876023e19",
       pauseRegistry:       "0x9c65f8919Dca88d260637C015DC47f45993D36dD",
       timelock:            "0x0959e8Fb600D559EB0162A0aef560DB0fe87F3a4",
-      zkVerifier:          "0xCaFCA05eE6f837c2F8e597f1a1dfe13b05463bF1",
+      zkVerifier:          "0x14eB79569063618d5D0265E6Bb7Edc062B3ad2b9",
       budgetLedger:        "0x4Dd3cad6fFF40d5bFd8cCf1f9b83aE2168DF38A3",
       paymentVault:        "0x850C12410eCf6733D5CF2C33861f23b6816c950B",
       lifecycle:           "0x1948A518F5F7412DAbeF0273a2755a0D510D23bC",

@@ -20,7 +20,9 @@
     "@parity/hardhat-polkadot-node": "^0.2.5",
     "@parity/hardhat-polkadot-resolc": "^0.2.3",
     "@parity/resolc": "^1.0.0",
+    "circomlib": "^2.0.5",
     "hardhat": "^2.22.0",
+    "snarkjs": "^0.7.6",
     "solc": "0.8.24",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0"

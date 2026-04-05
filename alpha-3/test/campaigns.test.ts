@@ -80,7 +80,7 @@ describe("DatumCampaigns", function () {
   // L1: Create campaign with registered publisher
   it("L1: createCampaign with registered publisher succeeds", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [],
+      publisher.address, DAILY_CAP, BID_CPM, [], false,
       { value: BUDGET }
     );
     await tx.wait();
@@ -98,7 +98,7 @@ describe("DatumCampaigns", function () {
   // L2: Create open campaign (publisher = address(0))
   it("L2: createCampaign with publisher=address(0) uses DEFAULT_TAKE_RATE_BPS", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, [],
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false,
       { value: BUDGET }
     );
     await tx.wait();
@@ -114,7 +114,7 @@ describe("DatumCampaigns", function () {
   it("L3: createCampaign with unregistered publisher reverts E62", async function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        other.address, DAILY_CAP, BID_CPM, 0, [],
+        other.address, DAILY_CAP, BID_CPM, [], false,
         { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
@@ -124,7 +124,7 @@ describe("DatumCampaigns", function () {
   it("L4: createCampaign with zero value reverts E11", async function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, 0, [],
+        publisher.address, DAILY_CAP, BID_CPM, [], false,
         { value: 0 }
       )
     ).to.be.revertedWith("E11");
@@ -148,7 +148,7 @@ describe("DatumCampaigns", function () {
   it("L6: advertiser can pause and resume Active campaign", async function () {
     // Create and activate a campaign
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -171,7 +171,7 @@ describe("DatumCampaigns", function () {
   // L7: getCampaignForSettlement returns 4 values
   it("L7: getCampaignForSettlement returns 4 values", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -182,17 +182,16 @@ describe("DatumCampaigns", function () {
     expect(takeRate).to.equal(TAKE_RATE_BPS);
   });
 
-  // L8: Category support
-  it("L8: campaign stores category ID", async function () {
+  // L8: ZK proof requirement stored per-campaign
+  it("L8: createCampaign with requireZkProof=true stores flag", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 5, [],
+      publisher.address, DAILY_CAP, BID_CPM, [], true,
       { value: BUDGET }
     );
     await tx.wait();
-    // Category is stored in the struct but we don't have a direct getter
-    // Just verify the campaign was created successfully
     const id = await campaigns.nextCampaignId() - 1n;
     expect(await campaigns.getCampaignStatus(id)).to.equal(0);
+    expect(await campaigns.getCampaignRequiresZkProof(id)).to.equal(true);
   });
 
   // -------------------------------------------------------------------------
@@ -201,7 +200,7 @@ describe("DatumCampaigns", function () {
 
   it("setCampaignStatus only callable by lifecycleContract", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -218,7 +217,7 @@ describe("DatumCampaigns", function () {
 
   it("SM-7: setCampaignStatus rejects invalid transition (E67)", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -234,7 +233,7 @@ describe("DatumCampaigns", function () {
 
   it("setTerminationBlock only callable by lifecycleContract", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 

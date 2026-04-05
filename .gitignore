@@ -13,3 +13,13 @@ alpha-2/deployed-addresses.json.devnet-backup
 relay-bot/
 ref/
 SECURITY-AUDIT.md
+
+# Private keys / testnet credentials
+alpha-3/TESTNET-KEYS.md
+
+# ZK trusted setup — large artifacts (regenerate with `node scripts/setup-zk.mjs`)
+alpha-3/circom
+alpha-3/circuits/ptau12.ptau
+alpha-3/circuits/impression_0000.zkey
+alpha-3/circuits/impression.r1cs
+alpha-3/circuits/impression.sym

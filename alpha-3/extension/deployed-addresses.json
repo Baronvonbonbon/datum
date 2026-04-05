@@ -1,7 +1,6 @@
 {
   "pauseRegistry": "0x9c65f8919Dca88d260637C015DC47f45993D36dD",
   "timelock": "0x0959e8Fb600D559EB0162A0aef560DB0fe87F3a4",
-  "zkVerifier": "0xCaFCA05eE6f837c2F8e597f1a1dfe13b05463bF1",
   "publishers": "0xC0B5794A401C392116b14f6c682423130C0e689a",
   "budgetLedger": "0x4Dd3cad6fFF40d5bFd8cCf1f9b83aE2168DF38A3",
   "paymentVault": "0x850C12410eCf6733D5CF2C33861f23b6816c950B",
@@ -19,6 +18,7 @@
   "reports": "0x0bf309ba45aE61dEF6398AAE161E72770E6027CA",
   "rateLimiter": "0x5C128CCF8795394Ad2411b76CD9d8f158d6929F8",
   "network": "polkadotTestnet",
-  "deployedAt": "2026-04-04T21:34:10.328Z",
-  "reputation": "0xbFfb416b8f0A239BF041D60A267BD7F3c0ddb79E"
+  "deployedAt": "2026-04-05T13:07:48.291Z",
+  "reputation": "0xbFfb416b8f0A239BF041D60A267BD7F3c0ddb79E",
+  "zkVerifier": "0x14eB79569063618d5D0265E6Bb7Edc062B3ad2b9"
 }

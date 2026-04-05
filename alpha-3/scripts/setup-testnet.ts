@@ -5,11 +5,17 @@
 // This script:
 //   1. Funds all non-user accounts from Alice (Bob, Charlie, Diana, Eve, Frank, Grace)
 //   2. Registers Diana + Eve as publishers
-//   3. Sets publisher tags via TargetingRegistry (TX-1)
-//   4. Creates a test campaign (Bob as advertiser, Diana as publisher)
-//   5. Votes aye (Frank) to activate the campaign
-//   6. Sets metadata hash
-//   7. Verifies everything
+//   2.5. Sets publisher tags via TargetingRegistry (TX-1)
+//   2.6. Sets relaySigner for Diana (snapshotted at campaign creation)
+//   2.7. Sets publisher profile hash for Diana
+//   3. Creates test campaign 1 (Bob as advertiser, Diana as fixed publisher)
+//   3.5. Creates test campaign 2 (Charlie as advertiser, open — no fixed publisher)
+//   4. Votes aye (Frank) + activates both campaigns
+//   5. Sets metadata hashes
+//   5.3. Logs rate limiter settings
+//   5.5. Submits test reports (Grace)
+//   5.7. Wires Diana as reputation reporter (BM-8/BM-9)
+//   6. Summary
 //
 // Uses raw JsonRpcProvider to bypass Paseo eth-rpc receipt bug (getTransactionReceipt
 // returns null for confirmed txs). All tx confirmation via nonce polling.
@@ -124,6 +130,15 @@ async function readCall(
 const publishersAbi = [
   "function getPublisher(address) view returns (bool registered, uint16 takeRateBps)",
   "function registerPublisher(uint16 takeBps)",
+  "function setRelaySigner(address signer)",
+  "function setProfile(bytes32 hash)",
+  "function relaySigner(address) view returns (address)",
+  "function profileHash(address) view returns (bytes32)",
+];
+
+const rateLimiterAbi = [
+  "function windowBlocks() view returns (uint256)",
+  "function maxPublisherImpressionsPerWindow() view returns (uint256)",
 ];
 
 const campaignsAbi = [
@@ -208,6 +223,7 @@ async function main() {
   const targetIface = new Interface(targetingAbi);
   const reportsIface = new Interface(reportsAbi);
   const reputationIface = new Interface(reputationAbi);
+  const rateLimiterIface = new Interface(rateLimiterAbi);
 
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
@@ -303,6 +319,39 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 2.6. SET RELAY SIGNER FOR DIANA
+  // IMPORTANT: relaySigner is snapshotted at campaign creation time into the
+  // campaign record. Must be set BEFORE creating campaigns, otherwise
+  // attestation signatures will be checked against publisher address (fallback).
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("2.6", "--- Setting relay signer (DatumPublishers) ---");
+  try {
+    const currentSigner = await readCall(rawProvider, addrs.publishers, pubIface, "relaySigner", [diana.address]);
+    const decoded = pubIface.decodeFunctionResult("relaySigner", currentSigner);
+    const currentSignerAddr: string = decoded[0];
+    if (currentSignerAddr.toLowerCase() === diana.address.toLowerCase()) {
+      log("2.6", `  diana relaySigner already set to self -- skipping`);
+    } else {
+      await sendCall(diana, rawProvider, addrs.publishers, pubIface, "setRelaySigner", [diana.address]);
+      log("2.6", `  diana relaySigner set to ${diana.address}`);
+    }
+  } catch (err) {
+    log("2.6", `  setRelaySigner failed: ${String(err).slice(0, 100)}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2.7. SET PUBLISHER PROFILE HASH FOR DIANA
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("2.7", "--- Setting publisher profile hash ---");
+  const dianaProfileHash = keccak256(toUtf8Bytes("diana-publisher-profile-alpha3"));
+  try {
+    await sendCall(diana, rawProvider, addrs.publishers, pubIface, "setProfile", [dianaProfileHash]);
+    log("2.7", `  diana profile hash: ${dianaProfileHash.slice(0, 18)}...`);
+  } catch (err) {
+    log("2.7", `  setProfile failed: ${String(err).slice(0, 100)}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 3. CREATE TEST CAMPAIGN (Bob as advertiser, Diana as publisher)
   // ═══════════════════════════════════════════════════════════════════════════
   log("3", "--- Creating test campaign ---");
@@ -350,9 +399,35 @@ async function main() {
   log("3", `  Status: ${STATUS_NAMES[statusBefore]}`);
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 3.5. CREATE TEST CAMPAIGN 2 (Charlie as advertiser, open — no fixed publisher)
+  // Demonstrates open campaigns: any registered publisher can serve impressions.
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("3.5", "--- Creating open test campaign (Charlie, no fixed publisher) ---");
+
+  let campaignId2: bigint | null = null;
+  try {
+    const nextBefore2 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
+    const nextBeforeVal2 = BigInt(nextBefore2);
+
+    await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
+      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false],
+      parseDOT("5")
+    );
+
+    campaignId2 = nextBeforeVal2;
+    log("3.5", `  Open campaign created: ID ${campaignId2.toString()}`);
+    log("3.5", `  Advertiser: Charlie (${charlie.address})`);
+    log("3.5", `  Publisher: open (any registered publisher)`);
+    log("3.5", `  Budget: 5 PAS, CPM: 0.012 PAS`);
+  } catch (err) {
+    log("3.5", `  FAILED to create open campaign: ${String(err).slice(0, 200)}`);
+    // Non-fatal — continue with campaign 1 only
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 4. VOTE AYE (Frank) + EVALUATE TO ACTIVATE
   // ═══════════════════════════════════════════════════════════════════════════
-  log("4", "--- Voting + activating campaign ---");
+  log("4", "--- Voting + activating campaign(s) ---");
 
   const quorumResult = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
   const quorum = BigInt(quorumResult);
@@ -362,37 +437,37 @@ async function main() {
   const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
 
   const frankBal = await rawProvider.getBalance(frank.address);
-  if (frankBal < VOTE_STAKE + parseDOT("1")) {
-    console.error(`Frank needs ${formatDOT(VOTE_STAKE + parseDOT("1"))} PAS but has ${formatDOT(frankBal)}`);
-    process.exitCode = 1;
-    return;
+  // Need enough for 2 campaigns + gas (each vote locks VOTE_STAKE)
+  const neededForVotes = VOTE_STAKE * 2n + parseDOT("2");
+  if (frankBal < neededForVotes) {
+    log("4", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, may not have enough for 2 votes (${formatDOT(neededForVotes)} needed)`);
   }
 
-  try {
-    await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
-      [campaignId, true, 0],
-      VOTE_STAKE
-    );
-    log("4", `  Frank voted aye (${formatDOT(VOTE_STAKE)} PAS, conviction 0)`);
-  } catch (err) {
-    console.error(`FAILED to vote: ${String(err).slice(0, 200)}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  // Evaluate (use Alice as caller — anyone can call evaluateCampaign)
-  try {
-    await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [campaignId]);
-    const statusAfterResult = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [campaignId]);
-    const statusAfter = Number(BigInt(statusAfterResult));
-    log("4", `  Status after evaluate: ${STATUS_NAMES[statusAfter]}`);
-    if (statusAfter !== 1) {
-      log("4", "  WARNING: Campaign did not activate. May need more stake or different quorum.");
+  // Helper: vote + evaluate a single campaign
+  async function activateCampaign(cid: bigint, label: string): Promise<void> {
+    try {
+      await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
+        [cid, true, 0],
+        VOTE_STAKE
+      );
+      log("4", `  Frank voted aye on ${label} (cid=${cid})`);
+    } catch (err) {
+      log("4", `  vote failed for ${label}: ${String(err).slice(0, 150)}`);
+      return;
     }
-  } catch (err) {
-    log("4", `  evaluateCampaign reverted: ${String(err).slice(0, 150)}`);
-    log("4", "  Campaign stays Pending -- may need more aye votes to meet quorum.");
+    try {
+      await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [cid]);
+      const statusResult2 = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
+      const s = Number(BigInt(statusResult2));
+      log("4", `  ${label} status: ${STATUS_NAMES[s]}`);
+      if (s !== 1) log("4", `  WARNING: ${label} did not activate.`);
+    } catch (err) {
+      log("4", `  evaluateCampaign failed for ${label}: ${String(err).slice(0, 150)}`);
+    }
   }
+
+  await activateCampaign(campaignId, "campaign 1 (Diana)");
+  if (campaignId2 !== null) await activateCampaign(campaignId2, "campaign 2 (open)");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5. SET METADATA
@@ -402,26 +477,63 @@ async function main() {
   const metaHash = keccak256(toUtf8Bytes("testnet-campaign-" + campaignId.toString()));
   try {
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId, metaHash]);
-    log("5", `  Metadata hash: ${metaHash.slice(0, 18)}...`);
+    log("5", `  Campaign 1 metadata: ${metaHash.slice(0, 18)}...`);
   } catch (err) {
-    log("5", `  setMetadata failed: ${String(err).slice(0, 100)}`);
+    log("5", `  setMetadata (campaign 1) failed: ${String(err).slice(0, 100)}`);
+  }
+
+  if (campaignId2 !== null) {
+    const metaHash2 = keccak256(toUtf8Bytes("testnet-campaign-" + campaignId2.toString()));
+    try {
+      await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId2, metaHash2]);
+      log("5", `  Campaign 2 metadata: ${metaHash2.slice(0, 18)}...`);
+    } catch (err) {
+      log("5", `  setMetadata (campaign 2) failed: ${String(err).slice(0, 100)}`);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5.5. TEST REPORTS (Grace reports both page and ad)
+  // 5.3. RATE LIMITER STATUS (BM-5)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("5.5", "--- Submitting test reports ---");
-  try {
-    await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportPage", [campaignId, 2]); // misleading
-    log("5.5", "  grace reported page (reason=2 misleading)");
-  } catch (err) {
-    log("5.5", `  reportPage failed: ${String(err).slice(0, 100)}`);
+  log("5.3", "--- Rate limiter settings (BM-5) ---");
+  if (addrs.rateLimiter) {
+    try {
+      const [wbRaw, maxRaw] = await Promise.all([
+        readCall(rawProvider, addrs.rateLimiter, rateLimiterIface, "windowBlocks", []),
+        readCall(rawProvider, addrs.rateLimiter, rateLimiterIface, "maxPublisherImpressionsPerWindow", []),
+      ]);
+      const wb = rateLimiterIface.decodeFunctionResult("windowBlocks", wbRaw)[0];
+      const maxImp = rateLimiterIface.decodeFunctionResult("maxPublisherImpressionsPerWindow", maxRaw)[0];
+      log("5.3", `  windowBlocks: ${wb.toString()} (~${(Number(wb) * 6 / 3600).toFixed(1)}h at 6s/block)`);
+      log("5.3", `  maxPerWindow: ${maxImp.toString()} impressions`);
+    } catch (err) {
+      log("5.3", `  read failed: ${String(err).slice(0, 100)}`);
+    }
+  } else {
+    log("5.3", "  rateLimiter address not set -- skipping");
   }
-  try {
-    await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportAd", [campaignId, 3]); // inappropriate
-    log("5.5", "  grace reported ad (reason=3 inappropriate)");
-  } catch (err) {
-    log("5.5", `  reportAd failed: ${String(err).slice(0, 100)}`);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 5.5. TEST REPORTS (Grace reports page + ad on both campaigns)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("5.5", "--- Submitting test reports (DatumReports) ---");
+  const reportCampaigns = [
+    { id: campaignId, label: "campaign 1" },
+    ...(campaignId2 !== null ? [{ id: campaignId2, label: "campaign 2" }] : []),
+  ];
+  for (const { id, label } of reportCampaigns) {
+    try {
+      await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportPage", [id, 2]); // misleading
+      log("5.5", `  grace reported page on ${label} (reason=2 misleading)`);
+    } catch (err) {
+      log("5.5", `  reportPage (${label}) failed: ${String(err).slice(0, 100)}`);
+    }
+    try {
+      await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportAd", [id, 3]); // inappropriate
+      log("5.5", `  grace reported ad on ${label} (reason=3 inappropriate)`);
+    } catch (err) {
+      log("5.5", `  reportAd (${label}) failed: ${String(err).slice(0, 100)}`);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -454,9 +566,10 @@ async function main() {
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n=== Alpha-3 Testnet Setup Complete ===");
-  console.log("Campaign ID :", campaignId.toString());
-  console.log("Advertiser  : Bob", bob.address);
-  console.log("Publisher   : Diana", diana.address);
+  console.log("Campaign 1  : ID", campaignId.toString(), "(Bob → Diana, fixed publisher)");
+  if (campaignId2 !== null) {
+    console.log("Campaign 2  : ID", campaignId2.toString(), "(Charlie → open, any publisher)");
+  }
   console.log("Aye voter   : Frank", frank.address);
   console.log("");
   console.log("Funded accounts:");
@@ -478,9 +591,11 @@ async function main() {
     console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
   }
   console.log("");
-  console.log("Publisher tags (TargetingRegistry):");
-  console.log("  diana: topic:crypto, topic:defi, topic:technology, locale:en");
-  console.log("  eve:   topic:crypto, locale:en");
+  console.log("Publisher setup:");
+  console.log("  diana relaySigner  :", diana.address, "(set to self — relay bot uses Diana key)");
+  console.log("  diana isReporter   : true (BM-8/BM-9 recordSettlement authorized)");
+  console.log("  diana tags         : topic:crypto, topic:defi, topic:technology, locale:en");
+  console.log("  eve tags           : topic:crypto, locale:en");
   console.log("");
   console.log("User accounts (fund via faucet for testing):");
   console.log("  hank     0x615BcbE62B43bB033e65533bB6FcCC8b6FcB5BbD");

@@ -134,5 +134,44 @@ contract MockCampaigns {
         campaigns[campaignId].terminationBlock = blockNum;
     }
 
+    // -------------------------------------------------------------------------
+    // IDatumPublishers stubs (used as publishers placeholder in settlement tests)
+    // -------------------------------------------------------------------------
+
+    // Blocklist mapping for tests that need to simulate blocks
+    mapping(address => bool) public blockedAddresses;
+
+    function blockAddress(address addr) external {
+        blockedAddresses[addr] = true;
+    }
+
+    function unblockAddress(address addr) external {
+        blockedAddresses[addr] = false;
+    }
+
+    /// @dev Returns false by default — no publisher is blocked unless explicitly set.
+    function isBlocked(address addr) external view returns (bool) {
+        return blockedAddresses[addr];
+    }
+
+    /// @dev Returns false by default — no allowlist enabled.
+    function allowlistEnabled(address) external pure returns (bool) {
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // IDatumCampaignsSettlement stubs (used for ZK proof check in ClaimValidator)
+    // -------------------------------------------------------------------------
+
+    mapping(uint256 => bool) public campaignRequiresZkProof;
+
+    function setCampaignRequiresZkProof(uint256 campaignId, bool required) external {
+        campaignRequiresZkProof[campaignId] = required;
+    }
+
+    function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool) {
+        return campaignRequiresZkProof[campaignId];
+    }
+
     receive() external payable {}
 }

@@ -95,7 +95,7 @@ describe("Integration", function () {
 
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, 0, [], { value: budget }
+      pub.address, dailyCap, bidCpm, [], false, { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -179,7 +179,7 @@ describe("Integration", function () {
     await vault.setSettlement(await settlement.getAddress());
 
     const VerifierFactory = await ethers.getContractFactory("DatumAttestationVerifier");
-    verifier = await VerifierFactory.deploy(await settlement.getAddress(), await campaigns.getAddress());
+    verifier = await VerifierFactory.deploy(await settlement.getAddress(), await campaigns.getAddress(), await pauseReg.getAddress());
 
     await settlement.configure(
       await ledger.getAddress(),
@@ -614,7 +614,7 @@ describe("Integration", function () {
   it("H5: attested settlement on open campaign verifies serving publisher", async function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -661,7 +661,7 @@ describe("Integration", function () {
   // H6: open campaign attestation with wrong signer reverts E34
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, 0, [], { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
