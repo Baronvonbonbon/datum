@@ -269,6 +269,7 @@ export interface ContractAddresses {
   reports: string;
   rateLimiter: string;
   reputation: string;          // BM-8/BM-9: publisher reputation + anomaly detection
+  tokenRewardVault: string;    // multi-token reward vault for per-campaign rewards
 }
 
 export type IpfsProvider =

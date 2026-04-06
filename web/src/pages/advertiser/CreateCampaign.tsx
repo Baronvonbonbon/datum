@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { ethers, Contract } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -13,7 +14,13 @@ import { CampaignMetadata } from "@shared/types";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
-import { ethers } from "ethers";
+
+const ERC20_MINIMAL_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+];
 
 export function CreateCampaign() {
   const contracts = useContracts();
@@ -30,6 +37,8 @@ export function CreateCampaign() {
   const [bidCpm, setBidCpm] = useState("0.001");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [requireZkProof, setRequireZkProof] = useState(false);
+  const [rewardToken, setRewardToken] = useState("");
+  const [rewardPerImpression, setRewardPerImpression] = useState("");
   const [showTags, setShowTags] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const [customTag, setCustomTag] = useState("");
@@ -38,8 +47,8 @@ export function CreateCampaign() {
   const [txMsg, setTxMsg] = useState("");
   const [createdId, setCreatedId] = useState<number | null>(null);
 
-  // Step 2: Inline metadata (wizard flow)
-  const [step, setStep] = useState<1 | 2>(1);
+  // Step 2+3: Inline metadata + token budget (wizard flow)
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [metaTitle, setMetaTitle] = useState("");
   const [metaDesc, setMetaDesc] = useState("");
   const [metaCategory, setMetaCategory] = useState("");
@@ -50,6 +59,13 @@ export function CreateCampaign() {
   const [metaTxState, setMetaTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [metaTxMsg, setMetaTxMsg] = useState("");
   const [pinStatus, setPinStatus] = useState<string | null>(null);
+
+  // Step 3: Token budget deposit
+  const [tokenDepositAmount, setTokenDepositAmount] = useState("");
+  const [tokenSymbol, setTokenSymbol] = useState("TOKEN");
+  const [tokenDecimals, setTokenDecimals] = useState(18);
+  const [depositTxState, setDepositTxState] = useState<"idle" | "approving" | "depositing" | "success" | "error">("idle");
+  const [depositTxMsg, setDepositTxMsg] = useState("");
 
   // Pre-flight checks (debounced to avoid RPC flood on keystrokes)
   const [pubCheck, setPubCheck] = useState<string | null>(null);
@@ -93,8 +109,10 @@ export function CreateCampaign() {
       const bidCpmPlanck = parseDOTSafe(bidCpm);
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
+      const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
+      const rPerImp = rToken !== ethers.ZeroAddress && rewardPerImpression.trim() ? BigInt(rewardPerImpression.trim()) : 0n;
       const c = contracts.campaigns.connect(signer);
-      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, tagHashes, requireZkProof, {
+      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, tagHashes, requireZkProof, rToken, rPerImp, {
         value: budgetPlanck,
       });
       await confirmTx(tx);
@@ -167,10 +185,59 @@ export function CreateCampaign() {
 
       setMetaTxState("success");
       setMetaTxMsg(`Metadata set! CID: ${pinResult.cid}`);
-      setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
+
+      // Go to step 3 if reward token was configured, else navigate after delay
+      const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
+      if (rToken !== ethers.ZeroAddress) {
+        // Pre-fetch token symbol + decimals for step 3 display
+        try {
+          const erc20 = new Contract(rToken, ERC20_MINIMAL_ABI, contracts.readProvider);
+          const [sym, dec] = await Promise.all([
+            erc20.symbol().catch(() => "TOKEN"),
+            erc20.decimals().catch(() => 18),
+          ]);
+          setTokenSymbol(sym);
+          setTokenDecimals(Number(dec));
+        } catch { /* keep defaults */ }
+        setTimeout(() => setStep(3), 1500);
+      } else {
+        setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
+      }
     } catch (err) {
       setMetaTxMsg(humanizeError(err));
       setMetaTxState("error");
+    }
+  }
+
+  async function handleTokenDeposit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!signer || createdId === null) return;
+    const rToken = rewardToken.trim();
+    const vaultAddr = settings.contractAddresses.tokenRewardVault;
+    if (!ethers.isAddress(rToken) || !vaultAddr) return;
+
+    const rawAmount = BigInt(tokenDepositAmount.trim() || "0");
+    if (rawAmount === 0n) { setDepositTxMsg("Enter a deposit amount."); setDepositTxState("error"); return; }
+
+    setDepositTxState("approving");
+    setDepositTxMsg("Approving token transfer...");
+    try {
+      const erc20 = new Contract(rToken, ERC20_MINIMAL_ABI, signer);
+      const approveTx = await erc20.approve(vaultAddr, rawAmount);
+      await confirmTx(approveTx);
+
+      setDepositTxState("depositing");
+      setDepositTxMsg("Depositing token budget...");
+      const vault = contracts.tokenRewardVault.connect(signer);
+      const depositTx = await vault.depositCampaignBudget(BigInt(createdId), rToken, rawAmount);
+      await confirmTx(depositTx);
+
+      setDepositTxState("success");
+      setDepositTxMsg(`Deposited ${tokenDepositAmount} raw ${tokenSymbol} units as campaign budget.`);
+      setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
+    } catch (err) {
+      setDepositTxMsg(humanizeError(err));
+      setDepositTxState("error");
     }
   }
 
@@ -184,10 +251,16 @@ export function CreateCampaign() {
         <Link to="/advertiser" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← My Campaigns</Link>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Create Campaign</h1>
         {/* Wizard step indicator */}
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
           <StepIndicator n={1} label="Campaign" active={step === 1} done={step > 1} />
           <div style={{ color: "var(--text-muted)", alignSelf: "center" }}>→</div>
-          <StepIndicator n={2} label="Metadata" active={step === 2} done={metaTxState === "success"} />
+          <StepIndicator n={2} label="Metadata" active={step === 2} done={step > 2 || metaTxState === "success"} />
+          {(rewardToken.trim() && ethers.isAddress(rewardToken.trim())) && (
+            <>
+              <div style={{ color: "var(--text-muted)", alignSelf: "center" }}>→</div>
+              <StepIndicator n={3} label="Token Budget" active={step === 3} done={depositTxState === "success"} />
+            </>
+          )}
         </div>
       </div>
 
@@ -251,6 +324,87 @@ export function CreateCampaign() {
                 <Link to={`/advertiser/campaign/${createdId}`} className="nano-btn" style={{ padding: "10px 16px", fontSize: 13, textDecoration: "none" }}>
                   Skip
                 </Link>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+
+      {/* Step 3: Token budget deposit */}
+      {step === 3 && createdId !== null && (
+        <>
+          <div className="nano-info nano-info--ok" style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 600 }}>Metadata set for Campaign #{createdId}!</div>
+            <div style={{ fontSize: 12, color: "var(--text)", marginTop: 4 }}>
+              Your campaign is configured with <strong>{tokenSymbol}</strong> rewards. Deposit the token budget so users can earn rewards on each impression.
+            </div>
+          </div>
+
+          {depositTxState === "success" ? (
+            <div className="nano-info nano-info--ok">
+              <div style={{ fontWeight: 600 }}>{depositTxMsg}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                Redirecting to campaign...
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleTokenDeposit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="nano-card" style={{ padding: 14 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Token</div>
+                <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "monospace" }}>{rewardToken.trim()}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
+                  {tokenSymbol} · {tokenDecimals} decimals · {Number(rewardPerImpression || 0).toLocaleString()} raw units per impression
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>
+                  Deposit Amount (raw {tokenSymbol} units)
+                </label>
+                <input
+                  type="text"
+                  value={tokenDepositAmount}
+                  onChange={(e) => setTokenDepositAmount(e.target.value)}
+                  placeholder={`e.g. ${(1000 * Math.pow(10, tokenDecimals)).toLocaleString()}`}
+                  className="nano-input"
+                  required
+                />
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  Enter the amount in smallest token units (multiply by 10^{tokenDecimals} for whole tokens).
+                  This flow will first approve the vault to spend your tokens, then deposit.
+                </div>
+              </div>
+
+              <div style={{ background: "var(--surface2)", borderRadius: 6, padding: 10, fontSize: 11, color: "var(--text-muted)" }}>
+                <strong style={{ color: "var(--text)" }}>Two-transaction flow:</strong>
+                <ol style={{ margin: "4px 0 0 16px", padding: 0, lineHeight: 1.6 }}>
+                  <li>Approve {tokenSymbol} transfer to the TokenRewardVault</li>
+                  <li>Deposit budget into the vault for campaign #{createdId}</li>
+                </ol>
+              </div>
+
+              <TransactionStatus
+                state={depositTxState === "approving" || depositTxState === "depositing" ? "pending" : depositTxState === "success" ? "success" : depositTxState === "error" ? "error" : "idle"}
+                message={depositTxMsg}
+              />
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="submit"
+                  disabled={depositTxState === "approving" || depositTxState === "depositing" || !signer}
+                  className="nano-btn nano-btn-accent"
+                  style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600, flex: 1 }}
+                >
+                  {depositTxState === "approving" ? "Approving..." : depositTxState === "depositing" ? "Depositing..." : "Approve & Deposit"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/advertiser/campaign/${createdId}`)}
+                  className="nano-btn"
+                  style={{ padding: "10px 16px", fontSize: 13 }}
+                >
+                  Skip
+                </button>
               </div>
             </form>
           )}
@@ -433,6 +587,32 @@ export function CreateCampaign() {
                 When enabled, impressions must include a zero-knowledge proof that the user genuinely saw the ad and the second-price clearing was computed honestly. Stronger fraud guarantee; slightly higher settlement overhead.
               </div>
             </div>
+          </div>
+
+          {/* Token reward (optional ERC-20) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Token Reward (optional)</label>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
+              Optionally reward users with an ERC-20 token per impression, in addition to DOT payments.
+              You must deposit token budget into the TokenRewardVault after campaign creation.
+            </div>
+            <input
+              type="text"
+              value={rewardToken}
+              onChange={(e) => setRewardToken(e.target.value)}
+              placeholder="ERC-20 token address (0x...)"
+              className="nano-input"
+            />
+            {rewardToken.trim() && ethers.isAddress(rewardToken.trim()) && (
+              <input
+                type="text"
+                value={rewardPerImpression}
+                onChange={(e) => setRewardPerImpression(e.target.value)}
+                placeholder="Token amount per impression (in smallest unit)"
+                className="nano-input"
+                style={{ marginTop: 4 }}
+              />
+            )}
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />
