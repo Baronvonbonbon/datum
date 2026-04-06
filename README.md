@@ -20,11 +20,11 @@ Advertisers deposit DOT into escrow when creating a campaign and define a bid CP
 
 ### Publishers
 
-Publishers register on-chain, set their take rate (30–80%), configure targeting tags, and embed the SDK on their sites. A relay signer EOA (typically the relay bot) co-signs attestations so users can settle at zero gas cost.
+Publishers register on-chain, set their take rate (30–80%), configure targeting tags, and embed the SDK on their sites. A relay signer EOA co-signs attestations so users can settle at zero gas cost.
 
 **Revenue / cost flows:**
 - **DOT take rate:** A configurable share (30–80%) of every clearing payment flows directly to the publisher's balance in `DatumPaymentVault`. The rate is snapshot-locked at campaign creation — mid-campaign changes don't affect existing campaigns.
-- **Gas costs:** Publishers running a relay bot pay gas for attested batch submissions; this is offset by the take rate income at any meaningful impression volume.
+- **Gas costs:** The relay signer pays gas for attested batch submissions; this is offset by the take rate income at any meaningful impression volume.
 - **Withdrawal:** Pull-payment via `PaymentVault.withdrawPublisher()` (DOT) at any time. An optional `withdrawTo(recipient)` enables cold-wallet sweeps.
 
 ### Users
@@ -34,7 +34,7 @@ Users browse the web with the DATUM Chrome extension. The extension detects publ
 **Revenue / cost flows:**
 - **DOT impressions:** After the publisher take rate is deducted, 75% of the remainder goes to the user and 25% to the protocol. At a 40% publisher take and 0.05 DOT/1000 CPM, a user earns 0.0225 DOT per 1000 verified impressions.
 - **ERC-20 sidecar tokens:** If the campaign has a token reward, users earn `impressionCount × rewardPerImpression` of the ERC-20 token per settlement, credited in `DatumTokenRewardVault`. Claimed via `withdraw(token)`.
-- **Zero-gas path:** Users co-sign claims with the publisher relay signer (EIP-712); the relay bot submits the batch and pays gas. Users see their DOT and token balances grow with no on-chain interaction required.
+- **Zero-gas path:** Users co-sign claims with the publisher relay signer (EIP-712); the publisher's relay submits the batch and pays gas. Users see their DOT and token balances grow with no on-chain interaction required.
 - **Self-submit path:** Users can submit claims directly via `Settlement.settleClaims()` and pay gas themselves.
 
 ### Governance Voters
@@ -46,7 +46,7 @@ Any DOT holder can review pending campaigns in the Governance section of the web
 - **Stake return:** Winning voters recover 100% of their stake after lockup expires. Losing voters receive 90%.
 - **Opportunity cost:** Stake is locked for the conviction period with no additional yield beyond the slash reward. Higher conviction levels risk larger absolute losses on the losing side.
 
-### Protocol (admin / treasury)
+### Protocol Treasury
 
 The protocol takes 25% of the advertiser-net (post-publisher-take) on every settlement and accumulates it in `DatumPaymentVault`. Governance slash pools that go unclaimed for 365 days are swept to the protocol. Admin actions (blocklist updates, fee changes, contract wiring) route through a 48-hour `DatumTimelock`.
 
@@ -55,12 +55,12 @@ The protocol takes 25% of the advertiser-net (post-publisher-take) on every sett
 - **Unclaimed slash sweep:** `GovernanceSlash.sweepSlashPool()` reclaims slash rewards not collected within 365 days.
 - **Fee extraction:** `PaymentVault.sweepProtocolFees(to)` transfers the accumulated protocol balance to any target address.
 
-### Relay Bot (Eve)
+### Publisher Relay Infrastructure
 
-A lightweight Node.js service run by a publisher (or third-party relay operator). It co-signs attestations with the publisher's relay signer key, accepts claim batches from users via HTTP, submits them on-chain, and records per-(publisher, campaign) reputation stats after each batch.
+Publishers (or third-party operators) run settlement infrastructure that co-signs attestations with a relay signer key, accepts claim batches from users via HTTP, submits them on-chain, and records per-(publisher, campaign) reputation stats after each batch.
 
 **Revenue / cost flows:**
-- No direct on-chain revenue. Relay operators are compensated indirectly by the publisher (who pays gas on attested submissions) or may charge the publisher off-chain. A relay operator serving multiple publishers at scale can negotiate fees bilaterally.
+- No direct on-chain revenue. Settlement operators are compensated indirectly by the publisher's take-rate share (which covers gas) or may charge the publisher off-chain.
 - After each batch: parses `ClaimSettled` and `ClaimRejected` events and calls `DatumPublisherReputation.recordSettlement()` per unique `(publisher, campaignId)` pair (BM-8 reputation + BM-9 anomaly detection).
 
 ---
@@ -112,7 +112,7 @@ Token rewards go entirely to users — publishers receive no share of the ERC-20
 [DatumTokenRewardVault.creditReward(campaignId, token, user, amount)]
   └─ user token balance += impressions × rewardPerImpression
       ↓
-[Eve relay-bot: parse ClaimSettled / ClaimRejected events]
+[Publisher relay: parse ClaimSettled / ClaimRejected events]
 [DatumPublisherReputation.recordSettlement(publisher, campaignId, settled, rejected)]
 ```
 
@@ -171,17 +171,17 @@ Lightweight JS tag (~3 KB). `<script data-publisher="0x...">` + `<div id="datum-
 
 ### Publisher Relay — `relay-bot/` (gitignored)
 
-Live systemd service (localhost:3400). HTTP challenge/submit endpoints. Co-signs attestations via EIP-712, submits batches via `DatumRelay` or `AttestationVerifier`, records `(publisher, campaignId)` reputation stats after each batch via `DatumPublisherReputation.recordSettlement()`.
+Reference relay implementation. HTTP challenge/submit endpoints. Co-signs attestations via EIP-712, submits batches via `DatumRelay` or `AttestationVerifier`, records `(publisher, campaignId)` reputation stats after each batch via `DatumPublisherReputation.recordSettlement()`.
 
 ---
 
-## Walkthrough — Alice, Bob, Carol, Dave, Eve
+## Walkthrough — Alice, Bob, Carol, Dave
 
-**Alice** is a user. **Bob** runs a tech blog (publisher). **Carol** sells hardware wallets (advertiser). **Dave** reviews campaigns (governance voter). **Eve** runs a relay bot.
+**Alice** is a user. **Bob** runs a tech blog (publisher). **Carol** sells hardware wallets (advertiser). **Dave** reviews campaigns (governance voter).
 
 ### Bob registers and configures
 
-Bob registers on `DatumPublishers`, sets his take rate to 40%, assigns Eve's EOA as his relay signer, and sets targeting tags (`keccak256("topic:technology")`). He embeds the SDK:
+Bob registers on `DatumPublishers`, sets his take rate to 40%, configures a relay signer for gasless settlement, and sets targeting tags (`keccak256("topic:technology")`). He embeds the SDK:
 
 ```html
 <script src="datum-sdk.js" data-publisher="0xBob..."></script>
@@ -203,7 +203,7 @@ Dave votes Aye with 0.5 DOT at conviction 2 (3× weight, 3-day lockup → 1.5 DO
 
 ### Alice browses Bob's site
 
-The extension detects the SDK, classifies the page as `topic:technology`, wins the auction, performs the two-party handshake with the SDK, tracks engagement (IntersectionObserver + focus), and builds a Blake2-256 hash-chain claim. Claims auto-submit to Eve's relay every few minutes — Alice pays zero gas.
+The extension detects the SDK, classifies the page as `topic:technology`, wins the auction, performs the two-party handshake with the SDK, tracks engagement (IntersectionObserver + focus), and builds a Blake2-256 hash-chain claim. Claims auto-submit to the publisher's relay endpoint every few minutes — Alice pays zero gas.
 
 ### Settlement splits the payment
 

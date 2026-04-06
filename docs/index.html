@@ -332,25 +332,14 @@
     <!-- Architecture -->
     <section>
       <h2>Protocol Architecture</h2>
-      <p>Seventeen smart contracts deployed on Polkadot Hub (PolkaVM / pallet-revive):</p>
+      <p>21 smart contracts deployed on Polkadot Hub (PolkaVM), covering:</p>
       <ul>
-        <li><strong>PauseRegistry</strong> &mdash; Emergency circuit breaker</li>
-        <li><strong>Timelock</strong> &mdash; Governance-delayed parameter changes</li>
-        <li><strong>Publishers</strong> &mdash; Publisher registration, take rates, blocklist/allowlists</li>
-        <li><strong>Campaigns</strong> &mdash; Campaign lifecycle, metadata, status management</li>
-        <li><strong>BudgetLedger</strong> &mdash; Campaign escrow, daily caps, settlement tracking</li>
-        <li><strong>PaymentVault</strong> &mdash; Pull-payment vault (publisher/user/protocol balances)</li>
-        <li><strong>CampaignLifecycle</strong> &mdash; Complete/terminate/expire, inactivity timeout</li>
-        <li><strong>AttestationVerifier</strong> &mdash; Mandatory publisher co-signature for all settlements</li>
-        <li><strong>GovernanceV2</strong> &mdash; Conviction-weighted voting (9 levels), anti-grief termination protection</li>
-        <li><strong>GovernanceSlash</strong> &mdash; Symmetric slash on losing voters</li>
-        <li><strong>Settlement</strong> &mdash; Blake2-256 hash-chain validation, three-way revenue split</li>
-        <li><strong>Relay</strong> &mdash; EIP-712 gasless settlement with publisher co-signature</li>
-        <li><strong>ZKVerifier</strong> &mdash; Engagement proof verification (stub, Groth16 post-alpha)</li>
-        <li><strong>TargetingRegistry</strong> &mdash; Tag-based publisher/campaign targeting (AND-logic matching)</li>
-        <li><strong>CampaignValidator</strong> &mdash; Campaign creation validation satellite</li>
-        <li><strong>ClaimValidator</strong> &mdash; Claim validation satellite (Blake2-256 on PolkaVM)</li>
-        <li><strong>GovernanceHelper</strong> &mdash; Slash computation + dust guard satellite</li>
+        <li><strong>Campaign Management</strong> &mdash; Creation, escrow, daily caps, lifecycle (complete/terminate/expire), tag-based targeting</li>
+        <li><strong>Settlement</strong> &mdash; Hash-chain validation, three-way revenue split (publisher/user/protocol), optional ZK proof enforcement</li>
+        <li><strong>Token Rewards</strong> &mdash; Optional ERC-20 sidecar rewards credited to users on every impression; pull-payment withdrawal</li>
+        <li><strong>Governance</strong> &mdash; Conviction-weighted voting (9 levels), symmetric slash on losing voters, time-locked parameter changes</li>
+        <li><strong>Publisher Infrastructure</strong> &mdash; Registration, take rates, reputation tracking, rate limiting, allowlists</li>
+        <li><strong>Safety</strong> &mdash; Emergency pause, Groth16 ZK verifier, community reporting</li>
       </ul>
     </section>
 
@@ -358,17 +347,17 @@
     <section>
       <h2>Live Ad Slot</h2>
       <p>
-        This page runs the DATUM Publisher SDK with Diana's testnet publisher address.
+        This page runs the DATUM Publisher SDK on the Paseo testnet.
         If you have the DATUM extension installed and connected to Paseo,
-        an ad from an active campaign will appear below. Diana's publisher relay co-signs
-        and settles claims automatically.
+        an ad from an active campaign will appear below. Claims are
+        settled automatically on-chain.
       </p>
       <div class="ad-section">
         <div class="ad-section-label">DATUM Ad Slot</div>
         <div id="datum-ad-slot"></div>
       </div>
       <div class="status" id="sdk-status">
-        <div><span class="label">Publisher Relay:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
+        <div><span class="label">Network:</span> <span class="heartbeat-dot checking" id="relay-dot"></span><span id="status-relay" class="waiting">Checking...</span></div>
         <div><span class="label">SDK Status:</span> <span id="status-sdk" class="waiting">Loading...</span></div>
         <div><span class="label">Publisher:</span> <span id="status-publisher">&mdash;</span></div>
         <div><span class="label">Tags:</span> <span id="status-tags">&mdash;</span></div>
@@ -389,10 +378,9 @@
         <code>data-tags</code> declares which tags describe your site
         (comma-separated values from the tag dictionary below).
         <code>data-publisher</code> is your registered on-chain address.
-        <code>data-relay</code> is the URL of your publisher relay endpoint (the extension
-        uses this to request attestations and submit claims &mdash; no extension rebuild needed
-        when the URL changes).
-        The extension matches campaigns by tag overlap (AND-logic), runs a Vickrey auction,
+        <code>data-relay</code> is the URL of your settlement endpoint (the extension
+        uses this to co-sign and submit claims).
+        The extension matches campaigns by tag overlap (AND-logic), runs an auction,
         and injects the winning ad into the slot.
       </p>
     </section>
@@ -402,100 +390,57 @@
       <h2>Tag Dictionary</h2>
       <p>
         Publishers and campaigns declare targeting using tags from four dimensions.
-        Tags are <code>keccak256("dimension:value")</code> hashes stored on-chain via the
-        TargetingRegistry contract. Publishers can set up to 32 tags; campaigns can require
+        Tags are stored on-chain as hashes. Publishers can set up to 32 tags; campaigns can require
         up to 8. A campaign matches a publisher when the publisher has <em>all</em> of the
         campaign's required tags (AND-logic).
       </p>
       <div class="tag-grid" id="tag-grid"></div>
     </section>
 
-    <!-- Publisher Relay -->
+    <!-- Publisher Settlement -->
     <section>
-      <h2>Publisher Relay</h2>
+      <h2>Publisher Settlement</h2>
       <p>
-        Publishers operate a publicly available relay endpoint that co-signs user claim
-        batches (EIP-712 attestation) and submits them on-chain via
-        <code>DatumRelay.settleClaimsFor()</code>. The relay pays gas so users don't
-        need to &mdash; the publisher is reimbursed from the campaign budget's take-rate
-        share. How a publisher chooses to run their relay &mdash; automated service,
-        manual dashboard, serverless function, or anything else &mdash; is entirely up to them.
+        Publishers co-sign user claim batches so users can settle at zero gas cost. The publisher's
+        share of the campaign budget covers the settlement cost. How a publisher chooses to run
+        their settlement infrastructure &mdash; automated service, manual dashboard, serverless
+        function, or anything else &mdash; is entirely up to them.
       </p>
 
-      <h3>Demo Relay</h3>
-      <p>
-        This demo page connects to Diana's testnet relay (check the status indicator above).
-        Each publisher operates their own relay &mdash; the relay URL is declared in the SDK
-        tag's <code>data-relay</code> attribute.
-      </p>
-      <div style="background:#0e0e24; border:1px solid #1a1a3a; border-radius:6px; padding:14px 16px; margin:12px 0; font-family:monospace; font-size:12px; color:#888;">
-        <div><span style="color:#60a0ff">Network:</span> Paseo Testnet (Chain ID 420420417)</div>
-        <div><span style="color:#60a0ff">Relay Endpoints:</span></div>
-        <div style="padding-left:16px">POST <code>/.well-known/datum-attest</code> &mdash; publisher co-signature</div>
-        <div style="padding-left:16px">POST <code>/relay/submit</code> &mdash; queue signed claim batches</div>
-        <div style="padding-left:16px">GET <code>/relay/status</code> &mdash; queue depth + stats</div>
-        <div style="padding-left:16px">GET <code>/health</code> &mdash; heartbeat</div>
-      </div>
-
-      <h3>How It Works</h3>
+      <h3>How Settlement Works</h3>
       <ul>
         <li>User browses a publisher page with the DATUM SDK and extension installed</li>
         <li>Impressions are tracked locally; claims accumulate in the extension</li>
-        <li>When the user signs a claim batch (EIP-712), the extension requests a publisher
-            co-signature from the relay's <code>/.well-known/datum-attest</code> endpoint</li>
-        <li>The signed batch is sent to <code>/relay/submit</code>, where the relay verifies the
-            user's EIP-712 signature and processes it for on-chain submission</li>
-        <li>Settlement splits revenue: publisher (take rate), user (75% of remainder), protocol (25%)</li>
+        <li>When the batch is ready, the extension requests a publisher co-signature</li>
+        <li>The signed batch is verified and submitted on-chain for settlement</li>
+        <li>Revenue splits automatically: publisher (take rate), user (75% of remainder), protocol (25%)</li>
       </ul>
 
       <h3>Security</h3>
       <ul>
-        <li><strong>No private key exposure:</strong> Users sign claim batches locally using EIP-712 typed data.
-            Only the signature is sent to the relay &mdash; private keys never leave the browser</li>
-        <li><strong>Signature verification:</strong> The relay verifies every user signature before queuing.
+        <li><strong>No private key exposure:</strong> Users sign claim batches locally.
+            Only the signature is sent &mdash; private keys never leave the browser</li>
+        <li><strong>Signature verification:</strong> Every user signature is verified before processing.
             Forged or tampered batches are rejected</li>
-        <li><strong>Rate limiting:</strong> Per-IP sliding-window limits (10 attestation/min, 5 submit/min)</li>
+        <li><strong>Rate limiting:</strong> Per-publisher impression caps prevent artificial volume inflation</li>
         <li><strong>Input validation:</strong> Address format, nonce range, batch size caps (max 100 claims per batch)</li>
-        <li><strong>HTTPS only:</strong> The extension rejects HTTP relay URLs for non-local domains</li>
+        <li><strong>HTTPS only:</strong> The extension rejects insecure connections for non-local domains</li>
       </ul>
 
-      <h3>Relay Downtime</h3>
+      <h3>Offline Resilience</h3>
       <p>
-        If the publisher relay is offline (check the indicator above), claims will still accumulate
-        in the extension &mdash; they can be submitted when the relay comes back online,
-        or the user can submit claims directly on-chain. No claims or earnings are lost due to relay downtime.
+        If settlement infrastructure is temporarily unavailable, claims still accumulate
+        in the extension &mdash; they can be submitted when it comes back online,
+        or the user can submit claims directly on-chain. No claims or earnings are lost.
       </p>
 
-      <h3>Run Your Own Relay</h3>
+      <h3>Publisher Setup</h3>
       <p>
-        A reference relay implementation is included in the repository at
+        A reference implementation is included in the repository at
         <a href="https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template"><code>docs/relay-bot-template/</code></a>.
-        This is one way to run a publisher relay &mdash; an automated Node.js service that
-        queues and submits batches on a timer. Publishers are free to implement their relay
-        endpoint however they prefer (serverless, manual review, custom tooling, etc.) as long
-        as it exposes the required HTTP endpoints. To set up the reference implementation:
-      </p>
-      <pre>
-# 1. Register as a publisher on-chain (via the DATUM extension Publisher tab)
-# 2. Copy the template
-cp -r docs/relay-bot-template my-relay
-cd my-relay
-
-# 3. Install dependencies
-npm install
-
-# 4. Configure your publisher key and contract addresses
-#    Edit .env (see .env.example in the template)
-export PUBLISHER_KEY="0xYOUR_PRIVATE_KEY"
-export RPC_URL="https://eth-rpc-testnet.polkadot.io/"
-
-# 5. Start the relay
-node relay-bot.mjs
-
-# 6. (Optional) Expose publicly via reverse proxy, tunnel, or cloud hosting</pre>
-      <p>
-        See the template's <code>README.md</code> for full configuration options, systemd setup,
-        and security hardening details.
+        Publishers are free to implement their settlement endpoint however they prefer
+        (serverless, manual review, custom tooling, etc.) as long as it exposes the required
+        HTTP endpoints.
       </p>
     </section>
 
