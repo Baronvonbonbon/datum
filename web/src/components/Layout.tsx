@@ -28,6 +28,7 @@ function useBlockFlash(blockNumber: number | null) {
 
 const NAV_ITEMS = [
   { path: "/", label: "Explorer", exact: true },
+  { path: "/how-it-works", label: "How It Works" },
   { path: "/advertiser", label: "Advertiser" },
   { path: "/publisher", label: "Publisher" },
   { path: "/governance", label: "Governance" },

@@ -8,6 +8,7 @@ import { Overview } from "./pages/explorer/Overview";
 import { Campaigns } from "./pages/explorer/Campaigns";
 import { CampaignDetail } from "./pages/explorer/CampaignDetail";
 import { Publishers } from "./pages/explorer/Publishers";
+import { HowItWorks } from "./pages/explorer/HowItWorks";
 
 // Advertiser
 import { AdvertiserDashboard } from "./pages/advertiser/Dashboard";
@@ -55,6 +56,7 @@ export function App() {
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
               <Route path="/publishers" element={<Publishers />} />
+              <Route path="/how-it-works" element={<HowItWorks />} />
 
               {/* Advertiser */}
               <Route path="/advertiser" element={<AdvertiserDashboard />} />
