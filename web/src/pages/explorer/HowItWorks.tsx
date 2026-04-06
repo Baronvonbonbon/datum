@@ -323,7 +323,7 @@ export function HowItWorks() {
             <Arrow />
             <FlowStep n={6} label="Settlement TX" sub="DatumSettlement.settle() on Polkadot" accent="var(--ok)" />
             <Arrow />
-            <FlowStep n={7} label="Rewards credited" sub="DOT to user + publisher; token sidecar credited" accent="var(--ok)" />
+            <FlowStep n={7} label="Rewards credited" sub="DOT split: publisher take + user share; ERC-20 sidecar 100% to user" accent="var(--ok)" />
           </div>
           <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "18px 0 0", lineHeight: 1.6 }}>
             The ZK circuit has one public input (claimHash) and two private witnesses: impressionCount

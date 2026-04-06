@@ -24,9 +24,8 @@ Publishers register on-chain, set their take rate (30–80%), configure targetin
 
 **Revenue / cost flows:**
 - **DOT take rate:** A configurable share (30–80%) of every clearing payment flows directly to the publisher's balance in `DatumPaymentVault`. The rate is snapshot-locked at campaign creation — mid-campaign changes don't affect existing campaigns.
-- **ERC-20 token rewards:** If the campaign has a token reward configured, publishers receive token credits proportional to their take rate from `DatumTokenRewardVault` on each settled impression.
 - **Gas costs:** Publishers running a relay bot pay gas for attested batch submissions; this is offset by the take rate income at any meaningful impression volume.
-- **Withdrawal:** Pull-payment via `PaymentVault.withdrawPublisher()` (DOT) and `TokenRewardVault.withdraw(token)` (ERC-20) at any time. An optional `withdrawTo(recipient)` enables cold-wallet sweeps.
+- **Withdrawal:** Pull-payment via `PaymentVault.withdrawPublisher()` (DOT) at any time. An optional `withdrawTo(recipient)` enables cold-wallet sweeps.
 
 ### Users
 
@@ -76,7 +75,7 @@ Advertisers can pair any DOT campaign with an ERC-20 token reward — their own 
 4. **Withdrawal:** Users call `TokenRewardVault.withdraw(token)` to pull their accumulated ERC-20 balance. `withdrawTo(token, recipient)` enables cold-wallet sweeps.
 5. **Reclaim:** Advertisers can recover unspent token budget via `reclaimExpiredBudget(campaignId, token)` after the campaign ends.
 
-Publishers receive a proportional share of token rewards (mirroring their DOT take rate) credited to their vault balance.
+Token rewards go entirely to users — publishers receive no share of the ERC-20 sidecar. The publisher's compensation is the DOT take rate only.
 
 ---
 
@@ -161,7 +160,7 @@ React 18 + Vite 6 + TypeScript + ethers v6. 28 pages across 6 sections, 21-contr
 |---------|-------|
 | Explorer | Overview, Campaigns, CampaignDetail, Publishers |
 | Advertiser | Dashboard, CreateCampaign (with ERC-20 token reward config), CampaignDetail, SetMetadata, Analytics |
-| Publisher | Dashboard (with token reward withdrawal), Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile |
+| Publisher | Dashboard, Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile |
 | Governance | Dashboard, Vote, MyVotes, Parameters |
 | Admin | Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation |
 | Settings | Network, RPC, 21 contract addresses, IPFS config |
@@ -219,8 +218,8 @@ Alice (token): 1000 × 1e18 = 1000 carolTokens → TokenRewardVault user balance
 
 ### Everyone withdraws
 
-- Bob: `PaymentVault.withdrawPublisher()` + `TokenRewardVault.withdraw(carolToken)`
-- Alice: `PaymentVault.withdrawUser()` (extension Earnings tab) + `TokenRewardVault.withdraw(carolToken)` (web app)
+- Bob: `PaymentVault.withdrawPublisher()` (DOT take rate only)
+- Alice: `PaymentVault.withdrawUser()` (extension Earnings tab) + `TokenRewardVault.withdraw(carolToken)` (web app, ERC-20 sidecar goes 100% to users)
 - Dave: `GovernanceV2.withdrawStake(campaignId)` after 3-day lockup; full stake back (winning side)
 - Carol: `CampaignLifecycle.completeCampaign()` to reclaim unspent DOT; `TokenRewardVault.reclaimExpiredBudget()` to reclaim unspent tokens
 
