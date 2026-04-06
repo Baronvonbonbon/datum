@@ -348,6 +348,7 @@ export interface ContractAddresses {
   reports: string;              // community reporting satellite
   rateLimiter: string;          // BM-5: settlement rate limiter
   reputation: string;           // BM-8/BM-9: publisher reputation + anomaly detection
+  tokenRewardVault: string;     // multi-token reward vault for per-campaign rewards
 }
 
 // User ad preferences — persisted in chrome.storage.local
@@ -360,6 +361,8 @@ export interface UserPreferences {
   minBidCpm: string;              // minimum CPM in planck (default "0")
   filterMode: "all" | "selected"; // "all" = opt-out (default), "selected" = opt-in
   allowedTopics: string[];        // used when filterMode === "selected"
+  sweepAddress: string;           // cold wallet address to sweep earnings to (empty = disabled)
+  sweepThresholdPlanck: string;   // auto-sweep when balance exceeds this (in planck, as string; "0" = manual only)
 }
 
 // Engagement tracking (Phase 6 / P16)

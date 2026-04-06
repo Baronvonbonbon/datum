@@ -12,6 +12,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   minBidCpm: "0",
   filterMode: "all",
   allowedTopics: [],
+  sweepAddress: "",
+  sweepThresholdPlanck: "0",
 };
 
 export async function getPreferences(): Promise<UserPreferences> {

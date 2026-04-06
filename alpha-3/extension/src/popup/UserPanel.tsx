@@ -1,10 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
-import { getPaymentVaultContract, getProvider } from "@shared/contracts";
+import { Contract, isAddress } from "ethers";
+import { getPaymentVaultContract, getTokenRewardVaultContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
+
+const ERC20_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
 
 interface Props {
   address: string | null;
@@ -18,6 +24,18 @@ export function UserPanel({ address }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [behaviorChains, setBehaviorChains] = useState<BehaviorChainState[]>([]);
   const [sym, setSym] = useState("DOT");
+
+  // Sweep config
+  const [sweepAddress, setSweepAddress] = useState("");
+
+  // Token reward state
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
+  const [tokenMeta, setTokenMeta] = useState<{ symbol: string; decimals: number } | null>(null);
+  const [tokenCheckMsg, setTokenCheckMsg] = useState<string | null>(null);
+  const [checkingToken, setCheckingToken] = useState(false);
+  const [withdrawingToken, setWithdrawingToken] = useState(false);
+  const [tokenWithdrawMsg, setTokenWithdrawMsg] = useState<string | null>(null);
 
   async function getSettings() {
     const stored = await chrome.storage.local.get("settings");
@@ -63,6 +81,9 @@ export function UserPanel({ address }: Props) {
       const network = (s.settings ?? DEFAULT_SETTINGS).network;
       setSym(getCurrencySymbol(network));
     });
+    chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" }).then((resp) => {
+      if (resp?.preferences?.sweepAddress) setSweepAddress(resp.preferences.sweepAddress);
+    });
   }, [loadBalance, loadBehaviorChains]);
 
   async function withdraw() {
@@ -75,14 +96,73 @@ export function UserPanel({ address }: Props) {
       const signer = getSigner(settings.rpcUrl);
       const vault = getPaymentVaultContract(settings.contractAddresses, signer);
 
-      const tx = await vault.withdrawUser();
+      const dest = sweepAddress && isAddress(sweepAddress) ? sweepAddress : null;
+      const tx = dest ? await vault.withdrawUserTo(dest) : await vault.withdrawUser();
       await tx.wait();
-      setTxResult("Withdrawal successful.");
+      setTxResult(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Withdrawal successful.");
       loadBalance();
     } catch (err) {
       setError(humanizeError(err));
     } finally {
       setWithdrawing(false);
+    }
+  }
+
+  async function handleCheckToken() {
+    if (!address || !isAddress(tokenInput.trim())) {
+      setTokenCheckMsg("Enter a valid ERC-20 token address.");
+      return;
+    }
+    setCheckingToken(true);
+    setTokenCheckMsg(null);
+    setTokenBalance(null);
+    setTokenMeta(null);
+    try {
+      const settings = await getSettings();
+      if (!settings.contractAddresses.tokenRewardVault) {
+        setTokenCheckMsg("TokenRewardVault not configured.");
+        return;
+      }
+      const provider = getProvider(settings.rpcUrl);
+      const vault = getTokenRewardVaultContract(settings.contractAddresses, provider);
+      const bal = await vault.userTokenBalance(address, tokenInput.trim());
+      setTokenBalance(BigInt(bal));
+      try {
+        const erc20 = new Contract(tokenInput.trim(), ERC20_ABI, provider);
+        const [sym, dec] = await Promise.all([
+          erc20.symbol().catch(() => "TOKEN"),
+          erc20.decimals().catch(() => 18),
+        ]);
+        setTokenMeta({ symbol: sym as string, decimals: Number(dec) });
+      } catch {
+        setTokenMeta({ symbol: "TOKEN", decimals: 18 });
+      }
+    } catch (err) {
+      setTokenCheckMsg(humanizeError(err));
+    } finally {
+      setCheckingToken(false);
+    }
+  }
+
+  async function handleTokenWithdraw() {
+    if (!address || !isAddress(tokenInput.trim())) return;
+    setWithdrawingToken(true);
+    setTokenWithdrawMsg(null);
+    try {
+      const settings = await getSettings();
+      const signer = getSigner(settings.rpcUrl);
+      const vault = getTokenRewardVaultContract(settings.contractAddresses, signer);
+      const dest = sweepAddress && isAddress(sweepAddress) ? sweepAddress : null;
+      const tx = dest
+        ? await vault.withdrawTo(tokenInput.trim(), dest)
+        : await vault.withdraw(tokenInput.trim());
+      await tx.wait();
+      setTokenWithdrawMsg(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Token withdrawal successful.");
+      setTokenBalance(0n);
+    } catch (err) {
+      setTokenWithdrawMsg(humanizeError(err));
+    } finally {
+      setWithdrawingToken(false);
     }
   }
 
@@ -123,13 +203,24 @@ export function UserPanel({ address }: Props) {
             </div>
           )}
           {balance !== null && balance >= 1_000_000n && (
-            <button
-              onClick={withdraw}
-              disabled={withdrawing}
-              style={{ ...primaryBtn, marginTop: 12 }}
-            >
-              {withdrawing ? "Withdrawing..." : `Withdraw ${formatDOT(balance)} ${sym}`}
-            </button>
+            <>
+              {sweepAddress && isAddress(sweepAddress) && (
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+                  → cold wallet: <span style={{ fontFamily: "monospace" }}>{sweepAddress.slice(0, 8)}...{sweepAddress.slice(-6)}</span>
+                </div>
+              )}
+              <button
+                onClick={withdraw}
+                disabled={withdrawing}
+                style={{ ...primaryBtn, marginTop: 6 }}
+              >
+                {withdrawing
+                  ? "Withdrawing..."
+                  : sweepAddress && isAddress(sweepAddress)
+                    ? `Sweep ${formatDOT(balance)} ${sym} → cold wallet`
+                    : `Withdraw ${formatDOT(balance)} ${sym}`}
+              </button>
+            </>
           )}
 
           <button onClick={loadBalance} style={{ ...secondaryBtn, marginTop: 8 }}>
@@ -198,6 +289,52 @@ export function UserPanel({ address }: Props) {
         </div>
       )}
 
+      {/* Token Rewards */}
+      <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+        <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Token Rewards</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
+          Check and withdraw ERC-20 token rewards earned from campaigns.
+        </div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input
+            type="text"
+            value={tokenInput}
+            onChange={(e) => { setTokenInput(e.target.value); setTokenBalance(null); setTokenMeta(null); setTokenCheckMsg(null); }}
+            placeholder="Token address (0x...)"
+            style={{ ...inputStyle, flex: 1, fontSize: 11 }}
+          />
+          <button onClick={handleCheckToken} disabled={checkingToken} style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
+            {checkingToken ? "..." : "Check"}
+          </button>
+        </div>
+        {tokenCheckMsg && <div style={{ color: "var(--error)", fontSize: 11, marginBottom: 4 }}>{tokenCheckMsg}</div>}
+        {tokenBalance !== null && tokenMeta && (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 12, color: "var(--text-strong)", fontWeight: 600, marginBottom: 4 }}>
+              Balance:{" "}
+              {tokenBalance === 0n
+                ? "0"
+                : (Number(tokenBalance) / Math.pow(10, tokenMeta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
+              <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{tokenMeta.symbol}</span>
+            </div>
+            {tokenBalance > 0n && (
+              <button onClick={handleTokenWithdraw} disabled={withdrawingToken} style={{ ...primaryBtn, fontSize: 12 }}>
+                {withdrawingToken
+                  ? "Withdrawing..."
+                  : sweepAddress && isAddress(sweepAddress)
+                    ? `Sweep ${tokenMeta.symbol} → cold wallet`
+                    : `Withdraw ${tokenMeta.symbol}`}
+              </button>
+            )}
+          </div>
+        )}
+        {tokenWithdrawMsg && (
+          <div style={{ fontSize: 11, color: tokenWithdrawMsg.includes("successful") ? "var(--ok)" : "var(--error)" }}>
+            {tokenWithdrawMsg}
+          </div>
+        )}
+      </div>
+
       {txResult && (
         <div style={{ marginTop: 8, padding: 10, background: "rgba(110,231,183,0.08)", border: "1px solid rgba(110,231,183,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--ok)" }}>
           {txResult}
@@ -246,4 +383,15 @@ const emptyStyle: React.CSSProperties = {
   textAlign: "center",
   color: "var(--text-muted)",
   fontSize: 13,
+};
+
+const inputStyle: React.CSSProperties = {
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  padding: "6px 8px",
+  color: "var(--text)",
+  fontFamily: "inherit",
+  fontSize: 12,
+  outline: "none",
 };

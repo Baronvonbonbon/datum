@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumPaymentVault.sol";
 import "./interfaces/ISystem.sol";
 
@@ -17,7 +17,7 @@ import "./interfaces/ISystem.sol";
 ///         deductAndTransfer(). Settlement then calls creditSettlement() (non-payable)
 ///         to record how the DOT should be split among publisher/user/protocol.
 ///         Single _send() site to avoid resolc codegen bug with multiple transfer() sites.
-contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable {
+contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable2Step {
     ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
@@ -50,7 +50,7 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable {
         settlement = addr;
     }
 
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) public override(Ownable2Step) onlyOwner {
         require(newOwner != address(0), "E00");
         super.transferOwnership(newOwner);
     }
@@ -90,12 +90,32 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable {
     }
 
     /// @inheritdoc IDatumPaymentVault
+    function withdrawPublisherTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        uint256 amount = publisherBalance[msg.sender];
+        require(amount > 0, "E03");
+        publisherBalance[msg.sender] = 0;
+        emit PublisherWithdrawal(msg.sender, amount);
+        _send(recipient, amount);
+    }
+
+    /// @inheritdoc IDatumPaymentVault
     function withdrawUser() external nonReentrant {
         uint256 amount = userBalance[msg.sender];
         require(amount > 0, "E03");
         userBalance[msg.sender] = 0;
         emit UserWithdrawal(msg.sender, amount);
         _send(msg.sender, amount);
+    }
+
+    /// @inheritdoc IDatumPaymentVault
+    function withdrawUserTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        uint256 amount = userBalance[msg.sender];
+        require(amount > 0, "E03");
+        userBalance[msg.sender] = 0;
+        emit UserWithdrawal(msg.sender, amount);
+        _send(recipient, amount);
     }
 
     /// @inheritdoc IDatumPaymentVault

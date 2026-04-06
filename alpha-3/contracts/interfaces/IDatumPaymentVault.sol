@@ -21,8 +21,14 @@ interface IDatumPaymentVault {
     /// @notice Withdraw accumulated publisher payments
     function withdrawPublisher() external;
 
+    /// @notice Withdraw accumulated publisher payments to a specified recipient (sweep to cold wallet)
+    function withdrawPublisherTo(address recipient) external;
+
     /// @notice Withdraw accumulated user payments
     function withdrawUser() external;
+
+    /// @notice Withdraw accumulated user payments to a specified recipient (sweep to cold wallet)
+    function withdrawUserTo(address recipient) external;
 
     /// @notice Withdraw accumulated protocol fees (owner only)
     function withdrawProtocol(address recipient) external;

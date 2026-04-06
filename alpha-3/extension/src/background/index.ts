@@ -18,6 +18,7 @@ import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
+import { getPaymentVaultContract } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
@@ -216,6 +217,50 @@ const APPROVED_SIGNING_DOMAINS = new Set([
   "127.0.0.1",
   "[::1]",
 ]);
+
+// XH-1: Pending signing approval requests — resolved when popup responds
+interface ApprovalRequest {
+  requestId: string;
+  type: "personal_sign" | "sign_typed_data" | "send_transaction";
+  domain: string;
+  preview: string;
+}
+const pendingApprovals = new Map<string, {
+  resolve: () => void;
+  reject: (e: Error) => void;
+  details: ApprovalRequest;
+}>();
+
+/** Extract hostname from a sender tab URL (or "unknown"). */
+function senderHostname(sender: chrome.runtime.MessageSender): string {
+  if (sender.tab?.url) { try { return new URL(sender.tab.url).hostname; } catch {} }
+  return "unknown";
+}
+
+/** Store the pending approval in local storage and open a popup window.
+ *  Returns a Promise that resolves when the user approves or rejects. */
+async function requireApproval(details: ApprovalRequest): Promise<void> {
+  await chrome.storage.local.set({ signingApprovalPending: details });
+  chrome.windows.create({
+    url: chrome.runtime.getURL("popup.html") + "?mode=approval",
+    type: "popup",
+    width: 380,
+    height: 560,
+    focused: true,
+  });
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingApprovals.delete(details.requestId);
+      chrome.storage.local.remove("signingApprovalPending");
+      reject(new Error("Signing request timed out (60s)."));
+    }, 60_000);
+    pendingApprovals.set(details.requestId, {
+      resolve: () => { clearTimeout(timer); resolve(); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+      details,
+    });
+  });
+}
 
 /** Check if a content-script sender is from an approved domain. */
 function isApprovedSigningOrigin(sender: chrome.runtime.MessageSender): boolean {
@@ -774,13 +819,23 @@ async function handleMessage(
     }
 
     case "PROVIDER_SIGN_TYPED_DATA": {
-      // Only allow signing from approved origins (extension popup or approved domains)
       if (!isApprovedSigningOrigin(sender)) {
         return { error: "Signing requests must originate from an approved DATUM domain." };
       }
       const { getUnlockedWallet } = await import("@shared/walletManager");
       const wallet = getUnlockedWallet();
       if (!wallet) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      // XH-1: External origins require explicit user approval
+      if (!isExtensionOrigin(sender)) {
+        const domain = senderHostname(sender);
+        const primaryType = Object.keys(msg.types ?? {}).find((k) => k !== "EIP712Domain") ?? "unknown";
+        const preview = `${primaryType} on ${msg.domain?.name ?? domain}`;
+        try {
+          await requireApproval({ requestId: msg.requestId, type: "sign_typed_data", domain, preview });
+        } catch (err) {
+          return { error: String(err instanceof Error ? err.message : err) };
+        }
+      }
       try {
         const signature = await wallet.signTypedData(msg.domain, msg.types, msg.value);
         return { signature };
@@ -796,6 +851,17 @@ async function handleMessage(
       const { getUnlockedWallet: getWallet } = await import("@shared/walletManager");
       const w = getWallet();
       if (!w) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      // XH-1: External origins require explicit user approval
+      if (!isExtensionOrigin(sender)) {
+        const domain = senderHostname(sender);
+        const rawMsg = typeof msg.message === "string" ? msg.message : JSON.stringify(msg.message);
+        const preview = rawMsg.length > 80 ? rawMsg.slice(0, 77) + "…" : rawMsg;
+        try {
+          await requireApproval({ requestId: msg.requestId, type: "personal_sign", domain, preview });
+        } catch (err) {
+          return { error: String(err instanceof Error ? err.message : err) };
+        }
+      }
       try {
         const signature = await w.signMessage(msg.message);
         return { signature };
@@ -811,6 +877,19 @@ async function handleMessage(
       const { getUnlockedWallet: getTxWallet } = await import("@shared/walletManager");
       const txWallet = getTxWallet();
       if (!txWallet) return { error: "Wallet is locked. Unlock it in the extension popup first." };
+      // XH-1: External origins require explicit user approval
+      if (!isExtensionOrigin(sender)) {
+        const domain = senderHostname(sender);
+        const txReqPrev = msg.tx ?? {};
+        const toStr = txReqPrev.to ? String(txReqPrev.to).slice(0, 10) + "…" : "contract";
+        const valStr = txReqPrev.value ? ` value=${txReqPrev.value}` : "";
+        const preview = `Send tx to ${toStr}${valStr}`;
+        try {
+          await requireApproval({ requestId: msg.requestId, type: "send_transaction", domain, preview });
+        } catch (err) {
+          return { error: String(err instanceof Error ? err.message : err) };
+        }
+      }
       try {
         const s3 = await getSettings();
         const provider = new JsonRpcProvider(s3.rpcUrl);
@@ -854,7 +933,16 @@ async function handleMessage(
     }
 
     case "PROVIDER_APPROVAL_RESPONSE": {
-      // Future: popup approval flow — for now auto-approve (wallet must be unlocked)
+      // XH-1: Resolve or reject the in-flight requireApproval() Promise
+      const pending = pendingApprovals.get(msg.requestId);
+      if (!pending) return { ok: false, error: "No pending approval found." };
+      pendingApprovals.delete(msg.requestId);
+      await chrome.storage.local.remove("signingApprovalPending");
+      if (msg.approved) {
+        pending.resolve();
+      } else {
+        pending.reject(new Error("User rejected the signing request."));
+      }
       return { ok: true };
     }
 
@@ -926,6 +1014,33 @@ async function getAutoSubmitKey(): Promise<string | null> {
     // Session password mismatch (shouldn't happen unless storage was tampered)
     autoSubmitSessionPassword = null;
     return null;
+  }
+}
+
+/** Auto-sweep earnings to cold wallet if configured and threshold exceeded. Best-effort (errors logged, not thrown). */
+async function tryAutoSweep(settings: Awaited<ReturnType<typeof getSettings>>, wallet: Wallet, userAddress: string): Promise<void> {
+  try {
+    const prefs = await getPreferences();
+    const { sweepAddress, sweepThresholdPlanck } = prefs;
+    if (!sweepAddress || !sweepThresholdPlanck || sweepThresholdPlanck === "0") return;
+
+    // Basic address format check
+    if (!/^0x[0-9a-fA-F]{40}$/.test(sweepAddress)) return;
+
+    const threshold = BigInt(sweepThresholdPlanck);
+    if (!settings.contractAddresses.paymentVault) return;
+
+    const vault = getPaymentVaultContract(settings.contractAddresses, wallet);
+    const balance: bigint = await vault.userBalance(userAddress);
+
+    if (balance >= threshold && balance >= 1_000_000n) {
+      console.log(`[DATUM] Auto-sweep: balance=${balance} >= threshold=${threshold}, sweeping to ${sweepAddress}`);
+      const tx = await vault.withdrawUserTo(sweepAddress);
+      await tx.wait();
+      console.log(`[DATUM] Auto-sweep complete: swept ${balance} planck to ${sweepAddress}`);
+    }
+  } catch (err) {
+    console.warn("[DATUM] Auto-sweep failed (non-fatal):", err);
   }
 }
 
@@ -1058,6 +1173,8 @@ async function autoFlushDirect() {
         settledNonces.set(cid, b.claims.map((c) => c.nonce));
       }
       await claimQueue.removeSettled(userAddress, settledNonces);
+      // Auto-sweep: if configured and threshold exceeded, sweep earnings to cold wallet
+      await tryAutoSweep(settings, wallet, userAddress);
     }
 
     // Reset chain state for any campaign with rejected claims so future impressions

@@ -45,7 +45,10 @@ export function Settings({ address }: { address: string | null }) {
     minBidCpm: "0",
     filterMode: "all",
     allowedTopics: [],
+    sweepAddress: "",
+    sweepThresholdPlanck: "0",
   });
+  const [sweepThresholdDot, setSweepThresholdDot] = useState("");
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   useEffect(() => {
@@ -83,7 +86,13 @@ export function Settings({ address }: { address: string | null }) {
 
   async function loadPreferences() {
     const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
-    if (response?.preferences) setPrefs(response.preferences);
+    if (response?.preferences) {
+      setPrefs(response.preferences);
+      const thresh = response.preferences.sweepThresholdPlanck ?? "0";
+      if (thresh !== "0") {
+        setSweepThresholdDot((Number(BigInt(thresh)) / 1e10).toString());
+      }
+    }
   }
 
   async function savePreferences() {
@@ -749,16 +758,52 @@ export function Settings({ address }: { address: string | null }) {
           </div>
         )}
 
+        {/* Sweep / Cold Wallet */}
+        <div style={{ ...sectionStyle, borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }}>
+          <label style={{ ...labelStyle, marginBottom: 4 }}>Cold wallet (auto-sweep)</label>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 6 }}>
+            Earnings sweep directly to your cold wallet instead of the extension wallet. Threshold "0" = manual sweep only.
+          </div>
+          <input
+            type="text"
+            value={prefs.sweepAddress ?? ""}
+            onChange={(e) => setPrefs((p) => ({ ...p, sweepAddress: e.target.value.trim() }))}
+            placeholder="0x... cold wallet address (leave empty to disable)"
+            style={{ ...inputStyle, fontSize: 11, marginBottom: 6 }}
+          />
+          {prefs.sweepAddress && !isAddress(prefs.sweepAddress) && (
+            <div style={{ color: "var(--error)", fontSize: 11, marginBottom: 4 }}>Invalid address.</div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <label style={{ ...labelStyle, flex: "none", marginBottom: 0 }}>Auto-sweep threshold ({getCurrencySymbol(settings.network)})</label>
+            <input
+              type="text"
+              value={sweepThresholdDot}
+              onChange={(e) => {
+                setSweepThresholdDot(e.target.value);
+                const planck = e.target.value ? String(Math.round(parseFloat(e.target.value) * 1e10)) : "0";
+                setPrefs((p) => ({ ...p, sweepThresholdPlanck: planck }));
+              }}
+              placeholder="0"
+              style={{ ...inputStyle, fontSize: 11, width: 80 }}
+            />
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
+            Set 0 to disable auto-sweep. Manual sweep happens via the Earnings tab.
+          </div>
+        </div>
+
         <button onClick={savePreferences} style={{ ...secondaryBtn, fontSize: 12 }}>
           {prefsSaved ? "Saved" : "Save Ad Preferences"}
         </button>
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [] });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" });
+            setSweepThresholdDot("");
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [] },
+              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}
