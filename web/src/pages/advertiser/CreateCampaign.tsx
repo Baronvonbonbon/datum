@@ -384,7 +384,7 @@ export function CreateCampaign() {
               </div>
 
               <TransactionStatus
-                state={depositTxState === "approving" || depositTxState === "depositing" ? "pending" : depositTxState === "success" ? "success" : depositTxState === "error" ? "error" : "idle"}
+                state={((s: string): "idle" | "pending" | "success" | "error" => s === "approving" || s === "depositing" ? "pending" : s === "success" ? "success" : s === "error" ? "error" : "idle")(depositTxState)}
                 message={depositTxMsg}
               />
 

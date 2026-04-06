@@ -36,7 +36,7 @@ export function getProvider(rpcUrl: string): JsonRpcProvider {
 }
 
 export function getCampaignsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.campaigns, DatumCampaignsAbi.abi, provider);
+  return make(addresses.campaigns, DatumCampaignsAbi as unknown as any[], provider);
 }
 
 export function getPublishersContract(addresses: ContractAddresses, provider: Provider | Signer) {
@@ -52,7 +52,7 @@ export function getGovernanceSlashContract(addresses: ContractAddresses, provide
 }
 
 export function getSettlementContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.settlement, DatumSettlementAbi.abi, provider);
+  return make(addresses.settlement, DatumSettlementAbi as unknown as any[], provider);
 }
 
 export function getRelayContract(addresses: ContractAddresses, provider: Provider | Signer) {
@@ -60,7 +60,7 @@ export function getRelayContract(addresses: ContractAddresses, provider: Provide
 }
 
 export function getPauseRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.pauseRegistry, DatumPauseRegistryAbi.abi, provider);
+  return make(addresses.pauseRegistry, DatumPauseRegistryAbi as unknown as any[], provider);
 }
 
 export function getTimelockContract(addresses: ContractAddresses, provider: Provider | Signer) {
