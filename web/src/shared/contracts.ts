@@ -24,96 +24,93 @@ import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
 
-// All ABI files are flat arrays (not {abi:[...]} objects).
+// Returns any-typed contracts so component code doesn't need casts for dynamic ABI methods.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function make(address: string, abi: any[], provider: Provider | Signer): any {
   if (!address) return null;
   return new Contract(address, abi, provider) as any;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function abi(json: any): any[] { return json as any[]; }
-
 export function getProvider(rpcUrl: string): JsonRpcProvider {
   return new JsonRpcProvider(rpcUrl);
 }
 
 export function getCampaignsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.campaigns, abi(DatumCampaignsAbi), provider);
+  return make(addresses.campaigns, DatumCampaignsAbi.abi, provider);
 }
 
 export function getPublishersContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.publishers, abi(DatumPublishersAbi), provider);
+  return make(addresses.publishers, DatumPublishersAbi.abi, provider);
 }
 
 export function getGovernanceV2Contract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.governanceV2, abi(DatumGovernanceV2Abi), provider);
+  return make(addresses.governanceV2, DatumGovernanceV2Abi.abi, provider);
 }
 
 export function getGovernanceSlashContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.governanceSlash, abi(DatumGovernanceSlashAbi), provider);
+  return make(addresses.governanceSlash, DatumGovernanceSlashAbi.abi, provider);
 }
 
 export function getSettlementContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.settlement, abi(DatumSettlementAbi), provider);
+  return make(addresses.settlement, DatumSettlementAbi.abi, provider);
 }
 
 export function getRelayContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.relay, abi(DatumRelayAbi), provider);
+  return make(addresses.relay, DatumRelayAbi.abi, provider);
 }
 
 export function getPauseRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.pauseRegistry, abi(DatumPauseRegistryAbi), provider);
+  return make(addresses.pauseRegistry, DatumPauseRegistryAbi.abi, provider);
 }
 
 export function getTimelockContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.timelock, abi(DatumTimelockAbi), provider);
+  return make(addresses.timelock, DatumTimelockAbi.abi, provider);
 }
 
 export function getBudgetLedgerContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.budgetLedger, abi(DatumBudgetLedgerAbi), provider);
+  return make(addresses.budgetLedger, DatumBudgetLedgerAbi.abi, provider);
 }
 
 export function getPaymentVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.paymentVault, abi(DatumPaymentVaultAbi), provider);
+  return make(addresses.paymentVault, DatumPaymentVaultAbi.abi, provider);
 }
 
 export function getLifecycleContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.lifecycle, abi(DatumCampaignLifecycleAbi), provider);
+  return make(addresses.lifecycle, DatumCampaignLifecycleAbi.abi, provider);
 }
 
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
+  return make(addresses.attestationVerifier, DatumAttestationVerifierAbi.abi, provider);
 }
 
 export function getTargetingRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.targetingRegistry, abi(DatumTargetingRegistryAbi), provider);
+  return make(addresses.targetingRegistry, DatumTargetingRegistryAbi.abi, provider);
 }
 
 export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.campaignValidator, abi(DatumCampaignValidatorAbi), provider);
+  return make(addresses.campaignValidator, DatumCampaignValidatorAbi.abi, provider);
 }
 
 export function getClaimValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.claimValidator, abi(DatumClaimValidatorAbi), provider);
+  return make(addresses.claimValidator, DatumClaimValidatorAbi.abi, provider);
 }
 
 export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.governanceHelper, abi(DatumGovernanceHelperAbi), provider);
+  return make(addresses.governanceHelper, DatumGovernanceHelperAbi.abi, provider);
 }
 
 export function getReportsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.reports, abi(DatumReportsAbi), provider);
+  return make(addresses.reports, DatumReportsAbi.abi, provider);
 }
 
 export function getRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.rateLimiter, abi(DatumSettlementRateLimiterAbi), provider);
+  return make(addresses.rateLimiter, DatumSettlementRateLimiterAbi.abi, provider);
 }
 
 export function getReputationContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.reputation, abi(DatumPublisherReputationAbi), provider);
+  return make(addresses.reputation, DatumPublisherReputationAbi.abi, provider);
 }
 
 export function getTokenRewardVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.tokenRewardVault, abi(DatumTokenRewardVaultAbi), provider);
+  return make(addresses.tokenRewardVault, DatumTokenRewardVaultAbi.abi, provider);
 }
