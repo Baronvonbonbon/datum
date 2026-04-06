@@ -22,6 +22,7 @@ import {
   getReportsContract,
   getRateLimiterContract,
   getReputationContract,
+  getTokenRewardVaultContract,
   getProvider,
 } from "@shared/contracts";
 
@@ -52,6 +53,7 @@ export function useContracts() {
       reports: getReportsContract(addrs, provider),
       rateLimiter: getRateLimiterContract(addrs, provider),
       reputation: getReputationContract(addrs, provider),
+      tokenRewardVault: getTokenRewardVaultContract(addrs, provider),
       // Read-only provider for cases that don't need a signer
       readProvider: getProvider(settings.rpcUrl),
     };
