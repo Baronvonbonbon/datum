@@ -99,7 +99,7 @@ describe("DatumSettlement", function () {
 
     // Deploy infrastructure
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, user.address, publisher.address);
 
     const MockFactory = await ethers.getContractFactory("MockCampaigns");
     mock = await MockFactory.deploy();
@@ -149,6 +149,9 @@ describe("DatumSettlement", function () {
 
     // Wire PaymentVault
     await vault.setSettlement(await settlement.getAddress());
+
+    // Wire publishers for per-publisher relay auth (relaySigner lookup)
+    await settlement.setPublishers(await mock.getAddress());
   });
 
   // S1: Single claim — correct payment split
@@ -212,6 +215,46 @@ describe("DatumSettlement", function () {
     await expect(
       settlement.connect(other).settleClaims([batch])
     ).to.be.revertedWith("E32");
+  });
+
+  // S3b: publisher's registered relaySigner can settle directly (per-publisher relay auth)
+  it("S3b: publisher's registered relaySigner can settle claims directly", async function () {
+    const cid = await createTestCampaign();
+    const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+    const batch = { user: user.address, campaignId: cid, claims };
+
+    // Register `other` as the relaySigner for `publisher`
+    await mock.setRelaySigner(publisher.address, other.address);
+
+    const result = await settlement.connect(other).settleClaims.staticCall([batch]);
+    expect(result.settledCount).to.equal(1n);
+    expect(result.rejectedCount).to.equal(0n);
+
+    // Clean up
+    await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
+  });
+
+  // S3c: relaySigner of publisherA cannot settle claims for publisherB
+  it("S3c: relaySigner of one publisher cannot settle a different publisher's claims", async function () {
+    const cidA = await createTestCampaign(); // publisher.address
+    // Create a campaign for a different publisher (use `other` as publisher)
+    const cidB = nextCampaignId++;
+    await mock.setCampaign(cidB, owner.address, other.address, BID_CPM, TAKE_RATE_BPS, 1);
+    await mock.initBudget(cidB, BUDGET, DAILY_CAP, { value: BUDGET });
+
+    // Register `protocol` as relaySigner for `publisher` (not for `other`)
+    await mock.setRelaySigner(publisher.address, protocol.address);
+
+    // `protocol` is publisher's relay — but claims are for `other` (cidB's publisher)
+    const claimsB = buildClaimChain(cidB, other.address, user.address, 1, BID_CPM, 1000n);
+    const batchB = { user: user.address, campaignId: cidB, claims: claimsB };
+
+    await expect(
+      settlement.connect(protocol).settleClaims([batchB])
+    ).to.be.revertedWith("E32");
+
+    // Clean up
+    await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
   });
 
   // S4: CPM exceeding bidCpmPlanck is rejected

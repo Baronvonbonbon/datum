@@ -22,6 +22,7 @@ import "./interfaces/IDatumSettlementRateLimiter.sol";
 ///           protocolFee     = remainder - userPayment     (25%)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public owner;
+    address public pendingOwner;
     address public budgetLedger;
     address public paymentVault;
     address public lifecycle;
@@ -33,6 +34,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public rateLimiter;
     // S12: publishers ref for settlement-level blocklist check (address(0) = disabled)
     address public publishers;
+    // Token reward vault (address(0) = no token rewards)
+    address public tokenRewardVault;
+    // Campaigns ref for reading reward token config
+    address public campaigns;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
 
@@ -95,10 +100,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         publishers = addr;
     }
 
+    /// @notice Set token reward vault. Pass address(0) to disable token rewards.
+    function setTokenRewardVault(address addr) external {
+        require(msg.sender == owner, "E18");
+        tokenRewardVault = addr;
+    }
+
+    /// @notice Set campaigns ref for reading reward token config.
+    function setCampaigns(address addr) external {
+        require(msg.sender == owner, "E18");
+        require(addr != address(0), "E00");
+        campaigns = addr;
+    }
+
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     /// @notice Reject accidental ETH deposits (S6)
@@ -124,8 +148,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
 
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
+
+            // Per-publisher relay auth: check if msg.sender is the registered relaySigner
+            // for this batch's publisher (uses publishers ref, same one used for blocklist checks).
+            // Falls back to global relayContract for backwards compatibility.
+            bool isPublisherRelay = false;
+            if (publishers != address(0) && batch.claims.length > 0) {
+                (bool rsOk, bytes memory rsRet) = publishers.staticcall(
+                    abi.encodeWithSelector(bytes4(keccak256("relaySigner(address)")), batch.claims[0].publisher)
+                );
+                if (rsOk && rsRet.length >= 32) {
+                    address pubRelay = abi.decode(rsRet, (address));
+                    isPublisherRelay = pubRelay != address(0) && msg.sender == pubRelay;
+                }
+            }
+
             require(
-                msg.sender == batch.user || msg.sender == relayContract || msg.sender == attestationVerifier,
+                msg.sender == batch.user || msg.sender == relayContract ||
+                msg.sender == attestationVerifier || isPublisherRelay,
                 "E32"
             );
             _processBatch(batch.user, batch.campaignId, batch.claims, result);
@@ -259,6 +299,34 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             userPayment,
             protocolFee
         );
+
+        // Token reward credit (if campaign has token reward configured)
+        if (tokenRewardVault != address(0) && campaigns != address(0)) {
+            (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
+                abi.encodeWithSelector(bytes4(0xf00b29a9), claim.campaignId)  // getCampaignRewardToken(uint256)
+            );
+            if (rtOk && rtRet.length >= 32) {
+                address rewardToken = abi.decode(rtRet, (address));
+                if (rewardToken != address(0)) {
+                    (bool rpOk, bytes memory rpRet) = campaigns.staticcall(
+                        abi.encodeWithSelector(bytes4(0x25c1c08e), claim.campaignId)  // getCampaignRewardPerImpression(uint256)
+                    );
+                    if (rpOk && rpRet.length >= 32) {
+                        uint256 rewardPerImpression = abi.decode(rpRet, (uint256));
+                        uint256 tokenAmount = claim.impressionCount * rewardPerImpression;
+                        if (tokenAmount > 0) {
+                            // creditReward(uint256,address,address,uint256)
+                            tokenRewardVault.call(
+                                abi.encodeWithSelector(bytes4(0x113e0e1e),
+                                    claim.campaignId, rewardToken, user, tokenAmount)
+                            );
+                            // Non-critical: don't revert settlement if token credit fails
+                            // (budget might be exhausted — vault handles gracefully)
+                        }
+                    }
+                }
+            }
+        }
 
         // Auto-complete if budget exhausted
         if (exhausted) {

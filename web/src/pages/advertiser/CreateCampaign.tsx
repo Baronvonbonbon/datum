@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { ethers, Contract } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
@@ -9,7 +9,8 @@ import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
-import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
+import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel, tagLabel } from "@shared/tagDictionary";
+import { queryFilterAll } from "@shared/eventQuery";
 import { CampaignMetadata } from "@shared/types";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
@@ -66,6 +67,53 @@ export function CreateCampaign() {
   const [tokenDecimals, setTokenDecimals] = useState(18);
   const [depositTxState, setDepositTxState] = useState<"idle" | "approving" | "depositing" | "success" | "error">("idle");
   const [depositTxMsg, setDepositTxMsg] = useState("");
+
+  // Publisher picker list
+  interface PubOption { address: string; takeRateBps: number; tags: string[]; repScore: number | null; reportCount: number; }
+  const [pubOptions, setPubOptions] = useState<PubOption[]>([]);
+  const [pubSearch, setPubSearch] = useState("");
+  const [pubListLoading, setPubListLoading] = useState(false);
+
+  // Load publisher list when switching to targeted mode
+  useEffect(() => {
+    if (isOpen || !settings.contractAddresses.publishers) return;
+    if (pubOptions.length > 0) return; // already loaded
+    setPubListLoading(true);
+    (async () => {
+      try {
+        const filter = contracts.publishers.filters.PublisherRegistered();
+        const logs = await queryFilterAll(contracts.publishers, filter);
+        const addresses = [...new Set(logs.map((l: any) => l.args?.publisher as string).filter(Boolean))];
+        const ZERO = "0x0000000000000000000000000000000000000000";
+        const rows = await Promise.all(addresses.map(async (addr) => {
+          try {
+            const data = await contracts.publishers.getPublisher(addr);
+            if (!data.registered) return null;
+            const blocked = await contracts.publishers.isBlocked(addr).catch(() => false);
+            if (blocked) return null;
+            let tags: string[] = [];
+            try {
+              if (contracts.targetingRegistry) {
+                const hashes: string[] = await contracts.targetingRegistry.getTags(addr);
+                tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 8) + "…").filter(Boolean);
+              }
+            } catch { /* */ }
+            let repScore: number | null = null;
+            try {
+              if (contracts.reputation) repScore = Number(await contracts.reputation.getScore(addr));
+            } catch { /* */ }
+            let reportCount = 0;
+            try {
+              if (contracts.reports) reportCount = Number(await contracts.reports.publisherReports(addr));
+            } catch { /* */ }
+            return { address: addr, takeRateBps: Number(data.takeRateBps ?? data[1] ?? 0), tags, repScore, reportCount };
+          } catch { return null; }
+        }));
+        setPubOptions(rows.filter(Boolean) as PubOption[]);
+      } catch { /* */ }
+      setPubListLoading(false);
+    })();
+  }, [isOpen, settings.contractAddresses.publishers]);
 
   // Pre-flight checks (debounced to avoid RPC flood on keystrokes)
   const [pubCheck, setPubCheck] = useState<string | null>(null);
@@ -426,21 +474,87 @@ export function CreateCampaign() {
             </div>
           </div>
 
-          {/* Publisher address */}
+          {/* Publisher picker */}
           {!isOpen && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Publisher Address</label>
-              <input
-                type="text"
-                value={publisher}
-                onChange={(e) => { setPublisher(e.target.value); checkPublisher(e.target.value); }}
-                placeholder="0x..."
-                className="nano-input"
-                required
-              />
-              {pubChecking && <div style={{ fontSize: 12, marginTop: 4, color: "var(--text-muted)" }}>Checking...</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Publisher</label>
+              {pubListLoading && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading publishers...</div>}
+              {!pubListLoading && pubOptions.length > 0 && (
+                <>
+                  <input
+                    type="text"
+                    value={pubSearch}
+                    onChange={(e) => setPubSearch(e.target.value)}
+                    placeholder="Search by address or tag..."
+                    className="nano-input"
+                    style={{ fontSize: 12 }}
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 4 }}>
+                    {pubOptions
+                      .filter((p) => {
+                        const q = pubSearch.toLowerCase();
+                        return !q || p.address.toLowerCase().includes(q) || p.tags.some((t) => t.toLowerCase().includes(q));
+                      })
+                      .map((p) => {
+                        const selected = publisher === p.address;
+                        return (
+                          <div
+                            key={p.address}
+                            onClick={() => { setPublisher(p.address); checkPublisher(p.address); }}
+                            style={{
+                              padding: "8px 10px", borderRadius: 5, cursor: "pointer",
+                              background: selected ? "var(--accent-muted, rgba(99,102,241,0.12))" : "var(--bg)",
+                              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-strong)" }}>
+                                {p.address.slice(0, 8)}…{p.address.slice(-6)}
+                              </span>
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Take: {(p.takeRateBps / 100).toFixed(0)}%</span>
+                                {p.repScore !== null && (
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: p.repScore >= 9000 ? "var(--ok)" : p.repScore >= 7000 ? "var(--warn)" : "var(--error)" }}>
+                                    Rep: {(p.repScore / 100).toFixed(1)}%
+                                  </span>
+                                )}
+                                {p.reportCount > 0 && (
+                                  <span title={`${p.reportCount} community report${p.reportCount !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--warn)" }}>⚑ {p.reportCount}</span>
+                                )}
+                              </div>
+                            </div>
+                            {p.tags.length > 0 && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                                {p.tags.map((t, i) => <span key={i} className="nano-badge" style={{ fontSize: 10 }}>{t}</span>)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    {pubOptions.filter((p) => {
+                      const q = pubSearch.toLowerCase();
+                      return !q || p.address.toLowerCase().includes(q) || p.tags.some((t) => t.toLowerCase().includes(q));
+                    }).length === 0 && (
+                      <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>No publishers match.</div>
+                    )}
+                  </div>
+                </>
+              )}
+              {/* Fallback / manual entry */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Or enter address manually:</label>
+                <input
+                  type="text"
+                  value={publisher}
+                  onChange={(e) => { setPublisher(e.target.value); checkPublisher(e.target.value); }}
+                  placeholder="0x..."
+                  className="nano-input"
+                  required
+                />
+              </div>
+              {pubChecking && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Checking...</div>}
               {!pubChecking && pubCheck && (
-                <div style={{ fontSize: 12, marginTop: 4, color: pubCheck.startsWith("Registered") ? "var(--ok)" : "var(--error)" }}>
+                <div style={{ fontSize: 12, color: pubCheck.startsWith("Registered") ? "var(--ok)" : "var(--error)" }}>
                   {pubCheck}
                 </div>
               )}

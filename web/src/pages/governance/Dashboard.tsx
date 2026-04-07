@@ -24,6 +24,8 @@ interface GovCampaign {
   myVoteDir: number;
   metadataHash: string;
   lastSettlementBlock: number;
+  pageReports: number;
+  adReports: number;
 }
 
 export function GovernanceDashboard() {
@@ -36,7 +38,7 @@ export function GovernanceDashboard() {
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"active" | "all">("active");
+  const [filter, setFilter] = useState<"active" | "all" | "reported">("active");
 
   const load = useCallback(async () => {
     if (!settings.contractAddresses.campaigns) return;
@@ -77,6 +79,16 @@ export function GovernanceDashboard() {
               lastSettlementBlock = Number(await contracts.budgetLedger.lastSettlementBlock(BigInt(id)));
             } catch { /* no budgetLedger */ }
 
+            let pageReports = 0, adReports = 0;
+            try {
+              if (contracts.reports) {
+                [pageReports, adReports] = await Promise.all([
+                  contracts.reports.pageReports(BigInt(id)).then(Number),
+                  contracts.reports.adReports(BigInt(id)).then(Number),
+                ]);
+              }
+            } catch { /* no reports contract */ }
+
             results.push({
               id, status: Number(c[0]),
               advertiser: adv as string,
@@ -87,6 +99,8 @@ export function GovernanceDashboard() {
               myVoteDir,
               metadataHash,
               lastSettlementBlock,
+              pageReports,
+              adReports,
             });
           } catch { /* skip */ }
         })
@@ -154,6 +168,8 @@ export function GovernanceDashboard() {
 
   const displayed = filter === "active"
     ? campaigns.filter((c) => c.status <= 2)
+    : filter === "reported"
+    ? campaigns.filter((c) => c.pageReports + c.adReports > 0)
     : campaigns;
 
   return (
@@ -168,6 +184,7 @@ export function GovernanceDashboard() {
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <button onClick={() => setFilter("active")} className={filter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>
+        <button onClick={() => setFilter("reported")} className={filter === "reported" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12, color: filter !== "reported" ? "var(--warn)" : undefined }}>Reported</button>
         <button onClick={() => setFilter("all")} className={filter === "all" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>All Campaigns</button>
         <button onClick={() => load()} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, marginLeft: "auto" }}>Refresh</button>
       </div>
@@ -196,6 +213,16 @@ export function GovernanceDashboard() {
                 {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Aye</span>}
                 {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Nay</span>}
                 {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
+                {c.adReports > 0 && (
+                  <span title={`${c.adReports} ad report${c.adReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--warn)", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
+                    ⚑ {c.adReports} AD
+                  </span>
+                )}
+                {c.pageReports > 0 && (
+                  <span title={`${c.pageReports} page report${c.pageReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--error)", background: "rgba(252,165,165,0.12)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
+                    ⚑ {c.pageReports} PAGE
+                  </span>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <Link to={`/campaigns/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Detail</Link>
@@ -247,7 +274,7 @@ export function GovernanceDashboard() {
 
       {!loading && displayed.length === 0 && (
         <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
-          {filter === "active" ? "No active or pending campaigns." : "No campaigns found."}
+          {filter === "active" ? "No active or pending campaigns." : filter === "reported" ? "No reported campaigns." : "No campaigns found."}
         </div>
       )}
     </div>

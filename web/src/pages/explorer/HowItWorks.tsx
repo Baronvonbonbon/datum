@@ -358,6 +358,11 @@ export function HowItWorks() {
             status="on-chain"
           />
           <CheckRow
+            check="Community reporting"
+            detail="Anyone can flag a campaign or publisher they believe is malicious or low-quality. Reports are recorded on-chain and surface the flagged party for governance review. An unpopular campaign becomes an easy target for conviction voters to slash its escrow, and a reported publisher takes a reputation hit that makes winning future campaigns harder. The system rewards cooperation — it's in everyone's interest to keep the network honest."
+            status="on-chain"
+          />
+          <CheckRow
             check="Conviction voting"
             detail="Governance votes are weighted by stake multiplied by conviction (1–21×). Longer conviction time-locks give committed voters more weight, aligning incentives with protocol health."
             status="on-chain"

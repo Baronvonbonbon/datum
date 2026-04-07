@@ -14,6 +14,8 @@ interface PublisherRow {
   allowlistEnabled: boolean;
   blocked: boolean;
   relaySigner: string | null;
+  repScore: number | null;
+  reportCount: number;
 }
 
 export function Publishers() {
@@ -52,6 +54,21 @@ export function Publishers() {
               tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean);
             }
           } catch { /* no targeting registry */ }
+          let repScore: number | null = null;
+          try {
+            if (contracts.reputation) {
+              const score = await contracts.reputation.getScore(addr);
+              repScore = Number(score);
+            }
+          } catch { /* no reputation contract */ }
+
+          let reportCount = 0;
+          try {
+            if (contracts.reports) {
+              reportCount = Number(await contracts.reports.publisherReports(addr));
+            }
+          } catch { /* no reports contract */ }
+
           return {
             address: addr,
             takeRateBps: Number(data.takeRateBps ?? data[1] ?? 0),
@@ -59,6 +76,8 @@ export function Publishers() {
             allowlistEnabled: Boolean(allowlist),
             blocked: Boolean(blocked),
             relaySigner: relayRaw && relayRaw !== ZERO ? relayRaw as string : null,
+            repScore,
+            reportCount,
           };
         } catch {
           return null;
@@ -100,8 +119,21 @@ export function Publishers() {
                 <span style={{ marginLeft: 8, fontSize: 11, color: "var(--error)", fontWeight: 600 }}>BLOCKED</span>
               )}
             </div>
-            <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--text)" }}>
+            <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--text)", flexWrap: "wrap", alignItems: "center" }}>
               <span>Take: <span style={{ color: "var(--text-strong)" }}>{(pub.takeRateBps / 100).toFixed(0)}%</span></span>
+              {pub.repScore !== null && (
+                <span title="Settlement acceptance rate (reputation score)">
+                  Rep:{" "}
+                  <span style={{ color: pub.repScore >= 9000 ? "var(--ok)" : pub.repScore >= 7000 ? "var(--warn)" : "var(--error)", fontWeight: 600 }}>
+                    {(pub.repScore / 100).toFixed(1)}%
+                  </span>
+                </span>
+              )}
+              {pub.reportCount > 0 && (
+                <span title={`${pub.reportCount} community report${pub.reportCount !== 1 ? "s" : ""}`} style={{ fontSize: 11, fontWeight: 700, color: "var(--warn)" }}>
+                  ⚑ {pub.reportCount} report{pub.reportCount !== 1 ? "s" : ""}
+                </span>
+              )}
               <span>Allowlist: <span style={{ color: pub.allowlistEnabled ? "var(--warn)" : "var(--text-muted)" }}>{pub.allowlistEnabled ? "On" : "Off"}</span></span>
             </div>
           </div>

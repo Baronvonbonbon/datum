@@ -159,6 +159,13 @@ contract MockCampaigns {
         return false;
     }
 
+    /// @dev Per-publisher relay signer (mirrors DatumPublishers.relaySigner mapping).
+    mapping(address => address) public relaySigner;
+
+    function setRelaySigner(address pub, address relay) external {
+        relaySigner[pub] = relay;
+    }
+
     // -------------------------------------------------------------------------
     // IDatumCampaignsSettlement stubs (used for ZK proof check in ClaimValidator)
     // -------------------------------------------------------------------------
