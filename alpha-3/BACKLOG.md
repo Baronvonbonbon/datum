@@ -526,6 +526,13 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - ~~TX-6, TX-7~~: Tag UI — **DONE**
 - BM-3 through BM-9: Remaining bot mitigation — Open
 
+### Security Hardening
+- **GR-1: Open relay griefing** — ~~`DatumRelay.settleClaimsFor()` accepts any caller with valid user EIP-712 signatures (publisher co-sig is optional). A hostile actor can relay valid claims at strategic times to exhaust a publisher's rate limiter window without stealing funds.~~ **Partially mitigated (2026-04-07):** relay-bot now requires publisher co-sig (obtained via `/.well-known/datum-attest`); PoW challenge enforced at submit (20-bit difficulty); BM-10 min-claim-interval on-chain. Pre-mainnet: restrict `settleClaimsFor` to registered publisher relay signers in DatumRelay contract itself.
+
+### Post-Alpha / Mainnet Track
+- **ZK-circuit enrichment** — Add ad content hash as a public input to the Groth16 impression circuit. Prover must fetch and hash the actual ad creative, preventing headless bots that never load the ad from generating valid proofs. Requires circuit rebuild + new trusted setup.
+- **TEE-attested extension (Acurast)** — Explore Acurast as the TEE attestation backend. Extension runs in or communicates with an Acurast oracle that attests real browser execution. Claims submitted via `attestationVerifier` would require a valid Acurast attestation quote, making modified extensions cryptographically unforgeable. See: https://acurast.com.
+
 ### Pre-Mainnet
 - MG-1 through MG-7: All mainnet gate items
 - FD-1: UUPS proxy

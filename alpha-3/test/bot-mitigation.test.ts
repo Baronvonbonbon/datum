@@ -80,7 +80,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     [owner, user, publisher, other] = await ethers.getSigners();
 
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, user.address, publisher.address);
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());

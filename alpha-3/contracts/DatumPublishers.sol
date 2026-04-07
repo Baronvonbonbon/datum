@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 
@@ -11,7 +11,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///         S5: Uses global DatumPauseRegistry (consistent with all other contracts).
 ///         S12: Global address blocklist + per-publisher advertiser allowlist.
 ///         Future: blocklist management may be opened to governance control before mainnet.
-contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable {
+contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
     uint16 public constant MIN_TAKE_RATE_BPS = 3000;
     uint16 public constant MAX_TAKE_RATE_BPS = 8000;
     uint16 public constant DEFAULT_TAKE_RATE_BPS = 5000;

@@ -53,7 +53,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     // Deploy all infrastructure
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, advertiser.address, publisher.address);
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
@@ -155,7 +155,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+        publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
       )
     ).to.be.revertedWith("P");
   });
@@ -163,7 +163,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   // P3: createCampaign works when unpaused
   it("P3: createCampaign works when unpaused", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -173,7 +173,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   // P4: activateCampaign reverts when paused
   it("P4: activateCampaign reverts when paused", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     const cid = await campaigns.nextCampaignId() - 1n;
 

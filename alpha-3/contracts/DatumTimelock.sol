@@ -7,6 +7,7 @@ pragma solidity ^0.8.24;
 ///         Contracts whose ownership is transferred to this timelock gain 48h delay protection.
 contract DatumTimelock {
     address public owner;
+    address public pendingOwner;
 
     uint256 public constant TIMELOCK_DELAY = 172800; // 48 hours in seconds
 
@@ -65,6 +66,12 @@ contract DatumTimelock {
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 }

@@ -37,7 +37,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
     [owner, other, newAddr, publisher] = await ethers.getSigners();
 
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, other.address, newAddr.address);
 
     const TimelockFactory = await ethers.getContractFactory("DatumTimelock");
     timelock = await TimelockFactory.deploy();
@@ -67,9 +67,19 @@ describe("Admin Timelock (DatumTimelock)", function () {
     await campaigns.setLifecycleContract(other.address);
     await settlement.configure(other.address, other.address, other.address, other.address);
 
-    // Transfer ownership to timelock
+    // Transfer ownership to timelock (2-step: transferOwnership + acceptOwnership)
     await campaigns.transferOwnership(await timelock.getAddress());
+    // Timelock must accept ownership via propose+execute
+    const acceptCampaignsData = campaigns.interface.encodeFunctionData("acceptOwnership");
+    await timelock.propose(await campaigns.getAddress(), acceptCampaignsData);
+    await advanceTime(TIMELOCK_DELAY);
+    await timelock.execute();
+
     await settlement.transferOwnership(await timelock.getAddress());
+    const acceptSettlementData = settlement.interface.encodeFunctionData("acceptOwnership");
+    await timelock.propose(await settlement.getAddress(), acceptSettlementData);
+    await advanceTime(TIMELOCK_DELAY);
+    await timelock.execute();
   });
 
   // T1: execute before 48h reverts

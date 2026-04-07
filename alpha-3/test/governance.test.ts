@@ -54,7 +54,7 @@ describe("DatumGovernanceV2", function () {
     mock = await MockFactory.deploy();
 
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, voter1.address, voter2.address);
 
     // Deploy GovernanceV2 (alpha-2: 8 params with scaled grace + pauseRegistry)
     const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");

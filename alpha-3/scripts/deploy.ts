@@ -1,4 +1,4 @@
-// deploy.ts — Full 20-contract Alpha-3 deployment + wiring + ownership transfer
+// deploy.ts — Full 21-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
@@ -54,12 +54,18 @@ const MAX_GRACE_BLOCKS = 100800n;                    // ~7d cap on total grace p
 // CampaignLifecycle — P20 inactivity timeout
 const INACTIVITY_TIMEOUT_BLOCKS = 432000n;           // 30 days at 6s/block
 
+// SM-6: PauseRegistry 2-of-3 guardian addresses (Alice, Bob, Charlie)
+// On mainnet replace with Gnosis Safe addresses or hardware wallet EOAs.
+const PAUSE_GUARDIAN_0 = "0x94CC36412EE0c099BfE7D61a35092e40342F62D7"; // Alice (deployer)
+const PAUSE_GUARDIAN_1 = "0xfE091a42BCE57f3f9Acd92D21C8F9DbC4E5c7CE6"; // Bob
+const PAUSE_GUARDIAN_2 = "0x09ce34740bCE52FB3cAa4A2D50cC2fbAD6F32C5b"; // Charlie
+
 // ── File paths ───────────────────────────────────────────────────────────────
 
 const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
 const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
 
-// ── Required address keys (20 contracts) ─────────────────────────────────────
+// ── Required address keys (21 contracts) ─────────────────────────────────────
 
 const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
@@ -68,14 +74,14 @@ const REQUIRED_KEYS = [
   "settlement", "relay", "zkVerifier",
   // Alpha-3 satellites
   "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-  "reports", "rateLimiter", "reputation",
+  "reports", "rateLimiter", "reputation", "tokenRewardVault",
 ] as const;
 
 // BM-5 rate limiter deployment parameters
 const RATE_LIMITER_WINDOW_BLOCKS = 100n;              // ~10 minutes at 6s/block
 const RATE_LIMITER_MAX_IMPRESSIONS = 500_000n;        // 500K impressions per publisher per window
 
-const TOTAL_STEPS = 27; // 20 deploy + 7 wiring/validation sections
+const TOTAL_STEPS = 28; // 21 deploy + 7 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -217,7 +223,9 @@ async function main() {
 
   try {
     logStep("Deploying DatumPauseRegistry");
-    await deployOrReuse("pauseRegistry", "DatumPauseRegistry");
+    await deployOrReuse("pauseRegistry", "DatumPauseRegistry", [
+      PAUSE_GUARDIAN_0, PAUSE_GUARDIAN_1, PAUSE_GUARDIAN_2,
+    ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumPauseRegistry — ${err}`);
   }
@@ -415,7 +423,14 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumPublisherReputation — ${err}`);
   }
 
-  console.log("\n=== All 20 contracts deployed ===\n");
+  try {
+    logStep("Deploying DatumTokenRewardVault");
+    await deployOrReuse("tokenRewardVault", "DatumTokenRewardVault", [addresses.campaigns]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumTokenRewardVault — ${err}`);
+  }
+
+  console.log("\n=== All 21 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -509,6 +524,30 @@ async function main() {
     "DatumSettlement", addresses.settlement,
     "publishers", "setPublishers",
     addresses.publishers,
+  );
+
+  // ── Settlement.setTokenRewardVault(tokenRewardVault) ──
+  await wireIfNeeded(
+    "Settlement.tokenRewardVault",
+    "DatumSettlement", addresses.settlement,
+    "tokenRewardVault", "setTokenRewardVault",
+    addresses.tokenRewardVault,
+  );
+
+  // ── Settlement.setCampaigns(campaigns) — for reading reward token config ──
+  await wireIfNeeded(
+    "Settlement.campaigns",
+    "DatumSettlement", addresses.settlement,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+
+  // ── TokenRewardVault.setSettlement(settlement) ──
+  await wireIfNeeded(
+    "TokenRewardVault.settlement",
+    "DatumTokenRewardVault", addresses.tokenRewardVault,
+    "settlement", "setSettlement",
+    addresses.settlement,
   );
 
   // ── Campaigns: setBudgetLedger, setLifecycleContract, setGovernanceContract, setSettlementContract ──
@@ -767,7 +806,12 @@ async function main() {
   await check("CampaignValidator.publishers", await readAddr(addresses.campaignValidator, "publishers"), addresses.publishers);
   await check("CampaignValidator.targetingRegistry", await readAddr(addresses.campaignValidator, "targetingRegistry"), addresses.targetingRegistry);
 
-  // ── Validate all 17 addresses present and non-zero ──
+  // TokenRewardVault
+  await check("Settlement.tokenRewardVault", await readAddr(addresses.settlement, "tokenRewardVault"), addresses.tokenRewardVault);
+  await check("Settlement.campaigns", await readAddr(addresses.settlement, "campaigns"), addresses.campaigns);
+  await check("TokenRewardVault.settlement", await readAddr(addresses.tokenRewardVault, "settlement"), addresses.settlement);
+
+  // ── Validate all 21 addresses present and non-zero ──
   logStep("Checking all addresses present");
   for (const key of REQUIRED_KEYS) {
     if (!addresses[key] || addresses[key] === ZERO_ADDRESS) {
@@ -811,7 +855,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("20 contracts deployed and wired:\n");
+  console.log("21 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }

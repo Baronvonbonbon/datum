@@ -15,6 +15,7 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry {
     uint8 public constant MAX_CAMPAIGN_TAGS = 8;
 
     address public owner;
+    address public pendingOwner;
     IDatumPublishers public publishers;
     IDatumPauseRegistry public pauseRegistry;
 
@@ -52,7 +53,13 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry {
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

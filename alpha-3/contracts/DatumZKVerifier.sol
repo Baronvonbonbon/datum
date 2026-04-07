@@ -55,6 +55,7 @@ contract DatumZKVerifier {
     bool public vkSet;
 
     address public owner;
+    address public pendingOwner;
 
     event VerifyingKeySet();
     event OwnershipTransferred(address indexed prev, address indexed next);
@@ -92,8 +93,14 @@ contract DatumZKVerifier {
     function transferOwnership(address next) external {
         require(msg.sender == owner, "E18");
         require(next != address(0), "E00");
-        emit OwnershipTransferred(owner, next);
-        owner = next;
+        pendingOwner = next;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        emit OwnershipTransferred(owner, pendingOwner);
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

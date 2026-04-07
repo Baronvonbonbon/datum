@@ -11,4 +11,6 @@ interface IDatumCampaignsSettlement {
     );
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
+    function getCampaignRewardToken(uint256 campaignId) external view returns (address);
+    function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256);
 }

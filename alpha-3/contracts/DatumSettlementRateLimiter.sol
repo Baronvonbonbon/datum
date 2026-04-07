@@ -19,6 +19,7 @@ import "./interfaces/IDatumSettlementRateLimiter.sol";
 ///         - No pause check: rate limiting should work regardless of protocol pause state.
 contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     address public owner;
+    address public pendingOwner;
 
     /// @notice Number of blocks per rate-limit window. ~100 blocks ≈ 10 min on Paseo (6s/block).
     uint256 public windowBlocks;
@@ -58,8 +59,14 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        emit OwnershipTransferred(owner, pendingOwner);
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

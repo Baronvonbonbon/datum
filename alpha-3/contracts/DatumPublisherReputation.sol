@@ -20,6 +20,7 @@ import "./interfaces/IDatumPublisherReputation.sol";
 ///           getScore() / isAnomaly() to weight decisions. No hard enforcement in alpha-3.
 contract DatumPublisherReputation is IDatumPublisherReputation {
     address public owner;
+    address public pendingOwner;
 
     /// @notice Approved reporters (relay bot addresses).
     mapping(address => bool) public reporters;
@@ -80,7 +81,13 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

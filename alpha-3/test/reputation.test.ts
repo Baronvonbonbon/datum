@@ -260,7 +260,7 @@ describe("DatumPublisherReputation", function () {
       .withArgs(publisher2.address, 7n, 300n, 50n);
   });
 
-  // REP24: transferOwnership works correctly
+  // REP24: transferOwnership works correctly (2-step)
   it("REP24: transferOwnership transfers owner and reverts on zero address", async function () {
     await expect(
       reputation.connect(owner).transferOwnership(ethers.ZeroAddress)
@@ -270,10 +270,15 @@ describe("DatumPublisherReputation", function () {
       reputation.connect(other).transferOwnership(other.address)
     ).to.be.revertedWith("E18");
 
-    // Transfer to other, then restore
+    // Transfer to other (2-step), then restore
     await reputation.connect(owner).transferOwnership(other.address);
+    expect(await reputation.pendingOwner()).to.equal(other.address);
+    expect(await reputation.owner()).to.equal(owner.address); // not transferred yet
+    await reputation.connect(other).acceptOwnership();
     expect(await reputation.owner()).to.equal(other.address);
+    // Restore
     await reputation.connect(other).transferOwnership(owner.address);
+    await reputation.connect(owner).acceptOwnership();
     expect(await reputation.owner()).to.equal(owner.address);
   });
 

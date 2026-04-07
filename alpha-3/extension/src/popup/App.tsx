@@ -67,6 +67,16 @@ export function App() {
   // H2: Timelock pending changes
   const [timelockWarning, setTimelockWarning] = useState<number>(0);
 
+  // XH-1: Signing approval mode
+  const [approvalMode, setApprovalMode] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<{
+    requestId: string;
+    type: string;
+    domain: string;
+    preview: string;
+  } | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+
   // Refresh key: incremented on login/unlock to force-remount all tab components
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -127,6 +137,16 @@ export function App() {
   }, [address]);
 
   useEffect(() => {
+    // XH-1: Check if opened in approval mode
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "approval") {
+      chrome.storage.local.get("signingApprovalPending").then((s) => {
+        if (s.signingApprovalPending) {
+          setPendingApproval(s.signingApprovalPending);
+          setApprovalMode(true);
+        }
+      });
+    }
     initWalletState();
   }, []);
 
@@ -622,6 +642,73 @@ export function App() {
             {error}
           </div>
         )}
+      </div>
+    );
+  }
+
+  // XH-1: Approval mode — show before all other UI
+  async function handleApprovalResponse(approved: boolean) {
+    if (!pendingApproval) return;
+    setApprovalBusy(true);
+    try {
+      await chrome.runtime.sendMessage({
+        type: "PROVIDER_APPROVAL_RESPONSE",
+        requestId: pendingApproval.requestId,
+        approved,
+      });
+    } finally {
+      setApprovalBusy(false);
+      window.close();
+    }
+  }
+
+  if (approvalMode && pendingApproval) {
+    const typeLabel: Record<string, string> = {
+      personal_sign: "Sign Message",
+      sign_typed_data: "Sign Typed Data",
+      send_transaction: "Send Transaction",
+    };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg)" }}>
+        <div style={{ padding: "12px 14px", background: "rgba(28,25,23,0.9)", borderBottom: "1px solid var(--border)" }}>
+          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 14, letterSpacing: "0.06em" }}>DATUM</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: 8 }}>Signing Request</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+          <div style={{ color: "var(--text)", fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+            {typeLabel[pendingApproval.type] ?? "Signing Request"}
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 14 }}>
+            A page is requesting your signature.
+          </div>
+
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Origin</div>
+            <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600 }}>{pendingApproval.domain}</div>
+          </div>
+
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "10px 12px", marginBottom: 20 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Preview</div>
+            <div style={{ color: "var(--text)", fontSize: 12, wordBreak: "break-all", fontFamily: "monospace" }}>{pendingApproval.preview}</div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => handleApprovalResponse(false)}
+              disabled={approvalBusy}
+              style={{ flex: 1, padding: "9px 0", fontSize: 13, cursor: approvalBusy ? "not-allowed" : "pointer", background: "var(--bg-card)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontFamily: "inherit" }}
+            >
+              Reject
+            </button>
+            <button
+              onClick={() => handleApprovalResponse(true)}
+              disabled={approvalBusy}
+              style={{ flex: 1, padding: "9px 0", fontSize: 13, cursor: approvalBusy ? "not-allowed" : "pointer", background: "var(--accent)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", fontFamily: "inherit", fontWeight: 600 }}
+            >
+              Approve
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

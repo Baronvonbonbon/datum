@@ -179,7 +179,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     [owner, advertiser, publisher, publisher2, user, voter, reporter] = await ethers.getSigners();
 
     // 1. Infrastructure
-    pauseReg  = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy();
+    pauseReg  = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, advertiser.address, publisher.address);
     publishers = await (await ethers.getContractFactory("DatumPublishers")).deploy(
       TAKE_RATE_DELAY, await pauseReg.getAddress()
     );
@@ -216,7 +216,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     );
 
     // 5. Settlement stack (alpha-3 SE-1 architecture)
-    const zkVerifier = await (await ethers.getContractFactory("DatumZKVerifier")).deploy();
+    const zkVerifier = await (await ethers.getContractFactory("MockZKVerifier")).deploy();
     claimVal = await (await ethers.getContractFactory("DatumClaimValidator")).deploy(
       await campaigns.getAddress(), await publishers.getAddress(), await pauseReg.getAddress()
     );
@@ -299,7 +299,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   ): Promise<bigint> {
     const pubAddr = typeof pub === "string" ? pub : pub.address;
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pubAddr, dailyCap, cpm, requiredTags, requireZk, { value: budget }
+      pubAddr, dailyCap, cpm, requiredTags, requireZk, ethers.ZeroAddress, 0, { value: budget }
     );
     await tx.wait();
     const cid = await campaigns.nextCampaignId() - 1n;
@@ -735,7 +735,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
       await expect(
         campaigns.connect(advertiser).createCampaign(
-          publisher2.address, TAG_DAILY, TAG_CPM, [cryptoTag], false, { value: TAG_BUDGET }
+          publisher2.address, TAG_DAILY, TAG_CPM, [cryptoTag], false, ethers.ZeroAddress, 0, { value: TAG_BUDGET }
         )
       ).to.be.reverted; // E66 or validator rejection
     });
@@ -791,7 +791,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-2: campaign creation gas", async function () {
       await gasFor("createCampaign (fixed publisher)", () =>
         campaigns.connect(advertiser).createCampaign(
-          publisher.address, DAILY, CPM, [], false, { value: BUDGET }
+          publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
         )
       );
     });
@@ -799,7 +799,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-3: governance vote gas", async function () {
       // Create a campaign to vote on
       const tx = await campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY, CPM, [], false, { value: BUDGET }
+        publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
       );
       await tx.wait();
       const cid = await campaigns.nextCampaignId() - 1n;
@@ -869,7 +869,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     for (const s of DOT_PRICE_SCENARIOS) {
       it(`BM-LC: ${s.label} — full lifecycle (create→vote→activate→settle→complete)`, async function () {
         const tx = await campaigns.connect(advertiser).createCampaign(
-          publisher.address, s.dailyCap, s.cpm, [], false, { value: s.budget }
+          publisher.address, s.dailyCap, s.cpm, [], false, ethers.ZeroAddress, 0, { value: s.budget }
         );
         await tx.wait();
         const cid = await campaigns.nextCampaignId() - 1n;

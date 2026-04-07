@@ -7,6 +7,26 @@ import { getSigner, getUnlockedWallet } from "@shared/walletManager";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 import { humanizeError } from "@shared/errorCodes";
 
+// BM-3: Fetch a PoW challenge from the relay and solve it (SHA-256, leading zero bytes).
+async function solvePoWChallenge(relayUrl: string): Promise<{ powChallenge: string; powNonce: string }> {
+  const resp = await fetch(`${relayUrl}/relay/challenge`, { signal: AbortSignal.timeout(5000) });
+  if (!resp.ok) throw new Error(`Challenge fetch failed: ${resp.status}`);
+  const { challenge, difficulty } = await resp.json() as { challenge: string; difficulty: number };
+
+  // Solve: find a nonce where SHA-256(challenge + nonce) starts with `difficulty` zero bytes
+  let nonce = 0;
+  const enc = new TextEncoder();
+  while (true) {
+    const nonceStr = nonce.toString();
+    const data = enc.encode(challenge + nonceStr);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+    let ok = true;
+    for (let i = 0; i < difficulty; i++) { if (hash[i] !== 0) { ok = false; break; } }
+    if (ok) return { powChallenge: challenge, powNonce: nonceStr };
+    nonce++;
+  }
+}
+
 interface QueueState {
   pendingCount: number;
   byUser: Record<string, Record<string, number>>;
@@ -530,11 +550,13 @@ export function ClaimQueue({ address }: Props) {
 
       for (const [relayUrl, batches] of relaysByPublisher) {
         try {
+          // BM-3: Solve PoW challenge before submission
+          const pow = await solvePoWChallenge(relayUrl);
           await fetch(`${relayUrl}/relay/submit`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ batches }),
-            signal: AbortSignal.timeout(8000),
+            body: JSON.stringify({ batches, ...pow }),
+            signal: AbortSignal.timeout(15000),
           });
           console.log(`[DATUM] POSTed ${batches.length} batch(es) to ${relayUrl}`);
         } catch (err) {

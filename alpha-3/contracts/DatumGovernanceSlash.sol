@@ -15,6 +15,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
     address public voting;
     address public campaigns;
     address public owner;
+    address public pendingOwner;
 
     uint256 public constant SWEEP_DEADLINE_BLOCKS = 5256000; // ~365 days
 
@@ -33,6 +34,18 @@ contract DatumGovernanceSlash is ReentrancyGuard {
     }
 
     receive() external payable {}
+
+    function transferOwnership(address newOwner) external {
+        require(msg.sender == owner, "E18");
+        require(newOwner != address(0), "E00");
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
+    }
 
     /// @notice Finalize slash using weight snapshot from resolution time (SM-5)
     function finalizeSlash(uint256 campaignId) external {

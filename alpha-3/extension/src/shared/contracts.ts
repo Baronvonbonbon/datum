@@ -19,6 +19,7 @@ import DatumGovernanceHelperAbi from "./abis/DatumGovernanceHelper.json";
 import DatumReportsAbi from "./abis/DatumReports.json";
 import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
+import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
@@ -89,6 +90,10 @@ export function getReputationContract(addresses: ContractAddresses, provider: Pr
 
 export function getZKVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.zkVerifier, DatumZKVerifierAbi.abi, provider);
+}
+
+export function getTokenRewardVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.tokenRewardVault, DatumTokenRewardVaultAbi.abi, provider);
 }
 
 export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {

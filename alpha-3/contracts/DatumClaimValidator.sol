@@ -17,6 +17,7 @@ contract DatumClaimValidator is IDatumClaimValidator {
     uint256 private constant MAX_CLAIM_IMPRESSIONS = 100000;
 
     address public owner;
+    address public pendingOwner;
     address public campaigns;
     address public publishers;
     address public pauseRegistry;
@@ -57,7 +58,13 @@ contract DatumClaimValidator is IDatumClaimValidator {
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

@@ -42,7 +42,7 @@ describe("DatumCampaignLifecycle", function () {
 
     // Deploy infrastructure
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, advertiser.address, publisher.address);
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
@@ -82,7 +82,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createAndActivate(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
     // Activate via governance
@@ -92,7 +92,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createPending(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     return (await campaigns.nextCampaignId()) - 1n;
   }

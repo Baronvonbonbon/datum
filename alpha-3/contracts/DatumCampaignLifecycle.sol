@@ -22,6 +22,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     address public owner;
+    address public pendingOwner;
     IDatumCampaigns public campaigns;
     IDatumBudgetLedger public budgetLedger;
     IDatumPauseRegistry public pauseRegistry;
@@ -86,7 +87,13 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

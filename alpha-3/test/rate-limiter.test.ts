@@ -129,14 +129,18 @@ describe("DatumSettlementRateLimiter", function () {
     expect(imp2).to.equal(300n);
   });
 
-  // RL11: transferOwnership works correctly
+  // RL11: transferOwnership works correctly (2-step)
   it("RL11: transferOwnership transfers to new owner", async function () {
-    await expect(limiter.connect(owner).transferOwnership(other.address))
+    await limiter.connect(owner).transferOwnership(other.address);
+    expect(await limiter.pendingOwner()).to.equal(other.address);
+    expect(await limiter.owner()).to.equal(owner.address); // not transferred yet
+    await expect(limiter.connect(other).acceptOwnership())
       .to.emit(limiter, "OwnershipTransferred")
       .withArgs(owner.address, other.address);
     expect(await limiter.owner()).to.equal(other.address);
     // Restore
     await limiter.connect(other).transferOwnership(owner.address);
+    await limiter.connect(owner).acceptOwnership();
   });
 
   // RL12: transferOwnership to zero address reverts
@@ -206,7 +210,7 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
     [owner, user, publisher] = await ethers.getSigners();
 
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, user.address, publisher.address);
 
     const MockFactory = await ethers.getContractFactory("MockCampaigns");
     mock = await MockFactory.deploy();

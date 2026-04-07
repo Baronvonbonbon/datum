@@ -62,7 +62,9 @@ interface IDatumCampaigns {
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
         bytes32[] calldata requiredTags,
-        bool requireZkProof
+        bool requireZkProof,
+        address rewardToken,
+        uint256 rewardPerImpression
     ) external payable returns (uint256 campaignId);
 
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external;
@@ -94,6 +96,8 @@ interface IDatumCampaigns {
     );
     function getPendingExpiryBlock(uint256 campaignId) external view returns (uint256);
     function nextCampaignId() external view returns (uint256);
+    function getCampaignRewardToken(uint256 campaignId) external view returns (address);
+    function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256);
     function minimumCpmFloor() external view returns (uint256);
     function pendingTimeoutBlocks() external view returns (uint256);
     function settlementContract() external view returns (address);

@@ -57,8 +57,9 @@ export function Publishers() {
           let repScore: number | null = null;
           try {
             if (contracts.reputation) {
-              const score = await contracts.reputation.getScore(addr);
-              repScore = Number(score);
+              const stats = await contracts.reputation.getPublisherStats(addr);
+              const total = Number(stats[0]) + Number(stats[1]);
+              if (total > 0) repScore = Number(stats[2]);
             }
           } catch { /* no reputation contract */ }
 

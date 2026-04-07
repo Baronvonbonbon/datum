@@ -47,7 +47,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
       await ethers.getSigners();
 
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, advertiser.address, publisher.address);
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(50n, await pauseReg.getAddress());
@@ -193,7 +193,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
   it("TG7: createCampaign with empty requiredTags succeeds (backward compat)", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -207,7 +207,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   it("TG8: createCampaign with matching requiredTags succeeds", async function () {
     // publisher has [DEFI, EN_US, MOBILE]
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_EN_US], false,
+      publisher.address, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_EN_US], false, ethers.ZeroAddress, 0,
       { value: BUDGET }
     );
     await tx.wait();
@@ -225,7 +225,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     // publisher has [DEFI, EN_US, MOBILE] but not GAMING
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [TAG_GAMING], false,
+        publisher.address, DAILY_CAP, BID_CPM, [TAG_GAMING], false, ethers.ZeroAddress, 0,
         { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
@@ -235,7 +235,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     // publisher has DEFI but not DE
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_DE], false,
+        publisher.address, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_DE], false, ethers.ZeroAddress, 0,
         { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
@@ -244,7 +244,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   it("TG10: open campaign (publisher=0) skips tag check", async function () {
     // Open campaigns don't check tags at creation — tags matched at auction time
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_EN_US], false,
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [TAG_DEFI, TAG_EN_US], false, ethers.ZeroAddress, 0,
       { value: BUDGET }
     );
     await tx.wait();
@@ -262,7 +262,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     );
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, tooMany, false,
+        publisher.address, DAILY_CAP, BID_CPM, tooMany, false, ethers.ZeroAddress, 0,
         { value: BUDGET }
       )
     ).to.be.revertedWith("E66");

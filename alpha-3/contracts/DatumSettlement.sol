@@ -48,6 +48,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     mapping(address => mapping(uint256 => uint256)) public userCampaignSettled;
     uint256 public constant MAX_USER_IMPRESSIONS = 100000;
 
+    // BM-10: Minimum blocks between settlement batches per user per campaign (0 = disabled)
+    uint16 public minClaimInterval;
+    mapping(address => mapping(uint256 => uint256)) public lastSettlementBlock;
+
     constructor(address _pauseRegistry) {
         require(_pauseRegistry != address(0), "E00");
         owner = msg.sender;
@@ -94,6 +98,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         rateLimiter = addr;
     }
 
+    /// @notice Set minimum blocks between settlement batches per user per campaign. 0 = disabled.
+    function setMinClaimInterval(uint16 interval) external {
+        require(msg.sender == owner, "E18");
+        minClaimInterval = interval;
+    }
+
     /// @notice Set publishers ref for S12 settlement-level blocklist check. Pass address(0) to disable.
     function setPublishers(address addr) external {
         require(msg.sender == owner, "E18");
@@ -138,6 +148,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         nonReentrant
         returns (SettlementResult memory result)
     {
+        require(claimValidator != address(0), "E00");
+
         // Pause check via plain staticcall (no typed interface import)
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
             abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
@@ -179,6 +191,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         SettlementResult memory result
     ) internal {
         require(claims.length <= 50, "E28");
+
+        // BM-10: Min claim interval — reject entire batch if too soon since last settlement
+        uint16 interval = minClaimInterval;
+        if (interval > 0) {
+            uint256 lastBlock = lastSettlementBlock[user][campaignId];
+            if (lastBlock != 0 && block.number < lastBlock + interval) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(campaignId, user, claims[j].nonce, 18);
+                }
+                return;
+            }
+        }
+
+        uint256 prevSettledCount = result.settledCount;
         bool gapFound = false;
 
         for (uint256 i = 0; i < claims.length; i++) {
@@ -253,6 +280,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             // Store hash from validator before settling
             lastClaimHash[user][claim.campaignId] = computedHash;
             _settleSingleClaim(claim, user, cTakeRate, result);
+        }
+
+        // BM-10: Record block of last successful settlement for this user/campaign
+        if (interval > 0 && result.settledCount > prevSettledCount) {
+            lastSettlementBlock[user][campaignId] = block.number;
         }
     }
 

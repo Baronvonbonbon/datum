@@ -23,6 +23,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     address public owner;
+    address public pendingOwner;
     address public campaigns;
     address public settlement;
     address public lifecycle;
@@ -90,7 +91,13 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

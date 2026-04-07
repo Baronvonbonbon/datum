@@ -14,6 +14,7 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
     uint16 private constant DEFAULT_TAKE_RATE_BPS = 5000;
 
     address public owner;
+    address public pendingOwner;
     IDatumPublishers public publishers;
     IDatumTargetingRegistry public targetingRegistry;
 
@@ -46,7 +47,13 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

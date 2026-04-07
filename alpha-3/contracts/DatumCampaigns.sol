@@ -25,6 +25,7 @@ contract DatumCampaigns is IDatumCampaigns {
     // -------------------------------------------------------------------------
 
     address public owner;
+    address public pendingOwner;
     bool private _locked;
 
     modifier onlyOwner() {
@@ -73,6 +74,11 @@ contract DatumCampaigns is IDatumCampaigns {
 
     // ZK proof requirement — set at creation, immutable per campaign
     mapping(uint256 => bool) private _campaignRequiresZkProof;
+
+    // Token reward — set at creation, immutable per campaign
+    // rewardToken == address(0) means no token reward
+    mapping(uint256 => address)  private _campaignRewardToken;
+    mapping(uint256 => uint256) private _campaignRewardPerImpression;
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -130,7 +136,13 @@ contract DatumCampaigns is IDatumCampaigns {
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------
@@ -143,7 +155,9 @@ contract DatumCampaigns is IDatumCampaigns {
         uint256 dailyCapPlanck,
         uint256 bidCpmPlanck,
         bytes32[] calldata requiredTags,
-        bool requireZkProof
+        bool requireZkProof,
+        address rewardToken,
+        uint256 rewardPerImpression
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > 0, "E11");
@@ -182,6 +196,13 @@ contract DatumCampaigns is IDatumCampaigns {
 
         // Store ZK proof requirement (immutable per campaign)
         if (requireZkProof) _campaignRequiresZkProof[campaignId] = true;
+
+        // Store token reward config (immutable per campaign)
+        if (rewardToken != address(0)) {
+            require(rewardPerImpression > 0, "E11");
+            _campaignRewardToken[campaignId] = rewardToken;
+            _campaignRewardPerImpression[campaignId] = rewardPerImpression;
+        }
 
         // Escrow budget in BudgetLedger
         budgetLedger.initializeBudget{value: msg.value}(campaignId, msg.value, dailyCapPlanck);
@@ -315,6 +336,14 @@ contract DatumCampaigns is IDatumCampaigns {
     ) {
         Campaign storage c = _campaigns[campaignId];
         return (uint8(c.status), c.publisher, c.bidCpmPlanck, c.snapshotTakeRateBps);
+    }
+
+    function getCampaignRewardToken(uint256 campaignId) external view returns (address) {
+        return _campaignRewardToken[campaignId];
+    }
+
+    function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256) {
+        return _campaignRewardPerImpression[campaignId];
     }
 
 }

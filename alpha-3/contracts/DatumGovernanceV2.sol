@@ -68,6 +68,7 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     address public owner;
+    address public pendingOwner;
     address public campaigns;
     address public slashContract;
     IDatumCampaignLifecycle public lifecycle;
@@ -170,6 +171,18 @@ contract DatumGovernanceV2 {
         require(_helper != address(0), "E00");
         emit ContractReferenceChanged("helper", address(helper), _helper);
         helper = IDatumGovernanceHelper(_helper);
+    }
+
+    function transferOwnership(address newOwner) external {
+        require(msg.sender == owner, "E18");
+        require(newOwner != address(0), "E00");
+        pendingOwner = newOwner;
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = pendingOwner;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

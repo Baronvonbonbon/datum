@@ -11,7 +11,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { fundSigners, isSubstrate } from "./helpers/mine";
+import { fundSigners, isSubstrate, mineBlocks } from "./helpers/mine";
 
 // Settlement tests for alpha-2:
 // S1-S8: core settlement, payment split, rejection
@@ -780,6 +780,109 @@ describe("DatumSettlement", function () {
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
     expect(result.settledCount).to.equal(0n);
     expect(result.rejectedCount).to.equal(1n);
+  });
+
+  // =========================================================================
+  // BM-10: Min claim interval
+  // =========================================================================
+
+  describe("BM-10: min claim interval", function () {
+    it("BM10-1: first settlement succeeds with no prior block recorded", async function () {
+      await settlement.connect(owner).setMinClaimInterval(10);
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = { user: user.address, campaignId: cid, claims };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+      // cleanup
+      await settlement.connect(owner).setMinClaimInterval(0);
+    });
+
+    it("BM10-2: second settlement within interval rejects with reason code 18", async function () {
+      await settlement.connect(owner).setMinClaimInterval(100);
+      const cid = await createTestCampaign();
+      const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: claims1 }]);
+
+      // Advance only 5 blocks — still within 100-block interval
+      await mineBlocks(5);
+
+      // Build fresh chain starting from nonce 2
+      const claims2 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // claims2 starts at nonce 1 — hack nonce to 2 by rebuilding off settled state
+      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const nonce = 2n;
+      const hash = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+      );
+      const batch2 = {
+        user: user.address,
+        campaignId: cid,
+        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" }],
+      };
+
+      const tx = await settlement.connect(user).settleClaims([batch2]);
+      const receipt = await tx.wait();
+      const iface = settlement.interface;
+      const rejected = receipt!.logs
+        .map((l: any) => { try { return iface.parseLog(l); } catch { return null; } })
+        .filter((e: any) => e?.name === "ClaimRejected");
+      expect(rejected.length).to.equal(1);
+      expect(rejected[0].args.reasonCode).to.equal(18);
+      // cleanup
+      await settlement.connect(owner).setMinClaimInterval(0);
+    });
+
+    it("BM10-3: settlement after interval passes succeeds", async function () {
+      await settlement.connect(owner).setMinClaimInterval(5);
+      const cid = await createTestCampaign();
+      const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: claims1 }]);
+
+      // Advance past the interval
+      await mineBlocks(10);
+
+      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const nonce = 2n;
+      const hash = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+      );
+      const batch2 = {
+        user: user.address,
+        campaignId: cid,
+        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" }],
+      };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+      // cleanup
+      await settlement.connect(owner).setMinClaimInterval(0);
+    });
+
+    it("BM10-4: interval disabled (0) allows immediate re-settlement", async function () {
+      await settlement.connect(owner).setMinClaimInterval(0);
+      const cid = await createTestCampaign();
+      const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: claims1 }]);
+
+      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const nonce = 2n;
+      const hash = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+      );
+      const batch2 = {
+        user: user.address,
+        campaignId: cid,
+        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" }],
+      };
+      const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+    });
   });
 
   it("T7-1: multiple batches in single settleClaims call", async function () {

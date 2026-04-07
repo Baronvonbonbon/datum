@@ -142,7 +142,7 @@ const rateLimiterAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -376,7 +376,7 @@ async function main() {
 
     // Create campaign
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false],
+      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0],
       BUDGET
     );
 
@@ -410,7 +410,7 @@ async function main() {
     const nextBeforeVal2 = BigInt(nextBefore2);
 
     await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false],
+      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false, ethers.ZeroAddress, 0],
       parseDOT("5")
     );
 

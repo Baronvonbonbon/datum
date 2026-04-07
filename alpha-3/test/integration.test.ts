@@ -95,7 +95,7 @@ describe("Integration", function () {
 
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, [], false, { value: budget }
+      pub.address, dailyCap, bidCpm, [], false, ethers.ZeroAddress, 0, { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -112,7 +112,7 @@ describe("Integration", function () {
 
     // Deploy all 12 contracts
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-    pauseReg = await PauseFactory.deploy();
+    pauseReg = await PauseFactory.deploy(owner.address, advertiser.address, publisher.address);
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(TAKE_RATE_DELAY, await pauseReg.getAddress());
@@ -614,7 +614,7 @@ describe("Integration", function () {
   it("H5: attested settlement on open campaign verifies serving publisher", async function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -661,7 +661,7 @@ describe("Integration", function () {
   // H6: open campaign attestation with wrong signer reverts E34
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
