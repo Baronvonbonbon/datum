@@ -50,12 +50,12 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
     explorerUrl: "https://blockscout-testnet.polkadot.io",
     addresses: {
-      // Alpha-3 v6 — 21 contracts deployed on Paseo 2026-04-06
+      // Alpha-3 v7 — Settlement redeployed (BM-10) on Paseo 2026-04-07
       campaigns: "0xb181415cd7C59fe182A3DeF20546b6d6089CD394",
       publishers: "0x2d3938B16A711B3e393224776b1D1da5ceCF6FE7",
       governanceV2: "0x38c55B6855050276648E44b5A621C671ca25e14e",
       governanceSlash: "0x147972F36ab3e85a0dFa18204e9F59b21B7a6C46",
-      settlement: "0xF66Ad98D37f81C61c50AeCe7F807B4bD648bc4f7",
+      settlement: "0x9353dAb26e178cAA4103A7708b0ea63FC340F731",
       relay: "0xFDF0dD9f81d1139Cb3CBc00b2CeeDE2dCdc97173",
       pauseRegistry: "0x305303dF07C7F9E265B6EBD3b7940F6e7c8EafD4",
       timelock: "0x8b755205058F8B7162a2f362057c8a2391C948B4",
