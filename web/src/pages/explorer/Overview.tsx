@@ -231,7 +231,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     color: "var(--warn)",
     steps: [
       "Register as a publisher from the Publisher section. Pick your take rate (the percentage you keep from each impression — between 30% and 80%).",
-      "Select your content tags from four dimensions (topic, locale, platform, audience). This tells the system which campaigns are a good fit for your audience.",
+      "Tag your content so campaigns find you. Tags are open and custom — running ads in a niche community? The taxonomy grows and adapts with the language of the emergent internet.",
       "Copy the SDK snippet and add it to your site — it's one script tag and one div. That's it. No ad server, no tracking pixels, no cookie banners.",
       "When a DATUM user visits your site, the extension and your SDK do a cryptographic handshake to prove the impression is real. Two-party attestation, no trust required.",
       "As impressions settle on-chain, your share accumulates in the PaymentVault. Withdraw whenever you want from the Publisher Earnings page.",
