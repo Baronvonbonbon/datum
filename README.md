@@ -308,4 +308,4 @@ See [STATUS.md](STATUS.md) for detailed status and [BACKLOG.md](BACKLOG.md) for 
 
 ## License
 
-Apache-2.0
+GPL-3.0-or-later
