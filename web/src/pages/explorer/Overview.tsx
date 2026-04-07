@@ -276,6 +276,11 @@ function HowItWorks() {
           <RoleTile key={w.role} walkthrough={w} isOpen={open === i} onToggle={() => toggle(i)} />
         ))}
       </div>
+      <div style={{ marginTop: 14, textAlign: "right" }}>
+        <Link to="/how-it-works" className="nano-btn nano-btn-accent" style={{ fontSize: 12, padding: "6px 16px", textDecoration: "none" }}>
+          Learn More →
+        </Link>
+      </div>
     </div>
   );
 }

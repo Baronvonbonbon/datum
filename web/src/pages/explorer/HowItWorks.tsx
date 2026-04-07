@@ -129,9 +129,9 @@ function RoleCard({
   );
 }
 
-function CheckRow({ check, detail, status }: { check: string; detail: string; status: "on-chain" | "off-chain" | "zk" }) {
-  const statusColor = status === "on-chain" ? "var(--ok)" : status === "zk" ? "#a78bfa" : "var(--warn)";
-  const statusLabel = status === "on-chain" ? "on-chain" : status === "zk" ? "ZK proof" : "off-chain";
+function CheckRow({ check, detail, status }: { check: string; detail: string; status: "on-chain" | "off-chain" | "zk" | "extension" }) {
+  const statusColor = status === "on-chain" ? "var(--ok)" : status === "zk" ? "#a78bfa" : status === "extension" ? "var(--accent)" : "var(--warn)";
+  const statusLabel = status === "on-chain" ? "on-chain" : status === "zk" ? "ZK proof" : status === "extension" ? "extension" : "off-chain";
   return (
     <div style={{ display: "flex", gap: 14, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
       <div style={{ flex: "0 0 160px" }}>
@@ -221,10 +221,10 @@ export function HowItWorks() {
             role="publisher"
             label="Publisher"
             icon="🖥"
-            what="Embeds the Datum SDK on their site or app. Registers on-chain with a take-rate (the share of CPM they keep) and sets topic tags that describe their audience. Settlement is handled automatically — publishers don't need to manage gas or post transactions themselves."
+            what="Embeds the Datum SDK on their site or app. Registers on-chain with a take-rate (the share of CPM they keep) and sets topic tags that describe their audience. Publishers submit settlement transactions and manage gas, but are compensated through their take-rate."
             earns={[
               "A configurable take-rate on every CPM settled — negotiated at registration, locked per campaign.",
-              "No ongoing gas cost: settlement batches are submitted via a co-signed relay path, so the publisher doesn't pay per-transaction fees.",
+              "Gas costs for settlement transactions are offset by the take-rate — publishers earn more per batch than they spend on fees.",
               "Reputation score grows as settlements are accepted, unlocking trust with future advertisers.",
             ]}
             risks={[
@@ -341,6 +341,11 @@ export function HowItWorks() {
             check="ZK impression proof"
             detail="Optional per-campaign enforcement. When enabled, a Groth16 circuit proves the impression count is in a valid range and the nonce is known — without revealing the user's address or browsing history. Campaigns without ZK still benefit from all other checks."
             status="zk"
+          />
+          <CheckRow
+            check="Second-price auction"
+            detail="When multiple campaigns match a page, the extension runs a Vickrey second-price auction — the highest bidder wins, but pays the second-highest bid. This removes the incentive to overbid, ensures advertisers pay fair market value, and makes campaign selection deterministic and verifiable."
+            status="extension"
           />
           <CheckRow
             check="Rate limiter"
