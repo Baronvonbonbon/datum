@@ -140,9 +140,9 @@ export function Layout() {
               )}
               <AddressDisplay address={address} style={{ fontSize: 12, color: "var(--text)" }} />
               <div className="nano-role-badges" style={{ display: "flex", gap: 3 }}>
-                {isAdvertiser && <span className="nano-badge nano-badge--accent" style={{ fontSize: 9, padding: "1px 5px" }}>ADV</span>}
-                {isPublisher && <span className="nano-badge nano-badge--ok" style={{ fontSize: 9, padding: "1px 5px" }}>PUB</span>}
-                {isVoter && <span className="nano-badge nano-badge--warn" style={{ fontSize: 9, padding: "1px 5px" }}>GOV</span>}
+                {isAdvertiser && <span className="nano-badge nano-badge--advertiser" style={{ fontSize: 9, padding: "1px 5px" }}>ADV</span>}
+                {isPublisher && <span className="nano-badge nano-badge--publisher" style={{ fontSize: 9, padding: "1px 5px" }}>PUB</span>}
+                {isVoter && <span className="nano-badge nano-badge--voter" style={{ fontSize: 9, padding: "1px 5px" }}>GOV</span>}
               </div>
               <button
                 onClick={disconnect}

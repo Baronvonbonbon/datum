@@ -29,19 +29,19 @@
   --warn:  #fbbf24;   /* amber-400  */
   --error: #f87171;   /* red-400    */
 
-  /* Role colors — consistent across site + extension */
+  /* Role colors — User=green, Publisher=amber, Advertiser=purple, Governance=red */
   --role-user:            #4ade80;
   --role-user-dim:        rgba(74,222,128,0.12);
   --role-user-border:     rgba(74,222,128,0.25);
-  --role-advertiser:      #fbbf24;
-  --role-advertiser-dim:  rgba(251,191,36,0.12);
-  --role-advertiser-border: rgba(251,191,36,0.25);
-  --role-publisher:       #fb923c;
-  --role-publisher-dim:   rgba(249,115,60,0.12);
-  --role-publisher-border: rgba(249,115,60,0.25);
-  --role-voter:           #c084fc;
-  --role-voter-dim:       rgba(192,132,252,0.12);
-  --role-voter-border:    rgba(192,132,252,0.25);
+  --role-publisher:       #fbbf24;
+  --role-publisher-dim:   rgba(251,191,36,0.12);
+  --role-publisher-border: rgba(251,191,36,0.25);
+  --role-advertiser:      #c084fc;
+  --role-advertiser-dim:  rgba(192,132,252,0.12);
+  --role-advertiser-border: rgba(192,132,252,0.25);
+  --role-voter:           #f87171;
+  --role-voter-dim:       rgba(248,113,113,0.12);
+  --role-voter-border:    rgba(248,113,113,0.25);
 
   /* Fonts */
   --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;

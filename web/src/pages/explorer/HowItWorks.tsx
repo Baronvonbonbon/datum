@@ -5,10 +5,17 @@
  */
 
 const ROLE_ACCENT: Record<string, string> = {
-  advertiser: "var(--accent)",
-  publisher:  "var(--ok)",
-  user:       "#a78bfa",
-  voter:      "var(--warn)",
+  user:       "var(--role-user)",
+  publisher:  "var(--role-publisher)",
+  advertiser: "var(--role-advertiser)",
+  voter:      "var(--role-voter)",
+};
+
+const ROLE_DIM: Record<string, string> = {
+  user:       "var(--role-user-dim)",
+  publisher:  "var(--role-publisher-dim)",
+  advertiser: "var(--role-advertiser-dim)",
+  voter:      "var(--role-voter-dim)",
 };
 
 function RoleBadge({ role, label }: { role: string; label: string }) {
@@ -24,7 +31,7 @@ function RoleBadge({ role, label }: { role: string; label: string }) {
         textTransform: "uppercase",
         color: ROLE_ACCENT[role],
         border: `1px solid ${ROLE_ACCENT[role]}`,
-        background: `${ROLE_ACCENT[role]}18`,
+        background: ROLE_DIM[role],
       }}
     >
       {label}
@@ -130,7 +137,7 @@ function RoleCard({
 }
 
 function CheckRow({ check, detail, status }: { check: string; detail: string; status: "on-chain" | "off-chain" | "zk" | "extension" }) {
-  const statusColor = status === "on-chain" ? "var(--ok)" : status === "zk" ? "#a78bfa" : status === "extension" ? "var(--accent)" : "var(--warn)";
+  const statusColor = status === "on-chain" ? "var(--ok)" : status === "zk" ? "#60a5fa" : status === "extension" ? "var(--accent)" : "var(--warn)";
   const statusLabel = status === "on-chain" ? "on-chain" : status === "zk" ? "ZK proof" : status === "extension" ? "extension" : "off-chain";
   return (
     <div style={{ display: "flex", gap: 14, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
