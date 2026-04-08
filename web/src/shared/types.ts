@@ -243,7 +243,7 @@ export function buildCategoryHierarchy(): CategoryGroup[] {
   return groups;
 }
 
-export type NetworkName = "local" | "polkadotTestnet" | "westend" | "kusama" | "polkadotHub";
+export type NetworkName = "local" | "polkadotTestnet" | "paseoEvm" | "westend" | "kusama" | "polkadotHub";
 
 export interface ContractAddresses {
   // Original 9
