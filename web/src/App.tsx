@@ -44,6 +44,9 @@ import { ReputationAdmin } from "./pages/admin/Reputation";
 // Settings
 import { Settings } from "./pages/Settings";
 
+// Demo
+import { Demo } from "./pages/Demo";
+
 export function App() {
   return (
     <SettingsProvider>
@@ -92,6 +95,9 @@ export function App() {
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
+
+              {/* Demo */}
+              <Route path="/demo" element={<Demo />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -33,7 +33,7 @@ const NAV_ITEMS = [
   { path: "/publisher", label: "Publisher" },
   { path: "/governance", label: "Governance" },
   { path: "/settings", label: "Settings" },
-  { path: "/demo/", label: "Demo ↗", external: true },
+  { path: "/demo", label: "Demo" },
 ];
 
 /** Trigger the Nano staggered fade-in on every route change.
