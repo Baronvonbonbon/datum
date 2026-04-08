@@ -7,6 +7,7 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 import { tagLabel } from "@shared/tagDictionary";
 import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
@@ -29,6 +30,7 @@ export function AdvertiserDashboard() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +90,7 @@ export function AdvertiserDashboard() {
 
       setCampaigns(mine.sort((a, b) => b.id - a.id));
     } catch (err) {
-      setError(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setLoading(false);
     }
@@ -113,7 +115,7 @@ export function AdvertiserDashboard() {
       setActionResult(`Campaign #${id} ${action}d`);
       load();
     } catch (err) {
-      setActionResult(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setActionBusy(null);
     }
@@ -167,7 +169,6 @@ export function AdvertiserDashboard() {
       )}
 
       {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading your campaigns</div>}
-      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {!loading && campaigns.length === 0 && (
         <div style={{ padding: 20, color: "var(--text-muted)", textAlign: "center" }}>

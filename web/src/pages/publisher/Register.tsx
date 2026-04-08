@@ -5,11 +5,13 @@ import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 
 export function Register() {
   const contracts = useContracts();
   const { signer, address } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const navigate = useNavigate();
   const [takeRate, setTakeRate] = useState(50);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
@@ -28,6 +30,7 @@ export function Register() {
       setTxMsg("Registered successfully!");
       setTimeout(() => navigate("/publisher"), 1500);
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }

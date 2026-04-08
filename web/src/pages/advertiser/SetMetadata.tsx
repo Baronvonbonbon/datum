@@ -10,6 +10,7 @@ import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 
 export function SetMetadata() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,7 @@ export function SetMetadata() {
   const { signer } = useWallet();
   const { settings } = useSettings();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState("");
@@ -87,6 +89,7 @@ export function SetMetadata() {
       setTxMsg(`Metadata set on-chain. CID: ${pinResult.cid}`);
       setTimeout(() => navigate(`/advertiser/campaign/${id}`), 3000);
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }

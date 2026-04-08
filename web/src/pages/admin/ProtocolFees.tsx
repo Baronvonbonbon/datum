@@ -6,11 +6,13 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 
 export function ProtocolFeesAdmin() {
   const contracts = useContracts();
   const { signer, address } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [protocolBalance, setProtocolBalance] = useState<bigint | null>(null);
   const [owner, setOwner] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function ProtocolFeesAdmin() {
       setTxMsg("Protocol fee withdrawal successful.");
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     } finally {
       setActiveAction(null);
@@ -70,7 +72,7 @@ export function ProtocolFeesAdmin() {
       setTxMsg(`Slash pool swept for campaign #${sweepCampaignId}.`);
       setSweepCampaignId("");
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     } finally {
       setActiveAction(null);
@@ -90,7 +92,7 @@ export function ProtocolFeesAdmin() {
       setTxMsg(`Dust swept for campaign #${dustCampaignId}.`);
       setDustCampaignId("");
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     } finally {
       setActiveAction(null);

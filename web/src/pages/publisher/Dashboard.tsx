@@ -6,6 +6,7 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 import { tagLabel } from "@shared/tagDictionary";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { TokenRewards } from "../../components/TokenRewards";
@@ -14,6 +15,7 @@ export function PublisherDashboard() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [info, setInfo] = useState<any>(null);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -79,7 +81,7 @@ export function PublisherDashboard() {
       setMsg(dest && ethers.isAddress(dest) ? `Sent to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Withdrawal successful!");
       load();
     } catch (err) {
-      setMsg(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setWithdrawing(false);
     }
@@ -157,7 +159,7 @@ export function PublisherDashboard() {
             <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-strong)", marginBottom: 10 }}>
               {balance !== null ? <DOTAmount planck={balance} /> : "—"}
             </div>
-            {msg && <div style={{ color: msg.includes("successful") || msg.includes("Sent") ? "var(--ok)" : "var(--error)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
+            {msg && <div style={{ color: "var(--ok)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
             {signer && balance !== null && balance > 0n && (
               <>
                 <div style={{ marginBottom: 8 }}>

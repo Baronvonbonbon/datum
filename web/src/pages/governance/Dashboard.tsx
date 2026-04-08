@@ -13,6 +13,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { formatBlockDelta } from "@shared/conviction";
 import { useTx } from "../../hooks/useTx";
 import { queryFilterAll } from "@shared/eventQuery";
+import { useToast } from "../../context/ToastContext";
 
 interface GovCampaign {
   id: number;
@@ -40,6 +41,7 @@ export function GovernanceDashboard() {
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [campaigns, setCampaigns] = useState<GovCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
@@ -160,7 +162,7 @@ export function GovernanceDashboard() {
       setActionMsg(`Campaign #${id} evaluated.`);
       load();
     } catch (err) {
-      setActionMsg(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setActionBusy(null);
     }
@@ -176,7 +178,7 @@ export function GovernanceDashboard() {
       setActionMsg(`Campaign #${id} expired (inactivity).`);
       load();
     } catch (err) {
-      setActionMsg(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setActionBusy(null);
     }
@@ -192,7 +194,7 @@ export function GovernanceDashboard() {
       setActionMsg(`Campaign #${id} expired (pending timeout).`);
       load();
     } catch (err) {
-      setActionMsg(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setActionBusy(null);
     }

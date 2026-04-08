@@ -7,6 +7,7 @@ import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { StatCardSkeleton } from "../../components/Skeleton";
+import { useToast } from "../../context/ToastContext";
 
 interface Stats {
   totalCampaigns: number;
@@ -20,6 +21,7 @@ export function Overview() {
   const contracts = useContracts();
   const { blockNumber, connected } = useBlock();
   const { settings } = useSettings();
+  const { push } = useToast();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export function Overview() {
 
       setStats({ totalCampaigns: total, activeCampaigns: active, pendingCampaigns: pending, totalImpressions, paused: Boolean(paused) });
     } catch (err) {
+      push(humanizeError(err), "error");
       setError(humanizeError(err));
     } finally {
       setLoading(false);

@@ -417,6 +417,12 @@ pre {
 @keyframes block-flash   { 0% { color: var(--ok); } 100% { color: var(--text-muted); } }
 @keyframes heartbeat     { 0%,100% { box-shadow: 0 0 3px var(--ok); } 50% { box-shadow: 0 0 8px var(--ok), 0 0 18px rgba(74,222,128,0.2); } }
 @keyframes nano-pulse-text { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ─── Toast notifications ─────────────────────────────────────────────────── */
+@keyframes toast-in  { from { opacity: 0; transform: translateY(32px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes toast-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(40px) scale(0.94); } }
+.toast-enter { animation: toast-in  320ms cubic-bezier(0.22,1,0.36,1) both; }
+.toast-leave { animation: toast-out 380ms cubic-bezier(0.4,0,1,1)    both; }
 @keyframes nano-bounce-dots {
   0%,80%,100% { transform: translateY(0); }
   40%          { transform: translateY(-4px); }

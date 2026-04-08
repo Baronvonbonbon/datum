@@ -5,6 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { useBlock } from "../../hooks/useBlock";
 import { useSettings } from "../../context/SettingsContext";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 import { StatusBadge } from "../../components/StatusBadge";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { DOTAmount } from "../../components/DOTAmount";
@@ -46,6 +47,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const { blockNumber } = useBlock();
   const { settings } = useSettings();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const EXPLORER = getExplorerUrl(settings.network);
   const [campaign, setCampaign] = useState<any>(null);
   const [budget, setBudget] = useState<any>(null);
@@ -229,7 +231,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       await loadSettlements(campaignId);
 
     } catch (err) {
-      setError(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setLoading(false);
     }
@@ -247,6 +249,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       setTokenBudgetMsg("Budget reclaimed successfully.");
       setTokenReward(prev => prev ? { ...prev, remainingBudget: 0n } : null);
     } catch (err) {
+      push(humanizeError(err), "error");
       setTokenBudgetMsg(humanizeError(err));
     } finally {
       setReclaimingBudget(false);
@@ -267,6 +270,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       setReportMsg("Page reported.");
     } catch (err) {
       setReportState("error");
+      push(humanizeError(err), "error");
       setReportMsg(humanizeError(err));
     } finally {
       setReportingPage(false);
@@ -287,6 +291,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       setReportMsg("Ad reported.");
     } catch (err) {
       setReportState("error");
+      push(humanizeError(err), "error");
       setReportMsg(humanizeError(err));
     } finally {
       setReportingAd(false);
@@ -294,7 +299,6 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   }
 
   if (loading) return <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 20 }}>Loading campaign #{id}</div>;
-  if (error) return <div className="nano-info nano-info--error">Error: {error}</div>;
   if (!campaign) return <div style={{ color: "var(--text-muted)" }}>Campaign not found.</div>;
 
   const totalVotes = governance ? governance.ayeWeighted + governance.nayWeighted : 0n;

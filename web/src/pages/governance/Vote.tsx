@@ -16,6 +16,7 @@ import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { queryFilterAll } from "@shared/eventQuery";
+import { useToast } from "../../context/ToastContext";
 
 export function Vote() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +24,7 @@ export function Vote() {
   const { address, signer } = useWallet();
   const { settings } = useSettings();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const sym = getCurrencySymbol(settings.network);
   const EXPLORER = getExplorerUrl(settings.network);
 
@@ -105,6 +107,7 @@ export function Vote() {
       setTxMsg(`Voted ${isAye ? "Aye" : "Nay"} with ${amount} ${sym} at conviction ${conviction}.`);
       load(Number(id));
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }

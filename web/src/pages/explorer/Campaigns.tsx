@@ -11,6 +11,7 @@ import { bytes32ToCid } from "@shared/ipfs";
 import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
+import { useToast } from "../../context/ToastContext";
 
 interface CampaignRow {
   id: number;
@@ -28,6 +29,7 @@ const PAGE_SIZE = 20;
 export function Campaigns() {
   const contracts = useContracts();
   const { settings } = useSettings();
+  const { push } = useToast();
   const [rows, setRows] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function Campaigns() {
 
       setRows(results.filter(Boolean) as CampaignRow[]);
     } catch (err) {
-      setError(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setLoading(false);
     }
@@ -146,7 +148,6 @@ export function Campaigns() {
         </div>
       )}
 
-      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
       {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 12 }}>Loading campaigns</div>}
 
       {/* Table */}

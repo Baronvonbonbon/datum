@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useToast } from "../context/ToastContext";
 
 interface Props {
   state: "idle" | "pending" | "success" | "error";
@@ -41,6 +42,7 @@ function BouncingText({ text }: { text: string }) {
 }
 
 export function TransactionStatus({ state, message, hash, autoDismiss = 4000, onDismiss }: Props) {
+  const { push } = useToast();
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
@@ -54,9 +56,19 @@ export function TransactionStatus({ state, message, hash, autoDismiss = 4000, on
     }
   }, [state, autoDismiss, onDismiss]);
 
+  // Fire toast on error
+  useEffect(() => {
+    if (state === "error" && message) {
+      push(message, "error");
+    }
+  }, [state, message]);
+
   if (state === "idle" || !visible) return null;
 
-  const modifierClass = state === "pending" ? "nano-info--warn" : state === "success" ? "nano-info--ok" : "nano-info--error";
+  // Error state is handled entirely by the toast — don't render inline
+  if (state === "error") return null;
+
+  const modifierClass = state === "pending" ? "nano-info--warn" : "nano-info--ok";
 
   return (
     <div className={`nano-info ${modifierClass}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -65,15 +77,10 @@ export function TransactionStatus({ state, message, hash, autoDismiss = 4000, on
           <Spinner />
           <BouncingText text="Transaction pending" />
         </span>
-      ) : state === "success" ? (
+      ) : (
         <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
           <span style={{ fontSize: 14 }}>✓</span>
           <span>{message ?? "Transaction confirmed."}</span>
-        </span>
-      ) : (
-        <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-          <span style={{ fontSize: 14 }}>✗</span>
-          <span>{message ?? "Transaction failed."}</span>
         </span>
       )}
       {hash && (

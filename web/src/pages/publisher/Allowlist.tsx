@@ -9,11 +9,13 @@ import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
 import { RequirePublisher } from "../../components/RequirePublisher";
+import { useToast } from "../../context/ToastContext";
 
 export function Allowlist() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [enabled, setEnabled] = useState(false);
   const [allowedAddresses, setAllowedAddresses] = useState<string[]>([]);
   const [newAddr, setNewAddr] = useState("");
@@ -57,7 +59,7 @@ export function Allowlist() {
       setTxState("success");
       setTxMsg(`Allowlist ${!enabled ? "enabled" : "disabled"}.`);
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }
@@ -74,7 +76,7 @@ export function Allowlist() {
       setTxMsg(`${newAddr.slice(0, 10)}... added.`);
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }
@@ -90,7 +92,7 @@ export function Allowlist() {
       setTxMsg(`${addr.slice(0, 10)}... removed.`);
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }

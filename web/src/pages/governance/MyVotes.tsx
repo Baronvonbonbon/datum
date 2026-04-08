@@ -12,6 +12,7 @@ import { useTx } from "../../hooks/useTx";
 import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
+import { useToast } from "../../context/ToastContext";
 
 interface MyVote {
   campaignId: number;
@@ -30,6 +31,7 @@ export function MyVotes() {
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [votes, setVotes] = useState<MyVote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,7 @@ export function MyVotes() {
       setTxMsg(`Withdrawal for campaign #${campaignId} complete.`);
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     } finally {
@@ -136,6 +139,7 @@ export function MyVotes() {
       setTxMsg(`Slash finalized for campaign #${campaignId}. You can now claim rewards.`);
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     } finally {
@@ -156,6 +160,7 @@ export function MyVotes() {
       setTxMsg(`Slash reward claimed for campaign #${campaignId}.`);
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     } finally {

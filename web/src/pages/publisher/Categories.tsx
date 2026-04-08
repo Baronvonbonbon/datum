@@ -7,11 +7,13 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { RequirePublisher } from "../../components/RequirePublisher";
+import { useToast } from "../../context/ToastContext";
 
 export function Categories() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [tagSearch, setTagSearch] = useState("");
@@ -73,7 +75,7 @@ export function Categories() {
       setTxMsg(`Tags updated (${selected.size} selected).`);
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }

@@ -7,6 +7,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
+import { useToast } from "../../context/ToastContext";
 
 interface BlockedEntry {
   address: string;
@@ -17,6 +18,7 @@ export function BlocklistAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [newAddr, setNewAddr] = useState("");
@@ -66,7 +68,7 @@ export function BlocklistAdmin() {
       setTxMsg(`${newAddr.slice(0, 10)}... added to blocklist.`);
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }
@@ -83,7 +85,7 @@ export function BlocklistAdmin() {
       setTxMsg(`${addr.slice(0, 10)}... removed from blocklist.`);
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }

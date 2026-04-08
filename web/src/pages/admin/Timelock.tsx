@@ -5,6 +5,7 @@ import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
+import { useToast } from "../../context/ToastContext";
 
 interface PendingChange {
   target: string;
@@ -17,6 +18,7 @@ export function TimelockAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [delay, setDelay] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -182,7 +184,7 @@ export function TimelockAdmin() {
       setTarget(""); setCalldata("");
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }
@@ -199,7 +201,7 @@ export function TimelockAdmin() {
       setTxMsg("Proposal executed.");
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }
@@ -216,7 +218,7 @@ export function TimelockAdmin() {
       setTxMsg("Proposal cancelled.");
       load();
     } catch (err) {
-      setTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setTxState("error");
     }
   }

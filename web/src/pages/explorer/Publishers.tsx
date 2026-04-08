@@ -6,6 +6,7 @@ import { getExplorerUrl } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { tagLabel } from "@shared/tagDictionary";
+import { useToast } from "../../context/ToastContext";
 
 interface PublisherRow {
   address: string;
@@ -21,6 +22,7 @@ interface PublisherRow {
 export function Publishers() {
   const contracts = useContracts();
   const { settings } = useSettings();
+  const { push } = useToast();
   const EXPLORER = getExplorerUrl(settings.network);
   const [publishers, setPublishers] = useState<PublisherRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,7 +89,7 @@ export function Publishers() {
 
       setPublishers(rows.filter(Boolean) as PublisherRow[]);
     } catch (err) {
-      setError(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setLoading(false);
     }
@@ -100,7 +102,6 @@ export function Publishers() {
         <button onClick={load} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
       </div>
 
-      {error && <div className="nano-info nano-info--error" style={{ marginBottom: 12 }}>{error}</div>}
       {loading && <div style={{ color: "var(--text-muted)" }}>Loading publishers...</div>}
 
       {!loading && publishers.length === 0 && !error && (

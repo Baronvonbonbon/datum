@@ -6,6 +6,7 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 import { queryFilterAll } from "@shared/eventQuery";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { RequirePublisher } from "../../components/RequirePublisher";
@@ -24,6 +25,7 @@ export function Earnings() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [events, setEvents] = useState<any[]>([]);
   const [campaignBreakdown, setCampaignBreakdown] = useState<CampaignEarnings[]>([]);
@@ -84,6 +86,7 @@ export function Earnings() {
       setTxMsg("Withdrawal successful!");
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }

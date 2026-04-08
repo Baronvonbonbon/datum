@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SettingsProvider } from "./context/SettingsContext";
 import { WalletProvider } from "./context/WalletContext";
+import { ToastProvider } from "./context/ToastContext";
+import { ToastContainer } from "./components/ToastContainer";
 import { Layout } from "./components/Layout";
 
 // Explorer
@@ -51,6 +53,7 @@ export function App() {
   return (
     <SettingsProvider>
       <WalletProvider>
+        <ToastProvider>
         <BrowserRouter>
           <Routes>
             <Route element={<Layout />}>
@@ -101,6 +104,8 @@ export function App() {
             </Route>
           </Routes>
         </BrowserRouter>
+        <ToastContainer />
+        </ToastProvider>
       </WalletProvider>
     </SettingsProvider>
   );

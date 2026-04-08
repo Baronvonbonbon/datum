@@ -5,6 +5,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
+import { useToast } from "../../context/ToastContext";
 
 type TxState = "idle" | "pending" | "success" | "error";
 
@@ -12,6 +13,7 @@ export function PublisherProfile() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [relaySigner, setRelaySigner] = useState<string>("");
   const [profileHash, setProfileHash] = useState<string>("");
@@ -56,6 +58,7 @@ export function PublisherProfile() {
       load();
     } catch (err) {
       setRelayState("error");
+      push(humanizeError(err), "error");
       setRelayMsg(humanizeError(err));
     }
   }
@@ -75,6 +78,7 @@ export function PublisherProfile() {
       load();
     } catch (err) {
       setProfileState("error");
+      push(humanizeError(err), "error");
       setProfileMsg(humanizeError(err));
     }
   }

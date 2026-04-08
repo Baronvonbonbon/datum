@@ -4,6 +4,7 @@ import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 
 function scoreBadge(score: number) {
   const pct = (score / 100).toFixed(1);
@@ -15,6 +16,7 @@ export function ReputationAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   // Lookup state
   const [lookupAddr, setLookupAddr] = useState("");
@@ -59,7 +61,7 @@ export function ReputationAdmin() {
       }
       setLookupResult(result);
     } catch (err) {
-      setLookupError(humanizeError(err));
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
@@ -76,6 +78,7 @@ export function ReputationAdmin() {
       setAddTxState("success");
       setAddTxMsg("Reporter added.");
     } catch (err) {
+      push(humanizeError(err), "error");
       setAddTxMsg(humanizeError(err));
       setAddTxState("error");
     }
@@ -92,6 +95,7 @@ export function ReputationAdmin() {
       setRemoveTxState("success");
       setRemoveTxMsg("Reporter removed.");
     } catch (err) {
+      push(humanizeError(err), "error");
       setRemoveTxMsg(humanizeError(err));
       setRemoveTxState("error");
     }
@@ -156,7 +160,6 @@ export function ReputationAdmin() {
             {lookupLoading ? "..." : "Lookup"}
           </button>
         </div>
-        {lookupError && <div style={{ color: "var(--error)", fontSize: 12 }}>{lookupError}</div>}
         {lookupResult && (
           <div style={{ marginTop: 10, display: "flex", gap: 20, flexWrap: "wrap" }}>
             <div>

@@ -8,12 +8,14 @@ import { formatBlockDelta } from "@shared/conviction";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { RequirePublisher } from "../../components/RequirePublisher";
+import { useToast } from "../../context/ToastContext";
 
 export function TakeRate() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const [current, setCurrent] = useState<number | null>(null);
   const [pending, setPending] = useState<{ rate: number; effectiveBlock: number } | null>(null);
   const [newRate, setNewRate] = useState(50);
@@ -50,6 +52,7 @@ export function TakeRate() {
       setTxMsg("Take rate update queued.");
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }
@@ -66,6 +69,7 @@ export function TakeRate() {
       setTxMsg("Take rate applied.");
       load();
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }

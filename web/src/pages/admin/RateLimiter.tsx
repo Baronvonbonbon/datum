@@ -4,11 +4,13 @@ import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 
 export function RateLimiterAdmin() {
   const contracts = useContracts();
   const { signer } = useWallet();
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [rateLimiterAddr, setRateLimiterAddr] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function RateLimiterAdmin() {
       setWireTxMsg("Rate limiter wired.");
       load();
     } catch (err) {
-      setWireTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setWireTxState("error");
     }
   }
@@ -79,7 +81,7 @@ export function RateLimiterAdmin() {
       setAdjustTxMsg("Limits updated.");
       load();
     } catch (err) {
-      setAdjustTxMsg(humanizeError(err));
+      push(humanizeError(err), "error");
       setAdjustTxState("error");
     }
   }

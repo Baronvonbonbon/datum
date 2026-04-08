@@ -11,6 +11,7 @@ import { Contract, ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../hooks/useTx";
+import { useToast } from "../context/ToastContext";
 
 const ERC20_ABI = [
   "function symbol() view returns (string)",
@@ -44,6 +45,7 @@ interface Props {
 
 export function TokenRewards({ userAddress, vault, readProvider, signer }: Props) {
   const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [tokens, setTokens] = useState<TokenEntry[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
@@ -133,7 +135,9 @@ export function TokenRewards({ userAddress, vault, readProvider, signer }: Props
       // Update balance locally
       setTokens((prev) => prev.map((t) => t.address === entry.address ? { ...t, balance: 0n } : t));
     } catch (err) {
-      setMsgs((m) => ({ ...m, [entry.address]: humanizeError(err) }));
+      const errMsg = humanizeError(err);
+      push(`${entry.meta?.symbol ?? entry.address.slice(0, 8)}: ${errMsg}`, "error");
+      setMsgs((m) => ({ ...m, [entry.address]: errMsg }));
     } finally {
       setWithdrawing(null);
     }

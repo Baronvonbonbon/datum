@@ -9,6 +9,7 @@ import { parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel, tagLabel } from "@shared/tagDictionary";
 import { queryFilterAll } from "@shared/eventQuery";
 import { CampaignMetadata } from "@shared/types";
@@ -29,6 +30,7 @@ export function CreateCampaign() {
   const { settings } = useSettings();
   const navigate = useNavigate();
   const { confirmTx } = useTx();
+  const { push } = useToast();
   const sym = getCurrencySymbol(settings.network);
 
   const [isOpen, setIsOpen] = useState(true);
@@ -191,6 +193,7 @@ export function CreateCampaign() {
       // Move to step 2 (metadata) instead of navigating away
       setStep(2);
     } catch (err) {
+      push(humanizeError(err), "error");
       setTxMsg(humanizeError(err));
       setTxState("error");
     }
@@ -252,6 +255,7 @@ export function CreateCampaign() {
         setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
       }
     } catch (err) {
+      push(humanizeError(err), "error");
       setMetaTxMsg(humanizeError(err));
       setMetaTxState("error");
     }
@@ -284,6 +288,7 @@ export function CreateCampaign() {
       setDepositTxMsg(`Deposited ${tokenDepositAmount} raw ${tokenSymbol} units as campaign budget.`);
       setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
     } catch (err) {
+      push(humanizeError(err), "error");
       setDepositTxMsg(humanizeError(err));
       setDepositTxState("error");
     }
