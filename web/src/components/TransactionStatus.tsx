@@ -9,10 +9,33 @@ interface Props {
   onDismiss?: () => void;
 }
 
-function BounceDots() {
+const SPINNER_FRAMES = ["|", "/", "—", "\\"];
+
+function Spinner() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 120);
+    return () => clearInterval(id);
+  }, []);
   return (
-    <span className="nano-pending-dots" style={{ marginLeft: 2 }}>
-      <span>.</span><span>.</span><span>.</span>
+    <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, display: "inline-block", width: "1ch", textAlign: "center" }}>
+      {SPINNER_FRAMES[frame]}
+    </span>
+  );
+}
+
+function BouncingText({ text }: { text: string }) {
+  return (
+    <span className="nano-bouncing-text">
+      {text.split("").map((ch, i) => (
+        <span
+          key={i}
+          className={ch === " " ? undefined : "nano-bounce-char"}
+          style={ch === " " ? { display: "inline-block", width: "0.3em" } : { animationDelay: `${i * 0.05}s` }}
+        >
+          {ch === " " ? "\u00a0" : ch}
+        </span>
+      ))}
     </span>
   );
 }
@@ -38,9 +61,9 @@ export function TransactionStatus({ state, message, hash, autoDismiss = 4000, on
   return (
     <div className={`nano-info ${modifierClass}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
       {state === "pending" ? (
-        <span className="nano-pending-text" style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-          <span style={{ fontSize: 14 }}>⏳</span>
-          <span>Transaction pending<BounceDots /></span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+          <Spinner />
+          <BouncingText text="Transaction pending" />
         </span>
       ) : state === "success" ? (
         <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
