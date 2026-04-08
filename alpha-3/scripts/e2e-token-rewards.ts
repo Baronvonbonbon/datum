@@ -82,11 +82,12 @@ const govV2Abi = [
 
 const settlementAbi = [
   "function settleClaims((address user, uint256 campaignId, (uint256 campaignId, address publisher, uint256 impressionCount, uint256 clearingCpmPlanck, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes zkProof)[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount)",
+  "function lastNonce(address user, uint256 campaignId) view returns (uint256)",
+  "function lastClaimHash(address user, uint256 campaignId) view returns (bytes32)",
 ];
 
 const lifecycleAbi = [
   "function completeCampaign(uint256 campaignId)",
-  "function terminateCampaign(uint256 campaignId)",
 ];
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
@@ -153,11 +154,13 @@ async function buildClaims(
   count: number,
   cpm: bigint,
   impressions: bigint,
+  startNonce = 1n,
+  startPrevHash = ZeroHash,
 ) {
   const claims = [];
-  let prevHash = ZeroHash;
-  for (let i = 1; i <= count; i++) {
-    const nonce = BigInt(i);
+  let prevHash = startPrevHash;
+  for (let i = 0; i < count; i++) {
+    const nonce = startNonce + BigInt(i);
     const packed = getBytes(solidityPacked(
       ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
       [campaignId, publisherAddr, userAddr, impressions, cpm, nonce, prevHash],
@@ -466,7 +469,11 @@ async function main() {
     const t0 = Date.now();
     try {
       // Settle 2 more claims to give Grace a new balance
-      const claims2 = await buildClaims(provider, campaignId, diana.address, grace.address, 2, CPM, IMPRESSIONS);
+      // Query on-chain nonce/hash so these claims continue from where TR-E6 left off
+      const [graceLastNonce] = await read(provider, A.settlement, settleIface, "lastNonce", [grace.address, campaignId]);
+      const [graceLastHash]  = await read(provider, A.settlement, settleIface, "lastClaimHash", [grace.address, campaignId]);
+      const claims2 = await buildClaims(provider, campaignId, diana.address, grace.address, 2, CPM, IMPRESSIONS,
+        BigInt(graceLastNonce) + 1n, graceLastHash);
       const batch2 = { user: grace.address, campaignId, claims: claims2 };
 
       // Static check
@@ -558,19 +565,19 @@ async function main() {
       info(`Tiny campaign status: ${STATUS_NAMES[status]}`);
       if (status !== 1) { fail("TR-E9", "Tiny campaign activation", Date.now() - t0, STATUS_NAMES[status]); return; }
 
-      // Terminate via CampaignLifecycle (Alice is owner)
-      if (A.campaignLifecycle) {
-        await send(alice, provider, A.campaignLifecycle, lcIface, "terminateCampaign", [cid2]);
-      } else {
-        fail("TR-E9", "reclaimExpiredBudget — terminate", Date.now() - t0, "campaignLifecycle not deployed");
+      // Bob completes his own campaign (advertiser can call completeCampaign)
+      // terminateCampaign requires governance — completeCampaign is callable by advertiser
+      if (!A.campaignLifecycle) {
+        fail("TR-E9", "reclaimExpiredBudget — lifecycle", Date.now() - t0, "campaignLifecycle not deployed");
         return;
       }
+      await send(bob, provider, A.campaignLifecycle, lcIface, "completeCampaign", [cid2]);
 
       const statusAfterRaw = await read(provider, A.campaigns, campIface, "getCampaignStatus", [cid2]);
       const statusAfter = Number(BigInt(statusAfterRaw[0]));
-      info(`Tiny campaign status after terminate: ${STATUS_NAMES[statusAfter]}`);
+      info(`Tiny campaign status after complete: ${STATUS_NAMES[statusAfter]}`);
       if (statusAfter < 3) {
-        fail("TR-E9", "Campaign terminated (status >= 3)", Date.now() - t0,
+        fail("TR-E9", "Campaign completed (status >= 3)", Date.now() - t0,
           `status=${STATUS_NAMES[statusAfter]} — reclaimExpiredBudget requires Completed/Terminated`);
         process.exitCode = 1; return;
       }
