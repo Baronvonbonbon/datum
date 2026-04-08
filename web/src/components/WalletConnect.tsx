@@ -151,8 +151,16 @@ export function WalletConnect({ onClose }: Props) {
 
             {showManual && (
               <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                <div className="nano-info nano-info--warn" style={{ fontSize: 11 }}>
-                  <strong>Testing only.</strong> Do not use keys controlling real funds.
+
+                {/* ── Security warning ── */}
+                <div style={{ border: "1px solid rgba(248,113,113,0.3)", borderRadius: 6, padding: "10px 12px", background: "rgba(248,113,113,0.06)", fontSize: 11, lineHeight: 1.6, color: "var(--text)" }}>
+                  <div style={{ fontWeight: 700, color: "var(--error)", marginBottom: 4, letterSpacing: "0.04em" }}>Security notice</div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                    <li>· Keys are stored <strong>unencrypted</strong> in browser localStorage. Anyone with access to this browser profile or device can read them.</li>
+                    <li>· Chrome does <strong>not</strong> sync localStorage to Google — saved keys stay on this device only.</li>
+                    <li>· Use <em>Connect</em> without saving if you don't need the key to persist.</li>
+                    <li>· <strong>Paseo testnet only.</strong> Never save keys that control real funds.</li>
+                  </ul>
                 </div>
 
                 {/* ── Generate new wallet ── */}
@@ -206,20 +214,34 @@ export function WalletConnect({ onClose }: Props) {
                 {/* ── Saved wallets ── */}
                 {saved.length > 0 && (
                   <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-                    <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--font-mono)" }}>
-                      Saved ({saved.length})
+                    <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--font-mono)" }}>
+                        Saved ({saved.length})
+                      </span>
+                      <button
+                        onClick={() => { saveToDisk([]); setSaved([]); setShowKey({}); }}
+                        style={{ ...monoBtnStyle, color: "var(--error)", borderColor: "rgba(248,113,113,0.25)", fontSize: 10 }}
+                      >
+                        Delete all
+                      </button>
                     </div>
                     {saved.map((w, i) => (
-                      <div key={i} style={{ padding: "8px 12px", borderBottom: i < saved.length - 1 ? "1px solid var(--border)" : "none", display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div key={i} style={{ padding: "8px 12px", borderBottom: i < saved.length - 1 ? "1px solid var(--border)" : "none", display: "flex", flexDirection: "column", gap: 6 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
                           <span style={{ fontSize: 12, color: "var(--text-strong)", fontWeight: 500 }}>{w.label}</span>
                           <div style={{ display: "flex", gap: 4 }}>
                             <button onClick={() => handleConnect("manual", w.privateKey)} disabled={busy} className="nano-btn nano-btn-ok" style={{ fontSize: 11, padding: "2px 8px" }}>Connect</button>
-                            <button onClick={() => deleteSaved(i)} style={{ ...monoBtnStyle, color: "var(--error)", borderColor: "rgba(248,113,113,0.25)" }}>✕</button>
+                            <button
+                              onClick={() => deleteSaved(i)}
+                              style={{ ...monoBtnStyle, color: "var(--error)", borderColor: "rgba(248,113,113,0.25)" }}
+                              title="Delete this wallet"
+                            >
+                              Delete
+                            </button>
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", flex: 1 }}>
+                          <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {showKey[i] ? w.privateKey : shortAddr(w.address)}
                           </code>
                           <button style={monoBtnStyle} onClick={() => setShowKey((p) => ({ ...p, [i]: !p[i] }))}>{showKey[i] ? "Hide key" : "Show key"}</button>
