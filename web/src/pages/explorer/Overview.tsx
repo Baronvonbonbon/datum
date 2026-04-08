@@ -30,6 +30,21 @@ export function Overview() {
     load();
   }, [settings.contractAddresses.campaigns]);
 
+  // Refresh impression count on each new block (after initial load)
+  useEffect(() => {
+    if (!stats || !settings.contractAddresses.settlement) return;
+    refreshImpressions();
+  }, [blockNumber]);
+
+  async function refreshImpressions() {
+    try {
+      const filter = contracts.settlement.filters.ClaimSettled();
+      const logs = await queryFilterAll(contracts.settlement, filter);
+      const total = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
+      setStats((prev) => prev ? { ...prev, totalImpressions: total } : prev);
+    } catch { /* settlement not configured */ }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);

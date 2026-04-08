@@ -1,0 +1,305 @@
+Datum Alpha-3 — Paseo Testnet Benchmark Results
+Date: 2026-04-08
+Network: https://eth-rpc-testnet.polkadot.io/
+Deployment: alpha-3/deployed-addresses.json
+Contracts hub: 0xb181415cd7C59fe182A3DeF20546b6d6089CD394
+
+════════════════════════════════════════════════════════════════
+  SECTION 1: LIVE BENCHMARK (benchmark-paseo.ts)
+════════════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════════
+  Datum Alpha-3 — Paseo Live Benchmark
+  Network: https://eth-rpc-testnet.polkadot.io/
+  Contracts: 0xb181415cd7C59fe182A3DeF20546b6d6089CD394
+══════════════════════════════════════════════════════════════
+
+── SETUP: Publisher verification ──────────────────────────
+  [PASS] SETUP-1: Diana registered as publisher (300ms)  — takeRate=5000bps
+  [PASS] SETUP-2: Grace not a registered publisher (expected) (300ms)
+  [PASS] SETUP-3: Diana is reputation reporter (152ms)
+
+── ECO: Settlement economics at $2 / $5 / $10 DOT ─────────
+  [INFO] ECO-$2DOT: campaign 50 active
+  [PASS] ECO-$2DOT: Settlement at $2/DOT (100 imps) (11208ms)  — total=0.05 pub=0.025 user=0.01875 proto=0.00625 PAS
+  [INFO] ECO-$5DOT: campaign 51 active
+  [PASS] ECO-$5DOT: Settlement at $5/DOT (100 imps) (13419ms)  — total=0.02 pub=0.01 user=0.0075 proto=0.0025 PAS
+  [INFO] ECO-$10DOT: campaign 52 active
+  [PASS] ECO-$10DOT: Settlement at $10/DOT (100 imps) (12275ms)  — total=0.01 pub=0.005 user=0.00375 proto=0.00125 PAS
+
+── ZK: ZK-proof-required campaign ──────────────────────────
+  [PASS] ZK-1: ZKVerifier.verify: empty→false, real Groth16 proof→true (2310ms)
+  [INFO] ZK-2: campaign 53 active (requireZk=true)
+  [PASS] ZK-2: Settle with real Groth16 proof accepted (BN254 ecPairing) (9584ms)
+  [PASS] ZK-3: Settle with empty ZK proof rejected (reason 16) (311ms)
+
+── OPEN: Open campaign (any publisher) ────────────────────
+  [INFO] OPEN-1: campaign 54 active (publisher=0x0)
+  [PASS] OPEN-1: Open campaign created and activated (cid=54) (8017ms)
+  [PASS] OPEN-2: Diana settles open campaign claim (3645ms)
+  [PASS] OPEN-3: Second user settles open campaign (alice as user) (308ms)
+
+── SCALE: Batch size + impression scaling ──────────────────
+  [INFO] SCALE: campaign 55 active
+  [PASS] SCALE-SETUP: Scale campaign created (cid=55) (8048ms)
+  [PASS] SCALE-1: 4-claim batch (100 imps each) — all settled (772ms)  — total=0.08 PAS
+  [PASS] SCALE-2: 1 claim × 1000 impressions — settled (307ms)  — total=0.2 PAS
+  [PASS] SCALE-3: 1 claim × 10 impressions — settled (310ms)
+
+── RL: Rate limiter (BM-5) ─────────────────────────────────
+  [PASS] RL-1: Rate limiter settings readable (447ms)  — windowBlocks=100 maxPerWindow=500000 dianaUsage=500/500000 (window 73622)
+  [INFO] RL-2: campaign 56 active
+  [PASS] RL-2: Window usage increases after settlement (11982ms)  — 500 → 550 impressions
+
+── REP: Publisher reputation (BM-8/9) ─────────────────────
+  [PASS] REP-1: getPublisherStats readable (148ms)  — settled=4020 rejected=1030 score=7960bps
+  [PASS] REP-2: recordSettlement increments counters (3792ms)  — totalSettled +800, score=7966bps
+  [PASS] REP-3: isAnomaly call succeeds (2339ms)  — isAnomaly(campaignId=9998)=true
+
+── RPT: Community reports (DatumReports) ───────────────────
+  [PASS] RPT-SETUP: Using campaign 2 for report tests (147ms)  — status=Active
+  [PASS] RPT-1: reportPage increments pageReports counter (3920ms)  — cid=2 counter: 6→7
+  [PASS] RPT-2: reportAd increments adReports counter (3661ms)  — cid=2 counter: 6→7
+  [PASS] RPT-3: reportPage reasons 1-5 all accepted (static) (757ms)
+  [PASS] RPT-4: reportPage with reason=0 reverts (153ms)
+
+══════════════════════════════════════════════════════════════
+  BENCHMARK SUMMARY
+  26/26 passed   avg latency: 3793ms
+══════════════════════════════════════════════════════════════
+
+All results:
+  ID                        Status   ms       Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  SETUP-1                    PASS        300ms  takeRate=5000bps
+  SETUP-2                    PASS        300ms
+  SETUP-3                    PASS        152ms
+  ECO-$2DOT                  PASS      11208ms  total=0.05 pub=0.025 user=0.01875 proto=0.00625...
+  ECO-$5DOT                  PASS      13419ms  total=0.02 pub=0.01 user=0.0075 proto=0.0025 PAS
+  ECO-$10DOT                 PASS      12275ms  total=0.01 pub=0.005 user=0.00375 proto=0.00125...
+  ZK-1                       PASS       2310ms
+  ZK-2                       PASS       9584ms
+  ZK-3                       PASS        311ms
+  OPEN-1                     PASS       8017ms
+  OPEN-2                     PASS       3645ms
+  OPEN-3                     PASS        308ms
+  SCALE-SETUP                PASS       8048ms
+  SCALE-1                    PASS        772ms  total=0.08 PAS
+  SCALE-2                    PASS        307ms  total=0.2 PAS
+  SCALE-3                    PASS        310ms
+  RL-1                       PASS        447ms  windowBlocks=100 maxPerWindow=500000 dianaUsage=500/500000 (window 73622)
+  RL-2                       PASS      11982ms  500 → 550 impressions
+  REP-1                      PASS        148ms  settled=4020 rejected=1030 score=7960bps
+  REP-2                      PASS       3792ms  totalSettled +800, score=7966bps
+  REP-3                      PASS       2339ms  isAnomaly(campaignId=9998)=true
+  RPT-SETUP                  PASS        147ms  status=Active
+  RPT-1                      PASS       3920ms  cid=2 counter: 6→7
+  RPT-2                      PASS       3661ms  cid=2 counter: 6→7
+  RPT-3                      PASS        757ms
+  RPT-4                      PASS        153ms
+
+
+════════════════════════════════════════════════════════════════
+  SECTION 2: GAS COST ESTIMATION (gas-costs.ts)
+════════════════════════════════════════════════════════════════
+
+Datum Alpha-3 — Gas Cost Estimation
+Network: https://eth-rpc-testnet.polkadot.io/
+Collecting estimates (this may take ~60 s)…
+
+══════════════════════════════════════════════════════════════════════════
+  STATE-CHANGING FUNCTIONS — Gas (weight units)
+══════════════════════════════════════════════════════════════════════════
+    Function                                        Gas    PAS fee    $5/DOT   $10/DOT   $20/DOT
+    ──────────────────────────────────────────────────────────────────────────────────────────────
+
+  ── PauseRegistry ──
+    pause                                         1,319   0.001319   $0.0066   $0.0132   $0.0264
+    unpause                                       1,319   0.001319   $0.0066   $0.0132   $0.0264
+
+  ── Publishers ──
+    registerPublisher                                 —          —  REVERTED: Already registered
+    updateTakeRate                                    —          —  REVERTED: Take rate out of range
+    applyTakeRateUpdate                               —          —  REVERTED: No pending update
+    blockAddress                                 22,347   0.022347   $0.1117   $0.2235   $0.4469
+    unblockAddress                               22,347   0.022347   $0.1117   $0.2235   $0.4469
+    setAllowlistEnabled                          22,718   0.022718   $0.1136   $0.2272   $0.4544
+    setAllowedAdvertiser                         22,884   0.022884   $0.1144   $0.2288   $0.4577
+    registerSdkVersion                           22,627   0.022627   $0.1131   $0.2263   $0.4525
+    setRelaySigner                                2,078   0.002078   $0.0104   $0.0208   $0.0416
+    setProfile                                    1,987   0.001987   $0.0099   $0.0199   $0.0397
+    transferOwnership                             1,798   0.001798   $0.0090   $0.0180   $0.0360
+
+  ── TargetingRegistry ──
+    setTags                                      26,486   0.026486   $0.1324   $0.2649   $0.5297  [Diana sets 1 tag]
+    setTags                                     114,625   0.114625   $0.5731   $1.1462   $2.2925  [Diana sets 8 tags (max for campaign)]
+    transferOwnership                            22,187   0.022187   $0.1109   $0.2219   $0.4437
+
+  ── Campaigns ──
+    createCampaign                              254,560   0.254560   $1.2728   $2.5456   $5.0912  [open campaign (no publisher, no tags)]
+    createCampaign                              361,908   0.361908   $1.8095   $3.6191   $7.2382  [targeted campaign (diana, no tags)]
+    createCampaign                              382,729   0.382729   $1.9136   $3.8273   $7.6546  [targeted + requireZkProof]
+    setMetadata                                   1,806   0.001806   $0.0090   $0.0181   $0.0361
+    togglePause                                   1,988   0.001988   $0.0099   $0.0199   $0.0398  [pause campaign 1]
+    togglePause                                       —          —  REVERTED: E23
+    activateCampaign                                  —          —  REVERTED: E19
+
+  ── GovernanceV2 ──
+    vote                                              —          —  REVERTED: E42
+    vote                                              —          —  REVERTED: E42
+    evaluateCampaign                                  —          —  REVERTED: E48
+    withdraw                                          —          —  REVERTED: E58
+
+  ── GovernanceSlash ──
+    finalizeSlash                                     —          —  REVERTED: E60
+    claimSlashReward                                  —          —  REVERTED: E54
+    sweepSlashPool                                    —          —  REVERTED: E54
+
+  ── CampaignLifecycle ──
+    completeCampaign                                  —          —  REVERTED: E13
+    terminateCampaign                                 —          —  REVERTED: E19
+    expireInactiveCampaign                            —          —  REVERTED: E64
+
+  ── BudgetLedger ──
+    initializeBudget                                  —          —  REVERTED: E25
+    sweepDust                                         —          —  REVERTED: E14
+
+  ── PaymentVault ──
+    withdrawPublisher                             1,568   0.001568   $0.0078   $0.0157   $0.0314  [withdraws accrued publisher balance]
+    withdrawUser                                      —          —  REVERTED: E03
+    withdrawProtocol                              1,829   0.001829   $0.0091   $0.0183   $0.0366
+    creditSettlement                                  —          —  REVERTED: E25
+
+  ── Settlement ──
+    setClaimValidator                             1,926   0.001926   $0.0096   $0.0193   $0.0385
+    setAttestationVerifier                        1,926   0.001926   $0.0096   $0.0193   $0.0385
+    setRateLimiter                                1,926   0.001926   $0.0096   $0.0193   $0.0385
+    setPublishers                                 1,926   0.001926   $0.0096   $0.0193   $0.0385
+
+  ── ClaimValidator ──
+    setCampaigns                                  1,550   0.001550   $0.0077   $0.0155   $0.0310
+    setPublishers                                 1,550   0.001550   $0.0077   $0.0155   $0.0310
+    setZKVerifier                                 1,550   0.001550   $0.0077   $0.0155   $0.0310
+
+  ── CampaignValidator ──
+    setPublishers                                 1,526   0.001526   $0.0076   $0.0153   $0.0305
+    setTargetingRegistry                          1,526   0.001526   $0.0076   $0.0153   $0.0305
+
+  ── ZKVerifier ──
+    verify                                        4,740   0.004740   $0.0237   $0.0474   $0.0948  [real proof (sample-proof.json) → true]
+    verify                                        1,760   0.001760   $0.0088   $0.0176   $0.0352  [empty proof → false (fast reject, length != 256)]
+
+  ── RateLimiter ──
+    setLimits                                     1,615   0.001615   $0.0081   $0.0161   $0.0323
+    checkAndIncrement                            22,346   0.022346   $0.1117   $0.2235   $0.4469  [only callable by Settlement]
+
+  ── Reputation ──
+    addReporter                                   1,533   0.001533   $0.0077   $0.0153   $0.0307  [diana already reporter — may no-op or revert]
+    removeReporter                                1,533   0.001533   $0.0077   $0.0153   $0.0307
+    recordSettlement                             43,834   0.043834   $0.2192   $0.4383   $0.8767  [diana is reporter]
+
+  ── Reports ──
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=1 (spam), campaign 1]
+    reportAd                                      2,361   0.002361   $0.0118   $0.0236   $0.0472  [reason=2 (misleading), campaign 1]
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=1]
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=2]
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=3]
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=4]
+    reportPage                                    2,998   0.002998   $0.0150   $0.0300   $0.0600  [reason=5]
+    reportPage                                        —          —  REVERTED: E68
+
+  ── Timelock ──
+    propose                                      64,177   0.064177   $0.3209   $0.6418   $1.2835
+    execute                                           —          —  REVERTED: E36
+    cancel                                            —          —  REVERTED: E35
+
+  ── Relay ──
+    settleClaimsFor                                   —          —  requires valid signed ClaimBatch[] — see settlement gas
+
+  ── AttestationVerifier ──
+    settleClaimsAttested                              —          —  requires valid AttestedBatch[] — see settlement gas
+
+  44 functions estimated, 24 skipped/reverted
+
+══════════════════════════════════════════════════════════════════════════
+  TOP 15 MOST EXPENSIVE (state-changing)
+══════════════════════════════════════════════════════════════════════════
+    Function                                                       Gas    PAS fee    $5/DOT   $10/DOT   $20/DOT
+    Campaigns.createCampaign                                   382,729   0.382729   $1.9136   $3.8273   $7.6546
+    Campaigns.createCampaign                                   361,908   0.361908   $1.8095   $3.6191   $7.2382
+    Campaigns.createCampaign                                   254,560   0.254560   $1.2728   $2.5456   $5.0912
+    TargetingRegistry.setTags                                  114,625   0.114625   $0.5731   $1.1462   $2.2925
+    Timelock.propose                                            64,177   0.064177   $0.3209   $0.6418   $1.2835
+    Reputation.recordSettlement                                 43,834   0.043834   $0.2192   $0.4383   $0.8767
+    TargetingRegistry.setTags                                   26,486   0.026486   $0.1324   $0.2649   $0.5297
+    Publishers.setAllowedAdvertiser                             22,884   0.022884   $0.1144   $0.2288   $0.4577
+    Publishers.setAllowlistEnabled                              22,718   0.022718   $0.1136   $0.2272   $0.4544
+    Publishers.registerSdkVersion                               22,627   0.022627   $0.1131   $0.2263   $0.4525
+    Publishers.unblockAddress                                   22,347   0.022347   $0.1117   $0.2235   $0.4469
+    Publishers.blockAddress                                     22,347   0.022347   $0.1117   $0.2235   $0.4469
+    RateLimiter.checkAndIncrement                               22,346   0.022346   $0.1117   $0.2235   $0.4469
+    TargetingRegistry.transferOwnership                         22,187   0.022187   $0.1109   $0.2219   $0.4437
+    ZKVerifier.verify                                            4,740   0.004740   $0.0237   $0.0474   $0.0948
+
+══════════════════════════════════════════════════════════════════════════
+  VIEW FUNCTIONS (free — no gas to caller)
+══════════════════════════════════════════════════════════════════════════
+
+  ── PauseRegistry ──
+    paused() → bool
+
+  ── Publishers ──
+    getPublisher(address) → Publisher
+    isRegisteredWithRate(address) → (bool, uint16)
+    isBlocked(address) → bool
+    isAllowedAdvertiser(address, address) → bool
+    getSdkVersion(address) → bytes32
+
+  ── TargetingRegistry ──
+    getTags(address) → bytes32[]
+    hasAllTags(address, bytes32[]) → bool
+
+  ── Campaigns ──
+    getCampaignStatus(uint256) → CampaignStatus
+    getCampaignAdvertiser(uint256) → address
+    getCampaignPublisher(uint256) → address
+    getCampaignTags(uint256) → bytes32[]
+    getCampaignRelaySigner(uint256) → address
+    getCampaignPublisherTags(uint256) → bytes32[]
+    getCampaignRequiresZkProof(uint256) → bool
+    getCampaignForSettlement(uint256) → (uint8,address,uint256,uint16)
+
+  ── GovernanceV2 ──
+    getVote(uint256, address) → (uint8,uint256,uint8,uint256)
+    convictionWeight(uint8) → uint256
+
+  ── GovernanceSlash ──
+    getClaimable(uint256, address) → uint256
+
+  ── BudgetLedger ──
+    getRemainingBudget(uint256) → uint256
+    getDailyCap(uint256) → uint256
+
+  ── ZKVerifier ──
+    getVK() → VerifyingKey
+    vkSet() → bool
+
+  ── RateLimiter ──
+    currentWindowUsage(address) → (uint256,uint256,uint256)
+
+  ── Reputation ──
+    getScore(address) → uint16
+    isAnomaly(address, uint256) → bool
+    getPublisherStats(address) → (uint256,uint256,uint16)
+    getCampaignStats(address, uint256) → (uint256,uint256)
+
+══════════════════════════════════════════════════════════════════════════
+  NOTES
+══════════════════════════════════════════════════════════════════════════
+  Unit mapping (confirmed by eth_getBalance): 1 ETH = 1 PAS = 10^10 planck.
+  fee_PAS = gas × gasPrice / 10^18  (standard Ethereum formula).
+  Paseo gasPrice = 10^12 wei/gas  →  fee_PAS = gas / 1,000,000.
+  BN254 ecPairing (verify) is ~51–88× cheaper than Ethereum mainnet.
+  settleClaims: not directly estimatable without signed batch; see benchmark.
+  View function RPC latency: 200–700 ms (no fee to caller).
+  '—' = reverted (needs specific live state) or restricted to internal callers.

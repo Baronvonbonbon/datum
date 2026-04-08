@@ -2,8 +2,16 @@
   "abi": [
     {
       "inputs": [
-        { "internalType": "uint256", "name": "_windowBlocks", "type": "uint256" },
-        { "internalType": "uint256", "name": "_maxPublisherImpressionsPerWindow", "type": "uint256" }
+        {
+          "internalType": "uint256",
+          "name": "_windowBlocks",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_maxPublisherImpressionsPerWindow",
+          "type": "uint256"
+        }
       ],
       "stateMutability": "nonpayable",
       "type": "constructor"
@@ -11,8 +19,18 @@
     {
       "anonymous": false,
       "inputs": [
-        { "indexed": false, "internalType": "uint256", "name": "windowBlocks", "type": "uint256" },
-        { "indexed": false, "internalType": "uint256", "name": "maxPublisherImpressionsPerWindow", "type": "uint256" }
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "windowBlocks",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "maxPublisherImpressionsPerWindow",
+          "type": "uint256"
+        }
       ],
       "name": "LimitsUpdated",
       "type": "event"
@@ -20,31 +38,78 @@
     {
       "anonymous": false,
       "inputs": [
-        { "indexed": true, "internalType": "address", "name": "previousOwner", "type": "address" },
-        { "indexed": true, "internalType": "address", "name": "newOwner", "type": "address" }
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
       ],
       "name": "OwnershipTransferred",
       "type": "event"
     },
     {
-      "inputs": [
-        { "internalType": "address", "name": "publisher", "type": "address" },
-        { "internalType": "uint256", "name": "impressionCount", "type": "uint256" }
-      ],
-      "name": "checkAndIncrement",
-      "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+      "inputs": [],
+      "name": "acceptOwnership",
+      "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
       "inputs": [
-        { "internalType": "address", "name": "publisher", "type": "address" }
+        {
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "impressionCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "checkAndIncrement",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        }
       ],
       "name": "currentWindowUsage",
       "outputs": [
-        { "internalType": "uint256", "name": "windowId", "type": "uint256" },
-        { "internalType": "uint256", "name": "impressions", "type": "uint256" },
-        { "internalType": "uint256", "name": "limit", "type": "uint256" }
+        {
+          "internalType": "uint256",
+          "name": "windowId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "impressions",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "limit",
+          "type": "uint256"
+        }
       ],
       "stateMutability": "view",
       "type": "function"
@@ -52,31 +117,78 @@
     {
       "inputs": [],
       "name": "maxPublisherImpressionsPerWindow",
-      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
       "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [],
       "name": "owner",
-      "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pendingOwner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
       "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [
-        { "internalType": "address", "name": "", "type": "address" },
-        { "internalType": "uint256", "name": "", "type": "uint256" }
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
       ],
       "name": "publisherWindowImpressions",
-      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
       "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [
-        { "internalType": "uint256", "name": "_windowBlocks", "type": "uint256" },
-        { "internalType": "uint256", "name": "_maxPublisherImpressionsPerWindow", "type": "uint256" }
+        {
+          "internalType": "uint256",
+          "name": "_windowBlocks",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_maxPublisherImpressionsPerWindow",
+          "type": "uint256"
+        }
       ],
       "name": "setLimits",
       "outputs": [],
@@ -85,7 +197,11 @@
     },
     {
       "inputs": [
-        { "internalType": "address", "name": "newOwner", "type": "address" }
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
       ],
       "name": "transferOwnership",
       "outputs": [],
@@ -95,7 +211,13 @@
     {
       "inputs": [],
       "name": "windowBlocks",
-      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
       "stateMutability": "view",
       "type": "function"
     }

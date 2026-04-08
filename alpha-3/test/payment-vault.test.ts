@@ -109,6 +109,64 @@ describe("DatumPaymentVault", function () {
     ).to.be.revertedWith("E25");
   });
 
+  // PV2b: withdrawPublisherTo sends to a different address
+  it("PV2b: withdrawPublisherTo sends balance to specified recipient", async function () {
+    const amt = parseDOT("0.2");
+    await vault.connect(settlementMock).creditSettlement(
+      publisher.address, amt, user.address, 0n, 0n
+    );
+
+    const balBefore = await ethers.provider.getBalance(other.address);
+    await vault.connect(publisher).withdrawPublisherTo(other.address);
+    const balAfter = await ethers.provider.getBalance(other.address);
+
+    if (!(await isSubstrate())) {
+      expect(balAfter - balBefore).to.equal(amt);
+    }
+    expect(await vault.publisherBalance(publisher.address)).to.equal(0n);
+  });
+
+  it("PV2c: withdrawPublisherTo reverts with zero address", async function () {
+    const amt = parseDOT("0.1");
+    await vault.connect(settlementMock).creditSettlement(
+      publisher.address, amt, user.address, 0n, 0n
+    );
+    await expect(
+      vault.connect(publisher).withdrawPublisherTo(ethers.ZeroAddress)
+    ).to.be.revertedWith("E00");
+    // Clean up
+    await vault.connect(publisher).withdrawPublisher();
+  });
+
+  // PV3b: withdrawUserTo sends to a different address
+  it("PV3b: withdrawUserTo sends balance to specified recipient", async function () {
+    const amt = parseDOT("0.15");
+    await vault.connect(settlementMock).creditSettlement(
+      publisher.address, 0n, user.address, amt, 0n
+    );
+
+    const balBefore = await ethers.provider.getBalance(other.address);
+    await vault.connect(user).withdrawUserTo(other.address);
+    const balAfter = await ethers.provider.getBalance(other.address);
+
+    if (!(await isSubstrate())) {
+      expect(balAfter - balBefore).to.equal(amt);
+    }
+    expect(await vault.userBalance(user.address)).to.equal(0n);
+  });
+
+  it("PV3c: withdrawUserTo reverts with zero address", async function () {
+    const amt = parseDOT("0.1");
+    await vault.connect(settlementMock).creditSettlement(
+      publisher.address, 0n, user.address, amt, 0n
+    );
+    await expect(
+      vault.connect(user).withdrawUserTo(ethers.ZeroAddress)
+    ).to.be.revertedWith("E00");
+    // Clean up
+    await vault.connect(user).withdrawUser();
+  });
+
   // PV6: double-withdraw reverts E03
   it("PV6: withdrawPublisher with zero balance reverts E03", async function () {
     await expect(

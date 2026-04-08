@@ -93,6 +93,13 @@
     },
     {
       "inputs": [],
+      "name": "acceptOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "budgetLedger",
       "outputs": [
         {
@@ -201,6 +208,19 @@
       "outputs": [
         {
           "internalType": "contract IDatumPauseRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pendingOwner",
+      "outputs": [
+        {
+          "internalType": "address",
           "name": "",
           "type": "address"
         }
