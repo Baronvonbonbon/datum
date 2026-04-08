@@ -423,8 +423,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}%</span>
             </div>
             <div style={{ position: "relative", background: "var(--bg-raised)", borderRadius: 4, height: 10, overflow: "hidden", border: "1px solid var(--border)", display: "flex" }}>
-              <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
-              <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+              <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
+              <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
               <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
@@ -601,7 +601,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                     .slice(settlementPage * SETTLEMENTS_PER_PAGE, (settlementPage + 1) * SETTLEMENTS_PER_PAGE)
                     .map((s, i) => (
                     <tr key={i}>
-                      <td style={{ fontFamily: "monospace", fontSize: 12 }}>#{s.blockNumber}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>#{s.blockNumber}</td>
                       <td><AddressDisplay address={s.user} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td><AddressDisplay address={s.publisher} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td style={{ color: "var(--ok)", fontSize: 12 }}>{s.impressionCount.toString()}</td>
@@ -610,11 +610,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                       <td>
                         {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (
                           <a href={`${EXPLORER}/tx/${s.txHash}`} target="_blank" rel="noopener noreferrer"
-                            style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "monospace" }}>
+                            style={{ color: "var(--accent-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
                             {s.txHash.slice(0, 8)}…
                           </a>
                         ) : (
-                          <span style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "monospace" }}>
+                          <span style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
                             {s.txHash.slice(0, 8)}…
                           </span>
                         )}

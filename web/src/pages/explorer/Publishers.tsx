@@ -109,7 +109,7 @@ export function Publishers() {
 
       {publishers.map((pub) => (
         <div key={pub.address} className="nano-card" style={{
-          border: `1px solid ${pub.blocked ? "rgba(252,165,165,0.3)" : "var(--border)"}`,
+          border: `1px solid ${pub.blocked ? "rgba(248,113,113,0.3)" : "var(--border)"}`,
           padding: 16,
           marginBottom: 10,
         }}>

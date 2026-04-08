@@ -105,13 +105,13 @@ export function BlocklistAdmin() {
             onChange={(e) => setNewAddr(e.target.value)}
             placeholder="0x address to block"
             className="nano-input"
-            style={{ flex: 1, fontFamily: "monospace" }}
+            style={{ flex: 1, fontFamily: "var(--font-mono)" }}
           />
           <button
             onClick={blockAddress}
             disabled={!ethers.isAddress(newAddr) || txState === "pending"}
             className="nano-btn"
-            style={{ padding: "6px 14px", fontSize: 13, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}
+            style={{ padding: "6px 14px", fontSize: 13, color: "var(--error)", border: "1px solid rgba(248,113,113,0.3)" }}
           >
             Block
           </button>

@@ -61,7 +61,7 @@ export function ConvictionSlider({ value, onChange, amount, symbol }: Props) {
       {/* UB-10: Conviction preview */}
       {amount !== undefined && amount > 0n && (
         <div style={{
-          background: "rgba(160,160,255,0.06)", border: "1px solid rgba(160,160,255,0.15)",
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
           borderRadius: 4, padding: "8px 10px", marginBottom: 8, fontSize: 12,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
@@ -104,9 +104,9 @@ export function ConvictionSlider({ value, onChange, amount, symbol }: Props) {
               padding: "3px 0",
               borderRadius: 2,
               cursor: "pointer",
-              background: i === value ? "rgba(160,160,255,0.15)" : "var(--bg-raised)",
+              background: i === value ? "rgba(255,255,255,0.06)" : "var(--bg-raised)",
               color: i === value ? "var(--accent)" : "var(--text-muted)",
-              border: i === value ? "1px solid rgba(160,160,255,0.3)" : "1px solid var(--border)",
+              border: i === value ? "1px solid rgba(255,255,255,0.18)" : "1px solid var(--border)",
             }}
           >
             <div style={{ fontWeight: 600 }}>{w}x</div>

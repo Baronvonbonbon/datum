@@ -241,7 +241,7 @@ export function Settings() {
                     }}
                     placeholder="0x..."
                     className="nano-input"
-                    style={{ fontFamily: "monospace" }}
+                    style={{ fontFamily: "var(--font-mono)" }}
                   />
                   {addr && !/^0x[0-9a-fA-F]{40}$/.test(addr) && (
                     <div style={{ color: "var(--warn)", fontSize: 10, marginTop: 2 }}>Invalid address format</div>
@@ -265,7 +265,7 @@ export function Settings() {
             padding: "8px 18px",
             fontSize: 13,
             color: saved ? "var(--ok)" : undefined,
-            border: saved ? "1px solid rgba(110,231,183,0.3)" : undefined,
+            border: saved ? "1px solid rgba(74,222,128,0.3)" : undefined,
           }}
         >
           {saved ? "Saved!" : "Save Settings"}

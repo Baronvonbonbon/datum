@@ -1,58 +1,79 @@
-/* ─── DATUM — Astro Nano-inspired dark theme ─────────────────────────────── */
+/* ─── DATUM — Cold minimalist dark theme ─────────────────────────────────── */
 
-/* Inter from Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ─── Design tokens ──────────────────────────────────────────────────────── */
 :root {
-  /* Stone-900 base — matches Nano dark exactly */
-  --bg:          #1c1917;
-  --bg-raised:   rgba(255,255,255,0.04);
-  --bg-header:   rgba(28,25,23,0.85);
+  /* Background — cold near-black */
+  --bg:          #0a0a0a;
+  --bg-surface:  #111111;   /* inputs, selects */
+  --bg-raised:   #111111;   /* alias — legacy component refs */
+  --bg-header:   rgba(10,10,10,0.92);
 
   /* Text */
-  --text:        rgba(255,255,255,0.75);
+  --text:        rgba(255,255,255,0.65);
   --text-strong: #ffffff;
-  --text-muted:  rgba(255,255,255,0.35);
+  --text-muted:  rgba(255,255,255,0.30);
 
-  /* Borders */
-  --border:      rgba(255,255,255,0.12);
-  --border-hover:rgba(255,255,255,0.28);
+  /* Borders — cards are border-only, no fill */
+  --border:       rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.18);
+  --border-focus: rgba(255,255,255,0.35);
 
-  /* Accent — a single restrained blue-violet */
-  --accent:      rgba(160,160,255,0.9);
-  --accent-dim:  rgba(160,160,255,0.4);
+  /* Accent — white-led, not a color */
+  --accent:     rgba(255,255,255,0.85);
+  --accent-dim: rgba(255,255,255,0.25);
 
-  /* Status */
-  --ok:    #6ee7b7;  /* emerald-300 */
-  --warn:  #fcd34d;  /* amber-300  */
-  --error: #fca5a5;  /* red-300    */
+  /* Traffic light — muted, same visual weight */
+  --ok:    #4ade80;   /* green-400  */
+  --warn:  #fbbf24;   /* amber-400  */
+  --error: #f87171;   /* red-400    */
+
+  /* Role colors — consistent across site + extension */
+  --role-user:            #4ade80;
+  --role-user-dim:        rgba(74,222,128,0.12);
+  --role-user-border:     rgba(74,222,128,0.25);
+  --role-advertiser:      #fbbf24;
+  --role-advertiser-dim:  rgba(251,191,36,0.12);
+  --role-advertiser-border: rgba(251,191,36,0.25);
+  --role-publisher:       #fb923c;
+  --role-publisher-dim:   rgba(249,115,60,0.12);
+  --role-publisher-border: rgba(249,115,60,0.25);
+  --role-voter:           #c084fc;
+  --role-voter-dim:       rgba(192,132,252,0.12);
+  --role-voter-border:    rgba(192,132,252,0.25);
+
+  /* Fonts */
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   /* Spacing / radius */
-  --radius:  8px;
+  --radius:    6px;
   --radius-sm: 4px;
 }
 
 /* ─── Light theme ────────────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg:          #fafaf9;
-  --bg-raised:   rgba(0,0,0,0.03);
-  --bg-header:   rgba(250,250,249,0.85);
-  --text:        rgba(0,0,0,0.7);
-  --text-strong: #1c1917;
-  --text-muted:  rgba(0,0,0,0.4);
-  --border:      rgba(0,0,0,0.1);
-  --border-hover:rgba(0,0,0,0.2);
-  --accent:      rgba(90,90,220,0.9);
-  --accent-dim:  rgba(90,90,220,0.4);
-  --ok:    #059669;
+  --bg:          #f5f5f5;
+  --bg-surface:  #ffffff;
+  --bg-header:   rgba(245,245,245,0.92);
+  --text:        rgba(0,0,0,0.65);
+  --text-strong: #0a0a0a;
+  --text-muted:  rgba(0,0,0,0.35);
+  --border:       rgba(0,0,0,0.1);
+  --border-hover: rgba(0,0,0,0.2);
+  --border-focus: rgba(0,0,0,0.4);
+  --accent:     rgba(0,0,0,0.8);
+  --accent-dim: rgba(0,0,0,0.2);
+  --ok:    #16a34a;
   --warn:  #d97706;
   --error: #dc2626;
 }
 [data-theme="light"] { color-scheme: light; }
-[data-theme="light"] .nano-select option { background: #fafaf9; }
+[data-theme="light"] .nano-select option { background: #ffffff; }
+[data-theme="light"] .nano-card { background: #ffffff; }
 [data-theme="light"] .nano-skeleton {
-  background: linear-gradient(90deg, var(--bg-raised) 25%, rgba(0,0,0,0.04) 50%, var(--bg-raised) 75%);
+  background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.07) 50%, rgba(0,0,0,0.04) 75%);
   background-size: 800px 100%;
 }
 
@@ -64,7 +85,7 @@ html { color-scheme: dark; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -83,33 +104,36 @@ h1, h2, h3, h4 {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); }
 
+/* Monospace utility — numeric data, addresses, hashes, amounts */
+.mono, code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 /* ─── Scrollbar ─────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
 /* ─── Nano fade-in animation ─────────────────────────────────────────────── */
-/*
-   Apply .nano-fade to any element you want to animate in.
-   Default: visible. JS adds .nano-fade--hide briefly during route transitions
-   then removes it after a stagger delay to create the reveal.
-   Elements that (re)mount after the stagger (async data loads) are immediately
-   visible — no class manipulation needed.
-*/
 .nano-fade {
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 700ms ease-out, transform 700ms ease-out;
+  transition: opacity 600ms ease-out, transform 600ms ease-out;
 }
 .nano-fade--hide {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(8px);
 }
 
-/* ─── Common UI chrome ───────────────────────────────────────────────────── */
-
-/* Header */
+/* ─── Header ─────────────────────────────────────────────────────────────── */
 .nano-header {
   position: sticky;
   top: 0;
@@ -118,179 +142,260 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  height: 52px;
+  height: 50px;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(8px) saturate(180%);
-  -webkit-backdrop-filter: blur(8px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   flex-shrink: 0;
 }
 
-/* Sidebar */
+/* ─── Sidebar ────────────────────────────────────────────────────────────── */
 .nano-sidebar {
-  width: 180px;
+  width: 176px;
   flex-shrink: 0;
   background: transparent;
   border-right: 1px solid var(--border);
-  padding-top: 16px;
+  padding-top: 12px;
   display: flex;
   flex-direction: column;
 }
 
 .nano-navlink {
   display: block;
-  padding: 9px 16px;
+  padding: 8px 16px;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
   border-left: 2px solid transparent;
-  transition: color 300ms ease-in-out, background 300ms ease-in-out;
+  transition: color 200ms, background 200ms;
 }
 .nano-navlink:hover {
   color: var(--text);
-  background: var(--bg-raised);
+  background: rgba(255,255,255,0.03);
   text-decoration: none;
 }
 .nano-navlink.active {
-  color: var(--accent);
-  background: var(--bg-raised);
-  border-left-color: var(--accent);
+  color: var(--text-strong);
+  background: rgba(255,255,255,0.04);
+  border-left-color: rgba(255,255,255,0.5);
 }
 
-/* Card */
+/* ─── Card — border only, no fill ───────────────────────────────────────── */
 .nano-card {
-  background: var(--bg-raised);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  transition: border-color 300ms ease-in-out;
+  transition: border-color 200ms;
 }
 .nano-card:hover { border-color: var(--border-hover); }
 
-/* Buttons */
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+
+/* Ghost (neutral default) */
 .nano-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: var(--bg-raised);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: inherit;
+  font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 300ms ease-in-out, color 300ms ease-in-out, background 300ms ease-in-out;
+  transition: border-color 200ms, color 200ms, background 200ms;
 }
 .nano-btn:hover {
   color: var(--text-strong);
   border-color: var(--border-hover);
-  background: rgba(255,255,255,0.07);
-}
-.nano-btn-accent {
-  background: rgba(160,160,255,0.1);
-  border-color: rgba(160,160,255,0.3);
-  color: var(--accent);
-}
-.nano-btn-accent:hover {
-  background: rgba(160,160,255,0.16);
-  border-color: rgba(160,160,255,0.5);
-  color: #c8c8ff;
+  background: rgba(255,255,255,0.04);
 }
 
-/* Inputs / Selects */
+/* Primary — high contrast white fill */
+.nano-btn-primary {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0a0a0a;
+  font-weight: 600;
+}
+.nano-btn-primary:hover {
+  background: rgba(255,255,255,0.88);
+  border-color: rgba(255,255,255,0.88);
+  color: #0a0a0a;
+}
+
+/* Accent — same as primary (white-led) */
+.nano-btn-accent {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.18);
+  color: var(--text-strong);
+}
+.nano-btn-accent:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.3);
+  color: #ffffff;
+}
+
+/* Traffic light variants */
+.nano-btn-ok {
+  background: rgba(74,222,128,0.08);
+  border-color: rgba(74,222,128,0.3);
+  color: var(--ok);
+}
+.nano-btn-ok:hover {
+  background: rgba(74,222,128,0.14);
+  border-color: rgba(74,222,128,0.5);
+}
+
+.nano-btn-warn {
+  background: rgba(251,191,36,0.08);
+  border-color: rgba(251,191,36,0.3);
+  color: var(--warn);
+}
+.nano-btn-warn:hover {
+  background: rgba(251,191,36,0.14);
+  border-color: rgba(251,191,36,0.5);
+}
+
+.nano-btn-danger {
+  background: rgba(248,113,113,0.08);
+  border-color: rgba(248,113,113,0.3);
+  color: var(--error);
+}
+.nano-btn-danger:hover {
+  background: rgba(248,113,113,0.14);
+  border-color: rgba(248,113,113,0.5);
+}
+
+/* Disabled */
+.nano-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ─── Inputs / Selects ───────────────────────────────────────────────────── */
 .nano-input, .nano-select {
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: inherit;
+  font-family: var(--font-sans);
   font-size: 13px;
   padding: 6px 10px;
   outline: none;
-  transition: border-color 300ms ease-in-out;
+  transition: border-color 200ms;
   width: 100%;
 }
 .nano-input:focus, .nano-select:focus {
-  border-color: var(--accent-dim);
+  border-color: var(--border-focus);
 }
-.nano-select option { background: #292524; }
+.nano-input::placeholder { color: var(--text-muted); }
+.nano-select option { background: #111111; }
+[data-theme="light"] .nano-select option { background: #ffffff; }
 
-/* Table */
+/* Mono variant for address/hash inputs */
+.nano-input-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ─── Table ──────────────────────────────────────────────────────────────── */
 .nano-table { width: 100%; border-collapse: collapse; }
 .nano-table th {
-  padding: 8px 12px;
+  padding: 7px 12px;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   border-bottom: 1px solid var(--border);
 }
 .nano-table td {
   padding: 9px 12px;
   vertical-align: middle;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
   font-size: 13px;
   color: var(--text);
 }
-.nano-table tbody tr {
-  transition: background 200ms ease-out;
-}
-.nano-table tbody tr:hover { background: var(--bg-raised); }
+.nano-table tbody tr { transition: background 150ms; }
+.nano-table tbody tr:hover { background: rgba(255,255,255,0.02); }
 .nano-table tbody tr:last-child td { border-bottom: none; }
 
-/* Badges */
+/* ─── Badges ─────────────────────────────────────────────────────────────── */
 .nano-badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  background: var(--bg-raised);
+  background: transparent;
   border: 1px solid var(--border);
   color: var(--text-muted);
 }
-.nano-badge--ok    { background: rgba(110,231,183,0.1); border-color: rgba(110,231,183,0.2); color: var(--ok); }
-.nano-badge--warn  { background: rgba(252,211,77,0.1);  border-color: rgba(252,211,77,0.2);  color: var(--warn); }
-.nano-badge--error { background: rgba(252,165,165,0.1); border-color: rgba(252,165,165,0.2); color: var(--error); }
-.nano-badge--accent { background: rgba(160,160,255,0.1); border-color: rgba(160,160,255,0.2); color: var(--accent); }
 
-/* Skeleton loading shimmer */
-@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+/* Traffic light badges */
+.nano-badge--ok    { background: rgba(74,222,128,0.08);   border-color: rgba(74,222,128,0.25);   color: var(--ok); }
+.nano-badge--warn  { background: rgba(251,191,36,0.08);   border-color: rgba(251,191,36,0.25);   color: var(--warn); }
+.nano-badge--error { background: rgba(248,113,113,0.08);  border-color: rgba(248,113,113,0.25);  color: var(--error); }
+
+/* Role badges */
+.nano-badge--accent       { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.15); color: var(--text-strong); }
+.nano-badge--user         { background: var(--role-user-dim);       border-color: var(--role-user-border);       color: var(--role-user); }
+.nano-badge--advertiser   { background: var(--role-advertiser-dim); border-color: var(--role-advertiser-border); color: var(--role-advertiser); }
+.nano-badge--publisher    { background: var(--role-publisher-dim);  border-color: var(--role-publisher-border);  color: var(--role-publisher); }
+.nano-badge--voter        { background: var(--role-voter-dim);      border-color: var(--role-voter-border);      color: var(--role-voter); }
+
+/* ─── Skeleton shimmer ───────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
 .nano-skeleton {
-  background: linear-gradient(90deg, var(--bg-raised) 25%, rgba(255,255,255,0.06) 50%, var(--bg-raised) 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.03) 25%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.03) 75%
+  );
   background-size: 800px 100%;
-  animation: shimmer 1.4s infinite;
+  animation: shimmer 1.6s infinite;
   border-radius: var(--radius-sm);
 }
 
-/* Section heading utility */
+/* ─── Section label ──────────────────────────────────────────────────────── */
 .nano-section-label {
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 500;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 12px;
 }
 
-/* Block number flash on new block */
-@keyframes block-flash { 0% { color: var(--ok); } 100% { color: var(--text-muted); } }
-.nano-block-flash { animation: block-flash 600ms ease-out forwards; }
+/* ─── Status / info boxes ────────────────────────────────────────────────── */
+.nano-info {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.nano-info--warn  { background: rgba(251,191,36,0.06);   border-color: rgba(251,191,36,0.2);   color: var(--warn); }
+.nano-info--error { background: rgba(248,113,113,0.06);  border-color: rgba(248,113,113,0.2);  color: var(--error); }
+.nano-info--ok    { background: rgba(74,222,128,0.06);   border-color: rgba(74,222,128,0.2);   color: var(--ok); }
+.nano-info--muted { background: transparent; border-color: var(--border); color: var(--text-muted); }
 
-/* Connection dot heartbeat pulse */
-@keyframes heartbeat { 0%,100% { box-shadow: 0 0 4px var(--ok); } 50% { box-shadow: 0 0 10px var(--ok), 0 0 20px rgba(110,231,183,0.3); } }
-.nano-heartbeat { animation: heartbeat 2s ease-in-out infinite; }
-
-/* Experimental warning banner */
+/* ─── Banners ────────────────────────────────────────────────────────────── */
 .nano-warning-banner {
-  background: rgba(252,211,77,0.07);
-  border-bottom: 1px solid rgba(252,211,77,0.2);
+  background: rgba(251,191,36,0.05);
+  border-bottom: 1px solid rgba(251,191,36,0.15);
   padding: 7px 24px;
   font-size: 12px;
   color: var(--warn);
@@ -298,10 +403,9 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   letter-spacing: 0.01em;
 }
 
-/* Protocol paused banner */
 .nano-pause-banner {
-  background: rgba(252,165,165,0.1);
-  border-bottom: 1px solid rgba(252,165,165,0.25);
+  background: rgba(248,113,113,0.07);
+  border-bottom: 1px solid rgba(248,113,113,0.2);
   padding: 8px 24px;
   font-size: 13px;
   font-weight: 600;
@@ -309,33 +413,19 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
   text-align: center;
 }
 
-/* Status / inline info boxes */
-.nano-info {
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  border: 1px solid;
-}
-.nano-info--warn  { background: rgba(252,211,77,0.08);  border-color: rgba(252,211,77,0.2);  color: var(--warn); }
-.nano-info--error { background: rgba(252,165,165,0.08); border-color: rgba(252,165,165,0.2); color: var(--error); }
-.nano-info--ok    { background: rgba(110,231,183,0.08); border-color: rgba(110,231,183,0.2); color: var(--ok); }
-.nano-info--muted { background: var(--bg-raised);       border-color: var(--border);         color: var(--text-muted); }
-
-/* ─── Mobile hamburger menu ────────────────────────────────────────────── */
-.nano-mobile-menu-btn { display: none; }
-
-/* ─── Animated pending/loading indicators ──────────────────────────────── */
-@keyframes nano-pulse-text {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@keyframes block-flash   { 0% { color: var(--ok); } 100% { color: var(--text-muted); } }
+@keyframes heartbeat     { 0%,100% { box-shadow: 0 0 3px var(--ok); } 50% { box-shadow: 0 0 8px var(--ok), 0 0 18px rgba(74,222,128,0.2); } }
+@keyframes nano-pulse-text { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes nano-bounce-dots {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-4px); }
+  0%,80%,100% { transform: translateY(0); }
+  40%          { transform: translateY(-4px); }
 }
-.nano-pending-text {
-  animation: nano-pulse-text 1.8s ease-in-out infinite;
-}
+
+.nano-block-flash  { animation: block-flash 600ms ease-out forwards; }
+.nano-heartbeat    { animation: heartbeat 2.4s ease-in-out infinite; }
+.nano-pending-text { animation: nano-pulse-text 1.8s ease-in-out infinite; }
+
 .nano-pending-dots span {
   display: inline-block;
   animation: nano-bounce-dots 1.4s ease-in-out infinite;
@@ -343,36 +433,26 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
 .nano-pending-dots span:nth-child(2) { animation-delay: 0.16s; }
 .nano-pending-dots span:nth-child(3) { animation-delay: 0.32s; }
 
-/* ─── Improved disabled button ─────────────────────────────────────────── */
-.nano-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  pointer-events: none;
-  color: var(--text-muted);
-}
-.nano-btn:disabled:hover {
-  border-color: var(--border);
-  background: var(--bg-raised);
-  color: var(--text-muted);
-}
-
-/* ─── Focus-visible indicators ─────────────────────────────────────────── */
+/* ─── Focus indicators ───────────────────────────────────────────────────── */
 .nano-btn:focus-visible,
 .nano-input:focus-visible,
 .nano-select:focus-visible,
 .nano-navlink:focus-visible {
-  outline: 2px solid var(--accent-dim);
+  outline: 1px solid var(--border-focus);
   outline-offset: 2px;
 }
 
-/* ─── Responsive — mobile breakpoint ───────────────────────────────────── */
+/* ─── Mobile hamburger ───────────────────────────────────────────────────── */
+.nano-mobile-menu-btn { display: none; }
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .nano-mobile-menu-btn { display: inline-flex; }
 
   .nano-sidebar {
     display: none;
     position: fixed;
-    top: 52px;
+    top: 50px;
     left: 0;
     right: 0;
     bottom: 0;
@@ -384,12 +464,10 @@ a:hover { text-decoration: underline; text-decoration-color: var(--accent-dim); 
     padding-top: 8px;
     overflow-y: auto;
   }
-  .nano-sidebar--open {
-    display: flex;
-  }
+  .nano-sidebar--open { display: flex; }
 
-  .nano-header { padding: 0 10px; gap: 6px; }
-  .nano-warning-banner { padding: 7px 10px; font-size: 10px; }
+  .nano-header { padding: 0 12px; gap: 6px; }
+  .nano-warning-banner { padding: 7px 12px; font-size: 11px; }
   .nano-header-status { display: none; }
   .nano-role-badges { display: none !important; }
 

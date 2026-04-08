@@ -97,7 +97,7 @@ export function TakeRate() {
             )}
           </div>
           {canApply && (
-            <button onClick={handleApply} disabled={txState === "pending"} className="nano-btn" style={{ marginTop: 10, padding: "6px 14px", fontSize: 13, color: "var(--ok)", border: "1px solid rgba(110,231,183,0.3)" }}>
+            <button onClick={handleApply} disabled={txState === "pending"} className="nano-btn" style={{ marginTop: 10, padding: "6px 14px", fontSize: 13, color: "var(--ok)", border: "1px solid rgba(74,222,128,0.3)" }}>
               Apply Update Now
             </button>
           )}

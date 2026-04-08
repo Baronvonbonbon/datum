@@ -50,7 +50,7 @@ export function SDKSetup() {
       <div style={{ position: "relative", marginBottom: 20 }}>
         <pre className="nano-card" style={{
           padding: 16, color: "var(--text)", fontSize: 13, overflowX: "auto",
-          fontFamily: "monospace", lineHeight: 1.6,
+          fontFamily: "var(--font-mono)", lineHeight: 1.6,
         }}>
           {snippet}
         </pre>

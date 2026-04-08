@@ -127,7 +127,7 @@ export function Allowlist() {
                     value={newAddr} onChange={(e) => setNewAddr(e.target.value)}
                     placeholder="0x advertiser address"
                     className="nano-input"
-                    style={{ flex: 1, fontFamily: "monospace" }}
+                    style={{ flex: 1, fontFamily: "var(--font-mono)" }}
                   />
                   <button onClick={addAddress} disabled={!ethers.isAddress(newAddr) || txState === "pending"} className="nano-btn nano-btn-accent" style={{ padding: "6px 14px", fontSize: 13 }}>
                     Add

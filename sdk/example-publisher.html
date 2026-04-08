@@ -6,27 +6,45 @@
   <meta name="description" content="Example publisher page demonstrating DATUM SDK integration for privacy-preserving advertising on Polkadot Hub">
   <meta name="keywords" content="crypto, web3, polkadot, blockchain, decentralized advertising">
   <title>Example Publisher — DATUM SDK Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --bg:          #0a0a0a;
+      --bg-surface:  #111111;
+      --text:        rgba(255,255,255,0.65);
+      --text-strong: #ffffff;
+      --text-muted:  rgba(255,255,255,0.30);
+      --border:      rgba(255,255,255,0.08);
+      --ok:          #4ade80;
+      --warn:        #fbbf24;
+      --error:       #f87171;
+      --role-publisher: #fb923c;
+      --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0a0a1a;
-      color: #e0e0e0;
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
     .container { max-width: 800px; margin: 0 auto; padding: 24px; }
     header {
-      border-bottom: 1px solid #1a1a3a;
+      border-bottom: 1px solid var(--border);
       padding-bottom: 16px;
       margin-bottom: 24px;
     }
-    header h1 { color: #a0a0ff; font-size: 22px; }
-    header p { color: #888; font-size: 13px; margin-top: 4px; }
+    header h1 { color: var(--text-strong); font-size: 22px; font-weight: 600; }
+    header p { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
     article { margin-bottom: 32px; }
-    article h2 { color: #c0c0ff; font-size: 18px; margin-bottom: 8px; }
-    article p { color: #bbb; font-size: 14px; margin-bottom: 12px; }
+    article h2 { color: var(--text-strong); font-size: 18px; font-weight: 500; margin-bottom: 8px; }
+    article p { color: var(--text); font-size: 14px; margin-bottom: 12px; }
     .ad-container {
-      border: 1px dashed #2a2a5a;
+      border: 1px dashed rgba(255,255,255,0.15);
       border-radius: 8px;
       padding: 16px;
       margin: 24px 0;
@@ -37,35 +55,41 @@
     }
     .ad-container:empty::after {
       content: "DATUM Ad Slot — waiting for extension...";
-      color: #555;
+      color: var(--text-muted);
       font-size: 12px;
+      font-family: var(--font-mono);
     }
     .status {
       margin-top: 24px;
       padding: 12px;
-      background: #111122;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      font-family: monospace;
+      font-family: var(--font-mono);
       font-size: 12px;
-      color: #888;
+      color: var(--text-muted);
     }
-    .status .label { color: #60a0ff; }
-    .status .ok { color: #60c060; }
-    .status .waiting { color: #c0c060; }
+    .status .label { color: var(--text); }
+    .status .ok { color: var(--ok); }
+    .status .waiting { color: var(--warn); }
     code {
-      background: #1a1a2e;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
       padding: 2px 6px;
       border-radius: 3px;
+      font-family: var(--font-mono);
       font-size: 12px;
-      color: #a0a0ff;
+      color: var(--text-strong);
     }
     pre {
-      background: #111122;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
       padding: 16px;
       border-radius: 6px;
       overflow-x: auto;
+      font-family: var(--font-mono);
       font-size: 12px;
-      color: #ccc;
+      color: var(--text);
       margin: 12px 0;
     }
   </style>

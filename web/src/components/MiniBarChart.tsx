@@ -28,7 +28,7 @@ export function MiniBarChart({ bars, height = 120, showLabels = true, showValues
         const x = i * (barWidth + gap);
         const barH = Math.max(2, (bar.value / max) * chartH);
         const y = (showValues ? 16 : 0) + chartH - barH;
-        const color = bar.color ?? "rgba(160,160,255,0.6)";
+        const color = bar.color ?? "rgba(255,255,255,0.5)";
         return (
           <g key={i}>
             <rect x={x} y={y} width={barWidth} height={barH} rx={2} fill={color}>

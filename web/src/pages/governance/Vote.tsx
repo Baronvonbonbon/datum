@@ -116,8 +116,8 @@ export function Vote() {
             <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}% · <DOTAmount planck={gov.nayWeighted} /></span>
           </div>
           <div style={{ position: "relative", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 10, overflow: "hidden", display: "flex" }}>
-            <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
-            <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+            <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
+            <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
             <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
           </div>
           <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
@@ -142,10 +142,10 @@ export function Vote() {
       ) : address ? (
         <form onSubmit={handleVote} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
           <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" onClick={() => setIsAye(true)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: isAye ? "var(--ok)" : undefined, border: isAye ? "1px solid rgba(110,231,183,0.3)" : undefined, background: isAye ? "rgba(110,231,183,0.08)" : undefined }}>
+            <button type="button" onClick={() => setIsAye(true)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: isAye ? "var(--ok)" : undefined, border: isAye ? "1px solid rgba(74,222,128,0.3)" : undefined, background: isAye ? "rgba(74,222,128,0.08)" : undefined }}>
               Aye (Support)
             </button>
-            <button type="button" onClick={() => setIsAye(false)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: !isAye ? "var(--error)" : undefined, border: !isAye ? "1px solid rgba(252,165,165,0.3)" : undefined, background: !isAye ? "rgba(252,165,165,0.08)" : undefined }}>
+            <button type="button" onClick={() => setIsAye(false)} className="nano-btn" style={{ flex: 1, padding: "10px", fontSize: 14, color: !isAye ? "var(--error)" : undefined, border: !isAye ? "1px solid rgba(248,113,113,0.3)" : undefined, background: !isAye ? "rgba(248,113,113,0.08)" : undefined }}>
               Nay (Oppose)
             </button>
           </div>

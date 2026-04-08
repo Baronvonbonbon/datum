@@ -219,7 +219,7 @@ export function GovernanceDashboard() {
                   </span>
                 )}
                 {c.pageReports > 0 && (
-                  <span title={`${c.pageReports} page report${c.pageReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--error)", background: "rgba(252,165,165,0.12)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
+                  <span title={`${c.pageReports} page report${c.pageReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--error)", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
                     ⚑ {c.pageReports} PAGE
                   </span>
                 )}
@@ -239,8 +239,8 @@ export function GovernanceDashboard() {
             {total > 0n && (
               <div style={{ marginBottom: 8 }}>
                 <div style={{ position: "relative", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 8, overflow: "hidden", display: "flex" }}>
-                  <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(110,231,183,0.5)" }} />
-                  <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(252,165,165,0.45)" }} />
+                  <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
+                  <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
                   <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>

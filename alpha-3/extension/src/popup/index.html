@@ -6,21 +6,30 @@
   <title>DATUM</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg:          #1c1917;
-      --bg-raised:   rgba(255,255,255,0.04);
-      --text:        rgba(255,255,255,0.75);
-      --text-strong: #ffffff;
-      --text-muted:  rgba(255,255,255,0.35);
-      --border:      rgba(255,255,255,0.12);
-      --border-hover:rgba(255,255,255,0.28);
-      --accent:      rgba(160,160,255,0.9);
-      --accent-dim:  rgba(160,160,255,0.4);
-      --ok:    #6ee7b7;
-      --warn:  #fcd34d;
-      --error: #fca5a5;
+      --bg:            #0a0a0a;
+      --bg-surface:    #111111;
+      --bg-raised:     #111111;
+      --text:          rgba(255,255,255,0.65);
+      --text-strong:   #ffffff;
+      --text-muted:    rgba(255,255,255,0.30);
+      --border:        rgba(255,255,255,0.08);
+      --border-hover:  rgba(255,255,255,0.18);
+      --border-focus:  rgba(255,255,255,0.35);
+      --accent:        rgba(255,255,255,0.85);
+      --accent-dim:    rgba(255,255,255,0.25);
+      --ok:            #4ade80;
+      --warn:          #fbbf24;
+      --error:         #f87171;
+      --role-user:        #4ade80;
+      --role-advertiser:  #fbbf24;
+      --role-publisher:   #fb923c;
+      --role-voter:       #c084fc;
+      --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
       --radius:    6px;
       --radius-sm: 4px;
     }
@@ -30,15 +39,15 @@
       min-height: 400px;
       background: var(--bg);
       color: var(--text);
-      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-family: var(--font-sans);
       font-size: 13px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
-    select option { background: #292524; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 2px; }
+    select option { background: #111111; }
   </style>
 </head>
 <body>

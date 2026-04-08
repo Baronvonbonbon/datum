@@ -245,7 +245,7 @@ export function AdvertiserDashboard() {
                 </button>
               )}
               {(c.status === 1 || c.status === 2) && (
-                <button onClick={() => setConfirmAction({ id: c.id, action: "complete" })} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}>
+                <button onClick={() => setConfirmAction({ id: c.id, action: "complete" })} disabled={actionBusy === c.id} className="nano-btn" style={{ fontSize: 12, color: "var(--error)", border: "1px solid rgba(248,113,113,0.3)" }}>
                   Complete Early
                 </button>
               )}

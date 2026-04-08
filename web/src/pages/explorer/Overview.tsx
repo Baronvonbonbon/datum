@@ -100,7 +100,7 @@ export function Overview() {
       <div className="nano-fade" style={{ marginBottom: 28 }}>
         {stats ? (
           <div className="nano-info" style={{
-            borderColor: stats.paused ? "rgba(252,165,165,0.3)" : "rgba(110,231,183,0.3)",
+            borderColor: stats.paused ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.3)",
             background: stats.paused ? "rgba(252,165,165,0.06)" : "rgba(110,231,183,0.06)",
             display: "flex", alignItems: "center", gap: 8,
           }}>
@@ -212,7 +212,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     icon: "👤",
     role: "I'm a User",
     tagline: "I browse the web and get paid for my attention.",
-    color: "var(--ok)",
+    color: "var(--role-user)",
     steps: [
       "Install the DATUM browser extension. It comes with a built-in wallet — no MetaMask needed.",
       "Browse the web like you normally do. When you visit a site running the DATUM SDK, the extension quietly matches you with a relevant ad campaign.",
@@ -227,7 +227,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     icon: "📢",
     role: "I'm an Advertiser",
     tagline: "I want real humans to see my ads, and I want proof it happened.",
-    color: "var(--accent)",
+    color: "var(--role-advertiser)",
     steps: [
       "Connect your wallet on this web app. You'll need some PAS (testnet DOT) — grab some from the faucet if you're on Paseo.",
       "Head to the Advertiser section and create a campaign. Set your budget, daily spend cap, and bid CPM (cost per 1,000 impressions).",
@@ -243,7 +243,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     icon: "🌐",
     role: "I'm a Publisher",
     tagline: "I have a website and I'd like to earn by serving relevant ads to my visitors.",
-    color: "var(--warn)",
+    color: "var(--role-publisher)",
     steps: [
       "Register as a publisher from the Publisher section. Pick your take rate (the percentage you keep from each impression — between 30% and 80%).",
       "Tag your content so campaigns find you. Tags are open and custom — running ads in a niche community? The taxonomy grows and adapts with the language of the emergent internet.",
@@ -258,7 +258,7 @@ const WALKTHROUGHS: RoleWalkthrough[] = [
     icon: "⚖️",
     role: "I'm a Governance Voter",
     tagline: "I review campaigns and help keep the network honest. (And earn rewards for it.)",
-    color: "var(--accent)",
+    color: "var(--role-voter)",
     steps: [
       "Browse pending campaigns on the Governance page. Each one shows the ad creative, bid, and advertiser address.",
       "Found one you trust? Vote Aye with some DOT. Choose your conviction level (0–8) — higher conviction means more voting power but a longer lockup. Conviction 0 has no lockup at all, so you can dip a toe in risk-free.",
@@ -355,7 +355,7 @@ function RoleTile({ walkthrough: w, isOpen, onToggle }: {
                 <span style={{
                   color: w.color, fontWeight: 700, fontSize: 12,
                   minWidth: 20, paddingTop: 1, opacity: 0.7,
-                  fontFamily: "monospace",
+                  fontFamily: "var(--font-mono)",
                 }}>
                   {i + 1}.
                 </span>

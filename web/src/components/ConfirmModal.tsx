@@ -52,7 +52,7 @@ export function ConfirmModal({ title, message, confirmLabel = "Confirm", cancelL
             style={{
               padding: "6px 14px", fontSize: 13, fontWeight: 600,
               color: danger ? "var(--error)" : "var(--accent)",
-              borderColor: danger ? "rgba(252,165,165,0.4)" : "rgba(160,160,255,0.4)",
+              borderColor: danger ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.25)",
             }}
           >
             {confirmLabel}

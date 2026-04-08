@@ -81,7 +81,7 @@ export function PauseRegistryAdmin() {
       ) : (
         <>
           <div className="nano-card" style={{
-            border: `1px solid ${paused ? "rgba(252,165,165,0.3)" : "rgba(110,231,183,0.2)"}`,
+            border: `1px solid ${paused ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.2)"}`,
             padding: 16, marginBottom: 16,
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -101,7 +101,7 @@ export function PauseRegistryAdmin() {
                     fontSize: 13,
                     fontWeight: 600,
                     color: paused ? "var(--ok)" : "var(--error)",
-                    border: paused ? "1px solid rgba(110,231,183,0.3)" : "1px solid rgba(252,165,165,0.3)",
+                    border: paused ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(248,113,113,0.3)",
                   }}
                 >
                   {txState === "pending" ? "Processing..." : paused ? "Unpause Protocol" : "Pause Protocol"}

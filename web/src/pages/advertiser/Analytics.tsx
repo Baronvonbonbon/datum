@@ -107,7 +107,7 @@ export function CampaignAnalytics() {
     .map((c) => ({
       label: `#${c.id}`,
       value: Number(c.totalImpressions),
-      color: c.status === 1 ? "rgba(110,231,183,0.6)" : "rgba(160,160,255,0.4)",
+      color: c.status === 1 ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.25)",
     }));
 
   // Chart data: spend per campaign
@@ -119,7 +119,7 @@ export function CampaignAnalytics() {
       return {
         label: `#${c.id}`,
         value: Number(spent) / 1e10,
-        color: c.status === 1 ? "rgba(110,231,183,0.6)" : "rgba(160,160,255,0.4)",
+        color: c.status === 1 ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.25)",
       };
     });
 

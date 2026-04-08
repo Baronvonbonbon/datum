@@ -139,7 +139,7 @@ export function Earnings() {
                 bars={campaignBreakdown.slice(0, 12).map((c) => ({
                   label: `#${c.campaignId}`,
                   value: Number(c.totalPublisherPayment) / 1e10,
-                  color: "rgba(110,231,183,0.6)",
+                  color: "rgba(74,222,128,0.5)",
                 }))}
                 height={120}
                 formatValue={(v) => v >= 1 ? `${v.toFixed(1)}` : v >= 0.01 ? `${v.toFixed(3)}` : `${v.toFixed(4)}`}
@@ -195,7 +195,7 @@ export function Earnings() {
                     {events.map((e: any, i) => (
                       <tr key={i}>
                         <td><Link to={`/campaigns/${String(e.args?.campaignId ?? "0")}`} style={{ color: "var(--accent)", textDecoration: "none" }}>#{String(e.args?.campaignId ?? "?")}</Link></td>
-                        <td style={{ fontFamily: "monospace", fontSize: 11 }}>
+                        <td style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
                           {(e.args?.user ?? "")?.slice(0, 10)}...
                         </td>
                         <td><DOTAmount planck={BigInt(e.args?.publisherPayment ?? 0)} /></td>

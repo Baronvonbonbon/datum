@@ -199,7 +199,7 @@ export function ProtocolFeesAdmin() {
                 <span>Protocol share (of remainder)</span><span style={{ color: "var(--text-strong)" }}>25%</span>
               </div>
             </div>
-            <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
+            <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
               totalPayment = (clearingCpm × impressions) / 1000<br />
               publisher = total × takeRateBps / 10000<br />
               remainder = total − publisher<br />

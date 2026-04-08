@@ -105,7 +105,7 @@ export function WalletConnect({ onClose }: Props) {
                   onChange={(e) => setManualKey(e.target.value)}
                   placeholder="0x private key"
                   className="nano-input"
-                  style={{ fontFamily: "monospace" }}
+                  style={{ fontFamily: "var(--font-mono)" }}
                 />
                 <button
                   onClick={() => handleConnect("manual")}

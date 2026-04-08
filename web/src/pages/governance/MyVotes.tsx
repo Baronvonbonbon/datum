@@ -231,7 +231,7 @@ export function MyVotes() {
                   </div>
                   <span className="nano-badge" style={{
                     color: v.direction === 1 ? "var(--ok)" : "var(--error)",
-                    border: `1px solid ${v.direction === 1 ? "rgba(110,231,183,0.3)" : "rgba(252,165,165,0.3)"}`,
+                    border: `1px solid ${v.direction === 1 ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}`,
                     borderRadius: 10,
                     fontSize: 12,
                     fontWeight: 600,
@@ -288,7 +288,7 @@ export function MyVotes() {
                             onClick={() => handleClaimSlashReward(v.campaignId)}
                             disabled={busyId === v.campaignId}
                             className="nano-btn"
-                            style={{ padding: "4px 10px", fontSize: 12, color: "var(--ok)", border: "1px solid rgba(110,231,183,0.3)" }}
+                            style={{ padding: "4px 10px", fontSize: 12, color: "var(--ok)", border: "1px solid rgba(74,222,128,0.3)" }}
                           >
                             {busyId === v.campaignId ? "Claiming..." : "Claim Reward"}
                           </button>

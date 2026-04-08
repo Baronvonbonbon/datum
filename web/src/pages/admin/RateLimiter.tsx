@@ -105,7 +105,7 @@ export function RateLimiterAdmin() {
             <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
               <div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Wired Address</div>
-                <div style={{ fontFamily: "monospace", fontSize: 12, color: isEnabled ? "var(--ok)" : "var(--text-muted)" }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: isEnabled ? "var(--ok)" : "var(--text-muted)" }}>
                   {isEnabled ? rateLimiterAddr : "Disabled (address(0))"}
                 </div>
               </div>
@@ -136,7 +136,7 @@ export function RateLimiterAdmin() {
                   value={wireInput}
                   onChange={(e) => setWireInput(e.target.value)}
                   placeholder="0x... (blank = address(0) to disable)"
-                  style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "monospace" }}
+                  style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
                 />
                 <button
                   onClick={handleWire}

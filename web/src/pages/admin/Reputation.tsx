@@ -138,7 +138,7 @@ export function ReputationAdmin() {
             value={lookupAddr}
             onChange={(e) => setLookupAddr(e.target.value)}
             placeholder="Publisher address (0x...)"
-            style={{ flex: 2, minWidth: 200, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "monospace" }}
+            style={{ flex: 2, minWidth: 200, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
           />
           <input
             type="text"
@@ -208,7 +208,7 @@ export function ReputationAdmin() {
               value={reporterInput}
               onChange={(e) => setReporterInput(e.target.value)}
               placeholder="Reporter address (0x...)"
-              style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "monospace" }}
+              style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
             />
             <button
               onClick={handleAddReporter}
@@ -243,7 +243,7 @@ export function ReputationAdmin() {
             value={checkReporter}
             onChange={(e) => { setCheckReporter(e.target.value); setIsReporter(null); }}
             placeholder="Address (0x...)"
-            style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "monospace" }}
+            style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
           />
           <button
             onClick={handleCheckReporter}

@@ -111,7 +111,7 @@ export function Layout() {
           <span style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0 }}>
             DATUM
           </span>
-          <div className="nano-header-status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div className="nano-header-status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             <span className={connected ? "nano-heartbeat" : undefined} style={{
               width: 6, height: 6, borderRadius: "50%",
               background: connected ? "var(--ok)" : "var(--error)",
@@ -134,7 +134,7 @@ export function Layout() {
                 <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, letterSpacing: "0.06em" }}>TEST</span>
               )}
               {balance !== null && (
-                <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {formatDOT(balance)} {sym}
                 </span>
               )}

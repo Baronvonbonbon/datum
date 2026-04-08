@@ -239,14 +239,14 @@ export function TimelockAdmin() {
         <div style={{ color: "var(--text-muted)" }}>Loading...</div>
       ) : pending ? (
         <div className="nano-card" style={{
-          border: `1px solid ${ready ? "rgba(110,231,183,0.3)" : "var(--border)"}`,
+          border: `1px solid ${ready ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
           padding: 14, marginBottom: 16,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
             <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14 }}>Pending Proposal</div>
             <span className="nano-badge" style={{
               color: ready ? "var(--ok)" : "var(--text)",
-              border: `1px solid ${ready ? "rgba(110,231,183,0.3)" : "var(--border)"}`,
+              border: `1px solid ${ready ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
               borderRadius: 10,
             }}>
               {ready ? "Ready to Execute" : `ETA: ${new Date(pending.effectiveTime * 1000).toLocaleString()}`}
@@ -254,17 +254,17 @@ export function TimelockAdmin() {
           </div>
           <div style={{ marginBottom: 6 }}>
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Target</div>
-            <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "monospace" }}>{pending.target}</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "var(--font-mono)" }}>{pending.target}</div>
           </div>
           {pending.decoded && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Decoded</div>
-              <div style={{ color: "var(--text)", fontSize: 12, fontFamily: "monospace" }}>{pending.decoded}</div>
+              <div style={{ color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}>{pending.decoded}</div>
             </div>
           )}
           <div style={{ marginBottom: 12 }}>
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Calldata</div>
-            <div style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "monospace", wordBreak: "break-all" }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>
               {pending.data.length > 66 ? pending.data.slice(0, 66) + "..." : pending.data}
             </div>
           </div>
@@ -288,7 +288,7 @@ export function TimelockAdmin() {
                 onClick={cancel}
                 disabled={txState === "pending"}
                 className="nano-btn"
-                style={{ padding: "5px 14px", fontSize: 12, color: "var(--error)", border: "1px solid rgba(252,165,165,0.3)" }}
+                style={{ padding: "5px 14px", fontSize: 12, color: "var(--error)", border: "1px solid rgba(248,113,113,0.3)" }}
               >
                 Cancel
               </button>
@@ -312,7 +312,7 @@ export function TimelockAdmin() {
             </div>
             <div>
               <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Calldata (hex)</label>
-              <input value={calldata} onChange={(e) => setCalldata(e.target.value)} placeholder="0x..." className="nano-input" style={{ fontFamily: "monospace" }} />
+              <input value={calldata} onChange={(e) => setCalldata(e.target.value)} placeholder="0x..." className="nano-input" style={{ fontFamily: "var(--font-mono)" }} />
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
                 Use ABI encoder or Blockscout to generate calldata for the target function.
               </div>

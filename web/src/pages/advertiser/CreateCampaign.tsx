@@ -399,7 +399,7 @@ export function CreateCampaign() {
             <form onSubmit={handleTokenDeposit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div className="nano-card" style={{ padding: 14 }}>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Token</div>
-                <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "monospace" }}>{rewardToken.trim()}</div>
+                <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "var(--font-mono)" }}>{rewardToken.trim()}</div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                   {tokenSymbol} · {tokenDecimals} decimals · {Number(rewardPerImpression || 0).toLocaleString()} raw units per impression
                 </div>
@@ -508,7 +508,7 @@ export function CreateCampaign() {
                             }}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                              <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-strong)" }}>
+                              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-strong)" }}>
                                 {p.address.slice(0, 8)}…{p.address.slice(-6)}
                               </span>
                               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -746,8 +746,8 @@ function StepIndicator({ n, label, active, done }: { n: number; label: string; a
       <span style={{
         width: 22, height: 22, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
         fontSize: 11, fontWeight: 700,
-        background: done ? "rgba(110,231,183,0.15)" : active ? "rgba(160,160,255,0.15)" : "var(--bg-raised)",
-        border: `1px solid ${done ? "rgba(110,231,183,0.3)" : active ? "rgba(160,160,255,0.3)" : "var(--border)"}`,
+        background: done ? "rgba(74,222,128,0.12)" : active ? "rgba(255,255,255,0.06)" : "var(--bg-raised)",
+        border: `1px solid ${done ? "rgba(74,222,128,0.3)" : active ? "rgba(255,255,255,0.18)" : "var(--border)"}`,
         color: done ? "var(--ok)" : active ? "var(--accent)" : "var(--text-muted)",
       }}>
         {done ? "✓" : n}

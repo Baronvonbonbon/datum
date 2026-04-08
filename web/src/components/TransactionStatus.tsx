@@ -54,7 +54,7 @@ export function TransactionStatus({ state, message, hash, autoDismiss = 4000, on
         </span>
       )}
       {hash && (
-        <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)" }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
           {hash.slice(0, 10)}...
         </span>
       )}

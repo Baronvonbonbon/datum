@@ -78,7 +78,7 @@ export function GovernanceParameters() {
                       <td>
                         {CONVICTION_LOCKUP_BLOCKS[i] === 0 ? "None" : formatBlockDelta(CONVICTION_LOCKUP_BLOCKS[i])}
                       </td>
-                      <td style={{ fontFamily: "monospace" }}>
+                      <td style={{ fontFamily: "var(--font-mono)" }}>
                         {w} {sym} effective
                       </td>
                     </tr>
