@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { ethers } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useBlock } from "../../hooks/useBlock";
@@ -26,6 +27,11 @@ interface GovCampaign {
   lastSettlementBlock: number;
   pageReports: number;
   adReports: number;
+  rewardToken?: string;
+  rewardPerImpression?: bigint;
+  rewardSymbol?: string;
+  rewardDecimals?: number;
+  rewardBudget?: bigint;
 }
 
 export function GovernanceDashboard() {
@@ -89,6 +95,27 @@ export function GovernanceDashboard() {
               }
             } catch { /* no reports contract */ }
 
+            let rewardToken: string | undefined;
+            let rewardPerImpression: bigint | undefined;
+            let rewardSymbol: string | undefined;
+            let rewardDecimals: number | undefined;
+            let rewardBudget: bigint | undefined;
+            try {
+              const [tok, perImp] = await Promise.all([
+                contracts.campaigns.getCampaignRewardToken(BigInt(id)).catch(() => ethers.ZeroAddress),
+                contracts.campaigns.getCampaignRewardPerImpression(BigInt(id)).catch(() => 0n),
+              ]);
+              if (tok && tok !== ethers.ZeroAddress) {
+                rewardToken = tok as string;
+                rewardPerImpression = BigInt(perImp);
+                const erc20 = new ethers.Contract(tok, ["function symbol() view returns (string)", "function decimals() view returns (uint8)"], contracts.readProvider);
+                const [sym2, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
+                rewardSymbol = sym2 as string;
+                rewardDecimals = Number(dec);
+                try { rewardBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(tok, BigInt(id))); } catch { /* ok */ }
+              }
+            } catch { /* no token reward */ }
+
             results.push({
               id, status: Number(c[0]),
               advertiser: adv as string,
@@ -101,6 +128,11 @@ export function GovernanceDashboard() {
               lastSettlementBlock,
               pageReports,
               adReports,
+              rewardToken,
+              rewardPerImpression,
+              rewardSymbol,
+              rewardDecimals,
+              rewardBudget,
             });
           } catch { /* skip */ }
         })
@@ -213,6 +245,12 @@ export function GovernanceDashboard() {
                 {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Aye</span>}
                 {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Nay</span>}
                 {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
+                {c.rewardToken && c.rewardSymbol && (
+                  <span title={`Token rewards: ${(Number(c.rewardPerImpression ?? 0) / Math.pow(10, c.rewardDecimals ?? 18)).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${c.rewardSymbol} per impression`}
+                    style={{ fontSize: 10, fontWeight: 600, color: "var(--role-advertiser)", background: "var(--role-advertiser-dim)", border: "1px solid var(--role-advertiser-border)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", cursor: "default" }}>
+                    {c.rewardSymbol}
+                  </span>
+                )}
                 {c.adReports > 0 && (
                   <span title={`${c.adReports} ad report${c.adReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--warn)", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
                     ⚑ {c.adReports} AD

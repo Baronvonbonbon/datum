@@ -6,7 +6,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useRoles } from "../hooks/useRoles";
 import { usePaused } from "../hooks/usePaused";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
-import { formatDOT } from "@shared/dot";
+import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { JsonRpcProvider } from "ethers";
@@ -87,7 +87,7 @@ export function Layout() {
   useEffect(() => {
     if (!address || !settings.rpcUrl) { setBalance(null); return; }
     const provider = new JsonRpcProvider(settings.rpcUrl);
-    provider.getBalance(address).then(setBalance).catch(() => setBalance(null));
+    provider.getBalance(address).then(wei => setBalance(weiToPlanck(wei))).catch(() => setBalance(null));
   }, [address, settings.rpcUrl, blockNumber]);
 
   return (

@@ -22,7 +22,7 @@ import {
   migrateIfNeeded,
 } from "@shared/walletManager";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
-import { formatDOT } from "@shared/dot";
+import { formatDOT, weiToPlanck } from "@shared/dot";
 import { humanizeError } from "@shared/errorCodes";
 
 type Tab = "claims" | "user" | "filters" | "reports" | "settings";
@@ -108,7 +108,7 @@ export function App() {
       const block = await provider.getBlock("latest");
       let nativeBalance: bigint | null = null;
       if (address) {
-        nativeBalance = await provider.getBalance(address);
+        nativeBalance = weiToPlanck(await provider.getBalance(address));
       }
 
       setChainStatus({

@@ -2,6 +2,8 @@
  * DOT denomination helpers for PolkaVM (native path).
  *
  * 1 DOT = 10^10 planck  (10 decimal places)
+ * pallet-revive eth_getBalance returns wei (10^18/DOT), not planck.
+ * Use weiToPlanck() on getBalance() results before passing to formatDOT.
  *
  * Denomination rounding: pallet-revive eth-rpc rejects value % 10^6 >= 500_000.
  * All transaction values must be multiples of 10^6 planck.
@@ -11,6 +13,16 @@
 const PLANCK_PER_DOT = 10n ** 10n;
 // Minimum planck granularity accepted by pallet-revive eth-rpc bridge
 const PLANCK_GRID = 1_000_000n;
+// pallet-revive eth_getBalance returns planck * 10^8 (standard EVM wei scaling)
+export const WEI_PER_PLANCK = 10n ** 8n;
+
+/**
+ * Convert a pallet-revive eth_getBalance result (wei) to planck.
+ * Must be applied before passing getBalance() values to formatDOT.
+ */
+export function weiToPlanck(wei: bigint): bigint {
+  return wei / WEI_PER_PLANCK;
+}
 
 /**
  * Convert a human-readable DOT amount to planck.
@@ -30,34 +42,28 @@ export function parseDOT(dot: string): bigint {
  * Like parseDOT but rounds to the nearest 10^6 planck grid so the value
  * passes pallet-revive's eth-rpc denomination check (value % 10^6 < 500_000).
  * Use this for all on-chain transaction `value:` fields.
- *
- * parseDOTSafe("100")    → 1_000_000_000_000n  (unchanged — already on grid)
- * parseDOTSafe("0.1")    → 1_000_000_000n      (unchanged)
- * parseDOTSafe("0.0001") → 1_000_000n          (min billable unit)
  */
 export function parseDOTSafe(dot: string): bigint {
-  // Normalise float noise (e.g. "0.09999999999" from browser number input → "0.1")
-  // toFixed(10) avoids scientific notation for values >= 1e-10
   const normalised = parseFloat(dot).toFixed(10);
   const raw = parseDOT(normalised);
   if (raw === 0n) return 0n;
   const remainder = raw % PLANCK_GRID;
   if (remainder === 0n) return raw;
-  // Round to nearest grid point (round half-up)
   const rounded = remainder >= PLANCK_GRID / 2n ? raw - remainder + PLANCK_GRID : raw - remainder;
-  // Ensure at least PLANCK_GRID if original was positive
   return rounded === 0n ? PLANCK_GRID : rounded;
 }
 
 /**
- * Format a planck amount to a human-readable DOT string.
+ * Format a planck amount to a human-readable DOT string with 3 decimal places.
  *
- * formatDOT(10_000_000_000n) → "1"
- * formatDOT(5_000_000_000n)  → "0.5"
+ * formatDOT(10_000_000_000n) → "1.000"
+ * formatDOT(5_000_000_000n)  → "0.500"
  */
 export function formatDOT(planck: bigint): string {
+  if (planck < 0n) return `-${formatDOT(-planck)}`;
   const whole = planck / PLANCK_PER_DOT;
   const frac = planck % PLANCK_PER_DOT;
-  const fracStr = frac.toString().padStart(10, "0").replace(/0+$/, "");
-  return fracStr ? `${whole}.${fracStr}` : `${whole}`;
+  // 3 decimal places (milli-DOT precision)
+  const fracStr = frac.toString().padStart(10, "0").slice(0, 3);
+  return `${whole}.${fracStr}`;
 }

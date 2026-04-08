@@ -67,11 +67,13 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Token reward budget state (advertiser view)
-  const [tokenAddress, setTokenAddress] = useState("");
-  const [tokenBudget, setTokenBudget] = useState<bigint | null>(null);
-  const [tokenMeta, setTokenMeta] = useState<{ symbol: string; decimals: number } | null>(null);
-  const [checkingTokenBudget, setCheckingTokenBudget] = useState(false);
+  // Token reward sidecar state (visible to all)
+  const [tokenReward, setTokenReward] = useState<{
+    token: string;
+    rewardPerImpression: bigint;
+    remainingBudget: bigint;
+    meta: { symbol: string; decimals: number; name: string } | null;
+  } | null>(null);
   const [reclaimingBudget, setReclaimingBudget] = useState(false);
   const [tokenBudgetMsg, setTokenBudgetMsg] = useState<string | null>(null);
 
@@ -191,6 +193,38 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         }
       } catch { /* no events */ }
 
+      // Token reward sidecar
+      try {
+        const [rewardTok, rewardPerImp] = await Promise.all([
+          contracts.campaigns.getCampaignRewardToken(BigInt(campaignId)).catch(() => ethers.ZeroAddress),
+          contracts.campaigns.getCampaignRewardPerImpression(BigInt(campaignId)).catch(() => 0n),
+        ]);
+        if (rewardTok && rewardTok !== ethers.ZeroAddress) {
+          const erc20 = new ethers.Contract(rewardTok, [
+            "function symbol() view returns (string)",
+            "function decimals() view returns (uint8)",
+            "function name() view returns (string)",
+          ], contracts.readProvider);
+          const [sym, dec, nm] = await Promise.all([
+            erc20.symbol().catch(() => "TOKEN"),
+            erc20.decimals().catch(() => 18),
+            erc20.name().catch(() => "Unknown Token"),
+          ]);
+          let remainingBudget = 0n;
+          try {
+            remainingBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(rewardTok, BigInt(campaignId)));
+          } catch { /* vault not available */ }
+          setTokenReward({
+            token: rewardTok as string,
+            rewardPerImpression: BigInt(rewardPerImp),
+            remainingBudget,
+            meta: { symbol: sym as string, decimals: Number(dec), name: nm as string },
+          });
+        } else {
+          setTokenReward(null);
+        }
+      } catch { /* no token reward */ }
+
       // Initial settlement load
       await loadSettlements(campaignId);
 
@@ -201,38 +235,17 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     }
   }
 
-  async function handleCheckTokenBudget() {
-    if (!campaign || !ethers.isAddress(tokenAddress.trim())) {
-      setTokenBudgetMsg("Enter a valid ERC-20 token address.");
-      return;
-    }
-    setCheckingTokenBudget(true);
-    setTokenBudgetMsg(null);
-    setTokenBudget(null);
-    setTokenMeta(null);
-    try {
-      const budget = await contracts.tokenRewardVault.campaignTokenBudget(tokenAddress.trim(), BigInt(campaign.id));
-      setTokenBudget(BigInt(budget));
-      const erc20 = new ethers.Contract(tokenAddress.trim(), ["function symbol() view returns (string)", "function decimals() view returns (uint8)"], contracts.readProvider);
-      const [sym, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
-      setTokenMeta({ symbol: sym as string, decimals: Number(dec) });
-    } catch (err) {
-      setTokenBudgetMsg(humanizeError(err));
-    } finally {
-      setCheckingTokenBudget(false);
-    }
-  }
 
   async function handleReclaimBudget() {
-    if (!signer || !campaign || !tokenAddress.trim()) return;
+    if (!signer || !campaign || !tokenReward) return;
     setReclaimingBudget(true);
     setTokenBudgetMsg(null);
     try {
       const vault = contracts.tokenRewardVault.connect(signer) as typeof contracts.tokenRewardVault;
-      const tx = await vault.reclaimExpiredBudget(BigInt(campaign.id), tokenAddress.trim());
-      await tx.wait();
+      const tx = await vault.reclaimExpiredBudget(BigInt(campaign.id), tokenReward.token);
+      await confirmTx(tx);
       setTokenBudgetMsg("Budget reclaimed successfully.");
-      setTokenBudget(0n);
+      setTokenReward(prev => prev ? { ...prev, remainingBudget: 0n } : null);
     } catch (err) {
       setTokenBudgetMsg(humanizeError(err));
     } finally {
@@ -451,45 +464,71 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         <IPFSPreview metadataHash={metadataHash} />
       </section>
 
-      {/* Token Budget (advertiser only) */}
-      {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+      {/* Token Reward Sidecar — shown to all if campaign has one */}
+      {tokenReward && tokenReward.meta && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Token Reward Budget</h2>
-          <p style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
-            Check remaining ERC-20 token budget for this campaign. Ended campaigns (Completed / Terminated / Expired) can reclaim unspent tokens.
-          </p>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input
-              type="text"
-              value={tokenAddress}
-              onChange={(e) => { setTokenAddress(e.target.value.trim()); setTokenBudget(null); setTokenMeta(null); setTokenBudgetMsg(null); }}
-              placeholder="Token contract address (0x...)"
-              className="nano-input"
-              style={{ flex: 1, fontSize: 12 }}
-            />
-            <button className="nano-btn" onClick={handleCheckTokenBudget} disabled={checkingTokenBudget} style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }}>
-              {checkingTokenBudget ? "Checking..." : "Check Balance"}
-            </button>
-          </div>
-          {tokenBudget !== null && tokenMeta && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ color: "var(--text-strong)", fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                Remaining: {tokenBudget === 0n ? "0" : (Number(tokenBudget) / Math.pow(10, tokenMeta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
-                <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{tokenMeta.symbol}</span>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Token Rewards</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Token</div>
+              <div style={{ color: "var(--text-strong)", fontWeight: 600, fontSize: 14 }}>
+                {tokenReward.meta.symbol}
+                {tokenReward.meta.name !== tokenReward.meta.symbol && (
+                  <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 11, marginLeft: 6 }}>{tokenReward.meta.name}</span>
+                )}
               </div>
-              {tokenBudget > 0n && campaign.status >= 3 && (
-                <button className="nano-btn" onClick={handleReclaimBudget} disabled={reclaimingBudget} style={{ fontSize: 12, padding: "5px 12px" }}>
-                  {reclaimingBudget ? "Reclaiming..." : `Reclaim ${tokenMeta.symbol} Budget`}
-                </button>
-              )}
-              {tokenBudget > 0n && campaign.status < 3 && (
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>Budget reclaim available when campaign ends (Completed / Terminated / Expired).</div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Per Impression</div>
+              <div style={{ color: "var(--text-strong)", fontWeight: 600, fontSize: 14, fontFamily: "var(--font-mono)" }}>
+                {(Number(tokenReward.rewardPerImpression) / Math.pow(10, tokenReward.meta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {tokenReward.meta.symbol}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Vault Budget Remaining</div>
+              <div style={{ color: tokenReward.remainingBudget > 0n ? "var(--ok)" : "var(--text-muted)", fontWeight: 600, fontSize: 14, fontFamily: "var(--font-mono)" }}>
+                {(Number(tokenReward.remainingBudget) / Math.pow(10, tokenReward.meta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 3 })} {tokenReward.meta.symbol}
+              </div>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Token Contract</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <code style={{ fontSize: 11, color: "var(--text)", fontFamily: "var(--font-mono)" }}>{tokenReward.token}</code>
+              {EXPLORER && (
+                <a
+                  href={`${EXPLORER}/address/${tokenReward.token}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: "var(--accent-dim)", textDecoration: "none" }}
+                >
+                  View on Explorer ↗
+                </a>
               )}
             </div>
-          )}
-          {tokenBudgetMsg && (
-            <div style={{ fontSize: 12, color: tokenBudgetMsg.includes("successfully") ? "var(--ok)" : "var(--error)", marginTop: 4 }}>
-              {tokenBudgetMsg}
+          </div>
+          {/* Advertiser reclaim (only when campaign ended) */}
+          {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && tokenReward.remainingBudget > 0n && (
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 10 }}>
+              {campaign.status >= 3 ? (
+                <button
+                  className="nano-btn nano-btn-ok"
+                  onClick={handleReclaimBudget}
+                  disabled={reclaimingBudget}
+                  style={{ fontSize: 12, padding: "5px 12px" }}
+                >
+                  {reclaimingBudget ? "Reclaiming..." : `Reclaim ${(Number(tokenReward.remainingBudget) / Math.pow(10, tokenReward.meta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 3 })} ${tokenReward.meta.symbol}`}
+                </button>
+              ) : (
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  Reclaim available when campaign ends (Completed / Terminated / Expired).
+                </div>
+              )}
+              {tokenBudgetMsg && (
+                <div style={{ fontSize: 12, color: tokenBudgetMsg.includes("successfully") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+                  {tokenBudgetMsg}
+                </div>
+              )}
             </div>
           )}
         </section>

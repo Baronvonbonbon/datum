@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
+import { ethers } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
+import { getExplorerUrl } from "@shared/networks";
 import { ConvictionSlider } from "../../components/ConvictionSlider";
 import { DOTAmount } from "../../components/DOTAmount";
 import { IPFSPreview } from "../../components/IPFSPreview";
@@ -22,11 +24,13 @@ export function Vote() {
   const { settings } = useSettings();
   const { confirmTx } = useTx();
   const sym = getCurrencySymbol(settings.network);
+  const EXPLORER = getExplorerUrl(settings.network);
 
   const [campaign, setCampaign] = useState<any>(null);
   const [gov, setGov] = useState<any>(null);
   const [myVote, setMyVote] = useState<any>(null);
   const [metadataHash, setMetadataHash] = useState("0x" + "0".repeat(64));
+  const [tokenReward, setTokenReward] = useState<{ token: string; rewardPerImpression: bigint; remainingBudget: bigint; meta: { symbol: string; decimals: number } | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [isAye, setIsAye] = useState(true);
@@ -65,6 +69,24 @@ export function Vote() {
         const logs = await queryFilterAll(contracts.campaigns, filter);
         if (logs.length > 0) setMetadataHash((logs[logs.length - 1] as any).args?.metadataHash ?? "0x" + "0".repeat(64));
       } catch { /* no events */ }
+
+      // Token reward sidecar
+      try {
+        const [rewardTok, rewardPerImp] = await Promise.all([
+          contracts.campaigns.getCampaignRewardToken(BigInt(cid)).catch(() => ethers.ZeroAddress),
+          contracts.campaigns.getCampaignRewardPerImpression(BigInt(cid)).catch(() => 0n),
+        ]);
+        if (rewardTok && rewardTok !== ethers.ZeroAddress) {
+          const erc20 = new ethers.Contract(rewardTok, [
+            "function symbol() view returns (string)",
+            "function decimals() view returns (uint8)",
+          ], contracts.readProvider);
+          const [sym2, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
+          let remainingBudget = 0n;
+          try { remainingBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(rewardTok, BigInt(cid))); } catch { /* ok */ }
+          setTokenReward({ token: rewardTok as string, rewardPerImpression: BigInt(rewardPerImp), remainingBudget, meta: { symbol: sym2 as string, decimals: Number(dec) } });
+        }
+      } catch { /* no token reward */ }
     } finally {
       setLoading(false);
     }
@@ -108,6 +130,40 @@ export function Vote() {
       </div>
 
       <IPFSPreview metadataHash={metadataHash} />
+
+      {/* Token Reward Sidecar — relevant for voters evaluating the campaign */}
+      {tokenReward && tokenReward.meta && (
+        <div className="nano-card" style={{ margin: "12px 0", padding: 12, borderLeft: "2px solid var(--role-advertiser)" }}>
+          <div style={{ color: "var(--role-advertiser)", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>Token Rewards</div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 6 }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 1 }}>Token</div>
+              <div style={{ color: "var(--text-strong)", fontSize: 13, fontWeight: 600 }}>{tokenReward.meta.symbol}</div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 1 }}>Per Impression</div>
+              <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "var(--font-mono)" }}>
+                {(Number(tokenReward.rewardPerImpression) / Math.pow(10, tokenReward.meta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {tokenReward.meta.symbol}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 1 }}>Vault Budget</div>
+              <div style={{ color: tokenReward.remainingBudget > 0n ? "var(--ok)" : "var(--text-muted)", fontSize: 13, fontFamily: "var(--font-mono)" }}>
+                {(Number(tokenReward.remainingBudget) / Math.pow(10, tokenReward.meta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 3 })} {tokenReward.meta.symbol}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <code style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{tokenReward.token.slice(0, 10)}…{tokenReward.token.slice(-8)}</code>
+            {EXPLORER && (
+              <a href={`${EXPLORER}/address/${tokenReward.token}`} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 10, color: "var(--accent-dim)", textDecoration: "none" }}>
+                Explorer ↗
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {gov && (
         <div className="nano-card" style={{ margin: "16px 0", padding: 12 }}>
