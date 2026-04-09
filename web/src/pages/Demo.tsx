@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
+import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
 
 const RELAY_URL = "https://relay.javcon.io";
-const PUBLISHER_ADDRESS = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
+const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
 const PUBLISHER_TAGS = "topic:crypto-web3,topic:defi,topic:computers-electronics,locale:en";
 
 const TAG_DICTIONARY: Record<string, string[]> = {
@@ -36,19 +37,26 @@ export function Demo() {
   const [relay, setRelay] = useState<RelayStatus | null>(null);
   const [sdk, setSdk] = useState<SdkStatus>({ ready: false });
   const [handshake, setHandshake] = useState<HandshakeStatus>({ done: false });
+  const [publisherAddress, setPublisherAddress] = useState(DEFAULT_PUBLISHER);
+  const [publisherInput, setPublisherInput] = useState(DEFAULT_PUBLISHER);
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ step: "idle" });
+  const [daemonReady, setDaemonReady] = useState(false);
+  const sdkScriptRef = useRef<HTMLScriptElement | null>(null);
 
   // Load publisher SDK
   useEffect(() => {
-    const existing = document.querySelector('script[data-datum-sdk]');
-    if (existing) return;
+    const existing = document.querySelector('script[data-datum-sdk]') as HTMLScriptElement | null;
+    if (existing) { sdkScriptRef.current = existing; return; }
     const script = document.createElement("script");
     script.src = "/datum-sdk.js";
     script.setAttribute("data-datum-sdk", "1");
-    script.setAttribute("data-publisher", PUBLISHER_ADDRESS);
+    script.setAttribute("data-publisher", publisherAddress);
     script.setAttribute("data-relay", RELAY_URL);
     script.setAttribute("data-tags", PUBLISHER_TAGS);
     document.body.appendChild(script);
-    return () => { script.remove(); };
+    sdkScriptRef.current = script;
+    return () => { script.remove(); sdkScriptRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // SDK events
@@ -68,6 +76,13 @@ export function Demo() {
       document.removeEventListener("datum:response", onResponse);
     };
   }, []);
+
+  // When daemon + SDK are both ready, auto-run the bridge once
+  useEffect(() => {
+    if (!daemonReady || !sdk.ready) return;
+    runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonReady, sdk.ready]);
 
   // Relay heartbeat
   useEffect(() => {
@@ -142,7 +157,7 @@ export function Demo() {
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
               User View — Extension Popup
             </div>
-            <ExtensionApplet />
+            <ExtensionApplet onDaemonReady={() => setDaemonReady(true)} />
           </div>
 
           {/* Right — publisher view */}
@@ -150,6 +165,66 @@ export function Demo() {
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
               Publisher View — Ad Slot
             </div>
+
+            {/* Publisher address input + auction trigger */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
+                Publisher Address
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  value={publisherInput}
+                  onChange={(e) => setPublisherInput(e.target.value)}
+                  style={{
+                    flex: 1, background: "var(--bg-surface)", border: "1px solid var(--border)",
+                    borderRadius: 4, padding: "5px 8px", color: "var(--text)",
+                    fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
+                    minWidth: 0,
+                  }}
+                  placeholder="0x..."
+                />
+                <button
+                  onClick={() => {
+                    // Update the SDK script tag's data-publisher attribute
+                    if (sdkScriptRef.current) {
+                      sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
+                    }
+                    setPublisherAddress(publisherInput);
+                    runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
+                  }}
+                  disabled={!daemonReady}
+                  style={{
+                    background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)", borderRadius: 4,
+                    color: daemonReady ? "var(--text)" : "var(--text-muted)",
+                    fontFamily: "var(--font-mono)", fontSize: 11, padding: "5px 10px",
+                    cursor: daemonReady ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+                  }}
+                >
+                  Run Auction
+                </button>
+              </div>
+            </div>
+
+            {/* Auction status */}
+            {bridgeStatus.step !== "idle" && (
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 12 }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
+                {[
+                  ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
+                  ...(bridgeStatus.campaignId ? [["Campaign", `#${bridgeStatus.campaignId}`, "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.mechanism ? [["Mechanism", bridgeStatus.mechanism, "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
+                ].map(([label, value, color]) => (
+                  <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                    <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
+                    <span style={{ color }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div style={{
               border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 8,
@@ -279,6 +354,34 @@ function Section({ label, children }: { label: string; children: React.ReactNode
       </div>
     </div>
   );
+}
+
+function stepLabel(step: string): string {
+  return ({
+    idle: "Idle",
+    detecting: "Detecting SDK...",
+    matching: "Matching campaigns...",
+    auction: "Running auction...",
+    handshake: "Handshaking...",
+    injected: "Ad injected",
+    "house-ad": "House ad (no match)",
+    "no-match": "No campaigns",
+    error: "Error",
+  } as Record<string, string>)[step] ?? step;
+}
+
+function stepColor(step: string): string {
+  if (step === "injected") return "var(--ok)";
+  if (step === "error") return "var(--error)";
+  if (step === "house-ad" || step === "no-match") return "var(--warn)";
+  return "var(--text-muted)";
+}
+
+function formatPlanck(planck: string): string {
+  try {
+    const dot = Number(BigInt(planck)) / 1e10;
+    return `${dot.toFixed(4)} DOT`;
+  } catch { return planck; }
 }
 
 const p: React.CSSProperties = { color: "var(--text)", fontSize: 14, marginBottom: 10, lineHeight: 1.7 };

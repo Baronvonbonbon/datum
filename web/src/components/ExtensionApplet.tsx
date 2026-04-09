@@ -19,17 +19,22 @@ import { startDaemon } from "../lib/extensionDaemon";
 // @ts-ignore — @ext resolves via Vite alias; TS paths for extension files are best-effort
 import { App as ExtApp } from "@ext/popup/App";
 
-export function ExtensionApplet() {
+interface ExtensionAppletProps {
+  onDaemonReady?: () => void;
+}
+
+export function ExtensionApplet({ onDaemonReady }: ExtensionAppletProps = {}) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     startDaemon()
-      .then(() => setReady(true))
+      .then(() => { setReady(true); onDaemonReady?.(); })
       .catch((err) => {
         console.error("[ExtensionApplet]", err);
         setError(String(err));
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

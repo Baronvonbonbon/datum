@@ -31,6 +31,10 @@ let _prefs: any = null;
 let _interest: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _attest: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _auction: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _matcher: any = null;
 
 let _mutexHeld = false;
 
@@ -189,6 +193,82 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { count };
     }
 
+    // ── Auction + campaign selection ───────────────────────────────────────
+    case "SELECT_CAMPAIGN": {
+      const prefs = _prefs ? await _prefs.getPreferences() : defaultPreferences();
+      const allowed = (msg.campaigns ?? []).filter((c: any) =>
+        _prefs ? _prefs.isCampaignAllowed(
+          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck, requiredTags: c.requiredTags },
+          prefs,
+        ) : true
+      );
+      if (allowed.length === 0) return { selected: null };
+
+      const profile = _interest ? await _interest.getProfile() : { weights: {}, visitCounts: {} };
+
+      if (_auction) {
+        const auctionResult = _auction.auctionForPage(allowed, {}, profile);
+        if (auctionResult) {
+          return {
+            selected: auctionResult.winner,
+            clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
+            mechanism: auctionResult.mechanism,
+            participants: auctionResult.participants,
+          };
+        }
+      }
+
+      // Fallback to weighted random matcher
+      const selected = _matcher ? _matcher.selectCampaign(allowed, profile, msg.pageCategory ?? "") : allowed[0] ?? null;
+      return { selected };
+    }
+
+    case "CHECK_PUBLISHER_ALLOWLIST":
+      // In demo context: no on-chain allowlist check — conservative allow
+      return { allowlistEnabled: false };
+
+    case "FETCH_IPFS_METADATA": {
+      const { campaignId: cid, metadataHash: mHash } = msg;
+      if (!cid || !mHash) return { metadata: null };
+
+      const storedSettings = await chrome.storage.local.get("settings");
+      const primaryGateway = storedSettings.settings?.ipfsGateway || "https://dweb.link/ipfs/";
+      const gateways = [primaryGateway, "https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/"];
+
+      try {
+        const [{ metadataUrl }, { validateAndSanitize, passesContentBlocklist }] = await Promise.all([
+          import("@ext/shared/ipfs"),
+          import("@ext/shared/contentSafety"),
+        ]);
+        for (const gw of gateways) {
+          const url = metadataUrl(mHash, gw);
+          if (!url) continue;
+          try {
+            const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!resp.ok) continue;
+            const body = await resp.text();
+            if (body.length > 512_000) return { metadata: null };
+            const meta = validateAndSanitize(JSON.parse(body));
+            if (!meta || !passesContentBlocklist(meta)) return { metadata: null };
+            await chrome.storage.local.set({ [`metadata:${cid}`]: meta });
+            return { metadata: meta };
+          } catch { continue; }
+        }
+      } catch (e) {
+        console.warn("[daemon] FETCH_IPFS_METADATA error:", e);
+      }
+      return { metadata: null };
+    }
+
+    case "UPDATE_INTEREST": {
+      if (_interest) await _interest.updateProfile(msg.tags ?? []);
+      return { ok: true };
+    }
+
+    case "SET_PUBLISHER_RELAY":
+      // No-op in demo (relay mapping not needed)
+      return { ok: true };
+
     case "REPORT_PAGE":
     case "REPORT_AD":
       return { ok: true };
@@ -251,22 +331,28 @@ export async function startDaemon(): Promise<void> {
   const [
     { campaignPoller },
     { claimQueue },
-    { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag },
+    { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed },
     { interestProfile },
     { requestPublisherAttestation },
+    auctionMod,
+    matcherMod,
   ] = await Promise.all([
     import("@ext/background/campaignPoller"),
     import("@ext/background/claimQueue"),
     import("@ext/background/userPreferences"),
     import("@ext/background/interestProfile"),
     import("@ext/background/publisherAttestation"),
+    import("@ext/background/auction"),
+    import("@ext/background/campaignMatcher"),
   ]);
 
   _poller    = campaignPoller;
   _queue     = claimQueue;
-  _prefs     = { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag };
+  _prefs     = { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed };
   _interest  = interestProfile;
   _attest    = { requestPublisherAttestation };
+  _auction   = auctionMod;
+  _matcher   = matcherMod;
 
   // Seed settings (network + contract addresses) on first run.
   const stored = await chrome.storage.local.get("settings");
