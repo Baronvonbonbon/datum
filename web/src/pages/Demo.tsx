@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
+import { getRelaySignerAddress, importRelaySignerKey } from "../lib/extensionDaemon";
 
 const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
@@ -42,6 +43,9 @@ export function Demo() {
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ step: "idle" });
   const [daemonReady, setDaemonReady] = useState(false);
   const sdkScriptRef = useRef<HTMLScriptElement | null>(null);
+  const [relaySignerAddress, setRelaySignerAddress] = useState<string>("");
+  const [relayKeyInput, setRelayKeyInput] = useState("");
+  const [relayKeyError, setRelayKeyError] = useState<string | null>(null);
 
   // Load publisher SDK
   useEffect(() => {
@@ -157,7 +161,10 @@ export function Demo() {
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
               User View — Extension Popup
             </div>
-            <ExtensionApplet onDaemonReady={() => setDaemonReady(true)} />
+            <ExtensionApplet onDaemonReady={() => {
+              setDaemonReady(true);
+              setRelaySignerAddress(getRelaySignerAddress());
+            }} />
           </div>
 
           {/* Right — publisher view */}
@@ -253,6 +260,62 @@ export function Demo() {
                   <span style={{ color }}>{value}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Relay signer panel */}
+            <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                In-Page Relay Signer
+              </div>
+              {relaySignerAddress ? (
+                <>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ok)", marginBottom: 6, wordBreak: "break-all" }}>
+                    {relaySignerAddress}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8, lineHeight: 1.5 }}>
+                    This wallet co-signs your impression claims in-browser.
+                    Register this address as your campaign's relay signer on-chain to earn attestation rewards.
+                    The key is stored locally and never sent anywhere.
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      value={relayKeyInput}
+                      onChange={(e) => { setRelayKeyInput(e.target.value); setRelayKeyError(null); }}
+                      placeholder="Paste a private key to use your own signer"
+                      style={{
+                        flex: 1, background: "var(--bg-surface)", border: `1px solid ${relayKeyError ? "var(--error)" : "var(--border)"}`,
+                        borderRadius: 4, padding: "4px 8px", color: "var(--text)",
+                        fontFamily: "var(--font-mono)", fontSize: 11, outline: "none", minWidth: 0,
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!relayKeyInput.trim()) return;
+                        const ok = importRelaySignerKey(relayKeyInput.trim());
+                        if (ok) {
+                          setRelaySignerAddress(getRelaySignerAddress());
+                          setRelayKeyInput("");
+                          setRelayKeyError(null);
+                        } else {
+                          setRelayKeyError("Invalid key");
+                        }
+                      }}
+                      style={{
+                        background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+                        borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-mono)",
+                        fontSize: 11, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap",
+                      }}
+                    >
+                      Import
+                    </button>
+                  </div>
+                  {relayKeyError && (
+                    <div style={{ fontSize: 11, color: "var(--error)", marginTop: 4 }}>{relayKeyError}</div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Starting daemon...</div>
+              )}
             </div>
 
             {/* What to try */}

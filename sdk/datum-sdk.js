@@ -138,33 +138,34 @@
     var challenge = detail.challenge || "";
     var nonce = detail.nonce || "";
 
-    // Simple HMAC-like response: hash(publisher + challenge + nonce)
-    // In production, this would use the publisher's signing key
-    var responseData = publisherAddress + ":" + challenge + ":" + nonce;
-
-    // Use SubtleCrypto if available for a real hash, otherwise a simple checksum
+    // HMAC-SHA-256(key=publisherAddress, msg=challenge:nonce)
+    // Must match handshake.ts computeExpectedSignature() in the extension.
     if (window.crypto && window.crypto.subtle) {
       var encoder = new TextEncoder();
-      window.crypto.subtle
-        .digest("SHA-256", encoder.encode(responseData))
-        .then(function (hashBuffer) {
-          var hashArray = Array.from(new Uint8Array(hashBuffer));
-          var hashHex = hashArray
-            .map(function (b) { return b.toString(16).padStart(2, "0"); })
-            .join("");
-
-          document.dispatchEvent(
-            new CustomEvent("datum:response", {
-              detail: {
-                publisher: publisherAddress,
-                challenge: challenge,
-                nonce: nonce,
-                signature: "0x" + hashHex,
-                version: VERSION,
-              },
-            })
-          );
-        });
+      window.crypto.subtle.importKey(
+        "raw",
+        encoder.encode(publisherAddress),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      ).then(function (key) {
+        return window.crypto.subtle.sign("HMAC", key, encoder.encode(challenge + ":" + nonce));
+      }).then(function (sigBuffer) {
+        var hashHex = Array.from(new Uint8Array(sigBuffer))
+          .map(function (b) { return b.toString(16).padStart(2, "0"); })
+          .join("");
+        document.dispatchEvent(
+          new CustomEvent("datum:response", {
+            detail: {
+              publisher: publisherAddress,
+              challenge: challenge,
+              nonce: nonce,
+              signature: "0x" + hashHex,
+              version: VERSION,
+            },
+          })
+        );
+      });
     } else {
       // Fallback: no crypto available, send empty signature (degraded trust)
       document.dispatchEvent(

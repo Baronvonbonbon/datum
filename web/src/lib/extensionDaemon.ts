@@ -10,6 +10,7 @@
  * up on the demo page.
  */
 
+import { Wallet } from "ethers";
 import { installChromeShim } from "./chromeShim";
 
 // Install shim synchronously at module evaluation time.
@@ -37,6 +38,81 @@ let _auction: any = null;
 let _matcher: any = null;
 
 let _mutexHeld = false;
+
+// ── In-page relay signer ───────────────────────────────────────────────────
+// Generates (or restores) an ephemeral EIP-712 signing wallet so the demo
+// page can attest impressions without an external relay server.
+// The key is persisted in localStorage under the datum_ext: namespace.
+
+const RELAY_SIGNER_LS_KEY = "datum_ext:relaySignerKey";
+// Paseo testnet chain ID
+const PASEO_CHAIN_ID = 420420417n;
+
+let _relayWallet: Wallet | null = null;
+
+function loadOrCreateRelayWallet(): Wallet {
+  if (_relayWallet) return _relayWallet;
+  const stored = localStorage.getItem(RELAY_SIGNER_LS_KEY);
+  if (stored) {
+    try {
+      _relayWallet = new Wallet(stored);
+      return _relayWallet;
+    } catch { /* invalid stored key — regenerate */ }
+  }
+  _relayWallet = Wallet.createRandom();
+  localStorage.setItem(RELAY_SIGNER_LS_KEY, _relayWallet.privateKey);
+  return _relayWallet;
+}
+
+async function signPublisherAttestation(
+  campaignId: string,
+  user: string,
+  firstNonce: string,
+  lastNonce: string,
+  claimCount: number,
+  relayAddress: string,
+): Promise<string> {
+  const wallet = loadOrCreateRelayWallet();
+  const domain = {
+    name: "DatumRelay",
+    version: "1",
+    chainId: PASEO_CHAIN_ID,
+    verifyingContract: relayAddress as `0x${string}`,
+  };
+  const types = {
+    PublisherAttestation: [
+      { name: "campaignId", type: "uint256" },
+      { name: "user",       type: "address" },
+      { name: "firstNonce", type: "uint256" },
+      { name: "lastNonce",  type: "uint256" },
+      { name: "claimCount", type: "uint256" },
+    ],
+  };
+  const value = {
+    campaignId: BigInt(campaignId),
+    user,
+    firstNonce: BigInt(firstNonce),
+    lastNonce: BigInt(lastNonce),
+    claimCount: BigInt(claimCount),
+  };
+  return wallet.signTypedData(domain, types, value);
+}
+
+/** Get the relay signer wallet address (creates one if none exists). */
+export function getRelaySignerAddress(): string {
+  return loadOrCreateRelayWallet().address;
+}
+
+/** Import a custom relay signer private key. Returns false if invalid. */
+export function importRelaySignerKey(privateKey: string): boolean {
+  try {
+    _relayWallet = new Wallet(privateKey);
+    localStorage.setItem(RELAY_SIGNER_LS_KEY, _relayWallet.privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ── Message handler ────────────────────────────────────────────────────────
 
@@ -152,14 +228,21 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true };
     }
 
-    // ── Publisher attestation ──────────────────────────────────────────────
+    // ── Publisher attestation — signed locally by the in-page relay wallet ─
     case "REQUEST_PUBLISHER_ATTESTATION": {
-      if (!_attest) return { signature: undefined, error: "attestation unavailable" };
-      const result = await _attest.requestPublisherAttestation(
-        msg.publisherAddress, msg.campaignId, msg.userAddress,
-        msg.firstNonce, msg.lastNonce, msg.claimCount,
-      );
-      return { signature: result.signature || undefined, error: result.error };
+      try {
+        const stored = await chrome.storage.local.get("settings");
+        const relayAddr: string = stored.settings?.contractAddresses?.relay
+          ?? "0xFDF0dD9f81d1139Cb3CBc00b2CeeDE2dCdc97173"; // fallback: Paseo deployed address
+        const sig = await signPublisherAttestation(
+          msg.campaignId, msg.userAddress,
+          msg.firstNonce, msg.lastNonce, msg.claimCount,
+          relayAddr,
+        );
+        return { signature: sig };
+      } catch (err) {
+        return { signature: undefined, error: String(err) };
+      }
     }
 
     // ── Wallet events ──────────────────────────────────────────────────────
@@ -268,6 +351,14 @@ async function handleMessage(msg: any): Promise<unknown> {
     case "SET_PUBLISHER_RELAY":
       // No-op in demo (relay mapping not needed)
       return { ok: true };
+
+    case "GET_RELAY_SIGNER":
+      return { address: getRelaySignerAddress() };
+
+    case "SET_RELAY_SIGNER_KEY": {
+      const ok = importRelaySignerKey(msg.privateKey ?? "");
+      return { ok, address: ok ? getRelaySignerAddress() : undefined };
+    }
 
     case "REPORT_PAGE":
     case "REPORT_AD":

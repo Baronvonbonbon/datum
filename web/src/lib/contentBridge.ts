@@ -46,9 +46,15 @@ function clearPreviousAd() {
     _lastAdElement.remove();
     _lastAdElement = null;
   }
-  // Also clear the #datum-ad-slot contents
+  // Clear the shadow DOM wrapper — adSlot uses closed shadow mode so innerHTML is ignored.
+  // The shadow ref is stored on __datumShadow by injectAdSlotInline / injectDefaultAdInline.
   const slot = document.getElementById("datum-ad-slot");
-  if (slot) slot.innerHTML = "";
+  if (slot) {
+    const shadow = (slot as any).__datumShadow;
+    if (shadow) {
+      shadow.querySelector(".datum-inline-wrapper")?.remove();
+    }
+  }
 }
 
 /**
