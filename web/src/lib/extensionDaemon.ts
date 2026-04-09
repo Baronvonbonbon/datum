@@ -122,6 +122,8 @@ async function handleMessage(msg: any): Promise<unknown> {
     // ── Campaigns ──────────────────────────────────────────────────────────
     case "GET_ACTIVE_CAMPAIGNS": {
       const cached = _poller ? await _poller.getCachedSerialized() : [];
+      console.log(`[daemon] GET_ACTIVE_CAMPAIGNS: ${cached.length} campaigns`,
+        cached.length > 0 ? `(sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher})` : "");
       return { campaigns: cached };
     }
 
@@ -474,12 +476,14 @@ export async function startDaemon(): Promise<void> {
     await chrome.storage.local.set({ settings: existing });
   }
 
-  // Kick off first campaign poll.
+  // Kick off first campaign poll — await it so the bridge has data before auto-running.
   try {
     const s = (await chrome.storage.local.get("settings")).settings;
     if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
       console.log("[datum-daemon] starting campaign poll");
-      campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway).catch(console.warn);
+      await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
+      const cached = await campaignPoller.getCachedSerialized();
+      console.log(`[datum-daemon] poll complete: ${cached.length} campaigns loaded`);
     }
   } catch (e) {
     console.warn("[datum-daemon] initial poll failed:", e);

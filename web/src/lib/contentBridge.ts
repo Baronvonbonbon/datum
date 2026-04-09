@@ -35,6 +35,9 @@ export interface BridgeStatus {
   mechanism?: string;
   clearingCpmPlanck?: string;
   participants?: number;
+  totalCampaigns?: number;
+  activeCampaigns?: number;
+  matchedPool?: number;
   error?: string;
 }
 
@@ -113,12 +116,16 @@ export async function runContentBridge(
 
   report({ step: "matching" });
 
+  console.log("[bridge] SDK detected:", sdkInfo ? `publisher=${sdkInfo.publisher}, tags=${sdkInfo.tags?.join(",")}` : "null");
+
   // Publisher address: override > SDK tag > settings
   const publisherAddress: string =
     publisherOverride ?? sdkInfo?.publisher ?? settingsStored.settings?.publisherAddress ?? "";
 
   const campaigns: Array<Record<string, string>> = campaignsResp?.campaigns ?? [];
   const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1);
+
+  console.log(`[bridge] Campaigns: ${campaigns.length} total, ${activeCampaigns.length} active, publisher=${publisherAddress}`);
 
   // Build page tag hash set
   const pageTagHashes = new Set(tags.map((t: string) => tagHash(t).toLowerCase()));
@@ -170,9 +177,15 @@ export async function runContentBridge(
   }
 
   if (pool.length === 0) {
+    console.log("[bridge] No campaigns in pool after matching — showing house ad");
+    console.log(`[bridge] Page tag hashes (${pageTagHashes.size}):`, [...pageTagHashes].slice(0, 5));
+    if (activeCampaigns.length > 0) {
+      const sample = activeCampaigns[0];
+      console.log(`[bridge] Sample campaign: id=${sample.id}, publisher=${sample.publisher}, requiredTags=`, sample.requiredTags);
+    }
     const target = document.getElementById("datum-ad-slot");
     if (target) { injectDefaultAdInline(target); }
-    return report({ step: "house-ad" });
+    return report({ step: "house-ad", totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: 0 });
   }
 
   // Auction
@@ -282,5 +295,5 @@ export async function runContentBridge(
     });
   } catch { /* */ }
 
-  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants });
+  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: pool.length });
 }

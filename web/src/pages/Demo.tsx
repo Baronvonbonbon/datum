@@ -46,6 +46,7 @@ export function Demo() {
   const [relaySignerAddress, setRelaySignerAddress] = useState<string>("");
   const [relayKeyInput, setRelayKeyInput] = useState("");
   const [relayKeyError, setRelayKeyError] = useState<string | null>(null);
+  const [sdkTagsInput, setSdkTagsInput] = useState(PUBLISHER_TAGS);
 
   // Load publisher SDK
   useEffect(() => {
@@ -173,44 +174,60 @@ export function Demo() {
               Publisher View — Ad Slot
             </div>
 
-            {/* Publisher address input + auction trigger */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
-                Publisher Address
+            {/* Publisher config + auction trigger */}
+            <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                SDK Configuration
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
+
+              {/* Publisher address */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-publisher</div>
                 <input
                   value={publisherInput}
                   onChange={(e) => setPublisherInput(e.target.value)}
-                  style={{
-                    flex: 1, background: "var(--bg-surface)", border: "1px solid var(--border)",
-                    borderRadius: 4, padding: "5px 8px", color: "var(--text)",
-                    fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
-                    minWidth: 0,
-                  }}
+                  style={inputStyle}
                   placeholder="0x..."
                 />
-                <button
-                  onClick={() => {
-                    // Update the SDK script tag's data-publisher attribute
-                    if (sdkScriptRef.current) {
-                      sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
-                    }
-                    setPublisherAddress(publisherInput);
-                    runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
-                  }}
-                  disabled={!daemonReady}
-                  style={{
-                    background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-                    border: "1px solid var(--border)", borderRadius: 4,
-                    color: daemonReady ? "var(--text)" : "var(--text-muted)",
-                    fontFamily: "var(--font-mono)", fontSize: 11, padding: "5px 10px",
-                    cursor: daemonReady ? "pointer" : "not-allowed", whiteSpace: "nowrap",
-                  }}
-                >
-                  Run Auction
-                </button>
               </div>
+
+              {/* SDK tags */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-tags</div>
+                <input
+                  value={sdkTagsInput}
+                  onChange={(e) => setSdkTagsInput(e.target.value)}
+                  style={inputStyle}
+                  placeholder="topic:crypto-web3,topic:defi,locale:en"
+                />
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.4 }}>
+                  Comma-separated tags. Campaigns match when the publisher has all of the campaign's required tags.
+                  Use the Tag Dictionary below for valid values.
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  // Update the SDK script tag attributes
+                  if (sdkScriptRef.current) {
+                    sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
+                    sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
+                  }
+                  setPublisherAddress(publisherInput);
+                  runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
+                }}
+                disabled={!daemonReady}
+                style={{
+                  width: "100%",
+                  background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                  border: "1px solid var(--border)", borderRadius: 4,
+                  color: daemonReady ? "var(--text)" : "var(--text-muted)",
+                  fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
+                  cursor: daemonReady ? "pointer" : "not-allowed",
+                }}
+              >
+                {daemonReady ? "Run Auction" : "Loading campaigns from Paseo..."}
+              </button>
             </div>
 
             {/* Auction status */}
@@ -219,7 +236,9 @@ export function Demo() {
                 <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
                 {[
                   ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
-                  ...(bridgeStatus.campaignId ? [["Campaign", `#${bridgeStatus.campaignId}`, "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.totalCampaigns != null ? [["Campaigns", `${bridgeStatus.activeCampaigns} active / ${bridgeStatus.totalCampaigns} total`, "var(--text-muted)"]] : []),
+                  ...(bridgeStatus.matchedPool != null ? [["Matched", `${bridgeStatus.matchedPool} in pool`, bridgeStatus.matchedPool > 0 ? "var(--ok)" : "var(--warn)"]] : []),
+                  ...(bridgeStatus.campaignId ? [["Winner", `#${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
                   ...(bridgeStatus.mechanism ? [["Mechanism", bridgeStatus.mechanism, "var(--text-muted)"]] : []),
                   ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
                   ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
@@ -446,6 +465,13 @@ function formatPlanck(planck: string): string {
     return `${dot.toFixed(4)} DOT`;
   } catch { return planck; }
 }
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)",
+  borderRadius: 4, padding: "5px 8px", color: "var(--text)",
+  fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
+  boxSizing: "border-box",
+};
 
 const p: React.CSSProperties = { color: "var(--text)", fontSize: 14, marginBottom: 10, lineHeight: 1.7 };
 const pre: React.CSSProperties = {
