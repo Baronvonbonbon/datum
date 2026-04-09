@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
-import { getRelaySignerAddress, importRelaySignerKey } from "../lib/extensionDaemon";
+import { getRelaySignerAddress, importRelaySignerKey, getCampaignCount, repollCampaigns } from "../lib/extensionDaemon";
 
 const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
@@ -47,6 +47,8 @@ export function Demo() {
   const [relayKeyInput, setRelayKeyInput] = useState("");
   const [relayKeyError, setRelayKeyError] = useState<string | null>(null);
   const [sdkTagsInput, setSdkTagsInput] = useState(PUBLISHER_TAGS);
+  const [campaignCount, setCampaignCount] = useState<number | null>(null);
+  const [repolling, setRepolling] = useState(false);
 
   // Load publisher SDK
   useEffect(() => {
@@ -165,6 +167,7 @@ export function Demo() {
             <ExtensionApplet onDaemonReady={() => {
               setDaemonReady(true);
               setRelaySignerAddress(getRelaySignerAddress());
+              getCampaignCount().then(setCampaignCount);
             }} />
           </div>
 
@@ -206,28 +209,54 @@ export function Demo() {
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  // Update the SDK script tag attributes
-                  if (sdkScriptRef.current) {
-                    sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
-                    sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
-                  }
-                  setPublisherAddress(publisherInput);
-                  runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
-                }}
-                disabled={!daemonReady}
-                style={{
-                  width: "100%",
-                  background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-                  border: "1px solid var(--border)", borderRadius: 4,
-                  color: daemonReady ? "var(--text)" : "var(--text-muted)",
-                  fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
-                  cursor: daemonReady ? "pointer" : "not-allowed",
-                }}
-              >
-                {daemonReady ? "Run Auction" : "Loading campaigns from Paseo..."}
-              </button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => {
+                    if (sdkScriptRef.current) {
+                      sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
+                      sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
+                    }
+                    setPublisherAddress(publisherInput);
+                    runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
+                  }}
+                  disabled={!daemonReady}
+                  style={{
+                    flex: 1,
+                    background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)", borderRadius: 4,
+                    color: daemonReady ? "var(--text)" : "var(--text-muted)",
+                    fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
+                    cursor: daemonReady ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {daemonReady
+                    ? `Run Auction${campaignCount != null ? ` (${campaignCount} campaigns)` : ""}`
+                    : "Loading campaigns from Paseo..."}
+                </button>
+                {daemonReady && (
+                  <button
+                    onClick={async () => {
+                      setRepolling(true);
+                      try {
+                        const n = await repollCampaigns();
+                        setCampaignCount(n);
+                      } finally {
+                        setRepolling(false);
+                      }
+                    }}
+                    disabled={repolling}
+                    title="Clear poller cache and re-fetch all campaigns from chain"
+                    style={{
+                      background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
+                      borderRadius: 4, color: repolling ? "var(--text-muted)" : "var(--text)",
+                      fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 8px",
+                      cursor: repolling ? "not-allowed" : "pointer", whiteSpace: "nowrap",
+                    }}
+                  >
+                    {repolling ? "…" : "↺"}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Auction status */}

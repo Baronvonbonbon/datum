@@ -114,6 +114,26 @@ export function importRelaySignerKey(privateKey: string): boolean {
   }
 }
 
+/** Return the number of campaigns currently in the local cache. */
+export async function getCampaignCount(): Promise<number> {
+  if (!_poller) return 0;
+  const cached = await _poller.getCachedSerialized();
+  return cached.length;
+}
+
+/** Clear the poller scan state and re-run a full campaign poll. */
+export async function repollCampaigns(): Promise<number> {
+  if (!_poller) return 0;
+  const stored = await chrome.storage.local.get("settings");
+  const s = stored.settings;
+  if (!s?.rpcUrl || !s?.contractAddresses?.campaigns) return 0;
+  await _poller.reset();
+  await _poller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
+  const cached = await _poller.getCachedSerialized();
+  console.log(`[datum-daemon] repoll complete: ${cached.length} campaigns`);
+  return cached.length;
+}
+
 // ── Message handler ────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
