@@ -479,13 +479,14 @@ export async function startDaemon(): Promise<void> {
   // Kick off first campaign poll — await it so the bridge has data before auto-running.
   try {
     const s = (await chrome.storage.local.get("settings")).settings;
-    console.log("[datum-daemon] settings:", JSON.stringify({
-      rpcUrl: s?.rpcUrl,
-      campaigns: s?.contractAddresses?.campaigns,
-      budgetLedger: s?.contractAddresses?.budgetLedger,
-      ipfsGateway: s?.ipfsGateway,
-    }));
     if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
+      // If no campaigns are cached (e.g. previous run had a broken ABI), reset the
+      // scan cursor so the poller does a full historical event scan this time.
+      const preCached = await campaignPoller.getCachedSerialized();
+      if (preCached.length === 0) {
+        console.log("[datum-daemon] no cached campaigns — resetting poller scan state for full historical query");
+        await campaignPoller.reset();
+      }
       console.log("[datum-daemon] starting campaign poll");
       await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
       const cached = await campaignPoller.getCachedSerialized();
@@ -494,7 +495,10 @@ export async function startDaemon(): Promise<void> {
         console.log(`[datum-daemon] sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher}`);
       }
     } else {
-      console.warn("[datum-daemon] missing rpcUrl or campaigns address — skipping poll");
+      console.warn("[datum-daemon] missing rpcUrl or campaigns address — skipping poll", {
+        rpcUrl: s?.rpcUrl,
+        campaigns: s?.contractAddresses?.campaigns,
+      });
     }
   } catch (e) {
     console.warn("[datum-daemon] initial poll failed:", e);
