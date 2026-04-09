@@ -11,6 +11,13 @@ const EXT_MARKER = `${path.sep}alpha-3${path.sep}extension${path.sep}src${path.s
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    /**
+     * Force bare-module imports from extension source files to always resolve
+     * from web/node_modules, not from the extension's own node_modules (which
+     * isn't installed in CI/Cloudflare where only `cd web && npm install` runs).
+     */
+    dedupe: ["ethers", "react", "react-dom", "@noble/hashes"],
+
     alias: [
       /**
        * "@shared/..." — context-sensitive redirect:
