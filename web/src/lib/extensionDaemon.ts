@@ -479,11 +479,22 @@ export async function startDaemon(): Promise<void> {
   // Kick off first campaign poll — await it so the bridge has data before auto-running.
   try {
     const s = (await chrome.storage.local.get("settings")).settings;
+    console.log("[datum-daemon] settings:", JSON.stringify({
+      rpcUrl: s?.rpcUrl,
+      campaigns: s?.contractAddresses?.campaigns,
+      budgetLedger: s?.contractAddresses?.budgetLedger,
+      ipfsGateway: s?.ipfsGateway,
+    }));
     if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
       console.log("[datum-daemon] starting campaign poll");
       await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
       const cached = await campaignPoller.getCachedSerialized();
       console.log(`[datum-daemon] poll complete: ${cached.length} campaigns loaded`);
+      if (cached.length > 0) {
+        console.log(`[datum-daemon] sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher}`);
+      }
+    } else {
+      console.warn("[datum-daemon] missing rpcUrl or campaigns address — skipping poll");
     }
   } catch (e) {
     console.warn("[datum-daemon] initial poll failed:", e);

@@ -1,4 +1,4 @@
-import { Contract, JsonRpcProvider, Signer } from "ethers";
+import { Contract, JsonRpcProvider, Signer, InterfaceAbi } from "ethers";
 import DatumCampaignsAbi from "./abis/DatumCampaigns.json";
 import DatumPublishersAbi from "./abis/DatumPublishers.json";
 import DatumGovernanceV2Abi from "./abis/DatumGovernanceV2.json";
@@ -24,88 +24,95 @@ import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider;
 
+// ABI JSON files may be either a bare array [...] or a Hardhat artifact { abi: [...] }.
+// Normalize so both formats work across webpack (extension) and Vite (web demo).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function abi(imported: any): InterfaceAbi {
+  return Array.isArray(imported) ? imported : imported.abi;
+}
+
 export function getCampaignsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.campaigns, DatumCampaignsAbi.abi, provider);
+  return new Contract(addresses.campaigns, abi(DatumCampaignsAbi), provider);
 }
 
 export function getPublishersContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.publishers, DatumPublishersAbi.abi, provider);
+  return new Contract(addresses.publishers, abi(DatumPublishersAbi), provider);
 }
 
 export function getGovernanceV2Contract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.governanceV2, DatumGovernanceV2Abi.abi, provider);
+  return new Contract(addresses.governanceV2, abi(DatumGovernanceV2Abi), provider);
 }
 
 export function getGovernanceSlashContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.governanceSlash, DatumGovernanceSlashAbi.abi, provider);
+  return new Contract(addresses.governanceSlash, abi(DatumGovernanceSlashAbi), provider);
 }
 
 export function getSettlementContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.settlement, DatumSettlementAbi.abi, provider);
+  return new Contract(addresses.settlement, abi(DatumSettlementAbi), provider);
 }
 
 export function getRelayContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.relay, DatumRelayAbi.abi, provider);
+  return new Contract(addresses.relay, abi(DatumRelayAbi), provider);
 }
 
 export function getPauseRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.pauseRegistry, DatumPauseRegistryAbi.abi, provider);
+  return new Contract(addresses.pauseRegistry, abi(DatumPauseRegistryAbi), provider);
 }
 
 export function getTimelockContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.timelock, DatumTimelockAbi.abi, provider);
+  return new Contract(addresses.timelock, abi(DatumTimelockAbi), provider);
 }
 
 export function getPaymentVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.paymentVault, DatumPaymentVaultAbi.abi, provider);
+  return new Contract(addresses.paymentVault, abi(DatumPaymentVaultAbi), provider);
 }
 
 export function getBudgetLedgerContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.budgetLedger, DatumBudgetLedgerAbi.abi, provider);
+  return new Contract(addresses.budgetLedger, abi(DatumBudgetLedgerAbi), provider);
 }
 
 export function getLifecycleContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.lifecycle, DatumCampaignLifecycleAbi.abi, provider);
+  return new Contract(addresses.lifecycle, abi(DatumCampaignLifecycleAbi), provider);
 }
 
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.attestationVerifier, DatumAttestationVerifierAbi.abi, provider);
+  return new Contract(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
 }
 
 export function getTargetingRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.targetingRegistry, DatumTargetingRegistryAbi.abi, provider);
+  return new Contract(addresses.targetingRegistry, abi(DatumTargetingRegistryAbi), provider);
 }
 
 export function getReportsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.reports, DatumReportsAbi.abi, provider);
+  return new Contract(addresses.reports, abi(DatumReportsAbi), provider);
 }
 
 export function getRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.rateLimiter, DatumSettlementRateLimiterAbi.abi, provider);
+  return new Contract(addresses.rateLimiter, abi(DatumSettlementRateLimiterAbi), provider);
 }
 
 export function getReputationContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.reputation, DatumPublisherReputationAbi.abi, provider);
+  return new Contract(addresses.reputation, abi(DatumPublisherReputationAbi), provider);
 }
 
 export function getZKVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.zkVerifier, DatumZKVerifierAbi.abi, provider);
+  return new Contract(addresses.zkVerifier, abi(DatumZKVerifierAbi), provider);
 }
 
 export function getTokenRewardVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.tokenRewardVault, DatumTokenRewardVaultAbi.abi, provider);
+  return new Contract(addresses.tokenRewardVault, abi(DatumTokenRewardVaultAbi), provider);
 }
 
 export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.campaignValidator, DatumCampaignValidatorAbi.abi, provider);
+  return new Contract(addresses.campaignValidator, abi(DatumCampaignValidatorAbi), provider);
 }
 
 export function getClaimValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.claimValidator, DatumClaimValidatorAbi.abi, provider);
+  return new Contract(addresses.claimValidator, abi(DatumClaimValidatorAbi), provider);
 }
 
 export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return new Contract(addresses.governanceHelper, DatumGovernanceHelperAbi.abi, provider);
+  return new Contract(addresses.governanceHelper, abi(DatumGovernanceHelperAbi), provider);
 }
 
 // Helper: create a read-only provider for the given RPC URL
