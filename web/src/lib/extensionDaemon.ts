@@ -478,21 +478,20 @@ export async function startDaemon(): Promise<void> {
     autoSubmitIntervalMinutes: 60,
   };
 
-  if (!existing.contractAddresses?.campaigns) {
-    try {
-      const resp = await fetch("/deployed-addresses.json");
-      if (resp.ok) {
-        const addrs = await resp.json();
-        await chrome.storage.local.set({
-          settings: { ...existing, contractAddresses: { ...existing.contractAddresses, ...addrs } },
-        });
-        console.log("[datum-daemon] seeded contract addresses");
-      }
-    } catch (e) {
-      console.warn("[datum-daemon] could not load deployed-addresses.json", e);
+  // Always refresh contract addresses from deployed-addresses.json so stale
+  // localStorage from a previous deployment never blocks the poller.
+  try {
+    const resp = await fetch("/deployed-addresses.json");
+    if (resp.ok) {
+      const addrs = await resp.json();
+      const merged = { ...existing, contractAddresses: { ...existing.contractAddresses, ...addrs } };
+      await chrome.storage.local.set({ settings: merged });
+      console.log("[datum-daemon] contract addresses refreshed from deployed-addresses.json");
+    } else {
+      await chrome.storage.local.set({ settings: existing });
     }
-  } else {
-    // Ensure settings exist even if addresses already loaded
+  } catch (e) {
+    console.warn("[datum-daemon] could not load deployed-addresses.json", e);
     await chrome.storage.local.set({ settings: existing });
   }
 
@@ -500,12 +499,16 @@ export async function startDaemon(): Promise<void> {
   try {
     const s = (await chrome.storage.local.get("settings")).settings;
     if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
-      // If no campaigns are cached (e.g. previous run had a broken ABI), reset the
-      // scan cursor so the poller does a full historical event scan this time.
+      // Reset scan cursor if:
+      //  - No campaigns cached (previous run may have been broken), OR
+      //  - The stored campaigns address differs from the freshly-loaded one
+      //    (new deployment — old cached events came from the wrong contract).
       const preCached = await campaignPoller.getCachedSerialized();
-      if (preCached.length === 0) {
-        console.log("[datum-daemon] no cached campaigns — resetting poller scan state for full historical query");
+      const cachedAddr = (await chrome.storage.local.get("pollerCampaignsAddr")).pollerCampaignsAddr ?? "";
+      if (preCached.length === 0 || cachedAddr.toLowerCase() !== s.contractAddresses.campaigns.toLowerCase()) {
+        console.log("[datum-daemon] resetting poller — campaigns address changed or cache empty");
         await campaignPoller.reset();
+        await chrome.storage.local.set({ pollerCampaignsAddr: s.contractAddresses.campaigns });
       }
       console.log("[datum-daemon] starting campaign poll");
       await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
