@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getSettlementContract, getAttestationVerifierContract, getProvider } from "@shared/contracts";
+import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
@@ -124,6 +124,48 @@ export function ClaimQueue({ address }: Props) {
     return stored.settings ?? DEFAULT_SETTINGS;
   }
 
+  /** Fetch actual on-chain remaining budgets for a set of campaign IDs.
+   *  Falls back to a large sentinel (no truncation) if the contract call fails. */
+  async function fetchOnChainBudgets(
+    campaignIds: string[],
+    settings: StoredSettings,
+  ): Promise<Record<string, bigint>> {
+    const budgetMap: Record<string, bigint> = {};
+    if (!settings.contractAddresses.budgetLedger || campaignIds.length === 0) return budgetMap;
+    try {
+      const provider = getProvider(settings.rpcUrl);
+      const ledger = getBudgetLedgerContract(settings.contractAddresses, provider);
+      await Promise.all(campaignIds.map(async (id) => {
+        try {
+          budgetMap[id] = BigInt(await ledger.getRemainingBudget(BigInt(id)));
+        } catch { /* leave unset → no truncation for this campaign */ }
+      }));
+    } catch { /* network error → no truncation */ }
+    return budgetMap;
+  }
+
+  /** Truncate claims in each batch so total payment ≤ on-chain remaining budget.
+   *  Drops batches that have zero affordable claims.
+   *  Payment per claim: impressionCount * clearingCpmPlanck / 1000 (planck). */
+  function applyBudgetFilter(
+    batches: SerializedClaimBatch[],
+    budgetMap: Record<string, bigint>,
+  ): SerializedClaimBatch[] {
+    const result: SerializedClaimBatch[] = [];
+    for (const b of batches) {
+      let budget = budgetMap[b.campaignId] ?? BigInt("999999999999999999"); // unknown → no truncation
+      const affordable: typeof b.claims = [];
+      for (const c of b.claims) {
+        const payment = (BigInt(c.impressionCount) * BigInt(c.clearingCpmPlanck)) / 1000n;
+        if (payment > budget) break; // chain must stay sequential — stop here
+        affordable.push(c);
+        budget -= payment;
+      }
+      if (affordable.length > 0) result.push({ ...b, claims: affordable });
+    }
+    return result;
+  }
+
   async function submitAll() {
     if (!address) return;
     setError(null);
@@ -162,29 +204,12 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
 
-      // Budget check: fetch cached remaining budgets and truncate claims to
-      // what each campaign can actually pay. E16 reverts the entire tx so a
-      // single exhausted campaign would kill all others in the same chunk.
-      const campaignsResp = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" });
-      const budgetMap: Record<string, bigint> = {};
-      for (const c of (campaignsResp?.campaigns ?? [])) {
-        budgetMap[c.id] = BigInt(c.remainingBudget ?? 0);
-      }
-
-      // Truncate each batch so total payment ≤ remaining budget.
-      // Payment per claim = impressionCount * clearingCpmPlanck / 1000 (planck).
-      const budgetCheckedBatches: SerializedClaimBatch[] = [];
-      for (const b of serializedBatches) {
-        let budget = budgetMap[b.campaignId] ?? BigInt("999999999999999"); // unknown → no truncation
-        const affordable: typeof b.claims = [];
-        for (const c of b.claims) {
-          const payment = (BigInt(c.impressionCount) * BigInt(c.clearingCpmPlanck)) / 1000n;
-          if (payment > budget) break; // chain must stay sequential — stop here
-          affordable.push(c);
-          budget -= payment;
-        }
-        if (affordable.length > 0) budgetCheckedBatches.push({ ...b, claims: affordable });
-      }
+      // Budget check: fetch CURRENT on-chain remaining budgets so stale poller
+      // cache doesn't let us submit claims that exceed the actual balance.
+      // E16 hard-reverts the entire tx — one exhausted campaign kills all others.
+      const campaignIds = [...new Set(serializedBatches.map((b) => b.campaignId))];
+      const budgetMap = await fetchOnChainBudgets(campaignIds, settings);
+      const budgetCheckedBatches = applyBudgetFilter(serializedBatches, budgetMap);
 
       // Split any campaign batch with >50 claims into ≤50-claim sub-batches
       // BEFORE attestation so each sub-batch gets its own correctly-scoped signature.
@@ -389,17 +414,26 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
 
-      // Request publisher attestation
-      const claimsLen = serializedBatch.claims.length;
+      // Budget check: fetch on-chain remaining budget and truncate claims.
+      const budgetMap = await fetchOnChainBudgets([serializedBatch.campaignId], settings);
+      const [trimmed] = applyBudgetFilter([serializedBatch], budgetMap);
+      if (!trimmed) {
+        setError("Campaign has insufficient remaining budget.");
+        return;
+      }
+      const trimmedBatch: SerializedClaimBatch = trimmed;
+
+      // Request publisher attestation (use trimmedBatch — may have fewer claims than original)
+      const claimsLen = trimmedBatch.claims.length;
       let publisherSig = "0x";
       try {
         const attestResponse = await chrome.runtime.sendMessage({
           type: "REQUEST_PUBLISHER_ATTESTATION",
-          publisherAddress: serializedBatch.claims[0]?.publisher ?? "",
-          campaignId: serializedBatch.campaignId,
-          userAddress: serializedBatch.user,
-          firstNonce: serializedBatch.claims[0].nonce,
-          lastNonce: serializedBatch.claims[claimsLen - 1].nonce,
+          publisherAddress: trimmedBatch.claims[0]?.publisher ?? "",
+          campaignId: trimmedBatch.campaignId,
+          userAddress: trimmedBatch.user,
+          firstNonce: trimmedBatch.claims[0].nonce,
+          lastNonce: trimmedBatch.claims[claimsLen - 1].nonce,
           claimCount: claimsLen,
         });
         if (attestResponse?.signature) publisherSig = attestResponse.signature;
@@ -409,9 +443,9 @@ export function ClaimQueue({ address }: Props) {
       }
 
       const attestedBatch = {
-        user: serializedBatch.user,
-        campaignId: BigInt(serializedBatch.campaignId),
-        claims: serializedBatch.claims.map((c) => ({
+        user: trimmedBatch.user,
+        campaignId: BigInt(trimmedBatch.campaignId),
+        claims: trimmedBatch.claims.map((c) => ({
           campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
           impressionCount: BigInt(c.impressionCount),
