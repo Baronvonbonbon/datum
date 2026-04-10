@@ -125,22 +125,25 @@ export function ClaimQueue({ address }: Props) {
   }
 
   /** Fetch actual on-chain remaining budgets for a set of campaign IDs.
-   *  Falls back to a large sentinel (no truncation) if the contract call fails. */
+   *  Per-campaign fetch failure → 0n (conservative: skip those claims rather than risk E16).
+   *  Total network failure → throws so the caller can surface an error to the user. */
   async function fetchOnChainBudgets(
     campaignIds: string[],
     settings: StoredSettings,
   ): Promise<Record<string, bigint>> {
     const budgetMap: Record<string, bigint> = {};
     if (!settings.contractAddresses.budgetLedger || campaignIds.length === 0) return budgetMap;
-    try {
-      const provider = getProvider(settings.rpcUrl);
-      const ledger = getBudgetLedgerContract(settings.contractAddresses, provider);
-      await Promise.all(campaignIds.map(async (id) => {
-        try {
-          budgetMap[id] = BigInt(await ledger.getRemainingBudget(BigInt(id)));
-        } catch { /* leave unset → no truncation for this campaign */ }
-      }));
-    } catch { /* network error → no truncation */ }
+    // Throws on total network failure — caller must handle
+    const provider = getProvider(settings.rpcUrl);
+    const ledger = getBudgetLedgerContract(settings.contractAddresses, provider);
+    await Promise.all(campaignIds.map(async (id) => {
+      try {
+        budgetMap[id] = BigInt(await ledger.getRemainingBudget(BigInt(id)));
+      } catch {
+        // Single campaign lookup failed — treat as 0 so we don't risk E16
+        budgetMap[id] = 0n;
+      }
+    }));
     return budgetMap;
   }
 
@@ -153,7 +156,9 @@ export function ClaimQueue({ address }: Props) {
   ): SerializedClaimBatch[] {
     const result: SerializedClaimBatch[] = [];
     for (const b of batches) {
-      let budget = budgetMap[b.campaignId] ?? BigInt("999999999999999999"); // unknown → no truncation
+      // Unknown budget (budgetLedger not configured) → 0 to be safe
+      const budget0 = budgetMap[b.campaignId] ?? 0n;
+      let budget = budget0;
       const affordable: typeof b.claims = [];
       for (const c of b.claims) {
         const payment = (BigInt(c.impressionCount) * BigInt(c.clearingCpmPlanck)) / 1000n;
@@ -208,7 +213,12 @@ export function ClaimQueue({ address }: Props) {
       // cache doesn't let us submit claims that exceed the actual balance.
       // E16 hard-reverts the entire tx — one exhausted campaign kills all others.
       const campaignIds = [...new Set(serializedBatches.map((b) => b.campaignId))];
-      const budgetMap = await fetchOnChainBudgets(campaignIds, settings);
+      let budgetMap: Record<string, bigint>;
+      try {
+        budgetMap = await fetchOnChainBudgets(campaignIds, settings);
+      } catch (budgetErr) {
+        throw new Error(`Could not verify campaign budgets on-chain: ${String(budgetErr)}`);
+      }
       const budgetCheckedBatches = applyBudgetFilter(serializedBatches, budgetMap);
 
       // Split any campaign batch with >50 claims into ≤50-claim sub-batches
@@ -415,7 +425,12 @@ export function ClaimQueue({ address }: Props) {
       }
 
       // Budget check: fetch on-chain remaining budget and truncate claims.
-      const budgetMap = await fetchOnChainBudgets([serializedBatch.campaignId], settings);
+      let budgetMap: Record<string, bigint>;
+      try {
+        budgetMap = await fetchOnChainBudgets([serializedBatch.campaignId], settings);
+      } catch (budgetErr) {
+        throw new Error(`Could not verify campaign budget on-chain: ${String(budgetErr)}`);
+      }
       const [trimmed] = applyBudgetFilter([serializedBatch], budgetMap);
       if (!trimmed) {
         setError("Campaign has insufficient remaining budget.");
