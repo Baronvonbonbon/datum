@@ -45,12 +45,11 @@ let _lastAdElement: HTMLElement | null = null;
 
 /** Remove any previously injected in-page ad so the slot is clean before each run. */
 function clearPreviousAd() {
-  if (_lastAdElement) {
-    _lastAdElement.remove();
-    _lastAdElement = null;
-  }
-  // Clear the shadow DOM wrapper — adSlot uses closed shadow mode so innerHTML is ignored.
-  // The shadow ref is stored on __datumShadow by injectAdSlotInline / injectDefaultAdInline.
+  // Do NOT call _lastAdElement.remove() — injectAdSlotInline returns `target` which is
+  // the React-managed #datum-ad-slot container. Removing it from the DOM outside React
+  // causes the node to disappear permanently (React's reconciler won't re-insert it).
+  // Just clear the shadow DOM wrapper; the container stays put.
+  _lastAdElement = null;
   const slot = document.getElementById("datum-ad-slot");
   if (slot) {
     const shadow = (slot as any).__datumShadow;

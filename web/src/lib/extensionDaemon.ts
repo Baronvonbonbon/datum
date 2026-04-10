@@ -10,7 +10,8 @@
  * up on the demo page.
  */
 
-import { Wallet } from "ethers";
+import { Wallet, solidityPacked, ZeroHash } from "ethers";
+import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
 
 // Install shim synchronously at module evaluation time.
@@ -393,6 +394,68 @@ async function handleMessage(msg: any): Promise<unknown> {
         console.warn("[daemon] FETCH_IPFS_METADATA error:", e);
       }
       return { metadata: null };
+    }
+
+    case "IMPRESSION_RECORDED": {
+      // claimBuilder.ts is excluded from the daemon because it imports zkProof.ts which
+      // needs snarkjs (not bundled in the web app). Inline the essential claim-building
+      // here using blake2b from @noble/hashes (available in web/node_modules).
+      try {
+        const s2 = await chrome.storage.local.get(["connectedAddress", "activeCampaigns"]);
+        const userAddress: string | undefined = s2.connectedAddress;
+        if (!userAddress) return { ok: false, reason: "no_wallet" };
+
+        const campaigns: any[] = s2.activeCampaigns ?? [];
+        const campaign = campaigns.find((c: any) => c.id === String(msg.campaignId));
+        if (!campaign) {
+          console.warn(`[datum-daemon] IMPRESSION_RECORDED: campaign ${msg.campaignId} not in cache`);
+          return { ok: false, reason: "no_campaign" };
+        }
+
+        const CHAIN_KEY = `chainState:${userAddress}:${msg.campaignId}`;
+        const qs = await chrome.storage.local.get([CHAIN_KEY, "claimQueue"]);
+        const chain = qs[CHAIN_KEY] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
+
+        const campaignIdBig = BigInt(msg.campaignId);
+        const nonce = BigInt(chain.lastNonce + 1);
+        const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
+        const clearingCpm = msg.clearingCpmPlanck
+          ? BigInt(msg.clearingCpmPlanck)
+          : BigInt(campaign.bidCpmPlanck ?? "0");
+
+        // Blake2-256 matching Settlement._validateClaim() field order:
+        // (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
+        const packed = solidityPacked(
+          ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, nonce, prevHash]
+        );
+        const packedBytes = new Uint8Array(Buffer.from(packed.slice(2), "hex"));
+        const hashBytes = blake2b(packedBytes, { dkLen: 32 });
+        const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
+
+        await chrome.storage.local.set({
+          [CHAIN_KEY]: { userAddress, campaignId: msg.campaignId, lastNonce: Number(nonce), lastClaimHash: claimHash },
+        });
+
+        const queue: any[] = qs.claimQueue ?? [];
+        queue.push({
+          campaignId: msg.campaignId,
+          publisher: msg.publisherAddress,
+          impressionCount: "1",
+          clearingCpmPlanck: clearingCpm.toString(),
+          nonce: nonce.toString(),
+          previousClaimHash: prevHash,
+          claimHash,
+          zkProof: "0x",
+          userAddress,
+        });
+        await chrome.storage.local.set({ claimQueue: queue });
+        console.log(`[datum-daemon] Claim queued: campaign=${msg.campaignId} nonce=${nonce} user=${userAddress.slice(0, 8)}…`);
+        return { ok: true };
+      } catch (err) {
+        console.error("[datum-daemon] IMPRESSION_RECORDED error:", err);
+        return { ok: false, reason: String(err) };
+      }
     }
 
     case "UPDATE_INTEREST": {
