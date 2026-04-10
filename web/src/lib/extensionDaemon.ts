@@ -121,13 +121,16 @@ export async function getCampaignCount(): Promise<number> {
   return cached.length;
 }
 
-/** Clear the poller scan state and re-run a full campaign poll. */
+/** Clear the poller scan state and re-run a full campaign poll from the deploy block. */
 export async function repollCampaigns(): Promise<number> {
   if (!_poller) return 0;
   const stored = await chrome.storage.local.get("settings");
   const s = stored.settings;
   if (!s?.rpcUrl || !s?.contractAddresses?.campaigns) return 0;
   await _poller.reset();
+  // Re-seed from deploy block so repoll doesn't scan from block 0
+  const fb: number | undefined = (s.contractAddresses as any).fromBlock;
+  if (fb) await chrome.storage.local.set({ pollLastBlock: fb - 1 });
   await _poller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
   const cached = await _poller.getCachedSerialized();
   console.log(`[datum-daemon] repoll complete: ${cached.length} campaigns`);
@@ -487,6 +490,18 @@ export async function startDaemon(): Promise<void> {
       const merged = { ...existing, contractAddresses: { ...existing.contractAddresses, ...addrs } };
       await chrome.storage.local.set({ settings: merged });
       console.log("[datum-daemon] contract addresses refreshed from deployed-addresses.json");
+
+      // If deployed-addresses.json includes a fromBlock hint and the poller has no
+      // stored lastBlock yet, seed it so the first scan starts from the deploy block
+      // rather than block 0 (scanning 7M+ blocks is 700+ RPC calls and takes minutes).
+      const fromBlock: number | undefined = typeof addrs.fromBlock === "number" ? addrs.fromBlock : undefined;
+      if (fromBlock) {
+        const stored2 = await chrome.storage.local.get("pollLastBlock");
+        if (!stored2.pollLastBlock) {
+          await chrome.storage.local.set({ pollLastBlock: fromBlock - 1 });
+          console.log(`[datum-daemon] seeded pollLastBlock=${fromBlock - 1} from deployed-addresses.json`);
+        }
+      }
     } else {
       await chrome.storage.local.set({ settings: existing });
     }
@@ -512,6 +527,12 @@ export async function startDaemon(): Promise<void> {
           console.log("[datum-daemon] resetting poller — campaigns address changed or cache empty");
           await campaignPoller.reset();
           await chrome.storage.local.set({ pollerCampaignsAddr: s.contractAddresses.campaigns });
+          // Re-seed pollLastBlock to fromBlock so the reset scan doesn't start from 0
+          const fb: number | undefined = (s.contractAddresses as any).fromBlock;
+          if (fb) {
+            await chrome.storage.local.set({ pollLastBlock: fb - 1 });
+            console.log(`[datum-daemon] re-seeded pollLastBlock=${fb - 1} after reset`);
+          }
         }
         console.log("[datum-daemon] starting campaign poll (background)");
         await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
