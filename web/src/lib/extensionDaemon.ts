@@ -13,6 +13,8 @@
 import { Wallet, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
+// @ts-ignore
+import { getUnlockedWallet } from "@ext/shared/walletManager";
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -74,14 +76,15 @@ async function signPublisherAttestation(
   firstNonce: string,
   lastNonce: string,
   claimCount: number,
-  relayAddress: string,
+  attestationVerifierAddress: string,
+  signingWallet?: Wallet,
 ): Promise<string> {
-  const wallet = loadOrCreateRelayWallet();
+  const wallet = signingWallet ?? loadOrCreateRelayWallet();
   const domain = {
-    name: "DatumRelay",
+    name: "DatumAttestationVerifier",
     version: "1",
     chainId: PASEO_CHAIN_ID,
-    verifyingContract: relayAddress as `0x${string}`,
+    verifyingContract: attestationVerifierAddress as `0x${string}`,
   };
   const types = {
     PublisherAttestation: [
@@ -128,6 +131,7 @@ export interface DaemonDebugInfo {
   claimQueueCount: number;
   claimQueueAddresses: string[];
   lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null;
+  relaySignerAddress: string;
 }
 
 /** Read raw poller storage state — used by the demo debug panel. */
@@ -150,6 +154,7 @@ export async function getDebugInfo(): Promise<DaemonDebugInfo> {
     claimQueueCount: queue.length,
     claimQueueAddresses: [...addrSet],
     lastImpressionResult: _lastImpressionResult,
+    relaySignerAddress: getRelaySignerAddress(),
   };
 }
 
@@ -329,16 +334,54 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true };
     }
 
-    // ── Publisher attestation — signed locally by the in-page relay wallet ─
+    // ── Publisher attestation — signed by the publisher's own wallet ────────
+    // The DatumAttestationVerifier contract verifies the sig against:
+    //   campaigns.getCampaignRelaySigner(id) if set, else the publisher address.
+    // In the demo, the user IS the publisher, so we sign with their unlocked wallet.
+    // If the campaign has a dedicated relaySigner (e.g. Diana on testnet), the user
+    // must import that key via SET_RELAY_SIGNER_KEY so _relayWallet matches.
     case "REQUEST_PUBLISHER_ATTESTATION": {
       try {
-        const stored = await chrome.storage.local.get("settings");
-        const relayAddr: string = stored.settings?.contractAddresses?.relay
-          ?? "0xFDF0dD9f81d1139Cb3CBc00b2CeeDE2dCdc97173"; // fallback: Paseo deployed address
+        const stored = await chrome.storage.local.get(["settings", "activeCampaigns"]);
+        const attestationVerifierAddr: string =
+          stored.settings?.contractAddresses?.attestationVerifier
+          ?? "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af"; // fallback: Paseo deployed address
+
+        // Prefer the user's unlocked wallet (they are the publisher in demo context).
+        // Fall back to _relayWallet if the user has imported the campaign's relaySigner key.
+        const userWallet: Wallet | null = getUnlockedWallet?.() ?? null;
+
+        // Check what the campaign expects so we can pick the right wallet.
+        const campaigns: any[] = stored.activeCampaigns ?? [];
+        const campaign = campaigns.find((c: any) => c.id === String(msg.campaignId));
+        const campaignRelaySigner: string | undefined = campaign?.relaySigner;
+        const relayWallet = loadOrCreateRelayWallet();
+
+        let signingWallet: Wallet;
+        if (campaignRelaySigner && campaignRelaySigner !== "0x0000000000000000000000000000000000000000") {
+          // Campaign has a dedicated relaySigner — use _relayWallet if it matches, else warn.
+          if (relayWallet.address.toLowerCase() === campaignRelaySigner.toLowerCase()) {
+            signingWallet = relayWallet;
+          } else if (userWallet && userWallet.address.toLowerCase() === campaignRelaySigner.toLowerCase()) {
+            signingWallet = userWallet;
+          } else {
+            // Neither wallet matches — sign anyway so the UI proceeds; contract will reject.
+            console.warn(
+              `[datum-daemon] REQUEST_PUBLISHER_ATTESTATION: campaign ${msg.campaignId} relaySigner=${campaignRelaySigner} ` +
+              `but signing wallet is ${relayWallet.address}. Import the relaySigner key via SET_RELAY_SIGNER_KEY.`
+            );
+            signingWallet = userWallet ?? relayWallet;
+          }
+        } else {
+          // No dedicated relaySigner — publisher (user) signs directly.
+          signingWallet = userWallet ?? relayWallet;
+        }
+
         const sig = await signPublisherAttestation(
           msg.campaignId, msg.userAddress,
           msg.firstNonce, msg.lastNonce, msg.claimCount,
-          relayAddr,
+          attestationVerifierAddr,
+          signingWallet,
         );
         return { signature: sig };
       } catch (err) {
@@ -517,9 +560,18 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true };
     }
 
-    case "SET_PUBLISHER_RELAY":
-      // No-op in demo (relay mapping not needed)
+    case "SET_PUBLISHER_RELAY": {
+      // Store publisher→relay domain mapping so ClaimQueue relay submission can find it.
+      const pub: string = msg.publisher ?? "";
+      const relayRaw: string = msg.relay ?? "";
+      if (pub && relayRaw && /^0x[0-9a-fA-F]{40}$/.test(pub)) {
+        const domain = relayRaw.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+        const key = `publisherDomain:${pub.toLowerCase()}`;
+        await chrome.storage.local.set({ [key]: domain });
+        console.log(`[datum-daemon] Publisher relay set: ${pub.slice(0, 10)}… → ${domain}`);
+      }
       return { ok: true };
+    }
 
     case "GET_RELAY_SIGNER":
       return { address: getRelaySignerAddress() };
