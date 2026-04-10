@@ -30,7 +30,7 @@ const ERROR_CODES: Record<string, string> = {
   E27: "Bid is below the minimum CPM floor.",
 
   // Settlement
-  E28: "Batch too large (max 5 claims per batch).",
+  E28: "Batch too large (max 10 campaign batches or 50 claims per batch per tx).",
   E29: "Claim deadline has expired. Re-sign the claims.",
   E30: "Invalid user signature length.",
   E31: "Invalid user signature.",

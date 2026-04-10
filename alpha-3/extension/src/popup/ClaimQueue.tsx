@@ -162,9 +162,25 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
 
-      // Request publisher attestation for each batch (mandatory in alpha-2)
+      // Split any campaign batch with >50 claims into ≤50-claim sub-batches
+      // BEFORE attestation so each sub-batch gets its own correctly-scoped signature.
+      // (Contract: require(claims.length <= 50, "E28"))
+      const MAX_CLAIMS_PER_BATCH = 50;
+      const flatBatches: SerializedClaimBatch[] = [];
+      for (const b of serializedBatches) {
+        if (b.claims.length <= MAX_CLAIMS_PER_BATCH) {
+          flatBatches.push(b);
+        } else {
+          for (let j = 0; j < b.claims.length; j += MAX_CLAIMS_PER_BATCH) {
+            flatBatches.push({ ...b, claims: b.claims.slice(j, j + MAX_CLAIMS_PER_BATCH) });
+          }
+        }
+      }
+
+      // Request publisher attestation for each (sub-)batch.
+      // Each sub-batch gets its own EIP-712 sig covering its firstNonce/lastNonce/claimCount.
       const warnings: Record<string, string> = {};
-      const attestedBatches = await Promise.all(serializedBatches.map(async (b) => {
+      const attestedBatches = await Promise.all(flatBatches.map(async (b) => {
         const claimsLen = b.claims.length;
         let publisherSig = "0x";
         try {
@@ -202,15 +218,30 @@ export function ClaimQueue({ address }: Props) {
 
       const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
 
-      // Submit via AttestationVerifier in chunks of ≤10 batches (E28 limit).
+      // Build tx chunks: ≤10 campaign batches per tx, no duplicate campaignId in one tx
+      // (split sub-batches for the same campaign must go into separate sequential txs).
       const BATCH_CHUNK = 10;
+      const txChunks: (typeof attestedBatches)[] = [];
+      let curChunk: typeof attestedBatches = [];
+      const curCampaigns = new Set<string>();
+      for (const b of attestedBatches) {
+        const cid = b.campaignId.toString();
+        if (curChunk.length >= BATCH_CHUNK || curCampaigns.has(cid)) {
+          txChunks.push(curChunk);
+          curChunk = [];
+          curCampaigns.clear();
+        }
+        curChunk.push(b);
+        curCampaigns.add(cid);
+      }
+      if (curChunk.length > 0) txChunks.push(curChunk);
+
       let settledCount = 0n;
       let rejectedCount = 0n;
       let totalPaid = 0n;
       const allSettledBatches: typeof attestedBatches = [];
 
-      for (let i = 0; i < attestedBatches.length; i += BATCH_CHUNK) {
-        const chunk = attestedBatches.slice(i, i + BATCH_CHUNK);
+      for (const chunk of txChunks) {
         const tx = await attestationVerifier.settleClaimsAttested(chunk);
         const receipt = await tx.wait();
 
