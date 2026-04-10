@@ -495,35 +495,39 @@ export async function startDaemon(): Promise<void> {
     await chrome.storage.local.set({ settings: existing });
   }
 
-  // Kick off first campaign poll — await it so the bridge has data before auto-running.
-  try {
-    const s = (await chrome.storage.local.get("settings")).settings;
-    if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
-      // Reset scan cursor if:
-      //  - No campaigns cached (previous run may have been broken), OR
-      //  - The stored campaigns address differs from the freshly-loaded one
-      //    (new deployment — old cached events came from the wrong contract).
-      const preCached = await campaignPoller.getCachedSerialized();
-      const cachedAddr = (await chrome.storage.local.get("pollerCampaignsAddr")).pollerCampaignsAddr ?? "";
-      if (preCached.length === 0 || cachedAddr.toLowerCase() !== s.contractAddresses.campaigns.toLowerCase()) {
-        console.log("[datum-daemon] resetting poller — campaigns address changed or cache empty");
-        await campaignPoller.reset();
-        await chrome.storage.local.set({ pollerCampaignsAddr: s.contractAddresses.campaigns });
+  // Kick off first campaign poll in the background — do NOT await so the daemon
+  // resolves immediately and the UI stops showing "Starting extension daemon…".
+  // The bridge and popup will pick up campaigns once the poll completes.
+  (async () => {
+    try {
+      const s = (await chrome.storage.local.get("settings")).settings;
+      if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
+        // Reset scan cursor if:
+        //  - No campaigns cached (previous run may have been broken), OR
+        //  - The stored campaigns address differs from the freshly-loaded one
+        //    (new deployment — old cached events came from the wrong contract).
+        const preCached = await campaignPoller.getCachedSerialized();
+        const cachedAddr = (await chrome.storage.local.get("pollerCampaignsAddr")).pollerCampaignsAddr ?? "";
+        if (preCached.length === 0 || cachedAddr.toLowerCase() !== s.contractAddresses.campaigns.toLowerCase()) {
+          console.log("[datum-daemon] resetting poller — campaigns address changed or cache empty");
+          await campaignPoller.reset();
+          await chrome.storage.local.set({ pollerCampaignsAddr: s.contractAddresses.campaigns });
+        }
+        console.log("[datum-daemon] starting campaign poll (background)");
+        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
+        const cached = await campaignPoller.getCachedSerialized();
+        console.log(`[datum-daemon] poll complete: ${cached.length} campaigns loaded`);
+        if (cached.length > 0) {
+          console.log(`[datum-daemon] sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher}`);
+        }
+      } else {
+        console.warn("[datum-daemon] missing rpcUrl or campaigns address — skipping poll", {
+          rpcUrl: s?.rpcUrl,
+          campaigns: s?.contractAddresses?.campaigns,
+        });
       }
-      console.log("[datum-daemon] starting campaign poll");
-      await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
-      const cached = await campaignPoller.getCachedSerialized();
-      console.log(`[datum-daemon] poll complete: ${cached.length} campaigns loaded`);
-      if (cached.length > 0) {
-        console.log(`[datum-daemon] sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher}`);
-      }
-    } else {
-      console.warn("[datum-daemon] missing rpcUrl or campaigns address — skipping poll", {
-        rpcUrl: s?.rpcUrl,
-        campaigns: s?.contractAddresses?.campaigns,
-      });
+    } catch (e) {
+      console.warn("[datum-daemon] initial poll failed:", e);
     }
-  } catch (e) {
-    console.warn("[datum-daemon] initial poll failed:", e);
-  }
+  })();
 }

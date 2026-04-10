@@ -84,11 +84,24 @@ export function Demo() {
     };
   }, []);
 
-  // Auto-run the bridge once the daemon has loaded campaigns.
-  // sdk.ready is decorative (fires on DOMContentLoaded) — don't gate on it.
+  // Auto-run the bridge once the daemon is ready.
+  // The poll runs in background so the first run may find 0 campaigns.
+  // Retry every 8s until campaigns are found (poll is still in progress).
   useEffect(() => {
     if (!daemonReady) return;
-    runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+    let cancelled = false;
+    const run = async () => {
+      await runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+      if (cancelled) return;
+      // If no campaigns yet, schedule a retry
+      const cached = await getCampaignCount();
+      setCampaignCount(cached);
+      if (cached === 0 && !cancelled) {
+        setTimeout(run, 8000);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [daemonReady]);
 
