@@ -114,6 +114,31 @@ export function importRelaySignerKey(privateKey: string): boolean {
   }
 }
 
+export interface DaemonDebugInfo {
+  pollLastBlock: number | null;
+  campaignIndexCount: number;
+  activeCampaignsCount: number;
+  pollerCampaignsAddr: string;
+  sampleCampaign: { id: string; status: string; publisher: string } | null;
+}
+
+/** Read raw poller storage state — used by the demo debug panel. */
+export async function getDebugInfo(): Promise<DaemonDebugInfo> {
+  const stored = await chrome.storage.local.get([
+    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr",
+  ]);
+  const index: Record<string, any> = stored.campaignIndex ?? {};
+  const active: any[] = stored.activeCampaigns ?? [];
+  const sample = active[0] ?? Object.values(index)[0] ?? null;
+  return {
+    pollLastBlock: stored.pollLastBlock ?? null,
+    campaignIndexCount: Object.keys(index).length,
+    activeCampaignsCount: active.length,
+    pollerCampaignsAddr: stored.pollerCampaignsAddr ?? "",
+    sampleCampaign: sample ? { id: sample.id, status: sample.status, publisher: sample.publisher } : null,
+  };
+}
+
 /** Return the number of campaigns currently in the local cache. */
 export async function getCampaignCount(): Promise<number> {
   if (!_poller) return 0;
@@ -497,7 +522,9 @@ export async function startDaemon(): Promise<void> {
       const fromBlock: number | undefined = typeof addrs.fromBlock === "number" ? addrs.fromBlock : undefined;
       if (fromBlock) {
         const stored2 = await chrome.storage.local.get("pollLastBlock");
-        if (!stored2.pollLastBlock) {
+        // Always update if stored block is below the deploy block — this covers
+        // stale localStorage from runs before fromBlock seeding was added.
+        if (!stored2.pollLastBlock || Number(stored2.pollLastBlock) < fromBlock - 1) {
           await chrome.storage.local.set({ pollLastBlock: fromBlock - 1 });
           console.log(`[datum-daemon] seeded pollLastBlock=${fromBlock - 1} from deployed-addresses.json`);
         }

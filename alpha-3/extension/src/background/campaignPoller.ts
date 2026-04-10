@@ -18,8 +18,9 @@ const STORAGE_KEY = "activeCampaigns";
 const INDEX_KEY = "campaignIndex";       // Map<id, campaign> as Record<string,SerializedCampaign>
 const LAST_BLOCK_KEY = "pollLastBlock";  // last block scanned for events
 const METADATA_TTL_MS = 3600_000;        // 1 hour cache TTL for IPFS metadata
-const BATCH_SIZE = 20;                   // parallel RPC calls per batch
+const BATCH_SIZE = 5;                    // parallel RPC calls per batch (low to avoid Paseo rate limits)
 const EVENT_CHUNK_SIZE = 10_000;         // max block range per eth_getLogs request
+const CHUNK_DELAY_MS = 300;              // delay between eth_getLogs chunks to avoid rate limits
 
 // All fields stored as strings (already serialized from BigInt)
 interface SerializedCampaign {
@@ -88,6 +89,10 @@ export const campaignPoller = {
             const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
             const chunk = await contract.queryFilter(filter, chunkFrom, chunkTo);
             allEvents.push(...chunk);
+            // Throttle between chunks to avoid hitting Paseo public RPC rate limits
+            if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
+              await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+            }
           }
           for (const ev of allEvents) {
             const args = (ev as any).args;
@@ -122,12 +127,28 @@ export const campaignPoller = {
           }
         } catch (err) {
           console.warn("[DATUM] Event query failed, falling back to nextCampaignId scan:", err);
-          // Fallback: check if any new IDs exist beyond what we know
+          // Fallback: enumerate IDs via nextCampaignId and bootstrap stub entries.
+          // Without bootstrapping index, Phase 2 would never refresh the new IDs.
           try {
             const nextId = Number(await contract.nextCampaignId());
             for (let id = 1; id < nextId; id++) {
               const sid = id.toString();
-              if (!index[sid]) newCampaignIds.push(sid);
+              if (!index[sid]) {
+                newCampaignIds.push(sid);
+                index[sid] = {
+                  id: sid,
+                  advertiser: "",
+                  publisher: "",
+                  remainingBudget: "0",
+                  dailyCap: "0",
+                  bidCpmPlanck: "0",
+                  snapshotTakeRateBps: "0",
+                  status: CampaignStatus.Pending.toString(),
+                  categoryId: "0",
+                  pendingExpiryBlock: "0",
+                  terminationBlock: "0",
+                };
+              }
             }
           } catch { /* give up on discovery this cycle */ }
         }
@@ -142,6 +163,9 @@ export const campaignPoller = {
             const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
             const chunk = await contract.queryFilter(metaFilter, chunkFrom, chunkTo);
             allMetaEvents.push(...chunk);
+            if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
+              await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+            }
           }
           for (const ev of allMetaEvents) {
             const args = (ev as any).args;

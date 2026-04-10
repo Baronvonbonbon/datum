@@ -123,9 +123,11 @@ export async function runContentBridge(
     publisherOverride ?? sdkInfo?.publisher ?? settingsStored.settings?.publisherAddress ?? "";
 
   const campaigns: Array<Record<string, string>> = campaignsResp?.campaigns ?? [];
-  const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1);
+  // Include Active (1) and Pending (0) — status refresh sometimes lags on demo.
+  // Terminated (2), Expired (3), Completed (4) are excluded.
+  const activeCampaigns = campaigns.filter((c) => Number(c.status) <= 1);
 
-  console.log(`[bridge] Campaigns: ${campaigns.length} total, ${activeCampaigns.length} active, publisher=${publisherAddress}`);
+  console.log(`[bridge] Campaigns: ${campaigns.length} total, ${activeCampaigns.length} active/pending, publisher=${publisherAddress}`);
 
   // Build page tag hash set
   const pageTagHashes = new Set(tags.map((t: string) => tagHash(t).toLowerCase()));
@@ -166,7 +168,7 @@ export async function runContentBridge(
     return true;
   });
 
-  // Broad fallback
+  // Broad fallback 1: publisher-only match (no tag requirement)
   if (pool.length === 0) {
     pool = activeCampaigns.filter((c) => {
       if (c.publisher === "0x0000000000000000000000000000000000000000") {
@@ -174,6 +176,13 @@ export async function runContentBridge(
       }
       return c.publisher.toLowerCase() === publisherAddress.toLowerCase();
     });
+  }
+
+  // Broad fallback 2 (demo only): show ALL campaigns regardless of publisher/tags
+  // This ensures something is always served while testnet campaigns are warming up.
+  if (pool.length === 0 && activeCampaigns.length > 0) {
+    console.log("[bridge] Demo fallback: serving all campaigns regardless of publisher/tag match");
+    pool = activeCampaigns;
   }
 
   if (pool.length === 0) {

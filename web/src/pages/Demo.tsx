@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
-import { getRelaySignerAddress, importRelaySignerKey, getCampaignCount, repollCampaigns } from "../lib/extensionDaemon";
+import { getRelaySignerAddress, importRelaySignerKey, getCampaignCount, repollCampaigns, getDebugInfo, DaemonDebugInfo } from "../lib/extensionDaemon";
 
 const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
@@ -49,6 +49,7 @@ export function Demo() {
   const [sdkTagsInput, setSdkTagsInput] = useState(PUBLISHER_TAGS);
   const [campaignCount, setCampaignCount] = useState<number | null>(null);
   const [repolling, setRepolling] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DaemonDebugInfo | null>(null);
 
   // Load publisher SDK
   useEffect(() => {
@@ -103,6 +104,15 @@ export function Demo() {
     run();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonReady]);
+
+  // Poll debug info from storage every 3s while daemon is running
+  useEffect(() => {
+    if (!daemonReady) return;
+    const tick = () => getDebugInfo().then(setDebugInfo).catch(() => {});
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
   }, [daemonReady]);
 
   // Relay heartbeat
@@ -295,6 +305,22 @@ export function Demo() {
                     <span style={{ color }}>{value}</span>
                   </div>
                 ))}
+                {debugInfo && (
+                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
+                    <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 4 }}>Poller State</div>
+                    {[
+                      ["fromBlock", debugInfo.pollLastBlock != null ? String(debugInfo.pollLastBlock) : "not set", debugInfo.pollLastBlock ? "var(--ok)" : "var(--error)"],
+                      ["index", `${debugInfo.campaignIndexCount} entries`, debugInfo.campaignIndexCount > 0 ? "var(--ok)" : "var(--warn)"],
+                      ["cache", `${debugInfo.activeCampaignsCount} campaigns`, debugInfo.activeCampaignsCount > 0 ? "var(--ok)" : "var(--warn)"],
+                      ...(debugInfo.sampleCampaign ? [["sample", `#${debugInfo.sampleCampaign.id} status=${debugInfo.sampleCampaign.status} pub=${debugInfo.sampleCampaign.publisher.slice(0, 8)}…`, "var(--text-muted)"]] : []),
+                    ].map(([l, v, c]) => (
+                      <div key={l} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                        <span style={{ color: "var(--text)", minWidth: 90 }}>{l}</span>
+                        <span style={{ color: c, wordBreak: "break-all" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
