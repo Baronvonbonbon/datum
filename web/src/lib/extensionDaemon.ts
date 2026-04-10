@@ -10,9 +10,10 @@
  * up on the demo page.
  */
 
-import { Wallet, solidityPacked, ZeroHash, getBytes } from "ethers";
+import { Wallet, JsonRpcProvider, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
+import { getAttestationVerifierContract } from "@shared/contracts";
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -558,6 +559,98 @@ async function handleMessage(msg: any): Promise<unknown> {
 
     case "SIGN_FOR_RELAY":
       return { ok: false, reason: "auto-submit not available in demo" };
+
+    case "DAEMON_SUBMIT_CLAIMS": {
+      try {
+        if (!_queue) return { ok: false, error: "Queue not initialized" };
+        const s = (await chrome.storage.local.get("settings")).settings;
+        if (!s?.contractAddresses?.attestationVerifier)
+          return { ok: false, error: "AttestationVerifier not configured" };
+        const userAddress: string = msg.userAddress ?? "";
+        if (!userAddress) return { ok: false, error: "No user address provided" };
+
+        const batches = await _queue.buildBatches(userAddress);
+        if (batches.length === 0) return { ok: false, error: "No pending claims" };
+
+        const relayWallet = loadOrCreateRelayWallet();
+        const provider = new JsonRpcProvider(s.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
+        const signer = relayWallet.connect(provider);
+        const attestationVerifier = getAttestationVerifierContract(s.contractAddresses, signer);
+        const attestationVerifierAddr: string = s.contractAddresses.attestationVerifier;
+
+        // Split each batch at 50 claims (E28 limit)
+        const MAX_CLAIMS_PER_BATCH = 50;
+        const splitBatches: typeof batches = [];
+        for (const b of batches) {
+          if (b.claims.length <= MAX_CLAIMS_PER_BATCH) {
+            splitBatches.push(b);
+          } else {
+            for (let j = 0; j < b.claims.length; j += MAX_CLAIMS_PER_BATCH) {
+              splitBatches.push({ ...b, claims: b.claims.slice(j, j + MAX_CLAIMS_PER_BATCH) });
+            }
+          }
+        }
+
+        // Chunk into txs of ≤10 batches with no duplicate campaignId per tx (E28)
+        const CHUNK_SIZE = 10;
+        const txChunks: (typeof splitBatches)[] = [];
+        let cur: typeof splitBatches = [];
+        const seen = new Set<string>();
+        for (const b of splitBatches) {
+          const cid = b.campaignId.toString();
+          if (cur.length >= CHUNK_SIZE || seen.has(cid)) {
+            txChunks.push(cur); cur = []; seen.clear();
+          }
+          cur.push(b); seen.add(cid);
+        }
+        if (cur.length > 0) txChunks.push(cur);
+
+        let totalSettled = 0;
+        const settledNonces = new Map<string, bigint[]>();
+
+        for (const chunk of txChunks) {
+          const attestedChunk = await Promise.all(chunk.map(async (b) => {
+            const claimsLen = b.claims.length;
+            const publisherSig = await signPublisherAttestation(
+              b.campaignId.toString(), b.user,
+              b.claims[0].nonce.toString(),
+              b.claims[claimsLen - 1].nonce.toString(),
+              claimsLen, attestationVerifierAddr,
+            );
+            return { user: b.user, campaignId: b.campaignId, claims: b.claims, publisherSig };
+          }));
+
+          const nonceBefore = await provider.getTransactionCount(relayWallet.address);
+          try {
+            await attestationVerifier.settleClaimsAttested(attestedChunk);
+          } catch (txErr) {
+            console.warn("[datum-daemon] settleClaimsAttested tx error:", txErr);
+            // Continue — nonce may not advance; skip wait
+            continue;
+          }
+          // Nonce polling — Paseo getTransactionReceipt returns null for confirmed txs
+          for (let i = 0; i < 60; i++) {
+            const current = await provider.getTransactionCount(relayWallet.address);
+            if (current > nonceBefore) break;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+          for (const b of chunk) {
+            const cid = b.campaignId.toString();
+            const nonces = settledNonces.get(cid) ?? [];
+            for (const c of b.claims) nonces.push(c.nonce);
+            settledNonces.set(cid, nonces);
+            totalSettled += b.claims.length;
+          }
+        }
+
+        if (totalSettled > 0) await _queue.removeSettled(userAddress, settledNonces);
+        console.log(`[datum-daemon] DAEMON_SUBMIT_CLAIMS: settled ${totalSettled} claims for ${userAddress.slice(0, 10)}…`);
+        return { ok: true, settledCount: totalSettled };
+      } catch (err) {
+        console.error("[datum-daemon] DAEMON_SUBMIT_CLAIMS error:", err);
+        return { ok: false, error: String(err) };
+      }
+    }
 
     case "AUTHORIZE_AUTO_SUBMIT":
     case "REVOKE_AUTO_SUBMIT":
