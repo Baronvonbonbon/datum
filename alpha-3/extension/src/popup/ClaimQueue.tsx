@@ -114,6 +114,9 @@ export function ClaimQueue({ address }: Props) {
       const network = (s.settings ?? DEFAULT_SETTINGS).network;
       setSym(getCurrencySymbol(network));
     });
+    // Poll every 3s so newly recorded impressions appear without manual refresh.
+    const id = setInterval(loadState, 3000);
+    return () => clearInterval(id);
   }, [loadState]);
 
   async function getSettings() {
@@ -199,30 +202,35 @@ export function ClaimQueue({ address }: Props) {
 
       const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
 
-      // Submit via AttestationVerifier (mandatory P1 path)
-      const tx = await attestationVerifier.settleClaimsAttested(attestedBatches);
-      const receipt = await tx.wait();
-
-      // Parse SettlementResult from events — count ClaimSettled vs ClaimRejected
+      // Submit via AttestationVerifier in chunks of ≤10 batches (E28 limit).
+      const BATCH_CHUNK = 10;
       let settledCount = 0n;
       let rejectedCount = 0n;
       let totalPaid = 0n;
+      const allSettledBatches: typeof attestedBatches = [];
 
-      if (receipt?.logs) {
-        const iface = attestationVerifier.interface;
-        for (const log of receipt.logs) {
-          try {
-            const parsed = iface.parseLog(log);
-            if (parsed?.name === "ClaimSettled") {
-              settledCount++;
-              totalPaid += BigInt(parsed.args.totalPayment ?? 0);
-            } else if (parsed?.name === "ClaimRejected") {
-              rejectedCount++;
+      for (let i = 0; i < attestedBatches.length; i += BATCH_CHUNK) {
+        const chunk = attestedBatches.slice(i, i + BATCH_CHUNK);
+        const tx = await attestationVerifier.settleClaimsAttested(chunk);
+        const receipt = await tx.wait();
+
+        if (receipt?.logs) {
+          const iface = attestationVerifier.interface;
+          for (const log of receipt.logs) {
+            try {
+              const parsed = iface.parseLog(log);
+              if (parsed?.name === "ClaimSettled") {
+                settledCount++;
+                totalPaid += BigInt(parsed.args.totalPayment ?? 0);
+              } else if (parsed?.name === "ClaimRejected") {
+                rejectedCount++;
+              }
+            } catch {
+              // log from a different contract, skip
             }
-          } catch {
-            // log from a different contract, skip
           }
         }
+        allSettledBatches.push(...chunk);
       }
 
       const settlementResult: SettlementResult = { settledCount, rejectedCount, totalPaid };
@@ -232,7 +240,7 @@ export function ClaimQueue({ address }: Props) {
       if (settledCount > 0) {
         // Build map of campaignId → settled nonces from the attested batches
         const settledNonces: Record<string, string[]> = {};
-        for (const b of attestedBatches) {
+        for (const b of allSettledBatches) {
           const cid = b.campaignId.toString();
           settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
         }
@@ -246,7 +254,7 @@ export function ClaimQueue({ address }: Props) {
 
       // Handle nonce mismatch: if all claims were rejected, try to re-sync from chain
       if (settledCount === 0n && rejectedCount > 0n) {
-        await resyncFromChain(address, settings, attestedBatches);
+        await resyncFromChain(address, settings, allSettledBatches);
         setError("Claims rejected — chain state resynced. Try submitting again.");
       }
     } catch (err) {

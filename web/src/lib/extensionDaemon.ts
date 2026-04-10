@@ -13,8 +13,6 @@
 import { Wallet, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
-// @ts-ignore
-import { getUnlockedWallet } from "@ext/shared/walletManager";
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -46,26 +44,27 @@ let _mutexHeld = false;
 let _lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null = null;
 
 // ── In-page relay signer ───────────────────────────────────────────────────
-// Generates (or restores) an ephemeral EIP-712 signing wallet so the demo
-// page can attest impressions without an external relay server.
-// The key is persisted in localStorage under the datum_ext: namespace.
+// Uses Diana's testnet key as the demo relay signer so that
+// REQUEST_PUBLISHER_ATTESTATION produces a valid EIP-712 signature for
+// all seeded test campaigns (which have diana.address as their relaySigner).
+// The key is persisted in localStorage under the datum_ext: namespace so
+// an operator can override it at runtime via SET_RELAY_SIGNER_KEY.
 
 const RELAY_SIGNER_LS_KEY = "datum_ext:relaySignerKey";
 // Paseo testnet chain ID
 const PASEO_CHAIN_ID = 420420417n;
+// Default relay signer: Diana (Publisher 1 on Paseo testnet).
+// All seeded campaigns have diana.address as their on-chain relaySigner.
+const DIANA_RELAY_KEY = "0x40d6fab8165a332c4319f25682c480748a01bb1e06808ffe8fd34e8cd56230d0";
 
 let _relayWallet: Wallet | null = null;
 
 function loadOrCreateRelayWallet(): Wallet {
   if (_relayWallet) return _relayWallet;
-  const stored = localStorage.getItem(RELAY_SIGNER_LS_KEY);
-  if (stored) {
-    try {
-      _relayWallet = new Wallet(stored);
-      return _relayWallet;
-    } catch { /* invalid stored key — regenerate */ }
-  }
-  _relayWallet = Wallet.createRandom();
+  // Always use Diana's testnet key — ignore any previously stored key so
+  // the in-page signer always matches the on-chain relaySigner for all
+  // seeded campaigns. This is a public testnet key, not a secret.
+  _relayWallet = new Wallet(DIANA_RELAY_KEY);
   localStorage.setItem(RELAY_SIGNER_LS_KEY, _relayWallet.privateKey);
   return _relayWallet;
 }
@@ -334,54 +333,22 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true };
     }
 
-    // ── Publisher attestation — signed by the publisher's own wallet ────────
-    // The DatumAttestationVerifier contract verifies the sig against:
+    // ── Publisher attestation ──────────────────────────────────────────────
+    // DatumAttestationVerifier verifies the sig against:
     //   campaigns.getCampaignRelaySigner(id) if set, else the publisher address.
-    // In the demo, the user IS the publisher, so we sign with their unlocked wallet.
-    // If the campaign has a dedicated relaySigner (e.g. Diana on testnet), the user
-    // must import that key via SET_RELAY_SIGNER_KEY so _relayWallet matches.
+    // _relayWallet is seeded with Diana's key, which is the on-chain relaySigner
+    // for all testnet campaigns. Override via SET_RELAY_SIGNER_KEY if needed.
     case "REQUEST_PUBLISHER_ATTESTATION": {
       try {
-        const stored = await chrome.storage.local.get(["settings", "activeCampaigns"]);
+        const stored = await chrome.storage.local.get("settings");
         const attestationVerifierAddr: string =
           stored.settings?.contractAddresses?.attestationVerifier
           ?? "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af"; // fallback: Paseo deployed address
-
-        // Prefer the user's unlocked wallet (they are the publisher in demo context).
-        // Fall back to _relayWallet if the user has imported the campaign's relaySigner key.
-        const userWallet: Wallet | null = getUnlockedWallet?.() ?? null;
-
-        // Check what the campaign expects so we can pick the right wallet.
-        const campaigns: any[] = stored.activeCampaigns ?? [];
-        const campaign = campaigns.find((c: any) => c.id === String(msg.campaignId));
-        const campaignRelaySigner: string | undefined = campaign?.relaySigner;
-        const relayWallet = loadOrCreateRelayWallet();
-
-        let signingWallet: Wallet;
-        if (campaignRelaySigner && campaignRelaySigner !== "0x0000000000000000000000000000000000000000") {
-          // Campaign has a dedicated relaySigner — use _relayWallet if it matches, else warn.
-          if (relayWallet.address.toLowerCase() === campaignRelaySigner.toLowerCase()) {
-            signingWallet = relayWallet;
-          } else if (userWallet && userWallet.address.toLowerCase() === campaignRelaySigner.toLowerCase()) {
-            signingWallet = userWallet;
-          } else {
-            // Neither wallet matches — sign anyway so the UI proceeds; contract will reject.
-            console.warn(
-              `[datum-daemon] REQUEST_PUBLISHER_ATTESTATION: campaign ${msg.campaignId} relaySigner=${campaignRelaySigner} ` +
-              `but signing wallet is ${relayWallet.address}. Import the relaySigner key via SET_RELAY_SIGNER_KEY.`
-            );
-            signingWallet = userWallet ?? relayWallet;
-          }
-        } else {
-          // No dedicated relaySigner — publisher (user) signs directly.
-          signingWallet = userWallet ?? relayWallet;
-        }
-
         const sig = await signPublisherAttestation(
           msg.campaignId, msg.userAddress,
           msg.firstNonce, msg.lastNonce, msg.claimCount,
           attestationVerifierAddr,
-          signingWallet,
+          loadOrCreateRelayWallet(),
         );
         return { signature: sig };
       } catch (err) {
@@ -707,6 +674,17 @@ export async function startDaemon(): Promise<void> {
     console.warn("[datum-daemon] could not load deployed-addresses.json", e);
     await chrome.storage.local.set({ settings: existing });
   }
+
+  // Seed Diana's publisher relay domain so ClaimQueue relay submission works
+  // automatically without manual configuration. RELAY_URL minus protocol/trailing slash.
+  // Hardcode Diana's address — do NOT derive from loadOrCreateRelayWallet() which
+  // could return a stale key if localStorage held a previous value.
+  const DIANA_PUBLISHER_ADDR = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
+  const RELAY_DOMAIN = "relay.javcon.io";
+  const pubDomainKey = `publisherDomain:${DIANA_PUBLISHER_ADDR.toLowerCase()}`;
+  // Always overwrite so stale domain entries don't survive re-deploys.
+  await chrome.storage.local.set({ [pubDomainKey]: RELAY_DOMAIN });
+  console.log(`[datum-daemon] seeded publisher relay: ${DIANA_PUBLISHER_ADDR.slice(0, 10)}… → ${RELAY_DOMAIN}`);
 
   // Kick off first campaign poll in the background — do NOT await so the daemon
   // resolves immediately and the UI stops showing "Starting extension daemon…".
