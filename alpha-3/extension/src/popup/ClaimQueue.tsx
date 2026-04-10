@@ -162,12 +162,36 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
 
+      // Budget check: fetch cached remaining budgets and truncate claims to
+      // what each campaign can actually pay. E16 reverts the entire tx so a
+      // single exhausted campaign would kill all others in the same chunk.
+      const campaignsResp = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" });
+      const budgetMap: Record<string, bigint> = {};
+      for (const c of (campaignsResp?.campaigns ?? [])) {
+        budgetMap[c.id] = BigInt(c.remainingBudget ?? 0);
+      }
+
+      // Truncate each batch so total payment ≤ remaining budget.
+      // Payment per claim = impressionCount * clearingCpmPlanck / 1000 (planck).
+      const budgetCheckedBatches: SerializedClaimBatch[] = [];
+      for (const b of serializedBatches) {
+        let budget = budgetMap[b.campaignId] ?? BigInt("999999999999999"); // unknown → no truncation
+        const affordable: typeof b.claims = [];
+        for (const c of b.claims) {
+          const payment = (BigInt(c.impressionCount) * BigInt(c.clearingCpmPlanck)) / 1000n;
+          if (payment > budget) break; // chain must stay sequential — stop here
+          affordable.push(c);
+          budget -= payment;
+        }
+        if (affordable.length > 0) budgetCheckedBatches.push({ ...b, claims: affordable });
+      }
+
       // Split any campaign batch with >50 claims into ≤50-claim sub-batches
       // BEFORE attestation so each sub-batch gets its own correctly-scoped signature.
       // (Contract: require(claims.length <= 50, "E28"))
       const MAX_CLAIMS_PER_BATCH = 50;
       const flatBatches: SerializedClaimBatch[] = [];
-      for (const b of serializedBatches) {
+      for (const b of budgetCheckedBatches) {
         if (b.claims.length <= MAX_CLAIMS_PER_BATCH) {
           flatBatches.push(b);
         } else {
@@ -175,6 +199,11 @@ export function ClaimQueue({ address }: Props) {
             flatBatches.push({ ...b, claims: b.claims.slice(j, j + MAX_CLAIMS_PER_BATCH) });
           }
         }
+      }
+
+      if (flatBatches.length === 0) {
+        setError("All campaigns have insufficient remaining budget.");
+        return;
       }
 
       // Request publisher attestation for each (sub-)batch.
