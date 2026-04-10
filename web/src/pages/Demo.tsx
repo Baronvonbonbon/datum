@@ -85,16 +85,23 @@ export function Demo() {
     };
   }, []);
 
-  // Auto-run the bridge once the daemon is ready.
-  // The poll runs in background so the first run may find 0 campaigns.
-  // Retry every 8s until campaigns are found (poll is still in progress).
+  // connectedAddress: derived from debug info polling (updated every 3s)
+  const connectedAddress = debugInfo?.connectedAddress ?? null;
+
+  // Auto-run the bridge once daemon is ready AND a wallet is connected.
+  // Fires when connectedAddress first becomes non-null (wallet connect event).
+  // Also retries every 8s if no campaigns found yet (poll still in progress).
+  const prevConnectedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!daemonReady) return;
+    if (!daemonReady || !connectedAddress) return;
+    // Only fire when address first appears (avoid re-running on every 3s debug tick)
+    if (prevConnectedRef.current === connectedAddress) return;
+    prevConnectedRef.current = connectedAddress;
+
     let cancelled = false;
     const run = async () => {
       await runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
       if (cancelled) return;
-      // If no campaigns yet, schedule a retry
       const cached = await getCampaignCount();
       setCampaignCount(cached);
       if (cached === 0 && !cancelled) {
@@ -104,7 +111,7 @@ export function Demo() {
     run();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady]);
+  }, [daemonReady, connectedAddress]);
 
   // Poll debug info from storage every 3s while daemon is running
   useEffect(() => {
@@ -243,19 +250,21 @@ export function Demo() {
                     setPublisherAddress(publisherInput);
                     runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
                   }}
-                  disabled={!daemonReady}
+                  disabled={!daemonReady || !connectedAddress}
                   style={{
                     flex: 1,
-                    background: daemonReady ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                    background: (daemonReady && connectedAddress) ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
                     border: "1px solid var(--border)", borderRadius: 4,
-                    color: daemonReady ? "var(--text)" : "var(--text-muted)",
+                    color: (daemonReady && connectedAddress) ? "var(--text)" : "var(--text-muted)",
                     fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
-                    cursor: daemonReady ? "pointer" : "not-allowed",
+                    cursor: (daemonReady && connectedAddress) ? "pointer" : "not-allowed",
                   }}
                 >
-                  {daemonReady
-                    ? `Run Auction${campaignCount != null ? ` (${campaignCount} campaigns)` : ""}`
-                    : "Loading campaigns from Paseo..."}
+                  {!daemonReady
+                    ? "Loading campaigns from Paseo..."
+                    : !connectedAddress
+                      ? "Connect wallet to run auction"
+                      : `Run Auction${campaignCount != null ? ` (${campaignCount} campaigns)` : ""}`}
                 </button>
                 {daemonReady && (
                   <button
@@ -332,10 +341,16 @@ export function Demo() {
                 datum-ad-slot
               </div>
               <div id="datum-ad-slot" />
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
-                Ad appears here when extension is installed and connected.
-                The applet on the left simulates that experience in-page.
-              </div>
+              {daemonReady && !connectedAddress && (
+                <div style={{ fontSize: 11, color: "var(--warn)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+                  Connect a wallet in the extension panel to serve ads.
+                </div>
+              )}
+              {(!daemonReady || (daemonReady && connectedAddress && bridgeStatus.step === "idle")) && (
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
+                  {!daemonReady ? "Loading extension daemon…" : "Auction will run automatically once the wallet is connected."}
+                </div>
+              )}
             </div>
 
             {/* SDK status */}

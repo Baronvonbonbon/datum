@@ -120,12 +120,13 @@ export interface DaemonDebugInfo {
   activeCampaignsCount: number;
   pollerCampaignsAddr: string;
   sampleCampaign: { id: string; status: string; publisher: string } | null;
+  connectedAddress: string | null;
 }
 
 /** Read raw poller storage state — used by the demo debug panel. */
 export async function getDebugInfo(): Promise<DaemonDebugInfo> {
   const stored = await chrome.storage.local.get([
-    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr",
+    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr", "connectedAddress",
   ]);
   const index: Record<string, any> = stored.campaignIndex ?? {};
   const active: any[] = stored.activeCampaigns ?? [];
@@ -136,6 +137,7 @@ export async function getDebugInfo(): Promise<DaemonDebugInfo> {
     activeCampaignsCount: active.length,
     pollerCampaignsAddr: stored.pollerCampaignsAddr ?? "",
     sampleCampaign: sample ? { id: sample.id, status: sample.status, publisher: sample.publisher } : null,
+    connectedAddress: stored.connectedAddress ?? null,
   };
 }
 
