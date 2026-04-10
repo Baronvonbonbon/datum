@@ -40,6 +40,9 @@ let _matcher: any = null;
 
 let _mutexHeld = false;
 
+// Last IMPRESSION_RECORDED result — exposed via getDebugInfo for the demo panel.
+let _lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null = null;
+
 // ── In-page relay signer ───────────────────────────────────────────────────
 // Generates (or restores) an ephemeral EIP-712 signing wallet so the demo
 // page can attest impressions without an external relay server.
@@ -122,16 +125,21 @@ export interface DaemonDebugInfo {
   pollerCampaignsAddr: string;
   sampleCampaign: { id: string; status: string; publisher: string } | null;
   connectedAddress: string | null;
+  claimQueueCount: number;
+  claimQueueAddresses: string[];
+  lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null;
 }
 
 /** Read raw poller storage state — used by the demo debug panel. */
 export async function getDebugInfo(): Promise<DaemonDebugInfo> {
   const stored = await chrome.storage.local.get([
-    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr", "connectedAddress",
+    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr", "connectedAddress", "claimQueue",
   ]);
   const index: Record<string, any> = stored.campaignIndex ?? {};
   const active: any[] = stored.activeCampaigns ?? [];
+  const queue: any[] = stored.claimQueue ?? [];
   const sample = active[0] ?? Object.values(index)[0] ?? null;
+  const addrSet = new Set<string>(queue.map((c: any) => c.userAddress).filter(Boolean));
   return {
     pollLastBlock: stored.pollLastBlock ?? null,
     campaignIndexCount: Object.keys(index).length,
@@ -139,6 +147,9 @@ export async function getDebugInfo(): Promise<DaemonDebugInfo> {
     pollerCampaignsAddr: stored.pollerCampaignsAddr ?? "",
     sampleCampaign: sample ? { id: sample.id, status: sample.status, publisher: sample.publisher } : null,
     connectedAddress: stored.connectedAddress ?? null,
+    claimQueueCount: queue.length,
+    claimQueueAddresses: [...addrSet],
+    lastImpressionResult: _lastImpressionResult,
   };
 }
 
@@ -163,6 +174,28 @@ export async function repollCampaigns(): Promise<number> {
   const cached = await _poller.getCachedSerialized();
   console.log(`[datum-daemon] repoll complete: ${cached.length} campaigns`);
   return cached.length;
+}
+
+// ── Claim batch serialization ──────────────────────────────────────────────
+// claimQueue.buildBatches() returns ClaimBatch[] with BigInt fields.
+// chrome.runtime.sendMessage can't carry BigInt — serialize to strings.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function serializeClaimBatches(batches: any[]): any[] {
+  return batches.map((b) => ({
+    user: b.user,
+    campaignId: b.campaignId.toString(),
+    claims: b.claims.map((c: any) => ({
+      campaignId: c.campaignId.toString(),
+      publisher: c.publisher,
+      impressionCount: c.impressionCount.toString(),
+      clearingCpmPlanck: c.clearingCpmPlanck.toString(),
+      nonce: c.nonce.toString(),
+      previousClaimHash: c.previousClaimHash,
+      claimHash: c.claimHash,
+      zkProof: c.zkProof,
+    })),
+  }));
 }
 
 // ── Message handler ────────────────────────────────────────────────────────
@@ -197,26 +230,41 @@ async function handleMessage(msg: any): Promise<unknown> {
 
     case "SUBMIT_CLAIMS": {
       if (!_queue) return { batches: [] };
-      return { batches: await _queue.getForSubmission(msg.userAddress) };
+      const batches = await _queue.buildBatches(msg.userAddress);
+      return { batches: serializeClaimBatches(batches) };
     }
 
     case "SUBMIT_CAMPAIGN_CLAIMS": {
-      if (!_queue) return { batches: [] };
-      return { batches: await _queue.getForCampaign(msg.userAddress, msg.campaignId) };
+      if (!_queue) return { batch: null };
+      const batch = await _queue.buildBatchForCampaign(msg.userAddress, msg.campaignId);
+      if (!batch) return { batch: null };
+      return { batch: serializeClaimBatches([batch])[0] };
     }
 
     case "DISCARD_CAMPAIGN_CLAIMS": {
-      if (_queue) await _queue.discardCampaign(msg.userAddress, msg.campaignId);
+      if (_queue) await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
       return { ok: true };
     }
 
     case "DISCARD_REJECTED_CLAIMS": {
-      if (_queue) await _queue.discardRejected(msg.userAddress);
+      if (_queue) {
+        for (const campaignId of msg.campaignIds ?? []) {
+          await _queue.discardCampaignClaims(msg.userAddress, campaignId);
+        }
+      }
       return { ok: true };
     }
 
     case "REMOVE_SETTLED_CLAIMS": {
-      if (_queue) await _queue.removeSettled(msg.userAddress, msg.settledNonces ?? {});
+      if (_queue) {
+        // msg.settledNonces is Record<string, string[]> from JSON — convert to Map<string, bigint[]>
+        const noncesMap = new Map<string, bigint[]>(
+          Object.entries(msg.settledNonces ?? {}).map(([cid, nonces]) => [
+            cid, (nonces as string[]).map((n) => BigInt(n)),
+          ])
+        );
+        await _queue.removeSettled(msg.userAddress, noncesMap);
+      }
       return { ok: true };
     }
 
@@ -403,12 +451,16 @@ async function handleMessage(msg: any): Promise<unknown> {
       try {
         const s2 = await chrome.storage.local.get(["connectedAddress", "activeCampaigns"]);
         const userAddress: string | undefined = s2.connectedAddress;
-        if (!userAddress) return { ok: false, reason: "no_wallet" };
+        if (!userAddress) {
+          _lastImpressionResult = { ok: false, reason: "no_wallet", ts: Date.now() };
+          return { ok: false, reason: "no_wallet" };
+        }
 
         const campaigns: any[] = s2.activeCampaigns ?? [];
         const campaign = campaigns.find((c: any) => c.id === String(msg.campaignId));
         if (!campaign) {
           console.warn(`[datum-daemon] IMPRESSION_RECORDED: campaign ${msg.campaignId} not in cache`);
+          _lastImpressionResult = { ok: false, reason: `no_campaign(id=${msg.campaignId},cache=${campaigns.length})`, ts: Date.now() };
           return { ok: false, reason: "no_campaign" };
         }
 
@@ -450,9 +502,11 @@ async function handleMessage(msg: any): Promise<unknown> {
           userAddress,
         });
         await chrome.storage.local.set({ claimQueue: queue });
+        _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
         console.log(`[datum-daemon] Claim queued: campaign=${msg.campaignId} nonce=${nonce} user=${userAddress.slice(0, 8)}…`);
         return { ok: true };
       } catch (err) {
+        _lastImpressionResult = { ok: false, reason: String(err), ts: Date.now() };
         console.error("[datum-daemon] IMPRESSION_RECORDED error:", err);
         return { ok: false, reason: String(err) };
       }
