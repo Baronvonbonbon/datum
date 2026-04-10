@@ -84,18 +84,20 @@
     var challenge = detail.challenge || "";
     var nonce = detail.nonce || "";
 
-    // Simple HMAC-like response: hash(publisher + challenge + nonce)
-    // In production, this would use the publisher's signing key
-    var responseData = publisherAddress + ":" + challenge + ":" + nonce;
-
-    // Use SubtleCrypto if available for a real hash, otherwise a simple checksum
+    // HMAC-SHA-256 response: HMAC(key=publisher, msg=challenge:nonce)
+    // Must match extension handshake.ts computeExpectedSignature().
     if (window.crypto && window.crypto.subtle) {
       var encoder = new TextEncoder();
+      var keyData = encoder.encode(publisherAddress);
+      var msgData = encoder.encode(challenge + ":" + nonce);
       window.crypto.subtle
-        .digest("SHA-256", encoder.encode(responseData))
-        .then(function (hashBuffer) {
-          var hashArray = Array.from(new Uint8Array(hashBuffer));
-          var hashHex = hashArray
+        .importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+        .then(function (cryptoKey) {
+          return window.crypto.subtle.sign("HMAC", cryptoKey, msgData);
+        })
+        .then(function (sigBuffer) {
+          var sigArray = Array.from(new Uint8Array(sigBuffer));
+          var sigHex = sigArray
             .map(function (b) { return b.toString(16).padStart(2, "0"); })
             .join("");
 
@@ -105,7 +107,7 @@
                 publisher: publisherAddress,
                 challenge: challenge,
                 nonce: nonce,
-                signature: "0x" + hashHex,
+                signature: "0x" + sigHex,
                 version: VERSION,
               },
             })

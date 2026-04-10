@@ -62,7 +62,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
       timelock: "0x8b755205058F8B7162a2f362057c8a2391C948B4",
       zkVerifier: "0x31F2DE45F985E24BFb0BC833B77e557491187f3f",
       budgetLedger: "0x663F713D1AD3E3361736F6A60F623067b3A7EF6E",
-      paymentVault: "0x4ad66Fd735Fe50706663023d88eB88EebF42e6dc",
+      paymentVault: "0xD51ce700B0cF51DA3E8385681ACB1c10c2407f20",
       lifecycle: "0xb42280d0A3A24Be8f87aAbF261e11CEfF78d2b8a",
       attestationVerifier: "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af",
       targetingRegistry: "0x23460C40c7EFA277551cDC7Fb2972B0aaAB03fB9",
@@ -72,7 +72,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
       reports: "0x070cba0Ab1b084c5E35eF79db58916947DeF96ea",
       rateLimiter: "0xdE2d58ecd15642E2d5DaE9B0D515D3085F506C5A",
       reputation: "0xd7a60FA27349A1fF312735E84F19ed75309cCdeA",
-      tokenRewardVault: "0x53439D5006Af4F542CeaC0e09B43B11Bb2B0C731",
+      tokenRewardVault: "0xC4A4247319C8E6Ff2d81B318c300bF81CB987aFE",
     },
   },
   paseoEvm: {

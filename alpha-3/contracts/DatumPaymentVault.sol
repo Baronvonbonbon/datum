@@ -134,11 +134,10 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable2Step 
 
     /// @dev Single native-transfer site — avoids resolc codegen bug where multiple
     ///      transfer() sites produce broken RISC-V.
-    ///      O3: Dust guard via minimumBalance() precompile on PolkaVM.
+    ///      Note: minimumBalance() precompile guard removed — on Paseo it returns 10^16
+    ///      (denomination mismatch vs planck amounts), causing E58 on all withdrawals.
+    ///      PolkaVM runtime enforces ED natively; transfer failure is caught by E02.
     function _send(address to, uint256 amount) internal {
-        if (SYSTEM_ADDR.code.length > 0) {
-            require(amount >= SYSTEM.minimumBalance(), "E58");
-        }
         (bool ok,) = payable(to).call{value: amount}("");
         require(ok, "E02");
     }

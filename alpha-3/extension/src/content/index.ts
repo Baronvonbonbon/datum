@@ -12,7 +12,7 @@ import { getCurrencySymbol } from "@shared/networks";
 import { NetworkName } from "@shared/types";
 import { detectSDK, SDKInfo } from "./sdkDetector";
 import { performHandshake, Attestation } from "./handshake";
-import { tagHash, tagStringFromLocale, tagStringFromPlatform, tagStringFromHash, TAG_LABELS } from "@shared/tagDictionary";
+import { tagHash, tagStringFromLocale, tagStringFromPlatform, tagStringFromSlug, tagStringFromHash, TAG_LABELS } from "@shared/tagDictionary";
 
 // Dedup: track (campaignId, url) pairs seen this page load
 const seenThisLoad = new Set<string>();
@@ -88,10 +88,18 @@ async function main() {
   // Build page tag hash set for matching
   const pageTagHashes = new Set(tags.map((t) => tagHash(t).toLowerCase()));
 
-  // If SDK present with data-tags, merge SDK tag hashes into page set
+  // If SDK present with data-tags, merge SDK tag hashes into page set.
+  // SDK tags are short slugs (e.g. "crypto-web3", "en", "desktop") — resolve
+  // to full "dimension:value" strings before hashing so they match on-chain tags.
   if (sdkInfo && sdkInfo.tags.length > 0) {
     for (const t of sdkInfo.tags) {
-      pageTagHashes.add(tagHash(t).toLowerCase());
+      let resolved: string;
+      if (t.includes(":")) {
+        resolved = t; // already "dimension:value" format
+      } else {
+        resolved = tagStringFromSlug(t) ?? tagStringFromLocale(t) ?? t;
+      }
+      pageTagHashes.add(tagHash(resolved).toLowerCase());
     }
   }
 

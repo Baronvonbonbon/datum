@@ -84,12 +84,13 @@ export function Demo() {
     };
   }, []);
 
-  // When daemon + SDK are both ready, auto-run the bridge once
+  // Auto-run the bridge once the daemon has loaded campaigns.
+  // sdk.ready is decorative (fires on DOMContentLoaded) — don't gate on it.
   useEffect(() => {
-    if (!daemonReady || !sdk.ready) return;
+    if (!daemonReady) return;
     runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady, sdk.ready]);
+  }, [daemonReady]);
 
   // Relay heartbeat
   useEffect(() => {
@@ -272,6 +273,9 @@ export function Demo() {
                   ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
                   ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
                   ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
+                  ...(bridgeStatus.step === "house-ad" && (bridgeStatus.totalCampaigns ?? 0) === 0
+                    ? [["Hint", "No campaigns on Paseo — run setup-testnet.ts", "var(--warn)"]]
+                    : []),
                 ].map(([label, value, color]) => (
                   <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
                     <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>

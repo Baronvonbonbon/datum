@@ -715,6 +715,16 @@ async function main() {
       console.log(`  OK (already transferred): ${label}`);
       return;
     }
+    // All three contracts (Campaigns, Settlement, Publishers) use 2-step ownership.
+    // transferOwnership() sets pendingOwner; acceptOwnership() must be called by Timelock.
+    // Check if transfer is already pending before re-sending.
+    try {
+      const pending = await readAddr(contractAddr, "pendingOwner");
+      if (pending === addresses.timelock.toLowerCase()) {
+        console.log(`  OK (transfer pending — Timelock must call acceptOwnership): ${label}`);
+        return;
+      }
+    } catch { /* pendingOwner may not exist on all contracts */ }
     if (currentOwner !== deployer.address.toLowerCase()) {
       console.warn(`  WARNING: ${label} owned by ${currentOwner}, not deployer — cannot transfer`);
       return;
@@ -726,7 +736,7 @@ async function main() {
         "transferOwnership",
         [addresses.timelock],
       );
-      console.log(`  TRANSFERRED: ${label} -> Timelock`);
+      console.log(`  TRANSFERRED: ${label} -> Timelock (pendingOwner set; Timelock must call acceptOwnership)`);
     } catch (err) {
       console.warn(`  WARNING: ${label} ownership transfer failed: ${String(err).slice(0, 100)}`);
     }
@@ -766,7 +776,8 @@ async function main() {
   await check("Settlement.attestationVerifier", await readAddr(addresses.settlement, "attestationVerifier"), addresses.attestationVerifier);
   await check("Settlement.rateLimiter", await readAddr(addresses.settlement, "rateLimiter"), addresses.rateLimiter);
   await check("Settlement.publishers", await readAddr(addresses.settlement, "publishers"), addresses.publishers);
-  await check("Settlement.owner", await readAddr(addresses.settlement, "owner"), addresses.timelock);
+  // 2-step ownership: transferOwnership sets pendingOwner; Timelock calls acceptOwnership to finalize.
+  await check("Settlement.pendingOwner", await readAddr(addresses.settlement, "pendingOwner"), addresses.timelock);
 
   // Campaigns
   await check("Campaigns.budgetLedger", await readAddr(addresses.campaigns, "budgetLedger"), addresses.budgetLedger);
@@ -774,9 +785,10 @@ async function main() {
   await check("Campaigns.governanceContract", await readAddr(addresses.campaigns, "governanceContract"), addresses.governanceV2);
   await check("Campaigns.settlementContract", await readAddr(addresses.campaigns, "settlementContract"), addresses.settlement);
   await check("Campaigns.campaignValidator", await readAddr(addresses.campaigns, "campaignValidator"), addresses.campaignValidator);
-  await check("Campaigns.owner", await readAddr(addresses.campaigns, "owner"), addresses.timelock);
+  // 2-step ownership: transferOwnership sets pendingOwner; Timelock calls acceptOwnership to finalize.
+  await check("Campaigns.pendingOwner", await readAddr(addresses.campaigns, "pendingOwner"), addresses.timelock);
   // S12: Publishers must be timelock-owned so blockAddress/unblockAddress require 48h delay
-  await check("Publishers.owner", await readAddr(addresses.publishers, "owner"), addresses.timelock);
+  await check("Publishers.pendingOwner", await readAddr(addresses.publishers, "pendingOwner"), addresses.timelock);
 
   // BudgetLedger
   await check("BudgetLedger.campaigns", await readAddr(addresses.budgetLedger, "campaigns"), addresses.campaigns);

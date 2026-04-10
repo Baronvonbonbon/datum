@@ -19,6 +19,7 @@ const INDEX_KEY = "campaignIndex";       // Map<id, campaign> as Record<string,S
 const LAST_BLOCK_KEY = "pollLastBlock";  // last block scanned for events
 const METADATA_TTL_MS = 3600_000;        // 1 hour cache TTL for IPFS metadata
 const BATCH_SIZE = 20;                   // parallel RPC calls per batch
+const EVENT_CHUNK_SIZE = 10_000;         // max block range per eth_getLogs request
 
 // All fields stored as strings (already serialized from BigInt)
 interface SerializedCampaign {
@@ -81,8 +82,14 @@ export const campaignPoller = {
       if (fromBlock <= currentBlock) {
         try {
           const filter = contract.filters.CampaignCreated();
-          const events = await contract.queryFilter(filter, fromBlock, currentBlock);
-          for (const ev of events) {
+          // Chunk large ranges to stay within public RPC limits (some nodes cap at 10k blocks).
+          const allEvents: any[] = [];
+          for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
+            const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
+            const chunk = await contract.queryFilter(filter, chunkFrom, chunkTo);
+            allEvents.push(...chunk);
+          }
+          for (const ev of allEvents) {
             const args = (ev as any).args;
             if (!args) continue;
             const cid = (args[0] ?? args.campaignId)?.toString();
@@ -130,8 +137,13 @@ export const campaignPoller = {
       if (fromBlock <= currentBlock) {
         try {
           const metaFilter = contract.filters.CampaignMetadataSet();
-          const metaEvents = await contract.queryFilter(metaFilter, fromBlock, currentBlock);
-          for (const ev of metaEvents) {
+          const allMetaEvents: any[] = [];
+          for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
+            const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
+            const chunk = await contract.queryFilter(metaFilter, chunkFrom, chunkTo);
+            allMetaEvents.push(...chunk);
+          }
+          for (const ev of allMetaEvents) {
             const args = (ev as any).args;
             if (!args) continue;
             const cid = (args[0] ?? args.campaignId)?.toString();
