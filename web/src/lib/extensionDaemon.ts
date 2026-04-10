@@ -10,7 +10,7 @@
  * up on the demo page.
  */
 
-import { Wallet, solidityPacked, ZeroHash } from "ethers";
+import { Wallet, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
 
@@ -481,7 +481,7 @@ async function handleMessage(msg: any): Promise<unknown> {
           ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
           [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, nonce, prevHash]
         );
-        const packedBytes = new Uint8Array(Buffer.from(packed.slice(2), "hex"));
+        const packedBytes = getBytes(packed);
         const hashBytes = blake2b(packedBytes, { dkLen: 32 });
         const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
