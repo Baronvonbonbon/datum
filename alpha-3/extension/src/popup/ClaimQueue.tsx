@@ -125,14 +125,18 @@ export function ClaimQueue({ address }: Props) {
   }
 
   /** Fetch actual on-chain remaining budgets for a set of campaign IDs.
-   *  Per-campaign fetch failure → 0n (conservative: skip those claims rather than risk E16).
+   *  Returns { budgetMap, failedIds } where failedIds contains campaigns whose
+   *  RPC call failed (budget is 0n in map but NOT confirmed exhausted on-chain).
    *  Total network failure → throws so the caller can surface an error to the user. */
   async function fetchOnChainBudgets(
     campaignIds: string[],
     settings: StoredSettings,
-  ): Promise<Record<string, bigint>> {
+  ): Promise<{ budgetMap: Record<string, bigint>; failedIds: Set<string> }> {
     const budgetMap: Record<string, bigint> = {};
-    if (!settings.contractAddresses.budgetLedger || campaignIds.length === 0) return budgetMap;
+    const failedIds = new Set<string>();
+    if (!settings.contractAddresses.budgetLedger || campaignIds.length === 0) {
+      return { budgetMap, failedIds };
+    }
     // Throws on total network failure — caller must handle
     const provider = getProvider(settings.rpcUrl);
     const ledger = getBudgetLedgerContract(settings.contractAddresses, provider);
@@ -140,11 +144,38 @@ export function ClaimQueue({ address }: Props) {
       try {
         budgetMap[id] = BigInt(await ledger.getRemainingBudget(BigInt(id)));
       } catch {
-        // Single campaign lookup failed — treat as 0 so we don't risk E16
+        // Single campaign lookup failed — treat as 0 but mark as failed
+        // so we don't auto-discard claims when the RPC was just flaky.
         budgetMap[id] = 0n;
+        failedIds.add(id);
       }
     }));
-    return budgetMap;
+    return { budgetMap, failedIds };
+  }
+
+  /** Auto-discard claims for campaigns with confirmed 0 budget (not RPC failures). */
+  async function discardExhaustedCampaigns(
+    originalBatches: SerializedClaimBatch[],
+    filteredBatches: SerializedClaimBatch[],
+    failedIds: Set<string>,
+    userAddress: string,
+  ): Promise<string[]> {
+    const filteredIds = new Set(filteredBatches.map((b) => b.campaignId));
+    const discarded: string[] = [];
+    for (const b of originalBatches) {
+      if (!filteredIds.has(b.campaignId) && !failedIds.has(b.campaignId)) {
+        // Confirmed exhausted on-chain — safe to discard
+        try {
+          await chrome.runtime.sendMessage({
+            type: "DISCARD_CAMPAIGN_CLAIMS",
+            userAddress,
+            campaignId: b.campaignId,
+          });
+          discarded.push(`#${b.campaignId}`);
+        } catch { /* best-effort */ }
+      }
+    }
+    return discarded;
   }
 
   /** Truncate claims in each batch so total payment ≤ on-chain remaining budget.
@@ -214,12 +245,17 @@ export function ClaimQueue({ address }: Props) {
       // E16 hard-reverts the entire tx — one exhausted campaign kills all others.
       const campaignIds = [...new Set(serializedBatches.map((b) => b.campaignId))];
       let budgetMap: Record<string, bigint>;
+      let budgetFailedIds: Set<string>;
       try {
-        budgetMap = await fetchOnChainBudgets(campaignIds, settings);
+        ({ budgetMap, failedIds: budgetFailedIds } = await fetchOnChainBudgets(campaignIds, settings));
       } catch (budgetErr) {
         throw new Error(`Could not verify campaign budgets on-chain: ${String(budgetErr)}`);
       }
       const budgetCheckedBatches = applyBudgetFilter(serializedBatches, budgetMap);
+      // Auto-discard claims for campaigns confirmed exhausted on-chain.
+      const autoDiscarded = await discardExhaustedCampaigns(
+        serializedBatches, budgetCheckedBatches, budgetFailedIds, address,
+      );
 
       // Split any campaign batch with >50 claims into ≤50-claim sub-batches
       // BEFORE attestation so each sub-batch gets its own correctly-scoped signature.
@@ -237,7 +273,11 @@ export function ClaimQueue({ address }: Props) {
       }
 
       if (flatBatches.length === 0) {
-        setError("All campaigns have insufficient remaining budget.");
+        const discardNote = autoDiscarded.length > 0
+          ? ` Dead claims for campaign${autoDiscarded.length > 1 ? "s" : ""} ${autoDiscarded.join(", ")} have been discarded.`
+          : " Use Discard to remove these claims.";
+        setError(`All campaigns have insufficient remaining budget.${discardNote}`);
+        if (autoDiscarded.length > 0) await loadState();
         return;
       }
 
@@ -426,14 +466,32 @@ export function ClaimQueue({ address }: Props) {
 
       // Budget check: fetch on-chain remaining budget and truncate claims.
       let budgetMap: Record<string, bigint>;
+      let budgetFailedIds: Set<string>;
       try {
-        budgetMap = await fetchOnChainBudgets([serializedBatch.campaignId], settings);
+        ({ budgetMap, failedIds: budgetFailedIds } = await fetchOnChainBudgets(
+          [serializedBatch.campaignId], settings,
+        ));
       } catch (budgetErr) {
         throw new Error(`Could not verify campaign budget on-chain: ${String(budgetErr)}`);
       }
       const [trimmed] = applyBudgetFilter([serializedBatch], budgetMap);
       if (!trimmed) {
-        setError("Campaign has insufficient remaining budget.");
+        // Auto-discard if budget is confirmed 0 on-chain (not just RPC flakiness)
+        if (!budgetFailedIds.has(serializedBatch.campaignId)) {
+          try {
+            await chrome.runtime.sendMessage({
+              type: "DISCARD_CAMPAIGN_CLAIMS",
+              userAddress: address,
+              campaignId: serializedBatch.campaignId,
+            });
+            await loadState();
+            setError(`Campaign #${serializedBatch.campaignId} budget exhausted — claims discarded.`);
+          } catch {
+            setError("Campaign has insufficient remaining budget. Use Discard to remove these claims.");
+          }
+        } else {
+          setError("Campaign has insufficient remaining budget (could not reach chain to confirm).");
+        }
         return;
       }
       const trimmedBatch: SerializedClaimBatch = trimmed;
