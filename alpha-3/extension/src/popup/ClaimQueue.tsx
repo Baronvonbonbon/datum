@@ -1116,8 +1116,8 @@ function AttestationBadges() {
 // -------------------------------------------------------------------------
 
 // Prune claims that have already been settled on-chain (e.g. publisher submitted via relay).
-// Compares on-chain nonce vs local chain state — only syncs when they differ, meaning
-// something settled externally that the extension doesn't know about.
+// Syncs when on-chain nonce > local nonce (external settlement), OR when nonces match but
+// hashes differ (local chain state was built from a wrong base after a reset).
 async function pruneSettledClaims(
   userAddress: string,
   settings: StoredSettings,
@@ -1134,10 +1134,11 @@ async function pruneSettledClaims(
     try {
       const localKey = `chainState:${userAddress}:${cid}`;
       const localNonce: number = localStates[localKey]?.lastNonce ?? 0;
+      const localHash: string = localStates[localKey]?.lastClaimHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000";
 
       const onChainNonce = Number(await settlement.lastNonce(userAddress, BigInt(cid)));
       if (onChainNonce > localNonce) {
-        // On-chain nonce advanced beyond local state — claims were settled externally
+        // On-chain nonce advanced beyond local state — claims settled externally
         const onChainHash = await settlement.lastClaimHash(userAddress, BigInt(cid));
         await chrome.runtime.sendMessage({
           type: "SYNC_CHAIN_STATE",
@@ -1146,6 +1147,19 @@ async function pruneSettledClaims(
           onChainNonce,
           onChainHash: String(onChainHash),
         });
+      } else if (onChainNonce === localNonce && onChainNonce > 0) {
+        // Nonces match — also verify hashes. If they differ, local claims were built from
+        // a wrong base (e.g. after a chain-state reset) and will revert on submission.
+        const onChainHash = await settlement.lastClaimHash(userAddress, BigInt(cid));
+        if (String(onChainHash).toLowerCase() !== localHash.toLowerCase()) {
+          await chrome.runtime.sendMessage({
+            type: "SYNC_CHAIN_STATE",
+            userAddress,
+            campaignId: cid,
+            onChainNonce,
+            onChainHash: String(onChainHash),
+          });
+        }
       }
     } catch {
       // RPC failure — skip this campaign, leave claims as-is

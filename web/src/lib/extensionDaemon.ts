@@ -578,7 +578,22 @@ async function handleMessage(msg: any): Promise<unknown> {
     case "REPORT_AD":
       return { ok: true };
 
-    case "SYNC_CHAIN_STATE":
+    case "SYNC_CHAIN_STATE": {
+      // Update local chain state to on-chain values and clear queued claims whose
+      // prevHash chain is now invalid (they were built from a stale/wrong base).
+      const chainKey = `chainState:${msg.userAddress}:${msg.campaignId}`;
+      await chrome.storage.local.set({
+        [chainKey]: {
+          userAddress: msg.userAddress,
+          campaignId: msg.campaignId,
+          lastNonce: msg.onChainNonce,
+          lastClaimHash: msg.onChainHash,
+        },
+      });
+      if (_queue) await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
+      return { ok: true };
+    }
+
     case "RESET_CHAIN_STATE":
       return { ok: true };
 
@@ -656,7 +671,11 @@ async function handleMessage(msg: any): Promise<unknown> {
               try {
                 const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
                 await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
-              } catch { await chrome.storage.local.remove(chainKey); }
+              } catch {
+                // RPC failure — leave chain state intact; pruneSettledClaims will resync on next cycle.
+                // Do NOT remove the key — that resets to (0, ZeroHash) and creates an infinite revert loop.
+                console.warn(`[datum-daemon] Could not fetch on-chain hash for campaign ${cid} after nonce mismatch — chain state preserved`);
+              }
               continue;
             }
           } catch (e) {
@@ -742,7 +761,11 @@ async function handleMessage(msg: any): Promise<unknown> {
                 try {
                   const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
                   await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
-                } catch { await chrome.storage.local.remove(chainKey); }
+                } catch {
+                  // RPC failure — leave chain state intact; pruneSettledClaims will resync on next cycle.
+                  // Do NOT remove the key — that resets to (0, ZeroHash) and creates an infinite revert loop.
+                  console.warn(`[datum-daemon] Could not fetch on-chain hash for campaign ${cid} after revert — chain state preserved`);
+                }
                 lastTxError = `Settlement reverted for campaign ${cid} (nonce chain invalid or budget exhausted)`;
               }
             } catch (e) {
