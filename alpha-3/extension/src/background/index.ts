@@ -530,7 +530,10 @@ async function handleMessage(
         ]);
         await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, Number(onChainNonce), onChainHash);
       } catch {
-        await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, 0, ZeroHash);
+        // RPC failure — leave chain state intact rather than resetting to (0, ZeroHash).
+        // Resetting corrupts the hash chain if prior settlements exist on-chain.
+        // pruneSettledClaims will resync when RPC recovers.
+        console.warn("[DATUM] DISCARD_CAMPAIGN_CLAIMS: RPC failed, preserving existing chain state");
       }
       return { removed };
     }
@@ -550,7 +553,7 @@ async function handleMessage(
           ]);
           await claimBuilder.syncFromChain(msg.userAddress, campaignId, Number(onChainNonce), onChainHash);
         } catch {
-          await claimBuilder.syncFromChain(msg.userAddress, campaignId, 0, ZeroHash);
+          console.warn(`[DATUM] DISCARD_REJECTED_CLAIMS: RPC failed for campaign ${campaignId}, preserving existing chain state`);
         }
       }
       return { ok: true };
@@ -1233,9 +1236,9 @@ async function autoFlushDirect() {
         console.log(`[DATUM] Auto-flush: reset chain for campaign=${campaignId} to on-chain nonce=${onChainNonce}`);
         await claimBuilder.syncFromChain(userAddress, campaignId, Number(onChainNonce), onChainHash);
       } catch {
-        // RPC error — fall back to zero so mismatch shows immediately rather than silently corrupting
-        console.warn(`[DATUM] Auto-flush: could not fetch on-chain state for campaign=${campaignId}, resetting to 0`);
-        await claimBuilder.syncFromChain(userAddress, campaignId, 0, ZeroHash);
+        // RPC failure — leave chain state intact rather than resetting to (0, ZeroHash).
+        // Resetting corrupts the hash chain if prior settlements exist on-chain.
+        console.warn(`[DATUM] Auto-flush: could not fetch on-chain state for campaign=${campaignId}, preserving existing chain state`);
       }
     }
 

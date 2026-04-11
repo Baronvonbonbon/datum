@@ -259,7 +259,11 @@ async function handleMessage(msg: any): Promise<unknown> {
             stl2.lastClaimHash(msg.userAddress, msg.campaignId),
           ]);
           await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId: msg.campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
-        } catch { await chrome.storage.local.remove(chainKey); }
+        } catch {
+          // RPC failure — leave chain state intact. Do NOT remove the key —
+          // that resets to (0, ZeroHash) and creates an infinite revert loop.
+          console.warn(`[datum-daemon] DISCARD_CAMPAIGN_CLAIMS: RPC failed for chain state resync, preserving existing state`);
+        }
       }
       return { ok: true };
     }
@@ -278,7 +282,9 @@ async function handleMessage(msg: any): Promise<unknown> {
               stl2.lastClaimHash(msg.userAddress, campaignId),
             ]);
             await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
-          } catch { await chrome.storage.local.remove(chainKey); }
+          } catch {
+            console.warn(`[datum-daemon] DISCARD_REJECTED_CLAIMS: RPC failed for campaign ${campaignId}, preserving existing chain state`);
+          }
         }
       }
       return { ok: true };
