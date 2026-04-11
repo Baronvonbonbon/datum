@@ -247,7 +247,12 @@ async function handleMessage(msg: any): Promise<unknown> {
     }
 
     case "DISCARD_CAMPAIGN_CLAIMS": {
-      if (_queue) await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
+      if (_queue) {
+        await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
+        // Also reset chain state so next impression starts at nonce 1
+        const chainKey = `chainState:${msg.userAddress}:${msg.campaignId}`;
+        await chrome.storage.local.remove(chainKey);
+      }
       return { ok: true };
     }
 
@@ -255,6 +260,8 @@ async function handleMessage(msg: any): Promise<unknown> {
       if (_queue) {
         for (const campaignId of msg.campaignIds ?? []) {
           await _queue.discardCampaignClaims(msg.userAddress, campaignId);
+          const chainKey = `chainState:${msg.userAddress}:${campaignId}`;
+          await chrome.storage.local.remove(chainKey);
         }
       }
       return { ok: true };
@@ -610,14 +617,64 @@ async function handleMessage(msg: any): Promise<unknown> {
         const settledNonces = new Map<string, bigint[]>();
         let lastTxError: string | null = null;
 
-        for (const chunk of txChunks) {
+        // Pre-submit: validate each batch's first claim nonce against on-chain lastNonce.
+        // If stale/mismatched, discard claims and reset local chain state before submitting.
+        const validSplitBatches: typeof splitBatches = [];
+        for (const b of splitBatches) {
+          const cid = b.campaignId.toString();
+          try {
+            const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+            const expectedFirst = onChainNonce + 1n;
+            const actualFirst: bigint = b.claims[0].nonce;
+            if (actualFirst !== expectedFirst) {
+              console.warn(
+                `[datum-daemon] Nonce mismatch for campaign ${cid}: local first=${actualFirst}, expected=${expectedFirst} (on-chain=${onChainNonce}). Discarding stale claims.`
+              );
+              await _queue.discardCampaignClaims(userAddress, cid);
+              const chainKey = `chainState:${userAddress}:${cid}`;
+              await chrome.storage.local.remove(chainKey);
+              continue;
+            }
+          } catch (e) {
+            console.warn(`[datum-daemon] lastNonce check failed for campaign ${cid}:`, e);
+            // Don't skip on RPC error — attempt submission anyway
+          }
+          validSplitBatches.push(b);
+        }
+
+        if (validSplitBatches.length === 0) {
+          return { ok: false, error: "All claims had stale nonces — queue cleared, please re-browse to accumulate fresh claims" };
+        }
+
+        // Re-chunk with valid batches only
+        const validTxChunks: (typeof validSplitBatches)[] = [];
+        {
+          let cur2: typeof validSplitBatches = [];
+          const seen2 = new Set<string>();
+          for (const b of validSplitBatches) {
+            const cid = b.campaignId.toString();
+            if (cur2.length >= CHUNK_SIZE || seen2.has(cid)) {
+              validTxChunks.push(cur2); cur2 = []; seen2.clear();
+            }
+            cur2.push(b); seen2.add(cid);
+          }
+          if (cur2.length > 0) validTxChunks.push(cur2);
+        }
+
+        for (const chunk of validTxChunks) {
           // ClaimBatch for settleClaims: {user, campaignId, claims} — no publisherSig needed.
           // Diana is authorized via isPublisherRelay (publishers.relaySigner(publisher) == Diana).
-          const claimBatches = chunk.map((b) => ({
+          const claimBatches = chunk.map((b: any) => ({
             user: b.user,
             campaignId: b.campaignId,
             claims: b.claims,
           }));
+
+          // Record expected post-settlement nonces for on-chain verification
+          const expectedNonces = new Map<string, bigint>();
+          for (const b of chunk) {
+            expectedNonces.set(b.campaignId.toString(), b.claims[b.claims.length - 1].nonce);
+          }
 
           const nonceBefore = await provider.getTransactionCount(relayWallet.address);
           try {
@@ -633,13 +690,44 @@ async function handleMessage(msg: any): Promise<unknown> {
             if (current > nonceBefore) break;
             await new Promise((r) => setTimeout(r, 2000));
           }
+
+          // Post-submit: verify on-chain lastNonce actually advanced for at least one batch
+          let anySettled = false;
           for (const b of chunk) {
             const cid = b.campaignId.toString();
-            const nonces = settledNonces.get(cid) ?? [];
-            for (const c of b.claims) nonces.push(c.nonce);
-            settledNonces.set(cid, nonces);
-            totalSettled += b.claims.length;
+            try {
+              const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+              if (onChainNonce >= (expectedNonces.get(cid) ?? 0n)) {
+                // At least partially settled — count the claims up to on-chain nonce
+                const firstNonce: bigint = b.claims[0].nonce;
+                const settledCount = Number(onChainNonce - firstNonce + 1n);
+                const nonces = settledNonces.get(cid) ?? [];
+                for (let i = 0; i < Math.min(settledCount, b.claims.length); i++) {
+                  nonces.push(b.claims[i].nonce);
+                }
+                settledNonces.set(cid, nonces);
+                totalSettled += Math.min(settledCount, b.claims.length);
+                anySettled = true;
+                console.log(`[datum-daemon] Verified ${Math.min(settledCount, b.claims.length)} claims settled for campaign ${cid}, on-chain nonce=${onChainNonce}`);
+              } else {
+                // Tx reverted — discard claims and reset chain state for this campaign
+                console.warn(`[datum-daemon] Settlement reverted for campaign ${cid}: on-chain nonce=${onChainNonce}, expected=${expectedNonces.get(cid)}. Discarding claims.`);
+                await _queue.discardCampaignClaims(userAddress, cid);
+                const chainKey = `chainState:${userAddress}:${cid}`;
+                await chrome.storage.local.remove(chainKey);
+                lastTxError = `Settlement reverted for campaign ${cid} (nonce chain invalid or budget exhausted)`;
+              }
+            } catch (e) {
+              // RPC error — optimistically count as settled (same as before)
+              console.warn(`[datum-daemon] Post-submit lastNonce check failed for campaign ${cid}:`, e);
+              const nonces = settledNonces.get(cid) ?? [];
+              for (const c of b.claims) nonces.push(c.nonce);
+              settledNonces.set(cid, nonces);
+              totalSettled += b.claims.length;
+              anySettled = true;
+            }
           }
+          if (!anySettled && !lastTxError) lastTxError = "Settlement tx reverted (no claims confirmed on-chain)";
         }
 
         if (totalSettled === 0 && lastTxError) {
