@@ -13,7 +13,7 @@
 import { Wallet, JsonRpcProvider, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
-import { getSettlementContract } from "@shared/contracts";
+import { getSettlementContract, getClaimValidatorContract } from "@shared/contracts";
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -699,6 +699,68 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: false, error: "All claims had stale nonces or invalid hash chains — queue cleared. Browse pages to accumulate fresh claims." };
         }
 
+        // Pre-submit: dry-run validateClaim on-chain for first claim of each batch.
+        // This catches all rejection reasons (publisher mismatch, campaign inactive,
+        // CPM too high, hash mismatch, ZK proof required, etc.) BEFORE sending a tx.
+        const REJECTION_REASONS: Record<number, string> = {
+          0: "campaign paused", 1: "inactivity timeout", 2: "zero impressions",
+          3: "campaign bidCpm is 0", 4: "campaign not active", 5: "publisher mismatch",
+          6: "clearingCpm exceeds bidCpm", 7: "nonce chain invalid", 8: "first claim prevHash not zero",
+          9: "previousClaimHash mismatch", 10: "claimHash mismatch (hash function divergence)",
+          11: "publisher blocklisted", 13: "user impression cap exceeded",
+          14: "publisher rate limit exceeded", 15: "open campaign + allowlisted publisher",
+          16: "ZK proof required but missing", 17: "impressionCount out of range", 18: "budget exhausted",
+        };
+        if (s.contractAddresses?.claimValidator) {
+          const claimValidator = getClaimValidatorContract(s.contractAddresses, provider);
+          const toRemove: Set<number> = new Set();
+          for (let i = 0; i < validSplitBatches.length; i++) {
+            const b = validSplitBatches[i];
+            const cid = b.campaignId.toString();
+            try {
+              const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+              const expectedNonce = onChainNonce + 1n;
+              const expectedPrevHash: string = onChainNonce > 0n
+                ? await settlement.lastClaimHash(b.user, b.campaignId)
+                : "0x0000000000000000000000000000000000000000000000000000000000000000";
+              const firstClaim = b.claims[0];
+              const claimStruct = {
+                campaignId: firstClaim.campaignId,
+                publisher: firstClaim.publisher,
+                impressionCount: firstClaim.impressionCount,
+                clearingCpmPlanck: firstClaim.clearingCpmPlanck,
+                nonce: firstClaim.nonce,
+                previousClaimHash: firstClaim.previousClaimHash,
+                claimHash: firstClaim.claimHash,
+                zkProof: firstClaim.zkProof,
+              };
+              const [ok, reasonCode]: [boolean, number] = await claimValidator.validateClaim(
+                claimStruct, b.user, expectedNonce, expectedPrevHash,
+              );
+              if (!ok) {
+                const reason = REJECTION_REASONS[reasonCode] ?? `unknown (code ${reasonCode})`;
+                console.warn(`[datum-daemon] Pre-submit validateClaim REJECTED campaign ${cid}: reason=${reasonCode} (${reason})`);
+                await _queue.discardCampaignClaims(userAddress, cid);
+                const chainKey = `chainState:${userAddress}:${cid}`;
+                await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: expectedPrevHash } });
+                toRemove.add(i);
+                lastTxError = `Campaign ${cid} rejected: ${reason}`;
+              }
+            } catch (e) {
+              console.warn(`[datum-daemon] validateClaim dry-run failed for campaign ${cid}:`, e);
+              // RPC error — don't skip, let tx attempt proceed
+            }
+          }
+          if (toRemove.size > 0) {
+            const filtered = validSplitBatches.filter((_, i) => !toRemove.has(i));
+            validSplitBatches.length = 0;
+            validSplitBatches.push(...filtered);
+          }
+          if (validSplitBatches.length === 0) {
+            return { ok: false, error: lastTxError ?? "All claims rejected by on-chain validation — queue cleared." };
+          }
+        }
+
         // Re-chunk with valid batches only
         const validTxChunks: (typeof validSplitBatches)[] = [];
         {
@@ -776,7 +838,24 @@ async function handleMessage(msg: any): Promise<unknown> {
                   // Do NOT remove the key — that resets to (0, ZeroHash) and creates an infinite revert loop.
                   console.warn(`[datum-daemon] Could not fetch on-chain hash for campaign ${cid} after revert — chain state preserved`);
                 }
-                lastTxError = `Settlement reverted for campaign ${cid} (nonce chain invalid or budget exhausted)`;
+                // Try to diagnose the actual rejection reason via ClaimValidator
+                let rejectReason = "nonce chain invalid or budget exhausted";
+                if (s.contractAddresses?.claimValidator) {
+                  try {
+                    const cv = getClaimValidatorContract(s.contractAddresses, provider);
+                    const expectedNonce2 = onChainNonce + 1n;
+                    const expectedPrevHash2: string = onChainNonce > 0n
+                      ? await settlement.lastClaimHash(b.user, b.campaignId)
+                      : "0x0000000000000000000000000000000000000000000000000000000000000000";
+                    const fc = b.claims[0];
+                    const [vOk, vCode]: [boolean, number] = await cv.validateClaim(
+                      { campaignId: fc.campaignId, publisher: fc.publisher, impressionCount: fc.impressionCount, clearingCpmPlanck: fc.clearingCpmPlanck, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof },
+                      b.user, expectedNonce2, expectedPrevHash2,
+                    );
+                    if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;
+                  } catch { /* RPC failed — use generic message */ }
+                }
+                lastTxError = `Settlement reverted for campaign ${cid}: ${rejectReason}`;
               }
             } catch (e) {
               // RPC error — optimistically count as settled (same as before)
