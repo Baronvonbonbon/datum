@@ -90,7 +90,7 @@ export const claimQueue = {
     return Array.from(byCampaign.entries()).map(([campaignId, claims]) => ({
       user: userAddress,
       campaignId: BigInt(campaignId),
-      claims: claims.map(deserializeClaim),
+      claims: claims.map(deserializeClaim).sort((a, b) => (a.nonce < b.nonce ? -1 : a.nonce > b.nonce ? 1 : 0)),
     }));
   },
 
@@ -121,7 +121,7 @@ export const claimQueue = {
     return {
       user: userAddress,
       campaignId: BigInt(campaignId),
-      claims: campaignClaims.map(deserializeClaim),
+      claims: campaignClaims.map(deserializeClaim).sort((a, b) => (a.nonce < b.nonce ? -1 : a.nonce > b.nonce ? 1 : 0)),
     };
   },
 

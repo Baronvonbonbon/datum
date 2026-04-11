@@ -718,7 +718,7 @@ async function handleMessage(msg: any): Promise<unknown> {
             const cid = b.campaignId.toString();
             try {
               const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
-              if (onChainNonce >= (expectedNonces.get(cid) ?? 0n)) {
+              if (onChainNonce >= b.claims[0].nonce) {
                 // At least partially settled — count the claims up to on-chain nonce
                 const firstNonce: bigint = b.claims[0].nonce;
                 const settledCount = Number(onChainNonce - firstNonce + 1n);
