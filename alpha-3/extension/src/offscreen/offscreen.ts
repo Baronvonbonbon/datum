@@ -76,6 +76,7 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
   try {
     const signerAddress = await signer.getAddress();
     const nonceBeforeTx = await provider.getTransactionCount(signerAddress);
+    console.log(`[DATUM offscreen] settleClaims: signer=${signerAddress.slice(0, 10)}… nonceBefore=${nonceBeforeTx} batches=${contractBatches.length}`);
 
     // Paseo pallet-revive: explicit gas opts required (eth_estimateGas returns null revert data)
     await settlement.settleClaims(contractBatches, {
@@ -97,6 +98,7 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       const cid = b.campaignId.toString();
       try {
         const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+        console.log(`[DATUM offscreen] campaign=${cid} on-chain nonce=${onChainNonce}, batch first=${b.claims[0].nonce} last=${b.claims[b.claims.length - 1].nonce}`);
         if (onChainNonce >= b.claims[0].nonce) {
           const count = Number(onChainNonce - b.claims[0].nonce + 1n);
           const settled = b.claims.slice(0, count);

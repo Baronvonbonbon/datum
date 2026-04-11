@@ -87,6 +87,7 @@ export const claimBuilder = {
       }
 
       const chainState = await getChainState(userAddress, msg.campaignId);
+      console.log(`[DATUM] onImpression: campaign=${msg.campaignId} chainState.lastNonce=${chainState.lastNonce} chainState.lastClaimHash=${chainState.lastClaimHash.slice(0, 12)}…`);
 
       const impressionCount = 1n;
       // Use auction clearing CPM if provided, otherwise fall back to bid CPM
@@ -138,7 +139,7 @@ export const claimBuilder = {
 
       // Append claim to queue
       await appendToQueue(claim, userAddress);
-      console.log(`[DATUM] Claim queued: campaign=${msg.campaignId} nonce=${nonce} user=${userAddress}`);
+      console.log(`[DATUM] Claim queued: campaign=${msg.campaignId} nonce=${nonce} prevHash=${previousClaimHash.slice(0, 12)}… claimHash=${claimHash.slice(0, 12)}… user=${userAddress.slice(0, 10)}…`);
     });
   },
 

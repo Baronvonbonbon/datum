@@ -1169,32 +1169,52 @@ async function autoFlushDirect() {
     let rejectedCount = 0;
     const rejectedCampaignIds = new Set<string>();
 
-    const tx = await attestationVerifier.settleClaimsAttested(attestedBatches);
-    const receipt = await tx.wait();
+    const signerAddress = await wallet.getAddress();
+    const nonceBefore = await provider.getTransactionCount(signerAddress);
+    console.log(`[DATUM] Auto-flush: submitting ${batches.length} batch(es) for ${userAddress.slice(0, 10)}…`);
+    // Paseo pallet-revive: explicit gas opts required
+    await attestationVerifier.settleClaimsAttested(attestedBatches, {
+      gasLimit: 500_000_000n,
+      type: 0,
+      gasPrice: 1_000_000_000_000n,
+    });
+    // Nonce poll — Paseo getTransactionReceipt returns null for confirmed txs
+    for (let i = 0; i < 60; i++) {
+      const current = await provider.getTransactionCount(signerAddress);
+      if (current > nonceBefore) { console.log(`[DATUM] Auto-flush: tx confirmed (poll ${i + 1})`); break; }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
-    if (receipt?.logs) {
-      const iface = attestationVerifier.interface;
-      for (const log of receipt.logs) {
-        try {
-          const parsed = iface.parseLog(log);
-          if (parsed?.name === "ClaimSettled") {
-            settledCount++;
-          } else if (parsed?.name === "ClaimRejected") {
-            rejectedCount++;
-            rejectedCampaignIds.add(parsed.args.campaignId.toString());
+    // Verify on-chain lastNonce per campaign to determine what settled/rejected
+    const settlement = getSettlementContract(settings.contractAddresses, provider);
+    const settledNonces = new Map<string, bigint[]>();
+    for (const b of batches) {
+      const cid = b.campaignId.toString();
+      try {
+        const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+        console.log(`[DATUM] Auto-flush: campaign=${cid} on-chain nonce=${onChainNonce}, batch first=${b.claims[0].nonce} last=${b.claims[b.claims.length - 1].nonce}`);
+        if (onChainNonce >= b.claims[0].nonce) {
+          const count = Number(onChainNonce - b.claims[0].nonce + 1n);
+          const settled = b.claims.slice(0, count);
+          settledNonces.set(cid, settled.map((c) => c.nonce));
+          settledCount += settled.length;
+          if (count < b.claims.length) {
+            rejectedCampaignIds.add(cid);
+            rejectedCount += b.claims.length - count;
           }
-        } catch {
-          // log from different contract
+        } else {
+          rejectedCampaignIds.add(cid);
+          rejectedCount += b.claims.length;
         }
+      } catch (e) {
+        // RPC error — optimistically treat as settled
+        console.warn(`[DATUM] Auto-flush: lastNonce check failed for campaign ${cid}, treating as settled:`, e);
+        settledNonces.set(cid, b.claims.map((c) => c.nonce));
+        settledCount += b.claims.length;
       }
     }
 
     if (settledCount > 0) {
-      const settledNonces = new Map<string, bigint[]>();
-      for (const b of batches) {
-        const cid = b.campaignId.toString();
-        settledNonces.set(cid, b.claims.map((c) => c.nonce));
-      }
       await claimQueue.removeSettled(userAddress, settledNonces);
       // Auto-sweep: if configured and threshold exceeded, sweep earnings to cold wallet
       await tryAutoSweep(settings, wallet, userAddress);
@@ -1204,7 +1224,19 @@ async function autoFlushDirect() {
     // don't extend from a permanently invalid hash chain.
     for (const campaignId of rejectedCampaignIds) {
       await claimQueue.discardCampaignClaims(userAddress, campaignId);
-      await claimBuilder.syncFromChain(userAddress, campaignId, 0, ZeroHash);
+      // Fetch on-chain nonce+hash so next impression starts from the correct base
+      try {
+        const [onChainNonce, onChainHash]: [bigint, string] = await Promise.all([
+          settlement.lastNonce(userAddress, campaignId),
+          settlement.lastClaimHash(userAddress, campaignId),
+        ]);
+        console.log(`[DATUM] Auto-flush: reset chain for campaign=${campaignId} to on-chain nonce=${onChainNonce}`);
+        await claimBuilder.syncFromChain(userAddress, campaignId, Number(onChainNonce), onChainHash);
+      } catch {
+        // RPC error — fall back to zero so mismatch shows immediately rather than silently corrupting
+        console.warn(`[DATUM] Auto-flush: could not fetch on-chain state for campaign=${campaignId}, resetting to 0`);
+        await claimBuilder.syncFromChain(userAddress, campaignId, 0, ZeroHash);
+      }
     }
 
     const result = {

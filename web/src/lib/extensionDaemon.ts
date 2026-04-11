@@ -502,6 +502,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         const CHAIN_KEY = `chainState:${userAddress}:${msg.campaignId}`;
         const qs = await chrome.storage.local.get([CHAIN_KEY, "claimQueue"]);
         const chain = qs[CHAIN_KEY] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
+        console.log(`[datum-daemon] IMPRESSION_RECORDED: campaign=${msg.campaignId} chainState.lastNonce=${chain.lastNonce} chainState.lastClaimHash=${String(chain.lastClaimHash).slice(0, 12)}…`);
 
         const campaignIdBig = BigInt(msg.campaignId);
         const nonce = BigInt(chain.lastNonce + 1);
@@ -538,7 +539,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         });
         await chrome.storage.local.set({ claimQueue: queue });
         _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
-        console.log(`[datum-daemon] Claim queued: campaign=${msg.campaignId} nonce=${nonce} user=${userAddress.slice(0, 8)}…`);
+        console.log(`[datum-daemon] Claim queued: campaign=${msg.campaignId} nonce=${nonce} prevHash=${prevHash.slice(0, 12)}… claimHash=${claimHash.slice(0, 12)}… user=${userAddress.slice(0, 8)}…`);
         return { ok: true };
       } catch (err) {
         _lastImpressionResult = { ok: false, reason: String(err), ts: Date.now() };
@@ -643,6 +644,8 @@ async function handleMessage(msg: any): Promise<unknown> {
             const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
             const expectedFirst = onChainNonce + 1n;
             const actualFirst: bigint = b.claims[0].nonce;
+            const allNonces = b.claims.map((c: any) => c.nonce.toString()).join(",");
+            console.log(`[datum-daemon] Pre-submit campaign ${cid}: on-chain=${onChainNonce}, local nonces=[${allNonces}], expected first=${expectedFirst}`);
             if (actualFirst !== expectedFirst) {
               console.warn(
                 `[datum-daemon] Nonce mismatch for campaign ${cid}: local first=${actualFirst}, expected=${expectedFirst} (on-chain=${onChainNonce}). Discarding stale claims.`
