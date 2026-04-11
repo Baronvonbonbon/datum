@@ -678,7 +678,7 @@ async function handleMessage(msg: any): Promise<unknown> {
 
           const nonceBefore = await provider.getTransactionCount(relayWallet.address);
           try {
-            await settlement.settleClaims(claimBatches);
+            await settlement.settleClaims(claimBatches, { gasLimit: 500_000_000_000_000n });
           } catch (txErr) {
             lastTxError = String(txErr);
             console.warn("[datum-daemon] settleClaims tx error:", txErr);
