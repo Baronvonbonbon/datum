@@ -607,6 +607,7 @@ async function handleMessage(msg: any): Promise<unknown> {
 
         let totalSettled = 0;
         const settledNonces = new Map<string, bigint[]>();
+        let lastTxError: string | null = null;
 
         for (const chunk of txChunks) {
           const attestedChunk = await Promise.all(chunk.map(async (b) => {
@@ -624,8 +625,8 @@ async function handleMessage(msg: any): Promise<unknown> {
           try {
             await attestationVerifier.settleClaimsAttested(attestedChunk);
           } catch (txErr) {
+            lastTxError = String(txErr);
             console.warn("[datum-daemon] settleClaimsAttested tx error:", txErr);
-            // Continue — nonce may not advance; skip wait
             continue;
           }
           // Nonce polling — Paseo getTransactionReceipt returns null for confirmed txs
@@ -643,6 +644,10 @@ async function handleMessage(msg: any): Promise<unknown> {
           }
         }
 
+        if (totalSettled === 0 && lastTxError) {
+          console.error("[datum-daemon] All tx chunks failed. Last error:", lastTxError);
+          return { ok: false, error: lastTxError };
+        }
         if (totalSettled > 0) await _queue.removeSettled(userAddress, settledNonces);
         console.log(`[datum-daemon] DAEMON_SUBMIT_CLAIMS: settled ${totalSettled} claims for ${userAddress.slice(0, 10)}…`);
         return { ok: true, settledCount: totalSettled };

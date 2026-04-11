@@ -242,18 +242,20 @@ export function ClaimQueue({ address }: Props) {
 
       // Demo fast path: daemon uses pre-funded relay wallet (no user gas required).
       // Try this before touching the user's wallet.
-      try {
-        const daemonResp = await chrome.runtime.sendMessage({
-          type: "DAEMON_SUBMIT_CLAIMS",
-          userAddress: address,
-        });
-        if (daemonResp?.ok) {
-          const settled = BigInt(daemonResp.settledCount ?? 0);
-          setResult({ settledCount: settled, rejectedCount: 0n, totalPaid: 0n });
-          if (settled > 0) await loadState();
-          return;
-        }
-      } catch { /* not available outside demo — fall through to user wallet */ }
+      const daemonResp = await chrome.runtime.sendMessage({
+        type: "DAEMON_SUBMIT_CLAIMS",
+        userAddress: address,
+      }).catch(() => null);
+      if (daemonResp?.ok) {
+        const settled = BigInt(daemonResp.settledCount ?? 0);
+        setResult({ settledCount: settled, rejectedCount: 0n, totalPaid: 0n });
+        if (settled > 0) await loadState();
+        return;
+      }
+      if (daemonResp?.error) {
+        // Daemon available but tx failed — surface the real error, don't try locked wallet
+        throw new Error(daemonResp.error);
+      }
 
       const signer = getSigner(settings.rpcUrl);
       const signerAddr: string = signer.address;
