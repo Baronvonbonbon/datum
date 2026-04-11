@@ -661,21 +661,31 @@ async function handleMessage(msg: any): Promise<unknown> {
             const actualFirst: bigint = b.claims[0].nonce;
             const allNonces = b.claims.map((c: any) => c.nonce.toString()).join(",");
             console.log(`[datum-daemon] Pre-submit campaign ${cid}: on-chain=${onChainNonce}, local nonces=[${allNonces}], expected first=${expectedFirst}`);
+            // Also fetch on-chain lastClaimHash to verify the hash chain is intact
+            const onChainHash: string = onChainNonce > 0n
+              ? await settlement.lastClaimHash(b.user, b.campaignId)
+              : "0x0000000000000000000000000000000000000000000000000000000000000000";
+            const localPrevHash: string = b.claims[0].previousClaimHash;
+
             if (actualFirst !== expectedFirst) {
               console.warn(
                 `[datum-daemon] Nonce mismatch for campaign ${cid}: local first=${actualFirst}, expected=${expectedFirst} (on-chain=${onChainNonce}). Discarding stale claims.`
               );
               await _queue.discardCampaignClaims(userAddress, cid);
-              // Seed chain state from on-chain so next impression starts at the right nonce
               const chainKey = `chainState:${userAddress}:${cid}`;
-              try {
-                const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
-                await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
-              } catch {
-                // RPC failure — leave chain state intact; pruneSettledClaims will resync on next cycle.
-                // Do NOT remove the key — that resets to (0, ZeroHash) and creates an infinite revert loop.
-                console.warn(`[datum-daemon] Could not fetch on-chain hash for campaign ${cid} after nonce mismatch — chain state preserved`);
-              }
+              await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
+              continue;
+            }
+
+            // Nonce matches — verify previousClaimHash matches on-chain lastClaimHash.
+            // If they differ, the claim was built from a stale/wrong chain base and will revert.
+            if (String(localPrevHash).toLowerCase() !== String(onChainHash).toLowerCase()) {
+              console.warn(
+                `[datum-daemon] Hash mismatch for campaign ${cid}: claim prevHash=${localPrevHash.slice(0, 14)}… on-chain=${String(onChainHash).slice(0, 14)}…. Discarding stale claims.`
+              );
+              await _queue.discardCampaignClaims(userAddress, cid);
+              const chainKey = `chainState:${userAddress}:${cid}`;
+              await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
               continue;
             }
           } catch (e) {
@@ -686,7 +696,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         }
 
         if (validSplitBatches.length === 0) {
-          return { ok: false, error: "All claims had stale nonces — queue cleared, please re-browse to accumulate fresh claims" };
+          return { ok: false, error: "All claims had stale nonces or invalid hash chains — queue cleared. Browse pages to accumulate fresh claims." };
         }
 
         // Re-chunk with valid batches only
