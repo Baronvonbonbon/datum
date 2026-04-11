@@ -253,8 +253,11 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
       if (daemonResp?.error) {
-        // Daemon available but tx failed — surface the real error, don't try locked wallet
-        throw new Error(daemonResp.error);
+        // Daemon available but reported an error (e.g. stale nonces discarded, empty queue).
+        // Reload queue state so the count reflects any claims the daemon may have discarded.
+        setError(daemonResp.error);
+        await loadState();
+        return;
       }
 
       const signer = getSigner(settings.rpcUrl);
