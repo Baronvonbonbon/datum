@@ -18,7 +18,7 @@ import { DEFAULT_SETTINGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
-import { getPaymentVaultContract } from "@shared/contracts";
+import { getPaymentVaultContract, getSettlementContract } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
@@ -518,17 +518,40 @@ async function handleMessage(
 
     case "DISCARD_CAMPAIGN_CLAIMS": {
       const removed = await claimQueue.discardCampaignClaims(msg.userAddress, msg.campaignId);
-      // Also reset chain state so future impressions don't extend from the discarded hash chain.
-      await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, 0, ZeroHash);
+      // Seed chain state from on-chain so future impressions start at the right nonce.
+      // Resetting to (0, ZeroHash) causes a mismatch if prior settlements exist on-chain.
+      try {
+        const s = await getSettings();
+        const p = new JsonRpcProvider(s.rpcUrl);
+        const stl = getSettlementContract(s.contractAddresses, p);
+        const [onChainNonce, onChainHash] = await Promise.all([
+          stl.lastNonce(msg.userAddress, msg.campaignId),
+          stl.lastClaimHash(msg.userAddress, msg.campaignId),
+        ]);
+        await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, Number(onChainNonce), onChainHash);
+      } catch {
+        await claimBuilder.syncFromChain(msg.userAddress, msg.campaignId, 0, ZeroHash);
+      }
       return { removed };
     }
 
     case "DISCARD_REJECTED_CLAIMS": {
-      // Triggered by offscreen after parsing ClaimRejected events from a settlement tx.
-      // Reset chain state for each affected campaign so future impressions start fresh.
+      // Triggered by offscreen after on-chain verification of a settlement tx.
+      // Seed chain state from on-chain so next impressions start at the correct nonce.
+      const s = await getSettings();
+      const p = new JsonRpcProvider(s.rpcUrl);
+      const stl = getSettlementContract(s.contractAddresses, p);
       for (const campaignId of msg.campaignIds) {
         await claimQueue.discardCampaignClaims(msg.userAddress, campaignId);
-        await claimBuilder.syncFromChain(msg.userAddress, campaignId, 0, ZeroHash);
+        try {
+          const [onChainNonce, onChainHash] = await Promise.all([
+            stl.lastNonce(msg.userAddress, campaignId),
+            stl.lastClaimHash(msg.userAddress, campaignId),
+          ]);
+          await claimBuilder.syncFromChain(msg.userAddress, campaignId, Number(onChainNonce), onChainHash);
+        } catch {
+          await claimBuilder.syncFromChain(msg.userAddress, campaignId, 0, ZeroHash);
+        }
       }
       return { ok: true };
     }

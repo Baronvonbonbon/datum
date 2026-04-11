@@ -74,33 +74,52 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
   const rejectedCampaignIds = new Set<string>();
 
   try {
-    const tx = await settlement.settleClaims(contractBatches);
-    const receipt = await tx.wait();
+    const signerAddress = await signer.getAddress();
+    const nonceBeforeTx = await provider.getTransactionCount(signerAddress);
 
-    if (receipt?.logs) {
-      const iface = settlement.interface;
-      for (const log of receipt.logs) {
-        try {
-          const parsed = iface.parseLog(log);
-          if (parsed?.name === "ClaimSettled") {
-            settledCount++;
-          } else if (parsed?.name === "ClaimRejected") {
-            rejectedCount++;
-            rejectedCampaignIds.add(parsed.args.campaignId.toString());
+    // Paseo pallet-revive: explicit gas opts required (eth_estimateGas returns null revert data)
+    await settlement.settleClaims(contractBatches, {
+      gasLimit: 500_000_000n,
+      type: 0,
+      gasPrice: 1_000_000_000_000n,
+    });
+
+    // Nonce poll — Paseo getTransactionReceipt returns null for confirmed txs
+    for (let i = 0; i < 60; i++) {
+      const current = await provider.getTransactionCount(signerAddress);
+      if (current > nonceBeforeTx) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    // Verify on-chain lastNonce per campaign to determine what settled
+    const settledNonces: Record<string, string[]> = {};
+    for (const b of contractBatches) {
+      const cid = b.campaignId.toString();
+      try {
+        const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+        if (onChainNonce >= b.claims[0].nonce) {
+          const count = Number(onChainNonce - b.claims[0].nonce + 1n);
+          const settled = b.claims.slice(0, count);
+          settledNonces[cid] = settled.map((c) => c.nonce.toString());
+          settledCount += settled.length;
+          if (count < b.claims.length) {
+            // Partial — remaining claims rejected
+            rejectedCampaignIds.add(cid);
+            rejectedCount += b.claims.length - count;
           }
-        } catch {
-          // log from different contract
+        } else {
+          // Nothing settled
+          rejectedCampaignIds.add(cid);
+          rejectedCount += b.claims.length;
         }
+      } catch {
+        // RPC error — optimistically treat as settled
+        settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
+        settledCount += b.claims.length;
       }
     }
 
-    // Ask background to remove settled claims
     if (settledCount > 0) {
-      const settledNonces: Record<string, string[]> = {};
-      for (const b of contractBatches) {
-        const cid = b.campaignId.toString();
-        settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
-      }
       await chrome.runtime.sendMessage({
         type: "REMOVE_SETTLED_CLAIMS",
         userAddress: msg.userAddress,
@@ -108,9 +127,6 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       });
     }
 
-    // Ask background to reset chain state for campaigns with rejected claims.
-    // A rejected claim means the on-chain nonce expectation diverged from local state;
-    // discarding the queue and resetting to nonce=0 unblocks future impressions.
     if (rejectedCampaignIds.size > 0) {
       await chrome.runtime.sendMessage({
         type: "DISCARD_REJECTED_CLAIMS",
