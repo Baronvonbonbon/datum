@@ -249,19 +249,36 @@ async function handleMessage(msg: any): Promise<unknown> {
     case "DISCARD_CAMPAIGN_CLAIMS": {
       if (_queue) {
         await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
-        // Also reset chain state so next impression starts at nonce 1
         const chainKey = `chainState:${msg.userAddress}:${msg.campaignId}`;
-        await chrome.storage.local.remove(chainKey);
+        try {
+          const s2 = (await chrome.storage.local.get("settings")).settings;
+          const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
+          const stl2 = getSettlementContract(s2?.contractAddresses, p2);
+          const [n2, h2] = await Promise.all([
+            stl2.lastNonce(msg.userAddress, msg.campaignId),
+            stl2.lastClaimHash(msg.userAddress, msg.campaignId),
+          ]);
+          await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId: msg.campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
+        } catch { await chrome.storage.local.remove(chainKey); }
       }
       return { ok: true };
     }
 
     case "DISCARD_REJECTED_CLAIMS": {
       if (_queue) {
+        const s2 = (await chrome.storage.local.get("settings")).settings;
         for (const campaignId of msg.campaignIds ?? []) {
           await _queue.discardCampaignClaims(msg.userAddress, campaignId);
           const chainKey = `chainState:${msg.userAddress}:${campaignId}`;
-          await chrome.storage.local.remove(chainKey);
+          try {
+            const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
+            const stl2 = getSettlementContract(s2?.contractAddresses, p2);
+            const [n2, h2] = await Promise.all([
+              stl2.lastNonce(msg.userAddress, campaignId),
+              stl2.lastClaimHash(msg.userAddress, campaignId),
+            ]);
+            await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
+          } catch { await chrome.storage.local.remove(chainKey); }
         }
       }
       return { ok: true };
@@ -631,8 +648,12 @@ async function handleMessage(msg: any): Promise<unknown> {
                 `[datum-daemon] Nonce mismatch for campaign ${cid}: local first=${actualFirst}, expected=${expectedFirst} (on-chain=${onChainNonce}). Discarding stale claims.`
               );
               await _queue.discardCampaignClaims(userAddress, cid);
+              // Seed chain state from on-chain so next impression starts at the right nonce
               const chainKey = `chainState:${userAddress}:${cid}`;
-              await chrome.storage.local.remove(chainKey);
+              try {
+                const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
+                await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
+              } catch { await chrome.storage.local.remove(chainKey); }
               continue;
             }
           } catch (e) {
@@ -713,8 +734,12 @@ async function handleMessage(msg: any): Promise<unknown> {
                 // Tx reverted — discard claims and reset chain state for this campaign
                 console.warn(`[datum-daemon] Settlement reverted for campaign ${cid}: on-chain nonce=${onChainNonce}, expected=${expectedNonces.get(cid)}. Discarding claims.`);
                 await _queue.discardCampaignClaims(userAddress, cid);
+                // Seed chain state from on-chain so next impression starts at the right nonce
                 const chainKey = `chainState:${userAddress}:${cid}`;
-                await chrome.storage.local.remove(chainKey);
+                try {
+                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
+                  await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
+                } catch { await chrome.storage.local.remove(chainKey); }
                 lastTxError = `Settlement reverted for campaign ${cid} (nonce chain invalid or budget exhausted)`;
               }
             } catch (e) {
