@@ -13,7 +13,7 @@
 import { Wallet, JsonRpcProvider, solidityPacked, ZeroHash, getBytes } from "ethers";
 import { blake2b } from "@noble/hashes/blake2b";
 import { installChromeShim } from "./chromeShim";
-import { getAttestationVerifierContract } from "@shared/contracts";
+import { getSettlementContract } from "@shared/contracts";
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -575,8 +575,9 @@ async function handleMessage(msg: any): Promise<unknown> {
         const relayWallet = loadOrCreateRelayWallet();
         const provider = new JsonRpcProvider(s.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
         const signer = relayWallet.connect(provider);
-        const attestationVerifier = getAttestationVerifierContract(s.contractAddresses, signer);
-        const attestationVerifierAddr: string = s.contractAddresses.attestationVerifier;
+        // Use Settlement.settleClaims — allows publisher relaySigner (Diana) as msg.sender.
+        // DatumAttestationVerifier.settleClaimsAttested requires msg.sender == user (E32).
+        const settlement = getSettlementContract(s.contractAddresses, signer);
 
         // Split each batch at 50 claims (E28 limit)
         const MAX_CLAIMS_PER_BATCH = 50;
@@ -610,23 +611,20 @@ async function handleMessage(msg: any): Promise<unknown> {
         let lastTxError: string | null = null;
 
         for (const chunk of txChunks) {
-          const attestedChunk = await Promise.all(chunk.map(async (b) => {
-            const claimsLen = b.claims.length;
-            const publisherSig = await signPublisherAttestation(
-              b.campaignId.toString(), b.user,
-              b.claims[0].nonce.toString(),
-              b.claims[claimsLen - 1].nonce.toString(),
-              claimsLen, attestationVerifierAddr,
-            );
-            return { user: b.user, campaignId: b.campaignId, claims: b.claims, publisherSig };
+          // ClaimBatch for settleClaims: {user, campaignId, claims} — no publisherSig needed.
+          // Diana is authorized via isPublisherRelay (publishers.relaySigner(publisher) == Diana).
+          const claimBatches = chunk.map((b) => ({
+            user: b.user,
+            campaignId: b.campaignId,
+            claims: b.claims,
           }));
 
           const nonceBefore = await provider.getTransactionCount(relayWallet.address);
           try {
-            await attestationVerifier.settleClaimsAttested(attestedChunk);
+            await settlement.settleClaims(claimBatches);
           } catch (txErr) {
             lastTxError = String(txErr);
-            console.warn("[datum-daemon] settleClaimsAttested tx error:", txErr);
+            console.warn("[datum-daemon] settleClaims tx error:", txErr);
             continue;
           }
           // Nonce polling — Paseo getTransactionReceipt returns null for confirmed txs
@@ -649,7 +647,7 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: false, error: lastTxError };
         }
         if (totalSettled > 0) await _queue.removeSettled(userAddress, settledNonces);
-        console.log(`[datum-daemon] DAEMON_SUBMIT_CLAIMS: settled ${totalSettled} claims for ${userAddress.slice(0, 10)}…`);
+        console.log(`[datum-daemon] DAEMON_SUBMIT_CLAIMS: settleClaims settled ${totalSettled} claims for ${userAddress.slice(0, 10)}…`);
         return { ok: true, settledCount: totalSettled };
       } catch (err) {
         console.error("[datum-daemon] DAEMON_SUBMIT_CLAIMS error:", err);
