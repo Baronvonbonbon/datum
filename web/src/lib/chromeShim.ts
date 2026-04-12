@@ -79,11 +79,40 @@ type MessageListener = (
 const messageListeners: MessageListener[] = [];
 const SENDER: Sender = { id: "datum-demo" };
 
+// Optional message logger hook — set by daemonLog integration
+let _msgLogger: ((dir: "out" | "in", type: string, detail: string) => void) | null = null;
+export function setShimMessageLogger(fn: typeof _msgLogger): void { _msgLogger = fn; }
+
+function summarise(msg: Record<string, unknown>): string {
+  const omit = new Set(["type", "contractAddresses", "batches", "zkProof"]);
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(msg)) {
+    if (omit.has(k)) continue;
+    if (typeof v === "object" && v !== null) continue;
+    parts.push(`${k}=${String(v).slice(0, 40)}`);
+  }
+  return parts.join(" ");
+}
+
 function sendMessage(msg: Record<string, unknown>): Promise<unknown> {
+  const msgType = String(msg.type ?? "unknown");
+  _msgLogger?.("out", msgType, summarise(msg));
+
   return new Promise((resolve) => {
     let responded = false;
     const sendResponse = (r: unknown) => {
-      if (!responded) { responded = true; resolve(r); }
+      if (!responded) {
+        responded = true;
+        const result = r as Record<string, unknown> | null | undefined;
+        const detail = result
+          ? Object.entries(result)
+              .filter(([k]) => k !== "type")
+              .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`)
+              .join(" ")
+          : "";
+        _msgLogger?.("in", msgType, detail);
+        resolve(r);
+      }
     };
 
     let isAsync = false;

@@ -2,6 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
 import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, DaemonDebugInfo } from "../lib/extensionDaemon";
+import {
+  installConsoleCapture,
+  subscribeDaemonLog,
+  clearDaemonLog,
+  LogEntry,
+} from "../lib/daemonLog";
+import { setShimMessageLogger } from "../lib/chromeShim";
+
+// Install console capture + message logger as early as possible (before daemon starts)
+installConsoleCapture();
+setShimMessageLogger((dir, type, detail) => {
+  _emit(dir === "out" ? "msg-out" : "msg-in", `${dir === "out" ? "→" : "←"} ${type}${detail ? "  " + detail : ""}`);
+});
 
 const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
@@ -48,6 +61,10 @@ export function Demo() {
   const [campaignCount, setCampaignCount] = useState<number | null>(null);
   const [repolling, setRepolling] = useState(false);
   const [debugInfo, setDebugInfo] = useState<DaemonDebugInfo | null>(null);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+  const logBoxRef = useRef<HTMLDivElement | null>(null);
+  const [logAutoScroll, setLogAutoScroll] = useState(true);
 
   // Load publisher SDK
   useEffect(() => {
@@ -119,6 +136,20 @@ export function Demo() {
     const id = setInterval(tick, 3000);
     return () => clearInterval(id);
   }, [daemonReady]);
+
+  // Subscribe to daemon activity log
+  useEffect(() => {
+    return subscribeDaemonLog((entries) => {
+      setLogEntries(entries);
+    });
+  }, []);
+
+  // Auto-scroll log to bottom when new entries arrive
+  useEffect(() => {
+    if (logAutoScroll && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logEntries, logAutoScroll]);
 
   // Relay heartbeat
   useEffect(() => {
@@ -451,6 +482,78 @@ export function Demo() {
         </div>
       </Section>
 
+      {/* ── Daemon Activity Log ────────────────────────────────────────────── */}
+      <Section label="Daemon Activity Log">
+        <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {logEntries.length} entries — console messages from the daemon and message bus traffic
+          </span>
+          <div style={{ flex: 1 }} />
+          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={logAutoScroll}
+              onChange={(e) => setLogAutoScroll(e.target.checked)}
+              style={{ accentColor: "var(--ok)" }}
+            />
+            auto-scroll
+          </label>
+          <button
+            onClick={() => {
+              const text = logEntries
+                .map((e) => `${fmtTs(e.ts)} [${e.level}] ${e.text}`)
+                .join("\n");
+              navigator.clipboard.writeText(text).catch(() => {});
+            }}
+            style={logBtnStyle}
+          >
+            Copy
+          </button>
+          <button onClick={clearDaemonLog} style={logBtnStyle}>Clear</button>
+        </div>
+        <div
+          ref={logBoxRef}
+          onScroll={() => {
+            const el = logBoxRef.current;
+            if (!el) return;
+            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            setLogAutoScroll(atBottom);
+          }}
+          style={{
+            height: 360,
+            overflowY: "auto",
+            background: "rgba(0,0,0,0.35)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "8px 10px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: 1.55,
+          }}
+        >
+          {logEntries.length === 0 ? (
+            <div style={{ color: "rgba(255,255,255,0.2)", paddingTop: 4 }}>
+              No activity yet. The log captures daemon console output and message bus traffic.
+            </div>
+          ) : (
+            logEntries.map((e) => (
+              <div key={e.id} style={{ display: "flex", gap: 8, padding: "1px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                <span style={{ color: "rgba(255,255,255,0.25)", flexShrink: 0, userSelect: "none" }}>
+                  {fmtTs(e.ts)}
+                </span>
+                <span style={{ color: levelColor(e.level), flexShrink: 0, width: 52, userSelect: "none" }}>
+                  [{e.level}]
+                </span>
+                <span style={{ color: levelTextColor(e.level), wordBreak: "break-all", whiteSpace: "pre-wrap" }}>
+                  {e.text}
+                </span>
+              </div>
+            ))
+          )}
+          <div ref={logEndRef} />
+        </div>
+      </Section>
+
       {/* ── Resources ─────────────────────────────────────────────────────── */}
       <Section label="Resources">
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -533,3 +636,34 @@ const code: React.CSSProperties = {
   borderRadius: 3, padding: "1px 5px",
   fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-strong)",
 };
+
+const logBtnStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+  borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-mono)",
+  fontSize: 11, padding: "4px 10px", cursor: "pointer",
+};
+
+function fmtTs(ts: number): string {
+  const d = new Date(ts);
+  return [
+    String(d.getHours()).padStart(2, "0"),
+    String(d.getMinutes()).padStart(2, "0"),
+    String(d.getSeconds()).padStart(2, "0"),
+  ].join(":") + "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+
+function levelColor(level: LogEntry["level"]): string {
+  if (level === "error") return "var(--error)";
+  if (level === "warn") return "var(--warn)";
+  if (level === "msg-out") return "#7dd3fc"; // sky-300
+  if (level === "msg-in") return "#86efac";  // green-300
+  return "rgba(255,255,255,0.3)";
+}
+
+function levelTextColor(level: LogEntry["level"]): string {
+  if (level === "error") return "#fca5a5";
+  if (level === "warn") return "#fde68a";
+  if (level === "msg-out") return "#e0f2fe";
+  if (level === "msg-in") return "#dcfce7";
+  return "var(--text)";
+}
