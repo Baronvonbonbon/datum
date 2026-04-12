@@ -640,8 +640,9 @@ async function handleMessage(msg: any): Promise<unknown> {
           }
         }
 
-        // Chunk into txs of ≤10 batches with no duplicate campaignId per tx (E28)
-        const CHUNK_SIZE = 10;
+        // One campaign per tx — pallet-revive limit is ~4 total claims across all batches per call.
+        // 3 campaigns × 4 claims = 12 total always reverts. Confirmed safe: 1 batch × ≤4 claims.
+        const CHUNK_SIZE = 1;
         const txChunks: (typeof splitBatches)[] = [];
         let cur: typeof splitBatches = [];
         const seen = new Set<string>();
