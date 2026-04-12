@@ -132,16 +132,20 @@ export interface DaemonDebugInfo {
   claimQueueAddresses: string[];
   lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null;
   relaySignerAddress: string;
+  claimBuilderMode: "per-impression" | "aggregated";
+  rawQueueDepth: number;
 }
 
 /** Read raw poller storage state — used by the demo debug panel. */
 export async function getDebugInfo(): Promise<DaemonDebugInfo> {
   const stored = await chrome.storage.local.get([
-    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr", "connectedAddress", "claimQueue",
+    "pollLastBlock", "campaignIndex", "activeCampaigns", "pollerCampaignsAddr", "connectedAddress",
+    "claimQueue", "rawImpressionQueue", "claimBuilderMode",
   ]);
   const index: Record<string, any> = stored.campaignIndex ?? {};
   const active: any[] = stored.activeCampaigns ?? [];
   const queue: any[] = stored.claimQueue ?? [];
+  const rawQueue: any[] = stored.rawImpressionQueue ?? [];
   const sample = active[0] ?? Object.values(index)[0] ?? null;
   const addrSet = new Set<string>(queue.map((c: any) => c.userAddress).filter(Boolean));
   return {
@@ -155,7 +159,15 @@ export async function getDebugInfo(): Promise<DaemonDebugInfo> {
     claimQueueAddresses: [...addrSet],
     lastImpressionResult: _lastImpressionResult,
     relaySignerAddress: getRelaySignerAddress(),
+    claimBuilderMode: (stored.claimBuilderMode ?? "per-impression") as "per-impression" | "aggregated",
+    rawQueueDepth: rawQueue.length,
   };
+}
+
+/** Toggle the claim builder mode between per-impression (eager hashing) and aggregated (lazy). */
+export async function setClaimBuilderMode(mode: "per-impression" | "aggregated"): Promise<void> {
+  await chrome.storage.local.set({ claimBuilderMode: mode });
+  console.log(`[datum-daemon] Claim builder mode set to: ${mode}`);
 }
 
 /** Return the number of campaigns currently in the local cache. */
@@ -490,7 +502,7 @@ async function handleMessage(msg: any): Promise<unknown> {
       // needs snarkjs (not bundled in the web app). Inline the essential claim-building
       // here using blake2b from @noble/hashes (available in web/node_modules).
       try {
-        const s2 = await chrome.storage.local.get(["connectedAddress", "activeCampaigns"]);
+        const s2 = await chrome.storage.local.get(["connectedAddress", "activeCampaigns", "claimBuilderMode"]);
         const userAddress: string | undefined = s2.connectedAddress;
         if (!userAddress) {
           _lastImpressionResult = { ok: false, reason: "no_wallet", ts: Date.now() };
@@ -505,6 +517,27 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: false, reason: "no_campaign" };
         }
 
+        const clearingCpm = msg.clearingCpmPlanck
+          ? BigInt(msg.clearingCpmPlanck)
+          : BigInt(campaign.bidCpmPlanck ?? "0");
+
+        // ── Aggregated mode: queue raw impression, defer hashing to flush time ──
+        if ((s2.claimBuilderMode ?? "per-impression") === "aggregated") {
+          const rawQs = await chrome.storage.local.get("rawImpressionQueue");
+          const rawQueue: any[] = rawQs.rawImpressionQueue ?? [];
+          rawQueue.push({
+            campaignId: String(msg.campaignId),
+            publisher: msg.publisherAddress,
+            clearingCpmPlanck: clearingCpm.toString(),
+            userAddress,
+          });
+          await chrome.storage.local.set({ rawImpressionQueue: rawQueue });
+          _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
+          console.log(`[datum-daemon] Raw impression queued (aggregated): campaign=${msg.campaignId} rawDepth=${rawQueue.length}`);
+          return { ok: true };
+        }
+
+        // ── Per-impression mode: hash immediately and append to claimQueue ──────
         const CHAIN_KEY = `chainState:${userAddress}:${msg.campaignId}`;
         const qs = await chrome.storage.local.get([CHAIN_KEY, "claimQueue"]);
         const chain = qs[CHAIN_KEY] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
@@ -513,9 +546,6 @@ async function handleMessage(msg: any): Promise<unknown> {
         const campaignIdBig = BigInt(msg.campaignId);
         const nonce = BigInt(chain.lastNonce + 1);
         const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
-        const clearingCpm = msg.clearingCpmPlanck
-          ? BigInt(msg.clearingCpmPlanck)
-          : BigInt(campaign.bidCpmPlanck ?? "0");
 
         // Blake2-256 matching Settlement._validateClaim() field order:
         // (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
@@ -552,6 +582,13 @@ async function handleMessage(msg: any): Promise<unknown> {
         console.error("[datum-daemon] IMPRESSION_RECORDED error:", err);
         return { ok: false, reason: String(err) };
       }
+    }
+
+    case "SET_CLAIM_BUILDER_MODE": {
+      const mode: "per-impression" | "aggregated" = msg.mode === "aggregated" ? "aggregated" : "per-impression";
+      await chrome.storage.local.set({ claimBuilderMode: mode });
+      console.log(`[datum-daemon] Claim builder mode set to: ${mode}`);
+      return { ok: true, mode };
     }
 
     case "UPDATE_INTEREST": {
@@ -614,6 +651,75 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: false, error: "AttestationVerifier not configured" };
         const userAddress: string = msg.userAddress ?? "";
         if (!userAddress) return { ok: false, error: "No user address provided" };
+
+        // ── Aggregated mode: drain rawImpressionQueue → build aggregated claims ──
+        // Each group of (campaignId, clearingCpmPlanck) impressions is collapsed into
+        // claims of up to MAX_IMPRESSIONS_PER_CLAIM each using impressionCount > 1.
+        // This yields ~250× more throughput: 4 claims × 250 impressions = 1000 impressions/tx.
+        {
+          const MAX_IMPRESSIONS_PER_CLAIM = 250;
+          const stored2 = await chrome.storage.local.get(["claimBuilderMode", "rawImpressionQueue"]);
+          const rawQueue: any[] = stored2.rawImpressionQueue ?? [];
+          if ((stored2.claimBuilderMode ?? "per-impression") === "aggregated" && rawQueue.length > 0) {
+            // Group by (campaignId, clearingCpmPlanck) — all entries share the same userAddress
+            // since claimQueue is per-user. Group key uses campaignId+cpm only; publisher is
+            // taken from the first entry in each group (immutable per campaign).
+            const groups = new Map<string, any[]>();
+            for (const raw of rawQueue) {
+              const key = `${raw.campaignId}:${raw.clearingCpmPlanck}`;
+              const g = groups.get(key) ?? [];
+              g.push(raw);
+              groups.set(key, g);
+            }
+
+            const qs2 = await chrome.storage.local.get("claimQueue");
+            const existingQueue: any[] = qs2.claimQueue ?? [];
+
+            for (const [, impressions] of groups) {
+              const { campaignId: cid, publisher, clearingCpmPlanck: cpm, userAddress: ua } = impressions[0];
+              const chainKey = `chainState:${ua}:${cid}`;
+              const chainStored = await chrome.storage.local.get(chainKey);
+              let chain = chainStored[chainKey] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
+
+              for (let i = 0; i < impressions.length; i += MAX_IMPRESSIONS_PER_CLAIM) {
+                const chunk = impressions.slice(i, i + MAX_IMPRESSIONS_PER_CLAIM);
+                const impressionCount = BigInt(chunk.length);
+                const nonce = BigInt(chain.lastNonce + 1);
+                const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
+                const campaignIdBig = BigInt(cid);
+                const clearingCpm = BigInt(cpm);
+
+                const packed = solidityPacked(
+                  ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, nonce, prevHash]
+                );
+                const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
+                const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
+
+                existingQueue.push({
+                  campaignId: cid,
+                  publisher,
+                  impressionCount: impressionCount.toString(),
+                  clearingCpmPlanck: cpm,
+                  nonce: nonce.toString(),
+                  previousClaimHash: prevHash,
+                  claimHash,
+                  zkProof: "0x",
+                  userAddress: ua,
+                });
+
+                chain = { lastNonce: Number(nonce), lastClaimHash: claimHash };
+              }
+
+              await chrome.storage.local.set({
+                [chainKey]: { userAddress: ua, campaignId: cid, lastNonce: chain.lastNonce, lastClaimHash: chain.lastClaimHash },
+              });
+            }
+
+            await chrome.storage.local.set({ claimQueue: existingQueue, rawImpressionQueue: [] });
+            console.log(`[datum-daemon] Aggregated ${rawQueue.length} raw impressions → ${existingQueue.length} queued claims`);
+          }
+        }
 
         const batches = await _queue.buildBatches(userAddress);
         if (batches.length === 0) return { ok: false, error: "No pending claims" };

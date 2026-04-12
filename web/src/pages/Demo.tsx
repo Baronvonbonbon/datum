@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
-import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, DaemonDebugInfo } from "../lib/extensionDaemon";
+import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, DaemonDebugInfo } from "../lib/extensionDaemon";
 import {
   _emit,
   installConsoleCapture,
@@ -66,6 +66,7 @@ export function Demo() {
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const [logAutoScroll, setLogAutoScroll] = useState(true);
+  const [claimBuilderMode, setClaimBuilderModeState] = useState<"per-impression" | "aggregated">("per-impression");
 
   // Load publisher SDK
   useEffect(() => {
@@ -132,7 +133,10 @@ export function Demo() {
   // Poll debug info from storage every 3s while daemon is running
   useEffect(() => {
     if (!daemonReady) return;
-    const tick = () => getDebugInfo().then(setDebugInfo).catch(() => {});
+    const tick = () => getDebugInfo().then((info) => {
+      setDebugInfo(info);
+      setClaimBuilderModeState(info.claimBuilderMode);
+    }).catch(() => {});
     tick();
     const id = setInterval(tick, 3000);
     return () => clearInterval(id);
@@ -320,6 +324,42 @@ export function Demo() {
                   </button>
                 )}
               </div>
+
+              {/* Claim builder mode toggle */}
+              {daemonReady && (
+                <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                    Claim Builder Mode
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {(["per-impression", "aggregated"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={async () => {
+                          await setClaimBuilderMode(mode);
+                          setClaimBuilderModeState(mode);
+                        }}
+                        style={{
+                          flex: 1,
+                          background: claimBuilderMode === mode ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${claimBuilderMode === mode ? "rgba(255,255,255,0.3)" : "var(--border)"}`,
+                          borderRadius: 4,
+                          color: claimBuilderMode === mode ? "var(--text-strong)" : "var(--text-muted)",
+                          fontFamily: "var(--font-mono)", fontSize: 11, padding: "5px 8px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {mode === "per-impression" ? "per-impression" : "aggregated"}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
+                    {claimBuilderMode === "per-impression"
+                      ? "Each impression hashed immediately → 4 claims/tx × 1 impression = 4 impressions/tx."
+                      : `Raw impressions queued until submit → up to 4 claims × 250 = 1000 impressions/tx.${debugInfo && debugInfo.rawQueueDepth > 0 ? ` (${debugInfo.rawQueueDepth} raw queued)` : ""}`}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Auction status */}
@@ -353,6 +393,7 @@ export function Demo() {
                       ["index", `${debugInfo.campaignIndexCount} entries`, debugInfo.campaignIndexCount > 0 ? "var(--ok)" : "var(--warn)"],
                       ["cache", `${debugInfo.activeCampaignsCount} campaigns`, debugInfo.activeCampaignsCount > 0 ? "var(--ok)" : "var(--warn)"],
                       ["claims", `${debugInfo.claimQueueCount} in queue${debugInfo.claimQueueAddresses.length > 0 ? ` (${debugInfo.claimQueueAddresses.map(a => a.slice(0,8)+"…").join(", ")})` : ""}`, debugInfo.claimQueueCount > 0 ? "var(--ok)" : "var(--text-muted)"],
+                      ...(debugInfo.claimBuilderMode === "aggregated" ? [["raw queue", `${debugInfo.rawQueueDepth} impressions (aggregated mode)`, debugInfo.rawQueueDepth > 0 ? "var(--ok)" : "var(--text-muted)"]] : []),
                       ...(debugInfo.lastImpressionResult ? [["impression", debugInfo.lastImpressionResult.ok ? `ok campaign=${debugInfo.lastImpressionResult.campaignId}` : `fail: ${debugInfo.lastImpressionResult.reason}`, debugInfo.lastImpressionResult.ok ? "var(--ok)" : "var(--error)"]] : []),
                       ["relay key", debugInfo.relaySignerAddress ? debugInfo.relaySignerAddress.slice(0, 10) + "…" : "none", "var(--text-muted)"],
                       ...(debugInfo.sampleCampaign ? [["sample", `#${debugInfo.sampleCampaign.id} status=${debugInfo.sampleCampaign.status} pub=${debugInfo.sampleCampaign.publisher.slice(0, 8)}…`, "var(--text-muted)"]] : []),
