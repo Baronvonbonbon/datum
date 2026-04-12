@@ -3,6 +3,7 @@ import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
 import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, DaemonDebugInfo } from "../lib/extensionDaemon";
 import {
+  _emit,
   installConsoleCapture,
   subscribeDaemonLog,
   clearDaemonLog,
