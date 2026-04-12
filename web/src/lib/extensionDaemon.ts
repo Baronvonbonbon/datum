@@ -626,8 +626,9 @@ async function handleMessage(msg: any): Promise<unknown> {
         const settlement = getSettlementContract(s.contractAddresses, signer);
         console.log(`[datum-daemon] relay wallet address: ${relayWallet.address}`);
 
-        // Split each batch at 50 claims (E28 limit)
-        const MAX_CLAIMS_PER_BATCH = 50;
+        // Split each batch at 4 claims — pallet-revive eth_call hard limit (~5 external calls/claim,
+        // 5 claims always reverts with data=null regardless of gasLimit; 4 is confirmed safe on Paseo)
+        const MAX_CLAIMS_PER_BATCH = 4;
         const splitBatches: typeof batches = [];
         for (const b of batches) {
           if (b.claims.length <= MAX_CLAIMS_PER_BATCH) {
