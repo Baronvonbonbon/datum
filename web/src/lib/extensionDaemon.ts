@@ -624,6 +624,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         // Use Settlement.settleClaims — allows publisher relaySigner (Diana) as msg.sender.
         // DatumAttestationVerifier.settleClaimsAttested requires msg.sender == user (E32).
         const settlement = getSettlementContract(s.contractAddresses, signer);
+        console.log(`[datum-daemon] relay wallet address: ${relayWallet.address}`);
 
         // Split each batch at 50 claims (E28 limit)
         const MAX_CLAIMS_PER_BATCH = 50;
@@ -743,6 +744,7 @@ async function handleMessage(msg: any): Promise<unknown> {
               const [ok, reasonCode]: [boolean, number] = await claimValidator.validateClaim(
                 claimStruct, b.user, expectedNonce, expectedPrevHash,
               );
+              console.log(`[datum-daemon] Pre-submit validateClaim campaign ${cid}: ok=${ok} code=${reasonCode}`);
               if (!ok) {
                 const reason = REJECTION_REASONS[reasonCode] ?? `unknown (code ${reasonCode})`;
                 console.warn(`[datum-daemon] Pre-submit validateClaim REJECTED campaign ${cid}: reason=${reasonCode} (${reason})`);
@@ -798,6 +800,17 @@ async function handleMessage(msg: any): Promise<unknown> {
           }
 
           const nonceBefore = await provider.getTransactionCount(relayWallet.address);
+          console.log(`[datum-daemon] submitting settleClaims: relayWallet=${relayWallet.address} nonceBefore=${nonceBefore} batches=${claimBatches.length} campaigns=${claimBatches.map((b: any) => b.campaignId.toString()).join(",")}`);
+
+          // Try staticCall first to surface revert reason (best-effort — Paseo may still revert live)
+          try {
+            await settlement.settleClaims.staticCall(claimBatches, { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
+            console.log("[datum-daemon] settleClaims staticCall: PASSED");
+          } catch (staticErr: any) {
+            const staticMsg = staticErr?.message ?? String(staticErr);
+            console.warn(`[datum-daemon] settleClaims staticCall: REVERTED — ${staticMsg.slice(0, 200)}`);
+          }
+
           try {
             await settlement.settleClaims(claimBatches, { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
           } catch (txErr) {
