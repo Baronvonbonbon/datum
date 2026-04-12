@@ -829,6 +829,15 @@ async function handleMessage(msg: any): Promise<unknown> {
                 settledNonces.set(cid, nonces);
                 totalSettled += Math.min(settledCount, b.claims.length);
                 anySettled = true;
+                // Sync chain state from on-chain so new impressions start from verified base
+                try {
+                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
+                  const chainKey = `chainState:${userAddress}:${cid}`;
+                  await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: String(onChainHash) } });
+                  console.log(`[datum-daemon] Synced chain state for campaign ${cid}: nonce=${onChainNonce} hash=${String(onChainHash).slice(0, 14)}…`);
+                } catch {
+                  console.warn(`[datum-daemon] Could not sync chain state after settlement for campaign ${cid}`);
+                }
                 console.log(`[datum-daemon] Verified ${Math.min(settledCount, b.claims.length)} claims settled for campaign ${cid}, on-chain nonce=${onChainNonce}`);
               } else {
                 // Tx reverted — discard claims and reset chain state for this campaign
@@ -864,13 +873,8 @@ async function handleMessage(msg: any): Promise<unknown> {
                 lastTxError = `Settlement reverted for campaign ${cid}: ${rejectReason}`;
               }
             } catch (e) {
-              // RPC error — optimistically count as settled (same as before)
-              console.warn(`[datum-daemon] Post-submit lastNonce check failed for campaign ${cid}:`, e);
-              const nonces = settledNonces.get(cid) ?? [];
-              for (const c of b.claims) nonces.push(c.nonce);
-              settledNonces.set(cid, nonces);
-              totalSettled += b.claims.length;
-              anySettled = true;
+              // RPC error — leave claims in queue for retry; pruneSettledClaims will clean up when RPC recovers
+              console.warn(`[datum-daemon] Post-submit lastNonce RPC failed for campaign ${cid} — claims kept in queue for retry:`, e);
             }
           }
           if (!anySettled && !lastTxError) lastTxError = "Settlement tx reverted (no claims confirmed on-chain)";
