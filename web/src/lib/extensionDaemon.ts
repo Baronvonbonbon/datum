@@ -1058,6 +1058,18 @@ export async function startDaemon(): Promise<void> {
         if (preCached.length === 0 || cachedAddr.toLowerCase() !== s.contractAddresses.campaigns.toLowerCase()) {
           console.log("[datum-daemon] resetting poller — campaigns address changed or cache empty");
           await campaignPoller.reset();
+          // New contract deployment — purge stale chain state and claim queue so old nonces
+          // don't cause soft-rejects on the new contract (where on-chain nonces are all 0).
+          if (cachedAddr && cachedAddr.toLowerCase() !== s.contractAddresses.campaigns.toLowerCase()) {
+            const all = await chrome.storage.local.get(null);
+            const staleKeys = Object.keys(all).filter((k) => k.startsWith("chainState:"));
+            if (staleKeys.length > 0) {
+              await chrome.storage.local.remove(staleKeys);
+              console.log(`[datum-daemon] cleared ${staleKeys.length} stale chainState entries after deployment change`);
+            }
+            if (_queue) await _queue.clear();
+            console.log("[datum-daemon] cleared claim queue after deployment change");
+          }
           await chrome.storage.local.set({ pollerCampaignsAddr: s.contractAddresses.campaigns });
           // Re-seed pollLastBlock to fromBlock so the reset scan doesn't start from 0
           const fb: number | undefined = (s.contractAddresses as any).fromBlock;
