@@ -812,12 +812,21 @@ async function handleMessage(msg: any): Promise<unknown> {
             await new Promise((r) => setTimeout(r, 2000));
           }
 
+          // Paseo eth-rpc: state reads may lag behind tx inclusion — wait for state to propagate
+          await new Promise((r) => setTimeout(r, 3000));
+
           // Post-submit: verify on-chain lastNonce actually advanced for at least one batch
           let anySettled = false;
           for (const b of chunk) {
             const cid = b.campaignId.toString();
             try {
-              const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+              // Retry lastNonce check — Paseo state reads can be stale immediately after tx
+              let onChainNonce: bigint = 0n;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                onChainNonce = await settlement.lastNonce(b.user, b.campaignId);
+                if (onChainNonce >= b.claims[0].nonce) break;
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
+              }
               if (onChainNonce >= b.claims[0].nonce) {
                 // At least partially settled — count the claims up to on-chain nonce
                 const firstNonce: bigint = b.claims[0].nonce;
