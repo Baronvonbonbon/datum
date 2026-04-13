@@ -575,11 +575,27 @@ export function Demo() {
           </div>
         </div>
 
-        {/* ── Row 2: Vickrey Auction Visualization (full-width) ─────────── */}
+        {/* ── Row 2: Auction Visualization (full-width) ─────────────────── */}
         {auctionBids.length > 0 && (
-          <div style={{ marginTop: 24, border: "1px solid rgba(74,222,128,0.2)", borderRadius: 6, padding: "14px 16px" }}>
-            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--ok)", marginBottom: 14, fontFamily: "var(--font-mono)" }}>
-              Second-Price Vickrey Auction
+          <div style={{
+            marginTop: 24, borderRadius: 6, padding: "14px 16px",
+            border: `1px solid ${
+              bridgeStatus.mechanism === "solo" ? "rgba(147,197,253,0.25)"
+              : bridgeStatus.mechanism === "floor" ? "rgba(251,146,60,0.25)"
+              : "rgba(74,222,128,0.2)"
+            }`,
+            transition: "border-color 0.4s",
+          }}>
+            <div style={{
+              fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14, fontFamily: "var(--font-mono)",
+              color: bridgeStatus.mechanism === "solo" ? "rgba(147,197,253,0.9)"
+                : bridgeStatus.mechanism === "floor" ? "rgba(251,146,60,0.9)"
+                : "var(--ok)",
+              transition: "color 0.4s",
+            }}>
+              {bridgeStatus.mechanism === "solo" ? "Solo Auction — Uncontested"
+                : bridgeStatus.mechanism === "floor" ? "Second-Price Auction — Floor Price"
+                : "Second-Price Vickrey Auction"}
             </div>
             <VickreyAuctionViz
               key={auctionKey}
@@ -999,20 +1015,34 @@ function formatEffectiveBid(micro: string): string {
 const BID_CARD_H = 54;
 const BID_CARD_GAP = 5;
 const BID_CARD_STRIDE = BID_CARD_H + BID_CARD_GAP;
+// Pile layout constants (result phase)
+const PILE_WINNER_GAP = 10;  // gap between winner and 2nd price
+const PILE_STACK_GAP = 8;    // gap between 2nd price and first loser card
+const PILE_OFFSET = 7;       // vertical offset between stacked loser cards
 
-type AuctionPhase = "scrambled" | "sorting" | "falling" | "result";
+function pileTop(rankIdx: number): number {
+  if (rankIdx === 0) return 0;
+  if (rankIdx === 1) return BID_CARD_H + PILE_WINNER_GAP;
+  return BID_CARD_H + PILE_WINNER_GAP + BID_CARD_H + PILE_STACK_GAP + (rankIdx - 2) * PILE_OFFSET;
+}
+
+function pileContainerH(n: number): number {
+  if (n <= 0) return 0;
+  if (n === 1) return BID_CARD_H + 4;
+  return pileTop(n - 1) + BID_CARD_H + 6;
+}
+
+type AuctionPhase = "scrambled" | "sorting" | "result";
 
 function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
   bids: AuctionBid[];
   mechanism?: string;
   clearingCpmPlanck?: string;
 }) {
-  // rows[i] = current display row for sorted-rank-i card
-  const [rows, setRows] = useState<number[]>(() => {
-    const indices = bids.map((_, i) => i);
-    return indices.sort(() => Math.random() - 0.5);
-  });
-  const [falling, setFalling] = useState<boolean[]>(() => bids.map(() => false));
+  // rows[i] = display row for rank-i card during scramble/sort phases
+  const [rows, setRows] = useState<number[]>(() =>
+    bids.map((_, i) => i).sort(() => Math.random() - 0.5)
+  );
   const [phase, setPhase] = useState<AuctionPhase>("scrambled");
   const [containerH, setContainerH] = useState(() => bids.length * BID_CARD_STRIDE);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -1020,33 +1050,24 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
   useEffect(() => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
-
     if (bids.length === 0) return;
 
-    // Reset to scrambled
-    const scrambled = bids.map((_, i) => i).sort(() => Math.random() - 0.5);
-    setRows(scrambled);
-    setFalling(bids.map(() => false));
+    // Reset scrambled
+    setRows(bids.map((_, i) => i).sort(() => Math.random() - 0.5));
     setPhase("scrambled");
     setContainerH(bids.length * BID_CARD_STRIDE);
 
-    // Sort
+    // Animate sort into rank order
     timers.current.push(setTimeout(() => {
       setRows(bids.map((_, i) => i));
       setPhase("sorting");
     }, 350));
 
-    // Fall away losers
-    timers.current.push(setTimeout(() => {
-      setFalling(bids.map((_, i) => i >= 2));
-      setPhase("falling");
-    }, 950));
-
-    // Shrink container to winner + second price
+    // Collapse losers into pile below winner + 2nd
     timers.current.push(setTimeout(() => {
       setPhase("result");
-      setContainerH(Math.min(2, bids.length) * BID_CARD_STRIDE);
-    }, 1450));
+      setContainerH(pileContainerH(bids.length));
+    }, 950));
 
     return () => { timers.current.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1054,32 +1075,61 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
 
   if (bids.length === 0) return null;
 
-  const showDetail = phase === "falling" || phase === "result";
+  const showDetail = phase === "result";
 
   return (
     <div style={{
       position: "relative",
       height: containerH,
-      transition: "height 0.45s ease",
+      transition: "height 0.5s cubic-bezier(0.4,0,0.2,1)",
       overflow: "hidden",
     }}>
       {bids.map((bid, rankIdx) => {
-        const row = rows[rankIdx] ?? rankIdx;
-        const isFalling = falling[rankIdx] ?? false;
         const isWinner = rankIdx === 0;
         const isSecond = rankIdx === 1;
+        const isLoser = rankIdx >= 2;
+        const pileDepth = Math.max(0, rankIdx - 2);  // 0 for 3rd, 1 for 4th, …
+
+        // Position: scramble/sort use rows array * stride; result uses pile layout
+        const top = phase === "result"
+          ? pileTop(rankIdx)
+          : (rows[rankIdx] ?? rankIdx) * BID_CARD_STRIDE;
+
+        // Pile depth effects (only for loser cards in result phase)
+        const pileOpacity = showDetail && isLoser ? Math.max(0.35, 1 - pileDepth * 0.09) : 1;
+        const pileScale = showDetail && isLoser ? 1 - pileDepth * 0.012 : 1;
+        // Slight alternating x-shift for card-shuffle feel
+        const pileShiftX = showDetail && isLoser ? (pileDepth % 2 === 0 ? pileDepth * 0.8 : -pileDepth * 0.8) : 0;
+
+        // Z-order: winner on top, deeper pile cards behind
+        const zIndex = bids.length - rankIdx;
+
+        const isSolo = mechanism === "solo";
+        const isFloor = mechanism === "floor";
+
+        // Winner colors vary by mechanism
+        const winnerBorder = isSolo ? "rgba(147,197,253,0.50)" : "rgba(74,222,128,0.45)";
+        const winnerBg     = isSolo ? "rgba(147,197,253,0.07)" : "rgba(74,222,128,0.06)";
+        const winnerColor  = isSolo ? "rgba(147,197,253,0.95)" : "var(--ok)";
+        // 2nd-price card: red treatment for floor (couldn't set price), amber for second-price
+        const secondBorder = isFloor ? "rgba(239,68,68,0.35)"   : "rgba(251,191,36,0.40)";
+        const secondBg     = isFloor ? "rgba(239,68,68,0.04)"   : "rgba(251,191,36,0.04)";
+        const secondColor  = isFloor ? "rgba(239,68,68,0.85)"   : "var(--warn)";
 
         const borderColor = showDetail
-          ? isWinner ? "rgba(74,222,128,0.45)"
-          : isSecond ? "rgba(251,191,36,0.40)"
-          : "rgba(255,255,255,0.06)"
+          ? isWinner ? winnerBorder
+          : isSecond ? secondBorder
+          : "rgba(255,255,255,0.05)"
           : "rgba(255,255,255,0.06)";
 
         const bg = showDetail
-          ? isWinner ? "rgba(74,222,128,0.06)"
-          : isSecond ? "rgba(251,191,36,0.04)"
-          : "rgba(255,255,255,0.03)"
+          ? isWinner ? winnerBg
+          : isSecond ? secondBg
+          : "rgba(255,255,255,0.02)"
           : "rgba(255,255,255,0.03)";
+
+        // Floor 2nd: visually sinks below winner in result phase
+        const floorSinkY = showDetail && isFloor && isSecond ? 4 : 0;
 
         return (
           <div
@@ -1087,11 +1137,15 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
             style={{
               position: "absolute",
               left: 0, right: 0,
-              top: row * BID_CARD_STRIDE,
+              top,
               height: BID_CARD_H,
+              zIndex,
               border: `1px solid ${borderColor}`,
               borderRadius: 5,
               background: bg,
+              boxShadow: showDetail && isWinner && isSolo
+                ? "0 0 14px rgba(147,197,253,0.25), 0 0 4px rgba(147,197,253,0.15)"
+                : showDetail && isLoser ? "0 2px 6px rgba(0,0,0,0.35)" : "none",
               padding: "6px 10px",
               display: "flex",
               alignItems: "center",
@@ -1099,20 +1153,25 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
               fontFamily: "var(--font-mono)",
               fontSize: 11,
               overflow: "hidden",
-              transition: "top 0.5s ease, opacity 0.4s ease, transform 0.4s ease, background 0.35s, border-color 0.35s",
-              opacity: isFalling ? 0 : 1,
-              transform: isFalling ? "translateY(12px)" : "translateY(0)",
-              pointerEvents: isFalling ? "none" : "auto",
+              transition: "top 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.4s ease, transform 0.5s cubic-bezier(0.4,0,0.2,1), background 0.35s, border-color 0.35s, box-shadow 0.35s",
+              opacity: pileOpacity,
+              transform: `translateX(${pileShiftX}px) scaleX(${pileScale}) translateY(${floorSinkY}px)`,
+              transformOrigin: "center top",
             }}
           >
             {/* Rank number */}
             <div style={{
               width: 18, height: 18, borderRadius: 3, flexShrink: 0,
-              background: showDetail && isWinner ? "rgba(74,222,128,0.18)"
-                : showDetail && isSecond ? "rgba(251,191,36,0.15)"
+              background: showDetail && isWinner
+                ? (isSolo ? "rgba(147,197,253,0.18)" : "rgba(74,222,128,0.18)")
+                : showDetail && isSecond
+                ? (isFloor ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.15)")
                 : "rgba(255,255,255,0.06)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, color: showDetail && isWinner ? "var(--ok)" : showDetail && isSecond ? "var(--warn)" : "var(--text-muted)",
+              fontSize: 10,
+              color: showDetail && isWinner ? winnerColor
+                : showDetail && isSecond ? secondColor
+                : "var(--text-muted)",
               transition: "background 0.35s, color 0.35s",
             }}>
               {rankIdx + 1}
@@ -1133,35 +1192,41 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
               <div style={{
                 fontSize: 11,
                 fontWeight: isWinner ? 600 : 400,
-                color: showDetail && isWinner ? "var(--ok)"
-                  : showDetail && isSecond ? "var(--warn)"
+                color: showDetail && isWinner ? winnerColor
+                  : showDetail && isSecond ? secondColor
                   : "var(--text-muted)",
                 transition: "color 0.35s",
               }}>
                 {formatEffectiveBid(bid.effectiveBidMicro)} eff
               </div>
-              {showDetail && isWinner && clearingCpmPlanck && (
-                <div style={{ fontSize: 10, color: "var(--ok)", marginTop: 1 }}>
-                  pays {formatPlanck(clearingCpmPlanck)}
+              {showDetail && isWinner && (
+                <div style={{ fontSize: 10, color: winnerColor, marginTop: 1, opacity: 0.85 }}>
+                  {isSolo ? "uncontested · 70% of bid"
+                    : isFloor ? `pays ${formatPlanck(clearingCpmPlanck ?? "0")} (floor)`
+                    : clearingCpmPlanck ? `pays ${formatPlanck(clearingCpmPlanck)}` : null}
                 </div>
               )}
               {showDetail && isSecond && (
-                <div style={{ fontSize: 10, color: "var(--warn)", marginTop: 1 }}>
-                  sets price
+                <div style={{ fontSize: 10, color: secondColor, marginTop: 1, opacity: 0.85 }}>
+                  {isFloor ? "below floor" : "sets price"}
                 </div>
               )}
             </div>
 
             {/* Status badge */}
             <div style={{
-              flexShrink: 0, minWidth: 56, textAlign: "right",
+              flexShrink: 0, minWidth: 64, textAlign: "right",
               fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
-              color: showDetail && isWinner ? "var(--ok)"
-                : showDetail && isSecond ? "var(--warn)"
+              color: showDetail && isWinner ? winnerColor
+                : showDetail && isSecond ? secondColor
                 : "transparent",
               transition: "color 0.35s",
             }}>
-              {isWinner ? "WINNER" : isSecond ? "2ND PRICE" : ""}
+              {isWinner
+                ? (isSolo ? "SOLO WIN" : "WINNER")
+                : isSecond
+                ? (isFloor ? "BELOW FLOOR" : "2ND PRICE")
+                : ""}
             </div>
           </div>
         );
