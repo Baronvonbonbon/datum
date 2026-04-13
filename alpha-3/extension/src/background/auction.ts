@@ -17,11 +17,19 @@ export interface CampaignCandidate {
   [key: string]: any;
 }
 
+export interface ScoredBid {
+  id: string;
+  bidCpmPlanck: string;
+  interestWeight: number;
+  effectiveBidMicro: string; // effectiveBid.toString() (bidCpm * weight * 1000)
+}
+
 export interface AuctionResult {
   winner: CampaignCandidate;
   clearingCpmPlanck: bigint;
   participants: number;
   mechanism: "second-price" | "solo" | "floor";
+  allScored: ScoredBid[];
 }
 
 /**
@@ -54,6 +62,13 @@ export function auctionForPage(
   const winner = scored[0];
   const bidCpm = winner.bidCpm;
 
+  const allScored: ScoredBid[] = scored.map((s) => ({
+    id: String(s.campaign.id ?? s.campaign.campaignId ?? "?"),
+    bidCpmPlanck: s.bidCpm.toString(),
+    interestWeight: s.interestWeight,
+    effectiveBidMicro: s.effectiveBid.toString(),
+  }));
+
   if (campaigns.length === 1) {
     // Solo: 70% of bid
     const clearingCpm = (bidCpm * 70n) / 100n;
@@ -62,6 +77,7 @@ export function auctionForPage(
       clearingCpmPlanck: clearingCpm > 0n ? clearingCpm : 1n,
       participants: 1,
       mechanism: "solo",
+      allScored,
     };
   }
 
@@ -91,6 +107,7 @@ export function auctionForPage(
     clearingCpmPlanck: clearingCpm,
     participants: campaigns.length,
     mechanism,
+    allScored,
   };
 }
 

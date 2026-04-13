@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
-import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
+import { runContentBridge, BridgeStatus, AuctionBid } from "../lib/contentBridge";
 import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, getInterestProfile, updateInterestProfile, DaemonDebugInfo } from "../lib/extensionDaemon";
 import { BouncingText } from "../components/TransactionStatus";
 import {
@@ -132,6 +132,10 @@ export function Demo() {
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const [logAutoScroll, setLogAutoScroll] = useState(true);
   const [claimBuilderMode, setClaimBuilderModeState] = useState<"per-impression" | "aggregated">("per-impression");
+
+  // Vickrey auction visualization state
+  const [auctionBids, setAuctionBids] = useState<AuctionBid[]>([]);
+  const [auctionKey, setAuctionKey] = useState(0);
 
   // Browse simulator state
   const [simVisitCounts, setSimVisitCounts] = useState<Record<string, number>>({});
@@ -350,6 +354,14 @@ export function Demo() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTourActive]);
 
+  // Pick up new auction bids when bridge completes
+  useEffect(() => {
+    if (bridgeStatus.auctionBids && bridgeStatus.auctionBids.length > 0) {
+      setAuctionBids(bridgeStatus.auctionBids);
+      setAuctionKey((k) => k + 1);
+    }
+  }, [bridgeStatus.auctionBids]);
+
   const relayLabel = relay === null
     ? "Checking..."
     : relay.online
@@ -540,6 +552,21 @@ export function Demo() {
                 </div>
               )}
             </div>
+
+            {/* Vickrey auction visualization */}
+            {auctionBids.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  Second-Price Vickrey Auction
+                </div>
+                <VickreyAuctionViz
+                  key={auctionKey}
+                  bids={auctionBids}
+                  mechanism={bridgeStatus.mechanism}
+                  clearingCpmPlanck={bridgeStatus.clearingCpmPlanck}
+                />
+              </div>
+            )}
 
             {/* Auction status */}
             {bridgeStatus.step !== "idle" && (
@@ -987,6 +1014,189 @@ function formatPlanck(planck: string): string {
     const dot = Number(BigInt(planck)) / 1e10;
     return `${dot.toFixed(4)} DOT`;
   } catch { return planck; }
+}
+
+function formatEffectiveBid(micro: string): string {
+  try {
+    // effectiveBid = bidCpm * weight * 1000 (micro-planck units)
+    // DOT = micro / 1000 / 1e10 = micro / 1e13
+    const dot = Number(BigInt(micro)) / 1e13;
+    return `${dot.toFixed(4)}`;
+  } catch { return "?"; }
+}
+
+const BID_CARD_H = 54;
+const BID_CARD_GAP = 5;
+const BID_CARD_STRIDE = BID_CARD_H + BID_CARD_GAP;
+
+type AuctionPhase = "scrambled" | "sorting" | "falling" | "result";
+
+function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
+  bids: AuctionBid[];
+  mechanism?: string;
+  clearingCpmPlanck?: string;
+}) {
+  // rows[i] = current display row for sorted-rank-i card
+  const [rows, setRows] = useState<number[]>(() => {
+    const indices = bids.map((_, i) => i);
+    return indices.sort(() => Math.random() - 0.5);
+  });
+  const [falling, setFalling] = useState<boolean[]>(() => bids.map(() => false));
+  const [phase, setPhase] = useState<AuctionPhase>("scrambled");
+  const [containerH, setContainerH] = useState(() => bids.length * BID_CARD_STRIDE);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+
+    if (bids.length === 0) return;
+
+    // Reset to scrambled
+    const scrambled = bids.map((_, i) => i).sort(() => Math.random() - 0.5);
+    setRows(scrambled);
+    setFalling(bids.map(() => false));
+    setPhase("scrambled");
+    setContainerH(bids.length * BID_CARD_STRIDE);
+
+    // Sort
+    timers.current.push(setTimeout(() => {
+      setRows(bids.map((_, i) => i));
+      setPhase("sorting");
+    }, 350));
+
+    // Fall away losers
+    timers.current.push(setTimeout(() => {
+      setFalling(bids.map((_, i) => i >= 2));
+      setPhase("falling");
+    }, 950));
+
+    // Shrink container to winner + second price
+    timers.current.push(setTimeout(() => {
+      setPhase("result");
+      setContainerH(Math.min(2, bids.length) * BID_CARD_STRIDE);
+    }, 1450));
+
+    return () => { timers.current.forEach(clearTimeout); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bids]);
+
+  if (bids.length === 0) return null;
+
+  const showDetail = phase === "falling" || phase === "result";
+
+  return (
+    <div style={{
+      position: "relative",
+      height: containerH,
+      transition: "height 0.45s ease",
+      overflow: "hidden",
+    }}>
+      {bids.map((bid, rankIdx) => {
+        const row = rows[rankIdx] ?? rankIdx;
+        const isFalling = falling[rankIdx] ?? false;
+        const isWinner = rankIdx === 0;
+        const isSecond = rankIdx === 1;
+
+        const borderColor = showDetail
+          ? isWinner ? "rgba(74,222,128,0.45)"
+          : isSecond ? "rgba(251,191,36,0.40)"
+          : "rgba(255,255,255,0.06)"
+          : "rgba(255,255,255,0.06)";
+
+        const bg = showDetail
+          ? isWinner ? "rgba(74,222,128,0.06)"
+          : isSecond ? "rgba(251,191,36,0.04)"
+          : "rgba(255,255,255,0.03)"
+          : "rgba(255,255,255,0.03)";
+
+        return (
+          <div
+            key={bid.id}
+            style={{
+              position: "absolute",
+              left: 0, right: 0,
+              top: row * BID_CARD_STRIDE,
+              height: BID_CARD_H,
+              border: `1px solid ${borderColor}`,
+              borderRadius: 5,
+              background: bg,
+              padding: "6px 10px",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              overflow: "hidden",
+              transition: "top 0.5s ease, opacity 0.4s ease, transform 0.4s ease, background 0.35s, border-color 0.35s",
+              opacity: isFalling ? 0 : 1,
+              transform: isFalling ? "translateY(12px)" : "translateY(0)",
+              pointerEvents: isFalling ? "none" : "auto",
+            }}
+          >
+            {/* Rank number */}
+            <div style={{
+              width: 18, height: 18, borderRadius: 3, flexShrink: 0,
+              background: showDetail && isWinner ? "rgba(74,222,128,0.18)"
+                : showDetail && isSecond ? "rgba(251,191,36,0.15)"
+                : "rgba(255,255,255,0.06)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 10, color: showDetail && isWinner ? "var(--ok)" : showDetail && isSecond ? "var(--warn)" : "var(--text-muted)",
+              transition: "background 0.35s, color 0.35s",
+            }}>
+              {rankIdx + 1}
+            </div>
+
+            {/* Campaign ID + details */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: "var(--text-strong)", fontSize: 11 }}>
+                Campaign #{bid.id}
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>
+                {formatPlanck(bid.bidCpmPlanck)}/1k · {bid.interestWeight.toFixed(2)}× weight
+              </div>
+            </div>
+
+            {/* Effective bid + clearing price */}
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{
+                fontSize: 11,
+                fontWeight: isWinner ? 600 : 400,
+                color: showDetail && isWinner ? "var(--ok)"
+                  : showDetail && isSecond ? "var(--warn)"
+                  : "var(--text-muted)",
+                transition: "color 0.35s",
+              }}>
+                {formatEffectiveBid(bid.effectiveBidMicro)} eff
+              </div>
+              {showDetail && isWinner && clearingCpmPlanck && (
+                <div style={{ fontSize: 10, color: "var(--ok)", marginTop: 1 }}>
+                  pays {formatPlanck(clearingCpmPlanck)}
+                </div>
+              )}
+              {showDetail && isSecond && (
+                <div style={{ fontSize: 10, color: "var(--warn)", marginTop: 1 }}>
+                  sets price
+                </div>
+              )}
+            </div>
+
+            {/* Status badge */}
+            <div style={{
+              flexShrink: 0, minWidth: 56, textAlign: "right",
+              fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
+              color: showDetail && isWinner ? "var(--ok)"
+                : showDetail && isSecond ? "var(--warn)"
+                : "transparent",
+              transition: "color 0.35s",
+            }}>
+              {isWinner ? "WINNER" : isSecond ? "2ND PRICE" : ""}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 const inputStyle: React.CSSProperties = {

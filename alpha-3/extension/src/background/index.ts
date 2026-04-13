@@ -665,6 +665,7 @@ async function handleMessage(
           clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
           mechanism: auctionResult.mechanism,
           participants: auctionResult.participants,
+          allBids: auctionResult.allScored,
         };
       }
 

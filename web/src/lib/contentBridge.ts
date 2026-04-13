@@ -29,6 +29,13 @@ import { getCurrencySymbol } from "@ext/shared/networks";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const chrome: any;
 
+export interface AuctionBid {
+  id: string;
+  bidCpmPlanck: string;
+  interestWeight: number;
+  effectiveBidMicro: string;
+}
+
 export interface BridgeStatus {
   step: "idle" | "detecting" | "matching" | "auction" | "handshake" | "injected" | "house-ad" | "no-match" | "error";
   campaignId?: string;
@@ -39,6 +46,7 @@ export interface BridgeStatus {
   activeCampaigns?: number;
   matchedPool?: number;
   error?: string;
+  auctionBids?: AuctionBid[];
 }
 
 let _lastAdElement: HTMLElement | null = null;
@@ -213,6 +221,7 @@ export async function runContentBridge(
   const clearingCpmPlanck: string | undefined = selectionResp?.clearingCpmPlanck;
   const auctionMechanism: string | undefined = selectionResp?.mechanism;
   const participants: number | undefined = selectionResp?.participants;
+  const auctionBids: AuctionBid[] | undefined = selectionResp?.allBids;
 
   if (!match) {
     const target = document.getElementById("datum-ad-slot");
@@ -303,5 +312,5 @@ export async function runContentBridge(
     });
   } catch { /* */ }
 
-  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: pool.length });
+  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: pool.length, auctionBids });
 }
