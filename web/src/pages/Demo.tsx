@@ -1045,6 +1045,7 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
   );
   const [phase, setPhase] = useState<AuctionPhase>("scrambled");
   const [containerH, setContainerH] = useState(() => bids.length * BID_CARD_STRIDE);
+  const [cycle, setCycle] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -1057,21 +1058,26 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
     setPhase("scrambled");
     setContainerH(bids.length * BID_CARD_STRIDE);
 
-    // Animate sort into rank order
+    // 800ms: sort into rank order
     timers.current.push(setTimeout(() => {
       setRows(bids.map((_, i) => i));
       setPhase("sorting");
     }, 800));
 
-    // Collapse losers into pile below winner + 2nd
+    // 2000ms: collapse losers into pile
     timers.current.push(setTimeout(() => {
       setPhase("result");
       setContainerH(pileContainerH(bids.length));
-    }, 4200));
+    }, 2000));
+
+    // 5000ms: restart cycle
+    timers.current.push(setTimeout(() => {
+      setCycle(c => c + 1);
+    }, 5000));
 
     return () => { timers.current.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bids]);
+  }, [bids, cycle]);
 
   if (bids.length === 0) return null;
 
