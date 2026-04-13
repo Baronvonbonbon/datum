@@ -50,22 +50,63 @@ interface BrowseTopic {
 }
 
 const BROWSE_TOPICS: BrowseTopic[] = [
-  { slug: "crypto-web3",          label: "Crypto & Web3",          iab: "IAB13", section: "Cryptocurrency",       keywords: "bitcoin, ethereum, defi, web3, blockchain, token" },
-  { slug: "defi",                 label: "DeFi",                   iab: "IAB13", section: "Decentralised Finance", keywords: "defi, yield farming, liquidity, amm, protocol" },
-  { slug: "polkadot",             label: "Polkadot",               iab: "IAB19", section: "Polkadot Ecosystem",    keywords: "polkadot, substrate, parachain, dot, kusama" },
-  { slug: "finance",              label: "Finance",                iab: "IAB13", section: "Personal Finance",      keywords: "stock market, investing, portfolio, ETF, interest rates" },
-  { slug: "computers-electronics",label: "Computers & Electronics",iab: "IAB19", section: "Technology",           keywords: "programming, AI, machine learning, cloud, developer" },
-  { slug: "gaming",               label: "Gaming",                 iab: "IAB9",  section: "Gaming",               keywords: "video games, steam, esports, rpg, fps, console" },
-  { slug: "health",               label: "Health",                 iab: "IAB7",  section: "Health & Medicine",     keywords: "fitness, diet, wellness, mental health, nutrition" },
-  { slug: "sports",               label: "Sports",                 iab: "IAB17", section: "Sports",               keywords: "football, basketball, soccer, tennis, nba" },
-  { slug: "news",                 label: "News",                   iab: "IAB12", section: "World News",            keywords: "breaking news, politics, election, journalism" },
-  { slug: "science",              label: "Science",                iab: "IAB15", section: "Science",              keywords: "research, climate, physics, biology, astronomy" },
-  { slug: "travel",               label: "Travel",                 iab: "IAB20", section: "Travel",               keywords: "hotel, flight, vacation, tourism, destination" },
-  { slug: "food-drink",           label: "Food & Drink",           iab: "IAB8",  section: "Food & Cooking",       keywords: "recipe, restaurant, cooking, chef, cuisine" },
-  { slug: "shopping",             label: "Shopping",               iab: "IAB22", section: "Shopping",             keywords: "deals, sale, product review, ecommerce" },
-  { slug: "arts-entertainment",   label: "Arts & Entertainment",   iab: "IAB1",  section: "Entertainment",        keywords: "movie, music, art, celebrity, film, streaming" },
-  { slug: "business-industrial",  label: "Business",               iab: "IAB3",  section: "Business",             keywords: "startup, enterprise, marketing, management" },
-  { slug: "internet-telecom",     label: "Internet & Privacy",     iab: "IAB19", section: "Privacy & Security",   keywords: "vpn, cybersecurity, privacy, encryption" },
+  // Crypto & Finance
+  { slug: "crypto-web3",          label: "Crypto & Web3",          iab: "IAB13", section: "Cryptocurrency",         keywords: "bitcoin, ethereum, blockchain, web3, crypto, token, wallet" },
+  { slug: "defi",                 label: "DeFi",                   iab: "IAB13", section: "Decentralised Finance",  keywords: "defi, yield farming, liquidity, amm, protocol, staking, swap" },
+  { slug: "nft",                  label: "NFT & Digital Art",      iab: "IAB13", section: "NFT Marketplace",        keywords: "nft, digital art, opensea, mint, collection, generative art" },
+  { slug: "polkadot",             label: "Polkadot",               iab: "IAB19", section: "Polkadot Ecosystem",     keywords: "polkadot, substrate, parachain, dot, kusama, relay chain" },
+  { slug: "dao-governance",       label: "DAOs & Governance",      iab: "IAB13", section: "DAO Governance",         keywords: "dao, on-chain voting, proposal, treasury, governance token" },
+  { slug: "finance",              label: "Personal Finance",       iab: "IAB13", section: "Personal Finance",       keywords: "investing, portfolio, ETF, savings, budgeting, interest rates" },
+  { slug: "stock-market",         label: "Stocks & Trading",       iab: "IAB13", section: "Stock Market",           keywords: "stock, equity, trading, S&P 500, nasdaq, earnings, dividend" },
+  { slug: "real-estate",          label: "Real Estate",            iab: "IAB21", section: "Real Estate",            keywords: "housing market, mortgage, property, home buying, rental, zillow" },
+  // Technology
+  { slug: "computers-electronics",label: "Computers & Hardware",   iab: "IAB19", section: "Technology",            keywords: "laptop, cpu, gpu, hardware, developer, open source, linux, api" },
+  { slug: "ai-ml",                label: "AI & Machine Learning",  iab: "IAB19", section: "Artificial Intelligence",keywords: "AI, machine learning, LLM, neural network, model training, GPT" },
+  { slug: "cybersecurity",        label: "Cybersecurity",          iab: "IAB19", section: "Cybersecurity",          keywords: "security, vulnerability, malware, threat, zero-day, pentesting" },
+  { slug: "open-source",          label: "Open Source & Dev",      iab: "IAB19", section: "Open Source Software",   keywords: "github, open source, linux kernel, rust, go, typescript, devops" },
+  { slug: "internet-telecom",     label: "Privacy & Internet",     iab: "IAB19", section: "Privacy & Security",    keywords: "vpn, encryption, privacy, data protection, tor, surveillance" },
+  { slug: "cloud-saas",           label: "Cloud & SaaS",           iab: "IAB19", section: "Cloud Computing",        keywords: "AWS, cloud, saas, kubernetes, docker, microservices, serverless" },
+  { slug: "mobile-apps",          label: "Mobile & Apps",          iab: "IAB19", section: "Mobile Apps",            keywords: "iOS, android, app store, react native, flutter, mobile dev" },
+  { slug: "layer2-zk",            label: "ZK & Layer 2",           iab: "IAB19", section: "Layer 2 & ZK Proofs",   keywords: "rollup, zk proof, optimism, arbitrum, validity proof, zkEVM" },
+  // Entertainment & Media
+  { slug: "arts-entertainment",   label: "Arts & Entertainment",   iab: "IAB1",  section: "Entertainment",         keywords: "movie, film, tv show, streaming, celebrity, award, box office" },
+  { slug: "music",                label: "Music",                  iab: "IAB1",  section: "Music",                  keywords: "album, artist, concert, playlist, lyrics, genre, music video" },
+  { slug: "streaming-video",      label: "Streaming & Film",       iab: "IAB1",  section: "Streaming Video",        keywords: "netflix, hulu, disney+, series, episode, documentary, film review" },
+  { slug: "anime-manga",          label: "Anime & Manga",          iab: "IAB1",  section: "Anime & Manga",          keywords: "anime, manga, crunchyroll, shonen, isekai, light novel, studio ghibli" },
+  { slug: "gaming",               label: "Video Games",            iab: "IAB9",  section: "Gaming",                 keywords: "video games, steam, playstation, xbox, rpg, fps, indie game" },
+  { slug: "esports",              label: "Esports",                iab: "IAB9",  section: "Esports & Streaming",    keywords: "esports, twitch, league of legends, tournament, pro player, streamer" },
+  { slug: "books-literature",     label: "Books & Literature",     iab: "IAB9",  section: "Books & Reading",        keywords: "novel, author, fiction, nonfiction, kindle, audiobook, book review" },
+  // News & Society
+  { slug: "news",                 label: "World News",             iab: "IAB12", section: "World News",             keywords: "breaking news, headline, journalism, reporter, current events" },
+  { slug: "politics",             label: "Politics & Policy",      iab: "IAB11", section: "Politics",               keywords: "election, congress, legislation, party, democracy, policy, vote" },
+  { slug: "law-government",       label: "Law & Government",       iab: "IAB11", section: "Law & Regulation",       keywords: "law, regulation, court, attorney, compliance, patent, legal" },
+  { slug: "people-society",       label: "Society & Culture",      iab: "IAB14", section: "Society & Culture",      keywords: "culture, diversity, equality, activism, social issues, community" },
+  { slug: "online-communities",   label: "Forums & Communities",   iab: "IAB14", section: "Online Communities",     keywords: "reddit, forum, discord, community, thread, wiki, discussion" },
+  // Health & Science
+  { slug: "health",               label: "Health & Medicine",      iab: "IAB7",  section: "Health & Medicine",      keywords: "doctor, hospital, disease, treatment, symptoms, clinical, patient" },
+  { slug: "mental-health",        label: "Mental Health",          iab: "IAB7",  section: "Mental Health",          keywords: "anxiety, depression, therapy, mindfulness, psychology, wellbeing" },
+  { slug: "fitness",              label: "Fitness & Training",     iab: "IAB18", section: "Fitness",                keywords: "workout, gym, running, marathon, strength training, nutrition plan" },
+  { slug: "science",              label: "Science & Research",     iab: "IAB15", section: "Science",                keywords: "research, physics, biology, chemistry, academic, peer review, study" },
+  { slug: "climate-environment",  label: "Climate & Environment",  iab: "IAB15", section: "Climate & Environment",  keywords: "climate change, carbon, renewable energy, sustainability, green energy" },
+  { slug: "space-astronomy",      label: "Space & Astronomy",      iab: "IAB15", section: "Space & Astronomy",      keywords: "nasa, rocket, exoplanet, telescope, mars, orbit, space exploration" },
+  // Sports & Leisure
+  { slug: "sports",               label: "Sports",                 iab: "IAB17", section: "Sports",                 keywords: "football, basketball, soccer, tennis, nba, nfl, premier league, olympics" },
+  { slug: "outdoor-adventure",    label: "Outdoor & Adventure",    iab: "IAB9",  section: "Outdoor Activities",     keywords: "hiking, camping, climbing, backpacking, trail, national park, kayak" },
+  { slug: "hobbies-leisure",      label: "Hobbies & DIY",          iab: "IAB9",  section: "Hobbies",                keywords: "diy, woodworking, craft, photography, model building, collecting" },
+  { slug: "travel",               label: "Travel",                 iab: "IAB20", section: "Travel",                 keywords: "hotel, flight, vacation, tourism, destination, itinerary, airbnb" },
+  { slug: "food-drink",           label: "Food & Drink",           iab: "IAB8",  section: "Food & Cooking",         keywords: "recipe, restaurant, cooking, chef, cuisine, wine, coffee, dining" },
+  // Life & Home
+  { slug: "beauty-style",         label: "Beauty & Style",         iab: "IAB18", section: "Beauty & Fashion",       keywords: "skincare, makeup, fashion, style, cosmetics, trend, beauty routine" },
+  { slug: "home-garden",          label: "Home & Garden",          iab: "IAB10", section: "Home & Garden",          keywords: "interior design, furniture, renovation, garden, landscaping, decor" },
+  { slug: "autos-vehicles",       label: "Cars & Vehicles",        iab: "IAB2",  section: "Automotive",             keywords: "car review, electric vehicle, EV, test drive, horsepower, dealership" },
+  { slug: "pets-animals",         label: "Pets & Animals",         iab: "IAB16", section: "Pets & Animals",         keywords: "dog, cat, puppy, pet care, vet, wildlife, adoption, animal shelter" },
+  // Business & Commerce
+  { slug: "business-industrial",  label: "Business & Enterprise",  iab: "IAB3",  section: "Business",              keywords: "enterprise, corporate, supply chain, logistics, b2b, management" },
+  { slug: "startups",             label: "Startups & VC",          iab: "IAB3",  section: "Startups & Venture",     keywords: "startup, venture capital, seed round, founder, pitch, Y Combinator" },
+  { slug: "marketing-ads",        label: "Marketing & Ads",        iab: "IAB3",  section: "Marketing & Advertising",keywords: "SEO, content marketing, PPC, growth hacking, brand, campaign" },
+  { slug: "jobs-education",       label: "Jobs & Education",       iab: "IAB5",  section: "Education & Careers",    keywords: "job, career, resume, salary, university, course, certification, mooc" },
+  { slug: "shopping",             label: "Shopping & Deals",       iab: "IAB22", section: "Shopping",               keywords: "deals, sale, discount, coupon, product review, ecommerce, amazon" },
+  { slug: "reference",            label: "Reference & Guides",     iab: "IAB15", section: "Reference",              keywords: "tutorial, how-to, guide, documentation, wiki, definition, explainer" },
 ];
 
 interface RelayStatus { online: boolean; uptime?: number }
@@ -96,10 +137,9 @@ export function Demo() {
   const [simVisitCounts, setSimVisitCounts] = useState<Record<string, number>>({});
   const [interestWeights, setInterestWeights] = useState<Record<string, number>>({});
   const [simulating, setSimulating] = useState(false);
-  const [currentSimTopic, setCurrentSimTopic] = useState<string | null>(null);
+  const [currentSimTopics, setCurrentSimTopics] = useState<string[]>([]);
   const [autoTourActive, setAutoTourActive] = useState(false);
   const autoTourRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const autoTourIndexRef = useRef(0);
 
   // Load publisher SDK
   useEffect(() => {
@@ -209,35 +249,43 @@ export function Demo() {
     document.querySelectorAll("[data-datum-sim]").forEach((el) => el.remove());
   }, []);
 
-  // Simulate a page visit: inject metadata into DOM, update SDK tags, run bridge
-  const simulateVisit = useCallback(async (topic: BrowseTopic) => {
+  // Simulate a page visit: inject metadata into DOM, update SDK tags, run bridge.
+  // Accepts one topic (manual click) or an array (auto-tour multi-topic visit).
+  const simulateVisit = useCallback(async (input: BrowseTopic | BrowseTopic[]) => {
     if (!daemonReady || simulating) return;
+    const topics = Array.isArray(input) ? input : [input];
     setSimulating(true);
-    setCurrentSimTopic(topic.slug);
+    setCurrentSimTopics(topics.map((t) => t.slug));
 
     clearSimMeta();
 
-    // Inject Schema.org JSON-LD Article
+    // Merge sections and keywords across all topics for a realistic cross-topic page
+    const mergedSection = topics.map((t) => t.section).join(", ");
+    const mergedKeywords = topics.flatMap((t) => t.keywords.split(",").map((k) => k.trim())).join(", ");
+    const primaryIab = [...new Set(topics.map((t) => t.iab))].join(",");
+
+    // Inject Schema.org JSON-LD Article with merged content
     const ld = document.createElement("script");
     ld.type = "application/ld+json";
     ld.setAttribute("data-datum-sim", "1");
     ld.textContent = JSON.stringify({
       "@context": "https://schema.org",
       "@type": "Article",
-      "articleSection": topic.section,
-      "keywords": topic.keywords,
+      "articleSection": topics.length === 1 ? topics[0].section : topics.map((t) => t.section),
+      "keywords": mergedKeywords,
     });
     document.head.appendChild(ld);
 
-    // Inject OG article:section
+    // Inject OG article:section (first topic)
     const ogSection = document.createElement("meta");
     ogSection.setAttribute("property", "article:section");
-    ogSection.setAttribute("content", topic.section);
+    ogSection.setAttribute("content", topics[0].section);
     ogSection.setAttribute("data-datum-sim", "1");
     document.head.appendChild(ogSection);
 
-    // Inject OG article:tag for first 3 keywords
-    for (const kw of topic.keywords.split(",").map((k) => k.trim()).slice(0, 3)) {
+    // Inject OG article:tag — up to 3 keywords from each topic
+    const tagKws = topics.flatMap((t) => t.keywords.split(",").map((k) => k.trim()).slice(0, 3));
+    for (const kw of tagKws) {
       const ogTag = document.createElement("meta");
       ogTag.setAttribute("property", "article:tag");
       ogTag.setAttribute("content", kw);
@@ -245,21 +293,21 @@ export function Demo() {
       document.head.appendChild(ogTag);
     }
 
-    // Inject IAB category meta
+    // Inject IAB category meta (comma-separated if multiple)
     const iabMeta = document.createElement("meta");
     iabMeta.setAttribute("name", "iab-category");
-    iabMeta.setAttribute("content", topic.iab);
+    iabMeta.setAttribute("content", primaryIab);
     iabMeta.setAttribute("data-datum-sim", "1");
     document.head.appendChild(iabMeta);
 
-    // Update SDK data-tags to the simulated topic
+    // Update SDK data-tags with all simulated topics
     if (sdkScriptRef.current) {
-      sdkScriptRef.current.setAttribute("data-tags", `topic:${topic.slug},locale:en`);
+      sdkScriptRef.current.setAttribute("data-tags", topics.map((t) => `topic:${t.slug}`).join(",") + ",locale:en");
     }
 
-    // Push topic tags directly into interest profile (mirrors what the real content script does)
-    const topicTagStr = `topic:${topic.slug}`;
-    await updateInterestProfile([topicTagStr, "locale:en", "platform:desktop"]).catch(() => {});
+    // Push all topic tags into interest profile
+    const topicTags = topics.map((t) => `topic:${t.slug}`);
+    await updateInterestProfile([...topicTags, "locale:en", "platform:desktop"]).catch(() => {});
 
     // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
     if (connectedAddress) {
@@ -270,21 +318,30 @@ export function Demo() {
     const profile = await getInterestProfile().catch(() => ({ weights: {}, visitCounts: {} }));
     setInterestWeights(profile.weights);
 
-    setSimVisitCounts((prev) => ({ ...prev, [topic.slug]: (prev[topic.slug] ?? 0) + 1 }));
+    setSimVisitCounts((prev) => {
+      const next = { ...prev };
+      for (const t of topics) next[t.slug] = (next[t.slug] ?? 0) + 1;
+      return next;
+    });
     setSimulating(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [daemonReady, simulating, publisherAddress, connectedAddress, clearSimMeta]);
 
-  // Auto-tour: cycle through all topics on interval
+  // Pick 1-3 random topics, weighted: 55% single, 30% dual, 15% triple
+  const pickRandomTopics = useCallback((): BrowseTopic[] => {
+    const r = Math.random();
+    const count = r < 0.55 ? 1 : r < 0.85 ? 2 : 3;
+    const shuffled = [...BROWSE_TOPICS].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
+  }, []);
+
+  // Auto-tour: randomly pick 1-3 topics per visit
   useEffect(() => {
     if (!autoTourActive) {
       if (autoTourRef.current) { clearInterval(autoTourRef.current); autoTourRef.current = null; }
       return;
     }
-    const step = () => {
-      const topic = BROWSE_TOPICS[Math.floor(Math.random() * BROWSE_TOPICS.length)];
-      simulateVisit(topic);
-    };
+    const step = () => simulateVisit(pickRandomTopics());
     step(); // immediate first step
     autoTourRef.current = setInterval(step, 3500);
     return () => {
@@ -622,7 +679,7 @@ export function Demo() {
           {BROWSE_TOPICS.map((topic) => {
             const count = simVisitCounts[topic.slug] ?? 0;
             const weight = interestWeights[`topic:${topic.slug}`] ?? 0;
-            const isActive = currentSimTopic === topic.slug;
+            const isActive = currentSimTopics.includes(topic.slug);
             return (
               <button
                 key={topic.slug}
@@ -661,10 +718,7 @@ export function Demo() {
         {/* Controls */}
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
           <button
-            onClick={() => {
-              const topic = BROWSE_TOPICS[Math.floor(Math.random() * BROWSE_TOPICS.length)];
-              simulateVisit(topic);
-            }}
+            onClick={() => simulateVisit(pickRandomTopics())}
             disabled={!daemonReady || simulating}
             style={{
               background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
@@ -698,7 +752,7 @@ export function Demo() {
                 clearSimMeta();
                 setSimVisitCounts({});
                 setInterestWeights({});
-                setCurrentSimTopic(null);
+                setCurrentSimTopics([]);
                 setAutoTourActive(false);
               }}
               style={{
@@ -710,9 +764,9 @@ export function Demo() {
               Reset
             </button>
           )}
-          {simulating && (
+          {simulating && currentSimTopics.length > 0 && (
             <span style={{ fontSize: 11, color: "var(--warn)", fontFamily: "var(--font-mono)", alignSelf: "center" }}>
-              Simulating {currentSimTopic}…
+              Simulating {currentSimTopics.join(" + ")}…
             </span>
           )}
         </div>
