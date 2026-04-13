@@ -226,10 +226,10 @@ export function Demo() {
     });
   }, []);
 
-  // Auto-scroll log to bottom when new entries arrive
+  // Auto-scroll log box to bottom when new entries arrive (scroll within the box only)
   useEffect(() => {
-    if (logAutoScroll && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (logAutoScroll && logBoxRef.current) {
+      logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
     }
   }, [logEntries, logAutoScroll]);
 
