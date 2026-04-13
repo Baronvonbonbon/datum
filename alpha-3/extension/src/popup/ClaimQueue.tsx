@@ -41,6 +41,22 @@ async function solvePoWChallenge(relayUrl: string): Promise<{ powChallenge: stri
   }
 }
 
+function BouncingText({ text }: { text: string }) {
+  return (
+    <span>
+      {text.split("").map((ch, i) => (
+        <span
+          key={i}
+          className={ch === " " ? undefined : "nano-bounce-char"}
+          style={ch === " " ? { display: "inline-block", width: "0.3em" } : { animationDelay: `${i * 0.05}s` }}
+        >
+          {ch === " " ? "\u00a0" : ch}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 interface QueueState {
   pendingCount: number;
   byUser: Record<string, Record<string, number>>;
@@ -916,7 +932,7 @@ export function ClaimQueue({ address }: Props) {
                       disabled={anyBusy}
                       style={campaignBtn}
                     >
-                      {submittingCampaign === cid ? "Submitting…" : "Submit"}
+                      {submittingCampaign === cid ? <BouncingText text="Submitting claims..." /> : "Submit"}
                     </button>
                     <button
                       onClick={() => discardCampaign(cid)}
@@ -938,14 +954,14 @@ export function ClaimQueue({ address }: Props) {
                 disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
                 style={primaryBtn}
               >
-                {submitting ? "Submitting…" : "Submit All (you pay gas)"}
+                {submitting ? <BouncingText text="Submitting claims..." /> : "Submit All (you pay gas)"}
               </button>
               <button
                 onClick={signForRelay}
                 disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
                 style={secondaryBtn}
               >
-                {signing ? "Signing…" : "Sign for Publisher (zero gas)"}
+                {signing ? <BouncingText text="Signing claims..." /> : "Sign for Publisher (zero gas)"}
               </button>
               <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                 <button

@@ -25,7 +25,7 @@ function Spinner() {
   );
 }
 
-function BouncingText({ text }: { text: string }) {
+export function BouncingText({ text }: { text: string }) {
   return (
     <span className="nano-bouncing-text">
       {text.split("").map((ch, i) => (

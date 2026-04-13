@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
 import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, getInterestProfile, updateInterestProfile, DaemonDebugInfo } from "../lib/extensionDaemon";
+import { BouncingText } from "../components/TransactionStatus";
 import {
   _emit,
   installConsoleCapture,
@@ -281,8 +282,7 @@ export function Demo() {
       return;
     }
     const step = () => {
-      const topic = BROWSE_TOPICS[autoTourIndexRef.current % BROWSE_TOPICS.length];
-      autoTourIndexRef.current++;
+      const topic = BROWSE_TOPICS[Math.floor(Math.random() * BROWSE_TOPICS.length)];
       simulateVisit(topic);
     };
     step(); // immediate first step
@@ -676,10 +676,7 @@ export function Demo() {
             ↺ Random Visit
           </button>
           <button
-            onClick={() => {
-              autoTourIndexRef.current = 0;
-              setAutoTourActive((v) => !v);
-            }}
+            onClick={() => setAutoTourActive((v) => !v)}
             disabled={!daemonReady}
             style={{
               background: autoTourActive ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.04)",
@@ -688,9 +685,12 @@ export function Demo() {
               color: autoTourActive ? "var(--text-strong)" : "var(--text)",
               fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 12px",
               cursor: daemonReady ? "pointer" : "not-allowed",
+              minWidth: 148,
             }}
           >
-            {autoTourActive ? "⏹ Stop Auto-Tour" : "▶ Auto-Tour All Topics"}
+            {autoTourActive
+              ? <><span style={{ marginRight: 6 }}>⏹</span><BouncingText text="Auto-browsing..." /></>
+              : "▶ Auto-Tour Topics"}
           </button>
           {Object.keys(simVisitCounts).length > 0 && (
             <button
