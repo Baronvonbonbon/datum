@@ -1061,13 +1061,13 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
     timers.current.push(setTimeout(() => {
       setRows(bids.map((_, i) => i));
       setPhase("sorting");
-    }, 350));
+    }, 800));
 
     // Collapse losers into pile below winner + 2nd
     timers.current.push(setTimeout(() => {
       setPhase("result");
       setContainerH(pileContainerH(bids.length));
-    }, 950));
+    }, 4200));
 
     return () => { timers.current.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
