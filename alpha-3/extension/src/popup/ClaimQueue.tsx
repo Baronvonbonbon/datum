@@ -45,6 +45,7 @@ interface QueueState {
   pendingCount: number;
   byUser: Record<string, Record<string, number>>;
   lastFlush: number | null;
+  rawQueueDepth?: number;
 }
 
 // Minimal campaign info we need for earnings estimate
@@ -866,15 +867,19 @@ export function ClaimQueue({ address }: Props) {
   }
 
   const pendingCount = queueState?.pendingCount ?? 0;
+  const rawQueueDepth = queueState?.rawQueueDepth ?? 0;
   const userClaims = address ? queueState?.byUser?.[address] : null;
+  // Total impression count across all campaigns for this user
+  const totalImpressions = userClaims ? Object.values(userClaims).reduce((a, b) => a + b, 0) : 0;
 
   return (
     <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ color: "var(--accent)", fontWeight: 600 }}>Pending Claims</span>
-        {pendingCount > 0 && (
+        {totalImpressions > 0 && (
           <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            {pendingCount} claim{pendingCount !== 1 ? "s" : ""}
+            {totalImpressions} impression{totalImpressions !== 1 ? "s" : ""}
+            {rawQueueDepth > 0 && <span style={{ color: "var(--text-muted)", opacity: 0.7 }}> (buffered)</span>}
           </span>
         )}
       </div>
@@ -1138,7 +1143,7 @@ async function pruneSettledClaims(
 
       const onChainNonce = Number(await settlement.lastNonce(userAddress, BigInt(cid)));
       if (onChainNonce > localNonce) {
-        // On-chain nonce advanced beyond local state — claims settled externally
+        // On-chain nonce advanced beyond local state — claims settled externally or daemon stale
         const onChainHash = await settlement.lastClaimHash(userAddress, BigInt(cid));
         await chrome.runtime.sendMessage({
           type: "SYNC_CHAIN_STATE",
@@ -1146,6 +1151,13 @@ async function pruneSettledClaims(
           campaignId: cid,
           onChainNonce,
           onChainHash: String(onChainHash),
+        });
+        // Remove any queued claims with nonce ≤ on-chain nonce (they are already settled)
+        await chrome.runtime.sendMessage({
+          type: "PRUNE_SETTLED_UP_TO_NONCE",
+          userAddress,
+          campaignId: cid,
+          upToNonce: onChainNonce,
         });
       } else if (onChainNonce === localNonce && onChainNonce > 0) {
         // Nonces match — also verify hashes. If they differ, local claims were built from

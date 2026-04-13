@@ -707,6 +707,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                   zkProof: "0x",
                   userAddress: ua,
                 });
+                console.log(`[datum-daemon] built aggregated claim: campaign=${cid} nonce=${nonce} impressionCount=${impressionCount}`);
 
                 chain = { lastNonce: Number(nonce), lastClaimHash: claimHash };
               }
@@ -716,8 +717,13 @@ async function handleMessage(msg: any): Promise<unknown> {
               });
             }
 
+            const newClaimCount = existingQueue.length - (qs2.claimQueue?.length ?? 0);
+            const breakdown = Array.from(groups.entries())
+              .map(([k, imps]) => `campaign${k.split(":")[0]}×${imps.length}imp→${Math.ceil(imps.length / MAX_IMPRESSIONS_PER_CLAIM)}claim`)
+              .join(", ");
             await chrome.storage.local.set({ claimQueue: existingQueue, rawImpressionQueue: [] });
-            console.log(`[datum-daemon] Aggregated ${rawQueue.length} raw impressions → ${existingQueue.length} queued claims`);
+            console.log(`[datum-daemon] Aggregated ${rawQueue.length} raw impressions → ${newClaimCount} new claims (${breakdown})`);
+            console.log(`[datum-daemon] Each claim carries impressionCount>1 — settlement pays impressionCount×cpm per claim`);
           }
         }
 

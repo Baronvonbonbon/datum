@@ -29,21 +29,29 @@ export const claimQueue = {
     pendingCount: number;
     byUser: Record<string, Record<string, number>>;
     lastFlush: number | null;
+    rawQueueDepth: number;
   }> {
-    const stored = await chrome.storage.local.get([QUEUE_KEY, LAST_FLUSH_KEY]);
+    const stored = await chrome.storage.local.get([QUEUE_KEY, LAST_FLUSH_KEY, "rawImpressionQueue"]);
     const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
+    const rawQueue: { campaignId: string; userAddress: string }[] = stored["rawImpressionQueue"] ?? [];
 
+    // byUser tracks total impression count (impressionCount per claim, 1 per raw entry).
     const byUser: Record<string, Record<string, number>> = {};
     for (const c of queue) {
       if (!byUser[c.userAddress]) byUser[c.userAddress] = {};
       const cid = c.campaignId;
-      byUser[c.userAddress][cid] = (byUser[c.userAddress][cid] ?? 0) + 1;
+      byUser[c.userAddress][cid] = (byUser[c.userAddress][cid] ?? 0) + Number(c.impressionCount ?? 1);
+    }
+    for (const r of rawQueue) {
+      if (!byUser[r.userAddress]) byUser[r.userAddress] = {};
+      byUser[r.userAddress][r.campaignId] = (byUser[r.userAddress][r.campaignId] ?? 0) + 1;
     }
 
     return {
-      pendingCount: queue.length,
+      pendingCount: queue.length + rawQueue.length,
       byUser,
       lastFlush: stored[LAST_FLUSH_KEY] ?? null,
+      rawQueueDepth: rawQueue.length,
     };
   },
 
@@ -138,6 +146,19 @@ export const claimQueue = {
       await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
     }
     return removed;
+  },
+
+  // Remove all claims for (user, campaign) with nonce ≤ upToNonce (settled on-chain)
+  async removeSettledUpToNonce(userAddress: string, campaignId: string, upToNonce: bigint): Promise<void> {
+    const stored = await chrome.storage.local.get(QUEUE_KEY);
+    const queue: SerializedClaim[] = stored[QUEUE_KEY] ?? [];
+    const filtered = queue.filter((c) => {
+      if (c.userAddress !== userAddress || c.campaignId !== campaignId) return true;
+      return BigInt(c.nonce) > upToNonce;
+    });
+    if (filtered.length !== queue.length) {
+      await chrome.storage.local.set({ [QUEUE_KEY]: filtered });
+    }
   },
 
   // Remove successfully settled claims from the queue

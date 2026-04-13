@@ -586,10 +586,15 @@ async function handleMessage(
       const settledNonces = new Map<string, bigint[]>(
         Object.entries(msg.settledNonces).map(([cid, nonces]) => [
           cid,
-          nonces.map((n) => BigInt(n)),
+          (nonces as string[]).map((n) => BigInt(n)),
         ])
       );
       await claimQueue.removeSettled(msg.userAddress, settledNonces);
+      return { ok: true };
+    }
+
+    case "PRUNE_SETTLED_UP_TO_NONCE": {
+      await claimQueue.removeSettledUpToNonce(msg.userAddress, msg.campaignId, BigInt(msg.upToNonce));
       return { ok: true };
     }
 
