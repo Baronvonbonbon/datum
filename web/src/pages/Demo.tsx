@@ -22,28 +22,6 @@ const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
 const PUBLISHER_TAGS = "topic:crypto-web3,topic:defi,topic:computers-electronics,locale:en";
 
-const TAG_DICTIONARY: Record<string, string[]> = {
-  Topic: [
-    "topic:arts-entertainment", "topic:autos-vehicles", "topic:beauty-fitness",
-    "topic:books-literature", "topic:business-industrial", "topic:computers-electronics",
-    "topic:finance", "topic:food-drink", "topic:gaming", "topic:health",
-    "topic:hobbies-leisure", "topic:home-garden", "topic:internet-telecom",
-    "topic:jobs-education", "topic:law-government", "topic:news",
-    "topic:online-communities", "topic:people-society", "topic:pets-animals",
-    "topic:real-estate", "topic:reference", "topic:science", "topic:shopping",
-    "topic:sports", "topic:travel", "topic:crypto-web3", "topic:defi",
-    "topic:nfts", "topic:polkadot", "topic:daos-governance",
-  ],
-  Locale: [
-    "locale:en", "locale:en-US", "locale:en-GB", "locale:es", "locale:fr",
-    "locale:de", "locale:ja", "locale:ko", "locale:zh", "locale:pt", "locale:ru",
-  ],
-  Platform: ["platform:desktop", "platform:mobile", "platform:tablet"],
-  Audience: [
-    "audience:developer", "audience:student", "audience:professional",
-    "audience:creator", "audience:investor",
-  ],
-};
 
 interface BrowseTopic {
   slug: string; label: string; iab: string; section: string; keywords: string;
@@ -131,7 +109,7 @@ export function Demo() {
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const [logAutoScroll, setLogAutoScroll] = useState(true);
-  const [claimBuilderMode, setClaimBuilderModeState] = useState<"per-impression" | "aggregated">("per-impression");
+  const [claimBuilderMode, setClaimBuilderModeState] = useState<"per-impression" | "aggregated">("aggregated");
 
   // Vickrey auction visualization state
   const [auctionBids, setAuctionBids] = useState<AuctionBid[]>([]);
@@ -206,6 +184,15 @@ export function Demo() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [daemonReady, connectedAddress]);
+
+  // Set aggregated mode as default when daemon first becomes ready
+  useEffect(() => {
+    if (daemonReady) {
+      setClaimBuilderMode("aggregated").catch(() => {});
+      setClaimBuilderModeState("aggregated");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonReady]);
 
   // Poll debug info from storage every 3s while daemon is running
   useEffect(() => {
@@ -408,13 +395,9 @@ export function Demo() {
           and watch campaigns load from Paseo testnet — all without installing anything.
         </p>
 
-        <div style={{
-          display: "flex",
-          gap: 24,
-          alignItems: "flex-start",
-          flexWrap: "wrap",
-          marginTop: 16,
-        }}>
+        {/* ── Row 1: Extension popup + Browse Simulator side-by-side ─────── */}
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap", marginTop: 16 }}>
+
           {/* Left — extension popup */}
           <div>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
@@ -427,414 +410,429 @@ export function Demo() {
             }} />
           </div>
 
-          {/* Right — publisher view */}
-          <div style={{ flex: 1, minWidth: 220 }}>
+          {/* Right — Browse Simulator */}
+          <div style={{ flex: 1, minWidth: 260 }}>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-              Publisher View — Ad Slot
+              Browse Simulator
             </div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
+              Simulate visiting different topic pages to build an interest profile.
+              Each visit injects real Schema.org, Open Graph, and IAB metadata so the daemon
+              classifies the page and re-runs the auction — showing how browsing history shifts
+              campaign selection.
+            </p>
 
-            {/* Publisher config + auction trigger */}
-            <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                SDK Configuration
-              </div>
-
-              {/* Publisher address */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-publisher</div>
-                <input
-                  value={publisherInput}
-                  onChange={(e) => setPublisherInput(e.target.value)}
-                  style={inputStyle}
-                  placeholder="0x..."
-                />
-              </div>
-
-              {/* SDK tags */}
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-tags</div>
-                <input
-                  value={sdkTagsInput}
-                  onChange={(e) => setSdkTagsInput(e.target.value)}
-                  style={inputStyle}
-                  placeholder="topic:crypto-web3,topic:defi,locale:en"
-                />
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.4 }}>
-                  Comma-separated tags. Campaigns match when the publisher has all of the campaign's required tags.
-                  Use the Tag Dictionary below for valid values.
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  onClick={() => {
-                    if (sdkScriptRef.current) {
-                      sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
-                      sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
-                    }
-                    setPublisherAddress(publisherInput);
-                    runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
-                  }}
-                  disabled={!daemonReady || !connectedAddress}
-                  style={{
-                    flex: 1,
-                    background: (daemonReady && connectedAddress) ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-                    border: "1px solid var(--border)", borderRadius: 4,
-                    color: (daemonReady && connectedAddress) ? "var(--text)" : "var(--text-muted)",
-                    fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
-                    cursor: (daemonReady && connectedAddress) ? "pointer" : "not-allowed",
-                  }}
-                >
-                  {!daemonReady
-                    ? "Loading campaigns from Paseo..."
-                    : !connectedAddress
-                      ? "Connect wallet to run auction"
-                      : `Run Auction${campaignCount != null ? ` (${campaignCount} campaigns)` : ""}`}
-                </button>
-                {daemonReady && (
-                  <button
-                    onClick={async () => {
-                      setRepolling(true);
-                      try {
-                        const n = await repollCampaigns();
-                        setCampaignCount(n);
-                      } finally {
-                        setRepolling(false);
-                      }
-                    }}
-                    disabled={repolling}
-                    title="Clear poller cache and re-fetch all campaigns from chain"
-                    style={{
-                      background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
-                      borderRadius: 4, color: repolling ? "var(--text-muted)" : "var(--text)",
-                      fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 8px",
-                      cursor: repolling ? "not-allowed" : "pointer", whiteSpace: "nowrap",
-                    }}
-                  >
-                    {repolling ? "…" : "↺"}
-                  </button>
-                )}
-              </div>
-
-              {/* Claim builder mode toggle */}
-              {daemonReady && (
-                <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                    Claim Builder Mode
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {(["per-impression", "aggregated"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={async () => {
-                          await setClaimBuilderMode(mode);
-                          setClaimBuilderModeState(mode);
-                        }}
-                        style={{
-                          flex: 1,
-                          background: claimBuilderMode === mode ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
-                          border: `1px solid ${claimBuilderMode === mode ? "rgba(255,255,255,0.3)" : "var(--border)"}`,
-                          borderRadius: 4,
-                          color: claimBuilderMode === mode ? "var(--text-strong)" : "var(--text-muted)",
-                          fontFamily: "var(--font-mono)", fontSize: 11, padding: "5px 8px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {mode === "per-impression" ? "per-impression" : "aggregated"}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
-                    {claimBuilderMode === "per-impression"
-                      ? "Each impression hashed immediately → 4 claims/tx × 1 impression = 4 impressions/tx."
-                      : `Raw impressions queued until submit → up to 4 claims × 250 = 1000 impressions/tx.${debugInfo && debugInfo.rawQueueDepth > 0 ? ` (${debugInfo.rawQueueDepth} raw queued)` : ""}`}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Vickrey auction visualization */}
-            {auctionBids.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                  Second-Price Vickrey Auction
-                </div>
-                <VickreyAuctionViz
-                  key={auctionKey}
-                  bids={auctionBids}
-                  mechanism={bridgeStatus.mechanism}
-                  clearingCpmPlanck={bridgeStatus.clearingCpmPlanck}
-                />
+            {!daemonReady && (
+              <div style={{ fontSize: 12, color: "var(--warn)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
+                Connect a wallet in the extension panel to start.
               </div>
             )}
 
-            {/* Auction status */}
-            {bridgeStatus.step !== "idle" && (
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 12 }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
+            {/* Auto-Tour button — prominent, green */}
+            <button
+              onClick={() => setAutoTourActive((v) => !v)}
+              disabled={!daemonReady}
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "11px 20px",
+                marginBottom: 10,
+                borderRadius: 6,
+                border: `2px solid ${daemonReady ? "var(--ok)" : "var(--border)"}`,
+                background: autoTourActive ? "rgba(74,222,128,0.14)" : "transparent",
+                color: daemonReady ? "var(--ok)" : "var(--text-muted)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                cursor: daemonReady ? "pointer" : "not-allowed",
+                transition: "background 0.2s",
+                textAlign: "center",
+              }}
+            >
+              {autoTourActive
+                ? <BouncingText text="Stop Auto-Tour" />
+                : "Start Auto-Tour"}
+            </button>
+
+            {/* Secondary controls */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              <button
+                onClick={() => simulateVisit(pickRandomTopics())}
+                disabled={!daemonReady || simulating}
+                style={{
+                  background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+                  borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-mono)",
+                  fontSize: 11, padding: "5px 12px",
+                  cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
+                }}
+              >
+                Random Visit
+              </button>
+              {Object.keys(simVisitCounts).length > 0 && (
+                <button
+                  onClick={() => {
+                    clearSimMeta();
+                    setSimVisitCounts({});
+                    setInterestWeights({});
+                    setCurrentSimTopics([]);
+                    setAutoTourActive(false);
+                  }}
+                  style={{
+                    background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)",
+                    borderRadius: 4, color: "var(--text-muted)", fontFamily: "var(--font-mono)",
+                    fontSize: 11, padding: "5px 12px", cursor: "pointer",
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+              {simulating && currentSimTopics.length > 0 && (
+                <span style={{ fontSize: 11, color: "var(--warn)", fontFamily: "var(--font-mono)", alignSelf: "center" }}>
+                  Simulating {currentSimTopics.join(" + ")}…
+                </span>
+              )}
+            </div>
+
+            {/* Topic grid */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+              {BROWSE_TOPICS.map((topic) => {
+                const count = simVisitCounts[topic.slug] ?? 0;
+                const weight = interestWeights[`topic:${topic.slug}`] ?? 0;
+                const isActive = currentSimTopics.includes(topic.slug);
+                return (
+                  <button
+                    key={topic.slug}
+                    onClick={() => simulateVisit(topic)}
+                    disabled={!daemonReady || simulating}
+                    title={`IAB: ${topic.iab} · Section: ${topic.section}`}
+                    style={{
+                      background: isActive
+                        ? "rgba(74,222,128,0.12)"
+                        : count > 0
+                          ? "rgba(255,255,255,0.07)"
+                          : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${isActive ? "rgba(74,222,128,0.45)" : weight > 0.1 ? "rgba(255,255,255,0.2)" : "var(--border)"}`,
+                      borderRadius: 4,
+                      color: isActive ? "var(--ok)" : count > 0 ? "var(--text-strong)" : "var(--text-muted)",
+                      fontFamily: "var(--font-mono)", fontSize: 11,
+                      padding: "4px 9px",
+                      cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
+                      display: "flex", alignItems: "center", gap: 5,
+                      transition: "background 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    <span>{topic.label}</span>
+                    {count > 0 && (
+                      <span style={{
+                        background: "rgba(255,255,255,0.12)", borderRadius: 3,
+                        fontSize: 10, padding: "0 4px", color: "var(--text-muted)",
+                        minWidth: 16, textAlign: "center",
+                      }}>{count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Interest profile bar chart */}
+            {Object.keys(interestWeights).length > 0 && (() => {
+              const topicWeights = Object.entries(interestWeights)
+                .filter(([k]) => k.startsWith("topic:"))
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 12);
+              const maxW = topicWeights[0]?.[1] ?? 1;
+              return (
+                <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 10, fontFamily: "var(--font-mono)" }}>
+                    Interest Profile — Auction Weights
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {topicWeights.map(([tag, w]) => {
+                      const label = tag.replace("topic:", "").replace(/-/g, " ");
+                      const pct = Math.round((w / maxW) * 100);
+                      return (
+                        <div key={tag} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 130, fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right", flexShrink: 0 }}>
+                            {label}
+                          </div>
+                          <div style={{ flex: 1, height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: "rgba(74,222,128,0.55)", borderRadius: 4, transition: "width 0.3s" }} />
+                          </div>
+                          <div style={{ width: 36, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
+                            {w.toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>
+                    7-day exponential decay · campaigns matching higher-weight topics win more auctions
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* ── Row 2: Vickrey Auction Visualization (full-width) ─────────── */}
+        {auctionBids.length > 0 && (
+          <div style={{ marginTop: 24, border: "1px solid rgba(74,222,128,0.2)", borderRadius: 6, padding: "14px 16px" }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--ok)", marginBottom: 14, fontFamily: "var(--font-mono)" }}>
+              Second-Price Vickrey Auction
+            </div>
+            <VickreyAuctionViz
+              key={auctionKey}
+              bids={auctionBids}
+              mechanism={bridgeStatus.mechanism}
+              clearingCpmPlanck={bridgeStatus.clearingCpmPlanck}
+            />
+          </div>
+        )}
+
+        {/* ── Row 3: Publisher View — SDK Config + Ad Slot ─────────────── */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
+            Publisher View — Ad Slot
+          </div>
+
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+            {/* SDK Config */}
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  SDK Configuration
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-publisher</div>
+                  <input
+                    value={publisherInput}
+                    onChange={(e) => setPublisherInput(e.target.value)}
+                    style={inputStyle}
+                    placeholder="0x..."
+                  />
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-tags</div>
+                  <input
+                    value={sdkTagsInput}
+                    onChange={(e) => setSdkTagsInput(e.target.value)}
+                    style={inputStyle}
+                    placeholder="topic:crypto-web3,topic:defi,locale:en"
+                  />
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.4 }}>
+                    Comma-separated tags. Campaigns match when the publisher has all required tags.
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => {
+                      if (sdkScriptRef.current) {
+                        sdkScriptRef.current.setAttribute("data-publisher", publisherInput);
+                        sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
+                      }
+                      setPublisherAddress(publisherInput);
+                      runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
+                    }}
+                    disabled={!daemonReady || !connectedAddress}
+                    style={{
+                      flex: 1,
+                      background: (daemonReady && connectedAddress) ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                      border: "1px solid var(--border)", borderRadius: 4,
+                      color: (daemonReady && connectedAddress) ? "var(--text)" : "var(--text-muted)",
+                      fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 10px",
+                      cursor: (daemonReady && connectedAddress) ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {!daemonReady
+                      ? "Loading campaigns from Paseo..."
+                      : !connectedAddress
+                        ? "Connect wallet to run auction"
+                        : `Run Auction${campaignCount != null ? ` (${campaignCount} campaigns)` : ""}`}
+                  </button>
+                  {daemonReady && (
+                    <button
+                      onClick={async () => {
+                        setRepolling(true);
+                        try {
+                          const n = await repollCampaigns();
+                          setCampaignCount(n);
+                        } finally {
+                          setRepolling(false);
+                        }
+                      }}
+                      disabled={repolling}
+                      title="Clear poller cache and re-fetch all campaigns from chain"
+                      style={{
+                        background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
+                        borderRadius: 4, color: repolling ? "var(--text-muted)" : "var(--text)",
+                        fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 8px",
+                        cursor: repolling ? "not-allowed" : "pointer", whiteSpace: "nowrap",
+                      }}
+                    >
+                      {repolling ? "…" : "Repoll"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Claim builder mode toggle */}
+                {daemonReady && (
+                  <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                      Claim Builder Mode
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {(["per-impression", "aggregated"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={async () => {
+                            await setClaimBuilderMode(mode);
+                            setClaimBuilderModeState(mode);
+                          }}
+                          style={{
+                            flex: 1,
+                            background: claimBuilderMode === mode ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+                            border: `1px solid ${claimBuilderMode === mode ? "rgba(255,255,255,0.3)" : "var(--border)"}`,
+                            borderRadius: 4,
+                            color: claimBuilderMode === mode ? "var(--text-strong)" : "var(--text-muted)",
+                            fontFamily: "var(--font-mono)", fontSize: 11, padding: "5px 8px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {mode === "per-impression" ? "per-impression" : "aggregated"}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
+                      {claimBuilderMode === "per-impression"
+                        ? "Each impression hashed immediately → 4 claims/tx × 1 impression = 4 impressions/tx."
+                        : `Raw impressions queued until submit → up to 4 claims × 250 = 1000 impressions/tx.${debugInfo && debugInfo.rawQueueDepth > 0 ? ` (${debugInfo.rawQueueDepth} raw queued)` : ""}`}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SDK status */}
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 12 }}>
                 {[
-                  ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
-                  ...(bridgeStatus.totalCampaigns != null ? [["Campaigns", `${bridgeStatus.activeCampaigns} active / ${bridgeStatus.totalCampaigns} total`, "var(--text-muted)"]] : []),
-                  ...(bridgeStatus.matchedPool != null ? [["Matched", `${bridgeStatus.matchedPool} in pool`, bridgeStatus.matchedPool > 0 ? "var(--ok)" : "var(--warn)"]] : []),
-                  ...(bridgeStatus.campaignId ? [["Winner", `#${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
-                  ...(bridgeStatus.mechanism ? [["Mechanism", bridgeStatus.mechanism, "var(--text-muted)"]] : []),
-                  ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
-                  ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
-                  ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
-                  ...(bridgeStatus.step === "house-ad" && (bridgeStatus.totalCampaigns ?? 0) === 0
-                    ? [["Hint", "No campaigns on Paseo — run setup-testnet.ts", "var(--warn)"]]
-                    : []),
+                  ["Relay",      relayLabel, relay === null ? "var(--warn)" : relay.online ? "var(--ok)" : "var(--error)"],
+                  ["SDK",        sdk.ready ? `Ready (v${sdk.version})` : "Loading…", sdk.ready ? "var(--ok)" : "var(--warn)"],
+                  ["Publisher",  sdk.publisher ? sdk.publisher.slice(0, 10) + "…" : "—", "var(--text-muted)"],
+                  ["Handshake",  handshake.done ? `Complete (${handshake.sig}…)` : "Pending", handshake.done ? "var(--ok)" : "var(--warn)"],
                 ].map(([label, value, color]) => (
-                  <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                  <div key={label} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
                     <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
                     <span style={{ color }}>{value}</span>
                   </div>
                 ))}
-                {debugInfo && (
-                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
-                    <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 4 }}>Poller State</div>
-                    {[
-                      ["wallet", debugInfo.connectedAddress ? debugInfo.connectedAddress.slice(0, 10) + "…" : "not connected", debugInfo.connectedAddress ? "var(--ok)" : "var(--error)"],
-                      ["fromBlock", debugInfo.pollLastBlock != null ? String(debugInfo.pollLastBlock) : "not set", debugInfo.pollLastBlock ? "var(--ok)" : "var(--error)"],
-                      ["index", `${debugInfo.campaignIndexCount} entries`, debugInfo.campaignIndexCount > 0 ? "var(--ok)" : "var(--warn)"],
-                      ["cache", `${debugInfo.activeCampaignsCount} campaigns`, debugInfo.activeCampaignsCount > 0 ? "var(--ok)" : "var(--warn)"],
-                      ["claims", `${debugInfo.claimQueueCount} in queue${debugInfo.claimQueueAddresses.length > 0 ? ` (${debugInfo.claimQueueAddresses.map(a => a.slice(0,8)+"…").join(", ")})` : ""}`, debugInfo.claimQueueCount > 0 ? "var(--ok)" : "var(--text-muted)"],
-                      ...(debugInfo.claimBuilderMode === "aggregated" ? [["raw queue", `${debugInfo.rawQueueDepth} impressions (aggregated mode)`, debugInfo.rawQueueDepth > 0 ? "var(--ok)" : "var(--text-muted)"]] : []),
-                      ...(debugInfo.lastImpressionResult ? [["impression", debugInfo.lastImpressionResult.ok ? `ok campaign=${debugInfo.lastImpressionResult.campaignId}` : `fail: ${debugInfo.lastImpressionResult.reason}`, debugInfo.lastImpressionResult.ok ? "var(--ok)" : "var(--error)"]] : []),
-                      ["relay key", debugInfo.relaySignerAddress ? debugInfo.relaySignerAddress.slice(0, 10) + "…" : "none", "var(--text-muted)"],
-                      ...(debugInfo.sampleCampaign ? [["sample", `#${debugInfo.sampleCampaign.id} status=${debugInfo.sampleCampaign.status} pub=${debugInfo.sampleCampaign.publisher.slice(0, 8)}…`, "var(--text-muted)"]] : []),
-                    ].map(([l, v, c]) => (
-                      <div key={l} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
-                        <span style={{ color: "var(--text)", minWidth: 90 }}>{l}</span>
-                        <span style={{ color: c, wordBreak: "break-all" }}>{v}</span>
-                      </div>
-                    ))}
+              </div>
+
+              {relaySignerAddress && (
+                <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
+                    Relay Signer
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ok)", wordBreak: "break-all" }}>
+                    {relaySignerAddress}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    Diana (Publisher 1) — co-signs impression claims for on-chain settlement.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ad slot + status */}
+            <div style={{ flex: 1, minWidth: 220 }}>
+              {/* Auction status */}
+              {bridgeStatus.step !== "idle" && (
+                <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
+                  {[
+                    ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
+                    ...(bridgeStatus.totalCampaigns != null ? [["Campaigns", `${bridgeStatus.activeCampaigns} active / ${bridgeStatus.totalCampaigns} total`, "var(--text-muted)"]] : []),
+                    ...(bridgeStatus.matchedPool != null ? [["Matched", `${bridgeStatus.matchedPool} in pool`, bridgeStatus.matchedPool > 0 ? "var(--ok)" : "var(--warn)"]] : []),
+                    ...(bridgeStatus.campaignId ? [["Winner", `#${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
+                    ...(bridgeStatus.mechanism ? [["Mechanism", bridgeStatus.mechanism, "var(--text-muted)"]] : []),
+                    ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
+                    ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
+                    ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
+                    ...(bridgeStatus.step === "house-ad" && (bridgeStatus.totalCampaigns ?? 0) === 0
+                      ? [["Hint", "No campaigns on Paseo — run setup-testnet.ts", "var(--warn)"]]
+                      : []),
+                  ].map(([label, value, color]) => (
+                    <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                      <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
+                      <span style={{ color }}>{value}</span>
+                    </div>
+                  ))}
+                  {debugInfo && (
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
+                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 4 }}>Poller State</div>
+                      {[
+                        ["wallet", debugInfo.connectedAddress ? debugInfo.connectedAddress.slice(0, 10) + "…" : "not connected", debugInfo.connectedAddress ? "var(--ok)" : "var(--error)"],
+                        ["fromBlock", debugInfo.pollLastBlock != null ? String(debugInfo.pollLastBlock) : "not set", debugInfo.pollLastBlock ? "var(--ok)" : "var(--error)"],
+                        ["index", `${debugInfo.campaignIndexCount} entries`, debugInfo.campaignIndexCount > 0 ? "var(--ok)" : "var(--warn)"],
+                        ["cache", `${debugInfo.activeCampaignsCount} campaigns`, debugInfo.activeCampaignsCount > 0 ? "var(--ok)" : "var(--warn)"],
+                        ["claims", `${debugInfo.claimQueueCount} in queue${debugInfo.claimQueueAddresses.length > 0 ? ` (${debugInfo.claimQueueAddresses.map(a => a.slice(0,8)+"…").join(", ")})` : ""}`, debugInfo.claimQueueCount > 0 ? "var(--ok)" : "var(--text-muted)"],
+                        ...(debugInfo.claimBuilderMode === "aggregated" ? [["raw queue", `${debugInfo.rawQueueDepth} impressions (aggregated mode)`, debugInfo.rawQueueDepth > 0 ? "var(--ok)" : "var(--text-muted)"]] : []),
+                        ...(debugInfo.lastImpressionResult ? [["impression", debugInfo.lastImpressionResult.ok ? `ok campaign=${debugInfo.lastImpressionResult.campaignId}` : `fail: ${debugInfo.lastImpressionResult.reason}`, debugInfo.lastImpressionResult.ok ? "var(--ok)" : "var(--error)"]] : []),
+                        ["relay key", debugInfo.relaySignerAddress ? debugInfo.relaySignerAddress.slice(0, 10) + "…" : "none", "var(--text-muted)"],
+                        ...(debugInfo.sampleCampaign ? [["sample", `#${debugInfo.sampleCampaign.id} status=${debugInfo.sampleCampaign.status} pub=${debugInfo.sampleCampaign.publisher.slice(0, 8)}…`, "var(--text-muted)"]] : []),
+                      ].map(([l, v, c]) => (
+                        <div key={l} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                          <span style={{ color: "var(--text)", minWidth: 90 }}>{l}</span>
+                          <span style={{ color: c, wordBreak: "break-all" }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{
+                border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 8,
+                padding: 20, marginBottom: 12, minHeight: 80,
+              }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  datum-ad-slot
+                </div>
+                <div id="datum-ad-slot" />
+                {daemonReady && !connectedAddress && (
+                  <div style={{ fontSize: 11, color: "var(--warn)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+                    Connect a wallet in the extension panel to serve ads.
+                  </div>
+                )}
+                {(!daemonReady || (daemonReady && connectedAddress && bridgeStatus.step === "idle")) && (
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
+                    {!daemonReady ? "Loading extension daemon…" : "Auction will run automatically once the wallet is connected."}
                   </div>
                 )}
               </div>
-            )}
 
-            <div style={{
-              border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 8,
-              padding: 20, marginBottom: 12, minHeight: 80,
-            }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                datum-ad-slot
+              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  What to try
+                </div>
+                {[
+                  ["Set up wallet", "Generate or import a Paseo testnet key"],
+                  ["Claims tab", "See pending impression claims and submit on-chain"],
+                  ["Earnings tab", "Check your withdrawable balance"],
+                  ["Filters tab", "Toggle ad topic categories and opt-out of campaigns"],
+                  ["Settings tab", "Configure RPC endpoint and view interest profile"],
+                ].map(([title, desc]) => (
+                  <div key={title} style={{ padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ color: "var(--text-strong)" }}>{title}</span>
+                    <span style={{ color: "var(--text-muted)" }}> — {desc}</span>
+                  </div>
+                ))}
               </div>
-              <div id="datum-ad-slot" />
-              {daemonReady && !connectedAddress && (
-                <div style={{ fontSize: 11, color: "var(--warn)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
-                  Connect a wallet in the extension panel to serve ads.
-                </div>
-              )}
-              {(!daemonReady || (daemonReady && connectedAddress && bridgeStatus.step === "idle")) && (
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
-                  {!daemonReady ? "Loading extension daemon…" : "Auction will run automatically once the wallet is connected."}
-                </div>
-              )}
-            </div>
-
-            {/* SDK status */}
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 12 }}>
-              {[
-                ["Relay",      relayLabel, relay === null ? "var(--warn)" : relay.online ? "var(--ok)" : "var(--error)"],
-                ["SDK",        sdk.ready ? `Ready (v${sdk.version})` : "Loading…", sdk.ready ? "var(--ok)" : "var(--warn)"],
-                ["Publisher",  sdk.publisher ? sdk.publisher.slice(0, 10) + "…" : "—", "var(--text-muted)"],
-                ["Handshake",  handshake.done ? `Complete (${handshake.sig}…)` : "Pending", handshake.done ? "var(--ok)" : "var(--warn)"],
-              ].map(([label, value, color]) => (
-                <div key={label} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
-                  <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
-                  <span style={{ color }}>{value}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Relay signer */}
-            {relaySignerAddress && (
-              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px", marginBottom: 12 }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
-                  Relay Signer
-                </div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ok)", wordBreak: "break-all" }}>
-                  {relaySignerAddress}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  Diana (Publisher 1) — co-signs impression claims for on-chain settlement.
-                </div>
-              </div>
-            )}
-
-            {/* What to try */}
-            <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                What to try
-              </div>
-              {[
-                ["Set up wallet", "Generate or import a Paseo testnet key"],
-                ["Claims tab", "See pending impression claims and submit on-chain"],
-                ["Earnings tab", "Check your withdrawable balance"],
-                ["Filters tab", "Toggle ad topic categories and opt-out of campaigns"],
-                ["Settings tab", "Configure RPC endpoint and view interest profile"],
-              ].map(([title, desc]) => (
-                <div key={title} style={{ padding: "4px 0", fontSize: 12 }}>
-                  <span style={{ color: "var(--text-strong)" }}>{title}</span>
-                  <span style={{ color: "var(--text-muted)" }}> — {desc}</span>
-                </div>
-              ))}
             </div>
           </div>
         </div>
-      </Section>
-
-      {/* ── Browse Simulator ───────────────────────────────────────────────── */}
-      <Section label="Browse Simulator">
-        <p style={p}>
-          Simulate visiting different topic pages to build an interest profile.
-          Each click injects real Schema.org, Open Graph, and IAB metadata into this page
-          so the daemon classifies it exactly as it would on a live publisher site,
-          then re-runs the auction — showing how browsing history shifts campaign selection.
-        </p>
-
-        {!daemonReady && (
-          <div style={{ fontSize: 12, color: "var(--warn)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
-            Waiting for daemon… connect a wallet in the extension panel above first.
-          </div>
-        )}
-
-        {/* Topic grid */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-          {BROWSE_TOPICS.map((topic) => {
-            const count = simVisitCounts[topic.slug] ?? 0;
-            const weight = interestWeights[`topic:${topic.slug}`] ?? 0;
-            const isActive = currentSimTopics.includes(topic.slug);
-            return (
-              <button
-                key={topic.slug}
-                onClick={() => simulateVisit(topic)}
-                disabled={!daemonReady || simulating}
-                title={`IAB: ${topic.iab} · Section: ${topic.section}`}
-                style={{
-                  background: isActive
-                    ? "rgba(255,255,255,0.14)"
-                    : count > 0
-                      ? "rgba(255,255,255,0.07)"
-                      : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${isActive ? "rgba(255,255,255,0.4)" : weight > 0.1 ? "rgba(255,255,255,0.2)" : "var(--border)"}`,
-                  borderRadius: 4,
-                  color: count > 0 ? "var(--text-strong)" : "var(--text-muted)",
-                  fontFamily: "var(--font-mono)", fontSize: 11,
-                  padding: "5px 10px",
-                  cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
-                  display: "flex", alignItems: "center", gap: 5,
-                  transition: "background 0.15s, border-color 0.15s",
-                }}
-              >
-                <span>{topic.label}</span>
-                {count > 0 && (
-                  <span style={{
-                    background: "rgba(255,255,255,0.12)", borderRadius: 3,
-                    fontSize: 10, padding: "0 4px", color: "var(--text-muted)",
-                    minWidth: 16, textAlign: "center",
-                  }}>{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Controls */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-          <button
-            onClick={() => simulateVisit(pickRandomTopics())}
-            disabled={!daemonReady || simulating}
-            style={{
-              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
-              borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-mono)",
-              fontSize: 11, padding: "6px 12px",
-              cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
-            }}
-          >
-            ↺ Random Visit
-          </button>
-          <button
-            onClick={() => setAutoTourActive((v) => !v)}
-            disabled={!daemonReady}
-            style={{
-              background: autoTourActive ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${autoTourActive ? "rgba(255,255,255,0.3)" : "var(--border)"}`,
-              borderRadius: 4,
-              color: autoTourActive ? "var(--text-strong)" : "var(--text)",
-              fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 12px",
-              cursor: daemonReady ? "pointer" : "not-allowed",
-              minWidth: 148,
-            }}
-          >
-            {autoTourActive
-              ? <><span style={{ marginRight: 6 }}>⏹</span><BouncingText text="Auto-browsing..." /></>
-              : "▶ Auto-Tour Topics"}
-          </button>
-          {Object.keys(simVisitCounts).length > 0 && (
-            <button
-              onClick={() => {
-                clearSimMeta();
-                setSimVisitCounts({});
-                setInterestWeights({});
-                setCurrentSimTopics([]);
-                setAutoTourActive(false);
-              }}
-              style={{
-                background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)",
-                borderRadius: 4, color: "var(--text-muted)", fontFamily: "var(--font-mono)",
-                fontSize: 11, padding: "6px 12px", cursor: "pointer",
-              }}
-            >
-              Reset
-            </button>
-          )}
-          {simulating && currentSimTopics.length > 0 && (
-            <span style={{ fontSize: 11, color: "var(--warn)", fontFamily: "var(--font-mono)", alignSelf: "center" }}>
-              Simulating {currentSimTopics.join(" + ")}…
-            </span>
-          )}
-        </div>
-
-        {/* Interest profile bar chart */}
-        {Object.keys(interestWeights).length > 0 && (() => {
-          const topicWeights = Object.entries(interestWeights)
-            .filter(([k]) => k.startsWith("topic:"))
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 12);
-          const maxW = topicWeights[0]?.[1] ?? 1;
-          return (
-            <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 10, fontFamily: "var(--font-mono)" }}>
-                Interest Profile — Auction Weights
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {topicWeights.map(([tag, w]) => {
-                  const label = tag.replace("topic:", "").replace(/-/g, " ");
-                  const pct = Math.round((w / maxW) * 100);
-                  return (
-                    <div key={tag} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 130, fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right", flexShrink: 0 }}>
-                        {label}
-                      </div>
-                      <div style={{ flex: 1, height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{ width: `${pct}%`, height: "100%", background: "rgba(255,255,255,0.4)", borderRadius: 4, transition: "width 0.3s" }} />
-                      </div>
-                      <div style={{ width: 36, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
-                        {w.toFixed(2)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>
-                7-day exponential decay · campaigns matching higher-weight topics win more auctions
-              </div>
-            </div>
-          );
-        })()}
       </Section>
 
       {/* ── Publisher Integration ──────────────────────────────────────────── */}
@@ -852,33 +850,6 @@ export function Demo() {
           <code style={code}>data-relay</code> is your publisher relay endpoint.{" "}
           <code style={code}>data-excluded-tags</code> is an optional publisher-side tag blocklist.
         </p>
-      </Section>
-
-      {/* ── Tag Dictionary ────────────────────────────────────────────────── */}
-      <Section label="Tag Dictionary">
-        <p style={p}>
-          Publishers and campaigns declare targeting using tags from four dimensions.
-          Tags are <code style={code}>keccak256("dimension:value")</code> hashes stored on-chain.
-          Publishers can set up to 32 tags; campaigns can require up to 8.
-          A campaign matches a publisher when the publisher has <em>all</em> of the campaign's
-          required tags (AND-logic).
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10, marginTop: 12 }}>
-          {Object.entries(TAG_DICTIONARY).map(([dim, tags]) => (
-            <div key={dim} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                {dim} ({tags.length})
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {tags.map((tag) => (
-                  <span key={tag} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 3, fontSize: 11, padding: "2px 6px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
       </Section>
 
       {/* ── Daemon Activity Log ────────────────────────────────────────────── */}
