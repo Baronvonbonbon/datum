@@ -270,11 +270,10 @@ export function ClaimQueue({ address }: Props) {
         return;
       }
       if (daemonResp?.error) {
-        // Daemon available but reported an error (e.g. stale nonces discarded, empty queue).
-        // Reload queue state so the count reflects any claims the daemon may have discarded.
-        setError(daemonResp.error);
+        // Daemon available but reported an error (e.g. stale nonces, empty queue).
+        // Fall through to user wallet — the daemon couldn't handle it.
+        console.warn("[datum] daemon error, falling through to user wallet:", daemonResp.error);
         await loadState();
-        return;
       }
 
       const signer = getSigner(settings.rpcUrl);
@@ -400,7 +399,7 @@ export function ClaimQueue({ address }: Props) {
       const provider = signer.provider!;
       for (const chunk of txChunks) {
         const nonceBefore = await provider.getTransactionCount(signerAddr);
-        const tx = await attestationVerifier.settleClaimsAttested(chunk);
+        const tx = await attestationVerifier.settleClaimsAttested(chunk, { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
         // Paseo: tx.wait() polls getTransactionReceipt which always returns null.
         // Use nonce polling instead; treat null receipt as optimistic confirmation.
         const receipt = await waitForTxPaseo(provider, signerAddr, nonceBefore);
@@ -608,7 +607,7 @@ export function ClaimQueue({ address }: Props) {
       const attestationVerifier = getAttestationVerifierContract(settings.contractAddresses, signer);
       const provider = signer.provider!;
       const nonceBefore = await provider.getTransactionCount(signerAddr);
-      await attestationVerifier.settleClaimsAttested([attestedBatch]);
+      await attestationVerifier.settleClaimsAttested([attestedBatch], { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
       // Paseo: tx.wait() polls getTransactionReceipt which always returns null — use nonce polling.
       const receipt = await waitForTxPaseo(provider, signerAddr, nonceBefore);
 
@@ -701,6 +700,9 @@ export function ClaimQueue({ address }: Props) {
       const currentBlock = await provider.getBlockNumber();
       // Signature valid for ~10 minutes (100 blocks at 6s each)
       const deadline = currentBlock + 100;
+
+      // In aggregated/demo mode, raw impressions need to be built into hashed claims first.
+      await chrome.runtime.sendMessage({ type: "DRAIN_CLAIMS_ONLY" }).catch(() => null);
 
       // Get all batches for this user
       const batchesResponse = await chrome.runtime.sendMessage({

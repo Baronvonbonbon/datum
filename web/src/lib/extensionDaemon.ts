@@ -468,6 +468,7 @@ async function handleMessage(msg: any): Promise<unknown> {
             clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
             mechanism: auctionResult.mechanism,
             participants: auctionResult.participants,
+            allBids: auctionResult.allScored,
           };
         }
       }
@@ -659,6 +660,61 @@ async function handleMessage(msg: any): Promise<unknown> {
 
     case "SIGN_FOR_RELAY":
       return { ok: false, reason: "auto-submit not available in demo" };
+
+    case "DRAIN_CLAIMS_ONLY": {
+      // Drain rawImpressionQueue → claimQueue (build hashed claims) WITHOUT settling.
+      // Called by signForRelay() before SUBMIT_CLAIMS so built claims are available.
+      try {
+        const stored2 = await chrome.storage.local.get(["claimBuilderMode", "rawImpressionQueue"]);
+        const rawQueue: any[] = stored2.rawImpressionQueue ?? [];
+        if ((stored2.claimBuilderMode ?? "per-impression") !== "aggregated" || rawQueue.length === 0) {
+          return { ok: true, drainedCount: 0 };
+        }
+        const MAX_IMPRESSIONS_PER_CLAIM = 250;
+        const groups = new Map<string, any[]>();
+        for (const raw of rawQueue) {
+          const key = `${raw.campaignId}:${raw.clearingCpmPlanck}`;
+          const g = groups.get(key) ?? [];
+          g.push(raw);
+          groups.set(key, g);
+        }
+        const qs2 = await chrome.storage.local.get("claimQueue");
+        const existingQueue: any[] = qs2.claimQueue ?? [];
+        for (const [, impressions] of groups) {
+          const { campaignId: cid, publisher, clearingCpmPlanck: cpm, userAddress: ua } = impressions[0];
+          const chainKey = `chainState:${ua}:${cid}`;
+          const chainStored = await chrome.storage.local.get(chainKey);
+          let chain = chainStored[chainKey] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
+          for (let i = 0; i < impressions.length; i += MAX_IMPRESSIONS_PER_CLAIM) {
+            const chunk = impressions.slice(i, i + MAX_IMPRESSIONS_PER_CLAIM);
+            const impressionCount = BigInt(chunk.length);
+            const nonce = BigInt(chain.lastNonce + 1);
+            const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
+            const campaignIdBig = BigInt(cid);
+            const clearingCpm = BigInt(cpm);
+            const packed = solidityPacked(
+              ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, nonce, prevHash]
+            );
+            const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
+            const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
+            existingQueue.push({
+              campaignId: cid, publisher, impressionCount: impressionCount.toString(),
+              clearingCpmPlanck: cpm, nonce: nonce.toString(), previousClaimHash: prevHash,
+              claimHash, zkProof: "0x", userAddress: ua,
+            });
+            chain = { lastNonce: Number(nonce), lastClaimHash: claimHash };
+          }
+          await chrome.storage.local.set({
+            [chainKey]: { userAddress: ua, campaignId: cid, lastNonce: chain.lastNonce, lastClaimHash: chain.lastClaimHash },
+          });
+        }
+        await chrome.storage.local.set({ claimQueue: existingQueue, rawImpressionQueue: [] });
+        return { ok: true, drainedCount: rawQueue.length };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    }
 
     case "DAEMON_SUBMIT_CLAIMS": {
       try {

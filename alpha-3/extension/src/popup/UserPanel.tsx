@@ -94,11 +94,19 @@ export function UserPanel({ address }: Props) {
     try {
       const settings = await getSettings();
       const signer = getSigner(settings.rpcUrl);
+      const provider = signer.provider!;
       const vault = getPaymentVaultContract(settings.contractAddresses, signer);
 
       const dest = sweepAddress && isAddress(sweepAddress) ? sweepAddress : null;
+      const nonceBefore = await provider.getTransactionCount(signer.address);
       const tx = dest ? await vault.withdrawUserTo(dest) : await vault.withdrawUser();
-      await tx.wait();
+      // Paseo: getTransactionReceipt always returns null — poll nonce instead.
+      void tx;
+      for (let i = 0; i < 60; i++) {
+        const cur = await provider.getTransactionCount(signer.address);
+        if (cur > nonceBefore) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
       setTxResult(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Withdrawal successful.");
       loadBalance();
     } catch (err) {
@@ -153,10 +161,18 @@ export function UserPanel({ address }: Props) {
       const signer = getSigner(settings.rpcUrl);
       const vault = getTokenRewardVaultContract(settings.contractAddresses, signer);
       const dest = sweepAddress && isAddress(sweepAddress) ? sweepAddress : null;
+      const provider = signer.provider!;
+      const nonceBefore = await provider.getTransactionCount(signer.address);
       const tx = dest
         ? await vault.withdrawTo(tokenInput.trim(), dest)
         : await vault.withdraw(tokenInput.trim());
-      await tx.wait();
+      // Paseo: getTransactionReceipt always returns null — poll nonce instead.
+      void tx;
+      for (let i = 0; i < 60; i++) {
+        const cur = await provider.getTransactionCount(signer.address);
+        if (cur > nonceBefore) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
       setTokenWithdrawMsg(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Token withdrawal successful.");
       setTokenBalance(0n);
     } catch (err) {
