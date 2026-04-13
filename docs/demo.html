@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!--
+    DATUM Browse Simulator
+    Injects real Schema.org, Open Graph, and IAB metadata for the selected topic
+    so the Datum extension classifies this page and updates your interest profile
+    exactly as it would on a real publisher site.
+
+    URL params:
+      ?topic=<slug>      — simulate a page visit in that topic
+      ?random=1          — pick a random topic
+      ?auto=1&step=N     — auto-tour: visit topic at index N, then advance
+      ?publisher=0x...   — override publisher address
+  -->
+
+  <script>
+    // ── Run before anything else so tags are in the DOM when the extension fires ──
+
+    var TOPICS = [
+      { slug: "crypto-web3",        label: "Crypto & Web3",         iab: "IAB13",
+        section: "Cryptocurrency",  keywords: "bitcoin, ethereum, defi, web3, blockchain, token",
+        title: "Bitcoin & DeFi Weekly — Latest Crypto News" },
+      { slug: "finance",            label: "Finance",               iab: "IAB13",
+        section: "Personal Finance", keywords: "stock market, investing, portfolio, ETF, interest rates",
+        title: "Market Watch: Stocks, Bonds & Investing" },
+      { slug: "computers-electronics", label: "Computers & Electronics", iab: "IAB19",
+        section: "Technology",      keywords: "programming, AI, machine learning, cloud, developer, open source",
+        title: "The Verge: Latest Tech & Gadget Reviews" },
+      { slug: "games",              label: "Gaming",                iab: "IAB1",
+        section: "Gaming",          keywords: "video games, steam, esports, rpg, fps, console",
+        title: "IGN: Game Reviews & Gaming News" },
+      { slug: "health",             label: "Health",                iab: "IAB7",
+        section: "Health & Medicine", keywords: "fitness, diet, wellness, mental health, nutrition",
+        title: "Healthline: Evidence-Based Medical Information" },
+      { slug: "sports",             label: "Sports",                iab: "IAB17",
+        section: "Sports",          keywords: "football, basketball, soccer, tennis, nba, premier league",
+        title: "ESPN: Scores, Stats & Sports News" },
+      { slug: "news",               label: "News",                  iab: "IAB12",
+        section: "World News",      keywords: "breaking news, politics, election, journalism",
+        title: "The Guardian: International News & Current Events" },
+      { slug: "science",            label: "Science",               iab: "IAB15",
+        section: "Science",         keywords: "research, climate, physics, biology, astronomy",
+        title: "Nature: Science & Research News" },
+      { slug: "travel",             label: "Travel",                iab: "IAB20",
+        section: "Travel",          keywords: "hotel, flight, vacation, tourism, destination",
+        title: "Lonely Planet: Travel Guides & Destinations" },
+      { slug: "food-drink",         label: "Food & Drink",          iab: "IAB8",
+        section: "Food & Cooking",  keywords: "recipe, restaurant, cooking, chef, cuisine, wine",
+        title: "Bon Appétit: Recipes & Restaurant Reviews" },
+      { slug: "shopping",           label: "Shopping",              iab: "IAB22",
+        section: "Shopping",        keywords: "deals, sale, product review, ecommerce, discount",
+        title: "Wirecutter: Best Product Picks & Reviews" },
+      { slug: "jobs-education",     label: "Jobs & Education",      iab: "IAB4",
+        section: "Career & Education", keywords: "job, career, university, course, certification, hiring",
+        title: "LinkedIn Learning: Skills & Career Development" },
+      { slug: "arts-entertainment", label: "Arts & Entertainment",  iab: "IAB1",
+        section: "Entertainment",   keywords: "movie, music, art, celebrity, film, streaming",
+        title: "Variety: Film, Music & Entertainment" },
+      { slug: "beauty-fitness",     label: "Beauty & Fitness",      iab: "IAB18",
+        section: "Beauty & Style",  keywords: "skincare, makeup, fitness, gym, fashion, wellness",
+        title: "Allure: Beauty Tips & Skincare Reviews" },
+      { slug: "autos-vehicles",     label: "Autos & Vehicles",      iab: "IAB2",
+        section: "Automotive",      keywords: "car, electric vehicle, test drive, horsepower, dealership",
+        title: "Car and Driver: Auto Reviews & News" },
+      { slug: "books-literature",   label: "Books & Literature",    iab: "IAB9",
+        section: "Books & Reading", keywords: "novel, author, fiction, bestseller, book review",
+        title: "Goodreads: Books You'll Love" },
+      { slug: "business-industrial", label: "Business",             iab: "IAB3",
+        section: "Business",        keywords: "startup, enterprise, marketing, management, b2b",
+        title: "Harvard Business Review: Management & Strategy" },
+      { slug: "hobbies-leisure",    label: "Hobbies & Leisure",     iab: "IAB9",
+        section: "Hobbies",         keywords: "craft, diy, photography, camping, hiking, collecting",
+        title: "Instructables: DIY Projects & How-Tos" },
+      { slug: "home-garden",        label: "Home & Garden",         iab: "IAB10",
+        section: "Home & Garden",   keywords: "furniture, interior design, renovation, garden",
+        title: "Houzz: Home Design, Decorating & Renovation" },
+      { slug: "internet-telecom",   label: "Internet & Privacy",    iab: "IAB19",
+        section: "Privacy & Security", keywords: "vpn, cybersecurity, privacy, encryption, broadband",
+        title: "Privacy Guides: Tools for Online Privacy" },
+      { slug: "law-government",     label: "Law & Government",      iab: "IAB11",
+        section: "Law & Policy",    keywords: "law, regulation, court, government, policy",
+        title: "SCOTUSblog: Supreme Court News & Analysis" },
+      { slug: "online-communities", label: "Online Communities",    iab: "IAB19",
+        section: "Social Media",    keywords: "forum, community, social media, blog, reddit",
+        title: "Reddit: The Front Page of the Internet" },
+      { slug: "people-society",     label: "People & Society",      iab: "IAB14",
+        section: "Society & Culture", keywords: "family, charity, diversity, activism, nonprofit",
+        title: "The Atlantic: Ideas, Politics & Culture" },
+      { slug: "pets-animals",       label: "Pets & Animals",        iab: "IAB16",
+        section: "Pets & Animals",  keywords: "dog, cat, pet, veterinary, wildlife, adoption",
+        title: "AKC: Dog Breeds, Health & Training" },
+      { slug: "real-estate",        label: "Real Estate",           iab: "IAB21",
+        section: "Real Estate",     keywords: "house for sale, mortgage, realtor, apartment, property",
+        title: "Zillow: Homes for Sale & Real Estate" },
+      { slug: "reference",          label: "Reference",             iab: "IAB11",
+        section: "Reference",       keywords: "dictionary, how to, guide, documentation, tutorial",
+        title: "Wikipedia: The Free Encyclopedia" },
+    ];
+
+    function getParam(name) {
+      return new URLSearchParams(window.location.search).get(name);
+    }
+
+    var topicSlug = getParam("topic");
+    var isRandom  = getParam("random") === "1";
+    var isAuto    = getParam("auto") === "1";
+    var autoStep  = parseInt(getParam("step") || "0", 10);
+
+    // Random pick
+    if (isRandom && !topicSlug) {
+      topicSlug = TOPICS[Math.floor(Math.random() * TOPICS.length)].slug;
+    }
+
+    // Auto-tour: resolve slug from step index
+    if (isAuto && !topicSlug) {
+      topicSlug = TOPICS[autoStep % TOPICS.length].slug;
+    }
+
+    var currentTopic = topicSlug ? TOPICS.find(function(t){ return t.slug === topicSlug; }) : null;
+
+    // ── Inject metadata tags into <head> for the extension to read ──
+    if (currentTopic) {
+      // Schema.org JSON-LD
+      var ld = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "articleSection": currentTopic.section,
+        "keywords": currentTopic.keywords,
+        "about": { "@type": "Thing", "name": currentTopic.section },
+        "genre": currentTopic.label,
+        "headline": currentTopic.title,
+        "breadcrumb": {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            { "@type": "ListItem", "position": 1, "name": currentTopic.label },
+            { "@type": "ListItem", "position": 2, "name": currentTopic.section }
+          ]
+        }
+      };
+      var ldScript = document.createElement("script");
+      ldScript.type = "application/ld+json";
+      ldScript.textContent = JSON.stringify(ld);
+      document.head.appendChild(ldScript);
+
+      // Open Graph
+      function addMeta(property, content) {
+        var el = document.createElement("meta");
+        el.setAttribute("property", property);
+        el.setAttribute("content", content);
+        document.head.appendChild(el);
+      }
+      addMeta("og:type",           "article");
+      addMeta("og:title",          currentTopic.title);
+      addMeta("article:section",   currentTopic.section);
+      addMeta("article:tag",       currentTopic.keywords.split(",")[0].trim());
+      addMeta("article:tag",       currentTopic.keywords.split(",")[1].trim());
+
+      // IAB category
+      var iabMeta = document.createElement("meta");
+      iabMeta.setAttribute("name", "iab-category");
+      iabMeta.setAttribute("content", currentTopic.iab);
+      document.head.appendChild(iabMeta);
+
+      // Page title
+      document.title = currentTopic.title;
+
+      // Record visit in sessionStorage for profile visualization
+      try {
+        var log = JSON.parse(sessionStorage.getItem("datum_visits") || "[]");
+        log.push({ slug: currentTopic.slug, label: currentTopic.label, ts: Date.now() });
+        if (log.length > 100) log = log.slice(-100);
+        sessionStorage.setItem("datum_visits", JSON.stringify(log));
+      } catch(e) {}
+    }
+  </script>
+
+  <title>Datum Browse Simulator</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; }
+
+    header {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid #222;
+      padding-bottom: 16px;
+    }
+    header .logo { font-size: 22px; font-weight: 700; color: #e6007a; letter-spacing: -0.5px; }
+    header .sub  { font-size: 13px; color: #888; }
+
+    .status-banner {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .status-banner .icon { font-size: 28px; flex-shrink: 0; margin-top: 2px; }
+    .status-banner h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .status-banner p  { font-size: 13px; color: #999; line-height: 1.5; }
+    .status-banner.visiting { border-color: #e6007a40; }
+    .status-banner.visiting h2 { color: #e6007a; }
+
+    .meta-panel {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: #666;
+      font-family: monospace;
+      line-height: 1.8;
+    }
+    .meta-panel .label { color: #555; }
+    .meta-panel .val   { color: #9ecaff; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 9px 16px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1a1a1a;
+      color: #ccc;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #252525; border-color: #444; }
+    .btn.primary { background: #e6007a; border-color: #e6007a; color: #fff; }
+    .btn.primary:hover { background: #cc006a; }
+    .btn.active  { border-color: #e6007a; color: #e6007a; }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 12px;
+    }
+
+    .topic-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+
+    .topic-btn {
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid #222;
+      background: #141414;
+      color: #bbb;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      position: relative;
+    }
+    .topic-btn:hover  { background: #1e1e1e; border-color: #333; color: #e0e0e0; }
+    .topic-btn.active { background: #1a0811; border-color: #e6007a; color: #fff; }
+    .topic-btn .count {
+      display: inline-block;
+      background: #e6007a;
+      color: #fff;
+      font-size: 10px;
+      border-radius: 10px;
+      padding: 1px 6px;
+      margin-left: 5px;
+      font-weight: 600;
+    }
+
+    .visit-log-section { margin-bottom: 32px; }
+
+    .visit-log {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .visit-chip {
+      font-size: 11px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 3px 10px;
+      color: #999;
+    }
+
+    .profile-bar-section { margin-bottom: 32px; }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .bar-label { width: 160px; flex-shrink: 0; color: #aaa; text-align: right; }
+    .bar-track { flex: 1; background: #1a1a1a; border-radius: 4px; height: 8px; overflow: hidden; }
+    .bar-fill  { background: #e6007a; height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .bar-count { width: 28px; text-align: right; color: #666; flex-shrink: 0; }
+
+    .ad-area {
+      background: #111;
+      border: 1px dashed #2a2a2a;
+      border-radius: 8px;
+      padding: 20px;
+      min-height: 120px;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    .ad-area-label {
+      font-size: 11px;
+      color: #555;
+      margin-bottom: 10px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    #auto-countdown {
+      font-size: 12px;
+      color: #e6007a;
+      margin-left: 8px;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #555;
+      margin-top: 8px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div>
+      <div class="logo">DATUM</div>
+      <div class="sub">Browse Simulator — Interest Profile Builder</div>
+    </div>
+  </header>
+
+  <!-- Status banner: idle or visiting -->
+  <div id="status-banner" class="status-banner">
+    <div class="icon" id="status-icon">🌐</div>
+    <div>
+      <h2 id="status-title">Select a topic to simulate a page visit</h2>
+      <p id="status-desc">Each click loads this page with real Schema.org, Open Graph, and IAB metadata for that topic. The Datum extension reads the metadata and updates your local interest profile — exactly as it would on a real publisher site.</p>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn primary" onclick="visitRandom()">Random visit</button>
+    <button class="btn" id="auto-btn" onclick="toggleAuto()">Auto-tour all topics</button>
+    <span id="auto-countdown"></span>
+    <button class="btn" onclick="clearLog()" style="margin-left:auto;">Clear session log</button>
+  </div>
+
+  <!-- Ad slot: extension injects here -->
+  <div class="ad-area">
+    <div class="ad-area-label">Ad slot — Datum extension injects here</div>
+    <div id="datum-ad-slot" style="min-height:90px;display:flex;align-items:center;justify-content:center;">
+      <span style="color:#333;font-size:12px;">Install the Datum extension to see live auction results</span>
+    </div>
+  </div>
+
+  <!-- Topic picker -->
+  <div class="section-label">Simulate a page visit by topic</div>
+  <div class="topic-grid" id="topic-grid"></div>
+
+  <!-- Visit log / profile bars -->
+  <div class="visit-log-section">
+    <div class="section-label">Session visit log <span id="total-count" style="font-weight:400;color:#555;text-transform:none;letter-spacing:0"></span></div>
+    <div class="visit-log" id="visit-log-chips"></div>
+    <div class="hint" id="log-hint"></div>
+  </div>
+
+  <div class="profile-bar-section" id="profile-section" style="display:none">
+    <div class="section-label">Interest profile (this session)</div>
+    <div id="profile-bars"></div>
+    <div class="hint">This mirrors what the Datum extension stores in your browser. Open the extension popup to see the live weighted profile and watch auction bids change.</div>
+  </div>
+
+</div>
+
+<!-- Publisher SDK — tells the extension a publisher is present -->
+<script id="datum-sdk-tag"
+  src="datum-sdk.js"
+  data-publisher="0x94CC36412EE0c099BfE7D61a35092e40342F62D7"
+  data-tags=""
+  data-relay="">
+</script>
+
+<script>
+// ── UI rendering ──────────────────────────────────────────────────────────
+
+var AUTO_INTERVAL_MS = 3000; // ms per topic in auto-tour
+var autoTimer = null;
+var isAutoRunning = false;
+
+function readLog() {
+  try { return JSON.parse(sessionStorage.getItem("datum_visits") || "[]"); } catch(e) { return []; }
+}
+
+function countsBySlug(log) {
+  var counts = {};
+  for (var i = 0; i < log.length; i++) {
+    var slug = log[i].slug;
+    counts[slug] = (counts[slug] || 0) + 1;
+  }
+  return counts;
+}
+
+function renderTopicGrid() {
+  var grid = document.getElementById("topic-grid");
+  var counts = countsBySlug(readLog());
+  grid.innerHTML = "";
+  TOPICS.forEach(function(t) {
+    var btn = document.createElement("button");
+    btn.className = "topic-btn" + (currentTopic && currentTopic.slug === t.slug ? " active" : "");
+    var label = t.label;
+    var c = counts[t.slug] || 0;
+    if (c > 0) label += '<span class="count">' + c + '</span>';
+    btn.innerHTML = label;
+    btn.onclick = function() { visitTopic(t.slug); };
+    grid.appendChild(btn);
+  });
+}
+
+function renderVisitLog() {
+  var log = readLog();
+  var chips = document.getElementById("visit-log-chips");
+  var hint  = document.getElementById("log-hint");
+  var total = document.getElementById("total-count");
+
+  total.textContent = log.length > 0 ? "— " + log.length + " visits" : "";
+
+  if (log.length === 0) {
+    chips.innerHTML = '<span style="color:#444;font-size:12px">No visits yet — click a topic above to start</span>';
+    hint.textContent = "";
+    return;
+  }
+
+  // Show last 20 chips (most recent first)
+  var recent = log.slice(-20).reverse();
+  chips.innerHTML = "";
+  recent.forEach(function(v) {
+    var chip = document.createElement("span");
+    chip.className = "visit-chip";
+    chip.textContent = v.label;
+    chips.appendChild(chip);
+  });
+  if (log.length > 20) {
+    var more = document.createElement("span");
+    more.className = "visit-chip";
+    more.style.color = "#555";
+    more.textContent = "+" + (log.length - 20) + " earlier";
+    chips.appendChild(more);
+  }
+  hint.textContent = "The Datum extension accumulates these visits with exponential decay (half-life 7 days). Open the popup to see live weights.";
+}
+
+function renderProfileBars() {
+  var log = readLog();
+  var section = document.getElementById("profile-section");
+  var barsDiv = document.getElementById("profile-bars");
+
+  var counts = countsBySlug(log);
+  var topicCounts = {};
+  TOPICS.forEach(function(t) { if (counts[t.slug]) topicCounts[t.slug] = counts[t.slug]; });
+
+  if (Object.keys(topicCounts).length === 0) {
+    section.style.display = "none";
+    return;
+  }
+  section.style.display = "";
+
+  var maxCount = Math.max.apply(null, Object.values(topicCounts));
+
+  // Sort by count desc
+  var sorted = TOPICS.filter(function(t){ return topicCounts[t.slug]; });
+  sorted.sort(function(a,b){ return (topicCounts[b.slug]||0) - (topicCounts[a.slug]||0); });
+
+  barsDiv.innerHTML = "";
+  sorted.forEach(function(t) {
+    var c = topicCounts[t.slug] || 0;
+    var pct = (c / maxCount * 100).toFixed(1);
+    var row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML =
+      '<div class="bar-label">' + t.label + '</div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="bar-count">' + c + '</div>';
+    barsDiv.appendChild(row);
+  });
+}
+
+function renderStatusBanner() {
+  var banner = document.getElementById("status-banner");
+  var icon   = document.getElementById("status-icon");
+  var title  = document.getElementById("status-title");
+  var desc   = document.getElementById("status-desc");
+
+  if (currentTopic) {
+    banner.classList.add("visiting");
+    icon.textContent = "📄";
+    title.textContent = "Simulating visit: " + currentTopic.label;
+
+    var injectedHtml =
+      '<div class="meta-panel">' +
+      '<span class="label">JSON-LD articleSection: </span><span class="val">"' + currentTopic.section + '"</span><br>' +
+      '<span class="label">JSON-LD keywords: </span><span class="val">"' + currentTopic.keywords + '"</span><br>' +
+      '<span class="label">OG article:section: </span><span class="val">"' + currentTopic.section + '"</span><br>' +
+      '<span class="label">IAB category: </span><span class="val">' + currentTopic.iab + '</span><br>' +
+      '<span class="label">Page title: </span><span class="val">"' + currentTopic.title + '"</span>' +
+      '</div>';
+
+    desc.innerHTML = "Metadata injected into &lt;head&gt; — the Datum extension has classified this page and updated your interest profile." + injectedHtml;
+  }
+}
+
+function renderAll() {
+  renderStatusBanner();
+  renderTopicGrid();
+  renderVisitLog();
+  renderProfileBars();
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────
+
+function buildUrl(slug, opts) {
+  var params = new URLSearchParams();
+  if (slug) params.set("topic", slug);
+  if (opts && opts.auto)  params.set("auto",  "1");
+  if (opts && opts.step != null) params.set("step", String(opts.step));
+  var q = params.toString();
+  return window.location.pathname + (q ? "?" + q : "");
+}
+
+function visitTopic(slug) {
+  window.location.href = buildUrl(slug);
+}
+
+function visitRandom() {
+  var t = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+  window.location.href = buildUrl(t.slug);
+}
+
+function clearLog() {
+  sessionStorage.removeItem("datum_visits");
+  window.location.href = window.location.pathname;
+}
+
+// ── Auto-tour ─────────────────────────────────────────────────────────────
+
+function toggleAuto() {
+  var btn = document.getElementById("auto-btn");
+  var countdown = document.getElementById("auto-countdown");
+
+  if (isAutoRunning) {
+    // Stop
+    clearTimeout(autoTimer);
+    isAutoRunning = false;
+    btn.textContent = "Auto-tour all topics";
+    btn.classList.remove("active");
+    countdown.textContent = "";
+    return;
+  }
+
+  // Start from step 0 (or continue from current step if in auto mode)
+  var startStep = (isAuto && autoStep != null) ? autoStep : 0;
+  runAutoStep(startStep);
+}
+
+function runAutoStep(step) {
+  isAutoRunning = true;
+  var btn = document.getElementById("auto-btn");
+  var countdown = document.getElementById("auto-countdown");
+  btn.textContent = "Stop auto-tour";
+  btn.classList.add("active");
+
+  var topic = TOPICS[step % TOPICS.length];
+  var remaining = AUTO_INTERVAL_MS / 1000;
+
+  countdown.textContent = "Next: " + topic.label + " (" + remaining + "s)";
+
+  var tick = setInterval(function() {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(tick);
+    } else {
+      countdown.textContent = "Next: " + topic.label + " (" + remaining + "s)";
+    }
+  }, 1000);
+
+  autoTimer = setTimeout(function() {
+    clearInterval(tick);
+    var nextStep = step + 1;
+    window.location.href = buildUrl(topic.slug, { auto: true, step: nextStep });
+  }, AUTO_INTERVAL_MS);
+}
+
+// If we arrived via auto-tour, automatically continue
+if (isAuto) {
+  var nextAutoStep = autoStep + 1;
+  runAutoStep(nextAutoStep);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+renderAll();
+</script>
+</body>
+</html>

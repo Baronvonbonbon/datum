@@ -1,7 +1,10 @@
 // Page taxonomy classification — matches pages to campaign categories.
-// Multi-signal classifier: domain, title, meta description, meta keywords.
+// Multi-signal classifier: domain, title, meta description, meta keywords,
+// Schema.org JSON-LD, Open Graph meta tags, IAB content categories.
 // Returns confidence scores per category (0.0 - 1.0).
 // 26 top-level categories for ad classification.
+
+import { extractSchemaOrg, extractOpenGraph, extractIABCategory } from "./metaExtractors";
 
 export interface TaxonomyEntry {
   category: string;       // lowercase slug matching CATEGORY_ID_MAP key
@@ -318,6 +321,32 @@ export function classifyPageMulti(
 
     if (confidence >= 0.3) {
       result[entry.category] = Math.round(confidence * 100) / 100;
+    }
+  }
+
+  // Signal 5: Schema.org JSON-LD (0.85 confidence)
+  if (typeof document !== "undefined") {
+    const schemaScores = extractSchemaOrg();
+    for (const [slug, score] of Object.entries(schemaScores)) {
+      if (result[slug] === undefined || score > result[slug]) {
+        result[slug] = Math.round(score * 100) / 100;
+      }
+    }
+
+    // Signal 6: Open Graph (0.75 confidence)
+    const ogScores = extractOpenGraph();
+    for (const [slug, score] of Object.entries(ogScores)) {
+      if (result[slug] === undefined || score > result[slug]) {
+        result[slug] = Math.round(score * 100) / 100;
+      }
+    }
+
+    // Signal 7: IAB category (0.85 confidence)
+    const iabScores = extractIABCategory();
+    for (const [slug, score] of Object.entries(iabScores)) {
+      if (result[slug] === undefined || score > result[slug]) {
+        result[slug] = Math.round(score * 100) / 100;
+      }
     }
   }
 

@@ -170,6 +170,23 @@ export async function setClaimBuilderMode(mode: "per-impression" | "aggregated")
   console.log(`[datum-daemon] Claim builder mode set to: ${mode}`);
 }
 
+/** Read the current interest profile from storage — used by the browse simulator. */
+export async function getInterestProfile(): Promise<{ weights: Record<string, number>; visitCounts: Record<string, number> }> {
+  if (_interest) {
+    const p = await _interest.getProfile();
+    return { weights: p.weights ?? {}, visitCounts: p.visitCounts ?? {} };
+  }
+  // Fallback: read storage directly (daemon not yet started)
+  const stored = await chrome.storage.local.get("interestProfile");
+  const p = stored.interestProfile ?? {};
+  return { weights: p.weights ?? {}, visitCounts: p.visitCounts ?? {} };
+}
+
+/** Update the interest profile with a list of tag strings (simulated page visit). */
+export async function updateInterestProfile(tags: string[]): Promise<void> {
+  if (_interest) await _interest.updateProfile(tags);
+}
+
 /** Return the number of campaigns currently in the local cache. */
 export async function getCampaignCount(): Promise<number> {
   if (!_poller) return 0;

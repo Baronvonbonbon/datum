@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus } from "../lib/contentBridge";
-import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, DaemonDebugInfo } from "../lib/extensionDaemon";
+import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, getInterestProfile, updateInterestProfile, DaemonDebugInfo } from "../lib/extensionDaemon";
 import {
   _emit,
   installConsoleCapture,
@@ -44,6 +44,29 @@ const TAG_DICTIONARY: Record<string, string[]> = {
   ],
 };
 
+interface BrowseTopic {
+  slug: string; label: string; iab: string; section: string; keywords: string;
+}
+
+const BROWSE_TOPICS: BrowseTopic[] = [
+  { slug: "crypto-web3",          label: "Crypto & Web3",          iab: "IAB13", section: "Cryptocurrency",       keywords: "bitcoin, ethereum, defi, web3, blockchain, token" },
+  { slug: "defi",                 label: "DeFi",                   iab: "IAB13", section: "Decentralised Finance", keywords: "defi, yield farming, liquidity, amm, protocol" },
+  { slug: "polkadot",             label: "Polkadot",               iab: "IAB19", section: "Polkadot Ecosystem",    keywords: "polkadot, substrate, parachain, dot, kusama" },
+  { slug: "finance",              label: "Finance",                iab: "IAB13", section: "Personal Finance",      keywords: "stock market, investing, portfolio, ETF, interest rates" },
+  { slug: "computers-electronics",label: "Computers & Electronics",iab: "IAB19", section: "Technology",           keywords: "programming, AI, machine learning, cloud, developer" },
+  { slug: "gaming",               label: "Gaming",                 iab: "IAB9",  section: "Gaming",               keywords: "video games, steam, esports, rpg, fps, console" },
+  { slug: "health",               label: "Health",                 iab: "IAB7",  section: "Health & Medicine",     keywords: "fitness, diet, wellness, mental health, nutrition" },
+  { slug: "sports",               label: "Sports",                 iab: "IAB17", section: "Sports",               keywords: "football, basketball, soccer, tennis, nba" },
+  { slug: "news",                 label: "News",                   iab: "IAB12", section: "World News",            keywords: "breaking news, politics, election, journalism" },
+  { slug: "science",              label: "Science",                iab: "IAB15", section: "Science",              keywords: "research, climate, physics, biology, astronomy" },
+  { slug: "travel",               label: "Travel",                 iab: "IAB20", section: "Travel",               keywords: "hotel, flight, vacation, tourism, destination" },
+  { slug: "food-drink",           label: "Food & Drink",           iab: "IAB8",  section: "Food & Cooking",       keywords: "recipe, restaurant, cooking, chef, cuisine" },
+  { slug: "shopping",             label: "Shopping",               iab: "IAB22", section: "Shopping",             keywords: "deals, sale, product review, ecommerce" },
+  { slug: "arts-entertainment",   label: "Arts & Entertainment",   iab: "IAB1",  section: "Entertainment",        keywords: "movie, music, art, celebrity, film, streaming" },
+  { slug: "business-industrial",  label: "Business",               iab: "IAB3",  section: "Business",             keywords: "startup, enterprise, marketing, management" },
+  { slug: "internet-telecom",     label: "Internet & Privacy",     iab: "IAB19", section: "Privacy & Security",   keywords: "vpn, cybersecurity, privacy, encryption" },
+];
+
 interface RelayStatus { online: boolean; uptime?: number }
 interface SdkStatus { ready: boolean; version?: string; publisher?: string; tags?: string[] }
 interface HandshakeStatus { done: boolean; sig?: string }
@@ -67,6 +90,15 @@ export function Demo() {
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const [logAutoScroll, setLogAutoScroll] = useState(true);
   const [claimBuilderMode, setClaimBuilderModeState] = useState<"per-impression" | "aggregated">("per-impression");
+
+  // Browse simulator state
+  const [simVisitCounts, setSimVisitCounts] = useState<Record<string, number>>({});
+  const [interestWeights, setInterestWeights] = useState<Record<string, number>>({});
+  const [simulating, setSimulating] = useState(false);
+  const [currentSimTopic, setCurrentSimTopic] = useState<string | null>(null);
+  const [autoTourActive, setAutoTourActive] = useState(false);
+  const autoTourRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoTourIndexRef = useRef(0);
 
   // Load publisher SDK
   useEffect(() => {
@@ -170,6 +202,96 @@ export function Demo() {
     const id = setInterval(check, 30000);
     return () => clearInterval(id);
   }, []);
+
+  // Remove previously injected simulation meta elements from DOM
+  const clearSimMeta = useCallback(() => {
+    document.querySelectorAll("[data-datum-sim]").forEach((el) => el.remove());
+  }, []);
+
+  // Simulate a page visit: inject metadata into DOM, update SDK tags, run bridge
+  const simulateVisit = useCallback(async (topic: BrowseTopic) => {
+    if (!daemonReady || simulating) return;
+    setSimulating(true);
+    setCurrentSimTopic(topic.slug);
+
+    clearSimMeta();
+
+    // Inject Schema.org JSON-LD Article
+    const ld = document.createElement("script");
+    ld.type = "application/ld+json";
+    ld.setAttribute("data-datum-sim", "1");
+    ld.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "articleSection": topic.section,
+      "keywords": topic.keywords,
+    });
+    document.head.appendChild(ld);
+
+    // Inject OG article:section
+    const ogSection = document.createElement("meta");
+    ogSection.setAttribute("property", "article:section");
+    ogSection.setAttribute("content", topic.section);
+    ogSection.setAttribute("data-datum-sim", "1");
+    document.head.appendChild(ogSection);
+
+    // Inject OG article:tag for first 3 keywords
+    for (const kw of topic.keywords.split(",").map((k) => k.trim()).slice(0, 3)) {
+      const ogTag = document.createElement("meta");
+      ogTag.setAttribute("property", "article:tag");
+      ogTag.setAttribute("content", kw);
+      ogTag.setAttribute("data-datum-sim", "1");
+      document.head.appendChild(ogTag);
+    }
+
+    // Inject IAB category meta
+    const iabMeta = document.createElement("meta");
+    iabMeta.setAttribute("name", "iab-category");
+    iabMeta.setAttribute("content", topic.iab);
+    iabMeta.setAttribute("data-datum-sim", "1");
+    document.head.appendChild(iabMeta);
+
+    // Update SDK data-tags to the simulated topic
+    if (sdkScriptRef.current) {
+      sdkScriptRef.current.setAttribute("data-tags", `topic:${topic.slug},locale:en`);
+    }
+
+    // Push topic tags directly into interest profile (mirrors what the real content script does)
+    const topicTagStr = `topic:${topic.slug}`;
+    await updateInterestProfile([topicTagStr, "locale:en", "platform:desktop"]).catch(() => {});
+
+    // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
+    if (connectedAddress) {
+      await runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+    }
+
+    // Read back the updated interest profile
+    const profile = await getInterestProfile().catch(() => ({ weights: {}, visitCounts: {} }));
+    setInterestWeights(profile.weights);
+
+    setSimVisitCounts((prev) => ({ ...prev, [topic.slug]: (prev[topic.slug] ?? 0) + 1 }));
+    setSimulating(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonReady, simulating, publisherAddress, connectedAddress, clearSimMeta]);
+
+  // Auto-tour: cycle through all topics on interval
+  useEffect(() => {
+    if (!autoTourActive) {
+      if (autoTourRef.current) { clearInterval(autoTourRef.current); autoTourRef.current = null; }
+      return;
+    }
+    const step = () => {
+      const topic = BROWSE_TOPICS[autoTourIndexRef.current % BROWSE_TOPICS.length];
+      autoTourIndexRef.current++;
+      simulateVisit(topic);
+    };
+    step(); // immediate first step
+    autoTourRef.current = setInterval(step, 3500);
+    return () => {
+      if (autoTourRef.current) { clearInterval(autoTourRef.current); autoTourRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTourActive]);
 
   const relayLabel = relay === null
     ? "Checking..."
@@ -478,6 +600,160 @@ export function Demo() {
             </div>
           </div>
         </div>
+      </Section>
+
+      {/* ── Browse Simulator ───────────────────────────────────────────────── */}
+      <Section label="Browse Simulator">
+        <p style={p}>
+          Simulate visiting different topic pages to build an interest profile.
+          Each click injects real Schema.org, Open Graph, and IAB metadata into this page
+          so the daemon classifies it exactly as it would on a live publisher site,
+          then re-runs the auction — showing how browsing history shifts campaign selection.
+        </p>
+
+        {!daemonReady && (
+          <div style={{ fontSize: 12, color: "var(--warn)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
+            Waiting for daemon… connect a wallet in the extension panel above first.
+          </div>
+        )}
+
+        {/* Topic grid */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+          {BROWSE_TOPICS.map((topic) => {
+            const count = simVisitCounts[topic.slug] ?? 0;
+            const weight = interestWeights[`topic:${topic.slug}`] ?? 0;
+            const isActive = currentSimTopic === topic.slug;
+            return (
+              <button
+                key={topic.slug}
+                onClick={() => simulateVisit(topic)}
+                disabled={!daemonReady || simulating}
+                title={`IAB: ${topic.iab} · Section: ${topic.section}`}
+                style={{
+                  background: isActive
+                    ? "rgba(255,255,255,0.14)"
+                    : count > 0
+                      ? "rgba(255,255,255,0.07)"
+                      : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${isActive ? "rgba(255,255,255,0.4)" : weight > 0.1 ? "rgba(255,255,255,0.2)" : "var(--border)"}`,
+                  borderRadius: 4,
+                  color: count > 0 ? "var(--text-strong)" : "var(--text-muted)",
+                  fontFamily: "var(--font-mono)", fontSize: 11,
+                  padding: "5px 10px",
+                  cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
+                  display: "flex", alignItems: "center", gap: 5,
+                  transition: "background 0.15s, border-color 0.15s",
+                }}
+              >
+                <span>{topic.label}</span>
+                {count > 0 && (
+                  <span style={{
+                    background: "rgba(255,255,255,0.12)", borderRadius: 3,
+                    fontSize: 10, padding: "0 4px", color: "var(--text-muted)",
+                    minWidth: 16, textAlign: "center",
+                  }}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <button
+            onClick={() => {
+              const topic = BROWSE_TOPICS[Math.floor(Math.random() * BROWSE_TOPICS.length)];
+              simulateVisit(topic);
+            }}
+            disabled={!daemonReady || simulating}
+            style={{
+              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+              borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-mono)",
+              fontSize: 11, padding: "6px 12px",
+              cursor: daemonReady && !simulating ? "pointer" : "not-allowed",
+            }}
+          >
+            ↺ Random Visit
+          </button>
+          <button
+            onClick={() => {
+              autoTourIndexRef.current = 0;
+              setAutoTourActive((v) => !v);
+            }}
+            disabled={!daemonReady}
+            style={{
+              background: autoTourActive ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${autoTourActive ? "rgba(255,255,255,0.3)" : "var(--border)"}`,
+              borderRadius: 4,
+              color: autoTourActive ? "var(--text-strong)" : "var(--text)",
+              fontFamily: "var(--font-mono)", fontSize: 11, padding: "6px 12px",
+              cursor: daemonReady ? "pointer" : "not-allowed",
+            }}
+          >
+            {autoTourActive ? "⏹ Stop Auto-Tour" : "▶ Auto-Tour All Topics"}
+          </button>
+          {Object.keys(simVisitCounts).length > 0 && (
+            <button
+              onClick={() => {
+                clearSimMeta();
+                setSimVisitCounts({});
+                setInterestWeights({});
+                setCurrentSimTopic(null);
+                setAutoTourActive(false);
+              }}
+              style={{
+                background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--text-muted)", fontFamily: "var(--font-mono)",
+                fontSize: 11, padding: "6px 12px", cursor: "pointer",
+              }}
+            >
+              Reset
+            </button>
+          )}
+          {simulating && (
+            <span style={{ fontSize: 11, color: "var(--warn)", fontFamily: "var(--font-mono)", alignSelf: "center" }}>
+              Simulating {currentSimTopic}…
+            </span>
+          )}
+        </div>
+
+        {/* Interest profile bar chart */}
+        {Object.keys(interestWeights).length > 0 && (() => {
+          const topicWeights = Object.entries(interestWeights)
+            .filter(([k]) => k.startsWith("topic:"))
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 12);
+          const maxW = topicWeights[0]?.[1] ?? 1;
+          return (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 10, fontFamily: "var(--font-mono)" }}>
+                Interest Profile — Auction Weights
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {topicWeights.map(([tag, w]) => {
+                  const label = tag.replace("topic:", "").replace(/-/g, " ");
+                  const pct = Math.round((w / maxW) * 100);
+                  return (
+                    <div key={tag} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 130, fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right", flexShrink: 0 }}>
+                        {label}
+                      </div>
+                      <div style={{ flex: 1, height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: "rgba(255,255,255,0.4)", borderRadius: 4, transition: "width 0.3s" }} />
+                      </div>
+                      <div style={{ width: 36, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
+                        {w.toFixed(2)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>
+                7-day exponential decay · campaigns matching higher-weight topics win more auctions
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       {/* ── Publisher Integration ──────────────────────────────────────────── */}
