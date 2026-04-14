@@ -166,10 +166,11 @@ async function waitForNonce(provider: JsonRpcProvider, address: string, targetNo
 async function sendCall(
   signer: Wallet, provider: JsonRpcProvider,
   to: string, iface: Interface, method: string, args: any[], value?: bigint,
+  txOpts?: typeof TX_OPTS,
 ): Promise<void> {
   const data = iface.encodeFunctionData(method, args);
   const nonce = await provider.getTransactionCount(signer.address);
-  await signer.sendTransaction({ to, data, value: value ?? 0n, ...TX_OPTS });
+  await signer.sendTransaction({ to, data, value: value ?? 0n, ...(txOpts ?? TX_OPTS) });
   await waitForNonce(provider, signer.address, nonce);
 }
 
@@ -308,11 +309,11 @@ async function main() {
     ["eve",     eve,     parseDOT("50")],
     ["frank",   frank,   parseDOT("1000")], // needs lots for 8 votes
     ["grace",   grace,   parseDOT("50")],
-    ["heidi",   heidi,   parseDOT("50")],
+    ["heidi",   heidi,   parseDOT("100000000000")], // needs large balance for TX_OPTS fee pre-check
   ];
   for (const [name, wallet, amount] of toFund) {
     const bal = await rawProvider.getBalance(wallet.address);
-    const threshold = name === "frank" ? parseDOT("500") : parseDOT("10");
+    const threshold = name === "frank" ? parseDOT("100") : name === "heidi" ? parseDOT("50000000000") : parseDOT("10");
     if (bal >= threshold) {
       log("1", `  ${name}: ${formatDOT(bal)} PAS — skipping`);
       continue;

@@ -1,0 +1,20 @@
+{
+  "swapToken": "0x34Ab42a9F76Af0134Cb244d031c7F85044870762",
+  "devToken": "0xFb317bE72999F7a6C12D27cDB8dd53a278e1Fe4b",
+  "fitToken": "0xd7F3a63d351B69e6c3C55FEB49f2541D00CE5B0D",
+  "campaigns": {
+    "0": "89",
+    "1": "90",
+    "2": "91",
+    "3": "92",
+    "4": "93",
+    "5": "94",
+    "6": "95",
+    "7": "96"
+  },
+  "tokens": {
+    "SWAP": "0x34Ab42a9F76Af0134Cb244d031c7F85044870762",
+    "DEV": "0xFb317bE72999F7a6C12D27cDB8dd53a278e1Fe4b",
+    "FIT": "0xd7F3a63d351B69e6c3C55FEB49f2541D00CE5B0D"
+  }
+}
