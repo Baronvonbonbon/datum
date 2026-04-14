@@ -22,6 +22,16 @@ const BATCH_SIZE = 5;                    // parallel RPC calls per batch (low to
 const EVENT_CHUNK_SIZE = 10_000;         // max block range per eth_getLogs request
 const CHUNK_DELAY_MS = 300;              // delay between eth_getLogs chunks to avoid rate limits
 
+// In-memory lock: true while a full poll() is running, so refreshStatus() yields.
+let _polling = false;
+
+const TERMINAL_STATUSES = new Set([
+  CampaignStatus.Completed.toString(),
+  CampaignStatus.Terminated.toString(),
+  CampaignStatus.Expired.toString(),
+  "99", // blocked sentinel
+]);
+
 // All fields stored as strings (already serialized from BigInt)
 interface SerializedCampaign {
   id: string;
@@ -55,6 +65,11 @@ async function batchParallel<T>(tasks: (() => Promise<T>)[], size: number): Prom
 
 export const campaignPoller = {
   async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string): Promise<void> {
+    if (_polling) {
+      console.log("[DATUM] poll() skipped — already in progress");
+      return;
+    }
+    _polling = true;
     try {
       if (!addresses.campaigns || !addresses.campaigns.startsWith("0x")) {
         console.warn("[DATUM] Skipping poll — no valid campaigns contract address");
@@ -255,14 +270,8 @@ export const campaignPoller = {
 
       // ── Phase 3: Build active list + persist ───────────────────────────
       // Remove terminal campaigns from index (Completed, Terminated, Expired, blocked)
-      const terminalStatuses = new Set([
-        CampaignStatus.Completed.toString(),
-        CampaignStatus.Terminated.toString(),
-        CampaignStatus.Expired.toString(),
-        "99", // blocked sentinel
-      ]);
       for (const id of Object.keys(index)) {
-        if (terminalStatuses.has(index[id].status)) {
+        if (TERMINAL_STATUSES.has(index[id].status)) {
           delete index[id];
         }
       }
@@ -336,6 +345,86 @@ export const campaignPoller = {
 
     } catch (err) {
       console.error("[DATUM] campaignPoller.poll failed:", err);
+    } finally {
+      _polling = false;
+    }
+  },
+
+  /**
+   * Lightweight status-only refresh for known campaigns.
+   * Runs Phase 2+3 only — no event scan, no IPFS fetch.
+   * Yields immediately if a full poll() is in progress.
+   */
+  async refreshStatus(rpcUrl: string, addresses: ContractAddresses): Promise<void> {
+    if (_polling) return; // full poll in progress — it will update status too
+    if (!addresses.campaigns || !addresses.campaigns.startsWith("0x")) return;
+
+    try {
+      const provider = new JsonRpcProvider(rpcUrl);
+      const contract = getCampaignsContract(addresses, provider);
+      if (!contract) return;
+      const ledger = addresses.budgetLedger
+        ? getBudgetLedgerContract(addresses, provider) : null;
+
+      const stored = await chrome.storage.local.get([INDEX_KEY]);
+      const index: Record<string, SerializedCampaign> = stored[INDEX_KEY] ?? {};
+
+      const refreshIds = Object.keys(index).filter(id => {
+        const s = Number(index[id].status);
+        return s === CampaignStatus.Active || s === CampaignStatus.Pending || s === CampaignStatus.Paused;
+      });
+
+      if (refreshIds.length === 0) return;
+
+      const statusTasks = refreshIds.map(id => async () => {
+        try {
+          const [status, settlementData, relaySigner, requiresZkProof] = await Promise.all([
+            contract.getCampaignStatus(BigInt(id)).then(Number),
+            contract.getCampaignForSettlement(BigInt(id)),
+            contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
+            contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
+          ]);
+
+          const camp = index[id];
+          camp.status = status.toString();
+          camp.publisher = settlementData[1] ?? camp.publisher;
+          camp.bidCpmPlanck = BigInt(settlementData[2]).toString();
+          camp.snapshotTakeRateBps = Number(settlementData[3]).toString();
+          if (relaySigner && relaySigner !== "0x0000000000000000000000000000000000000000") {
+            camp.relaySigner = relaySigner;
+          }
+          camp.requiresZkProof = !!requiresZkProof;
+
+          if (await isAddressBlocked(camp.advertiser)) {
+            camp.status = "99";
+            return;
+          }
+
+          if (ledger && (status === CampaignStatus.Active || status === CampaignStatus.Pending)) {
+            try {
+              camp.remainingBudget = BigInt(await ledger.getRemainingBudget(BigInt(id))).toString();
+            } catch { /* keep existing */ }
+          }
+        } catch { /* RPC failed — keep existing status */ }
+      });
+
+      await batchParallel(statusTasks, BATCH_SIZE);
+
+      // Remove newly-terminal campaigns
+      for (const id of Object.keys(index)) {
+        if (TERMINAL_STATUSES.has(index[id].status)) {
+          delete index[id];
+        }
+      }
+
+      const activeCampaigns = Object.values(index);
+      await chrome.storage.local.set({
+        [INDEX_KEY]: index,
+        [STORAGE_KEY]: activeCampaigns,
+      });
+      console.log(`[DATUM] Status refresh: ${activeCampaigns.length} campaigns (${refreshIds.length} checked)`);
+    } catch (err) {
+      console.error("[DATUM] campaignPoller.refreshStatus failed:", err);
     }
   },
 

@@ -29,6 +29,7 @@ import { tagStringFromHash } from "@shared/tagDictionary";
 // -------------------------------------------------------------------------
 
 const ALARM_POLL_CAMPAIGNS = "pollCampaigns";
+const ALARM_STATUS_REFRESH = "statusRefresh";
 const ALARM_FLUSH_CLAIMS = "flushClaims";
 
 // -------------------------------------------------------------------------
@@ -111,11 +112,20 @@ async function initAlarms() {
 
   // Clear before recreating — chrome alarms have a minimum 1-min delay
   await chrome.alarms.clear(ALARM_POLL_CAMPAIGNS);
+  await chrome.alarms.clear(ALARM_STATUS_REFRESH);
 
-  // Campaign polling: always active (read-only, no wallet needed)
+  // Full campaign poll (event discovery + metadata): every 5 min
   await chrome.alarms.create(ALARM_POLL_CAMPAIGNS, {
     periodInMinutes: 5,
     delayInMinutes: 0,
+  });
+
+  // Lightweight status-only refresh for known campaigns: every 1 min
+  // Keeps bidCpm / remainingBudget / status current between full polls so
+  // users earn from known campaigns without waiting for discovery to complete.
+  await chrome.alarms.create(ALARM_STATUS_REFRESH, {
+    periodInMinutes: 1,
+    delayInMinutes: 1,
   });
 
   // Claim flushing: only when auto-submit is enabled
@@ -134,6 +144,14 @@ async function initAlarms() {
 // -------------------------------------------------------------------------
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === ALARM_STATUS_REFRESH) {
+    const settings = await getSettings();
+    if (settings.contractAddresses.campaigns) {
+      await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses);
+    }
+    return;
+  }
+
   if (alarm.name === ALARM_POLL_CAMPAIGNS) {
     await refreshPhishingList();
     const settings = await getSettings();
