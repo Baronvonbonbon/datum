@@ -194,6 +194,15 @@ export async function getCampaignCount(): Promise<number> {
   return cached.length;
 }
 
+/** Return all cached campaigns with status 0 (Pending) or 1 (Active). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getActiveCampaigns(): Promise<Array<Record<string, any>>> {
+  if (!_poller) return [];
+  const cached = await _poller.getCachedSerialized();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return cached.filter((c: any) => Number(c.status) <= 1);
+}
+
 /** Clear the poller scan state and re-run a full campaign poll from the deploy block. */
 export async function repollCampaigns(): Promise<number> {
   if (!_poller) return 0;

@@ -76,6 +76,7 @@ function clearPreviousAd() {
 export async function runContentBridge(
   publisherOverride?: string,
   onStatus?: (s: BridgeStatus) => void,
+  pageTagsOverride?: string[],
 ): Promise<BridgeStatus> {
   const report = (s: BridgeStatus) => { onStatus?.(s); return s; };
 
@@ -140,6 +141,11 @@ export async function runContentBridge(
   const pageTagHashes = new Set(tags.map((t: string) => tagHash(t).toLowerCase()));
   if (sdkInfo?.tags?.length > 0) {
     for (const t of sdkInfo.tags) pageTagHashes.add(tagHash(t).toLowerCase());
+  }
+
+  // Inject publisher/site-specific tags from the demo site picker
+  if (pageTagsOverride && pageTagsOverride.length > 0) {
+    for (const t of pageTagsOverride) pageTagHashes.add(tagHash(t).toLowerCase());
   }
 
   const excludedTagHashes = new Set<string>();

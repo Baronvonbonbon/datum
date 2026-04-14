@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ExtensionApplet } from "../components/ExtensionApplet";
 import { runContentBridge, BridgeStatus, AuctionBid } from "../lib/contentBridge";
-import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, getInterestProfile, updateInterestProfile, DaemonDebugInfo } from "../lib/extensionDaemon";
+import { getRelaySignerAddress, getCampaignCount, repollCampaigns, getDebugInfo, setClaimBuilderMode, getInterestProfile, updateInterestProfile, getActiveCampaigns, DaemonDebugInfo } from "../lib/extensionDaemon";
+// @ts-ignore
+import { tagHash } from "@ext/shared/tagDictionary";
 import { BouncingText } from "../components/TransactionStatus";
 import {
   _emit,
@@ -21,6 +23,61 @@ setShimMessageLogger((dir, type, detail) => {
 const RELAY_URL = "https://relay.javcon.io";
 const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
 const PUBLISHER_TAGS = "topic:crypto-web3,topic:defi,topic:computers-electronics,locale:en";
+
+interface DemoSite {
+  id: string;
+  name: string;
+  url: string;
+  publisher: string;
+  tags: string[];
+  allowlistEnabled?: boolean;
+  description: string;
+}
+
+/** Five seeded demo publishers — addresses match alpha-3/scripts/setup-demo.ts */
+const DEMO_SITES: DemoSite[] = [
+  {
+    id: "cryptohub",
+    name: "CryptoHub",
+    url: "cryptohub.example",
+    publisher: "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0", // diana
+    tags: ["topic:crypto-web3", "topic:defi", "topic:computers-electronics", "locale:en"],
+    description: "Crypto & DeFi news — open to 3 campaigns (C1, C7, C8) → Vickrey 3-way auction",
+  },
+  {
+    id: "financedaily",
+    name: "FinanceDaily",
+    url: "financedaily.example",
+    publisher: "0x9a4d76dA5a5F8Af3aDA3F3fB3e8fCA6aF52b9E20", // eve
+    tags: ["topic:finance", "topic:news", "topic:people-society", "locale:en"],
+    description: "Personal finance & markets — 2 campaigns (C2, C8) → Vickrey 2-way auction",
+  },
+  {
+    id: "techblog",
+    name: "TechBlog",
+    url: "techblog.example",
+    publisher: "0x6B53BF5Fe3A48AaC31E1e9c5E16C9d6e4f9F5C01", // frank
+    tags: ["topic:computers-electronics", "topic:science", "topic:internet-telecom", "locale:en"],
+    description: "Dev & tech — 2 campaigns (C3, C8) → Vickrey 2-way auction",
+  },
+  {
+    id: "sportzone",
+    name: "SportZone",
+    url: "sportzone.example",
+    publisher: "0x2dD7cFCCe0bDABEB73e3FCd9b54b51Be95C12a07", // grace
+    tags: ["topic:sports", "topic:health", "topic:beauty-fitness", "locale:en"],
+    allowlistEnabled: true,
+    description: "Sports & health — allowlist ON: only Bob's campaign (C4) wins → solo auction",
+  },
+  {
+    id: "gamingworld",
+    name: "GamingWorld",
+    url: "gamingworld.example",
+    publisher: "0x1563915e194D8CfBA1943570603F7606A3115508", // heidi
+    tags: ["topic:gaming", "topic:arts-entertainment", "topic:anime-manga", "locale:en"],
+    description: "Gaming & anime — 2 campaigns (C5, C6) → Vickrey 2-way auction",
+  },
+];
 
 
 interface BrowseTopic {
@@ -95,6 +152,8 @@ export function Demo() {
   const [relay, setRelay] = useState<RelayStatus | null>(null);
   const [sdk, setSdk] = useState<SdkStatus>({ ready: false });
   const [handshake, setHandshake] = useState<HandshakeStatus>({ done: false });
+  const [selectedSiteIdx, setSelectedSiteIdx] = useState(0);
+  const [activeCampaigns, setActiveCampaigns] = useState<Array<Record<string, string>>>([]);
   const [publisherAddress, setPublisherAddress] = useState(DEFAULT_PUBLISHER);
   const [publisherInput, setPublisherInput] = useState(DEFAULT_PUBLISHER);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ step: "idle" });
@@ -172,7 +231,8 @@ export function Demo() {
 
     let cancelled = false;
     const run = async () => {
-      await runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+      const site = DEMO_SITES[selectedSiteIdx];
+      await runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
       if (cancelled) return;
       const cached = await getCampaignCount();
       setCampaignCount(cached);
@@ -203,6 +263,15 @@ export function Demo() {
     }).catch(() => {});
     tick();
     const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, [daemonReady]);
+
+  // Poll active campaigns list for the site picker campaign pool display
+  useEffect(() => {
+    if (!daemonReady) return;
+    const tick = () => getActiveCampaigns().then(setActiveCampaigns).catch(() => {});
+    tick();
+    const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, [daemonReady]);
 
@@ -302,7 +371,8 @@ export function Demo() {
 
     // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
     if (connectedAddress) {
-      await runContentBridge(publisherAddress, setBridgeStatus).catch(console.error);
+      const site = DEMO_SITES[selectedSiteIdx];
+      await runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
     }
 
     // Read back the updated interest profile
@@ -316,7 +386,7 @@ export function Demo() {
     });
     setSimulating(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady, simulating, publisherAddress, connectedAddress, clearSimMeta]);
+  }, [daemonReady, simulating, selectedSiteIdx, connectedAddress, clearSimMeta]);
 
   // Pick 1-3 random topics, weighted: 55% single, 30% dual, 15% triple
   const pickRandomTopics = useCallback((): BrowseTopic[] => {
@@ -606,6 +676,91 @@ export function Demo() {
           </div>
         )}
 
+        {/* ── Row 2.5: Site Picker ─────────────────────────────────────── */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
+            Publisher Site — Campaign Pool
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
+            Select a publisher site to see which campaigns are eligible to serve there.
+            Each site has different content tags and allowlist settings — this changes which campaigns enter the auction.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
+            {DEMO_SITES.map((site, idx) => {
+              const selected = selectedSiteIdx === idx;
+              // Compute how many active campaigns match this site
+              const siteTagHashes = new Set(site.tags.map((t) => tagHash(t).toLowerCase()));
+              const matchCount = activeCampaigns.filter((c) => {
+                const pubMatch =
+                  c.publisher === "0x0000000000000000000000000000000000000000"
+                    ? !site.allowlistEnabled
+                    : c.publisher.toLowerCase() === site.publisher.toLowerCase();
+                if (!pubMatch) return false;
+                const cTags: string[] = Array.isArray(c.requiredTags) ? c.requiredTags : [];
+                if (cTags.length === 0) return true;
+                return cTags.every((t) => siteTagHashes.has(t.toLowerCase()));
+              }).length;
+
+              return (
+                <button
+                  key={site.id}
+                  onClick={() => {
+                    setSelectedSiteIdx(idx);
+                    setPublisherAddress(site.publisher);
+                    setPublisherInput(site.publisher);
+                    setSdkTagsInput(site.tags.join(","));
+                    if (sdkScriptRef.current) {
+                      sdkScriptRef.current.setAttribute("data-publisher", site.publisher);
+                      sdkScriptRef.current.setAttribute("data-tags", site.tags.join(","));
+                    }
+                    if (daemonReady && connectedAddress) {
+                      runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
+                    }
+                  }}
+                  style={{
+                    textAlign: "left",
+                    background: selected ? "rgba(74,222,128,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${selected ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                    borderRadius: 6,
+                    padding: "12px 14px",
+                    cursor: "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: selected ? "var(--ok)" : "var(--text-strong)", fontFamily: "var(--font-mono)", marginBottom: 3 }}>
+                    {site.name}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6 }}>
+                    {site.url}
+                  </div>
+                  {site.allowlistEnabled && (
+                    <div style={{ fontSize: 10, color: "rgba(251,146,60,0.9)", fontFamily: "var(--font-mono)", marginBottom: 6 }}>
+                      allowlist ON
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 8 }}>
+                    {site.tags.filter((t) => t.startsWith("topic:")).map((t) => t.replace("topic:", "")).join(", ")}
+                  </div>
+                  <div style={{
+                    display: "inline-block",
+                    fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 600,
+                    color: matchCount > 0 ? "var(--ok)" : "var(--text-muted)",
+                    background: matchCount > 0 ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${matchCount > 0 ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+                    borderRadius: 4, padding: "2px 7px",
+                  }}>
+                    {matchCount} campaign{matchCount !== 1 ? "s" : ""}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {/* Description of selected site */}
+          <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 4, border: "1px solid var(--border)" }}>
+            {DEMO_SITES[selectedSiteIdx].description}
+          </div>
+        </div>
+
         {/* ── Row 3: Publisher View — SDK Config + Ad Slot ─────────────── */}
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
@@ -651,7 +806,11 @@ export function Demo() {
                         sdkScriptRef.current.setAttribute("data-tags", sdkTagsInput);
                       }
                       setPublisherAddress(publisherInput);
-                      runContentBridge(publisherInput, setBridgeStatus).catch(console.error);
+                      const site = DEMO_SITES[selectedSiteIdx];
+                      const overrideTags = sdkTagsInput
+                        ? sdkTagsInput.split(",").map((t) => t.trim()).filter(Boolean)
+                        : site.tags;
+                      runContentBridge(publisherInput, setBridgeStatus, overrideTags).catch(console.error);
                     }}
                     disabled={!daemonReady || !connectedAddress}
                     style={{
@@ -1013,67 +1172,50 @@ function formatEffectiveBid(micro: string): string {
 }
 
 const BID_CARD_H = 54;
-const BID_CARD_GAP = 5;
-const BID_CARD_STRIDE = BID_CARD_H + BID_CARD_GAP;
-// Pile layout constants (result phase)
-const PILE_WINNER_GAP = 10;  // gap between winner and 2nd price
-const PILE_STACK_GAP = 8;    // gap between 2nd price and first loser card
-const PILE_OFFSET = 7;       // vertical offset between stacked loser cards
+// New animation layout
+const RISE_WINNER_Y  = 0;
+const RISE_SECOND_Y  = BID_CARD_H + 10;         // 64
+const PILE_Y         = RISE_SECOND_Y + BID_CARD_H + 22;  // 140
+const VIZ_CONTAINER_H = PILE_Y + BID_CARD_H + 8; // 202
 
-function pileTop(rankIdx: number): number {
-  if (rankIdx === 0) return 0;
-  if (rankIdx === 1) return BID_CARD_H + PILE_WINNER_GAP;
-  return BID_CARD_H + PILE_WINNER_GAP + BID_CARD_H + PILE_STACK_GAP + (rankIdx - 2) * PILE_OFFSET;
-}
-
-function pileContainerH(n: number): number {
-  if (n <= 0) return 0;
-  if (n === 1) return BID_CARD_H + 4;
-  return pileTop(n - 1) + BID_CARD_H + 6;
-}
-
-type AuctionPhase = "scrambled" | "sorting" | "result";
+type AuctionPhase = "pile" | "rise" | "result" | "drop";
 
 function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
   bids: AuctionBid[];
   mechanism?: string;
   clearingCpmPlanck?: string;
 }) {
-  // rows[i] = display row for rank-i card during scramble/sort phases
-  const [rows, setRows] = useState<number[]>(() =>
-    bids.map((_, i) => i).sort(() => Math.random() - 0.5)
-  );
-  const [phase, setPhase] = useState<AuctionPhase>("scrambled");
-  const [containerH, setContainerH] = useState(() => bids.length * BID_CARD_STRIDE);
+  const [phase, setPhase] = useState<AuctionPhase>("pile");
   const [cycle, setCycle] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Random x-offset and rotation per card — regenerated each cycle for shuffle feel
+  const pileOffsets = useMemo(() =>
+    bids.map((_, i) => ({
+      x:   (Math.random() - 0.5) * 20,                      // ±10 px
+      rot: (Math.random() - 0.5) * 10,                      // ±5 deg
+      // Tiny y stagger so cards look like a real deck (deeper cards slightly lower)
+      dy:  Math.min(i, 6) * 2,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cycle]
+  );
 
   useEffect(() => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     if (bids.length === 0) return;
 
-    // Reset scrambled
-    setRows(bids.map((_, i) => i).sort(() => Math.random() - 0.5));
-    setPhase("scrambled");
-    setContainerH(bids.length * BID_CARD_STRIDE);
-
-    // 800ms: sort into rank order
-    timers.current.push(setTimeout(() => {
-      setRows(bids.map((_, i) => i));
-      setPhase("sorting");
-    }, 800));
-
-    // 2000ms: collapse losers into pile
-    timers.current.push(setTimeout(() => {
-      setPhase("result");
-      setContainerH(pileContainerH(bids.length));
-    }, 2000));
-
-    // 5000ms: restart cycle
-    timers.current.push(setTimeout(() => {
-      setCycle(c => c + 1);
-    }, 5000));
+    //  0 ms — pile: all cards stacked at bottom
+    setPhase("pile");
+    //  700 ms — rise: top 2 float up, losers stay in pile
+    timers.current.push(setTimeout(() => setPhase("rise"),   700));
+    //  1400 ms — result: colors appear, hold
+    timers.current.push(setTimeout(() => setPhase("result"), 1400));
+    //  4200 ms — drop: everything falls back into pile
+    timers.current.push(setTimeout(() => setPhase("drop"),   4200));
+    //  5000 ms — restart
+    timers.current.push(setTimeout(() => setCycle((c) => c + 1), 5000));
 
     return () => { timers.current.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1081,61 +1223,61 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
 
   if (bids.length === 0) return null;
 
-  const showDetail = phase === "result";
-
   return (
     <div style={{
       position: "relative",
-      height: containerH,
-      transition: "height 0.5s cubic-bezier(0.4,0,0.2,1)",
-      overflow: "hidden",
+      height: VIZ_CONTAINER_H,
+      overflow: "visible",  // allow slight rotation overhang
     }}>
       {bids.map((bid, rankIdx) => {
         const isWinner = rankIdx === 0;
         const isSecond = rankIdx === 1;
-        const isLoser = rankIdx >= 2;
-        const pileDepth = Math.max(0, rankIdx - 2);  // 0 for 3rd, 1 for 4th, …
+        const isLoser  = rankIdx >= 2;
 
-        // Position: scramble/sort use rows array * stride; result uses pile layout
-        const top = phase === "result"
-          ? pileTop(rankIdx)
-          : (rows[rankIdx] ?? rankIdx) * BID_CARD_STRIDE;
-
-        // Pile depth effects (only for loser cards in result phase)
-        const pileOpacity = showDetail && isLoser ? Math.max(0.35, 1 - pileDepth * 0.09) : 1;
-        const pileScale = showDetail && isLoser ? 1 - pileDepth * 0.012 : 1;
-        // Slight alternating x-shift for card-shuffle feel
-        const pileShiftX = showDetail && isLoser ? (pileDepth % 2 === 0 ? pileDepth * 0.8 : -pileDepth * 0.8) : 0;
-
-        // Z-order: winner on top, deeper pile cards behind
-        const zIndex = bids.length - rankIdx;
-
-        const isSolo = mechanism === "solo";
+        const isSolo  = mechanism === "solo";
         const isFloor = mechanism === "floor";
 
-        // Winner colors vary by mechanism
+        // Whether this card is currently in the pile
+        const inPile = phase === "pile" || phase === "drop"
+          || ((phase === "rise" || phase === "result") && isLoser);
+
+        // Vertical position
+        const top = inPile
+          ? PILE_Y + (pileOffsets[rankIdx]?.dy ?? 0)
+          : isWinner ? RISE_WINNER_Y
+          : RISE_SECOND_Y;
+
+        // Pile transform — x offset + rotation while in pile, neutral when risen
+        const pileX  = inPile ? (pileOffsets[rankIdx]?.x  ?? 0) : 0;
+        const pileRot= inPile ? (pileOffsets[rankIdx]?.rot ?? 0) : 0;
+
+        // Z-order: rank 0 always on top; in pile the winner card sits on top of the stack
+        const zIndex = bids.length - rankIdx + 1;
+
+        // Colors (only in result phase, only for risen cards)
+        const showColor = phase === "result" && !inPile;
+
         const winnerBorder = isSolo ? "rgba(147,197,253,0.50)" : "rgba(74,222,128,0.45)";
         const winnerBg     = isSolo ? "rgba(147,197,253,0.07)" : "rgba(74,222,128,0.06)";
         const winnerColor  = isSolo ? "rgba(147,197,253,0.95)" : "var(--ok)";
-        // 2nd-price card: red treatment for floor (couldn't set price), amber for second-price
-        const secondBorder = isFloor ? "rgba(239,68,68,0.35)"   : "rgba(251,191,36,0.40)";
-        const secondBg     = isFloor ? "rgba(239,68,68,0.04)"   : "rgba(251,191,36,0.04)";
-        const secondColor  = isFloor ? "rgba(239,68,68,0.85)"   : "var(--warn)";
+        const secondBorder = isFloor ? "rgba(239,68,68,0.35)"  : "rgba(251,191,36,0.40)";
+        const secondBg     = isFloor ? "rgba(239,68,68,0.04)"  : "rgba(251,191,36,0.04)";
+        const secondColor  = isFloor ? "rgba(239,68,68,0.85)"  : "var(--warn)";
 
-        const borderColor = showDetail
-          ? isWinner ? winnerBorder
-          : isSecond ? secondBorder
-          : "rgba(255,255,255,0.05)"
+        const borderColor = showColor
+          ? isWinner ? winnerBorder : secondBorder
           : "rgba(255,255,255,0.06)";
-
-        const bg = showDetail
-          ? isWinner ? winnerBg
-          : isSecond ? secondBg
-          : "rgba(255,255,255,0.02)"
+        const bg = showColor
+          ? isWinner ? winnerBg : secondBg
           : "rgba(255,255,255,0.03)";
 
-        // Floor 2nd: visually sinks below winner in result phase
-        const floorSinkY = showDetail && isFloor && isSecond ? 4 : 0;
+        const boxShadow = showColor && isWinner
+          ? isSolo
+            ? "0 0 18px rgba(147,197,253,0.30), 0 0 6px rgba(147,197,253,0.18)"
+            : "0 0 18px rgba(74,222,128,0.25), 0 0 6px rgba(74,222,128,0.15)"
+          : inPile && isLoser
+            ? "0 3px 10px rgba(0,0,0,0.45)"
+            : "none";
 
         return (
           <div
@@ -1149,9 +1291,7 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
               border: `1px solid ${borderColor}`,
               borderRadius: 5,
               background: bg,
-              boxShadow: showDetail && isWinner && isSolo
-                ? "0 0 14px rgba(147,197,253,0.25), 0 0 4px rgba(147,197,253,0.15)"
-                : showDetail && isLoser ? "0 2px 6px rgba(0,0,0,0.35)" : "none",
+              boxShadow,
               padding: "6px 10px",
               display: "flex",
               alignItems: "center",
@@ -1159,24 +1299,31 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
               fontFamily: "var(--font-mono)",
               fontSize: 11,
               overflow: "hidden",
-              transition: "top 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.4s ease, transform 0.5s cubic-bezier(0.4,0,0.2,1), background 0.35s, border-color 0.35s, box-shadow 0.35s",
-              opacity: pileOpacity,
-              transform: `translateX(${pileShiftX}px) scaleX(${pileScale}) translateY(${floorSinkY}px)`,
-              transformOrigin: "center top",
+              opacity: inPile && isLoser ? 0.65 : 1,
+              transform: `translateX(${pileX}px) rotate(${pileRot}deg)`,
+              transformOrigin: "center center",
+              transition: [
+                "top 0.52s cubic-bezier(0.4,0,0.2,1)",
+                "transform 0.52s cubic-bezier(0.4,0,0.2,1)",
+                "opacity 0.4s ease",
+                "background 0.35s",
+                "border-color 0.35s",
+                "box-shadow 0.35s",
+              ].join(", "),
             }}
           >
-            {/* Rank number */}
+            {/* Rank badge */}
             <div style={{
               width: 18, height: 18, borderRadius: 3, flexShrink: 0,
-              background: showDetail && isWinner
+              background: showColor && isWinner
                 ? (isSolo ? "rgba(147,197,253,0.18)" : "rgba(74,222,128,0.18)")
-                : showDetail && isSecond
+                : showColor && isSecond
                 ? (isFloor ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.15)")
                 : "rgba(255,255,255,0.06)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 10,
-              color: showDetail && isWinner ? winnerColor
-                : showDetail && isSecond ? secondColor
+              color: showColor && isWinner ? winnerColor
+                : showColor && isSecond ? secondColor
                 : "var(--text-muted)",
               transition: "background 0.35s, color 0.35s",
             }}>
@@ -1197,22 +1344,22 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
             <div style={{ textAlign: "right", flexShrink: 0 }}>
               <div style={{
                 fontSize: 11,
-                fontWeight: isWinner ? 600 : 400,
-                color: showDetail && isWinner ? winnerColor
-                  : showDetail && isSecond ? secondColor
+                fontWeight: showColor && isWinner ? 600 : 400,
+                color: showColor && isWinner ? winnerColor
+                  : showColor && isSecond ? secondColor
                   : "var(--text-muted)",
                 transition: "color 0.35s",
               }}>
                 {formatEffectiveBid(bid.effectiveBidMicro)} eff
               </div>
-              {showDetail && isWinner && (
+              {showColor && isWinner && (
                 <div style={{ fontSize: 10, color: winnerColor, marginTop: 1, opacity: 0.85 }}>
                   {isSolo ? "uncontested · 70% of bid"
                     : isFloor ? `pays ${formatPlanck(clearingCpmPlanck ?? "0")} (floor)`
                     : clearingCpmPlanck ? `pays ${formatPlanck(clearingCpmPlanck)}` : null}
                 </div>
               )}
-              {showDetail && isSecond && (
+              {showColor && isSecond && (
                 <div style={{ fontSize: 10, color: secondColor, marginTop: 1, opacity: 0.85 }}>
                   {isFloor ? "below floor" : "sets price"}
                 </div>
@@ -1223,15 +1370,13 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
             <div style={{
               flexShrink: 0, minWidth: 64, textAlign: "right",
               fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
-              color: showDetail && isWinner ? winnerColor
-                : showDetail && isSecond ? secondColor
+              color: showColor && isWinner ? winnerColor
+                : showColor && isSecond ? secondColor
                 : "transparent",
               transition: "color 0.35s",
             }}>
-              {isWinner
-                ? (isSolo ? "SOLO WIN" : "WINNER")
-                : isSecond
-                ? (isFloor ? "BELOW FLOOR" : "2ND PRICE")
+              {isWinner ? (isSolo ? "SOLO WIN" : "WINNER")
+                : isSecond ? (isFloor ? "BELOW FLOOR" : "2ND PRICE")
                 : ""}
             </div>
           </div>
