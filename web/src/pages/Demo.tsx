@@ -181,6 +181,9 @@ export function Demo() {
   const [currentSimTopics, setCurrentSimTopics] = useState<string[]>([]);
   const [autoTourActive, setAutoTourActive] = useState(false);
   const autoTourRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [customPublisherInput, setCustomPublisherInput] = useState("");
+  const [usingCustomPublisher, setUsingCustomPublisher] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Load publisher SDK
   useEffect(() => {
@@ -356,17 +359,28 @@ export function Demo() {
     iabMeta.setAttribute("data-datum-sim", "1");
     document.head.appendChild(iabMeta);
 
-    // Auto-select the best matching publisher site for these topics
-    const siteIdx = pickSiteForTopics(topics);
-    const site = DEMO_SITES[siteIdx];
-    setSelectedSiteIdx(siteIdx);
-    setPublisherAddress(site.publisher);
-    setPublisherInput(site.publisher);
-    setSdkTagsInput(site.tags.join(","));
+    // Determine publisher: custom override or auto-select by topic overlap
+    let effectivePub: string;
+    let bridgeTags: string[];
+    if (usingCustomPublisher && customPublisherInput) {
+      effectivePub = customPublisherInput;
+      bridgeTags = topics.map((t) => `topic:${t.slug}`);
+      setPublisherAddress(customPublisherInput);
+      setPublisherInput(customPublisherInput);
+    } else {
+      const siteIdx = pickSiteForTopics(topics);
+      const site = DEMO_SITES[siteIdx];
+      effectivePub = site.publisher;
+      bridgeTags = site.tags;
+      setSelectedSiteIdx(siteIdx);
+      setPublisherAddress(site.publisher);
+      setPublisherInput(site.publisher);
+      setSdkTagsInput(site.tags.join(","));
+    }
 
-    // Update SDK data-publisher + data-tags to match the auto-selected site
+    // Update SDK data-publisher + data-tags
     if (sdkScriptRef.current) {
-      sdkScriptRef.current.setAttribute("data-publisher", site.publisher);
+      sdkScriptRef.current.setAttribute("data-publisher", effectivePub);
       sdkScriptRef.current.setAttribute("data-tags", topics.map((t) => `topic:${t.slug}`).join(",") + ",locale:en");
     }
 
@@ -376,7 +390,7 @@ export function Demo() {
 
     // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
     if (connectedAddress) {
-      await runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
+      await runContentBridge(effectivePub, setBridgeStatus, bridgeTags).catch(console.error);
     }
 
     // Read back the updated interest profile
@@ -390,7 +404,7 @@ export function Demo() {
     });
     setSimulating(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady, simulating, pickSiteForTopics, connectedAddress, clearSimMeta]);
+  }, [daemonReady, simulating, pickSiteForTopics, usingCustomPublisher, customPublisherInput, connectedAddress, clearSimMeta]);
 
   // Pick 1-3 random topics, weighted: 55% single, 30% dual, 15% triple
   const pickRandomTopics = useCallback((): BrowseTopic[] => {
@@ -676,6 +690,7 @@ export function Demo() {
               bids={auctionBids}
               mechanism={bridgeStatus.mechanism}
               clearingCpmPlanck={bridgeStatus.clearingCpmPlanck}
+              paused={!autoTourActive}
             />
           </div>
         )}
@@ -691,7 +706,7 @@ export function Demo() {
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
             {DEMO_SITES.map((site, idx) => {
-              const selected = selectedSiteIdx === idx;
+              const selected = !usingCustomPublisher && selectedSiteIdx === idx;
               // Compute how many active campaigns match this site
               const siteTagHashes = new Set(site.tags.map((t) => tagHash(t).toLowerCase()));
               const matchCount = activeCampaigns.filter((c) => {
@@ -759,49 +774,253 @@ export function Demo() {
               );
             })}
           </div>
-          {/* Description of selected site */}
-          <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 4, border: "1px solid var(--border)" }}>
-            {DEMO_SITES[selectedSiteIdx].description}
+          {/* Description of selected preset site */}
+          {!usingCustomPublisher && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 4, border: "1px solid var(--border)", marginBottom: 14 }}>
+              {DEMO_SITES[selectedSiteIdx].description}
+            </div>
+          )}
+
+          {/* Custom publisher */}
+          <div style={{
+            border: `1px solid ${usingCustomPublisher ? "rgba(147,197,253,0.4)" : "var(--border)"}`,
+            borderRadius: 6, padding: "14px 16px",
+            background: usingCustomPublisher ? "rgba(147,197,253,0.05)" : "rgba(255,255,255,0.02)",
+            transition: "border-color 0.2s, background 0.2s",
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: usingCustomPublisher ? "rgba(147,197,253,0.9)" : "var(--text-strong)", fontFamily: "var(--font-mono)", marginBottom: 4 }}>
+              Custom Publisher
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
+              If you have a registered publisher address, paste it here to route simulated visits through your own campaign pool.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <input
+                value={customPublisherInput}
+                onChange={(e) => {
+                  setCustomPublisherInput(e.target.value);
+                  if (usingCustomPublisher) setUsingCustomPublisher(false);
+                }}
+                placeholder="0x…  (your registered publisher address)"
+                style={{ ...inputStyle, flex: 1, minWidth: 200 }}
+              />
+              <button
+                onClick={() => {
+                  if (customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/)) {
+                    setUsingCustomPublisher(true);
+                    setPublisherAddress(customPublisherInput);
+                    setPublisherInput(customPublisherInput);
+                    if (sdkScriptRef.current) {
+                      sdkScriptRef.current.setAttribute("data-publisher", customPublisherInput);
+                    }
+                  }
+                }}
+                disabled={!customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/)}
+                style={{
+                  background: customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/) ? "rgba(147,197,253,0.1)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/) ? "rgba(147,197,253,0.35)" : "var(--border)"}`,
+                  borderRadius: 4, padding: "5px 14px", fontFamily: "var(--font-mono)", fontSize: 11,
+                  color: customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/) ? "rgba(147,197,253,0.9)" : "var(--text-muted)",
+                  cursor: customPublisherInput.match(/^0x[0-9a-fA-F]{40}$/) ? "pointer" : "not-allowed",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Use Publisher
+              </button>
+              {usingCustomPublisher && (
+                <button
+                  onClick={() => { setUsingCustomPublisher(false); setCustomPublisherInput(""); }}
+                  style={{
+                    background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
+                    borderRadius: 4, padding: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11,
+                    color: "var(--text-muted)", cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {usingCustomPublisher && (
+              <div style={{ fontSize: 10, color: "rgba(147,197,253,0.75)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+                Active — all simulated visits will use this publisher address
+              </div>
+            )}
           </div>
         </div>
 
-        {/* ── Row 3: Publisher View — SDK Config + Ad Slot ─────────────── */}
+        {/* ── Row 3: Publisher View — Ad Slot ──────────────────────────── */}
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12, fontFamily: "var(--font-mono)" }}>
             Publisher View — Ad Slot
           </div>
 
+          {/* Auction status (simplified) */}
+          {bridgeStatus.step !== "idle" && (
+            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
+              {[
+                ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
+                ...(bridgeStatus.campaignId ? [["Winner", `Campaign #${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
+                ...(bridgeStatus.mechanism ? [["Mechanism",
+                  bridgeStatus.mechanism === "solo" ? "Solo (uncontested)"
+                  : bridgeStatus.mechanism === "floor" ? "Second-price (floor)"
+                  : "Second-price Vickrey", "var(--text-muted)"]] : []),
+                ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
+                ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
+              ].map(([label, value, color]) => (
+                <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+                  <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
+                  <span style={{ color }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-            {/* SDK Config */}
+            {/* Ad slot */}
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+              <div style={{
+                border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 8,
+                padding: 20, marginBottom: 12, minHeight: 80,
+              }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  datum-ad-slot
+                </div>
+                <div id="datum-ad-slot" />
+                {daemonReady && !connectedAddress && (
+                  <div style={{ fontSize: 11, color: "var(--warn)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+                    Connect a wallet in the extension panel to serve ads.
+                  </div>
+                )}
+                {(!daemonReady || (daemonReady && connectedAddress && bridgeStatus.step === "idle")) && (
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
+                    {!daemonReady ? "Loading extension daemon…" : "Simulate browsing above to run the auction."}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* What to try */}
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                  What to try
+                </div>
+                {[
+                  ["Set up wallet", "Generate or import a Paseo testnet key"],
+                  ["Claims tab", "See pending impression claims and submit on-chain"],
+                  ["Earnings tab", "Check your withdrawable balance"],
+                  ["Filters tab", "Toggle ad topic categories and opt-out of campaigns"],
+                  ["Settings tab", "Configure RPC endpoint and view interest profile"],
+                ].map(([title, desc]) => (
+                  <div key={title} style={{ padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ color: "var(--text-strong)" }}>{title}</span>
+                    <span style={{ color: "var(--text-muted)" }}> — {desc}</span>
+                  </div>
+                ))}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── Publisher Integration ──────────────────────────────────────────── */}
+      <Section label="Publisher Integration">
+        <p style={p}>Add the SDK to any page with two lines:</p>
+        <pre style={pre}>{`<script src="https://your-cdn/datum-sdk.js"
+  data-tags="topic:crypto-web3,topic:defi,locale:en"
+  data-publisher="0xYOUR_PUBLISHER_ADDRESS"
+  data-relay="https://your-relay.example.com"
+  data-excluded-tags="topic:gambling,topic:adult"></script>
+<div id="datum-ad-slot"></div>`}</pre>
+        <p style={p}>
+          <code style={code}>data-tags</code> declares which tags describe your site.{" "}
+          <code style={code}>data-publisher</code> is your registered on-chain address.{" "}
+          <code style={code}>data-relay</code> is your publisher relay endpoint.{" "}
+          <code style={code}>data-excluded-tags</code> is an optional publisher-side tag blocklist.
+        </p>
+      </Section>
+
+      {/* ── Debug / Diagnostics (collapsible) ────────────────────────────── */}
+      <div className="nano-fade" style={{ marginBottom: 24 }}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+          <button
+            onClick={() => setShowDebug((v) => !v)}
+            style={{
+              width: "100%", textAlign: "left", background: "transparent",
+              border: "none", padding: "14px 24px", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--font-mono)" }}>
+              Debug / Diagnostics
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+              {showDebug ? "▲ hide" : "▼ show"}
+            </span>
+          </button>
+
+          {showDebug && (
+            <div style={{ padding: "0 24px 24px" }}>
+
+              {/* SDK status + relay signer */}
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+                <div style={{ flex: 1, minWidth: 220, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>SDK Status</div>
+                  {[
+                    ["Relay",      relayLabel, relay === null ? "var(--warn)" : relay.online ? "var(--ok)" : "var(--error)"],
+                    ["SDK",        sdk.ready ? `Ready (v${sdk.version})` : "Loading…", sdk.ready ? "var(--ok)" : "var(--warn)"],
+                    ["Publisher",  sdk.publisher ? sdk.publisher.slice(0, 10) + "…" : "—", "var(--text-muted)"],
+                    ["Handshake",  handshake.done ? `Complete (${handshake.sig}…)` : "Pending", handshake.done ? "var(--ok)" : "var(--warn)"],
+                  ].map(([label, value, color]) => (
+                    <div key={label} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
+                      <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
+                      <span style={{ color }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {relaySignerAddress && (
+                  <div style={{ flex: 1, minWidth: 220, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
+                      Relay Signer
+                    </div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ok)", wordBreak: "break-all" }}>
+                      {relaySignerAddress}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      Diana (Publisher 1) — co-signs impression claims for on-chain settlement.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SDK Configuration */}
+              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px", marginBottom: 16 }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 10, fontFamily: "var(--font-mono)" }}>
                   SDK Configuration
                 </div>
-
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-publisher</div>
-                  <input
-                    value={publisherInput}
-                    onChange={(e) => setPublisherInput(e.target.value)}
-                    style={inputStyle}
-                    placeholder="0x..."
-                  />
-                </div>
-
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-tags</div>
-                  <input
-                    value={sdkTagsInput}
-                    onChange={(e) => setSdkTagsInput(e.target.value)}
-                    style={inputStyle}
-                    placeholder="topic:crypto-web3,topic:defi,locale:en"
-                  />
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.4 }}>
-                    Comma-separated tags. Campaigns match when the publisher has all required tags.
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-publisher</div>
+                    <input
+                      value={publisherInput}
+                      onChange={(e) => setPublisherInput(e.target.value)}
+                      style={inputStyle}
+                      placeholder="0x…"
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>data-tags</div>
+                    <input
+                      value={sdkTagsInput}
+                      onChange={(e) => setSdkTagsInput(e.target.value)}
+                      style={inputStyle}
+                      placeholder="topic:crypto-web3,locale:en"
+                    />
                   </div>
                 </div>
-
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
                     onClick={() => {
@@ -856,10 +1075,12 @@ export function Demo() {
                     </button>
                   )}
                 </div>
+              </div>
 
-                {/* Claim builder mode toggle */}
-                {daemonReady && (
-                  <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
+              {/* Claim builder mode + Poller state */}
+              {daemonReady && (
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+                  <div style={{ flex: 1, minWidth: 220, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
                       Claim Builder Mode
                     </div>
@@ -881,7 +1102,7 @@ export function Demo() {
                             cursor: "pointer",
                           }}
                         >
-                          {mode === "per-impression" ? "per-impression" : "aggregated"}
+                          {mode}
                         </button>
                       ))}
                     </div>
@@ -891,80 +1112,22 @@ export function Demo() {
                         : `Raw impressions queued until submit → up to 4 claims × 250 = 1000 impressions/tx.${debugInfo && debugInfo.rawQueueDepth > 0 ? ` (${debugInfo.rawQueueDepth} raw queued)` : ""}`}
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* SDK status */}
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 12 }}>
-                {[
-                  ["Relay",      relayLabel, relay === null ? "var(--warn)" : relay.online ? "var(--ok)" : "var(--error)"],
-                  ["SDK",        sdk.ready ? `Ready (v${sdk.version})` : "Loading…", sdk.ready ? "var(--ok)" : "var(--warn)"],
-                  ["Publisher",  sdk.publisher ? sdk.publisher.slice(0, 10) + "…" : "—", "var(--text-muted)"],
-                  ["Handshake",  handshake.done ? `Complete (${handshake.sig}…)` : "Pending", handshake.done ? "var(--ok)" : "var(--warn)"],
-                ].map(([label, value, color]) => (
-                  <div key={label} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
-                    <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
-                    <span style={{ color }}>{value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {relaySignerAddress && (
-                <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6, fontFamily: "var(--font-mono)" }}>
-                    Relay Signer
-                  </div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ok)", wordBreak: "break-all" }}>
-                    {relaySignerAddress}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                    Diana (Publisher 1) — co-signs impression claims for on-chain settlement.
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Ad slot + status */}
-            <div style={{ flex: 1, minWidth: 220 }}>
-              {/* Auction status */}
-              {bridgeStatus.step !== "idle" && (
-                <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 12 }}>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
-                  {[
-                    ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
-                    ...(bridgeStatus.totalCampaigns != null ? [["Campaigns", `${bridgeStatus.activeCampaigns} active / ${bridgeStatus.totalCampaigns} total`, "var(--text-muted)"]] : []),
-                    ...(bridgeStatus.matchedPool != null ? [["Matched", `${bridgeStatus.matchedPool} in pool`, bridgeStatus.matchedPool > 0 ? "var(--ok)" : "var(--warn)"]] : []),
-                    ...(bridgeStatus.campaignId ? [["Winner", `#${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
-                    ...(bridgeStatus.mechanism ? [["Mechanism", bridgeStatus.mechanism, "var(--text-muted)"]] : []),
-                    ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
-                    ...(bridgeStatus.participants != null ? [["Participants", String(bridgeStatus.participants), "var(--text-muted)"]] : []),
-                    ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
-                    ...(bridgeStatus.step === "house-ad" && (bridgeStatus.totalCampaigns ?? 0) === 0
-                      ? [["Hint", "No campaigns on Paseo — run setup-testnet.ts", "var(--warn)"]]
-                      : []),
-                  ].map(([label, value, color]) => (
-                    <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
-                      <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
-                      <span style={{ color }}>{value}</span>
-                    </div>
-                  ))}
                   {debugInfo && (
-                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
-                      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 4 }}>Poller State</div>
+                    <div style={{ flex: 1, minWidth: 220, border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Poller State</div>
                       {[
                         ["wallet", debugInfo.connectedAddress ? debugInfo.connectedAddress.slice(0, 10) + "…" : "not connected", debugInfo.connectedAddress ? "var(--ok)" : "var(--error)"],
                         ["fromBlock", debugInfo.pollLastBlock != null ? String(debugInfo.pollLastBlock) : "not set", debugInfo.pollLastBlock ? "var(--ok)" : "var(--error)"],
                         ["index", `${debugInfo.campaignIndexCount} entries`, debugInfo.campaignIndexCount > 0 ? "var(--ok)" : "var(--warn)"],
                         ["cache", `${debugInfo.activeCampaignsCount} campaigns`, debugInfo.activeCampaignsCount > 0 ? "var(--ok)" : "var(--warn)"],
-                        ["claims", `${debugInfo.claimQueueCount} in queue${debugInfo.claimQueueAddresses.length > 0 ? ` (${debugInfo.claimQueueAddresses.map(a => a.slice(0,8)+"…").join(", ")})` : ""}`, debugInfo.claimQueueCount > 0 ? "var(--ok)" : "var(--text-muted)"],
-                        ...(debugInfo.claimBuilderMode === "aggregated" ? [["raw queue", `${debugInfo.rawQueueDepth} impressions (aggregated mode)`, debugInfo.rawQueueDepth > 0 ? "var(--ok)" : "var(--text-muted)"]] : []),
-                        ...(debugInfo.lastImpressionResult ? [["impression", debugInfo.lastImpressionResult.ok ? `ok campaign=${debugInfo.lastImpressionResult.campaignId}` : `fail: ${debugInfo.lastImpressionResult.reason}`, debugInfo.lastImpressionResult.ok ? "var(--ok)" : "var(--error)"]] : []),
+                        ["claims", `${debugInfo.claimQueueCount} in queue`, debugInfo.claimQueueCount > 0 ? "var(--ok)" : "var(--text-muted)"],
+                        ...(debugInfo.claimBuilderMode === "aggregated" ? [["raw queue", `${debugInfo.rawQueueDepth} impressions`, debugInfo.rawQueueDepth > 0 ? "var(--ok)" : "var(--text-muted)"]] : []),
                         ["relay key", debugInfo.relaySignerAddress ? debugInfo.relaySignerAddress.slice(0, 10) + "…" : "none", "var(--text-muted)"],
-                        ...(debugInfo.sampleCampaign ? [["sample", `#${debugInfo.sampleCampaign.id} status=${debugInfo.sampleCampaign.status} pub=${debugInfo.sampleCampaign.publisher.slice(0, 8)}…`, "var(--text-muted)"]] : []),
                       ].map(([l, v, c]) => (
                         <div key={l} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
                           <span style={{ color: "var(--text)", minWidth: 90 }}>{l}</span>
-                          <span style={{ color: c, wordBreak: "break-all" }}>{v}</span>
+                          <span style={{ color: c }}>{v}</span>
                         </div>
                       ))}
                     </div>
@@ -972,136 +1135,80 @@ export function Demo() {
                 </div>
               )}
 
-              <div style={{
-                border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 8,
-                padding: 20, marginBottom: 12, minHeight: 80,
-              }}>
-                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                  datum-ad-slot
-                </div>
-                <div id="datum-ad-slot" />
-                {daemonReady && !connectedAddress && (
-                  <div style={{ fontSize: 11, color: "var(--warn)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
-                    Connect a wallet in the extension panel to serve ads.
+              {/* Daemon Activity Log */}
+              <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {logEntries.length} entries — daemon console output and message bus traffic
+                </span>
+                <div style={{ flex: 1 }} />
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={logAutoScroll}
+                    onChange={(e) => setLogAutoScroll(e.target.checked)}
+                    style={{ accentColor: "var(--ok)" }}
+                  />
+                  auto-scroll
+                </label>
+                <button
+                  onClick={() => {
+                    const text = logEntries
+                      .map((e) => `${fmtTs(e.ts)} [${e.level}] ${e.text}`)
+                      .join("\n");
+                    navigator.clipboard.writeText(text).catch(() => {});
+                  }}
+                  style={logBtnStyle}
+                >
+                  Copy
+                </button>
+                <button onClick={clearDaemonLog} style={logBtnStyle}>Clear</button>
+              </div>
+              <div
+                ref={logBoxRef}
+                onScroll={() => {
+                  const el = logBoxRef.current;
+                  if (!el) return;
+                  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+                  setLogAutoScroll(atBottom);
+                }}
+                style={{
+                  height: 300,
+                  overflowY: "auto",
+                  background: "rgba(0,0,0,0.35)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  lineHeight: 1.55,
+                }}
+              >
+                {logEntries.length === 0 ? (
+                  <div style={{ color: "rgba(255,255,255,0.2)", paddingTop: 4 }}>
+                    No activity yet. The log captures daemon console output and message bus traffic.
                   </div>
+                ) : (
+                  logEntries.map((e) => (
+                    <div key={e.id} style={{ display: "flex", gap: 8, padding: "1px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                      <span style={{ color: "rgba(255,255,255,0.25)", flexShrink: 0, userSelect: "none" }}>
+                        {fmtTs(e.ts)}
+                      </span>
+                      <span style={{ color: levelColor(e.level), flexShrink: 0, width: 52, userSelect: "none" }}>
+                        [{e.level}]
+                      </span>
+                      <span style={{ color: levelTextColor(e.level), wordBreak: "break-all", whiteSpace: "pre-wrap" }}>
+                        {e.text}
+                      </span>
+                    </div>
+                  ))
                 )}
-                {(!daemonReady || (daemonReady && connectedAddress && bridgeStatus.step === "idle")) && (
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.15)", marginTop: 8 }}>
-                    {!daemonReady ? "Loading extension daemon…" : "Auction will run automatically once the wallet is connected."}
-                  </div>
-                )}
+                <div ref={logEndRef} />
               </div>
 
-              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 14px" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 8, fontFamily: "var(--font-mono)" }}>
-                  What to try
-                </div>
-                {[
-                  ["Set up wallet", "Generate or import a Paseo testnet key"],
-                  ["Claims tab", "See pending impression claims and submit on-chain"],
-                  ["Earnings tab", "Check your withdrawable balance"],
-                  ["Filters tab", "Toggle ad topic categories and opt-out of campaigns"],
-                  ["Settings tab", "Configure RPC endpoint and view interest profile"],
-                ].map(([title, desc]) => (
-                  <div key={title} style={{ padding: "4px 0", fontSize: 12 }}>
-                    <span style={{ color: "var(--text-strong)" }}>{title}</span>
-                    <span style={{ color: "var(--text-muted)" }}> — {desc}</span>
-                  </div>
-                ))}
-              </div>
             </div>
-          </div>
-        </div>
-      </Section>
-
-      {/* ── Publisher Integration ──────────────────────────────────────────── */}
-      <Section label="Publisher Integration">
-        <p style={p}>Add the SDK to any page with two lines:</p>
-        <pre style={pre}>{`<script src="https://your-cdn/datum-sdk.js"
-  data-tags="topic:crypto-web3,topic:defi,locale:en"
-  data-publisher="0xYOUR_PUBLISHER_ADDRESS"
-  data-relay="https://your-relay.example.com"
-  data-excluded-tags="topic:gambling,topic:adult"></script>
-<div id="datum-ad-slot"></div>`}</pre>
-        <p style={p}>
-          <code style={code}>data-tags</code> declares which tags describe your site.{" "}
-          <code style={code}>data-publisher</code> is your registered on-chain address.{" "}
-          <code style={code}>data-relay</code> is your publisher relay endpoint.{" "}
-          <code style={code}>data-excluded-tags</code> is an optional publisher-side tag blocklist.
-        </p>
-      </Section>
-
-      {/* ── Daemon Activity Log ────────────────────────────────────────────── */}
-      <Section label="Daemon Activity Log">
-        <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {logEntries.length} entries — console messages from the daemon and message bus traffic
-          </span>
-          <div style={{ flex: 1 }} />
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)", cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={logAutoScroll}
-              onChange={(e) => setLogAutoScroll(e.target.checked)}
-              style={{ accentColor: "var(--ok)" }}
-            />
-            auto-scroll
-          </label>
-          <button
-            onClick={() => {
-              const text = logEntries
-                .map((e) => `${fmtTs(e.ts)} [${e.level}] ${e.text}`)
-                .join("\n");
-              navigator.clipboard.writeText(text).catch(() => {});
-            }}
-            style={logBtnStyle}
-          >
-            Copy
-          </button>
-          <button onClick={clearDaemonLog} style={logBtnStyle}>Clear</button>
-        </div>
-        <div
-          ref={logBoxRef}
-          onScroll={() => {
-            const el = logBoxRef.current;
-            if (!el) return;
-            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-            setLogAutoScroll(atBottom);
-          }}
-          style={{
-            height: 360,
-            overflowY: "auto",
-            background: "rgba(0,0,0,0.35)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "8px 10px",
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            lineHeight: 1.55,
-          }}
-        >
-          {logEntries.length === 0 ? (
-            <div style={{ color: "rgba(255,255,255,0.2)", paddingTop: 4 }}>
-              No activity yet. The log captures daemon console output and message bus traffic.
-            </div>
-          ) : (
-            logEntries.map((e) => (
-              <div key={e.id} style={{ display: "flex", gap: 8, padding: "1px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                <span style={{ color: "rgba(255,255,255,0.25)", flexShrink: 0, userSelect: "none" }}>
-                  {fmtTs(e.ts)}
-                </span>
-                <span style={{ color: levelColor(e.level), flexShrink: 0, width: 52, userSelect: "none" }}>
-                  [{e.level}]
-                </span>
-                <span style={{ color: levelTextColor(e.level), wordBreak: "break-all", whiteSpace: "pre-wrap" }}>
-                  {e.text}
-                </span>
-              </div>
-            ))
           )}
-          <div ref={logEndRef} />
         </div>
-      </Section>
+      </div>
 
       {/* ── Resources ─────────────────────────────────────────────────────── */}
       <Section label="Resources">
@@ -1184,10 +1291,11 @@ const VIZ_CONTAINER_H = PILE_Y + BID_CARD_H + 8; // 202
 
 type AuctionPhase = "pile" | "rise" | "result" | "drop";
 
-function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
+function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck, paused }: {
   bids: AuctionBid[];
   mechanism?: string;
   clearingCpmPlanck?: string;
+  paused?: boolean;
 }) {
   const [phase, setPhase] = useState<AuctionPhase>("pile");
   const [cycle, setCycle] = useState(0);
@@ -1216,14 +1324,17 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck }: {
     timers.current.push(setTimeout(() => setPhase("rise"),   700));
     //  1400 ms — result: colors appear, hold
     timers.current.push(setTimeout(() => setPhase("result"), 1400));
-    //  4200 ms — drop: everything falls back into pile
-    timers.current.push(setTimeout(() => setPhase("drop"),   4200));
-    //  5000 ms — restart
-    timers.current.push(setTimeout(() => setCycle((c) => c + 1), 5000));
+    // When paused: hold result indefinitely. When looping: drop then restart.
+    if (!paused) {
+      //  4200 ms — drop: everything falls back into pile
+      timers.current.push(setTimeout(() => setPhase("drop"),   4200));
+      //  5000 ms — restart
+      timers.current.push(setTimeout(() => setCycle((c) => c + 1), 5000));
+    }
 
     return () => { timers.current.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bids, cycle]);
+  }, [bids, cycle, paused]);
 
   if (bids.length === 0) return null;
 

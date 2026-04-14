@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Contract, isAddress } from "ethers";
-import { getPaymentVaultContract, getTokenRewardVaultContract, getProvider } from "@shared/contracts";
+import { Contract, ZeroAddress, isAddress } from "ethers";
+import { getPaymentVaultContract, getTokenRewardVaultContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
@@ -11,6 +11,14 @@ const ERC20_ABI = [
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
 ];
+
+interface TokenReward {
+  token: string;
+  symbol: string;
+  decimals: number;
+  balance: bigint;
+  campaigns: string[]; // campaign IDs that use this token
+}
 
 interface Props {
   address: string | null;
@@ -29,12 +37,11 @@ export function UserPanel({ address }: Props) {
   const [sweepAddress, setSweepAddress] = useState("");
 
   // Token reward state
-  const [tokenInput, setTokenInput] = useState("");
-  const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
-  const [tokenMeta, setTokenMeta] = useState<{ symbol: string; decimals: number } | null>(null);
-  const [tokenCheckMsg, setTokenCheckMsg] = useState<string | null>(null);
-  const [checkingToken, setCheckingToken] = useState(false);
-  const [withdrawingToken, setWithdrawingToken] = useState(false);
+  const [tokenRewards, setTokenRewards] = useState<TokenReward[]>([]);
+  const [scanningTokens, setScanningTokens] = useState(false);
+  const [tokenScanMsg, setTokenScanMsg] = useState<string | null>(null);
+  const [withdrawingToken, setWithdrawingToken] = useState<string | null>(null); // token address being withdrawn
+  const [withdrawingAll, setWithdrawingAll] = useState(false);
   const [tokenWithdrawMsg, setTokenWithdrawMsg] = useState<string | null>(null);
 
   async function getSettings() {
@@ -116,45 +123,85 @@ export function UserPanel({ address }: Props) {
     }
   }
 
-  async function handleCheckToken() {
-    if (!address || !isAddress(tokenInput.trim())) {
-      setTokenCheckMsg("Enter a valid ERC-20 token address.");
-      return;
-    }
-    setCheckingToken(true);
-    setTokenCheckMsg(null);
-    setTokenBalance(null);
-    setTokenMeta(null);
+  async function scanTokenRewards() {
+    if (!address) return;
+    setScanningTokens(true);
+    setTokenScanMsg(null);
+    setTokenRewards([]);
+    setTokenWithdrawMsg(null);
     try {
       const settings = await getSettings();
-      if (!settings.contractAddresses.tokenRewardVault) {
-        setTokenCheckMsg("TokenRewardVault not configured.");
+      if (!settings.contractAddresses.tokenRewardVault || !settings.contractAddresses.campaigns) {
+        setTokenScanMsg("Contracts not configured.");
         return;
       }
       const provider = getProvider(settings.rpcUrl);
+      const campaigns = getCampaignsContract(settings.contractAddresses, provider);
       const vault = getTokenRewardVaultContract(settings.contractAddresses, provider);
-      const bal = await vault.userTokenBalance(address, tokenInput.trim());
-      setTokenBalance(BigInt(bal));
+
+      // Fetch active campaigns list from background
+      let campaignList: Array<{ id: string }> = [];
       try {
-        const erc20 = new Contract(tokenInput.trim(), ERC20_ABI, provider);
-        const [sym, dec] = await Promise.all([
-          erc20.symbol().catch(() => "TOKEN"),
-          erc20.decimals().catch(() => 18),
-        ]);
-        setTokenMeta({ symbol: sym as string, decimals: Number(dec) });
-      } catch {
-        setTokenMeta({ symbol: "TOKEN", decimals: 18 });
+        const resp = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_CAMPAIGNS" });
+        campaignList = (resp?.campaigns ?? []).filter((c: any) => Number(c.status) <= 1);
+      } catch { /* */ }
+
+      if (campaignList.length === 0) {
+        setTokenScanMsg("No active campaigns found.");
+        return;
+      }
+
+      // Discover reward tokens per campaign
+      const tokenToCampaigns = new Map<string, string[]>();
+      await Promise.all(campaignList.map(async (c) => {
+        try {
+          const token: string = await campaigns.getCampaignRewardToken(c.id);
+          if (token && token !== ZeroAddress) {
+            const key = token.toLowerCase();
+            if (!tokenToCampaigns.has(key)) tokenToCampaigns.set(key, []);
+            tokenToCampaigns.get(key)!.push(c.id);
+          }
+        } catch { /* campaign may not exist yet */ }
+      }));
+
+      if (tokenToCampaigns.size === 0) {
+        setTokenScanMsg("No token rewards configured on active campaigns.");
+        return;
+      }
+
+      // Fetch balance + metadata for each token
+      const results: TokenReward[] = await Promise.all(
+        [...tokenToCampaigns.entries()].map(async ([tokenLow, cids]) => {
+          // Recover original-case address (use the first campaign's value)
+          let tokenAddr = tokenLow;
+          try {
+            const first = campaignList.find((c) => cids.includes(c.id));
+            if (first) tokenAddr = await campaigns.getCampaignRewardToken(first.id);
+          } catch { /* */ }
+
+          const [bal, sym, dec] = await Promise.all([
+            vault.userTokenBalance(address, tokenAddr).then((v: bigint) => BigInt(v)).catch(() => 0n),
+            new Contract(tokenAddr, ERC20_ABI, provider).symbol().catch(() => "TOKEN"),
+            new Contract(tokenAddr, ERC20_ABI, provider).decimals().catch(() => 18),
+          ]);
+          return { token: tokenAddr, symbol: sym as string, decimals: Number(dec), balance: bal, campaigns: cids };
+        })
+      );
+
+      setTokenRewards(results);
+      if (results.every((r) => r.balance === 0n)) {
+        setTokenScanMsg("No token balances to withdraw yet.");
       }
     } catch (err) {
-      setTokenCheckMsg(humanizeError(err));
+      setTokenScanMsg(humanizeError(err));
     } finally {
-      setCheckingToken(false);
+      setScanningTokens(false);
     }
   }
 
-  async function handleTokenWithdraw() {
-    if (!address || !isAddress(tokenInput.trim())) return;
-    setWithdrawingToken(true);
+  async function withdrawToken(tokenAddr: string) {
+    if (!address) return;
+    setWithdrawingToken(tokenAddr);
     setTokenWithdrawMsg(null);
     try {
       const settings = await getSettings();
@@ -164,22 +211,40 @@ export function UserPanel({ address }: Props) {
       const provider = signer.provider!;
       const nonceBefore = await provider.getTransactionCount(signer.address);
       const tx = dest
-        ? await vault.withdrawTo(tokenInput.trim(), dest)
-        : await vault.withdraw(tokenInput.trim());
-      // Paseo: getTransactionReceipt always returns null — poll nonce instead.
+        ? await vault.withdrawTo(tokenAddr, dest)
+        : await vault.withdraw(tokenAddr);
       void tx;
       for (let i = 0; i < 60; i++) {
         const cur = await provider.getTransactionCount(signer.address);
         if (cur > nonceBefore) break;
         await new Promise((r) => setTimeout(r, 2000));
       }
-      setTokenWithdrawMsg(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Token withdrawal successful.");
-      setTokenBalance(0n);
+      setTokenWithdrawMsg(dest ? `Swept to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Withdrawn.");
+      // Clear balance for this token optimistically
+      setTokenRewards((prev) => prev.map((r) => r.token.toLowerCase() === tokenAddr.toLowerCase() ? { ...r, balance: 0n } : r));
     } catch (err) {
       setTokenWithdrawMsg(humanizeError(err));
     } finally {
-      setWithdrawingToken(false);
+      setWithdrawingToken(null);
     }
+  }
+
+  async function withdrawAllTokens() {
+    const pending = tokenRewards.filter((r) => r.balance > 0n);
+    if (pending.length === 0) return;
+    setWithdrawingAll(true);
+    setTokenWithdrawMsg(null);
+    const errors: string[] = [];
+    for (const r of pending) {
+      try {
+        await withdrawToken(r.token);
+      } catch (err) {
+        errors.push(`${r.symbol}: ${humanizeError(err)}`);
+      }
+    }
+    setWithdrawingAll(false);
+    if (errors.length > 0) setTokenWithdrawMsg(errors.join("; "));
+    else setTokenWithdrawMsg(`All tokens withdrawn.`);
   }
 
   if (!address) {
@@ -308,44 +373,66 @@ export function UserPanel({ address }: Props) {
       {/* Token Rewards */}
       <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
         <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Token Rewards</div>
-        <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
-          Check and withdraw ERC-20 token rewards earned from campaigns.
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input
-            type="text"
-            value={tokenInput}
-            onChange={(e) => { setTokenInput(e.target.value); setTokenBalance(null); setTokenMeta(null); setTokenCheckMsg(null); }}
-            placeholder="Token address (0x...)"
-            style={{ ...inputStyle, flex: 1, fontSize: 11 }}
-          />
-          <button onClick={handleCheckToken} disabled={checkingToken} style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}>
-            {checkingToken ? "..." : "Check"}
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <button
+            onClick={scanTokenRewards}
+            disabled={scanningTokens}
+            style={{ ...secondaryBtn, width: "auto", padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}
+          >
+            {scanningTokens ? "Scanning..." : "Scan campaigns"}
           </button>
+          {tokenRewards.filter((r) => r.balance > 0n).length > 1 && (
+            <button
+              onClick={withdrawAllTokens}
+              disabled={withdrawingAll || !!withdrawingToken}
+              style={{ ...primaryBtn, width: "auto", padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap" }}
+            >
+              {withdrawingAll ? "Withdrawing..." : "Withdraw all"}
+            </button>
+          )}
         </div>
-        {tokenCheckMsg && <div style={{ color: "var(--error)", fontSize: 11, marginBottom: 4 }}>{tokenCheckMsg}</div>}
-        {tokenBalance !== null && tokenMeta && (
-          <div style={{ marginBottom: 6 }}>
-            <div style={{ fontSize: 12, color: "var(--text-strong)", fontWeight: 600, marginBottom: 4 }}>
-              Balance:{" "}
-              {tokenBalance === 0n
-                ? "0"
-                : (Number(tokenBalance) / Math.pow(10, tokenMeta.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
-              <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{tokenMeta.symbol}</span>
-            </div>
-            {tokenBalance > 0n && (
-              <button onClick={handleTokenWithdraw} disabled={withdrawingToken} style={{ ...primaryBtn, fontSize: 12 }}>
-                {withdrawingToken
-                  ? "Withdrawing..."
-                  : sweepAddress && isAddress(sweepAddress)
-                    ? `Sweep ${tokenMeta.symbol} → cold wallet`
-                    : `Withdraw ${tokenMeta.symbol}`}
-              </button>
-            )}
+
+        {tokenScanMsg && (
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 6 }}>{tokenScanMsg}</div>
+        )}
+
+        {tokenRewards.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {tokenRewards.map((r) => (
+              <div key={r.token} style={{
+                ...cardStyle,
+                display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px",
+              }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-strong)" }}>
+                    {(Number(r.balance) / Math.pow(10, r.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
+                    <span style={{ color: "var(--accent)" }}>{r.symbol}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                    campaigns: {r.campaigns.join(", ")}
+                  </div>
+                </div>
+                {r.balance > 0n && (
+                  <button
+                    onClick={() => withdrawToken(r.token)}
+                    disabled={!!withdrawingToken || withdrawingAll}
+                    style={{ ...secondaryBtn, width: "auto", padding: "4px 8px", fontSize: 11, whiteSpace: "nowrap" }}
+                  >
+                    {withdrawingToken === r.token
+                      ? "..."
+                      : sweepAddress && isAddress(sweepAddress)
+                        ? `Sweep ${r.symbol}`
+                        : `Withdraw`}
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
+
         {tokenWithdrawMsg && (
-          <div style={{ fontSize: 11, color: tokenWithdrawMsg.includes("successful") ? "var(--ok)" : "var(--error)" }}>
+          <div style={{ fontSize: 11, marginTop: 6, color: tokenWithdrawMsg.toLowerCase().includes("err") || tokenWithdrawMsg.toLowerCase().includes("fail") ? "var(--error)" : "var(--ok)" }}>
             {tokenWithdrawMsg}
           </div>
         )}

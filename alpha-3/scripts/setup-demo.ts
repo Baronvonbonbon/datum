@@ -1,7 +1,7 @@
 // setup-demo.ts — Multi-publisher demo seeding for Alpha-3
 //
-// Seeds 5 publishers, 3 MockERC20 tokens, and 8 campaigns with diverse tag
-// targeting, ERC-20 rewards, and an allowlist showcase.
+// Seeds 5 publishers, 3 MockERC20 tokens, and 24 campaigns spanning 7 verticals
+// with competitive CPMs, ERC-20 rewards on 9 campaigns, and an allowlist showcase.
 //
 // Run AFTER deploy.ts (requires deployed-addresses.json).
 // Re-run safe: skips already-registered publishers, reuses token addresses.
@@ -54,7 +54,7 @@ const PUBLISHER_CONFIGS: Record<string, { name: string; tags: string[]; takeBps:
   },
   heidi: {
     name: "GamingWorld",
-    tags: ["topic:gaming", "topic:arts-entertainment", "topic:anime-manga", "locale:en"],
+    tags: ["topic:gaming", "topic:arts-entertainment", "topic:hobbies-leisure", "locale:en"],
     takeBps: 3500n,
   },
 };
@@ -74,68 +74,209 @@ interface CampaignConfig {
 // tokenReward is filled in dynamically after tokens are deployed.
 // We declare placeholders here and patch in main().
 const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
-  // C1: Bob → Diana  |  crypto+defi page  |  SWAP token rewards
+  // ── Crypto / DeFi (6) — highest CPMs, compete on Diana + open slots ──────
+  // C1: Bob → Diana  |  crypto+defi  |  SWAP rewards
   {
     label: "C1 LiquidityDAO (Bob→Diana, crypto+defi)",
     advertiser: "bob", publisher: "diana",
     requiredTagSlugs: ["topic:crypto-web3", "topic:defi"],
-    bidCpm: parseDOT("0.020"), budget: parseDOT("10"),
+    bidCpm: parseDOT("0.150"), budget: parseDOT("50"),
     metaSuffix: "liquiditydao",
   },
-  // C2: Charlie → Eve  |  finance page  |  DEV token rewards
+  // C2: Charlie → Diana  |  crypto
   {
-    label: "C2 YieldFarm Pro (Charlie→Eve, finance)",
-    advertiser: "charlie", publisher: "eve",
-    requiredTagSlugs: ["topic:finance"],
-    bidCpm: parseDOT("0.018"), budget: parseDOT("10"),
+    label: "C2 ChainSwap DEX (Charlie→Diana, crypto)",
+    advertiser: "charlie", publisher: "diana",
+    requiredTagSlugs: ["topic:crypto-web3"],
+    bidCpm: parseDOT("0.120"), budget: parseDOT("40"),
+    metaSuffix: "chainswap-dex",
+  },
+  // C3: Bob → open  |  crypto+nfts  |  DEV rewards
+  {
+    label: "C3 NFT Launchpad (Bob→open, crypto+nfts)",
+    advertiser: "bob", publisher: "open",
+    requiredTagSlugs: ["topic:crypto-web3", "topic:nfts"],
+    bidCpm: parseDOT("0.100"), budget: parseDOT("30"),
+    metaSuffix: "nft-launchpad",
+  },
+  // C4: Charlie → open  |  defi
+  {
+    label: "C4 YieldFarm Pro (Charlie→open, defi)",
+    advertiser: "charlie", publisher: "open",
+    requiredTagSlugs: ["topic:defi"],
+    bidCpm: parseDOT("0.090"), budget: parseDOT("30"),
     metaSuffix: "yieldfarm-pro",
   },
-  // C3: Bob → Frank  |  tech page
+  // C5: Bob → open  |  crypto+polkadot  |  SWAP rewards
   {
-    label: "C3 DevChain IDE (Bob→Frank, tech)",
-    advertiser: "bob", publisher: "frank",
-    requiredTagSlugs: ["topic:computers-electronics"],
-    bidCpm: parseDOT("0.015"), budget: parseDOT("10"),
-    metaSuffix: "devchain-ide",
-  },
-  // C4: Bob → Grace  |  sports page  |  FIT token rewards  |  Grace has allowlist (Bob only)
-  {
-    label: "C4 FitToken Gym (Bob→Grace, sports, allowlist)",
-    advertiser: "bob", publisher: "grace",
-    requiredTagSlugs: ["topic:sports"],
-    bidCpm: parseDOT("0.014"), budget: parseDOT("10"),
-    metaSuffix: "fittoken-gym",
-  },
-  // C5: Charlie → Heidi  |  gaming page  |  SWAP token rewards
-  {
-    label: "C5 ArcadeChain NFTs (Charlie→Heidi, gaming)",
-    advertiser: "charlie", publisher: "heidi",
-    requiredTagSlugs: ["topic:gaming"],
-    bidCpm: parseDOT("0.022"), budget: parseDOT("10"),
-    metaSuffix: "arcadechain",
-  },
-  // C6: Bob → open  |  gaming+arts page  |  competes with C5 on Heidi
-  {
-    label: "C6 PixelVerse (Bob→open, gaming+arts)",
+    label: "C5 PolkaHub Bridge (Bob→open, crypto+polkadot)",
     advertiser: "bob", publisher: "open",
-    requiredTagSlugs: ["topic:gaming", "topic:arts-entertainment"],
-    bidCpm: parseDOT("0.012"), budget: parseDOT("8"),
-    metaSuffix: "pixelverse",
-  },
-  // C7: Charlie → open  |  crypto page  |  competes with C1 on Diana
-  {
-    label: "C7 PolkaHub Bridge (Charlie→open, crypto)",
-    advertiser: "charlie", publisher: "open",
-    requiredTagSlugs: ["topic:crypto-web3"],
-    bidCpm: parseDOT("0.016"), budget: parseDOT("8"),
+    requiredTagSlugs: ["topic:crypto-web3", "topic:polkadot"],
+    bidCpm: parseDOT("0.085"), budget: parseDOT("25"),
     metaSuffix: "polkahub-bridge",
   },
-  // C8: Bob → open  |  no tags  |  broad fallback for all publishers
+  // C6: Charlie → Diana  |  crypto  |  second bid competing with C2
   {
-    label: "C8 Polkadot Ecosystem (Bob→open, no tags)",
+    label: "C6 StakeEasy (Charlie→Diana, crypto)",
+    advertiser: "charlie", publisher: "diana",
+    requiredTagSlugs: ["topic:crypto-web3"],
+    bidCpm: parseDOT("0.075"), budget: parseDOT("20"),
+    metaSuffix: "stakeeasy",
+  },
+
+  // ── Finance (4) — compete on Eve + open ──────────────────────────────────
+  // C7: Charlie → Eve  |  finance  |  DEV rewards
+  {
+    label: "C7 WealthTrack AI (Charlie→Eve, finance)",
+    advertiser: "charlie", publisher: "eve",
+    requiredTagSlugs: ["topic:finance"],
+    bidCpm: parseDOT("0.080"), budget: parseDOT("30"),
+    metaSuffix: "wealthtrack-ai",
+  },
+  // C8: Bob → Eve  |  finance+news
+  {
+    label: "C8 MarketPulse (Bob→Eve, finance+news)",
+    advertiser: "bob", publisher: "eve",
+    requiredTagSlugs: ["topic:finance", "topic:news"],
+    bidCpm: parseDOT("0.065"), budget: parseDOT("25"),
+    metaSuffix: "marketpulse",
+  },
+  // C9: Charlie → open  |  finance+society
+  {
+    label: "C9 RetireDAO (Charlie→open, finance+society)",
+    advertiser: "charlie", publisher: "open",
+    requiredTagSlugs: ["topic:finance", "topic:people-society"],
+    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    metaSuffix: "retiredao",
+  },
+  // C10: Bob → open  |  finance
+  {
+    label: "C10 CryptoTax Pro (Bob→open, finance)",
     advertiser: "bob", publisher: "open",
+    requiredTagSlugs: ["topic:finance"],
+    bidCpm: parseDOT("0.050"), budget: parseDOT("20"),
+    metaSuffix: "cryptotax-pro",
+  },
+
+  // ── Tech (4) — compete on Frank + open ───────────────────────────────────
+  // C11: Bob → Frank  |  computers-electronics  |  DEV rewards
+  {
+    label: "C11 DevChain IDE (Bob→Frank, tech)",
+    advertiser: "bob", publisher: "frank",
+    requiredTagSlugs: ["topic:computers-electronics"],
+    bidCpm: parseDOT("0.065"), budget: parseDOT("25"),
+    metaSuffix: "devchain-ide",
+  },
+  // C12: Charlie → Frank  |  tech+science
+  {
+    label: "C12 AI Research Hub (Charlie→Frank, tech+science)",
+    advertiser: "charlie", publisher: "frank",
+    requiredTagSlugs: ["topic:computers-electronics", "topic:science"],
+    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    metaSuffix: "ai-research-hub",
+  },
+  // C13: Bob → open  |  internet-telecom  |  SWAP rewards
+  {
+    label: "C13 Web3 DNS (Bob→open, internet-telecom)",
+    advertiser: "bob", publisher: "open",
+    requiredTagSlugs: ["topic:internet-telecom"],
+    bidCpm: parseDOT("0.045"), budget: parseDOT("15"),
+    metaSuffix: "web3-dns",
+  },
+  // C14: Charlie → open  |  computers-electronics
+  {
+    label: "C14 CloudMine PoW (Charlie→open, tech)",
+    advertiser: "charlie", publisher: "open",
+    requiredTagSlugs: ["topic:computers-electronics"],
+    bidCpm: parseDOT("0.040"), budget: parseDOT("15"),
+    metaSuffix: "cloudmine-pow",
+  },
+
+  // ── Gaming (3) — compete on Heidi + open ─────────────────────────────────
+  // C15: Charlie → Heidi  |  gaming  |  SWAP rewards
+  {
+    label: "C15 ArcadeChain NFTs (Charlie→Heidi, gaming)",
+    advertiser: "charlie", publisher: "heidi",
+    requiredTagSlugs: ["topic:gaming"],
+    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    metaSuffix: "arcadechain",
+  },
+  // C16: Bob → Heidi  |  gaming+arts
+  {
+    label: "C16 PixelVerse (Bob→Heidi, gaming+arts)",
+    advertiser: "bob", publisher: "heidi",
+    requiredTagSlugs: ["topic:gaming", "topic:arts-entertainment"],
+    bidCpm: parseDOT("0.048"), budget: parseDOT("20"),
+    metaSuffix: "pixelverse",
+  },
+  // C17: Charlie → open  |  gaming (lower CPM, broad open)
+  {
+    label: "C17 MetaArena (Charlie→open, gaming)",
+    advertiser: "charlie", publisher: "open",
+    requiredTagSlugs: ["topic:gaming"],
+    bidCpm: parseDOT("0.038"), budget: parseDOT("15"),
+    metaSuffix: "meta-arena",
+  },
+
+  // ── Health / Sports (3) — Grace allowlist (Bob only) for C18+C19 ─────────
+  // C18: Bob → Grace  |  sports  |  FIT rewards  |  allowlist
+  {
+    label: "C18 FitToken Gym (Bob→Grace, sports, allowlist)",
+    advertiser: "bob", publisher: "grace",
+    requiredTagSlugs: ["topic:sports"],
+    bidCpm: parseDOT("0.045"), budget: parseDOT("20"),
+    metaSuffix: "fittoken-gym",
+  },
+  // C19: Bob → Grace  |  health+fitness  |  FIT rewards  |  allowlist
+  {
+    label: "C19 BioHack Labs (Bob→Grace, health+fitness, allowlist)",
+    advertiser: "bob", publisher: "grace",
+    requiredTagSlugs: ["topic:health", "topic:beauty-fitness"],
+    bidCpm: parseDOT("0.040"), budget: parseDOT("15"),
+    metaSuffix: "biohack-labs",
+  },
+  // C20: Charlie → open  |  sports+health (no allowlist needed)
+  {
+    label: "C20 RunDAO (Charlie→open, sports+health)",
+    advertiser: "charlie", publisher: "open",
+    requiredTagSlugs: ["topic:sports", "topic:health"],
+    bidCpm: parseDOT("0.030"), budget: parseDOT("15"),
+    metaSuffix: "rundao",
+  },
+
+  // ── News / Society (2) ────────────────────────────────────────────────────
+  // C21: Charlie → Eve  |  news
+  {
+    label: "C21 ChainBreaker News (Charlie→Eve, news)",
+    advertiser: "charlie", publisher: "eve",
+    requiredTagSlugs: ["topic:news"],
+    bidCpm: parseDOT("0.030"), budget: parseDOT("15"),
+    metaSuffix: "chainbreaker-news",
+  },
+  // C22: Bob → open  |  news+society
+  {
+    label: "C22 Civic3 (Bob→open, news+society)",
+    advertiser: "bob", publisher: "open",
+    requiredTagSlugs: ["topic:news", "topic:people-society"],
+    bidCpm: parseDOT("0.025"), budget: parseDOT("10"),
+    metaSuffix: "civic3",
+  },
+
+  // ── Long-tail / broad (2) ─────────────────────────────────────────────────
+  // C23: Bob → open  |  travel
+  {
+    label: "C23 TravelDAO (Bob→open, travel)",
+    advertiser: "bob", publisher: "open",
+    requiredTagSlugs: ["topic:travel"],
+    bidCpm: parseDOT("0.028"), budget: parseDOT("10"),
+    metaSuffix: "traveldao",
+  },
+  // C24: Charlie → open  |  no tags  |  broad fallback for all publishers
+  {
+    label: "C24 Polkadot Ecosystem (Charlie→open, no tags)",
+    advertiser: "charlie", publisher: "open",
     requiredTagSlugs: [],
-    bidCpm: parseDOT("0.010"), budget: parseDOT("15"),
+    bidCpm: parseDOT("0.020"), budget: parseDOT("20"),
     metaSuffix: "polkadot-ecosystem",
   },
 ];
@@ -303,17 +444,17 @@ async function main() {
   log("1", `Alice balance: ${formatDOT(aliceBal)} PAS`);
 
   const toFund: [string, Wallet, bigint][] = [
-    ["bob",     bob,     parseDOT("50")],
-    ["charlie", charlie, parseDOT("50")],
+    ["bob",     bob,     parseDOT("350")],  // 12 campaigns × ~22 PAS avg + gas
+    ["charlie", charlie, parseDOT("350")],  // 12 campaigns × ~22 PAS avg + gas
     ["diana",   diana,   parseDOT("50")],
     ["eve",     eve,     parseDOT("50")],
-    ["frank",   frank,   parseDOT("1000")], // needs lots for 8 votes
+    ["frank",   frank,   parseDOT("1500")], // 24 votes × 50 PAS (conviction=1, 2× weight) + buffer
     ["grace",   grace,   parseDOT("50")],
     ["heidi",   heidi,   parseDOT("100000000000")], // needs large balance for TX_OPTS fee pre-check
   ];
   for (const [name, wallet, amount] of toFund) {
     const bal = await rawProvider.getBalance(wallet.address);
-    const threshold = name === "frank" ? parseDOT("100") : name === "heidi" ? parseDOT("50000000000") : parseDOT("10");
+    const threshold = name === "frank" ? parseDOT("500") : name === "heidi" ? parseDOT("50000000000") : parseDOT("50");
     if (bal >= threshold) {
       log("1", `  ${name}: ${formatDOT(bal)} PAS — skipping`);
       continue;
@@ -359,12 +500,19 @@ async function main() {
   log("2", `  DEV:  ${devToken}`);
   log("2", `  FIT:  ${fitToken}`);
 
-  // Assign token rewards to campaign configs (patching in-place)
+  // Assign token rewards to campaign configs (indices match CAMPAIGN_CONFIGS above)
+  const R_PER = BigInt("1000000000000000"); // 0.001 token per impression (18 decimals)
+  const DEPOSIT = BigInt("1000") * 10n ** 18n; // 1000 tokens per campaign
   const tokenRewards: Record<number, { token: string; rewardPerImpression: bigint; deposit: bigint }> = {
-    0: { token: swapToken, rewardPerImpression: BigInt("1000000000000000"), deposit: BigInt("100") * BigInt("10") ** 18n }, // C1 SWAP
-    1: { token: devToken,  rewardPerImpression: BigInt("1000000000000000"), deposit: BigInt("100") * BigInt("10") ** 18n }, // C2 DEV
-    3: { token: fitToken,  rewardPerImpression: BigInt("1000000000000000"), deposit: BigInt("100") * BigInt("10") ** 18n }, // C4 FIT
-    4: { token: swapToken, rewardPerImpression: BigInt("1000000000000000"), deposit: BigInt("100") * BigInt("10") ** 18n }, // C5 SWAP
+     0: { token: swapToken, rewardPerImpression: R_PER, deposit: DEPOSIT }, // C1  SWAP (crypto+defi, Bob→Diana)
+     2: { token: devToken,  rewardPerImpression: R_PER, deposit: DEPOSIT }, // C3  DEV  (crypto+nfts, Bob→open)
+     4: { token: swapToken, rewardPerImpression: R_PER, deposit: DEPOSIT }, // C5  SWAP (crypto+polkadot, Bob→open)
+     6: { token: devToken,  rewardPerImpression: R_PER, deposit: DEPOSIT }, // C7  DEV  (finance, Charlie→Eve)
+    10: { token: devToken,  rewardPerImpression: R_PER, deposit: DEPOSIT }, // C11 DEV  (tech, Bob→Frank)
+    12: { token: swapToken, rewardPerImpression: R_PER, deposit: DEPOSIT }, // C13 SWAP (internet-telecom, Bob→open)
+    14: { token: swapToken, rewardPerImpression: R_PER, deposit: DEPOSIT }, // C15 SWAP (gaming, Charlie→Heidi)
+    17: { token: fitToken,  rewardPerImpression: R_PER, deposit: DEPOSIT }, // C18 FIT  (sports, Bob→Grace)
+    18: { token: fitToken,  rewardPerImpression: R_PER, deposit: DEPOSIT }, // C19 FIT  (health+fitness, Bob→Grace)
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -454,8 +602,10 @@ async function main() {
 
   const quorumRaw = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
   const quorum = BigInt(quorumRaw);
-  const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
-  log("7", `  Quorum: ${formatDOT(quorum)} PAS  |  vote stake: ${formatDOT(VOTE_STAKE)} PAS`);
+  // conviction=1 → 2× weight, so stake quorum/2 to meet quorum (halves Frank's balance requirement)
+  const CONVICTION = 1;
+  const VOTE_STAKE = quorum > parseDOT("10") ? quorum / 2n : parseDOT("2");
+  log("7", `  Quorum: ${formatDOT(quorum)} PAS  |  conviction=${CONVICTION}  |  stake per vote: ${formatDOT(VOTE_STAKE)} PAS`);
 
   const campaignIds: bigint[] = [];
 
@@ -525,7 +675,7 @@ async function main() {
     const cid = campaignIds[i];
     const label = `C${i + 1} (id=${cid})`;
     try {
-      await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote", [cid, true, 0], VOTE_STAKE);
+      await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote", [cid, true, CONVICTION], VOTE_STAKE);
       log("9", `  Frank voted aye on ${label}`);
     } catch (err) {
       log("9", `  vote failed for ${label}: ${String(err).slice(0, 100)}`);
@@ -595,7 +745,8 @@ async function main() {
     const cfg = CAMPAIGN_CONFIGS[i];
     const reward = tokenRewards[i];
     const cid = campaignIds[i];
-    console.log(`  ID ${cid.toString().padEnd(4)} ${cfg.label}${reward ? `  +${reward.token === swapToken ? "SWAP" : reward.token === devToken ? "DEV" : "FIT"} rewards` : ""}`);
+    const tokenName = reward ? (reward.token === swapToken ? "SWAP" : reward.token === devToken ? "DEV" : "FIT") : null;
+    console.log(`  ID ${cid.toString().padEnd(4)} ${cfg.label}${tokenName ? `  +${tokenName} rewards` : ""}`);
   }
   console.log("\nERC-20 Tokens:");
   console.log(`  SWAP: ${swapToken}`);

@@ -54,16 +54,21 @@ export function parseDOTSafe(dot: string): bigint {
 }
 
 /**
- * Format a planck amount to a human-readable DOT string with 3 decimal places.
+ * Format a planck amount to a human-readable DOT string.
+ * Uses 3 decimal places for amounts >= 0.001 DOT (10^7 planck).
+ * Auto-escalates to 6 decimal places for sub-milli amounts so small
+ * testnet earnings (e.g. 0.000118 DOT) are visible rather than "0.000".
  *
  * formatDOT(10_000_000_000n) → "1.000"
  * formatDOT(5_000_000_000n)  → "0.500"
+ * formatDOT(1_188_000n)      → "0.000118"
  */
 export function formatDOT(planck: bigint): string {
   if (planck < 0n) return `-${formatDOT(-planck)}`;
   const whole = planck / PLANCK_PER_DOT;
   const frac = planck % PLANCK_PER_DOT;
-  // 3 decimal places (milli-DOT precision)
-  const fracStr = frac.toString().padStart(10, "0").slice(0, 3);
+  // Use 6dp for sub-milli amounts so they aren't truncated to "0.000"
+  const dp = planck > 0n && planck < 10_000_000n ? 6 : 3;
+  const fracStr = frac.toString().padStart(10, "0").slice(0, dp);
   return `${whole}.${fracStr}`;
 }
