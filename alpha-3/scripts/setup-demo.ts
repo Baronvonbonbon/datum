@@ -91,11 +91,11 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     bidCpm: parseDOT("0.120"), budget: parseDOT("40"),
     metaSuffix: "chainswap-dex",
   },
-  // C3: Bob → open  |  crypto+nfts  |  DEV rewards
+  // C3: Bob → open  |  crypto+computers  |  DEV rewards
   {
-    label: "C3 NFT Launchpad (Bob→open, crypto+nfts)",
+    label: "C3 NFT Launchpad (Bob→open, crypto+tech)",
     advertiser: "bob", publisher: "open",
-    requiredTagSlugs: ["topic:crypto-web3", "topic:nfts"],
+    requiredTagSlugs: ["topic:crypto-web3", "topic:computers-electronics"],
     bidCpm: parseDOT("0.100"), budget: parseDOT("30"),
     metaSuffix: "nft-launchpad",
   },
@@ -107,11 +107,11 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     bidCpm: parseDOT("0.090"), budget: parseDOT("30"),
     metaSuffix: "yieldfarm-pro",
   },
-  // C5: Bob → open  |  crypto+polkadot  |  SWAP rewards
+  // C5: Bob → open  |  crypto+defi  |  SWAP rewards
   {
-    label: "C5 PolkaHub Bridge (Bob→open, crypto+polkadot)",
+    label: "C5 PolkaHub Bridge (Bob→open, crypto+defi)",
     advertiser: "bob", publisher: "open",
-    requiredTagSlugs: ["topic:crypto-web3", "topic:polkadot"],
+    requiredTagSlugs: ["topic:crypto-web3", "topic:defi"],
     bidCpm: parseDOT("0.085"), budget: parseDOT("25"),
     metaSuffix: "polkahub-bridge",
   },

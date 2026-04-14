@@ -42,7 +42,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "cryptohub.example",
     publisher: "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0", // diana
     tags: ["topic:crypto-web3", "topic:defi", "topic:computers-electronics", "locale:en"],
-    description: "Crypto & DeFi news — open to 3 campaigns (C1, C7, C8) → Vickrey 3-way auction",
+    description: "Crypto & DeFi news — campaigns C1–C6 + open fallbacks → Vickrey auction",
   },
   {
     id: "financedaily",
@@ -50,7 +50,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "financedaily.example",
     publisher: "0xD633C470d075Af508f4895e21A986183fEf35745", // eve
     tags: ["topic:finance", "topic:news", "topic:people-society", "locale:en"],
-    description: "Personal finance & markets — 2 campaigns (C2, C8) → Vickrey 2-way auction",
+    description: "Personal finance & markets — campaigns C7–C10 → Vickrey auction",
   },
   {
     id: "techblog",
@@ -58,7 +58,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "techblog.example",
     publisher: "0x92622970Bd48dD26c53bCCd09Aa6a0245dbc7620", // frank
     tags: ["topic:computers-electronics", "topic:science", "topic:internet-telecom", "locale:en"],
-    description: "Dev & tech — 2 campaigns (C3, C8) → Vickrey 2-way auction",
+    description: "Dev & tech — campaigns C11–C14 → Vickrey auction",
   },
   {
     id: "sportzone",
@@ -67,15 +67,15 @@ const DEMO_SITES: DemoSite[] = [
     publisher: "0xa9e2bd7Bd5a14E8add0023B4Ab56ed27BeABC92F", // grace
     tags: ["topic:sports", "topic:health", "topic:beauty-fitness", "locale:en"],
     allowlistEnabled: true,
-    description: "Sports & health — allowlist ON: only Bob's campaign (C4) wins → solo auction",
+    description: "Sports & health — allowlist ON: only Bob's campaigns (C18–C19) eligible → solo auction",
   },
   {
     id: "gamingworld",
     name: "GamingWorld",
     url: "gamingworld.example",
     publisher: "0x1563915e194D8CfBA1943570603F7606A3115508", // heidi
-    tags: ["topic:gaming", "topic:arts-entertainment", "topic:anime-manga", "locale:en"],
-    description: "Gaming & anime — 2 campaigns (C5, C6) → Vickrey 2-way auction",
+    tags: ["topic:gaming", "topic:arts-entertainment", "topic:hobbies-leisure", "locale:en"],
+    description: "Gaming & anime — campaigns C15–C17 → Vickrey auction",
   },
 ];
 
