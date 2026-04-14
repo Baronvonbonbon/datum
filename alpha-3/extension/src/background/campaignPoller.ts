@@ -244,8 +244,17 @@ export const campaignPoller = {
 
       await batchParallel(statusTasks, BATCH_SIZE);
 
-      // ── Phase 2b: Fetch tags for new campaigns ─────────────────────────
-      const tagTasks = newCampaignIds.map(id => async () => {
+      // ── Phase 2b: Fetch tags for new campaigns + any missing tags ────────
+      // Include new campaigns AND any cached campaigns with empty/missing requiredTags
+      // so the index self-heals across polls.
+      const tagFetchIds = [
+        ...newCampaignIds,
+        ...Object.keys(index).filter(id =>
+          !newCampaignIds.includes(id) &&
+          (!index[id].requiredTags || index[id].requiredTags!.length === 0)
+        ),
+      ];
+      const tagTasks = tagFetchIds.map(id => async () => {
         try {
           const tags: string[] = await contract.getCampaignTags(BigInt(id));
           if (tags.length > 0) index[id].requiredTags = tags;

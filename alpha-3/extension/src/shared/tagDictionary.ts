@@ -161,9 +161,7 @@ export function tagStringFromLabel(label: string): string | null {
 
 /** Reverse lookup: tag hash → tag string (if known) */
 export function tagStringFromHash(hash: string): string | null {
-  const label = TAG_HASH_TO_LABEL.get(hash.toLowerCase());
-  if (!label) return null;
-  return TAG_LABEL_TO_STRING.get(label) ?? null;
+  return TAG_HASH_TO_STRING.get(hash.toLowerCase()) ?? null;
 }
 
 /** @deprecated Use tag strings directly. Map from old categoryId to equivalent topic tag */
@@ -254,9 +252,12 @@ export const TAG_LABELS: Record<string, string> = {
 
 // Build reverse lookup: hash → display label
 const TAG_HASH_TO_LABEL = new Map<string, string>();
+// Build direct reverse lookup: hash → tag string (bypasses label indirection)
+const TAG_HASH_TO_STRING = new Map<string, string>();
 for (const tag of ALL_TAGS) {
   const hash = tagHash(tag);
   TAG_HASH_TO_LABEL.set(hash.toLowerCase(), TAG_LABELS[tag] ?? tag);
+  TAG_HASH_TO_STRING.set(hash.toLowerCase(), tag);
 }
 
 // Build reverse lookup: display label → tag string
