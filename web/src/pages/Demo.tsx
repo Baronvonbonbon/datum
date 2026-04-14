@@ -48,7 +48,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "financedaily",
     name: "FinanceDaily",
     url: "financedaily.example",
-    publisher: "0x9a4d76dA5a5F8Af3aDA3F3fB3e8fCA6aF52b9E20", // eve
+    publisher: "0xD633C470d075Af508f4895e21A986183fEf35745", // eve
     tags: ["topic:finance", "topic:news", "topic:people-society", "locale:en"],
     description: "Personal finance & markets — 2 campaigns (C2, C8) → Vickrey 2-way auction",
   },
@@ -56,7 +56,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "techblog",
     name: "TechBlog",
     url: "techblog.example",
-    publisher: "0x6B53BF5Fe3A48AaC31E1e9c5E16C9d6e4f9F5C01", // frank
+    publisher: "0x92622970Bd48dD26c53bCCd09Aa6a0245dbc7620", // frank
     tags: ["topic:computers-electronics", "topic:science", "topic:internet-telecom", "locale:en"],
     description: "Dev & tech — 2 campaigns (C3, C8) → Vickrey 2-way auction",
   },
@@ -64,7 +64,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "sportzone",
     name: "SportZone",
     url: "sportzone.example",
-    publisher: "0x2dD7cFCCe0bDABEB73e3FCd9b54b51Be95C12a07", // grace
+    publisher: "0xa9e2bd7Bd5a14E8add0023B4Ab56ed27BeABC92F", // grace
     tags: ["topic:sports", "topic:health", "topic:beauty-fitness", "locale:en"],
     allowlistEnabled: true,
     description: "Sports & health — allowlist ON: only Bob's campaign (C4) wins → solo auction",
@@ -219,31 +219,12 @@ export function Demo() {
   // connectedAddress: derived from debug info polling (updated every 3s)
   const connectedAddress = debugInfo?.connectedAddress ?? null;
 
-  // Auto-run the bridge once daemon is ready AND a wallet is connected.
-  // Fires when connectedAddress first becomes non-null (wallet connect event).
-  // Also retries every 8s if no campaigns found yet (poll still in progress).
-  const prevConnectedRef = useRef<string | null>(null);
+  // Poll campaign count once daemon is ready (no auction on connect — auction only on simulate)
   useEffect(() => {
-    if (!daemonReady || !connectedAddress) return;
-    // Only fire when address first appears (avoid re-running on every 3s debug tick)
-    if (prevConnectedRef.current === connectedAddress) return;
-    prevConnectedRef.current = connectedAddress;
-
-    let cancelled = false;
-    const run = async () => {
-      const site = DEMO_SITES[selectedSiteIdx];
-      await runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
-      if (cancelled) return;
-      const cached = await getCampaignCount();
-      setCampaignCount(cached);
-      if (cached === 0 && !cancelled) {
-        setTimeout(run, 8000);
-      }
-    };
-    run();
-    return () => { cancelled = true; };
+    if (!daemonReady) return;
+    getCampaignCount().then(setCampaignCount).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady, connectedAddress]);
+  }, [daemonReady]);
 
   // Set aggregated mode as default when daemon first becomes ready
   useEffect(() => {
@@ -309,6 +290,21 @@ export function Demo() {
     document.querySelectorAll("[data-datum-sim]").forEach((el) => el.remove());
   }, []);
 
+  // Pick the DEMO_SITES index whose tags best overlap the given topics.
+  // Returns a random site among tied best-scorers; falls back to 0 if all zero.
+  const pickSiteForTopics = useCallback((topics: BrowseTopic[]): number => {
+    const topicTags = new Set(topics.map((t) => `topic:${t.slug}`));
+    const scores = DEMO_SITES.map((site) =>
+      site.tags.filter((tag) => topicTags.has(tag)).length
+    );
+    const maxScore = Math.max(...scores);
+    const candidates = scores
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => s === maxScore && s > 0);
+    if (candidates.length === 0) return Math.floor(Math.random() * DEMO_SITES.length);
+    return candidates[Math.floor(Math.random() * candidates.length)].i;
+  }, []);
+
   // Simulate a page visit: inject metadata into DOM, update SDK tags, run bridge.
   // Accepts one topic (manual click) or an array (auto-tour multi-topic visit).
   const simulateVisit = useCallback(async (input: BrowseTopic | BrowseTopic[]) => {
@@ -360,8 +356,17 @@ export function Demo() {
     iabMeta.setAttribute("data-datum-sim", "1");
     document.head.appendChild(iabMeta);
 
-    // Update SDK data-tags with all simulated topics
+    // Auto-select the best matching publisher site for these topics
+    const siteIdx = pickSiteForTopics(topics);
+    const site = DEMO_SITES[siteIdx];
+    setSelectedSiteIdx(siteIdx);
+    setPublisherAddress(site.publisher);
+    setPublisherInput(site.publisher);
+    setSdkTagsInput(site.tags.join(","));
+
+    // Update SDK data-publisher + data-tags to match the auto-selected site
     if (sdkScriptRef.current) {
+      sdkScriptRef.current.setAttribute("data-publisher", site.publisher);
       sdkScriptRef.current.setAttribute("data-tags", topics.map((t) => `topic:${t.slug}`).join(",") + ",locale:en");
     }
 
@@ -371,7 +376,6 @@ export function Demo() {
 
     // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
     if (connectedAddress) {
-      const site = DEMO_SITES[selectedSiteIdx];
       await runContentBridge(site.publisher, setBridgeStatus, site.tags).catch(console.error);
     }
 
@@ -386,7 +390,7 @@ export function Demo() {
     });
     setSimulating(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daemonReady, simulating, selectedSiteIdx, connectedAddress, clearSimMeta]);
+  }, [daemonReady, simulating, pickSiteForTopics, connectedAddress, clearSimMeta]);
 
   // Pick 1-3 random topics, weighted: 55% single, 30% dual, 15% triple
   const pickRandomTopics = useCallback((): BrowseTopic[] => {
