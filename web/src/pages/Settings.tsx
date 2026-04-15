@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
+import { useContracts, type PineStatus } from "../hooks/useContracts";
 import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
@@ -30,6 +31,7 @@ const CONTRACT_LABELS: Record<string, string> = {
 export function Settings() {
   const { settings, updateSettings, setNetwork, setContractAddress, resetToDefaults } = useSettings();
   const { disconnect } = useWallet();
+  const { pineStatus } = useContracts();
   const [saved, setSaved] = useState(false);
   const [showContracts, setShowContracts] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
@@ -114,6 +116,7 @@ export function Settings() {
             <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 4, marginLeft: 24 }}>
               Connects directly to the Polkadot network via smoldot. Initial sync takes a few seconds.
             </div>
+            {settings.usePine && <PineStatusPanel status={pineStatus} />}
           </div>
         )}
       </Section>
@@ -319,6 +322,73 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
       <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+function PineStatusPanel({ status }: { status: PineStatus }) {
+  const rows: { label: string; value: React.ReactNode }[] = [
+    {
+      label: "Transport",
+      value: "smoldot v2 (in-browser light client)",
+    },
+    {
+      label: "Network",
+      value: "Paseo → Asset Hub (paraId 1000)",
+    },
+    {
+      label: "Status",
+      value: (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span
+            className={status === "connecting" ? "nano-pine-syncing" : undefined}
+            style={{
+              width: 7, height: 7, borderRadius: "50%", display: "inline-block", flexShrink: 0,
+              background:
+                status === "connected" ? "var(--ok)" :
+                status === "connecting" ? "var(--warn)" :
+                status === "error" ? "var(--error)" : "var(--text-dim)",
+            }}
+          />
+          {status === "connected" && <span style={{ color: "var(--ok)" }}>Connected — light client active</span>}
+          {status === "connecting" && (
+            <span style={{ color: "var(--warn)" }} className="nano-pending-text">
+              Syncing p2p network
+              <span className="nano-pending-dots" style={{ marginLeft: 1 }}>
+                <span>.</span><span>.</span><span>.</span>
+              </span>
+            </span>
+          )}
+          {status === "error" && <span style={{ color: "var(--error)" }}>Connection failed — retrying</span>}
+          {status === "off" && <span style={{ color: "var(--text-dim)" }}>Disabled</span>}
+        </span>
+      ),
+    },
+    {
+      label: "Mode",
+      value: status === "connected"
+        ? "Decentralized — no RPC proxy"
+        : "Falling back to centralized RPC during sync",
+    },
+  ];
+
+  return (
+    <div style={{
+      marginTop: 10,
+      marginLeft: 24,
+      padding: "10px 12px",
+      borderRadius: 6,
+      background: "var(--bg-raised)",
+      border: "1px solid var(--border)",
+      fontSize: 11,
+      fontFamily: "var(--font-mono)",
+    }}>
+      {rows.map(({ label, value }) => (
+        <div key={label} style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "center" }}>
+          <span style={{ color: "var(--text-dim)", minWidth: 72 }}>{label}</span>
+          <span style={{ color: "var(--text)" }}>{value}</span>
+        </div>
+      ))}
     </div>
   );
 }

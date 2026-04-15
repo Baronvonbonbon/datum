@@ -430,6 +430,8 @@ pre {
 
 .nano-block-flash  { animation: block-flash 600ms ease-out forwards; }
 .nano-heartbeat    { animation: heartbeat 2.4s ease-in-out infinite; }
+@keyframes pine-sync { 0%,100% { box-shadow: 0 0 3px var(--warn); opacity: 1; } 50% { box-shadow: 0 0 10px rgba(251,191,36,0.5); opacity: 0.6; } }
+.nano-pine-syncing { animation: pine-sync 1.6s ease-in-out infinite; }
 .nano-pending-text { animation: nano-pulse-text 1.8s ease-in-out infinite; }
 
 .nano-pending-dots span {

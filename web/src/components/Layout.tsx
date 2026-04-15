@@ -127,15 +127,19 @@ export function Layout() {
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
             {pineStatus !== "off" && (
-              <span style={{
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                padding: "1px 5px",
-                borderRadius: 3,
-                background: pineStatus === "connected" ? "var(--ok)" : pineStatus === "connecting" ? "var(--warn)" : "var(--error)",
-                color: "#000",
-              }}>
+              <span
+                className={pineStatus === "connecting" ? "nano-pine-syncing" : undefined}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: pineStatus === "connected" ? "var(--ok)" : pineStatus === "connecting" ? "rgba(251,191,36,0.15)" : "rgba(248,113,113,0.15)",
+                  border: `1px solid ${pineStatus === "connected" ? "rgba(74,222,128,0.4)" : pineStatus === "connecting" ? "rgba(251,191,36,0.4)" : "rgba(248,113,113,0.4)"}`,
+                  color: pineStatus === "connected" ? "#000" : pineStatus === "connecting" ? "var(--warn)" : "var(--error)",
+                }}
+              >
                 {pineStatus === "connected" ? "PINE" : pineStatus === "connecting" ? "PINE..." : "PINE ERR"}
               </span>
             )}
