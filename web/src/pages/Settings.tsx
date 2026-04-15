@@ -101,6 +101,21 @@ export function Settings() {
             </div>
           )}
         </div>
+        {NETWORK_CONFIGS[settings.network]?.pineChain && (
+          <div style={{ marginTop: 12 }}>
+            <label style={{ color: "var(--text)", fontSize: 12, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={!!settings.usePine}
+                onChange={(e) => updateSettings({ usePine: e.target.checked })}
+              />
+              Use Pine light client (decentralized, no RPC proxy)
+            </label>
+            <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 4, marginLeft: 24 }}>
+              Connects directly to the Polkadot network via smoldot. Initial sync takes a few seconds.
+            </div>
+          </div>
+        )}
       </Section>
 
       {/* IPFS Pinning */}

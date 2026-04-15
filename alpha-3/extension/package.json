@@ -15,6 +15,7 @@
     "@polkadot/extension-dapp": "^0.61.7",
     "@polkadot/extension-inject": "^0.61.7",
     "ethers": "^6.13.4",
+    "pine-rpc": "file:../../pine",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "snarkjs": "^0.7.6"

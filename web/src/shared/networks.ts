@@ -37,7 +37,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   tokenRewardVault: "",
 };
 
-export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; explorerUrl: string; addresses: ContractAddresses }> = {
+export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; explorerUrl: string; addresses: ContractAddresses; pineChain?: string }> = {
   local: {
     name: "Local Devnet",
     chainId: 31337,
@@ -50,6 +50,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     chainId: 420420417,
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
     explorerUrl: "https://blockscout-testnet.polkadot.io",
+    pineChain: "paseo-asset-hub",
     addresses: {
       // Alpha-3 v7 — Settlement redeployed (BM-10) on Paseo 2026-04-07
       campaigns: "0xb181415cd7C59fe182A3DeF20546b6d6089CD394",
@@ -112,6 +113,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     chainId: 420420421,
     rpcUrl: "https://westend-asset-hub-eth-rpc.polkadot.io",
     explorerUrl: "https://blockscout-westend.polkadot.io",
+    pineChain: "westend-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
   kusama: {
@@ -119,6 +121,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     chainId: 420420424,
     rpcUrl: "https://kusama-asset-hub-eth-rpc.polkadot.io",
     explorerUrl: "https://blockscout-kusama.polkadot.io",
+    pineChain: "kusama-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
   polkadotHub: {
@@ -126,6 +129,7 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     chainId: 420420416,
     rpcUrl: "https://polkadot-asset-hub-eth-rpc.polkadot.io",
     explorerUrl: "https://blockscout.polkadot.io",
+    pineChain: "polkadot-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
 };

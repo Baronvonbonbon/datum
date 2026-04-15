@@ -1,0 +1,58 @@
+{
+  "name": "pine-rpc",
+  "version": "0.1.0",
+  "description": "Pine Is Not an Emulator — eth-rpc to smoldot translation layer for pallet-revive on Polkadot Asset Hub",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./chainspecs/*": "./dist/chainspecs/*"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@polkadot-api/known-chains": "^0.11.1",
+    "@polkadot-api/smoldot": "^0.3.10",
+    "@polkadot-api/substrate-client": "^0.4.1",
+    "smoldot": "^2.0.36",
+    "xxhash-wasm": "^1.1.0"
+  },
+  "peerDependencies": {
+    "ethers": "^6.0.0"
+  },
+  "devDependencies": {
+    "ethers": "^6.13.4",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "polkadot",
+    "pallet-revive",
+    "eth-rpc",
+    "smoldot",
+    "light-client",
+    "asset-hub"
+  ],
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicegraf/pine-rpc"
+  }
+}

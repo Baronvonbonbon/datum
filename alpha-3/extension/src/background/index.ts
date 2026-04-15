@@ -14,11 +14,11 @@ import { appendEvent, cleanupTerminalChains } from "./behaviorChain";
 import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
-import { DEFAULT_SETTINGS } from "@shared/networks";
+import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
-import { getPaymentVaultContract, getSettlementContract } from "@shared/contracts";
+import { getPaymentVaultContract, getSettlementContract, getPineProvider } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
@@ -968,6 +968,15 @@ async function handleMessage(
       }
       const s2 = await getSettings();
       try {
+        // Use Pine light client if enabled, fall back to centralized RPC
+        const pineChain = s2.usePine ? NETWORK_CONFIGS[s2.network]?.pineChain : undefined;
+        if (pineChain) {
+          const pineProvider = await getPineProvider(pineChain);
+          if (pineProvider) {
+            const result = await pineProvider.send(msg.method, msg.params ?? []);
+            return { result };
+          }
+        }
         const provider = new JsonRpcProvider(s2.rpcUrl);
         const result = await provider.send(msg.method, msg.params ?? []);
         return { result };

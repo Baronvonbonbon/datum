@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { Contract, JsonRpcProvider, Signer } from "ethers";
+import { BrowserProvider, Contract, JsonRpcProvider, Signer } from "ethers";
 import DatumCampaignsAbi from "./abis/DatumCampaigns.json";
 import DatumPublishersAbi from "./abis/DatumPublishers.json";
 import DatumGovernanceV2Abi from "./abis/DatumGovernanceV2.json";
@@ -22,7 +22,7 @@ import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
 import { ContractAddresses } from "./types";
 
-type Provider = JsonRpcProvider;
+type Provider = JsonRpcProvider | BrowserProvider;
 
 // ABI JSON files may be either a bare array [...] or a Hardhat artifact { abi: [...] }.
 // Normalize so both formats work.
@@ -40,6 +40,34 @@ function make(address: string, abiArr: any[], provider: Provider | Signer): any 
 
 export function getProvider(rpcUrl: string): JsonRpcProvider {
   return new JsonRpcProvider(rpcUrl);
+}
+
+/** Singleton Pine provider — reused across requests to avoid re-syncing smoldot */
+let pineProviderCache: { chain: string; promise: Promise<BrowserProvider> } | null = null;
+
+/**
+ * Get a Pine-backed BrowserProvider for the given chain.
+ * Reuses the same smoldot instance if the chain hasn't changed.
+ * Returns null if Pine is not available or fails to connect.
+ */
+export async function getPineProvider(pineChain: string): Promise<BrowserProvider | null> {
+  try {
+    if (pineProviderCache && pineProviderCache.chain === pineChain) {
+      return pineProviderCache.promise;
+    }
+    const promise = (async () => {
+      const { PineProvider } = await import("pine-rpc");
+      const pine = new PineProvider({ chain: pineChain as import("pine-rpc").ChainPreset });
+      await pine.connect();
+      return new BrowserProvider(pine);
+    })();
+    pineProviderCache = { chain: pineChain, promise };
+    return await promise;
+  } catch {
+    // Pine unavailable — caller should fall back to centralized RPC
+    pineProviderCache = null;
+    return null;
+  }
 }
 
 export function getCampaignsContract(addresses: ContractAddresses, provider: Provider | Signer) {

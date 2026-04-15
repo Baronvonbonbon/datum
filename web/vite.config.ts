@@ -16,7 +16,7 @@ export default defineConfig({
      * from web/node_modules, not from the extension's own node_modules (which
      * isn't installed in CI/Cloudflare where only `cd web && npm install` runs).
      */
-    dedupe: ["ethers", "react", "react-dom", "@noble/hashes"],
+    dedupe: ["ethers", "react", "react-dom", "@noble/hashes", "pine-rpc"],
 
     alias: [
       /**

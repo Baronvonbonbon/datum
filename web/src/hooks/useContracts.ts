@@ -1,7 +1,8 @@
-import { useMemo } from "react";
-import { JsonRpcProvider } from "ethers";
+import { useEffect, useMemo, useState } from "react";
+import { BrowserProvider, JsonRpcProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
+import { NETWORK_CONFIGS } from "@shared/networks";
 import {
   getCampaignsContract,
   getPublishersContract,
@@ -24,14 +25,45 @@ import {
   getReputationContract,
   getTokenRewardVaultContract,
   getProvider,
+  getPineProvider,
 } from "@shared/contracts";
+
+export type PineStatus = "off" | "connecting" | "connected" | "error";
 
 export function useContracts() {
   const { settings } = useSettings();
   const { signer } = useWallet();
+  const [pineProvider, setPineProvider] = useState<BrowserProvider | null>(null);
+  const [pineStatus, setPineStatus] = useState<PineStatus>("off");
+
+  // Async Pine initialization — falls back to centralized RPC while connecting
+  const pineChain = settings.usePine
+    ? NETWORK_CONFIGS[settings.network]?.pineChain
+    : undefined;
+
+  useEffect(() => {
+    if (!pineChain) {
+      setPineProvider(null);
+      setPineStatus("off");
+      return;
+    }
+    setPineStatus("connecting");
+    let cancelled = false;
+    getPineProvider(pineChain).then((p) => {
+      if (cancelled) return;
+      if (p) {
+        setPineProvider(p);
+        setPineStatus("connected");
+      } else {
+        setPineStatus("error");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [pineChain]);
 
   return useMemo(() => {
-    const provider: JsonRpcProvider | ReturnType<typeof Object> = signer ?? getProvider(settings.rpcUrl);
+    const provider = signer ?? pineProvider ?? getProvider(settings.rpcUrl);
+    const readProvider = pineProvider ?? getProvider(settings.rpcUrl);
     const addrs = settings.contractAddresses;
     return {
       campaigns: getCampaignsContract(addrs, provider),
@@ -54,8 +86,11 @@ export function useContracts() {
       rateLimiter: getRateLimiterContract(addrs, provider),
       reputation: getReputationContract(addrs, provider),
       tokenRewardVault: getTokenRewardVaultContract(addrs, provider),
-      // Read-only provider for cases that don't need a signer
-      readProvider: getProvider(settings.rpcUrl),
+      readProvider,
+      /** True when Pine light client is active */
+      usingPine: !!pineProvider,
+      /** Pine connection status */
+      pineStatus,
     };
-  }, [settings.contractAddresses, settings.rpcUrl, signer]);
+  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus]);
 }

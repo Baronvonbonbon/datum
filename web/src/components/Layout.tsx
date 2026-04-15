@@ -9,6 +9,7 @@ import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
+import { useContracts } from "../hooks/useContracts";
 import { JsonRpcProvider } from "ethers";
 
 /** Animates the block number ticking up when it changes. */
@@ -72,6 +73,7 @@ export function Layout() {
   const { settings, updateSettings } = useSettings();
   const { isAdvertiser, isPublisher, isVoter } = useRoles();
   const protocolPaused = usePaused();
+  const { pineStatus } = useContracts();
   const [showConnect, setShowConnect] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -124,6 +126,19 @@ export function Layout() {
                 </span>
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
+            {pineStatus !== "off" && (
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                padding: "1px 5px",
+                borderRadius: 3,
+                background: pineStatus === "connected" ? "var(--ok)" : pineStatus === "connecting" ? "var(--warn)" : "var(--error)",
+                color: "#000",
+              }}>
+                {pineStatus === "connected" ? "PINE" : pineStatus === "connecting" ? "PINE..." : "PINE ERR"}
+              </span>
+            )}
           </div>
         </div>
 

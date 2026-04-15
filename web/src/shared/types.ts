@@ -294,4 +294,6 @@ export interface WebAppSettings {
   /** Only used when ipfsProvider === "custom" */
   ipfsApiEndpoint: string;
   theme: ThemeName;
+  /** Use Pine light client instead of centralized RPC (default: false) */
+  usePine?: boolean;
 }

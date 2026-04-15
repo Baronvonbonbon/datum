@@ -40,7 +40,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 
 export const NETWORK_CONFIGS: Record<
   NetworkName,
-  { rpcUrl: string; addresses: ContractAddresses }
+  { rpcUrl: string; addresses: ContractAddresses; pineChain?: string }
 > = {
   local: {
     rpcUrl: "http://localhost:8545",
@@ -48,6 +48,7 @@ export const NETWORK_CONFIGS: Record<
   },
   polkadotTestnet: {
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
+    pineChain: "paseo-asset-hub",
     addresses: {
       // Alpha-3 v6 — 21 contracts redeployed on Paseo 2026-04-06
       campaigns:           "0xb181415cd7C59fe182A3DeF20546b6d6089CD394",
@@ -75,14 +76,17 @@ export const NETWORK_CONFIGS: Record<
   },
   westend: {
     rpcUrl: "https://westend-asset-hub-eth-rpc.polkadot.io",
+    pineChain: "westend-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
   kusama: {
     rpcUrl: "https://kusama-asset-hub-eth-rpc.polkadot.io",
+    pineChain: "kusama-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
   polkadotHub: {
     rpcUrl: "https://polkadot-asset-hub-eth-rpc.polkadot.io",
+    pineChain: "polkadot-asset-hub",
     addresses: { ...EMPTY_ADDRESSES },
   },
 };

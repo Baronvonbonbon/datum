@@ -323,6 +323,8 @@ export interface StoredSettings {
   contractAddresses: ContractAddresses;
   ipfsGateway: string;
   pinataApiKey: string;
+  /** Use Pine light client instead of centralized RPC (default: false) */
+  usePine?: boolean;
 }
 
 export type NetworkName = "local" | "polkadotTestnet" | "westend" | "kusama" | "polkadotHub";

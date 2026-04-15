@@ -451,6 +451,23 @@ export function Settings({ address }: { address: string | null }) {
         )}
       </div>
 
+      {/* Pine light client toggle */}
+      {NETWORK_CONFIGS[settings.network]?.pineChain && (
+        <div style={sectionStyle}>
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={!!settings.usePine}
+              onChange={(e) => setSettings((s) => ({ ...s, usePine: e.target.checked }))}
+            />
+            Use Pine light client
+          </label>
+          <div style={{ color: "var(--text-dim)", fontSize: 10, marginTop: 2, marginLeft: 20 }}>
+            Connect directly to the network via smoldot — no centralized RPC proxy needed.
+          </div>
+        </div>
+      )}
+
       {/* Contract addresses */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
