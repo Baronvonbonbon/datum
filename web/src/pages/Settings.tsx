@@ -3,7 +3,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
-import { IPFS_PROVIDERS, testPinConfig } from "@shared/ipfsPin";
+import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
 import { IpfsProvider } from "@shared/types";
 
 const CONTRACT_LABELS: Record<string, string> = {
@@ -111,7 +111,12 @@ export function Settings() {
             <select
               value={provider}
               onChange={(e) => {
-                updateSettings({ ipfsProvider: e.target.value as IpfsProvider });
+                const p = e.target.value as IpfsProvider;
+                updateSettings({
+                  ipfsProvider: p,
+                  // Auto-set gateway when switching to self-hosted
+                  ...(p === "selfhosted" ? { ipfsGateway: SELFHOSTED_GATEWAY_URL } : {}),
+                });
                 setTestStatus("idle");
                 setTestMsg("");
               }}
@@ -124,6 +129,11 @@ export function Settings() {
             </select>
             <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
               Required to upload metadata when creating campaigns. Leave blank to use IPFS gateways for viewing only.
+              {provider === "selfhosted" && (
+                <span style={{ color: "var(--ok)", marginLeft: 6 }}>
+                  Local node at ipfs.datum.javcon.io — no rate limits, 1 GB cap.
+                </span>
+              )}
             </div>
           </div>
 

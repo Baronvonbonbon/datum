@@ -277,6 +277,7 @@ export type IpfsProvider =
   | "web3storage"
   | "filebase"
   | "nftstorage"
+  | "selfhosted"
   | "custom";
 
 export type ThemeName = "dark" | "light";

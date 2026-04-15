@@ -1,5 +1,8 @@
 // IPFS pinning utility for campaign metadata.
-// Supports Pinata, Web3.Storage, Filebase, NFT.Storage, and custom endpoints.
+// Supports Pinata, Web3.Storage, Filebase, NFT.Storage, self-hosted Datum node, and custom endpoints.
+
+export const SELFHOSTED_UPLOAD_URL = "https://ipfs.datum.javcon.io/add";
+export const SELFHOSTED_GATEWAY_URL = "https://ipfs.datum.javcon.io";
 
 import { CampaignMetadata, IpfsProvider } from "./types";
 
@@ -54,6 +57,13 @@ export const IPFS_PROVIDERS: Record<IpfsProvider, ProviderInfo> = {
     placeholder: "eyJ... (API token)",
     keyLabel: "NFT.Storage API Token",
     docsUrl: "https://nft.storage/manage/",
+    needsEndpoint: false,
+  },
+  selfhosted: {
+    label: "Self-hosted (Datum Node)",
+    placeholder: "IPFS_API_KEY from ipfs-node/.env",
+    keyLabel: "IPFS_API_KEY",
+    docsUrl: "",
     needsEndpoint: false,
   },
   custom: {
@@ -202,17 +212,18 @@ async function pinViaCustom(apiKey: string, endpoint: string, metadata: Campaign
  */
 export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): Promise<PinResult> {
   const key = config.apiKey.trim();
-  if (!key && config.provider !== "custom") {
+  if (!key && config.provider !== "custom" && config.provider !== "selfhosted") {
     return { ok: false, error: `No API key configured for ${IPFS_PROVIDERS[config.provider].label}. Add it in Settings.` };
   }
 
   try {
     switch (config.provider) {
-      case "pinata":     return await pinViaPinata(key, metadata);
+      case "pinata":      return await pinViaPinata(key, metadata);
       case "web3storage": return await pinViaWeb3Storage(key, metadata);
-      case "filebase":   return await pinViaFilebase(key, metadata);
-      case "nftstorage": return await pinViaNftStorage(key, metadata);
-      case "custom":     return await pinViaCustom(key, config.endpoint ?? "", metadata);
+      case "filebase":    return await pinViaFilebase(key, metadata);
+      case "nftstorage":  return await pinViaNftStorage(key, metadata);
+      case "selfhosted":  return await pinViaCustom(key, SELFHOSTED_UPLOAD_URL, metadata);
+      case "custom":      return await pinViaCustom(key, config.endpoint ?? "", metadata);
     }
   } catch (err) {
     return { ok: false, error: `Pin failed: ${String(err).slice(0, 200)}` };
@@ -253,6 +264,11 @@ export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; e
         });
         if (r.ok) return { ok: true };
         return { ok: false, error: `Auth failed: ${r.status}` };
+      }
+      case "selfhosted": {
+        const r = await fetch(`${SELFHOSTED_GATEWAY_URL}/health`);
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Datum node unreachable: ${r.status}` };
       }
       case "custom": {
         if (!config.endpoint?.trim()) return { ok: false, error: "No endpoint URL set" };
