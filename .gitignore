@@ -2,6 +2,7 @@ node_modules/
 dist/
 artifacts/
 cache/
+!pine/src/cache/
 typechain-types/
 alpha-2/S12-BLOCKLIST-ANALYSIS.md
 archive/alpha/deployments/
