@@ -10,6 +10,11 @@ const EXT_MARKER = `${path.sep}alpha-3${path.sep}extension${path.sep}src${path.s
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    // smoldot manages its own WASM/Worker loading — exclude from esbuild pre-bundling
+    // so Vite doesn't choke on its subpath exports (./no-auto-bytecode, ./bytecode)
+    exclude: ["smoldot"],
+  },
   resolve: {
     /**
      * Force bare-module imports from extension source files to always resolve

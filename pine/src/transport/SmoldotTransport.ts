@@ -141,10 +141,8 @@ export class SmoldotTransport {
 
     if (isServiceWorker) {
       // Use startWithBytecode which runs WASM on the same thread.
-      // @ts-expect-error — smoldot subpath exports lack type declarations
-      const { startWithBytecode } = await import("smoldot/no-auto-bytecode-browser");
-      // @ts-expect-error — smoldot subpath exports lack type declarations
-      const { compileBytecode } = await import("smoldot/bytecode-browser");
+      const { startWithBytecode } = await import(/* @vite-ignore */ "smoldot/no-auto-bytecode");
+      const { compileBytecode } = await import(/* @vite-ignore */ "smoldot/bytecode");
       const bytecode = await compileBytecode();
       return startWithBytecode({
         bytecode,
