@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from "react";
-import { JsonRpcProvider } from "ethers";
+import type { BrowserProvider, JsonRpcProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
+import { useContracts } from "./useContracts";
 
 export function useBlock() {
   const { settings } = useSettings();
+  const { readProvider, pineStatus } = useContracts();
   const [blockNumber, setBlockNumber] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!settings.rpcUrl) return;
+    const provider = readProvider as BrowserProvider | JsonRpcProvider;
+    if (!provider) return;
 
     async function poll() {
       try {
-        const provider = new JsonRpcProvider(settings.rpcUrl);
         const n = await provider.getBlockNumber();
         setBlockNumber(n);
         setConnected(true);
@@ -25,7 +27,6 @@ export function useBlock() {
     poll();
     intervalRef.current = setInterval(poll, 10_000);
 
-    // Immediate refresh when tab regains focus (e.g. after signing in wallet)
     const onVisible = () => { if (document.visibilityState === "visible") poll(); };
     document.addEventListener("visibilitychange", onVisible);
 
@@ -33,7 +34,8 @@ export function useBlock() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [settings.rpcUrl]);
+  // Re-run when the active provider changes (Pine connects/disconnects or rpcUrl changes)
+  }, [readProvider, settings.rpcUrl, pineStatus]);
 
   return { blockNumber, connected };
 }
