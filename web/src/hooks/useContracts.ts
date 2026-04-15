@@ -49,15 +49,23 @@ export function useContracts() {
     }
     setPineStatus("connecting");
     let cancelled = false;
-    getPineProvider(pineChain).then((p) => {
+
+    async function tryConnect(attemptsLeft: number) {
+      const p = await getPineProvider(pineChain!);
       if (cancelled) return;
       if (p) {
         setPineProvider(p);
         setPineStatus("connected");
+      } else if (attemptsLeft > 0) {
+        // smoldot first-sync can take >30s; retry up to 3× with 15s gaps
+        await new Promise<void>((r) => setTimeout(r, 15_000));
+        if (!cancelled) tryConnect(attemptsLeft - 1);
       } else {
         setPineStatus("error");
       }
-    });
+    }
+
+    tryConnect(3);
     return () => { cancelled = true; };
   }, [pineChain]);
 

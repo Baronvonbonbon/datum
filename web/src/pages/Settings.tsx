@@ -359,7 +359,7 @@ function PineStatusPanel({ status }: { status: PineStatus }) {
               </span>
             </span>
           )}
-          {status === "error" && <span style={{ color: "var(--error)" }}>Connection failed — retrying</span>}
+          {status === "error" && <span style={{ color: "var(--error)" }}>Connection failed — retrying in 15s</span>}
           {status === "off" && <span style={{ color: "var(--text-dim)" }}>Disabled</span>}
         </span>
       ),

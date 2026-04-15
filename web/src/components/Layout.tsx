@@ -140,7 +140,7 @@ export function Layout() {
                   color: pineStatus === "connected" ? "#000" : pineStatus === "connecting" ? "var(--warn)" : "var(--error)",
                 }}
               >
-                {pineStatus === "connected" ? "PINE" : pineStatus === "connecting" ? "PINE..." : "PINE ERR"}
+                {pineStatus === "connected" ? "PINE" : pineStatus === "connecting" ? "PINE…" : "PINE ERR"}
               </span>
             )}
           </div>

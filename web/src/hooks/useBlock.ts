@@ -35,7 +35,10 @@ export function useBlock() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   // Re-run when the active provider changes (Pine connects/disconnects or rpcUrl changes)
-  }, [readProvider, settings.rpcUrl, pineStatus]);
+  // readProvider already captures rpcUrl (changes when rpcUrl changes and Pine is off).
+  // Including rpcUrl directly causes spurious re-runs while Pine is active, briefly
+  // flashing "Disconnected" on every rpcUrl edit even though Pine is the active provider.
+  }, [readProvider, pineStatus]);
 
   return { blockNumber, connected };
 }
