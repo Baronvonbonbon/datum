@@ -184,11 +184,35 @@ async function main() {
       type: "SELECT_CAMPAIGN",
       campaigns: pool,
       pageCategory: category ?? "",
+      pageTags: tags,  // pass page tag strings so auction can weight tagless campaigns
     });
   } catch { return; } // background inactive
   let match = selectionResponse?.selected ?? null;
   const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
   const auctionMechanism: string | undefined = selectionResponse?.mechanism;
+
+  // Dispatch auction debug event for demo/debug pages to consume
+  try {
+    const debugDetail = {
+      timestamp: Date.now(),
+      pageTags: tags,
+      pageCategory: category,
+      poolSize: pool.length,
+      winnerId: match?.id ?? match?.campaignId ?? null,
+      mechanism: auctionMechanism ?? (match ? "legacy" : "none"),
+      clearingCpmPlanck: clearingCpmPlanck ?? null,
+      participants: selectionResponse?.participants ?? 0,
+      allBids: selectionResponse?.allBids ?? [],
+      campaigns: pool.map((c: any) => ({
+        id: c.id,
+        bidCpmPlanck: c.bidCpmPlanck,
+        requiredTags: c.requiredTags ?? [],
+        publisher: c.publisher,
+        status: c.status,
+      })),
+    };
+    window.dispatchEvent(new CustomEvent("datum-auction-debug", { detail: debugDetail }));
+  } catch { /* non-critical */ }
 
   // If background returned null (all campaigns blocked/filtered), show house ad
   if (!match) {

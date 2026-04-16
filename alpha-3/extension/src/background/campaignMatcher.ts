@@ -37,17 +37,26 @@ function scoreCampaign(
     if (matchCount > 0) interestWeight /= matchCount;
   }
 
+  // Resolve page category tag once for multiple uses below
+  const pageCategoryTag = pageCategory ? tagStringFromSlug(pageCategory) : null;
+
+  // Fallback for tagless campaigns: use page category for profile weight
+  if (tags.length === 0 && pageCategoryTag) {
+    interestWeight = profile.weights[pageCategoryTag] ?? 0;
+    matchCount = 1;
+  }
+
   // Confidence: saturates at 20 visits
-  // Use first matched tag string for visit count lookup
   let visitKey = "";
   if (tags.length > 0) {
     visitKey = tagStringFromHash(tags[0]) ?? "";
+  } else if (pageCategoryTag) {
+    visitKey = pageCategoryTag;
   }
   const visits = visitKey ? (profile.visitCounts[visitKey] ?? 0) : 0;
   const confidence = Math.min(visits, 20) / 20;
 
   // Contextual boost: 50% bonus when page category matches campaign category
-  const pageCategoryTag = tagStringFromSlug(pageCategory);
   let pageBoost = 1.0;
   if (pageCategoryTag && tags.length > 0) {
     for (const hash of tags) {

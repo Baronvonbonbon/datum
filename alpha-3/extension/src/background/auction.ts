@@ -4,6 +4,8 @@
 //
 // TX-3: Tag-based interest weighting. Campaigns carry requiredTags (bytes32[]).
 // Interest weight = average tag weight from profile using tag strings.
+// Tagless campaigns (requiredTags=[]) use page tags as fallback — the user's
+// interest in the current page topic determines the effective bid.
 
 import { UserInterestProfile } from "./interestProfile";
 import { tagStringFromHash } from "@shared/tagDictionary";
@@ -35,17 +37,21 @@ export interface AuctionResult {
 /**
  * Run second-price auction over eligible campaigns for a given page.
  * Returns winner + clearing CPM, or null if no candidates.
+ *
+ * @param pageTags - tag strings for the current page (e.g., ["topic:finance", "locale:en"]).
+ *   Used as fallback interest signal for campaigns without requiredTags.
  */
 export function auctionForPage(
   campaigns: CampaignCandidate[],
   pageCategories: Record<string, number>,
   profile: UserInterestProfile,
+  pageTags?: string[],
 ): AuctionResult | null {
   if (campaigns.length === 0) return null;
 
   // Compute effective bids
   const scored = campaigns.map((c) => {
-    const interestWeight = Math.max(getTagWeight(profile, c), 0.1);
+    const interestWeight = Math.max(getTagWeight(profile, c, pageTags), 0.1);
     const bidCpm = BigInt(c.bidCpmPlanck);
     // effectiveBid in micro-planck (multiply by 1000 for precision)
     const effectiveBid = bidCpm * BigInt(Math.round(interestWeight * 1000));
@@ -115,8 +121,17 @@ export function auctionForPage(
  * TX-3: Get interest weight for a campaign using tag-based matching.
  * Uses requiredTags → tag strings → profile weights.
  * Returns the average weight across all matched tags.
+ *
+ * Fallback for tagless campaigns: uses page tags from the content script
+ * (the page's classified topics) to look up the user's profile weight.
+ * This ensures generic/open campaigns still benefit from interest-based pricing.
  */
-function getTagWeight(profile: UserInterestProfile, c: CampaignCandidate): number {
+function getTagWeight(
+  profile: UserInterestProfile,
+  c: CampaignCandidate,
+  pageTags?: string[],
+): number {
+  // Campaign has explicit required tags — use those
   if (c.requiredTags && c.requiredTags.length > 0) {
     let totalWeight = 0;
     let matchCount = 0;
@@ -127,6 +142,21 @@ function getTagWeight(profile: UserInterestProfile, c: CampaignCandidate): numbe
         totalWeight += profile.weights[tagStr] ?? 0;
         matchCount++;
       }
+    }
+    return matchCount > 0 ? totalWeight / matchCount : 0;
+  }
+
+  // Tagless campaign: use page's topic tags as context signal.
+  // Average the user's profile weight across the page's topics.
+  if (pageTags && pageTags.length > 0) {
+    let totalWeight = 0;
+    let matchCount = 0;
+    for (const tag of pageTags) {
+      // Only use topic tags for interest weighting (skip locale/platform)
+      if (!tag.startsWith("topic:")) continue;
+      const w = profile.weights[tag] ?? 0;
+      totalWeight += w;
+      matchCount++;
     }
     return matchCount > 0 ? totalWeight / matchCount : 0;
   }

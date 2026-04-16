@@ -356,6 +356,65 @@
       margin-top: 8px;
       line-height: 1.6;
     }
+
+    /* Auction Debug Monitor */
+    .auction-debug-section { margin-bottom: 32px; }
+
+    .auction-debug-panel {
+      background: #0a0a0a;
+      border: 1px solid #1e1e1e;
+      border-radius: 6px;
+      padding: 14px 16px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 11px;
+      line-height: 1.7;
+      color: #bbb;
+      overflow-x: auto;
+    }
+    .auction-debug-panel .dbg-label { color: #666; }
+    .auction-debug-panel .dbg-val   { color: #9ecaff; }
+    .auction-debug-panel .dbg-hi    { color: #e6007a; font-weight: 600; }
+    .auction-debug-panel .dbg-warn  { color: #f5a623; }
+    .auction-debug-panel .dbg-ok    { color: #5cb85c; }
+    .auction-debug-panel .dbg-dim   { color: #555; }
+
+    .auction-debug-panel table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .auction-debug-panel th {
+      text-align: left;
+      color: #666;
+      font-weight: 500;
+      padding: 3px 8px 3px 0;
+      border-bottom: 1px solid #1e1e1e;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .auction-debug-panel td {
+      padding: 3px 8px 3px 0;
+      border-bottom: 1px solid #111;
+      white-space: nowrap;
+    }
+    .auction-debug-panel tr.winner td {
+      background: #1a0811;
+    }
+
+    .auction-debug-log {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+    .auction-debug-log .log-entry {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 10px;
+      color: #555;
+      padding: 2px 0;
+      border-bottom: 1px solid #0d0d0d;
+    }
+    .auction-debug-log .log-entry .log-ts { color: #444; margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -408,6 +467,16 @@
     <div class="section-label">Interest profile (this session)</div>
     <div id="profile-bars"></div>
     <div class="hint">This mirrors what the Datum extension stores in your browser. Open the extension popup to see the live weighted profile and watch auction bids change.</div>
+  </div>
+
+  <!-- Auction Debug Monitor -->
+  <div class="auction-debug-section" id="auction-debug-section">
+    <div class="section-label">Auction Debug Monitor</div>
+    <div id="auction-debug-content" class="auction-debug-panel">
+      <span style="color:#555;font-size:12px">Waiting for auction event from extension...</span>
+    </div>
+    <div id="auction-debug-log" class="auction-debug-log"></div>
+    <div class="hint">Live data from the extension's Vickrey auction. Updates each time a page visit triggers ad selection.</div>
   </div>
 
 </div>
@@ -634,6 +703,139 @@ if (isAuto) {
   var nextAutoStep = autoStep + 1;
   runAutoStep(nextAutoStep);
 }
+
+// ── Auction Debug Monitor ─────────────────────────────────────────────────
+
+var auctionLog = [];
+var MAX_LOG_ENTRIES = 20;
+
+function formatPlanck(planckStr) {
+  if (!planckStr || planckStr === "0") return "0";
+  var n = Number(planckStr);
+  if (isNaN(n)) return planckStr;
+  // Convert planck → DOT (1 DOT = 10^10 planck)
+  return (n / 1e10).toFixed(6);
+}
+
+function formatMicro(microStr) {
+  // effectiveBidMicro = bidCpm * weight * 1000
+  if (!microStr || microStr === "0") return "0";
+  var n = Number(microStr);
+  if (isNaN(n)) return microStr;
+  return (n / 1e10).toFixed(6);
+}
+
+function renderAuctionDebug(detail) {
+  var panel = document.getElementById("auction-debug-content");
+  if (!panel) return;
+
+  var pageTags = (detail.pageTags || []).filter(function(t) { return t.startsWith("topic:"); });
+  var pageTagLabels = pageTags.map(function(t) { return t.replace("topic:", ""); }).join(", ");
+  var allBids = detail.allBids || [];
+  var winnerId = detail.winnerId;
+
+  var html = "";
+
+  // Header info
+  html += '<span class="dbg-label">Page topics: </span>';
+  html += pageTags.length > 0
+    ? '<span class="dbg-val">' + pageTagLabels + '</span>'
+    : '<span class="dbg-warn">none detected</span>';
+  html += "<br>";
+
+  html += '<span class="dbg-label">Pool size: </span>';
+  html += '<span class="dbg-val">' + detail.poolSize + ' campaigns</span>';
+  html += "<br>";
+
+  html += '<span class="dbg-label">Mechanism: </span>';
+  var mechClass = detail.mechanism === "second-price" ? "dbg-ok" : (detail.mechanism === "floor" ? "dbg-warn" : "dbg-dim");
+  html += '<span class="' + mechClass + '">' + detail.mechanism + '</span>';
+  html += "<br>";
+
+  html += '<span class="dbg-label">Clearing CPM: </span>';
+  html += '<span class="dbg-hi">' + formatPlanck(detail.clearingCpmPlanck) + ' DOT</span>';
+  html += "<br>";
+
+  // Bid table
+  if (allBids.length > 0) {
+    html += '<table>';
+    html += '<tr><th>Rank</th><th>Campaign</th><th>Bid CPM</th><th>Interest Wt</th><th>Effective Bid</th><th>Status</th></tr>';
+    for (var i = 0; i < allBids.length; i++) {
+      var bid = allBids[i];
+      var isWinner = String(bid.id) === String(winnerId);
+      html += '<tr' + (isWinner ? ' class="winner"' : '') + '>';
+      html += '<td>' + (i + 1) + '</td>';
+      html += '<td>' + (isWinner ? '<span class="dbg-hi">#' + bid.id + '</span>' : '#' + bid.id) + '</td>';
+      html += '<td>' + formatPlanck(bid.bidCpmPlanck) + '</td>';
+      html += '<td>';
+      if (bid.interestWeight <= 0.1) {
+        html += '<span class="dbg-warn">' + bid.interestWeight.toFixed(3) + ' (floor)</span>';
+      } else {
+        html += '<span class="dbg-ok">' + bid.interestWeight.toFixed(3) + '</span>';
+      }
+      html += '</td>';
+      html += '<td>' + formatMicro(bid.effectiveBidMicro) + '</td>';
+      html += '<td>' + (isWinner ? '<span class="dbg-hi">WINNER</span>' : '<span class="dbg-dim">—</span>') + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+  } else if (detail.campaigns && detail.campaigns.length > 0) {
+    // No auction bids but campaigns exist — legacy matcher was used
+    html += '<br><span class="dbg-warn">No auction data — legacy matcher used</span><br>';
+    html += '<span class="dbg-label">Campaigns in pool:</span><br>';
+    for (var j = 0; j < detail.campaigns.length; j++) {
+      var c = detail.campaigns[j];
+      html += '<span class="dbg-dim">  #' + c.id + ' bid=' + formatPlanck(c.bidCpmPlanck) + ' tags=' + (c.requiredTags.length || "none") + '</span><br>';
+    }
+  }
+
+  // Tag-weight diagnosis
+  if (allBids.length > 0) {
+    var allFloor = allBids.every(function(b) { return b.interestWeight <= 0.1; });
+    if (allFloor) {
+      html += '<br><span class="dbg-warn">All campaigns at 0.1 floor weight — tags not matching profile.</span>';
+      html += '<br><span class="dbg-dim">Check: campaign requiredTags vs page topic tags vs profile weights.</span>';
+    }
+  }
+
+  panel.innerHTML = html;
+}
+
+function addToAuctionLog(detail) {
+  var logDiv = document.getElementById("auction-debug-log");
+  if (!logDiv) return;
+
+  var ts = new Date(detail.timestamp).toLocaleTimeString();
+  var pageTags = (detail.pageTags || []).filter(function(t) { return t.startsWith("topic:"); });
+  var topicStr = pageTags.map(function(t) { return t.replace("topic:", ""); }).join(", ") || "none";
+
+  var entry = {
+    ts: ts,
+    text: "Winner=#" + (detail.winnerId || "none") +
+          " mech=" + (detail.mechanism || "none") +
+          " clearing=" + formatPlanck(detail.clearingCpmPlanck) +
+          " topics=[" + topicStr + "]" +
+          " pool=" + detail.poolSize
+  };
+
+  auctionLog.unshift(entry);
+  if (auctionLog.length > MAX_LOG_ENTRIES) auctionLog = auctionLog.slice(0, MAX_LOG_ENTRIES);
+
+  logDiv.innerHTML = "";
+  for (var i = 0; i < auctionLog.length; i++) {
+    var div = document.createElement("div");
+    div.className = "log-entry";
+    div.innerHTML = '<span class="log-ts">' + auctionLog[i].ts + '</span>' + auctionLog[i].text;
+    logDiv.appendChild(div);
+  }
+}
+
+window.addEventListener("datum-auction-debug", function(e) {
+  var detail = e.detail;
+  if (!detail) return;
+  renderAuctionDebug(detail);
+  addToAuctionLog(detail);
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────
 renderAll();

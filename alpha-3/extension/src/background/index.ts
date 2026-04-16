@@ -669,12 +669,14 @@ async function handleMessage(
 
       if (safeAllowed.length === 0) return { selected: null };
 
-      // Run auction
+      // Run auction — pass page tags so tagless campaigns use page context
       const profile = await interestProfile.getProfile();
+      const pageTags: string[] = msg.pageTags ?? [];
       const auctionResult = auctionForPage(
         safeAllowed as CampaignCandidate[],
-        {}, // pageCategories not used in auction directly
+        {},
         profile,
+        pageTags,
       );
 
       if (auctionResult) {
