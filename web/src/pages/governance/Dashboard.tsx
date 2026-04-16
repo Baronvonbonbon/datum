@@ -47,107 +47,120 @@ export function GovernanceDashboard() {
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<"active" | "all" | "reported">("active");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Fetch a single campaign's governance data
+  const fetchCampaign = useCallback(async (id: number): Promise<GovCampaign | null> => {
+    try {
+      const [c, adv, aye, nay, resolved] = await Promise.all([
+        contracts.campaigns.getCampaignForSettlement(BigInt(id)),
+        contracts.campaigns.getCampaignAdvertiser(BigInt(id)),
+        contracts.governanceV2.ayeWeighted(BigInt(id)).catch(() => 0n),
+        contracts.governanceV2.nayWeighted(BigInt(id)).catch(() => 0n),
+        contracts.governanceV2.resolved(BigInt(id)).catch(() => false),
+      ]);
+
+      let myVoteDir = 0;
+      if (address) {
+        try {
+          const v = await contracts.governanceV2.getVote(BigInt(id), address);
+          myVoteDir = Number(v.direction ?? v[0] ?? 0);
+        } catch { /* no vote */ }
+      }
+
+      let metadataHash = "0x" + "0".repeat(64);
+      try {
+        const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
+        const logs = await queryFilterAll(contracts.campaigns, filter);
+        if (logs.length > 0) metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
+      } catch { /* no events */ }
+
+      let lastSettlementBlock = 0;
+      try {
+        lastSettlementBlock = Number(await contracts.budgetLedger.lastSettlementBlock(BigInt(id)));
+      } catch { /* no budgetLedger */ }
+
+      let pageReports = 0, adReports = 0;
+      try {
+        if (contracts.reports) {
+          [pageReports, adReports] = await Promise.all([
+            contracts.reports.pageReports(BigInt(id)).then(Number),
+            contracts.reports.adReports(BigInt(id)).then(Number),
+          ]);
+        }
+      } catch { /* no reports contract */ }
+
+      let rewardToken: string | undefined;
+      let rewardPerImpression: bigint | undefined;
+      let rewardSymbol: string | undefined;
+      let rewardDecimals: number | undefined;
+      let rewardBudget: bigint | undefined;
+      try {
+        const [tok, perImp] = await Promise.all([
+          contracts.campaigns.getCampaignRewardToken(BigInt(id)).catch(() => ethers.ZeroAddress),
+          contracts.campaigns.getCampaignRewardPerImpression(BigInt(id)).catch(() => 0n),
+        ]);
+        if (tok && tok !== ethers.ZeroAddress) {
+          rewardToken = tok as string;
+          rewardPerImpression = BigInt(perImp);
+          const erc20 = new ethers.Contract(tok, ["function symbol() view returns (string)", "function decimals() view returns (uint8)"], contracts.readProvider);
+          const [sym2, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
+          rewardSymbol = sym2 as string;
+          rewardDecimals = Number(dec);
+          try { rewardBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(tok, BigInt(id))); } catch { /* ok */ }
+        }
+      } catch { /* no token reward */ }
+
+      return {
+        id, status: Number(c[0]),
+        advertiser: adv as string,
+        bidCpmPlanck: BigInt(c[2]),
+        ayeWeighted: BigInt(aye),
+        nayWeighted: BigInt(nay),
+        resolved: Boolean(resolved),
+        myVoteDir,
+        metadataHash,
+        lastSettlementBlock,
+        pageReports,
+        adReports,
+        rewardToken,
+        rewardPerImpression,
+        rewardSymbol,
+        rewardDecimals,
+        rewardBudget,
+      };
+    } catch { return null; }
+  }, [address, contracts]);
+
+  const sortCampaigns = (list: GovCampaign[]) =>
+    [...list].sort((a, b) => {
+      const order = [0, 1, 2, 3, 4, 5];
+      return order.indexOf(a.status) - order.indexOf(b.status) || b.id - a.id;
+    });
+
+  // Batch size tuned for light-client RPCs (Pine/smoldot): ~15 campaigns × ~6 calls = ~90 concurrent
+  const BATCH_SIZE = 15;
 
   const load = useCallback(async () => {
     if (!settings.contractAddresses.campaigns) return;
     setLoading(true);
+    setCampaigns([]);
     try {
       const nextId = Number(await contracts.campaigns.nextCampaignId());
-      const results: GovCampaign[] = [];
+      const ids = Array.from({ length: nextId }, (_, i) => nextId - 1 - i);
 
-      await Promise.all(
-        Array.from({ length: Math.min(nextId, 100) }, (_, i) => nextId - 1 - i).map(async (id) => {
-          if (id < 0) return;
-          try {
-            const [c, adv, aye, nay, resolved] = await Promise.all([
-              contracts.campaigns.getCampaignForSettlement(BigInt(id)),
-              contracts.campaigns.getCampaignAdvertiser(BigInt(id)),
-              contracts.governanceV2.ayeWeighted(BigInt(id)).catch(() => 0n),
-              contracts.governanceV2.nayWeighted(BigInt(id)).catch(() => 0n),
-              contracts.governanceV2.resolved(BigInt(id)).catch(() => false),
-            ]);
-
-            let myVoteDir = 0;
-            if (address) {
-              try {
-                const v = await contracts.governanceV2.getVote(BigInt(id), address);
-                myVoteDir = Number(v.direction ?? v[0] ?? 0);
-              } catch { /* no vote */ }
-            }
-
-            let metadataHash = "0x" + "0".repeat(64);
-            try {
-              const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-              const logs = await queryFilterAll(contracts.campaigns, filter);
-              if (logs.length > 0) metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
-            } catch { /* no events */ }
-
-            let lastSettlementBlock = 0;
-            try {
-              lastSettlementBlock = Number(await contracts.budgetLedger.lastSettlementBlock(BigInt(id)));
-            } catch { /* no budgetLedger */ }
-
-            let pageReports = 0, adReports = 0;
-            try {
-              if (contracts.reports) {
-                [pageReports, adReports] = await Promise.all([
-                  contracts.reports.pageReports(BigInt(id)).then(Number),
-                  contracts.reports.adReports(BigInt(id)).then(Number),
-                ]);
-              }
-            } catch { /* no reports contract */ }
-
-            let rewardToken: string | undefined;
-            let rewardPerImpression: bigint | undefined;
-            let rewardSymbol: string | undefined;
-            let rewardDecimals: number | undefined;
-            let rewardBudget: bigint | undefined;
-            try {
-              const [tok, perImp] = await Promise.all([
-                contracts.campaigns.getCampaignRewardToken(BigInt(id)).catch(() => ethers.ZeroAddress),
-                contracts.campaigns.getCampaignRewardPerImpression(BigInt(id)).catch(() => 0n),
-              ]);
-              if (tok && tok !== ethers.ZeroAddress) {
-                rewardToken = tok as string;
-                rewardPerImpression = BigInt(perImp);
-                const erc20 = new ethers.Contract(tok, ["function symbol() view returns (string)", "function decimals() view returns (uint8)"], contracts.readProvider);
-                const [sym2, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
-                rewardSymbol = sym2 as string;
-                rewardDecimals = Number(dec);
-                try { rewardBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(tok, BigInt(id))); } catch { /* ok */ }
-              }
-            } catch { /* no token reward */ }
-
-            results.push({
-              id, status: Number(c[0]),
-              advertiser: adv as string,
-              bidCpmPlanck: BigInt(c[2]),
-              ayeWeighted: BigInt(aye),
-              nayWeighted: BigInt(nay),
-              resolved: Boolean(resolved),
-              myVoteDir,
-              metadataHash,
-              lastSettlementBlock,
-              pageReports,
-              adReports,
-              rewardToken,
-              rewardPerImpression,
-              rewardSymbol,
-              rewardDecimals,
-              rewardBudget,
-            });
-          } catch { /* skip */ }
-        })
-      );
-
-      setCampaigns(results.sort((a, b) => {
-        const order = [0, 1, 2, 3, 4, 5];
-        return order.indexOf(a.status) - order.indexOf(b.status) || b.id - a.id;
-      }));
+      // Process in sequential batches; stream each batch into state as it completes
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        const fetched = (await Promise.all(batch.map((id) => fetchCampaign(id)))).filter(Boolean) as GovCampaign[];
+        if (fetched.length > 0) {
+          setCampaigns((prev) => sortCampaigns([...prev, ...fetched]));
+        }
+      }
     } finally {
       setLoading(false);
     }
-  }, [address, settings.contractAddresses.campaigns]);
+  }, [address, settings.contractAddresses.campaigns, fetchCampaign]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -200,11 +213,20 @@ export function GovernanceDashboard() {
     }
   }
 
-  const displayed = filter === "active"
-    ? campaigns.filter((c) => c.status <= 2)
-    : filter === "reported"
-    ? campaigns.filter((c) => c.pageReports + c.adReports > 0)
-    : campaigns;
+  const searchId = searchQuery.match(/^\d+$/) ? Number(searchQuery) : null;
+  const searchAddr = searchQuery.length >= 6 ? searchQuery.toLowerCase() : "";
+
+  const displayed = campaigns
+    .filter((c) => {
+      if (filter === "active") return c.status <= 2;
+      if (filter === "reported") return c.pageReports + c.adReports > 0;
+      return true;
+    })
+    .filter((c) => {
+      if (searchId !== null) return c.id === searchId;
+      if (searchAddr) return c.advertiser.toLowerCase().includes(searchAddr);
+      return true;
+    });
 
   return (
     <div className="nano-fade">
@@ -216,11 +238,24 @@ export function GovernanceDashboard() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={() => setFilter("active")} className={filter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>
         <button onClick={() => setFilter("reported")} className={filter === "reported" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12, color: filter !== "reported" ? "var(--warn)" : undefined }}>Reported</button>
         <button onClick={() => setFilter("all")} className={filter === "all" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>All Campaigns</button>
-        <button onClick={() => load()} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, marginLeft: "auto" }}>Refresh</button>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", marginLeft: "auto" }}>
+          <input
+            type="text"
+            placeholder="Search ID or address…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="nano-input"
+            style={{ fontSize: 12, width: 190, paddingRight: searchQuery ? 24 : undefined }}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 6, background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+          )}
+        </div>
+        <button onClick={() => load()} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12 }}>Refresh</button>
       </div>
 
       {actionMsg && (

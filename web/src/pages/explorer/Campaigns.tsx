@@ -39,6 +39,7 @@ export function Campaigns() {
   // Filters
   const [filterStatus, setFilterStatus] = useState<number | -1>(-1);
   const [filterType, setFilterType] = useState<"all" | "open" | "targeted">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -95,10 +96,18 @@ export function Campaigns() {
 
   useEffect(() => { load(); }, [load]);
 
+  const searchId = searchQuery.match(/^\d+$/) ? Number(searchQuery) : null;
+  const searchAddr = searchQuery.length >= 6 ? searchQuery.toLowerCase() : "";
+
   const filtered = rows.filter((r) => {
     if (filterStatus !== -1 && r.status !== filterStatus) return false;
     if (filterType === "open" && r.publisher !== ZERO_ADDR) return false;
     if (filterType === "targeted" && r.publisher === ZERO_ADDR) return false;
+    if (searchId !== null) return r.id === searchId;
+    if (searchAddr) {
+      return r.advertiser.toLowerCase().includes(searchAddr) ||
+             r.publisher.toLowerCase().includes(searchAddr);
+    }
     return true;
   });
 
@@ -115,6 +124,24 @@ export function Campaigns() {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Search ID or address…"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+            className="nano-input"
+            style={{ fontSize: 12, width: 200, paddingRight: searchQuery ? 24 : undefined }}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 6, background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+          )}
+        </div>
+        {searchId !== null && searchId >= 0 && searchId < totalCampaigns && (
+          <Link to={`/campaigns/${searchId}`} className="nano-btn nano-btn-accent" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>
+            Go to #{searchId} →
+          </Link>
+        )}
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(Number(e.target.value))}
