@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ethers } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
@@ -42,6 +42,7 @@ export function GovernanceDashboard() {
   const { settings } = useSettings();
   const { confirmTx } = useTx();
   const { push } = useToast();
+  const loadGenRef = useRef(0);
   const [campaigns, setCampaigns] = useState<GovCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
@@ -143,22 +144,27 @@ export function GovernanceDashboard() {
 
   const load = useCallback(async () => {
     if (!settings.contractAddresses.campaigns) return;
+    // Increment generation so any in-flight load detects it's stale and stops writing
+    const gen = ++loadGenRef.current;
     setLoading(true);
     setCampaigns([]);
     try {
       const nextId = Number(await contracts.campaigns.nextCampaignId());
+      if (loadGenRef.current !== gen) return;
       const ids = Array.from({ length: nextId }, (_, i) => nextId - 1 - i);
 
       // Process in sequential batches; stream each batch into state as it completes
       for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        if (loadGenRef.current !== gen) return; // newer load started — stop
         const batch = ids.slice(i, i + BATCH_SIZE);
         const fetched = (await Promise.all(batch.map((id) => fetchCampaign(id)))).filter(Boolean) as GovCampaign[];
+        if (loadGenRef.current !== gen) return; // check again after await
         if (fetched.length > 0) {
           setCampaigns((prev) => sortCampaigns([...prev, ...fetched]));
         }
       }
     } finally {
-      setLoading(false);
+      if (loadGenRef.current === gen) setLoading(false);
     }
   }, [address, settings.contractAddresses.campaigns, fetchCampaign]);
 
