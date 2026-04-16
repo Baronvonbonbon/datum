@@ -134,6 +134,28 @@ export function subscribePineSyncStep(cb: (s: SyncStep | null) => void): () => v
   return () => { _syncStepCbs.delete(cb); };
 }
 
+// ── Pine RPC test result — smoke-test of the ethers↔Pine bridge ──
+// Set after getPineProvider resolves; shows block number or error in the UI.
+
+export type PineRpcTest =
+  | { ok: true; blockNumber: number }
+  | { ok: false; error: string }
+  | null;
+
+let _pineRpcTest: PineRpcTest = null;
+const _pineRpcTestCbs = new Set<(r: PineRpcTest) => void>();
+
+function _emitPineRpcTest(r: PineRpcTest): void {
+  _pineRpcTest = r;
+  for (const cb of _pineRpcTestCbs) cb(r);
+}
+
+export function subscribePineRpcTest(cb: (r: PineRpcTest) => void): () => void {
+  _pineRpcTestCbs.add(cb);
+  cb(_pineRpcTest);
+  return () => { _pineRpcTestCbs.delete(cb); };
+}
+
 /**
  * Get a Pine-backed JsonRpcApiProvider for the given chain.
  * Reuses the same smoldot instance if the chain hasn't changed.
@@ -150,13 +172,12 @@ export async function getPineProvider(pineChain: string): Promise<JsonRpcApiProv
       await pine.connect((step) => _emitSyncStep(step));
       _emitSyncStep(null); // clear on success — provider is live
       const ethersProvider = createPineEthersProvider(pine, pineChain);
-      // Smoke-test: verify the ethers wrapper can actually reach Pine
-      if (import.meta.env.DEV) {
-        ethersProvider.getBlockNumber().then(
-          (n) => console.log(`[Pine] ethers wrapper OK — block #${n}`),
-          (err) => console.error("[Pine] ethers wrapper FAILED:", err),
-        );
-      }
+      // Smoke-test: verify the ethers wrapper can actually reach Pine.
+      // Result is surfaced in the Settings UI (not just the browser console).
+      ethersProvider.getBlockNumber().then(
+        (n) => _emitPineRpcTest({ ok: true, blockNumber: n }),
+        (err) => _emitPineRpcTest({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      );
       return ethersProvider;
     })();
     pineProviderCache = { chain: pineChain, promise };

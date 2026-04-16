@@ -27,11 +27,13 @@ import {
   getProvider,
   getPineProvider,
   subscribePineSyncStep,
+  subscribePineRpcTest,
   type SyncStep,
+  type PineRpcTest,
 } from "@shared/contracts";
 
 export type PineStatus = "off" | "connecting" | "connected" | "error";
-export type { SyncStep };
+export type { SyncStep, PineRpcTest };
 
 export function useContracts() {
   const { settings } = useSettings();
@@ -39,9 +41,11 @@ export function useContracts() {
   const [pineProvider, setPineProvider] = useState<JsonRpcApiProvider | null>(null);
   const [pineStatus, setPineStatus] = useState<PineStatus>("off");
   const [syncStep, setSyncStep] = useState<SyncStep | null>(null);
+  const [pineRpcTest, setPineRpcTest] = useState<PineRpcTest>(null);
 
-  // Subscribe to module-level sync step (shared across all useContracts instances)
+  // Subscribe to module-level sync step and RPC test (shared across all useContracts instances)
   useEffect(() => subscribePineSyncStep(setSyncStep), []);
+  useEffect(() => subscribePineRpcTest(setPineRpcTest), []);
 
   // Async Pine initialization — falls back to centralized RPC while connecting
   const pineChain = settings.usePine
@@ -108,6 +112,8 @@ export function useContracts() {
       pineStatus,
       /** Granular sync step during connecting phase (null when connected/off) */
       syncStep,
+      /** Result of the ethers↔Pine smoke test (null until attempted) */
+      pineRpcTest,
     };
-  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus, syncStep]);
+  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus, syncStep, pineRpcTest]);
 }

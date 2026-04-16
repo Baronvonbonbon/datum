@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
-import { useContracts, type PineStatus, type SyncStep } from "../hooks/useContracts";
+import { useContracts, type PineStatus, type SyncStep, type PineRpcTest } from "../hooks/useContracts";
 import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
@@ -31,7 +31,7 @@ const CONTRACT_LABELS: Record<string, string> = {
 export function Settings() {
   const { settings, updateSettings, setNetwork, setContractAddress, resetToDefaults } = useSettings();
   const { disconnect } = useWallet();
-  const { pineStatus, syncStep } = useContracts();
+  const { pineStatus, syncStep, pineRpcTest } = useContracts();
   const [saved, setSaved] = useState(false);
   const [showContracts, setShowContracts] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
@@ -116,7 +116,7 @@ export function Settings() {
             <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 4, marginLeft: 24 }}>
               Connects directly to the Polkadot network via smoldot. Initial sync takes a few seconds.
             </div>
-            {settings.usePine && <PineStatusPanel status={pineStatus} syncStep={syncStep} />}
+            {settings.usePine && <PineStatusPanel status={pineStatus} syncStep={syncStep} pineRpcTest={pineRpcTest} />}
           </div>
         )}
       </Section>
@@ -336,7 +336,7 @@ const SYNC_STEPS: { id: SyncStep; label: string; detail: string }[] = [
   { id: "awaiting-block", label: "Await first finalized block", detail: "p2p peer discovery — takes 15–60s" },
 ];
 
-function PineStatusPanel({ status, syncStep }: { status: PineStatus; syncStep: SyncStep | null }) {
+function PineStatusPanel({ status, syncStep, pineRpcTest }: { status: PineStatus; syncStep: SyncStep | null; pineRpcTest: PineRpcTest }) {
   const activeIdx = syncStep ? SYNC_STEPS.findIndex((s) => s.id === syncStep) : -1;
   const totalSteps = SYNC_STEPS.length;
 
@@ -452,12 +452,28 @@ function PineStatusPanel({ status, syncStep }: { status: PineStatus; syncStep: S
         </div>
       )}
 
-      {/* Mode row — shown when connected */}
+      {/* Mode + RPC test rows — shown when connected */}
       {status === "connected" && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ color: "var(--text-dim)", minWidth: 72 }}>Mode</span>
-          <span style={{ color: "var(--text)" }}>Decentralized — no RPC proxy</span>
-        </div>
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ color: "var(--text-dim)", minWidth: 72 }}>Mode</span>
+            <span style={{ color: "var(--text)" }}>Decentralized — no RPC proxy</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <span style={{ color: "var(--text-dim)", minWidth: 72 }}>RPC test</span>
+            {pineRpcTest === null && (
+              <span style={{ color: "var(--text-dim)" }}>pending…</span>
+            )}
+            {pineRpcTest?.ok && (
+              <span style={{ color: "var(--ok)" }}>OK — block #{pineRpcTest.blockNumber}</span>
+            )}
+            {pineRpcTest && !pineRpcTest.ok && (
+              <span style={{ color: "var(--error)", wordBreak: "break-all" }}>
+                FAILED — {pineRpcTest.error}
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
