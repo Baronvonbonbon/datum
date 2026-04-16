@@ -63,45 +63,49 @@ interface PineRequestable {
 }
 
 /**
- * ethers v6 JsonRpcApiProvider backed by Pine's EIP-1193 provider.
+ * Create an ethers v6 JsonRpcApiProvider that delegates all RPC calls to Pine.
  *
- * Using JsonRpcApiProvider (not BrowserProvider) avoids the wallet-specific
- * baggage in BrowserProvider: no eth_accounts polling, no chainChanged
- * event resetting network state, no lazy network detection on each request.
- * staticNetwork pins the chain ID at construction so no eth_chainId call
- * is ever issued by ethers internals.
+ * Uses a closure to capture the Pine provider reference instead of a class field,
+ * avoiding potential issues with TypeScript private field compilation and the
+ * ethers drain queue mechanism. staticNetwork pins the chain ID so no
+ * eth_chainId bootstrap call is needed.
  */
-class PineEthersProvider extends JsonRpcApiProvider {
-  readonly #pine: PineRequestable;
+function createPineEthersProvider(pine: PineRequestable, chain: string): JsonRpcApiProvider {
+  const chainId = BigInt(ASSET_HUB_CHAIN_IDS[chain] ?? 420420417);
+  const network = new Network(chain, chainId);
 
-  constructor(pine: PineRequestable, chain: string) {
-    const chainId = BigInt(ASSET_HUB_CHAIN_IDS[chain] ?? 420420417);
-    const network = new Network(chain, chainId);
-    super(network, { staticNetwork: network });
-    this.#pine = pine;
-    this._start();
+  class PineEthersProvider extends JsonRpcApiProvider {
+    constructor() {
+      super(network, { staticNetwork: network });
+      this._start();
+    }
+
+    async _send(
+      payload: JsonRpcPayload | Array<JsonRpcPayload>,
+    ): Promise<Array<JsonRpcResult | JsonRpcError>> {
+      const payloads = Array.isArray(payload) ? payload : [payload];
+      return Promise.all(
+        payloads.map(async (p): Promise<JsonRpcResult | JsonRpcError> => {
+          try {
+            const result = await pine.request({
+              method: p.method,
+              params: p.params as unknown[],
+            });
+            return { id: p.id, result };
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn(`[Pine] ${p.method} failed:`, err);
+            }
+            const code = (err as { code?: number })?.code ?? -32603;
+            const message = err instanceof Error ? err.message : "Internal error";
+            return { id: p.id, error: { code, message } };
+          }
+        }),
+      );
+    }
   }
 
-  async _send(
-    payload: JsonRpcPayload | Array<JsonRpcPayload>,
-  ): Promise<Array<JsonRpcResult | JsonRpcError>> {
-    const payloads = Array.isArray(payload) ? payload : [payload];
-    return Promise.all(
-      payloads.map(async (p): Promise<JsonRpcResult | JsonRpcError> => {
-        try {
-          const result = await this.#pine.request({
-            method: p.method,
-            params: p.params as unknown[],
-          });
-          return { id: p.id, result };
-        } catch (err) {
-          const code = (err as { code?: number })?.code ?? -32603;
-          const message = err instanceof Error ? err.message : "Internal error";
-          return { id: p.id, error: { code, message } };
-        }
-      }),
-    );
-  }
+  return new PineEthersProvider();
 }
 
 // ── Pine sync step state — shared across all useContracts instances ──
@@ -145,7 +149,15 @@ export async function getPineProvider(pineChain: string): Promise<JsonRpcApiProv
       const pine = new PineProvider({ chain: pineChain as import("pine-rpc").ChainPreset });
       await pine.connect((step) => _emitSyncStep(step));
       _emitSyncStep(null); // clear on success — provider is live
-      return new PineEthersProvider(pine, pineChain);
+      const ethersProvider = createPineEthersProvider(pine, pineChain);
+      // Smoke-test: verify the ethers wrapper can actually reach Pine
+      if (import.meta.env.DEV) {
+        ethersProvider.getBlockNumber().then(
+          (n) => console.log(`[Pine] ethers wrapper OK — block #${n}`),
+          (err) => console.error("[Pine] ethers wrapper FAILED:", err),
+        );
+      }
+      return ethersProvider;
     })();
     pineProviderCache = { chain: pineChain, promise };
     return await promise;
