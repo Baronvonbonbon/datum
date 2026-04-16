@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Wallet } from "ethers";
 import { useWallet } from "../context/WalletContext";
 import { useSettings } from "../context/SettingsContext";
+import { NETWORK_CONFIGS } from "@shared/networks";
 
 interface Props {
   onClose: () => void;
@@ -83,7 +84,8 @@ export function WalletConnect({ onClose }: Props) {
     const pk = key ?? manualKey;
     setManualKey("");
     try {
-      await connect(method, method === "manual" ? { privateKey: pk, rpcUrl: settings.rpcUrl } : undefined);
+      const rpcUrl = settings.rpcUrl || NETWORK_CONFIGS[settings.network]?.rpcUrl || "";
+      await connect(method, method === "manual" ? { privateKey: pk, rpcUrl } : undefined);
       onClose();
     } finally {
       setBusy(false);

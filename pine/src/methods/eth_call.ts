@@ -122,32 +122,45 @@ function extractCallOutput(data: Uint8Array): string {
   const debugMsgLen = decodeCompactAt(data, offset);
   offset += compactLen + debugMsgLen;
 
-  // result: Result<ExecReturnValue, DispatchError>
-  if (offset >= data.length) return "0x";
-  const resultVariant = data[offset];
-  offset += 1;
+  // ContractResult has an `events: Option<Vec<EventRecord>>` field between
+  // debug_message and result.  For read-only calls it is always None (0x00,
+  // 1 byte), but older runtime versions may omit it entirely.  Try both:
+  //   skip=1  events=None   (current pallet-revive)
+  //   skip=0  no events field (older runtimes / fallback)
+  //   skip=2  events=Some([]) (empty vec: 0x01 0x00)
+  for (const skip of [1, 0, 2]) {
+    const ro = offset + skip; // result offset
+    if (ro >= data.length) continue;
+    const resultVariant = data[ro];
+    if (resultVariant > 1) continue; // not a valid Result variant byte
 
-  if (resultVariant === 1) {
-    // Err — call reverted or failed
-    // Try to extract revert data if present
-    throw { code: 3, message: "execution reverted", data: "0x" };
+    if (resultVariant === 1) {
+      // Err — call reverted or failed
+      throw { code: 3, message: "execution reverted", data: "0x" };
+    }
+
+    // Ok — ExecReturnValue { flags: ReturnFlags(u32), data: Vec<u8> }
+    const fo = ro + 1; // flags offset
+    if (fo + 4 > data.length) continue;
+    const flags = data[fo] | (data[fo + 1] << 8) | (data[fo + 2] << 16) | (data[fo + 3] << 24);
+    // flags must be 0 (success) or 1 (revert) — anything else means we're
+    // reading the wrong offset
+    if (flags > 1) continue;
+
+    const vecOffset = fo + 4;
+    if (flags & 1) {
+      // Revert — data contains revert reason
+      const revertData = decodeVecAt(data, vecOffset);
+      throw { code: 3, message: "execution reverted", data: "0x" + bytesToHex(revertData) };
+    }
+
+    // Success — extract output Vec<u8>
+    const outputData = decodeVecAt(data, vecOffset);
+    return outputData.length > 0 ? "0x" + bytesToHex(outputData) : "0x";
   }
 
-  // Ok — ExecReturnValue { flags: ReturnFlags(u32), data: Vec<u8> }
-  if (offset + 4 >= data.length) return "0x";
-  const flags = data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24);
-  offset += 4;
-
-  // If revert flag is set (bit 0)
-  if (flags & 1) {
-    // Revert — data contains revert reason
-    const revertData = decodeVecAt(data, offset);
-    throw { code: 3, message: "execution reverted", data: "0x" + bytesToHex(revertData) };
-  }
-
-  // Success — extract output Vec<u8>
-  const outputData = decodeVecAt(data, offset);
-  return outputData.length > 0 ? "0x" + bytesToHex(outputData) : "0x";
+  // Could not parse a valid result — return empty (safe fallback)
+  return "0x";
 }
 
 function decodeCompactAt(data: Uint8Array, offset: number): number {
