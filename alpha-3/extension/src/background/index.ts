@@ -18,7 +18,7 @@ import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
-import { getPaymentVaultContract, getSettlementContract, getPineProvider } from "@shared/contracts";
+import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
@@ -71,7 +71,7 @@ async function immediateInitialPoll() {
 
     if (settings.contractAddresses.campaigns) {
       console.log("[DATUM] Running immediate campaign poll...");
-      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
     } else {
       console.log("[DATUM] Skipping initial poll — no campaigns contract address configured");
     }
@@ -147,7 +147,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_STATUS_REFRESH) {
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
-      await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses);
+      await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
     }
     return;
   }
@@ -156,7 +156,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await refreshPhishingList();
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
-      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway);
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
       // Prune claims for campaigns that are no longer active (withdrawn, terminated, etc.)
       const active = await campaignPoller.getCachedSerialized();
       const activeIds = new Set(active.map((c) => c.id));
@@ -198,7 +198,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     try {
       const stored = await chrome.storage.local.get("signedBatches");
       if (stored.signedBatches?.deadline) {
-        const provider = new JsonRpcProvider(settings.rpcUrl);
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
         const currentBlock = await provider.getBlockNumber();
         if (stored.signedBatches.deadline <= currentBlock) {
           await chrome.storage.local.remove("signedBatches");
@@ -209,7 +209,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     // H2: Poll timelock for pending admin changes
     if (settings.contractAddresses.timelock) {
-      await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses);
+      await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
@@ -402,7 +402,7 @@ async function handleMessage(
       if (!s.contractAddresses?.publishers) return { allowlistEnabled: false };
       try {
         const { getPublishersContract } = await import("@shared/contracts");
-        const provider = new JsonRpcProvider(s.rpcUrl);
+        const provider = await getReadProvider(s.rpcUrl, s.usePine ?? false, NETWORK_CONFIGS[s.network]?.pineChain);
         const contract = getPublishersContract(s.contractAddresses, provider);
         const result = await contract.allowlistEnabled(pubAddr);
         return { allowlistEnabled: !!result };
@@ -493,7 +493,7 @@ async function handleMessage(
     case "POLL_CAMPAIGNS": {
       const s = await getSettings();
       if (s.contractAddresses.campaigns) {
-        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway);
+        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway, s.usePine ? NETWORK_CONFIGS[s.network]?.pineChain : undefined);
         const refreshed = await campaignPoller.getCachedSerialized();
         const activeIds = new Set(refreshed.map((c) => c.id));
         const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
@@ -540,7 +540,7 @@ async function handleMessage(
       // Resetting to (0, ZeroHash) causes a mismatch if prior settlements exist on-chain.
       try {
         const s = await getSettings();
-        const p = new JsonRpcProvider(s.rpcUrl);
+        const p = await getReadProvider(s.rpcUrl, s.usePine ?? false, NETWORK_CONFIGS[s.network]?.pineChain);
         const stl = getSettlementContract(s.contractAddresses, p);
         const [onChainNonce, onChainHash] = await Promise.all([
           stl.lastNonce(msg.userAddress, msg.campaignId),
@@ -560,7 +560,7 @@ async function handleMessage(
       // Triggered by offscreen after on-chain verification of a settlement tx.
       // Seed chain state from on-chain so next impressions start at the correct nonce.
       const s = await getSettings();
-      const p = new JsonRpcProvider(s.rpcUrl);
+      const p = await getReadProvider(s.rpcUrl, s.usePine ?? false, NETWORK_CONFIGS[s.network]?.pineChain);
       const stl = getSettlementContract(s.contractAddresses, p);
       for (const campaignId of msg.campaignIds) {
         await claimQueue.discardCampaignClaims(msg.userAddress, campaignId);
@@ -768,7 +768,9 @@ async function handleMessage(
       try {
         const { getReportsContract } = await import("@shared/contracts");
         const { getSigner: getWalletSigner } = await import("@shared/walletManager");
-        const signer = getWalletSigner(s.rpcUrl);
+        const _baseProvider = await getReadProvider(s.rpcUrl, s.usePine ?? false, NETWORK_CONFIGS[s.network]?.pineChain);
+        const _wallet = getWalletSigner(s.rpcUrl);
+        const signer = _wallet.connect(_baseProvider);
         const reports = getReportsContract(s.contractAddresses, signer);
         const fn = msg.type === "REPORT_PAGE" ? reports.reportPage : reports.reportAd;
         const tx = await fn(BigInt(msg.campaignId), msg.reason);
@@ -860,7 +862,7 @@ async function handleMessage(
     case "PROVIDER_GET_CHAIN_ID": {
       const s = await getSettings();
       try {
-        const provider = new JsonRpcProvider(s.rpcUrl);
+        const provider = await getReadProvider(s.rpcUrl, s.usePine ?? false, NETWORK_CONFIGS[s.network]?.pineChain);
         const network = await provider.getNetwork();
         return { chainId: "0x" + network.chainId.toString(16) };
       } catch {
@@ -942,7 +944,7 @@ async function handleMessage(
       }
       try {
         const s3 = await getSettings();
-        const provider = new JsonRpcProvider(s3.rpcUrl);
+        const provider = await getReadProvider(s3.rpcUrl, s3.usePine ?? false, NETWORK_CONFIGS[s3.network]?.pineChain);
         const signer = txWallet.connect(provider);
         const txReq = msg.tx ?? {};
         const txResp = await signer.sendTransaction({
@@ -1120,7 +1122,7 @@ async function autoFlushDirect() {
     // Check global pause before submission
     if (settings.contractAddresses.pauseRegistry) {
       try {
-        const provider = new JsonRpcProvider(settings.rpcUrl);
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
         const { getPauseRegistryContract } = await import("@shared/contracts");
         const pauseRegistry = getPauseRegistryContract(settings.contractAddresses, provider);
         const paused = await pauseRegistry.paused();
@@ -1158,7 +1160,7 @@ async function autoFlushDirect() {
       return;
     }
 
-    const provider = new JsonRpcProvider(settings.rpcUrl);
+    const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
     const wallet = new Wallet(privateKey, provider);
     const attestationVerifier = new Contract(
       settings.contractAddresses.attestationVerifier,

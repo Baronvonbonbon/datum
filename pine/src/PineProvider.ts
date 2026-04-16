@@ -15,6 +15,7 @@ import type {
   MethodHandler,
   MethodContext,
   TrackedBlock,
+  SyncStep,
 } from "./types.js";
 import { SmoldotTransport } from "./transport/SmoldotTransport.js";
 import { ChainManager } from "./transport/ChainManager.js";
@@ -69,8 +70,12 @@ export class PineProvider implements EIP1193Provider {
     };
   }
 
-  /** Connect to the network via smoldot. Resolves when the first finalized block is received. */
-  async connect(): Promise<void> {
+  /**
+   * Connect to the network via smoldot. Resolves when the first finalized block is received.
+   * @param onSyncStep Optional callback invoked at the start of each connection phase.
+   *                   Useful for displaying granular progress to the user.
+   */
+  async connect(onSyncStep?: (step: SyncStep) => void): Promise<void> {
     if (this._connected) return;
 
     // Initialize xxhash WASM (needed for storage key derivation)
@@ -80,7 +85,7 @@ export class PineProvider implements EIP1193Provider {
 
     // Boot smoldot
     this.transport = new SmoldotTransport();
-    await this.transport.start(relayChainSpec, parachainChainSpec);
+    await this.transport.start(relayChainSpec, parachainChainSpec, 3, onSyncStep);
 
     // Start chain manager
     this.chainManager = new ChainManager(this.transport);
@@ -88,6 +93,7 @@ export class PineProvider implements EIP1193Provider {
       this._connected = false;
       this.emit("disconnect", { code: 1013, reason: error.message });
     });
+    onSyncStep?.("subscribing");
     await this.chainManager.startFollowing();
 
     // Create cache
@@ -132,7 +138,8 @@ export class PineProvider implements EIP1193Provider {
     };
     this.handlers = createHandlers(ctx);
 
-    // Wait for first finalized block
+    // Wait for first finalized block — longest step, depends on p2p peer discovery
+    onSyncStep?.("awaiting-block");
     await this.chainManager.waitReady(this.config.timeoutMs);
     this._connected = true;
 

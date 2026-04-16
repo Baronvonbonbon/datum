@@ -4,30 +4,36 @@
 //   await confirmTx(tx);
 
 import { useCallback } from "react";
-import { JsonRpcProvider } from "ethers";
+import type { BrowserProvider, JsonRpcProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
+import { useContracts } from "./useContracts";
 import { waitForTx } from "@shared/waitForTx";
 
 /**
  * Returns a `confirmTx(tx)` function that confirms a transaction
  * using nonce polling on Paseo (falls back to tx.wait() on other chains).
+ * Uses the Pine-aware readProvider when Pine is active.
  */
 export function useTx() {
   const { settings } = useSettings();
   const { address } = useWallet();
+  const { readProvider } = useContracts();
 
   const confirmTx = useCallback(async (
     tx: { hash: string; wait?: (confirms?: number) => Promise<any>; nonce?: number },
   ) => {
-    if (!settings.rpcUrl || !address) {
-      // No provider info — fall back to tx.wait()
+    if (!address) {
       await tx.wait?.(1);
       return;
     }
-    const provider = new JsonRpcProvider(settings.rpcUrl);
+    const provider = readProvider as BrowserProvider | JsonRpcProvider;
+    if (!provider) {
+      await tx.wait?.(1);
+      return;
+    }
     await waitForTx(provider, address, tx);
-  }, [settings.rpcUrl, address]);
+  }, [readProvider, address]);
 
   return { confirmTx };
 }

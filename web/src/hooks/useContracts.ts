@@ -26,15 +26,22 @@ import {
   getTokenRewardVaultContract,
   getProvider,
   getPineProvider,
+  subscribePineSyncStep,
+  type SyncStep,
 } from "@shared/contracts";
 
 export type PineStatus = "off" | "connecting" | "connected" | "error";
+export type { SyncStep };
 
 export function useContracts() {
   const { settings } = useSettings();
   const { signer } = useWallet();
   const [pineProvider, setPineProvider] = useState<BrowserProvider | null>(null);
   const [pineStatus, setPineStatus] = useState<PineStatus>("off");
+  const [syncStep, setSyncStep] = useState<SyncStep | null>(null);
+
+  // Subscribe to module-level sync step (shared across all useContracts instances)
+  useEffect(() => subscribePineSyncStep(setSyncStep), []);
 
   // Async Pine initialization — falls back to centralized RPC while connecting
   const pineChain = settings.usePine
@@ -99,6 +106,8 @@ export function useContracts() {
       usingPine: !!pineProvider,
       /** Pine connection status */
       pineStatus,
+      /** Granular sync step during connecting phase (null when connected/off) */
+      syncStep,
     };
-  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus]);
+  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus, syncStep]);
 }

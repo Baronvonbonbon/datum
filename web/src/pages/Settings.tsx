@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
-import { useContracts, type PineStatus } from "../hooks/useContracts";
+import { useContracts, type PineStatus, type SyncStep } from "../hooks/useContracts";
 import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
@@ -31,7 +31,7 @@ const CONTRACT_LABELS: Record<string, string> = {
 export function Settings() {
   const { settings, updateSettings, setNetwork, setContractAddress, resetToDefaults } = useSettings();
   const { disconnect } = useWallet();
-  const { pineStatus } = useContracts();
+  const { pineStatus, syncStep } = useContracts();
   const [saved, setSaved] = useState(false);
   const [showContracts, setShowContracts] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
@@ -116,7 +116,7 @@ export function Settings() {
             <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 4, marginLeft: 24 }}>
               Connects directly to the Polkadot network via smoldot. Initial sync takes a few seconds.
             </div>
-            {settings.usePine && <PineStatusPanel status={pineStatus} />}
+            {settings.usePine && <PineStatusPanel status={pineStatus} syncStep={syncStep} />}
           </div>
         )}
       </Section>
@@ -326,19 +326,45 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function PineStatusPanel({ status }: { status: PineStatus }) {
-  const rows: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Transport",
-      value: "smoldot v2 (in-browser light client)",
-    },
-    {
-      label: "Network",
-      value: "Paseo → Asset Hub (paraId 1000)",
-    },
-    {
-      label: "Status",
-      value: (
+// ── Pine sync step definitions ──────────────────────────────────────────────
+
+const SYNC_STEPS: { id: SyncStep; label: string; detail: string }[] = [
+  { id: "loading-wasm",   label: "Load smoldot WASM",          detail: "importing the in-browser light client" },
+  { id: "relay-chain",    label: "Connect relay chain",         detail: "Paseo relay chain" },
+  { id: "parachain",      label: "Connect parachain",           detail: "Asset Hub (paraId 1000)" },
+  { id: "subscribing",    label: "Subscribe to chain head",     detail: "chainHead_v1_follow handshake" },
+  { id: "awaiting-block", label: "Await first finalized block", detail: "p2p peer discovery — takes 15–60s" },
+];
+
+function PineStatusPanel({ status, syncStep }: { status: PineStatus; syncStep: SyncStep | null }) {
+  const activeIdx = syncStep ? SYNC_STEPS.findIndex((s) => s.id === syncStep) : -1;
+  const totalSteps = SYNC_STEPS.length;
+
+  return (
+    <div style={{
+      marginTop: 10,
+      marginLeft: 24,
+      padding: "12px 14px",
+      borderRadius: 6,
+      background: "var(--bg-raised)",
+      border: "1px solid var(--border)",
+      fontSize: 11,
+      fontFamily: "var(--font-mono)",
+    }}>
+      {/* Transport / Network header rows */}
+      {[
+        ["Transport", "smoldot v2 (in-browser light client)"],
+        ["Network",   "Paseo → Asset Hub (paraId 1000)"],
+      ].map(([label, value]) => (
+        <div key={label} style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "center" }}>
+          <span style={{ color: "var(--text-dim)", minWidth: 72 }}>{label}</span>
+          <span style={{ color: "var(--text)" }}>{value}</span>
+        </div>
+      ))}
+
+      {/* Status row */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+        <span style={{ color: "var(--text-dim)", minWidth: 72 }}>Status</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <span
             className={status === "connecting" ? "nano-pine-syncing" : undefined}
@@ -351,44 +377,88 @@ function PineStatusPanel({ status }: { status: PineStatus }) {
             }}
           />
           {status === "connected" && <span style={{ color: "var(--ok)" }}>Connected — light client active</span>}
-          {status === "connecting" && (
-            <span style={{ color: "var(--warn)" }} className="nano-pending-text">
-              Syncing p2p network
+          {status === "connecting" && activeIdx >= 0 && (
+            <span style={{ color: "var(--warn)" }}>
+              Step {activeIdx + 1}/{totalSteps} — {SYNC_STEPS[activeIdx].label}
               <span className="nano-pending-dots" style={{ marginLeft: 1 }}>
                 <span>.</span><span>.</span><span>.</span>
               </span>
             </span>
           )}
-          {status === "error" && <span style={{ color: "var(--error)" }}>Connection failed — retrying in 15s</span>}
+          {status === "connecting" && activeIdx < 0 && (
+            <span style={{ color: "var(--warn)" }}>
+              Starting
+              <span className="nano-pending-dots" style={{ marginLeft: 1 }}>
+                <span>.</span><span>.</span><span>.</span>
+              </span>
+            </span>
+          )}
+          {status === "error" && activeIdx >= 0 && (
+            <span style={{ color: "var(--error)" }}>
+              Failed at step {activeIdx + 1}/{totalSteps} — {SYNC_STEPS[activeIdx].label} · retrying in 15s
+            </span>
+          )}
+          {status === "error" && activeIdx < 0 && (
+            <span style={{ color: "var(--error)" }}>Connection failed · retrying in 15s</span>
+          )}
           {status === "off" && <span style={{ color: "var(--text-dim)" }}>Disabled</span>}
         </span>
-      ),
-    },
-    {
-      label: "Mode",
-      value: status === "connected"
-        ? "Decentralized — no RPC proxy"
-        : "Falling back to centralized RPC during sync",
-    },
-  ];
+      </div>
 
-  return (
-    <div style={{
-      marginTop: 10,
-      marginLeft: 24,
-      padding: "10px 12px",
-      borderRadius: 6,
-      background: "var(--bg-raised)",
-      border: "1px solid var(--border)",
-      fontSize: 11,
-      fontFamily: "var(--font-mono)",
-    }}>
-      {rows.map(({ label, value }) => (
-        <div key={label} style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "center" }}>
-          <span style={{ color: "var(--text-dim)", minWidth: 72 }}>{label}</span>
-          <span style={{ color: "var(--text)" }}>{value}</span>
+      {/* Step checklist — shown while connecting or on error */}
+      {(status === "connecting" || status === "error") && (
+        <div style={{
+          borderTop: "1px solid var(--border)",
+          paddingTop: 8,
+          marginTop: 4,
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+        }}>
+          {SYNC_STEPS.map((step, i) => {
+            const isDone    = activeIdx > i || status === "connected";
+            const isActive  = i === activeIdx && status === "connecting";
+            const isFailed  = i === activeIdx && status === "error";
+            const isPending = activeIdx < i && status !== "error";
+
+            return (
+              <div key={step.id} style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+                <span style={{
+                  width: 12, flexShrink: 0, textAlign: "center",
+                  color: isDone ? "var(--ok)" : isActive ? "var(--warn)" : isFailed ? "var(--error)" : "var(--text-dim)",
+                }}>
+                  {isDone ? "✓" : isActive ? "→" : isFailed ? "✗" : "○"}
+                </span>
+                <span style={{
+                  color: isDone ? "var(--text)" : isActive ? "var(--warn)" : isFailed ? "var(--error)" : "var(--text-dim)",
+                  fontWeight: isActive || isFailed ? 600 : undefined,
+                }}>
+                  {step.label}
+                </span>
+                {(isActive || isFailed) && (
+                  <span style={{ color: "var(--text-dim)", fontWeight: 400, fontSize: 10 }}>
+                    — {step.detail}
+                    {isFailed && step.id === "awaiting-block" && " (timed out — will retry)"}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ color: "var(--text-dim)", fontSize: 10, marginTop: 4 }}>
+            {status === "connecting"
+              ? "Falling back to centralized RPC until step 5 completes"
+              : "Falling back to centralized RPC — will retry automatically"}
+          </div>
         </div>
-      ))}
+      )}
+
+      {/* Mode row — shown when connected */}
+      {status === "connected" && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ color: "var(--text-dim)", minWidth: 72 }}>Mode</span>
+          <span style={{ color: "var(--text)" }}>Decentralized — no RPC proxy</span>
+        </div>
+      )}
     </div>
   );
 }

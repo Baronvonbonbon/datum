@@ -7,7 +7,7 @@
 // No MAX_SCAN_ID limit — handles arbitrary campaign counts.
 
 import { JsonRpcProvider, Contract } from "ethers";
-import { getCampaignsContract, getBudgetLedgerContract } from "@shared/contracts";
+import { getCampaignsContract, getBudgetLedgerContract, getReadProvider } from "@shared/contracts";
 import { metadataUrl } from "@shared/ipfs";
 import { CampaignStatus, ContractAddresses } from "@shared/types";
 import { validateAndSanitize, MAX_METADATA_BYTES } from "@shared/contentSafety";
@@ -64,7 +64,7 @@ async function batchParallel<T>(tasks: (() => Promise<T>)[], size: number): Prom
 }
 
 export const campaignPoller = {
-  async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string): Promise<void> {
+  async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string, pineChain?: string): Promise<void> {
     if (_polling) {
       console.log("[DATUM] poll() skipped — already in progress");
       return;
@@ -78,7 +78,7 @@ export const campaignPoller = {
 
       await refreshPhishingList();
 
-      const provider = new JsonRpcProvider(rpcUrl);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
       const contract = getCampaignsContract(addresses, provider);
       if (!contract) return;
       const ledger = addresses.budgetLedger
@@ -364,12 +364,12 @@ export const campaignPoller = {
    * Runs Phase 2+3 only — no event scan, no IPFS fetch.
    * Yields immediately if a full poll() is in progress.
    */
-  async refreshStatus(rpcUrl: string, addresses: ContractAddresses): Promise<void> {
+  async refreshStatus(rpcUrl: string, addresses: ContractAddresses, pineChain?: string): Promise<void> {
     if (_polling) return; // full poll in progress — it will update status too
     if (!addresses.campaigns || !addresses.campaigns.startsWith("0x")) return;
 
     try {
-      const provider = new JsonRpcProvider(rpcUrl);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
       const contract = getCampaignsContract(addresses, provider);
       if (!contract) return;
       const ledger = addresses.budgetLedger

@@ -3,6 +3,7 @@
 export { PineProvider } from "./PineProvider.js";
 
 export type {
+  SyncStep,
   PineConfig,
   CacheConfig,
   ChainPreset,

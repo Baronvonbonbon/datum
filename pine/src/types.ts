@@ -1,5 +1,16 @@
 // ── Pine core types ──
 
+/**
+ * Granular connection phase — emitted in order during connect().
+ * Phases in order: loading-wasm → relay-chain → parachain → subscribing → awaiting-block
+ */
+export type SyncStep =
+  | "loading-wasm"
+  | "relay-chain"
+  | "parachain"
+  | "subscribing"
+  | "awaiting-block";
+
 /** Supported chain presets */
 export type ChainPreset =
   | "paseo-asset-hub"

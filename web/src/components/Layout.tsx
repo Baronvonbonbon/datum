@@ -10,7 +10,7 @@ import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { useContracts } from "../hooks/useContracts";
-import { JsonRpcProvider } from "ethers";
+import type { BrowserProvider, JsonRpcProvider } from "ethers";
 
 /** Animates the block number ticking up when it changes. */
 function useBlockFlash(blockNumber: number | null) {
@@ -73,7 +73,7 @@ export function Layout() {
   const { settings, updateSettings } = useSettings();
   const { isAdvertiser, isPublisher, isVoter } = useRoles();
   const protocolPaused = usePaused();
-  const { pineStatus } = useContracts();
+  const { pineStatus, readProvider } = useContracts();
   const [showConnect, setShowConnect] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -85,12 +85,12 @@ export function Layout() {
   // Close mobile menu on navigation
   useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
 
-  // Fetch wallet balance
+  // Fetch wallet balance — use Pine-aware readProvider when available
   useEffect(() => {
-    if (!address || !settings.rpcUrl) { setBalance(null); return; }
-    const provider = new JsonRpcProvider(settings.rpcUrl);
+    if (!address || !readProvider) { setBalance(null); return; }
+    const provider = readProvider as BrowserProvider | JsonRpcProvider;
     provider.getBalance(address).then(wei => setBalance(weiToPlanck(wei))).catch(() => setBalance(null));
-  }, [address, settings.rpcUrl, blockNumber]);
+  }, [address, readProvider, blockNumber]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>

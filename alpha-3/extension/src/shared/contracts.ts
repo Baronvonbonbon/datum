@@ -120,6 +120,22 @@ export function getProvider(rpcUrl: string): JsonRpcProvider {
   return new JsonRpcProvider(rpcUrl);
 }
 
+/**
+ * Get a read-only provider, preferring Pine when `usePine` is true and the
+ * network has a `pineChain` configured. Falls back to centralized RPC.
+ */
+export async function getReadProvider(
+  rpcUrl: string,
+  usePine: boolean,
+  pineChain?: string,
+): Promise<JsonRpcProvider | BrowserProvider> {
+  if (usePine && pineChain) {
+    const pine = await getPineProvider(pineChain);
+    if (pine) return pine;
+  }
+  return new JsonRpcProvider(rpcUrl);
+}
+
 /** Singleton Pine provider — reused across requests to avoid re-syncing smoldot */
 let pineProviderCache: { chain: string; promise: Promise<BrowserProvider> } | null = null;
 

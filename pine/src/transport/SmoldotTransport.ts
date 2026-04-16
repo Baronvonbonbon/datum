@@ -31,6 +31,7 @@ export class SmoldotTransport {
     relayChainSpec: string,
     parachainChainSpec: string,
     maxRetries = 3,
+    onPhase?: (phase: "loading-wasm" | "relay-chain" | "parachain") => void,
   ): Promise<void> {
     let lastError: Error | undefined;
 
@@ -44,15 +45,18 @@ export class SmoldotTransport {
         // Dynamic import — smoldot is heavy and may not be available at parse time.
         // In service worker contexts (MV3 extensions), use startWithBytecode
         // since Web Workers are not available.
+        onPhase?.("loading-wasm");
         this.client = await this.createClient();
 
         // Add relay chain
+        onPhase?.("relay-chain");
         this.relayChain = await this.client.addChain({
           chainSpec: relayChainSpec,
           disableJsonRpc: true, // We only talk to the parachain
         });
 
         // Add parachain, linked to relay
+        onPhase?.("parachain");
         this.parachain = await this.client.addChain({
           chainSpec: parachainChainSpec,
           potentialRelayChains: [this.relayChain],

@@ -2,7 +2,7 @@
 // Surfaces warnings in the popup UI so users can see upcoming admin changes.
 
 import { JsonRpcProvider } from "ethers";
-import { getTimelockContract } from "@shared/contracts";
+import { getTimelockContract, getReadProvider } from "@shared/contracts";
 import { ContractAddresses } from "@shared/types";
 
 const STORAGE_KEY = "timelockPendingChanges";
@@ -15,13 +15,13 @@ export interface PendingTimelockChange {
 }
 
 export const timelockMonitor = {
-  async poll(rpcUrl: string, addresses: ContractAddresses): Promise<void> {
+  async poll(rpcUrl: string, addresses: ContractAddresses, pineChain?: string): Promise<void> {
     try {
       if (!addresses.timelock || !addresses.timelock.startsWith("0x")) {
         return;
       }
 
-      const provider = new JsonRpcProvider(rpcUrl);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
       const timelock = getTimelockContract(addresses, provider);
 
       // Query ChangeProposed events (last ~14400 blocks ≈ 24h on Polkadot Hub)

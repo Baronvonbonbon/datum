@@ -45,6 +45,32 @@ export function getProvider(rpcUrl: string): JsonRpcProvider {
 /** Singleton Pine provider — reused across requests to avoid re-syncing smoldot */
 let pineProviderCache: { chain: string; promise: Promise<BrowserProvider> } | null = null;
 
+// ── Pine sync step state — shared across all useContracts instances ──
+// Tracks which connection phase Pine is currently in.
+// null = not connecting / connected / off.
+// Stays at the last active step on failure so the UI can show where it stopped.
+
+export type SyncStep = import("pine-rpc").SyncStep;
+
+let _syncStep: SyncStep | null = null;
+const _syncStepCbs = new Set<(s: SyncStep | null) => void>();
+
+function _emitSyncStep(s: SyncStep | null): void {
+  _syncStep = s;
+  for (const cb of _syncStepCbs) cb(s);
+}
+
+/**
+ * Subscribe to Pine sync step updates. Immediately invokes cb with the
+ * current step so the subscriber is in sync without polling.
+ * Returns an unsubscribe function.
+ */
+export function subscribePineSyncStep(cb: (s: SyncStep | null) => void): () => void {
+  _syncStepCbs.add(cb);
+  cb(_syncStep);
+  return () => { _syncStepCbs.delete(cb); };
+}
+
 /**
  * Get a Pine-backed BrowserProvider for the given chain.
  * Reuses the same smoldot instance if the chain hasn't changed.
@@ -58,13 +84,15 @@ export async function getPineProvider(pineChain: string): Promise<BrowserProvide
     const promise = (async () => {
       const { PineProvider } = await import("pine-rpc");
       const pine = new PineProvider({ chain: pineChain as import("pine-rpc").ChainPreset });
-      await pine.connect();
+      await pine.connect((step) => _emitSyncStep(step));
+      _emitSyncStep(null); // clear on success — provider is live
       return new BrowserProvider(pine);
     })();
     pineProviderCache = { chain: pineChain, promise };
     return await promise;
   } catch {
-    // Pine unavailable — caller should fall back to centralized RPC
+    // Pine unavailable — caller should fall back to centralized RPC.
+    // Leave _syncStep as-is so the UI can show the step where it failed.
     pineProviderCache = null;
     return null;
   }
