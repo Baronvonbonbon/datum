@@ -39,8 +39,17 @@ function make(address: string, abiArr: any[], provider: Provider | Signer): any 
   return new Contract(address, abiArr, provider) as any;
 }
 
+const _providerCache = new Map<string, JsonRpcProvider>();
+
+/** Return a cached JsonRpcProvider for the given URL.
+ *  Reusing the same instance prevents useBlock from resetting its polling
+ *  interval whenever useContracts recomputes due to unrelated dep changes
+ *  (e.g. signer connecting/disconnecting). */
 export function getProvider(rpcUrl: string): JsonRpcProvider {
-  return new JsonRpcProvider(rpcUrl);
+  if (!_providerCache.has(rpcUrl)) {
+    _providerCache.set(rpcUrl, new JsonRpcProvider(rpcUrl));
+  }
+  return _providerCache.get(rpcUrl)!;
 }
 
 /** Singleton Pine provider — reused across requests to avoid re-syncing smoldot */
