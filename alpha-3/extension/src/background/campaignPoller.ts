@@ -89,61 +89,17 @@ export const campaignPoller = {
       const index: Record<string, SerializedCampaign> = stored[INDEX_KEY] ?? {};
       const lastBlock: number = stored[LAST_BLOCK_KEY] ?? 0;
 
-      // ── Phase 1: Event-driven discovery ────────────────────────────────
-      // Query CampaignCreated events since lastBlock (or all if first run)
+      // ── Phase 1: Campaign discovery ────────────────────────────────────
+      // With Pine (smoldot light client), eth_getLogs is not supported — skip event
+      // scanning and go directly to the nextCampaignId fallback.
+      // With a centralized RPC, use CampaignCreated events for efficient discovery.
       const currentBlock = await provider.getBlockNumber();
       const fromBlock = lastBlock > 0 ? lastBlock + 1 : 0;
       let newCampaignIds: string[] = [];
 
       if (fromBlock <= currentBlock) {
-        try {
-          const filter = contract.filters.CampaignCreated();
-          // Chunk large ranges to stay within public RPC limits (some nodes cap at 10k blocks).
-          const allEvents: any[] = [];
-          for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
-            const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
-            const chunk = await contract.queryFilter(filter, chunkFrom, chunkTo);
-            allEvents.push(...chunk);
-            // Throttle between chunks to avoid hitting Paseo public RPC rate limits
-            if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
-              await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
-            }
-          }
-          for (const ev of allEvents) {
-            const args = (ev as any).args;
-            if (!args) continue;
-            const cid = (args[0] ?? args.campaignId)?.toString();
-            if (!cid) continue;
-
-            // Bootstrap new campaign entry from event data
-            if (!index[cid]) {
-              const advertiser = (args[1] ?? args.advertiser) ?? "";
-              const publisher = (args[2] ?? args.publisher) ?? "";
-              const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0).toString();
-              const bidCpmPlanck = BigInt(args[5] ?? args.bidCpmPlanck ?? 0).toString();
-              const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
-              const categoryId = Number(args[7] ?? args.categoryId ?? 0).toString();
-
-              index[cid] = {
-                id: cid,
-                advertiser: advertiser.toString(),
-                publisher: publisher.toString(),
-                remainingBudget: "0",
-                dailyCap,
-                bidCpmPlanck,
-                snapshotTakeRateBps,
-                status: CampaignStatus.Pending.toString(),
-                categoryId,
-                pendingExpiryBlock: "0",
-                terminationBlock: "0",
-              };
-              newCampaignIds.push(cid);
-            }
-          }
-        } catch (err) {
-          console.warn("[DATUM] Event query failed, falling back to nextCampaignId scan:", err);
-          // Fallback: enumerate IDs via nextCampaignId and bootstrap stub entries.
-          // Without bootstrapping index, Phase 2 would never refresh the new IDs.
+        // Pine path: eth_getLogs unsupported — enumerate via nextCampaignId directly
+        if (pineChain) {
           try {
             const nextId = Number(await contract.nextCampaignId());
             for (let id = 1; id < nextId; id++) {
@@ -166,11 +122,86 @@ export const campaignPoller = {
               }
             }
           } catch { /* give up on discovery this cycle */ }
+        } else {
+          // Centralized RPC path: use CampaignCreated events
+          try {
+            const filter = contract.filters.CampaignCreated();
+            // Chunk large ranges to stay within public RPC limits (some nodes cap at 10k blocks).
+            const allEvents: any[] = [];
+            for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
+              const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
+              const chunk = await contract.queryFilter(filter, chunkFrom, chunkTo);
+              allEvents.push(...chunk);
+              // Throttle between chunks to avoid hitting Paseo public RPC rate limits
+              if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
+                await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+              }
+            }
+            for (const ev of allEvents) {
+              const args = (ev as any).args;
+              if (!args) continue;
+              const cid = (args[0] ?? args.campaignId)?.toString();
+              if (!cid) continue;
+
+              // Bootstrap new campaign entry from event data
+              if (!index[cid]) {
+                const advertiser = (args[1] ?? args.advertiser) ?? "";
+                const publisher = (args[2] ?? args.publisher) ?? "";
+                const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0).toString();
+                const bidCpmPlanck = BigInt(args[5] ?? args.bidCpmPlanck ?? 0).toString();
+                const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
+                const categoryId = Number(args[7] ?? args.categoryId ?? 0).toString();
+
+                index[cid] = {
+                  id: cid,
+                  advertiser: advertiser.toString(),
+                  publisher: publisher.toString(),
+                  remainingBudget: "0",
+                  dailyCap,
+                  bidCpmPlanck,
+                  snapshotTakeRateBps,
+                  status: CampaignStatus.Pending.toString(),
+                  categoryId,
+                  pendingExpiryBlock: "0",
+                  terminationBlock: "0",
+                };
+                newCampaignIds.push(cid);
+              }
+            }
+          } catch (err) {
+            console.warn("[DATUM] Event query failed, falling back to nextCampaignId scan:", err);
+            // Fallback: enumerate IDs via nextCampaignId and bootstrap stub entries.
+            // Without bootstrapping index, Phase 2 would never refresh the new IDs.
+            try {
+              const nextId = Number(await contract.nextCampaignId());
+              for (let id = 1; id < nextId; id++) {
+                const sid = id.toString();
+                if (!index[sid]) {
+                  newCampaignIds.push(sid);
+                  index[sid] = {
+                    id: sid,
+                    advertiser: "",
+                    publisher: "",
+                    remainingBudget: "0",
+                    dailyCap: "0",
+                    bidCpmPlanck: "0",
+                    snapshotTakeRateBps: "0",
+                    status: CampaignStatus.Pending.toString(),
+                    categoryId: "0",
+                    pendingExpiryBlock: "0",
+                    terminationBlock: "0",
+                  };
+                }
+              }
+            } catch { /* give up on discovery this cycle */ }
+          }
         }
       }
 
       // ── Phase 1b: Metadata events for new campaigns ────────────────────
-      if (fromBlock <= currentBlock) {
+      // Skipped when using Pine — smoldot does not support eth_getLogs.
+      // Metadata hashes will remain absent; IPFS previews won't show in Pine mode.
+      if (!pineChain && fromBlock <= currentBlock) {
         try {
           const metaFilter = contract.filters.CampaignMetadataSet();
           const allMetaEvents: any[] = [];
