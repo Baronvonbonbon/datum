@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { BrowserProvider, JsonRpcProvider } from "ethers";
+import type { JsonRpcApiProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
 import { useContracts } from "./useContracts";
 
@@ -11,7 +11,7 @@ export function useBlock() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const provider = readProvider as BrowserProvider | JsonRpcProvider;
+    const provider = readProvider as JsonRpcApiProvider;
     if (!provider) return;
 
     async function poll() {

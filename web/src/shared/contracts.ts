@@ -1,5 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { BrowserProvider, Contract, JsonRpcProvider, Signer } from "ethers";
+import { Contract, JsonRpcApiProvider, JsonRpcProvider, Network, Signer } from "ethers";
+import type { JsonRpcPayload, JsonRpcResult, JsonRpcError } from "ethers";
 import DatumCampaignsAbi from "./abis/DatumCampaigns.json";
 import DatumPublishersAbi from "./abis/DatumPublishers.json";
 import DatumGovernanceV2Abi from "./abis/DatumGovernanceV2.json";
@@ -22,7 +23,7 @@ import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
 import { ContractAddresses } from "./types";
 
-type Provider = JsonRpcProvider | BrowserProvider;
+type Provider = JsonRpcProvider | JsonRpcApiProvider;
 
 // ABI JSON files may be either a bare array [...] or a Hardhat artifact { abi: [...] }.
 // Normalize so both formats work.
@@ -43,7 +44,65 @@ export function getProvider(rpcUrl: string): JsonRpcProvider {
 }
 
 /** Singleton Pine provider — reused across requests to avoid re-syncing smoldot */
-let pineProviderCache: { chain: string; promise: Promise<BrowserProvider> } | null = null;
+let pineProviderCache: { chain: string; promise: Promise<JsonRpcApiProvider> } | null = null;
+
+// Chain IDs for known Asset Hub networks (mirrors pine-rpc/eth_chainId)
+const ASSET_HUB_CHAIN_IDS: Record<string, number> = {
+  "paseo-asset-hub": 420420417,
+  "polkadot-asset-hub": 420420416,
+  "kusama-asset-hub": 420420418,
+  "westend-asset-hub": 420420419,
+};
+
+/**
+ * Minimal interface we need from PineProvider — avoids a static import
+ * of the (dynamically loaded) pine-rpc module.
+ */
+interface PineRequestable {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}
+
+/**
+ * ethers v6 JsonRpcApiProvider backed by Pine's EIP-1193 provider.
+ *
+ * Using JsonRpcApiProvider (not BrowserProvider) avoids the wallet-specific
+ * baggage in BrowserProvider: no eth_accounts polling, no chainChanged
+ * event resetting network state, no lazy network detection on each request.
+ * staticNetwork pins the chain ID at construction so no eth_chainId call
+ * is ever issued by ethers internals.
+ */
+class PineEthersProvider extends JsonRpcApiProvider {
+  readonly #pine: PineRequestable;
+
+  constructor(pine: PineRequestable, chain: string) {
+    const chainId = BigInt(ASSET_HUB_CHAIN_IDS[chain] ?? 420420417);
+    const network = new Network(chain, chainId);
+    super(network, { staticNetwork: network });
+    this.#pine = pine;
+    this._start();
+  }
+
+  async _send(
+    payload: JsonRpcPayload | Array<JsonRpcPayload>,
+  ): Promise<Array<JsonRpcResult | JsonRpcError>> {
+    const payloads = Array.isArray(payload) ? payload : [payload];
+    return Promise.all(
+      payloads.map(async (p): Promise<JsonRpcResult | JsonRpcError> => {
+        try {
+          const result = await this.#pine.request({
+            method: p.method,
+            params: p.params as unknown[],
+          });
+          return { id: p.id, result };
+        } catch (err) {
+          const code = (err as { code?: number })?.code ?? -32603;
+          const message = err instanceof Error ? err.message : "Internal error";
+          return { id: p.id, error: { code, message } };
+        }
+      }),
+    );
+  }
+}
 
 // ── Pine sync step state — shared across all useContracts instances ──
 // Tracks which connection phase Pine is currently in.
@@ -72,11 +131,11 @@ export function subscribePineSyncStep(cb: (s: SyncStep | null) => void): () => v
 }
 
 /**
- * Get a Pine-backed BrowserProvider for the given chain.
+ * Get a Pine-backed JsonRpcApiProvider for the given chain.
  * Reuses the same smoldot instance if the chain hasn't changed.
  * Returns null if Pine is not available or fails to connect.
  */
-export async function getPineProvider(pineChain: string): Promise<BrowserProvider | null> {
+export async function getPineProvider(pineChain: string): Promise<JsonRpcApiProvider | null> {
   try {
     if (pineProviderCache && pineProviderCache.chain === pineChain) {
       return pineProviderCache.promise;
@@ -86,7 +145,7 @@ export async function getPineProvider(pineChain: string): Promise<BrowserProvide
       const pine = new PineProvider({ chain: pineChain as import("pine-rpc").ChainPreset });
       await pine.connect((step) => _emitSyncStep(step));
       _emitSyncStep(null); // clear on success — provider is live
-      return new BrowserProvider(pine);
+      return new PineEthersProvider(pine, pineChain);
     })();
     pineProviderCache = { chain: pineChain, promise };
     return await promise;

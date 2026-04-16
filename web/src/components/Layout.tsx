@@ -10,7 +10,7 @@ import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { useContracts } from "../hooks/useContracts";
-import type { BrowserProvider, JsonRpcProvider } from "ethers";
+import type { JsonRpcApiProvider } from "ethers";
 
 /** Animates the block number ticking up when it changes. */
 function useBlockFlash(blockNumber: number | null) {
@@ -88,7 +88,7 @@ export function Layout() {
   // Fetch wallet balance — use Pine-aware readProvider when available
   useEffect(() => {
     if (!address || !readProvider) { setBalance(null); return; }
-    const provider = readProvider as BrowserProvider | JsonRpcProvider;
+    const provider = readProvider as JsonRpcApiProvider;
     provider.getBalance(address).then(wei => setBalance(weiToPlanck(wei))).catch(() => setBalance(null));
   }, [address, readProvider, blockNumber]);
 

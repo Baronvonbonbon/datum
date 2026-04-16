@@ -4,7 +4,7 @@
 //   await confirmTx(tx);
 
 import { useCallback } from "react";
-import type { BrowserProvider, JsonRpcProvider } from "ethers";
+import type { JsonRpcApiProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { useContracts } from "./useContracts";
@@ -27,7 +27,7 @@ export function useTx() {
       await tx.wait?.(1);
       return;
     }
-    const provider = readProvider as BrowserProvider | JsonRpcProvider;
+    const provider = readProvider as JsonRpcApiProvider;
     if (!provider) {
       await tx.wait?.(1);
       return;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrowserProvider, JsonRpcProvider } from "ethers";
+import { JsonRpcApiProvider, JsonRpcProvider } from "ethers";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { NETWORK_CONFIGS } from "@shared/networks";
@@ -36,7 +36,7 @@ export type { SyncStep };
 export function useContracts() {
   const { settings } = useSettings();
   const { signer } = useWallet();
-  const [pineProvider, setPineProvider] = useState<BrowserProvider | null>(null);
+  const [pineProvider, setPineProvider] = useState<JsonRpcApiProvider | null>(null);
   const [pineStatus, setPineStatus] = useState<PineStatus>("off");
   const [syncStep, setSyncStep] = useState<SyncStep | null>(null);
 
