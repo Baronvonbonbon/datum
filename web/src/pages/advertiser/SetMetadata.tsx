@@ -59,7 +59,8 @@ export function SetMetadata() {
     }
 
     const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
-    if (!apiKey && settings.ipfsProvider !== "custom") {
+    const noKeyRequired = settings.ipfsProvider === "custom" || settings.ipfsProvider === "selfhosted";
+    if (!apiKey && !noKeyRequired) {
       setTxMsg(`No API key configured for IPFS pinning. Go to Settings to add your ${settings.ipfsProvider ?? "Pinata"} key.`);
       setTxState("error");
       return;
@@ -108,7 +109,7 @@ export function SetMetadata() {
         </p>
       </div>
 
-      {!(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && (
+      {!(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && settings.ipfsProvider !== "selfhosted" && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
           No IPFS pinning key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add it in Settings.</Link>
         </div>

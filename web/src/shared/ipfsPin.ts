@@ -266,9 +266,16 @@ export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; e
         return { ok: false, error: `Auth failed: ${r.status}` };
       }
       case "selfhosted": {
-        const r = await fetch(`${SELFHOSTED_GATEWAY_URL}/health`);
-        if (r.ok) return { ok: true };
-        return { ok: false, error: `Datum node unreachable: ${r.status}` };
+        // First check node reachability
+        const health = await fetch(`${SELFHOSTED_GATEWAY_URL}/health`);
+        if (!health.ok) return { ok: false, error: `Datum node unreachable: ${health.status}` };
+        // Then verify the API key with a minimal authenticated request
+        if (!key) return { ok: false, error: "No API key configured for self-hosted node" };
+        const auth = await fetch(`${SELFHOSTED_GATEWAY_URL}/pins?limit=1`, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (auth.ok || auth.status === 404) return { ok: true }; // 404 = endpoint exists, key accepted
+        return { ok: false, error: `API key rejected by Datum node: ${auth.status}` };
       }
       case "custom": {
         if (!config.endpoint?.trim()) return { ok: false, error: "No endpoint URL set" };
