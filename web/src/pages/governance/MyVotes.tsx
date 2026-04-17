@@ -9,7 +9,6 @@ import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_BLOCKS, formatBlockDelta } from "
 import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
 import { useTx } from "../../hooks/useTx";
-import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 import { useToast } from "../../context/ToastContext";
@@ -26,6 +25,10 @@ interface MyVote {
   claimable: bigint;
 }
 
+type StatusFilter = "all" | "active" | "resolved";
+
+const BATCH_SIZE = 20;
+
 export function MyVotes() {
   const contracts = useContracts();
   const { address, signer } = useWallet();
@@ -38,66 +41,63 @@ export function MyVotes() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   useEffect(() => { if (address) load(); }, [address]);
 
   async function load() {
     if (!address) return;
     setLoading(true);
+    setVotes([]);
     try {
-      const filter = contracts.governanceV2.filters.VoteCast(null, address);
-      const logs = await queryFilterAll(contracts.governanceV2, filter);
-
-      // Deduplicate by campaignId (last vote wins)
-      const campaignIds = new Set<number>();
-      for (const log of logs) {
-        const args = (log as any).args ?? {};
-        campaignIds.add(Number(args.campaignId ?? 0));
-      }
-
+      const nextId = Number(await contracts.campaigns.nextCampaignId().catch(() => 0));
       const results: MyVote[] = [];
-      await Promise.all([...campaignIds].map(async (cid) => {
-        try {
-          const [v, c, resolved] = await Promise.all([
-            contracts.governanceV2.getVote(BigInt(cid), address),
-            contracts.campaigns.getCampaignForSettlement(BigInt(cid)),
-            contracts.governanceV2.resolved(BigInt(cid)).catch(() => false),
-          ]);
 
-          const dir = Number(v.direction ?? v[0] ?? 0);
-          if (dir === 0) return;
+      // Scan all campaign IDs directly — event filters unreliable on Paseo
+      for (let i = 0; i < nextId; i += BATCH_SIZE) {
+        const ids = Array.from({ length: Math.min(BATCH_SIZE, nextId - i) }, (_, j) => i + j);
+        await Promise.all(ids.map(async (cid) => {
+          try {
+            const v = await contracts.governanceV2.getVote(BigInt(cid), address);
+            const dir = Number(v.direction ?? v[0] ?? 0);
+            if (dir === 0) return;
 
-          const lockAmt = BigInt(v.lockAmount ?? v[1] ?? 0);
-          const conv = Number(v.conviction ?? v[2] ?? 0);
-          const unlockBlk = Number(v.lockedUntilBlock ?? v[3] ?? 0);
+            const lockAmt = BigInt(v.lockAmount ?? v[1] ?? 0);
+            const conv = Number(v.conviction ?? v[2] ?? 0);
+            const unlockBlk = Number(v.lockedUntilBlock ?? v[3] ?? 0);
 
-          // Check slash state per campaign
-          let slashFinalized = false;
-          let claimable = 0n;
-          if (Boolean(resolved)) {
-            try {
-              slashFinalized = Boolean(await contracts.governanceSlash.finalized(BigInt(cid)));
-            } catch { /* no slash contract */ }
-            if (slashFinalized) {
+            const [c, resolved] = await Promise.all([
+              contracts.campaigns.getCampaignForSettlement(BigInt(cid)),
+              contracts.governanceV2.resolved(BigInt(cid)).catch(() => false),
+            ]);
+
+            let slashFinalized = false;
+            let claimable = 0n;
+            if (Boolean(resolved)) {
               try {
-                claimable = BigInt(await contracts.governanceSlash.getClaimable(BigInt(cid), address));
-              } catch { /* no claimable */ }
+                slashFinalized = Boolean(await contracts.governanceSlash.finalized(BigInt(cid)));
+              } catch { /* no slash contract */ }
+              if (slashFinalized) {
+                try {
+                  claimable = BigInt(await contracts.governanceSlash.getClaimable(BigInt(cid), address));
+                } catch { /* no claimable */ }
+              }
             }
-          }
 
-          results.push({
-            campaignId: cid,
-            direction: dir,
-            lockAmount: lockAmt,
-            conviction: conv,
-            unlockBlock: unlockBlk,
-            campaignStatus: Number(c[0]),
-            campaignResolved: Boolean(resolved),
-            slashFinalized,
-            claimable,
-          });
-        } catch { /* skip */ }
-      }));
+            results.push({
+              campaignId: cid,
+              direction: dir,
+              lockAmount: lockAmt,
+              conviction: conv,
+              unlockBlock: unlockBlk,
+              campaignStatus: Number(c[0]),
+              campaignResolved: Boolean(resolved),
+              slashFinalized,
+              claimable,
+            });
+          } catch { /* skip */ }
+        }));
+      }
 
       setVotes(results.sort((a, b) => b.campaignId - a.campaignId));
     } finally {
@@ -178,47 +178,67 @@ export function MyVotes() {
     );
   }
 
+  const filtered = votes.filter((v) => {
+    if (statusFilter === "active") return !v.campaignResolved && v.campaignStatus <= 2;
+    if (statusFilter === "resolved") return v.campaignResolved || v.campaignStatus >= 3;
+    return true;
+  });
+
   return (
     <div className="nano-fade" style={{ maxWidth: 640 }}>
       <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>My Votes</h1>
-        {votes.length > 0 && (
-          <button
-            onClick={() => {
-              const rows = votes.map((v) => ({
-                Campaign: v.campaignId,
-                Direction: v.direction === 1 ? "Aye" : "Nay",
-                Staked: formatDOT(v.lockAmount),
-                Conviction: v.conviction,
-                Weight: CONVICTION_WEIGHTS[v.conviction],
-                "Effective Stake": formatDOT(v.lockAmount * BigInt(CONVICTION_WEIGHTS[v.conviction])),
-                "Unlock Block": v.unlockBlock,
-                Status: v.campaignResolved ? "Resolved" : "Active",
-                Claimable: v.claimable > 0n ? formatDOT(v.claimable) : "",
-              }));
-              downloadCSV("my-votes.csv", toCSV(["Campaign", "Direction", "Staked", "Conviction", "Weight", "Effective Stake", "Unlock Block", "Status", "Claimable"], rows));
-            }}
-            className="nano-btn"
-            style={{ fontSize: 12 }}
-          >
-            Export CSV
-          </button>
-        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+          {votes.length > 0 && (
+            <button
+              onClick={() => {
+                const rows = votes.map((v) => ({
+                  Campaign: v.campaignId,
+                  Direction: v.direction === 1 ? "Aye" : "Nay",
+                  Staked: formatDOT(v.lockAmount),
+                  Conviction: v.conviction,
+                  Weight: CONVICTION_WEIGHTS[v.conviction],
+                  "Effective Stake": formatDOT(v.lockAmount * BigInt(CONVICTION_WEIGHTS[v.conviction])),
+                  "Unlock Block": v.unlockBlock,
+                  Status: v.campaignResolved ? "Resolved" : "Active",
+                  Claimable: v.claimable > 0n ? formatDOT(v.claimable) : "",
+                }));
+                downloadCSV("my-votes.csv", toCSV(["Campaign", "Direction", "Staked", "Conviction", "Weight", "Effective Stake", "Unlock Block", "Status", "Claimable"], rows));
+              }}
+              className="nano-btn"
+              style={{ fontSize: 12 }}
+            >
+              Export CSV
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Status filter */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        <button onClick={() => setStatusFilter("all")} className={statusFilter === "all" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>All</button>
+        <button onClick={() => setStatusFilter("active")} className={statusFilter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>
+        <button onClick={() => setStatusFilter("resolved")} className={statusFilter === "resolved" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Resolved</button>
       </div>
 
       <TransactionStatus state={txState} message={txMsg} />
 
       {loading ? (
-        <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading your votes</div>
+        <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Scanning campaigns for your votes</div>
       ) : votes.length === 0 ? (
         <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
           You haven't voted on any campaigns yet.{" "}
           <Link to="/governance" style={{ color: "var(--accent)" }}>Browse governance →</Link>
         </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
+          No votes match this filter.
+        </div>
       ) : (
         <div>
-          {votes.map((v) => {
+          {filtered.map((v) => {
             const lockup = CONVICTION_LOCKUP_BLOCKS[v.conviction];
             const weight = CONVICTION_WEIGHTS[v.conviction];
             const canWithdraw = lockup === 0 || (blockNumber !== null && blockNumber >= v.unlockBlock);

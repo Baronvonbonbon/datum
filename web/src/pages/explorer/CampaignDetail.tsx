@@ -69,6 +69,10 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Governance action state
+  const [evaluateBusy, setEvaluateBusy] = useState(false);
+  const [evaluateMsg, setEvaluateMsg] = useState<string | null>(null);
+
   // Token reward sidecar state (visible to all)
   const [tokenReward, setTokenReward] = useState<{
     token: string;
@@ -149,17 +153,21 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
 
       // Governance info
       try {
-        const [aye, nay, resolved, quorum] = await Promise.all([
+        const [aye, nay, resolved, quorum, firstNayBlk, baseGrace] = await Promise.all([
           contracts.governanceV2.ayeWeighted(BigInt(campaignId)),
           contracts.governanceV2.nayWeighted(BigInt(campaignId)),
           contracts.governanceV2.resolved(BigInt(campaignId)),
           contracts.governanceV2.quorumWeighted(),
+          contracts.governanceV2.firstNayBlock(BigInt(campaignId)).catch(() => 0),
+          contracts.governanceV2.baseGraceBlocks().catch(() => 0),
         ]);
         setGovernance({
           ayeWeighted: BigInt(aye),
           nayWeighted: BigInt(nay),
           resolved: Boolean(resolved),
           quorum: BigInt(quorum),
+          firstNayBlock: Number(firstNayBlk),
+          baseGraceBlocks: Number(baseGrace),
         });
       } catch { /* GovernanceV2 not configured */ }
 
@@ -295,6 +303,24 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       setReportMsg(humanizeError(err));
     } finally {
       setReportingAd(false);
+    }
+  }
+
+  async function handleEvaluate() {
+    if (!signer || !campaign) return;
+    setEvaluateBusy(true);
+    setEvaluateMsg(null);
+    try {
+      const g = contracts.governanceV2.connect(signer);
+      const tx = await g.evaluateCampaign(BigInt(campaign.id));
+      await confirmTx(tx);
+      setEvaluateMsg("Campaign evaluated successfully.");
+      load(campaign.id);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setEvaluateMsg(humanizeError(err));
+    } finally {
+      setEvaluateBusy(false);
     }
   }
 
@@ -439,37 +465,98 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         </section>
       )}
 
-      {governance && (
-        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Governance</h2>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
-              <span style={{ color: "var(--ok)" }}>Aye {ayePct}%</span>
-              <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}%</span>
+      {governance && (() => {
+        const graceReadyBlock = governance.firstNayBlock > 0
+          ? governance.firstNayBlock + governance.baseGraceBlocks
+          : null;
+        const graceElapsed = graceReadyBlock !== null && blockNumber !== null
+          ? blockNumber >= graceReadyBlock
+          : null;
+        const graceBlocksLeft = graceReadyBlock !== null && blockNumber !== null && !graceElapsed
+          ? graceReadyBlock - blockNumber
+          : 0;
+        const nayMajority = totalVotes > 0n && governance.nayWeighted * 100n / totalVotes >= 50n;
+        const canEvaluate = campaign.status <= 2;
+
+        return (
+          <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+            <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Governance</h2>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
+                <span style={{ color: "var(--ok)" }}>Aye {ayePct}%</span>
+                <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}%</span>
+              </div>
+              <div style={{ position: "relative", background: "var(--bg-raised)", borderRadius: 4, height: 10, overflow: "hidden", border: "1px solid var(--border)", display: "flex" }}>
+                <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
+                <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
+                <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                <span><DOTAmount planck={governance.ayeWeighted} /> aye</span>
+                <span><DOTAmount planck={governance.nayWeighted} /> nay</span>
+              </div>
             </div>
-            <div style={{ position: "relative", background: "var(--bg-raised)", borderRadius: 4, height: 10, overflow: "hidden", border: "1px solid var(--border)", display: "flex" }}>
-              <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
-              <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
-              <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-              <span><DOTAmount planck={governance.ayeWeighted} /> aye</span>
-              <span><DOTAmount planck={governance.nayWeighted} /> nay</span>
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
               Quorum: {quorumPct}% of <DOTAmount planck={governance.quorum} /> threshold
               {governance.resolved && <span style={{ color: "var(--ok)", marginLeft: 8 }}>✓ Resolved</span>}
             </div>
-            {campaign.status <= 2 && (
-              <Link to={`/governance/vote/${campaign.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
-                Cast Vote →
-              </Link>
+
+            {/* Grace period info — shown when nay majority and termination pending */}
+            {nayMajority && governance.firstNayBlock > 0 && (
+              <div style={{
+                fontSize: 12,
+                padding: "8px 10px",
+                marginBottom: 10,
+                borderRadius: "var(--radius-sm)",
+                background: graceElapsed ? "rgba(74,222,128,0.08)" : "rgba(251,191,36,0.08)",
+                border: `1px solid ${graceElapsed ? "rgba(74,222,128,0.2)" : "rgba(251,191,36,0.2)"}`,
+                color: "var(--text)",
+              }}>
+                {graceElapsed ? (
+                  <span style={{ color: "var(--ok)" }}>Grace period elapsed — termination can be evaluated.</span>
+                ) : (
+                  <span>
+                    <span style={{ color: "var(--warn)" }}>Grace period:</span>{" "}
+                    {graceBlocksLeft > 0 ? (
+                      <>{formatBlockDelta(graceBlocksLeft)} remaining before termination can be evaluated</>
+                    ) : (
+                      <>calculating...</>
+                    )}
+                    <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+                      (safety cooldown from first nay vote, block #{governance.firstNayBlock})
+                    </span>
+                  </span>
+                )}
+              </div>
             )}
-          </div>
-        </section>
-      )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {campaign.status <= 1 && (
+                <Link to={`/governance/vote/${campaign.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
+                  Cast Vote →
+                </Link>
+              )}
+              {canEvaluate && signer && (
+                <button
+                  onClick={handleEvaluate}
+                  disabled={evaluateBusy}
+                  className="nano-btn"
+                  style={{ padding: "4px 10px", fontSize: 12 }}
+                  title={nayMajority && graceElapsed === false ? "Grace period not yet elapsed — termination requires ~24h after first nay vote" : ""}
+                >
+                  {evaluateBusy ? "Evaluating..." : "Evaluate"}
+                </button>
+              )}
+            </div>
+            {evaluateMsg && (
+              <div style={{ fontSize: 12, marginTop: 8, color: evaluateMsg.includes("successfully") ? "var(--ok)" : "var(--error)" }}>
+                {evaluateMsg}
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
         <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Creative</h2>
