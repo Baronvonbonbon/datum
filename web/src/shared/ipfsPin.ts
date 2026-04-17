@@ -66,6 +66,13 @@ export const IPFS_PROVIDERS: Record<IpfsProvider, ProviderInfo> = {
     docsUrl: "",
     needsEndpoint: false,
   },
+  localipfs: {
+    label: "Local IPFS node (no key needed)",
+    placeholder: "(leave blank — no auth required for localhost)",
+    keyLabel: "API key (optional, only if you configured Kubo auth)",
+    docsUrl: "",
+    needsEndpoint: true,
+  },
   custom: {
     label: "Custom endpoint",
     placeholder: "Bearer token or API key",
@@ -164,6 +171,60 @@ async function pinViaNftStorage(apiKey: string, metadata: CampaignMetadata): Pro
   return { ok: true, cid };
 }
 
+/**
+ * Pin via a local Kubo IPFS node using the multipart/form-data API.
+ * Kubo requires multipart — raw JSON to /api/v0/add will return a 400.
+ * The caller supplies the node base URL (e.g. http://localhost:5001); we
+ * append /api/v0/add automatically.
+ *
+ * CORS note: Kubo's API port (default 5001) blocks cross-origin requests
+ * by default. Run: ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'
+ * and restart the daemon.
+ */
+async function pinViaKubo(endpoint: string, apiKey: string, metadata: CampaignMetadata): Promise<PinResult> {
+  const base = endpoint.trim().replace(/\/$/, "");
+  if (!base) return { ok: false, error: "No IPFS node endpoint configured" };
+  const urlError = validateEndpointUrl(base);
+  if (urlError) return { ok: false, error: urlError };
+
+  const json = JSON.stringify(metadata, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const form = new FormData();
+  form.append("file", blob, "metadata.json");
+
+  const headers: Record<string, string> = {};
+  if (apiKey.trim()) headers["Authorization"] = apiKey.trim().startsWith("Bearer ")
+    ? apiKey.trim()
+    : `Bearer ${apiKey.trim()}`;
+
+  const response = await fetch(`${base}/api/v0/add?pin=true`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    // Kubo returns NDJSON on success; a non-OK status means a real error
+    return { ok: false, error: `IPFS node ${response.status}: ${text.slice(0, 300)}` };
+  }
+
+  // Kubo streams NDJSON — last line is the root object with the final CID
+  const text = await response.text();
+  const lines = text.trim().split("\n").filter(Boolean);
+  let cid: string | undefined;
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      // Kubo uses "Hash" field; pick up whichever variant appears
+      const candidate: string = obj.Hash ?? obj.hash ?? obj.IpfsHash ?? obj.cid;
+      if (candidate) cid = candidate;
+    } catch { /* skip malformed line */ }
+  }
+  if (!cid) return { ok: false, error: "IPFS node response contained no CID — check CORS and node version" };
+  return { ok: true, cid };
+}
+
 /** Validate custom endpoint URL — reject private/internal IPs and non-HTTPS */
 function validateEndpointUrl(url: string): string | null {
   try {
@@ -212,7 +273,8 @@ async function pinViaCustom(apiKey: string, endpoint: string, metadata: Campaign
  */
 export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): Promise<PinResult> {
   const key = config.apiKey.trim();
-  if (!key && config.provider !== "custom" && config.provider !== "selfhosted") {
+  const noKeyProviders: IpfsProvider[] = ["custom", "selfhosted", "localipfs"];
+  if (!key && !noKeyProviders.includes(config.provider)) {
     return { ok: false, error: `No API key configured for ${IPFS_PROVIDERS[config.provider].label}. Add it in Settings.` };
   }
 
@@ -223,6 +285,7 @@ export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): 
       case "filebase":    return await pinViaFilebase(key, metadata);
       case "nftstorage":  return await pinViaNftStorage(key, metadata);
       case "selfhosted":  return await pinViaCustom(key, SELFHOSTED_UPLOAD_URL, metadata);
+      case "localipfs":   return await pinViaKubo(config.endpoint ?? "", key, metadata);
       case "custom":      return await pinViaCustom(key, config.endpoint ?? "", metadata);
     }
   } catch (err) {
@@ -276,6 +339,21 @@ export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; e
         });
         if (auth.ok || auth.status === 404) return { ok: true }; // 404 = endpoint exists, key accepted
         return { ok: false, error: `API key rejected by Datum node: ${auth.status}` };
+      }
+      case "localipfs": {
+        if (!config.endpoint?.trim()) return { ok: false, error: "No IPFS node endpoint configured (e.g. http://localhost:5001)" };
+        const base = config.endpoint.trim().replace(/\/$/, "");
+        const urlError = validateEndpointUrl(base);
+        if (urlError) return { ok: false, error: urlError };
+        try {
+          // Kubo API endpoints use POST even for reads
+          const r = await fetch(`${base}/api/v0/version`, { method: "POST" });
+          if (r.ok) return { ok: true };
+          if (r.status === 403 || r.status === 401) return { ok: false, error: "IPFS node rejected request — check auth config" };
+          return { ok: false, error: `IPFS node returned ${r.status} — check CORS headers and that daemon is running` };
+        } catch {
+          return { ok: false, error: "Cannot reach IPFS node — is it running? Check: ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '[\"*\"]'" };
+        }
       }
       case "custom": {
         if (!config.endpoint?.trim()) return { ok: false, error: "No endpoint URL set" };

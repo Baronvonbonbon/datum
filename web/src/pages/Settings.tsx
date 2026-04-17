@@ -132,8 +132,13 @@ export function Settings() {
                 const p = e.target.value as IpfsProvider;
                 updateSettings({
                   ipfsProvider: p,
-                  // Auto-set gateway when switching to self-hosted
+                  // Auto-fill gateway + endpoint when switching provider
                   ...(p === "selfhosted" ? { ipfsGateway: SELFHOSTED_GATEWAY_URL } : {}),
+                  ...(p === "localipfs" ? {
+                    ipfsGateway: SELFHOSTED_GATEWAY_URL,
+                    ipfsApiEndpoint: "http://localhost:5001",
+                    ipfsApiKey: "",
+                  } : {}),
                 });
                 setTestStatus("idle");
                 setTestMsg("");
@@ -149,7 +154,12 @@ export function Settings() {
               Required to upload metadata when creating campaigns. Leave blank to use IPFS gateways for viewing only.
               {provider === "selfhosted" && (
                 <span style={{ color: "var(--ok)", marginLeft: 6 }}>
-                  Local node at ipfs.datum.javcon.io — no rate limits, 1 GB cap.
+                  Datum-hosted node at ipfs.datum.javcon.io — no rate limits, 1 GB cap.
+                </span>
+              )}
+              {provider === "localipfs" && (
+                <span style={{ color: "var(--ok)", marginLeft: 6 }}>
+                  Pins directly to your local daemon — no API key needed. Content served publicly via the Cloudflare tunnel gateway.
                 </span>
               )}
             </div>
@@ -158,16 +168,24 @@ export function Settings() {
           {providerInfo.needsEndpoint && (
             <div>
               <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>
-                Endpoint URL
+                {provider === "localipfs" ? "Node base URL" : "Endpoint URL"}
               </label>
               <input
                 value={settings.ipfsApiEndpoint ?? ""}
                 onChange={(e) => updateSettings({ ipfsApiEndpoint: e.target.value })}
-                placeholder="https://your-node/api/v0/add"
+                placeholder={provider === "localipfs" ? "http://localhost:5001" : "https://your-node/api/v0/add"}
                 className="nano-input"
               />
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
-                POST endpoint that accepts JSON and returns a CID in <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>IpfsHash</code>, <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>cid</code>, or <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>Hash</code> field.
+                {provider === "localipfs" ? (
+                  <>
+                    Base URL of your Kubo daemon — <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>/api/v0/add</code> is appended automatically.{" "}
+                    <span style={{ color: "var(--warn)" }}>CORS required:</span>{" "}
+                    run <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3, fontSize: 10 }}>ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'</code> then restart the daemon.
+                  </>
+                ) : (
+                  <>POST endpoint that accepts JSON and returns a CID in <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>IpfsHash</code>, <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>cid</code>, or <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3 }}>Hash</code> field.</>
+                )}
               </div>
             </div>
           )}
