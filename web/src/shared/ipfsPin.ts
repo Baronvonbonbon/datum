@@ -329,16 +329,17 @@ export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; e
         return { ok: false, error: `Auth failed: ${r.status}` };
       }
       case "selfhosted": {
-        // First check node reachability
-        const health = await fetch(`${SELFHOSTED_GATEWAY_URL}/health`);
-        if (!health.ok) return { ok: false, error: `Datum node unreachable: ${health.status}` };
-        // Then verify the API key with a minimal authenticated request
         if (!key) return { ok: false, error: "No API key configured for self-hosted node" };
-        const auth = await fetch(`${SELFHOSTED_GATEWAY_URL}/pins?limit=1`, {
-          headers: { Authorization: `Bearer ${key}` },
+        // POST empty body to /add — proxy returns 401 (bad key) or 400 (bad JSON, meaning auth passed)
+        const r = await fetch(`${SELFHOSTED_UPLOAD_URL}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: "",
         });
-        if (auth.ok || auth.status === 404) return { ok: true }; // 404 = endpoint exists, key accepted
-        return { ok: false, error: `API key rejected by Datum node: ${auth.status}` };
+        if (r.status === 400) return { ok: true }; // auth accepted, empty body rejected
+        if (r.status === 401) return { ok: false, error: "API key rejected" };
+        if (r.ok) return { ok: true };
+        return { ok: false, error: `Datum node ${r.status}` };
       }
       case "localipfs": {
         if (!config.endpoint?.trim()) return { ok: false, error: "No IPFS node endpoint configured (e.g. http://localhost:5001)" };
