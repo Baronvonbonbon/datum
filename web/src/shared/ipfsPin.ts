@@ -1,8 +1,8 @@
 // IPFS pinning utility for campaign metadata.
 // Supports Pinata, Web3.Storage, Filebase, NFT.Storage, self-hosted Datum node, and custom endpoints.
 
-export const SELFHOSTED_UPLOAD_URL = "https://ipfs.datum.javcon.io/add";
-export const SELFHOSTED_GATEWAY_URL = "https://ipfs.datum.javcon.io";
+export const SELFHOSTED_UPLOAD_URL = "https://ipfs-datum.javcon.io/add";
+export const SELFHOSTED_GATEWAY_URL = "https://ipfs-datum.javcon.io";
 
 import { CampaignMetadata, IpfsProvider } from "./types";
 
@@ -61,8 +61,8 @@ export const IPFS_PROVIDERS: Record<IpfsProvider, ProviderInfo> = {
   },
   selfhosted: {
     label: "Self-hosted (Datum Node)",
-    placeholder: "IPFS_API_KEY from ipfs-node/.env",
-    keyLabel: "IPFS_API_KEY",
+    placeholder: "64-char hex key from ipfs-node/.env",
+    keyLabel: "Upload API key",
     docsUrl: "",
     needsEndpoint: false,
   },
