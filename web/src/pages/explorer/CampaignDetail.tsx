@@ -337,12 +337,20 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       {/* Core info grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
         <InfoCard label="Advertiser">
-          <AddressDisplay address={campaign.advertiser} explorerBase={EXPLORER} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <AddressDisplay address={campaign.advertiser} explorerBase={EXPLORER} />
+            <Link to={`/advertisers/${campaign.advertiser}`} style={{ fontSize: 11, color: "var(--text-muted)" }}>View profile →</Link>
+          </div>
         </InfoCard>
         <InfoCard label="Publisher">
           {isOpen
             ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Open (any publisher)</span>
-            : <AddressDisplay address={campaign.publisher} explorerBase={EXPLORER} />}
+            : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <AddressDisplay address={campaign.publisher} explorerBase={EXPLORER} />
+                <Link to={`/publishers/${campaign.publisher}`} style={{ fontSize: 11, color: "var(--text-muted)" }}>View profile →</Link>
+              </div>
+            )}
         </InfoCard>
         <InfoCard label="Bid CPM">
           <DOTAmount planck={campaign.bidCpmPlanck} />

@@ -182,6 +182,77 @@ pre {
   border-left-color: rgba(255,255,255,0.5);
 }
 
+/* ─── Sidebar nav sections ───────────────────────────────────────────────── */
+.nano-nav-section { display: flex; flex-direction: column; }
+
+.nano-nav-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 16px 7px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  background: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-sans);
+  transition: color 200ms, background 200ms;
+  text-decoration: none;
+}
+.nano-nav-section-header:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  text-decoration: none;
+}
+.nano-nav-section-header.active {
+  color: var(--text-strong);
+  border-left-color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.04);
+}
+.nano-nav-section-arrow {
+  font-size: 9px;
+  opacity: 0.5;
+  transition: transform 200ms;
+}
+.nano-nav-section-arrow--open { transform: rotate(90deg); }
+
+.nano-nav-children {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 240ms ease-in-out;
+}
+.nano-nav-children--open { max-height: 400px; }
+
+.nano-navlink--child {
+  display: block;
+  padding: 5px 16px 5px 26px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: color 200ms, background 200ms;
+}
+.nano-navlink--child:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  text-decoration: none;
+}
+.nano-navlink--child.active {
+  color: var(--text-strong);
+  background: rgba(255,255,255,0.04);
+  border-left-color: rgba(255,255,255,0.3);
+}
+
 /* ─── Card — border only, no fill ───────────────────────────────────────── */
 .nano-card {
   background: transparent;

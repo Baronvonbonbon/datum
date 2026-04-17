@@ -10,6 +10,8 @@ import { Overview } from "./pages/explorer/Overview";
 import { Campaigns } from "./pages/explorer/Campaigns";
 import { CampaignDetail } from "./pages/explorer/CampaignDetail";
 import { Publishers } from "./pages/explorer/Publishers";
+import { PublisherProfile } from "./pages/explorer/PublisherProfile";
+import { AdvertiserProfile } from "./pages/explorer/AdvertiserProfile";
 import { HowItWorks } from "./pages/explorer/HowItWorks";
 
 // Advertiser
@@ -62,6 +64,8 @@ export function App() {
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
               <Route path="/publishers" element={<Publishers />} />
+              <Route path="/publishers/:address" element={<PublisherProfile />} />
+              <Route path="/advertisers/:address" element={<AdvertiserProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
 
               {/* Advertiser */}

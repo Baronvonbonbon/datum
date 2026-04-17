@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
@@ -109,10 +110,11 @@ export function Publishers() {
       )}
 
       {publishers.map((pub) => (
-        <div key={pub.address} className="nano-card" style={{
+        <Link key={pub.address} to={`/publishers/${pub.address}`} style={{ display: "block", textDecoration: "none", marginBottom: 10 }}>
+        <div className="nano-card" style={{
           border: `1px solid ${pub.blocked ? "rgba(248,113,113,0.3)" : "var(--border)"}`,
           padding: 16,
-          marginBottom: 10,
+          cursor: "pointer",
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
             <div>
@@ -153,6 +155,7 @@ export function Publishers() {
             </div>
           )}
         </div>
+        </Link>
       ))}
     </div>
   );

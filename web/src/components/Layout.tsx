@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
 import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
@@ -27,20 +27,7 @@ function useBlockFlash(blockNumber: number | null) {
   return flash;
 }
 
-const BASE_NAV_ITEMS = [
-  { path: "/", label: "Explorer", exact: true },
-  { path: "/how-it-works", label: "How It Works" },
-  { path: "/advertiser", label: "Advertiser" },
-  { path: "/publisher", label: "Publisher" },
-  { path: "/governance", label: "Governance" },
-  { path: "/settings", label: "Settings" },
-  { path: "/demo", label: "Demo" },
-];
-
-/** Trigger the Nano staggered fade-in on every route change.
- *  Elements default to visible (opacity:1). On route change, elements present
- *  at render time get briefly hidden then revealed with stagger. Elements that
- *  mount later (async data) are immediately visible — no observer needed. */
+/** Trigger the Nano staggered fade-in on every route change. */
 function useFadeIn() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
@@ -49,7 +36,6 @@ function useFadeIn() {
     const el = mainRef.current;
     if (!el) return;
 
-    // Staggered reveal for elements present at route render time
     const items = el.querySelectorAll<HTMLElement>(".nano-fade");
     items.forEach((item) => item.classList.add("nano-fade--hide"));
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -59,7 +45,6 @@ function useFadeIn() {
 
     return () => {
       timers.forEach(clearTimeout);
-      // Ensure nothing stays hidden if cleanup fires early (StrictMode)
       items.forEach((item) => item.classList.remove("nano-fade--hide"));
     };
   }, [location.pathname]);
@@ -67,14 +52,162 @@ function useFadeIn() {
   return mainRef;
 }
 
+interface NavChild { path: string; label: string; exact?: boolean; }
+interface NavSection {
+  label: string;
+  /** The section header is a link itself when provided */
+  headerPath?: string;
+  headerExact?: boolean;
+  /** Paths that should keep this section active (prefix match) */
+  matchPrefixes?: string[];
+  children: NavChild[];
+  adminOnly?: boolean;
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Explorer",
+    matchPrefixes: ["/campaigns", "/publishers", "/advertisers", "/how-it-works"],
+    headerPath: "/",
+    headerExact: true,
+    children: [
+      { path: "/", label: "Overview", exact: true },
+      { path: "/campaigns", label: "Campaigns" },
+      { path: "/publishers", label: "Publishers" },
+      { path: "/how-it-works", label: "How It Works" },
+    ],
+  },
+  {
+    label: "Advertiser",
+    matchPrefixes: ["/advertiser"],
+    children: [
+      { path: "/advertiser", label: "My Campaigns", exact: true },
+      { path: "/advertiser/analytics", label: "Analytics" },
+      { path: "/advertiser/create", label: "New Campaign" },
+    ],
+  },
+  {
+    label: "Publisher",
+    matchPrefixes: ["/publisher"],
+    children: [
+      { path: "/publisher", label: "Dashboard", exact: true },
+      { path: "/publisher/earnings", label: "Earnings" },
+      { path: "/publisher/categories", label: "Tags" },
+      { path: "/publisher/allowlist", label: "Allowlist" },
+      { path: "/publisher/rate", label: "Take Rate" },
+      { path: "/publisher/sdk", label: "SDK Setup" },
+      { path: "/publisher/profile", label: "Profile" },
+    ],
+  },
+  {
+    label: "Governance",
+    matchPrefixes: ["/governance"],
+    children: [
+      { path: "/governance", label: "Campaigns", exact: true },
+      { path: "/governance/my-votes", label: "My Votes" },
+      { path: "/governance/parameters", label: "Parameters" },
+    ],
+  },
+  {
+    label: "Admin",
+    matchPrefixes: ["/admin"],
+    adminOnly: true,
+    children: [
+      { path: "/admin/timelock", label: "Timelock" },
+      { path: "/admin/pause", label: "Pause" },
+      { path: "/admin/blocklist", label: "Blocklist" },
+      { path: "/admin/protocol", label: "Protocol Fees" },
+      { path: "/admin/rate-limiter", label: "Rate Limiter" },
+      { path: "/admin/reputation", label: "Reputation" },
+    ],
+  },
+  {
+    label: "Settings",
+    matchPrefixes: ["/settings"],
+    children: [{ path: "/settings", label: "Settings", exact: true }],
+  },
+  {
+    label: "Demo",
+    matchPrefixes: ["/demo"],
+    children: [{ path: "/demo", label: "Demo", exact: true }],
+  },
+];
+
+function isSectionActive(section: NavSection, pathname: string): boolean {
+  const prefixes = section.matchPrefixes ?? [];
+  if (prefixes.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
+  return section.children.some((c) =>
+    c.exact ? pathname === c.path : pathname === c.path || pathname.startsWith(c.path + "/")
+  );
+}
+
+function SidebarSection({
+  section,
+  pathname,
+  onNavigate,
+}: {
+  section: NavSection;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const active = isSectionActive(section, pathname);
+  const isLeaf = section.children.length === 1 && section.children[0].path === section.children[0].path;
+  const isSingleLeaf = section.children.length === 1;
+  const [open, setOpen] = useState(active);
+
+  // Keep open when navigating into this section
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  if (isSingleLeaf) {
+    // Render as a simple navlink
+    const child = section.children[0];
+    return (
+      <NavLink
+        to={child.path}
+        end={child.exact}
+        className={({ isActive }) => `nano-navlink${isActive ? " active" : ""}`}
+        onClick={onNavigate}
+      >
+        {section.label}
+      </NavLink>
+    );
+  }
+
+  return (
+    <div className="nano-nav-section">
+      <button
+        className={`nano-nav-section-header${active ? " active" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        type="button"
+      >
+        {section.label}
+        <span className={`nano-nav-section-arrow${open ? " nano-nav-section-arrow--open" : ""}`}>▶</span>
+      </button>
+      <div className={`nano-nav-children${open ? " nano-nav-children--open" : ""}`}>
+        {section.children.map((child) => (
+          <NavLink
+            key={child.path}
+            to={child.path}
+            end={child.exact}
+            className={({ isActive }) => `nano-navlink--child${isActive ? " active" : ""}`}
+            onClick={onNavigate}
+          >
+            {child.label}
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Layout() {
   const { address, disconnect, method } = useWallet();
   const { blockNumber, connected } = useBlock();
   const { settings, updateSettings } = useSettings();
-  const { isAdvertiser, isPublisher, isVoter, isAdmin } = useRoles();
-  const navItems = isAdmin
-    ? [...BASE_NAV_ITEMS, { path: "/admin/timelock", label: "Admin" }]
-    : BASE_NAV_ITEMS;
+  const { isAdmin } = useRoles();
+  const { isAdvertiser, isPublisher, isVoter } = useRoles();
   const protocolPaused = usePaused();
   const { pineStatus, readProvider } = useContracts();
   const [showConnect, setShowConnect] = useState(false);
@@ -85,10 +218,12 @@ export function Layout() {
   const location = useLocation();
   const sym = getCurrencySymbol(settings.network);
 
+  const sections = NAV_SECTIONS.filter((s) => !s.adminOnly || isAdmin);
+
   // Close mobile menu on navigation
   useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
 
-  // Fetch wallet balance — use Pine-aware readProvider when available
+  // Fetch wallet balance
   useEffect(() => {
     if (!address || !readProvider) { setBalance(null); return; }
     const provider = readProvider as JsonRpcApiProvider;
@@ -113,9 +248,9 @@ export function Layout() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="nano-header" style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
-          <span style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0 }}>
+          <Link to="/" style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0, textDecoration: "none" }}>
             DATUM
-          </span>
+          </Link>
           <div className="nano-header-status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             <span className={connected ? "nano-heartbeat" : undefined} style={{
               width: 6, height: 6, borderRadius: "50%",
@@ -194,22 +329,13 @@ export function Layout() {
       <div style={{ display: "flex", flex: 1 }}>
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <nav className={`nano-sidebar${mobileMenuOpen ? " nano-sidebar--open" : ""}`}>
-          {navItems.map((item) => (
-            <div key={item.path}>
-              {(item as any).external ? (
-                <a href={item.path} className="nano-navlink" style={{ color: "var(--text-muted)" }} target="_blank" rel="noopener noreferrer">
-                  {item.label}
-                </a>
-              ) : (
-                <NavLink
-                  to={item.path}
-                  end={item.exact}
-                  className={({ isActive }) => `nano-navlink${isActive ? " active" : ""}`}
-                >
-                  {item.label}
-                </NavLink>
-              )}
-            </div>
+          {sections.map((section) => (
+            <SidebarSection
+              key={section.label}
+              section={section}
+              pathname={location.pathname}
+              onNavigate={() => setMobileMenuOpen(false)}
+            />
           ))}
           <div style={{ padding: "12px 16px", marginTop: "auto", borderTop: "1px solid var(--border)" }}>
             <button
