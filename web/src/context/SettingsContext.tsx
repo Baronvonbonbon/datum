@@ -50,6 +50,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ...DEFAULT_SETTINGS.contractAddresses,
           ...(parsed.contractAddresses ?? {}),
         };
+        // Migrate stale IPFS gateway URLs (pre-rename: ipfs.datum.javcon.io or missing /ipfs/ path)
+        if (
+          parsed.ipfsGateway === "https://ipfs.datum.javcon.io" ||
+          parsed.ipfsGateway === "https://ipfs.datum.javcon.io/ipfs/" ||
+          parsed.ipfsGateway === "https://ipfs-datum.javcon.io" ||
+          parsed.ipfsGateway === "https://dweb.link/ipfs/"
+        ) {
+          parsed.ipfsGateway = DEFAULT_SETTINGS.ipfsGateway;
+        }
         return { ...DEFAULT_SETTINGS, ...parsed, ...secrets, contractAddresses: mergedAddresses };
       }
       return { ...DEFAULT_SETTINGS, ...secrets };
