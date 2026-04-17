@@ -384,9 +384,10 @@ export function Demo() {
       sdkScriptRef.current.setAttribute("data-tags", topics.map((t) => `topic:${t.slug}`).join(",") + ",locale:en");
     }
 
-    // Push all topic tags into interest profile
+    // Push topic tags into interest profile (locale/platform omitted — constant across all
+    // visits, they dominate normalization and cap topic weights at ~0.5)
     const topicTags = topics.map((t) => `topic:${t.slug}`);
-    await updateInterestProfile([...topicTags, "locale:en", "platform:desktop"]).catch(() => {});
+    await updateInterestProfile(topicTags).catch(() => {});
 
     // Run full auction bridge (picks up injected meta via classifyPageToTags → extractors)
     if (connectedAddress) {
@@ -648,7 +649,7 @@ export function Demo() {
                             <div style={{ width: `${pct}%`, height: "100%", background: "rgba(74,222,128,0.55)", borderRadius: 4, transition: "width 0.3s" }} />
                           </div>
                           <div style={{ width: 36, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
-                            {w.toFixed(2)}
+                            {(w / maxW).toFixed(2)}
                           </div>
                         </div>
                       );
