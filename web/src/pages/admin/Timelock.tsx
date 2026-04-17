@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
+import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
@@ -228,6 +229,7 @@ export function TimelockAdmin() {
 
   return (
     <div className="nano-fade" style={{ maxWidth: 640 }}>
+      <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Timelock</h1>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Single-slot timelock: one pending proposal at a time. Propose a call, wait for the delay, then execute.

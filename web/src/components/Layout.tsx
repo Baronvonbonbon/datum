@@ -27,7 +27,7 @@ function useBlockFlash(blockNumber: number | null) {
   return flash;
 }
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { path: "/", label: "Explorer", exact: true },
   { path: "/how-it-works", label: "How It Works" },
   { path: "/advertiser", label: "Advertiser" },
@@ -71,7 +71,10 @@ export function Layout() {
   const { address, disconnect, method } = useWallet();
   const { blockNumber, connected } = useBlock();
   const { settings, updateSettings } = useSettings();
-  const { isAdvertiser, isPublisher, isVoter } = useRoles();
+  const { isAdvertiser, isPublisher, isVoter, isAdmin } = useRoles();
+  const navItems = isAdmin
+    ? [...BASE_NAV_ITEMS, { path: "/admin/timelock", label: "Admin" }]
+    : BASE_NAV_ITEMS;
   const protocolPaused = usePaused();
   const { pineStatus, readProvider } = useContracts();
   const [showConnect, setShowConnect] = useState(false);
@@ -191,7 +194,7 @@ export function Layout() {
       <div style={{ display: "flex", flex: 1 }}>
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <nav className={`nano-sidebar${mobileMenuOpen ? " nano-sidebar--open" : ""}`}>
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <div key={item.path}>
               {(item as any).external ? (
                 <a href={item.path} className="nano-navlink" style={{ color: "var(--text-muted)" }} target="_blank" rel="noopener noreferrer">

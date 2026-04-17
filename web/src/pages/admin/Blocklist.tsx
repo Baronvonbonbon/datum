@@ -3,6 +3,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
+import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
@@ -92,6 +93,7 @@ export function BlocklistAdmin() {
 
   return (
     <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Address Blocklist</h1>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Blocked addresses cannot register as publishers or create campaigns. Existing claims from blocked publishers are also rejected at settlement (reason code 11).

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
+import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
@@ -91,6 +92,7 @@ export function RateLimiterAdmin() {
 
   return (
     <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Rate Limiter (BM-5)</h1>
 
       <div className="nano-info nano-info--muted" style={{ marginBottom: 16, fontSize: 12 }}>

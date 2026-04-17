@@ -4,6 +4,7 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
+import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
@@ -103,6 +104,7 @@ export function ProtocolFeesAdmin() {
 
   return (
     <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Protocol Fees</h1>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Protocol earns 25% of the user share on every settled claim. Slash pool accumulates penalties from losing governance voters.

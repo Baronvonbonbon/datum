@@ -6,13 +6,14 @@ export interface UserRoles {
   isAdvertiser: boolean;
   isPublisher: boolean;
   isVoter: boolean;
+  isAdmin: boolean;
 }
 
 /** Checks if the connected wallet has advertiser, publisher, or voter roles. */
 export function useRoles(): UserRoles & { loading: boolean } {
   const contracts = useContracts();
   const { address } = useWallet();
-  const [roles, setRoles] = useState<UserRoles>({ isAdvertiser: false, isPublisher: false, isVoter: false });
+  const [roles, setRoles] = useState<UserRoles>({ isAdvertiser: false, isPublisher: false, isVoter: false, isAdmin: false });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -22,7 +23,7 @@ export function useRoles(): UserRoles & { loading: boolean } {
     setLoading(true);
 
     (async () => {
-      const r: UserRoles = { isAdvertiser: false, isPublisher: false, isVoter: false };
+      const r: UserRoles = { isAdvertiser: false, isPublisher: false, isVoter: false, isAdmin: false };
       try {
         // Check publisher registration
         const pub = await contracts.publishers.getPublisher(address).catch(() => null);
@@ -47,6 +48,10 @@ export function useRoles(): UserRoles & { loading: boolean } {
             if (BigInt(stake) > 0n) r.isVoter = true;
           } catch { /* skip */ }
         }
+      } catch { /* ignore */ }
+      try {
+        const owner = await contracts.paymentVault.owner().catch(() => null);
+        if (owner && (owner as string).toLowerCase() === address.toLowerCase()) r.isAdmin = true;
       } catch { /* ignore */ }
       if (!cancelled) {
         setRoles(r);

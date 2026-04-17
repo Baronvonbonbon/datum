@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { humanizeError } from "@shared/errorCodes";
@@ -94,8 +95,9 @@ export function PublisherProfile() {
   const hasProfileHash = profileHash && profileHash !== "0x" + "0".repeat(64);
 
   return (
-    <div className="nano-fade">
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Publisher Profile</h1>
+    <div className="nano-fade" style={{ maxWidth: 560 }}>
+      <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0 20px" }}>Publisher Profile</h1>
 
       {/* Relay Signer */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
