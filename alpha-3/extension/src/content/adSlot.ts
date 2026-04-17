@@ -281,14 +281,10 @@ function attachReportOverlay(
     setTimeout(() => host.remove(), 1400);
   }
 
-  showMain();
-  wrapper.appendChild(overlay);
-
-  // Hook the shadow's .datum-report button
+  // Hook the shadow's .datum-report button — overlay only opens on click
   shadow.querySelector(".datum-report")?.addEventListener("click", (e) => {
     e.stopPropagation();
     if (wrapper.contains(overlay)) {
-      // Toggle: click again to dismiss
       overlay.remove();
     } else {
       showMain();
