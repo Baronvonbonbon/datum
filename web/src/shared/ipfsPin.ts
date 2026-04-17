@@ -2,7 +2,7 @@
 // Supports Pinata, Web3.Storage, Filebase, NFT.Storage, self-hosted Datum node, and custom endpoints.
 
 export const SELFHOSTED_UPLOAD_URL = "https://ipfs-datum.javcon.io/add";
-export const SELFHOSTED_GATEWAY_URL = "https://ipfs-datum.javcon.io";
+export const SELFHOSTED_GATEWAY_URL = "https://ipfs-datum.javcon.io/ipfs/";
 
 import { CampaignMetadata, IpfsProvider } from "./types";
 
