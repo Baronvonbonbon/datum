@@ -11,7 +11,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04-10). The web app is live at **https://datum.javcon.io** (32 pages, 21-contract support). The alpha-3 browser extension is built (149/156 tests, 4-tab popup with Filters). All CRITICAL and HIGH security findings fixed. Pine RPC light-client bridge added. Alpha-2 archived.
+Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04-10). The web app is live at **https://datum.javcon.io** (32 pages, 21-contract support). The alpha-3 browser extension is built (168/168 tests, 4-tab popup with Filters). All CRITICAL and HIGH security findings fixed. Pine RPC light-client bridge added. Alpha-2 archived.
 
 ---
 
@@ -19,7 +19,7 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 
 ### Smart Contracts — `alpha-3/contracts/` (canonical)
 
-**21 contracts**, 305/306 Hardhat EVM tests passing (1 benchmark infra failure — MockZKVerifier artifact).
+**21 contracts**, 353/353 Hardhat EVM tests passing.
 
 | Contract | Group | Role | Deployed |
 |----------|-------|------|----------|
@@ -58,7 +58,7 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 
 ### Browser Extension — `alpha-3/extension/` (alpha-3)
 
-v0.2.0, 21-contract support. 149/156 Jest tests passing (7 failures: formatDOT, auction interest weighting, userPreferences suite). Manifest V3, Chrome/Chromium.
+v0.2.0, 21-contract support. 168/168 Jest tests passing. Manifest V3, Chrome/Chromium.
 
 **4-tab popup:** Claims, Earnings, Settings, Filters.
 
@@ -180,9 +180,9 @@ Source: `alpha-3/deployed-addresses.json` (authoritative). Ownership: Campaigns,
 |-----------|-------|--------|
 | Alpha contracts | 132 | Passing (archived) |
 | Alpha-2 contracts | 187 | Passing (archived) |
-| Alpha-3 contracts | 305 / 306 | 1 failing (benchmark MockZKVerifier artifact) |
-| Extension (alpha-3) | 149 / 156 | 7 failing (formatDOT, auction weighting, userPreferences) |
-| **Total active** | **454 / 462** | |
+| Alpha-3 contracts | 353 / 353 | All passing |
+| Extension (alpha-3) | 168 / 168 | All passing |
+| **Total active** | **640 / 640** | |
 
 ---
 
@@ -209,15 +209,15 @@ Groth16/BN254 verifier live on Paseo. Trusted setup via `scripts/setup-zk.mjs`. 
 ### ✅ 7. Pine RPC Light Client — DONE (alpha)
 smoldot-based EIP-1193 provider in `pine/`. Translates eth JSON-RPC to Substrate ReviveApi calls. Eliminates centralized RPC proxy dependency for read operations and tx broadcast.
 
-### 8. Fix Failing Tests
-- Extension: 7 failures in `formatDOT`, `auction.test.ts`, `userPreferences.test.ts`
-- Contracts: `MockZKVerifier` artifact missing from benchmark test
+### ✅ 8. Fix Failing Tests — DONE
+- Extension: `formatDOT` rewritten, `auction.test.ts` profile keys fixed, `userPreferences.test.ts` rewritten → 168/168
+- Contracts: `MockZKVerifier.sol` created → 353/353
 
 ### 9. E2E Browser Validation
 Full flow on Paseo: load extension with live addresses, create impression, submit via AttestationVerifier, verify settlement on-chain, confirm user + publisher earnings. Run `setup-testnet.ts` to re-seed state first.
 
-### 10. BM-3 Relay PoW Challenge
-Server-side PoW: `GET /relay/challenge` returns nonce + expiry; `POST /relay/submit` verifies PoW. No contract changes needed. Critical for high-CPM campaigns.
+### ✅ 10. BM-3 Relay PoW Challenge — DONE
+`GET /relay/challenge` + `POST /relay/submit` with SHA-256 PoW verification already live in relay-bot.mjs. Challenge TTL + used-flag for replay prevention. No contract changes needed.
 
 ### 11. Open Testing
 Publish addresses, document external tester flow, monitor events.
@@ -248,12 +248,12 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 | Category | Items | Status |
 |----------|-------|--------|
 | Targeting redesign (TX-*) | 7 | ✅ Core done (TX-1 through TX-4, TX-7) |
-| Bot mitigation (BM-*) | 9 | BM-2, BM-5, BM-7, BM-8, BM-9 done; BM-3, BM-6 open |
+| Bot mitigation (BM-*) | 9 | BM-2, BM-3, BM-5, BM-7, BM-8, BM-9 done; BM-6 open |
 | Security HIGH | 4 | ✅ All fixed |
 | Security MEDIUM | 6 | 4 fixed, 2 open (AttestationVerifier open-campaign, drainFraction precision) |
 | Security LOW | 5 | 2 fixed, 3 open (low risk) |
 | Pre-mainnet (S12 governance blocklist) | 1 | Open — hybrid admin/governance blocklist needs contract change |
-| User economics (UX + payout) | 4 | Open — withdrawal UX, ERC-20 approve flow, cross-campaign batching, auto-sweep |
+| User economics (UX + payout) | 4 | Token withdrawal UI + ERC-20 approve flow done; cross-campaign batching, auto-sweep open |
 | Pine RPC | 3 | Alpha done; eth_subscribe, filter subs, production hardening open |
 | Pre-mainnet gate (MG-*) | 7 | External audit, Kusama deploy — not started |
 

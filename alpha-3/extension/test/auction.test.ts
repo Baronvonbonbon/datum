@@ -1,6 +1,7 @@
 import "./chromeMock";
 import { auctionForPage, CampaignCandidate, AuctionResult } from "../src/background/auction";
 import { UserInterestProfile } from "../src/background/interestProfile";
+import { tagHash } from "../src/shared/tagDictionary";
 
 function candidate(id: string, bidCpmPlanck: string, categoryId = 0): CampaignCandidate {
   return { id, bidCpmPlanck, categoryId, publisher: "0x" + "11".repeat(20) };
@@ -14,8 +15,8 @@ const flatProfile: UserInterestProfile = {
 
 const cryptoProfile: UserInterestProfile = {
   visits: [],
-  weights: { "Crypto & Web3": 1.0, "Finance": 0.5 },
-  visitCounts: { "Crypto & Web3": 10, "Finance": 5 },
+  weights: { "topic:crypto-web3": 1.0, "topic:finance": 0.5 },
+  visitCounts: {},
 };
 
 describe("auctionForPage", () => {
@@ -69,17 +70,21 @@ describe("auctionForPage", () => {
   });
 
   test("interest profile affects effective bid and winner", () => {
-    // Campaign A: categoryId=26 (Crypto & Web3), bid=100
-    // Campaign B: categoryId=7 (Finance), bid=150
-    // With cryptoProfile: Crypto weight=1.0, Finance weight=0.5
+    // Campaign A: topic:crypto-web3, bid=100
+    // Campaign B: topic:finance, bid=150
+    // With cryptoProfile: crypto weight=1.0, finance weight=0.5
     // effectiveA = 100 * 1000 = 100000
     // effectiveB = 150 * 500 = 75000
     // Winner = A (despite lower raw bid)
-    const result = auctionForPage(
-      [candidate("A", "100", 26), candidate("B", "150", 7)],
-      {},
-      cryptoProfile,
-    )!;
+    const candA: CampaignCandidate = {
+      ...candidate("A", "100", 26),
+      requiredTags: [tagHash("topic:crypto-web3")],
+    };
+    const candB: CampaignCandidate = {
+      ...candidate("B", "150", 7),
+      requiredTags: [tagHash("topic:finance")],
+    };
+    const result = auctionForPage([candA, candB], {}, cryptoProfile)!;
     expect(result.winner.id).toBe("A");
   });
 

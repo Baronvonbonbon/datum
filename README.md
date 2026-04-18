@@ -146,7 +146,7 @@ Token rewards go entirely to users — publishers receive no share of the ERC-20
 | Satellites | `DatumReports` | Community reporting: `reportPage` / `reportAd`, reasons 1–5 |
 | Satellites | `DatumPublisherReputation` | BM-8/BM-9: per-publisher settlement acceptance rate + cross-campaign anomaly detection |
 
-All contracts compile to PolkaVM (RISC-V) bytecode via resolc v1.0.0, optimizer mode `z`. **326/326 tests passing** on Hardhat EVM. All 21 deployed on Paseo (v6, 2026-04-06).
+All contracts compile to PolkaVM (RISC-V) bytecode via resolc v1.0.0, optimizer mode `z`. **353/353 tests passing** on Hardhat EVM. All 21 deployed on Paseo (v6, 2026-04-06).
 
 ### Browser Extension — `alpha-3/extension/`
 

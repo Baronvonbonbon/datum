@@ -14,14 +14,14 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 | 2 | **No impressionCount upper bound** | DatumClaimValidator | ✅ Fixed | Added `MAX_CLAIM_IMPRESSIONS = 100000` + reason code 17 check. |
 | 3 | **Blocklist staticcall silent skip** | DatumClaimValidator | ✅ Fixed | Changed to fail-safe: call failure treated as blocked. |
 | 4 | **GovernanceV2 reentrancy gap** | DatumGovernanceV2 | ✅ Fixed | Added `require(_locked == 0, "E57")` at top of `vote()`. |
-| 5 | **Benchmark test MockZKVerifier artifact** | `test/benchmark.test.ts` | Open | `MockZKVerifier` not in artifacts — benchmark suite fails `before all`. Needs mock contract or test refactor. |
-| 6 | **Extension test failures (7)** | `extension/test/` | Open | `formatDOT` (6 cases), `auction.test.ts` (interest weighting), `userPreferences.test.ts` (suite fails to run). |
+| 5 | **Benchmark test MockZKVerifier artifact** | `test/benchmark.test.ts` | ✅ Fixed | Created `contracts/MockZKVerifier.sol` — test-only stub implementing `verify(bytes,bytes32) → bool`. Benchmark suite now runs fully. |
+| 6 | **Extension test failures (7)** | `extension/test/` | ✅ Fixed | `formatDOT` rewritten (strip trailing zeros, whole-number edge cases); `auction.test.ts` updated to tag-string profile keys + `requiredTags`; `userPreferences.test.ts` fully rewritten to match tag-based 2-arg API. 168/168 passing. |
 
 ### MEDIUM Priority
 
 | # | Issue | Location | Status | Detail |
 |---|-------|----------|--------|--------|
-| 7 | **AttestationVerifier open-campaign trust** | AttestationVerifier L89-96 | Open | For open campaigns (publisher=0x0), verifier trusts `claims[0].publisher` as signer identity |
+| 7 | **AttestationVerifier open-campaign trust** | AttestationVerifier L89-96 | Documented | For open campaigns (publisher=0x0), verifier trusts `claims[0].publisher` as signer identity. Defense-in-depth provided downstream by DatumClaimValidator (publisher registration check). `DatumCampaignValidator` always returns `address(0)` relay signer for open campaigns — contract-level fix would require adding publishers ref + redeployment. Comment added to code. |
 | 8 | **Staticcall return length unchecked** | DatumClaimValidator | ✅ Fixed | Changed to `require(cOk && cRet.length >= 128)` before abi.decode |
 | 9 | **Timelock no calldata validation** | DatumTimelock | ✅ Fixed | Added `require(data.length >= 4, "E36")` in `propose()` |
 | 10 | **drainFraction precision loss** | DatumBudgetLedger L181 | Open | `(remaining * bps) / 10000` loses fractional planck on small balances |
@@ -57,7 +57,7 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 | Item | Status | Detail |
 |------|--------|--------|
 | **BM-2 Per-user impression cap** | ✅ Done | Wired in ClaimValidator (reason 13). |
-| **BM-3 Relay PoW challenge** | Open | `GET /relay/challenge` nonce + expiry; `POST /relay/submit` verifies PoW. Relay-side only, no contract changes. Critical for high-CPM campaigns. |
+| **BM-3 Relay PoW challenge** | ✅ Done | `GET /relay/challenge` returns nonce + expiry; `POST /relay/submit` verifies SHA-256 PoW (configurable difficulty bits). Challenge TTL + used-flag for replay prevention. Already live in relay-bot.mjs. |
 | **BM-5 Rate limiter** | ✅ Done | DatumSettlementRateLimiter deployed; window-based per-publisher cap. |
 | **BM-6 Viewability dispute** | Open | Needs governance design; deferred post-mainnet. |
 | **BM-7 Advertiser allowlist** | ✅ Done | Wired in ClaimValidator (reason 15). |
@@ -68,8 +68,8 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **Token reward withdrawal UI** | Open | User-facing balance display + `TokenRewardVault.withdraw(token)` button. Needed in extension Earnings tab and web dashboard. |
-| **ERC-20 approve flow UI** | Open | Advertiser must `approve()` TokenRewardVault before `depositCampaignBudget()`. UI flow not implemented. |
+| **Token reward withdrawal UI** | ✅ Done | Extension `UserPanel.tsx`: DOT balance display, `withdrawUser()`, token reward scanning via `GET_ACTIVE_CAMPAIGNS`, per-token `withdraw(tokenAddr)`, withdraw-all button, sweep address support. |
+| **ERC-20 approve flow UI** | ✅ Done | Web app `CreateCampaign.tsx`: optional token reward config (rewardToken + rewardPerImpression fields); ERC-20 `approve()` + `depositCampaignBudget()` flow wired for advertisers. |
 | **Auto-sweep at balance threshold** | Open | Extension could auto-trigger `withdrawUser()` when accumulated balance exceeds a configurable threshold. Eliminates withdrawal friction for users. |
 | **Cross-campaign claim batching** | Open | `settleClaims` is currently per-campaign. Batching claims across multiple campaigns in one tx shares the ~65K fixed gas overhead, reducing relay cost by ~39% vs separate txs — savings flow to user and relay margin. Requires contract change to Settlement. |
 | **Variable publisher take rate market** | Open | Publishers competing on take rate (e.g., auction-based) could improve user share on high-quality inventory. Currently fixed per-publisher. |

@@ -90,7 +90,10 @@ contract DatumAttestationVerifier {
             (, address cPublisher,,) = campaigns.getCampaignForSettlement(ab.campaignId);
             address expectedPublisher = cPublisher;
             if (expectedPublisher == address(0)) {
-                // Open campaign: verify against the actual serving publisher
+                // Open campaign: verify against the actual serving publisher.
+                // NOTE: claims[0].publisher is self-reported here. Defense-in-depth is
+                // provided by DatumClaimValidator downstream, which checks publisher
+                // registration in DatumPublishers before accepting settlement.
                 expectedPublisher = ab.claims[0].publisher;
             }
             require(expectedPublisher != address(0), "E00");
