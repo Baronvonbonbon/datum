@@ -90,6 +90,7 @@ interface IDatumCampaigns {
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
     function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory);
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
+    function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
     function getCampaignForSettlement(uint256 campaignId) external view returns (
         uint8 status, address publisher, uint256 bidCpmPlanck,
         uint16 snapshotTakeRateBps

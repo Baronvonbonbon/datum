@@ -75,6 +75,9 @@ contract DatumCampaigns is IDatumCampaigns {
     // ZK proof requirement — set at creation, immutable per campaign
     mapping(uint256 => bool) private _campaignRequiresZkProof;
 
+    // Metadata hash — mutable by advertiser, stored for event-free retrieval (e.g. light clients)
+    mapping(uint256 => bytes32) private _campaignMetadata;
+
     // Token reward — set at creation, immutable per campaign
     // rewardToken == address(0) means no token reward
     mapping(uint256 => address)  private _campaignRewardToken;
@@ -227,6 +230,7 @@ contract DatumCampaigns is IDatumCampaigns {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
+        _campaignMetadata[campaignId] = metadataHash;
         emit CampaignMetadataSet(campaignId, metadataHash);
     }
 
@@ -327,6 +331,10 @@ contract DatumCampaigns is IDatumCampaigns {
 
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool) {
         return _campaignRequiresZkProof[campaignId];
+    }
+
+    function getCampaignMetadata(uint256 campaignId) external view returns (bytes32) {
+        return _campaignMetadata[campaignId];
     }
 
     /// @dev Alpha-2: returns 4 values (no remainingBudget — now on BudgetLedger).

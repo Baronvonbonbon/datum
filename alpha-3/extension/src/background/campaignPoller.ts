@@ -275,21 +275,29 @@ export const campaignPoller = {
 
       await batchParallel(statusTasks, BATCH_SIZE);
 
-      // ── Phase 2b: Fetch tags for new campaigns + any missing tags ────────
+      // ── Phase 2b: Fetch tags + metadata for new campaigns + self-heal ────
       // Include new campaigns AND any cached campaigns with empty/missing requiredTags
-      // so the index self-heals across polls.
+      // or missing metadataHash, so the index self-heals across polls.
       const tagFetchIds = [
         ...newCampaignIds,
         ...Object.keys(index).filter(id =>
           !newCampaignIds.includes(id) &&
-          (!index[id].requiredTags || index[id].requiredTags!.length === 0)
+          ((!index[id].requiredTags || index[id].requiredTags!.length === 0) ||
+           !index[id].metadataHash)
         ),
       ];
       const tagTasks = tagFetchIds.map(id => async () => {
         try {
-          const tags: string[] = await contract.getCampaignTags(BigInt(id));
+          const [tags, metaHash] = await Promise.all([
+            contract.getCampaignTags(BigInt(id)).catch(() => [] as string[]),
+            contract.getCampaignMetadata(BigInt(id)).catch(() => null as string | null),
+          ]);
           if (tags.length > 0) index[id].requiredTags = tags;
-        } catch { /* getCampaignTags may not exist — skip */ }
+          // bytes32 zero = no metadata set; non-zero = valid IPFS CID hash
+          if (metaHash && metaHash !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
+            index[id].metadataHash = metaHash;
+          }
+        } catch { /* skip */ }
       });
       await batchParallel(tagTasks, BATCH_SIZE);
 
