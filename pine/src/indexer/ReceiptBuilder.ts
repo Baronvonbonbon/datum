@@ -19,6 +19,7 @@ import type {
 import type { LogIndexer } from "./LogIndexer.js";
 import type { TxPool, IncludedTx } from "./TxPool.js";
 import { toHex } from "../codec/denomination.js";
+import { getCreateAddress } from "ethers";
 
 export class ReceiptBuilder {
   private chainManager: ChainManagerInterface;
@@ -97,13 +98,7 @@ export class ReceiptBuilder {
  */
 function deriveContractAddress(tx: IncludedTx): string | null {
   if (tx.to !== null) return null;
-
-  // EVM CREATE address: keccak256(rlp([sender, nonce]))[12:]
-  // For pallet-revive on Asset Hub, contract addresses may be computed
-  // differently. For now, return null — the exact derivation depends
-  // on whether the runtime uses CREATE or CREATE2 semantics.
-  //
-  // TODO: Use ethers.getCreateAddress({ from: tx.from, nonce: tx.nonce })
-  // once we verify pallet-revive uses standard CREATE derivation.
-  return null;
+  // pallet-revive uses standard EVM CREATE semantics: keccak256(rlp([sender, nonce]))[12:]
+  // Confirmed by deploy.ts usage of ethers.getCreateAddress for address prediction.
+  return getCreateAddress({ from: tx.from, nonce: tx.nonce });
 }

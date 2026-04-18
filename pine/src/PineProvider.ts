@@ -60,6 +60,8 @@ export class PineProvider implements EIP1193Provider {
   private handlers: Map<string, MethodHandler> | null = null;
   private eventListeners = new Map<string, Set<EventListener>>();
   private _connected = false;
+  private _reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
 
   constructor(config: PineConfig) {
     this.config = {
@@ -91,7 +93,8 @@ export class PineProvider implements EIP1193Provider {
     this.chainManager = new ChainManager(this.transport);
     this.chainManager.setFatalErrorHandler((error) => {
       this._connected = false;
-      this.emit("disconnect", { code: 1013, reason: error.message });
+      this._reconnectAttempts = 0;
+      this._scheduleReconnect(error.message);
     });
     onSyncStep?.("subscribing");
     await this.chainManager.startFollowing();
@@ -173,6 +176,35 @@ export class PineProvider implements EIP1193Provider {
     }
 
     this.emit("disconnect", { code: 1000, reason: "User initiated disconnect" });
+  }
+
+  /**
+   * Schedule an auto-reconnect attempt with exponential backoff.
+   * Called when ChainManager reports a fatal error. Retries up to
+   * MAX_RECONNECT_ATTEMPTS times (1s, 2s, 4s, … capped at 5 min),
+   * then emits a permanent "disconnect" event.
+   */
+  private _scheduleReconnect(reason: string): void {
+    if (this._reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      this._reconnectAttempts = 0;
+      this.emit("disconnect", { code: 1013, reason });
+      return;
+    }
+    const delayMs = Math.min(1000 * Math.pow(2, this._reconnectAttempts), 300_000);
+    this._reconnectAttempts++;
+    console.warn(
+      `[Pine] Fatal error — reconnecting in ${delayMs / 1000}s ` +
+      `(attempt ${this._reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}): ${reason}`,
+    );
+    setTimeout(() => {
+      if (this._connected) { this._reconnectAttempts = 0; return; }
+      this.connect().then(() => {
+        this._reconnectAttempts = 0;
+        console.log("[Pine] Reconnected successfully");
+      }).catch((err: unknown) => {
+        this._scheduleReconnect(err instanceof Error ? err.message : String(err));
+      });
+    }, delayMs);
   }
 
   /** Whether the provider is connected */

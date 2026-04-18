@@ -149,6 +149,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (settings.contractAddresses.campaigns) {
       await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
     }
+    // Periodic auto-sweep: runs every minute regardless of settlement activity.
+    // Requires wallet authorized for auto-submit (session key in memory).
+    try {
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const userAddress: string | undefined = stored.connectedAddress;
+      const privateKey = await getAutoSubmitKey();
+      if (userAddress && privateKey) {
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
+        const wallet = new Wallet(privateKey, provider);
+        await tryAutoSweep(settings, wallet, userAddress);
+      }
+    } catch { /* non-critical */ }
     return;
   }
 

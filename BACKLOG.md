@@ -70,7 +70,7 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 |------|--------|--------|
 | **Token reward withdrawal UI** | ✅ Done | Extension `UserPanel.tsx`: DOT balance display, `withdrawUser()`, token reward scanning via `GET_ACTIVE_CAMPAIGNS`, per-token `withdraw(tokenAddr)`, withdraw-all button, sweep address support. |
 | **ERC-20 approve flow UI** | ✅ Done | Web app `CreateCampaign.tsx`: optional token reward config (rewardToken + rewardPerImpression fields); ERC-20 `approve()` + `depositCampaignBudget()` flow wired for advertisers. |
-| **Auto-sweep at balance threshold** | Open | Extension could auto-trigger `withdrawUser()` when accumulated balance exceeds a configurable threshold. Eliminates withdrawal friction for users. |
+| **Auto-sweep at balance threshold** | ✅ Done | `tryAutoSweep` now called in `ALARM_STATUS_REFRESH` (every 1 min) in addition to post-settlement. Checks balance vs `sweepThresholdPlanck` and calls `withdrawUserTo(sweepAddress)` if threshold met. Fires independently of auto-submit being active. |
 | **Cross-campaign claim batching** | Open | `settleClaims` is currently per-campaign. Batching claims across multiple campaigns in one tx shares the ~65K fixed gas overhead, reducing relay cost by ~39% vs separate txs — savings flow to user and relay margin. Requires contract change to Settlement. |
 | **Variable publisher take rate market** | Open | Publishers competing on take rate (e.g., auction-based) could improve user share on high-quality inventory. Currently fixed per-publisher. |
 | **Withdrawal aggregation (multi-token)** | Open | Single call to sweep all DOT + all ERC-20 token balances. Reduces withdrawal to one user action. |
@@ -83,7 +83,7 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 | **Filter subscriptions** | Open | `eth_newFilter`, `eth_getFilterChanges` etc. Not implemented; polling workaround for most dApp use cases. |
 | **eth_getLogs historical range** | Open | Fundamental smoldot limit — no archive. Needs external indexer for pre-connect logs. |
 | **eth_getTransactionReceipt cross-session** | Open | TxPool is session-scoped; receipts unavailable for txs submitted before Pine connected. |
-| **Production hardening** | Open | Pine is alpha; reconnect logic, memory bounds, and error surface need review before production use. |
+| **Production hardening** | Partial | Auto-reconnect loop added to `PineProvider` (exponential backoff, 10 attempts, cap 5 min). `ReceiptBuilder` now derives contract address for deployment txs via `getCreateAddress`. Memory bounds and broader error surface review remain open. |
 | **Polkadot Hub mainnet gas price** | Open | `eth_gasPrice` hardcoded to Paseo value (10¹² wei/gas). Mainnet may differ; needs dynamic query or chain-specific config. |
 
 ### Targeting Backlog
