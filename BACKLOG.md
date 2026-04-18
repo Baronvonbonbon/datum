@@ -1,6 +1,8 @@
-# Alpha-3 Contract Review — Bugs & Missing Features
+# DATUM Backlog — Bugs, Issues & Missing Features
 
-_Review date: 2026-04-04 | Last updated: 2026-04-04_
+_Review date: 2026-04-04 | Last updated: 2026-04-17_
+
+---
 
 ## Bugs & Issues
 
@@ -8,31 +10,33 @@ _Review date: 2026-04-04 | Last updated: 2026-04-04_
 
 | # | Issue | Location | Status | Detail |
 |---|-------|----------|--------|--------|
-| 1 | **Empty claims array OOB** | DatumRelay | ✅ Fixed | Added `require(sb.claims.length > 0, "E28")` before claims[0] access. AttestationVerifier already had this. |
-| 2 | **No impressionCount upper bound** | DatumClaimValidator | ✅ Fixed | Added `MAX_CLAIM_IMPRESSIONS = 100000` constant + reason code 17 check before payment calc. |
-| 3 | **Blocklist staticcall silent skip** | DatumClaimValidator | ✅ Fixed | Changed to fail-safe: `if (!blOk \|\| blRet.length < 32 \|\| abi.decode(...))` — treats call failure as blocked. |
+| 1 | **Empty claims array OOB** | DatumRelay | ✅ Fixed | Added `require(sb.claims.length > 0, "E28")` before claims[0] access. |
+| 2 | **No impressionCount upper bound** | DatumClaimValidator | ✅ Fixed | Added `MAX_CLAIM_IMPRESSIONS = 100000` + reason code 17 check. |
+| 3 | **Blocklist staticcall silent skip** | DatumClaimValidator | ✅ Fixed | Changed to fail-safe: call failure treated as blocked. |
 | 4 | **GovernanceV2 reentrancy gap** | DatumGovernanceV2 | ✅ Fixed | Added `require(_locked == 0, "E57")` at top of `vote()`. |
+| 5 | **Benchmark test MockZKVerifier artifact** | `test/benchmark.test.ts` | Open | `MockZKVerifier` not in artifacts — benchmark suite fails `before all`. Needs mock contract or test refactor. |
+| 6 | **Extension test failures (7)** | `extension/test/` | Open | `formatDOT` (6 cases), `auction.test.ts` (interest weighting), `userPreferences.test.ts` (suite fails to run). |
 
 ### MEDIUM Priority
 
 | # | Issue | Location | Status | Detail |
 |---|-------|----------|--------|--------|
-| 5 | **AttestationVerifier open-campaign trust** | AttestationVerifier L89-96 | Open | For open campaigns (publisher=0x0), verifier trusts `claims[0].publisher` as signer identity |
-| 6 | **Staticcall return length unchecked** | DatumClaimValidator | ✅ Fixed | Changed `require(cOk)` → `require(cOk && cRet.length >= 128)` before abi.decode of 4-field campaign struct |
-| 7 | **Timelock no calldata validation** | DatumTimelock | ✅ Fixed | Added `require(data.length >= 4, "E36")` in `propose()` |
-| 8 | **drainFraction precision loss** | DatumBudgetLedger L181 | Open | `(remaining * bps) / 10000` loses fractional planck on small balances — acceptable for current use |
-| 9 | **No ZK proof size limit** | DatumClaimValidator L136 | Open | Arbitrarily large `zkProof` bytes — low risk until ZK verifier is real |
-| 10 | **evaluateCampaign uses direct call** | DatumGovernanceV2 L260 | Open | Calls `campaigns.getCampaignForSettlement()` via typed interface; campaigns is trusted. Low risk. |
+| 7 | **AttestationVerifier open-campaign trust** | AttestationVerifier L89-96 | Open | For open campaigns (publisher=0x0), verifier trusts `claims[0].publisher` as signer identity |
+| 8 | **Staticcall return length unchecked** | DatumClaimValidator | ✅ Fixed | Changed to `require(cOk && cRet.length >= 128)` before abi.decode |
+| 9 | **Timelock no calldata validation** | DatumTimelock | ✅ Fixed | Added `require(data.length >= 4, "E36")` in `propose()` |
+| 10 | **drainFraction precision loss** | DatumBudgetLedger L181 | Open | `(remaining * bps) / 10000` loses fractional planck on small balances |
+| 11 | **No ZK proof size limit** | DatumClaimValidator | Open | Arbitrarily large `zkProof` bytes — low risk, but enforce limit before mainnet |
+| 12 | **evaluateCampaign uses direct call** | DatumGovernanceV2 | Open | Calls `campaigns.getCampaignForSettlement()` via typed interface; campaigns is trusted. Low risk. |
 
 ### LOW Priority (design notes)
 
 | # | Issue | Status | Detail |
 |---|-------|--------|--------|
-| 11 | `expireInactiveCampaign()` has no pause check | ✅ Fixed | Added `whenNotPaused` modifier + defined modifier in DatumCampaignLifecycle |
-| 12 | `updateTakeRate()` allows setting same rate, resetting delay timer | ✅ Fixed | Added `require(newTakeRateBps != pub.takeRateBps, "E15")` |
-| 13 | GovernanceHelper hardcodes status enum values (3, 4) | Open | Fragile if enum changes — acceptable with tests |
-| 14 | TargetingRegistry tag deletion is O(n) per update | Open | Gas optimization, not critical |
-| 15 | DatumReports counters have no overflow guard | Open | Theoretical only, economically impossible |
+| 13 | `expireInactiveCampaign()` has no pause check | ✅ Fixed | Added `whenNotPaused` modifier to DatumCampaignLifecycle |
+| 14 | `updateTakeRate()` allows setting same rate | ✅ Fixed | Added `require(newTakeRateBps != pub.takeRateBps, "E15")` |
+| 15 | GovernanceHelper hardcodes status enum values (3, 4) | Open | Fragile if enum changes — acceptable with tests |
+| 16 | TargetingRegistry tag deletion is O(n) per update | Open | Gas optimization, not critical |
+| 17 | DatumReports counters have no overflow guard | Open | Theoretical only, economically impossible |
 
 ---
 
@@ -42,35 +46,71 @@ _Review date: 2026-04-04 | Last updated: 2026-04-04_
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **S12 Timelock gating for blocklist** | ✅ Fixed | deploy.ts: Added `Publishers.transferOwnership(timelock)` + validation check. `blockAddress()`/`unblockAddress()` now require 48h timelock delay. |
-| **S12 Settlement blocklist check** | ✅ Fixed | Added `publishers` ref + `setPublishers()` to Settlement; blocklist staticcall check in `_processBatch()` before ClaimValidator call (reason 11, sets gapFound). deploy.ts wires + validates. ABIs synced. |
+| **S12 Timelock gating for blocklist** | ✅ Fixed | `Publishers.transferOwnership(timelock)`. `blockAddress()` requires 48h delay. |
+| **S12 Settlement blocklist check** | ✅ Fixed | Added `publishers` ref + `setPublishers()` to Settlement; staticcall check in `_processBatch()`. |
 | **S12 Governance-managed blocklist** | Open | Hybrid: admin emergency-block + governance override (unblock via conviction vote) — needs contract changes |
+| **ZK proof required above CPM threshold** | Open | High-CPM campaigns (>$2 CPM equivalent) should require `requireZkProof=true`. Currently opt-in per advertiser. Consider protocol-enforced floor. |
+| **External security audit** | Open | Pre-mainnet requirement. No engagement started. |
 
-### Planned Next Steps
+### Bot Mitigation
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **B5: Settings cleanup** | ✅ Done | Blocked-tags toggle was never added to Settings.tsx — already clean. FiltersTab owns topic filtering. |
-| **B6: In-ad dismiss** | ✅ Done | ✕ button + popover (Hide ad / Hide topic ads / Not interested) already implemented in content/index.ts L308-385 |
-| **E2E on Paseo** | Open | Extension + relay end-to-end validation — run setup-testnet.ts to re-seed |
-| **BM-3** | Open | Bot mitigation — needs spec |
-| **BM-6** | Open | Bot mitigation — needs spec |
-| **BM-8** | ✅ Done | Publisher reputation scoring: `DatumPublisherReputation.recordSettlement()`. Relay bot wired. Web admin at `/admin/reputation`. Deploy pending. |
-| **BM-9** | ✅ Done | Cross-campaign anomaly detection: `isAnomaly(publisher, campaignId)` — campaign rejection rate > 2× global rate, min sample 10. Built into DatumPublisherReputation. |
+| **BM-2 Per-user impression cap** | ✅ Done | Wired in ClaimValidator (reason 13). |
+| **BM-3 Relay PoW challenge** | Open | `GET /relay/challenge` nonce + expiry; `POST /relay/submit` verifies PoW. Relay-side only, no contract changes. Critical for high-CPM campaigns. |
+| **BM-5 Rate limiter** | ✅ Done | DatumSettlementRateLimiter deployed; window-based per-publisher cap. |
+| **BM-6 Viewability dispute** | Open | Needs governance design; deferred post-mainnet. |
+| **BM-7 Advertiser allowlist** | ✅ Done | Wired in ClaimValidator (reason 15). |
+| **BM-8 Publisher reputation** | ✅ Done | DatumPublisherReputation: per-publisher settlement acceptance rate score. |
+| **BM-9 Anomaly detection** | ✅ Done | Cross-campaign rejection rate anomaly; MIN_SAMPLE=10; `isAnomaly()`. |
+
+### User Economics & UX
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **Token reward withdrawal UI** | Open | User-facing balance display + `TokenRewardVault.withdraw(token)` button. Needed in extension Earnings tab and web dashboard. |
+| **ERC-20 approve flow UI** | Open | Advertiser must `approve()` TokenRewardVault before `depositCampaignBudget()`. UI flow not implemented. |
+| **Auto-sweep at balance threshold** | Open | Extension could auto-trigger `withdrawUser()` when accumulated balance exceeds a configurable threshold. Eliminates withdrawal friction for users. |
+| **Cross-campaign claim batching** | Open | `settleClaims` is currently per-campaign. Batching claims across multiple campaigns in one tx shares the ~65K fixed gas overhead, reducing relay cost by ~39% vs separate txs — savings flow to user and relay margin. Requires contract change to Settlement. |
+| **Variable publisher take rate market** | Open | Publishers competing on take rate (e.g., auction-based) could improve user share on high-quality inventory. Currently fixed per-publisher. |
+| **Withdrawal aggregation (multi-token)** | Open | Single call to sweep all DOT + all ERC-20 token balances. Reduces withdrawal to one user action. |
+
+### Pine RPC — `pine/`
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **eth_subscribe / WebSocket push** | Open | smoldot exposes no WebSocket to consumer; requires architectural change or polling adapter. |
+| **Filter subscriptions** | Open | `eth_newFilter`, `eth_getFilterChanges` etc. Not implemented; polling workaround for most dApp use cases. |
+| **eth_getLogs historical range** | Open | Fundamental smoldot limit — no archive. Needs external indexer for pre-connect logs. |
+| **eth_getTransactionReceipt cross-session** | Open | TxPool is session-scoped; receipts unavailable for txs submitted before Pine connected. |
+| **Production hardening** | Open | Pine is alpha; reconnect logic, memory bounds, and error surface need review before production use. |
+| **Polkadot Hub mainnet gas price** | Open | `eth_gasPrice` hardcoded to Paseo value (10¹² wei/gas). Mainnet may differ; needs dynamic query or chain-specific config. |
 
 ### Targeting Backlog
 
 | Item | Description |
 |------|-------------|
-| **TX-2 through TX-7** | Remaining targeting items from tag-based redesign |
-| **TX-5** | Tag dictionary trimming |
+| **TX-5** | Tag dictionary trimming — reduce tag set to high-signal subset |
+| **TX-6, TX-8+** | Remaining targeting items from tag-based redesign |
+
+### Deployment
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **Testnet re-seed** | Open | Run `setup-testnet.ts` to re-seed publishers, campaigns, Diana as reporter. ZK VK already set on-chain. |
+| **E2E browser validation** | Open | Full flow on Paseo: extension + relay + on-chain settlement confirmation. |
+| **Kusama deployment** | Open | Planning not started. Staging environment before Polkadot Hub mainnet. |
+| **Polkadot Hub mainnet** | Open | Post-Kusama. Requires external audit. |
 
 ### Deferred / Post-Mainnet
 
 | Item | Description |
 |------|-------------|
-| **Smoldot light client** | Blocked — smoldot has zero `eth_` RPC support for pallet-revive. Revisit when ecosystem catches up (6-12 months) |
-| **Kusama/Polkadot Hub deploy** | Planning not started |
+| **Pine eth_subscribe** | Requires smoldot WebSocket exposure or a long-poll adapter — not feasible short-term |
+| **BM-6 Viewability dispute** | Requires governance design for on-chain viewability challenges |
+| **Full historical eth_getLogs** | Requires external block indexer (subquery/squid); fundamental smoldot limit |
+| **XCM cross-chain fee routing** | Future: DOT settlement routed across parachains via XCM |
+| **MPC ZK trusted setup** | Current setup is single-party (testnet only). Mainnet requires multi-party ceremony. |
 
 ---
 

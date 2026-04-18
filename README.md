@@ -290,14 +290,17 @@ The Solidity source is portable — if pallet-revive doesn't mature, deployment 
 
 ## Status
 
-- [x] **Alpha-3 contracts** — 21 contracts, 326/326 tests, all deployed on Paseo v6 (2026-04-06)
+- [x] **Alpha-3 contracts** — 21 contracts, 305/306 tests, all deployed on Paseo v6 (2026-04-10)
 - [x] **Real Groth16 ZK verifier** — BN254 ecPairing precompile, trusted setup, verifying key set on Paseo
 - [x] **ERC-20 token reward vault** — DatumTokenRewardVault, per-campaign sidecar token rewards, pull-payment
 - [x] **Publisher reputation** — DatumPublisherReputation BM-8/BM-9, relay bot wired, web admin UI
 - [x] **Rate limiter** — DatumSettlementRateLimiter BM-5, window-based per-publisher cap
-- [x] **Web app** — 28 pages, React + Vite, 21-contract support, 0 TS errors
-- [x] **Browser extension** — 4 tabs, 21-contract, Blake2-256, Vickrey auction, tag-based filters
+- [x] **Web app** — 32 pages, React + Vite, 21-contract support, 0 TS errors
+- [x] **Browser extension** — 4 tabs, 21-contract, Blake2-256, Vickrey auction, tag-based filters, click-to-report overlay
+- [x] **Pine RPC** — smoldot light-client bridge (`pine/`), eliminates centralized eth-rpc proxy dependency
 - [x] **Security audit** — all CRITICAL and HIGH findings fixed (C-1, C-2, H-1–H-3, S4, S6, T1–T3)
+- [x] **Economics analysis** — gas benchmarks, CPM break-even, payout per impression (`BENCHMARKS.md`)
+- [ ] **Fix failing tests** — 7 extension + 1 contract benchmark test
 - [ ] **E2E browser validation** — full flow on Paseo with live extension + relay + web app
 - [ ] **Open testing** — publish addresses, external tester onboarding
 - [ ] **Mainnet** — Kusama → Polkadot Hub
