@@ -24,8 +24,8 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 | 7 | **AttestationVerifier open-campaign trust** | AttestationVerifier L89-96 | Documented | For open campaigns (publisher=0x0), verifier trusts `claims[0].publisher` as signer identity. Defense-in-depth provided downstream by DatumClaimValidator (publisher registration check). `DatumCampaignValidator` always returns `address(0)` relay signer for open campaigns — contract-level fix would require adding publishers ref + redeployment. Comment added to code. |
 | 8 | **Staticcall return length unchecked** | DatumClaimValidator | ✅ Fixed | Changed to `require(cOk && cRet.length >= 128)` before abi.decode |
 | 9 | **Timelock no calldata validation** | DatumTimelock | ✅ Fixed | Added `require(data.length >= 4, "E36")` in `propose()` |
-| 10 | **drainFraction precision loss** | DatumBudgetLedger L181 | Open | `(remaining * bps) / 10000` loses fractional planck on small balances |
-| 11 | **No ZK proof size limit** | DatumClaimValidator | Open | Arbitrarily large `zkProof` bytes — low risk, but enforce limit before mainnet |
+| 10 | **drainFraction precision loss** | DatumBudgetLedger L181 | ✅ Fixed | Changed to `(remaining * bps + 9999) / 10000` ceiling division — no precision loss. |
+| 11 | **No ZK proof size limit** | DatumClaimValidator | ✅ Fixed | Added `MAX_ZK_PROOF_SIZE = 1024` constant; `zkProof.length == 0 || > 1024` returns reason 16. |
 | 12 | **evaluateCampaign uses direct call** | DatumGovernanceV2 | Open | Calls `campaigns.getCampaignForSettlement()` via typed interface; campaigns is trusted. Low risk. |
 
 ### LOW Priority (design notes)
@@ -34,7 +34,7 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 |---|-------|--------|--------|
 | 13 | `expireInactiveCampaign()` has no pause check | ✅ Fixed | Added `whenNotPaused` modifier to DatumCampaignLifecycle |
 | 14 | `updateTakeRate()` allows setting same rate | ✅ Fixed | Added `require(newTakeRateBps != pub.takeRateBps, "E15")` |
-| 15 | GovernanceHelper hardcodes status enum values (3, 4) | Open | Fragile if enum changes — acceptable with tests |
+| 15 | GovernanceHelper hardcodes status enum values (3, 4) | ✅ Fixed | Replaced with `STATUS_COMPLETED = 3`, `STATUS_TERMINATED = 4`, `VOTE_AYE = 1`, `VOTE_NAY = 2` constants. |
 | 16 | TargetingRegistry tag deletion is O(n) per update | Open | Gas optimization, not critical |
 | 17 | DatumReports counters have no overflow guard | Open | Theoretical only, economically impossible |
 
@@ -49,6 +49,7 @@ _Review date: 2026-04-04 | Last updated: 2026-04-17_
 | **S12 Timelock gating for blocklist** | ✅ Fixed | `Publishers.transferOwnership(timelock)`. `blockAddress()` requires 48h delay. |
 | **S12 Settlement blocklist check** | ✅ Fixed | Added `publishers` ref + `setPublishers()` to Settlement; staticcall check in `_processBatch()`. |
 | **S12 Governance-managed blocklist** | Open | Hybrid: admin emergency-block + governance override (unblock via conviction vote) — needs contract changes |
+| **Governance Active→Pending demotion** | ✅ Done | `evaluateCampaign` on Active/Paused with nay ≥ 50%+quorum → demotes to Pending (result=5). Grace counted from `firstNayBlock`. Second evaluate on Pending with grace elapsed → terminate. `demoteCampaign()` added to Lifecycle; `setPendingExpiryBlock(max)` blocks expiry-path conflict. |
 | **ZK proof required above CPM threshold** | Open | High-CPM campaigns (>$2 CPM equivalent) should require `requireZkProof=true`. Currently opt-in per advertiser. Consider protocol-enforced floor. |
 | **External security audit** | Open | Pre-mainnet requirement. No engagement started. |
 

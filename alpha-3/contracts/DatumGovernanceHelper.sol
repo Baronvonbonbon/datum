@@ -15,6 +15,14 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
 
     address public immutable campaigns;
 
+    // Campaign status enum values — must match IDatumCampaigns.CampaignStatus
+    uint8 private constant STATUS_COMPLETED   = 3;
+    uint8 private constant STATUS_TERMINATED  = 4;
+
+    // Vote directions
+    uint8 private constant VOTE_AYE = 1;
+    uint8 private constant VOTE_NAY = 2;
+
     constructor(address _campaigns) {
         require(_campaigns != address(0), "E00");
         campaigns = _campaigns;
@@ -28,8 +36,8 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
         uint256 slashBps
     ) external view returns (uint256 slash) {
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
-        bool loser = (status == 3 && voteDirection == 2)
-                  || (status == 4 && voteDirection == 1);
+        bool loser = (status == STATUS_COMPLETED  && voteDirection == VOTE_NAY)
+                  || (status == STATUS_TERMINATED && voteDirection == VOTE_AYE);
         if (loser) {
             slash = lockAmount * slashBps / 10000;
         }

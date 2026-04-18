@@ -276,28 +276,37 @@ contract DatumGovernanceV2 {
         uint256 total = ayeWeighted[campaignId] + nayWeighted[campaignId];
 
         if (status == 0) {
-            // Pending -> Active
+            // Pending: two paths — activation (aye wins) or termination (nay wins after grace)
             require(total >= quorumWeighted, "E46");
-            require(ayeWeighted[campaignId] * 10000 > total * 5000, "E47");
-            IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
-            emit CampaignEvaluated(campaignId, 1);
-        } else if (status == 1 || status == 2) {
-            // Active/Paused -> Terminated (via Lifecycle)
-            require(total > 0, "E51");
-            require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
-            require(nayWeighted[campaignId] >= terminationQuorum, "E52");
-            // Scaled grace: higher turnout → longer cooldown (capped)
-            uint256 grace = baseGraceBlocks;
-            if (quorumWeighted > 0) {
-                grace += total * gracePerQuorum / quorumWeighted;
+            bool ayeWins = ayeWeighted[campaignId] * 10000 > total * 5000;
+            bool nayWins = nayWeighted[campaignId] * 10000 >= total * 5000
+                        && nayWeighted[campaignId] >= terminationQuorum;
+
+            if (ayeWins) {
+                IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
+                emit CampaignEvaluated(campaignId, 1);
+            } else if (nayWins) {
+                // Terminate from Pending: grace already elapsed since firstNayBlock was set
+                // either during Active/Paused voting or during this Pending period.
+                uint256 grace = baseGraceBlocks;
+                if (quorumWeighted > 0) {
+                    grace += total * gracePerQuorum / quorumWeighted;
+                }
+                if (grace > maxGraceBlocks) grace = maxGraceBlocks;
+                require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + grace, "E53");
+                lifecycle.terminateCampaign(campaignId);
+                resolved[campaignId] = true;
+                resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
+                emit CampaignEvaluated(campaignId, 4);
+            } else {
+                revert("E50");
             }
-            if (grace > maxGraceBlocks) grace = maxGraceBlocks;
-            require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + grace, "E53");
-            lifecycle.terminateCampaign(campaignId);
-            resolved[campaignId] = true;
-            // SM-5: Snapshot winning weight (nay won → terminated)
-            resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
-            emit CampaignEvaluated(campaignId, 4);
+        } else if (status == 1 || status == 2) {
+            // Active/Paused: nay ≥ 50% with quorum → demote to Pending (anti-grief grace deferred)
+            require(total >= quorumWeighted, "E46");
+            require(nayWeighted[campaignId] * 10000 >= total * 5000, "E48");
+            lifecycle.demoteCampaign(campaignId);
+            emit CampaignEvaluated(campaignId, 5); // result 5 = demoted
         } else if (status == 3) {
             // Completed -> mark resolved
             require(!resolved[campaignId], "E49");

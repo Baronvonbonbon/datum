@@ -134,6 +134,12 @@ contract MockCampaigns {
         campaigns[campaignId].terminationBlock = blockNum;
     }
 
+    /// @dev Called by Lifecycle contract to override pendingExpiryBlock (e.g. on demotion).
+    function setPendingExpiryBlock(uint256 campaignId, uint256 blockNum) external {
+        require(msg.sender == lifecycleContract, "E25");
+        campaigns[campaignId].pendingExpiryBlock = blockNum;
+    }
+
     // -------------------------------------------------------------------------
     // IDatumPublishers stubs (used as publishers placeholder in settlement tests)
     // -------------------------------------------------------------------------

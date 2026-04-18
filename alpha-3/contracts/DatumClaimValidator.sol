@@ -15,6 +15,8 @@ contract DatumClaimValidator is IDatumClaimValidator {
 
     // BM-2: Matches Settlement.MAX_USER_IMPRESSIONS — prevents overflow in payment calc
     uint256 private constant MAX_CLAIM_IMPRESSIONS = 100000;
+    // ZK-2: Groth16/BN254 proof is exactly 256 bytes; 1024-byte cap guards against oversized calldata abuse.
+    uint256 private constant MAX_ZK_PROOF_SIZE = 1024;
 
     address public owner;
     address public pendingOwner;
@@ -149,7 +151,7 @@ contract DatumClaimValidator is IDatumClaimValidator {
                 abi.encodeWithSignature("getCampaignRequiresZkProof(uint256)", claim.campaignId)
             );
             if (zkReqOk && zkReqRet.length >= 32 && abi.decode(zkReqRet, (bool))) {
-                if (claim.zkProof.length == 0) return (false, 16, 0, bytes32(0));
+                if (claim.zkProof.length == 0 || claim.zkProof.length > MAX_ZK_PROOF_SIZE) return (false, 16, 0, bytes32(0));
                 (bool zvOk, bytes memory zvRet) = zkVerifier.staticcall(
                     abi.encodeWithSignature("verify(bytes,bytes32)", claim.zkProof, computedHash)
                 );

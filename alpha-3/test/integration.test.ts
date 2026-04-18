@@ -276,7 +276,11 @@ describe("Integration", function () {
     // total = 0.5 + 1.0 = 1.5 DOT, grace = 5 + (1.5*10/0.5) = 5 + 30 = 35 > MAX_GRACE=30 → 30
     await mineBlocks(MAX_GRACE + 1n);
 
-    // Evaluate → terminates via Lifecycle
+    // First evaluate: Active → Demoted (Pending); grace already elapsed (firstNayBlock set above)
+    await v2.evaluateCampaign(campaignId);
+    expect(await campaigns.getCampaignStatus(campaignId)).to.equal(0); // Pending
+
+    // Second evaluate: Pending → Terminated (grace elapsed, nay wins terminationQuorum)
     await v2.evaluateCampaign(campaignId);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(4); // Terminated
     expect(await v2.resolved(campaignId)).to.be.true;

@@ -139,8 +139,9 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
         IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
         require(
-            status == IDatumCampaigns.CampaignStatus.Active ||
-            status == IDatumCampaigns.CampaignStatus.Paused,
+            status == IDatumCampaigns.CampaignStatus.Active  ||
+            status == IDatumCampaigns.CampaignStatus.Paused  ||
+            status == IDatumCampaigns.CampaignStatus.Pending, // demoted campaigns
             "E14"
         );
 
@@ -176,6 +177,29 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
         emit CampaignExpired(campaignId);
+    }
+
+    /// @inheritdoc IDatumCampaignLifecycle
+    /// @dev Called by GovernanceV2 when nay reaches 50% on an Active/Paused campaign.
+    ///      No budget is drained — the campaign returns to Pending for a second evaluation.
+    ///      pendingExpiryBlock is set to type(uint256).max to prevent expirePendingCampaign
+    ///      from racing the governance termination path.
+    function demoteCampaign(uint256 campaignId) external nonReentrant {
+        require(!pauseRegistry.paused(), "P");
+        require(msg.sender == governanceContract, "E19");
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(
+            status == IDatumCampaigns.CampaignStatus.Active ||
+            status == IDatumCampaigns.CampaignStatus.Paused,
+            "E14"
+        );
+
+        // Block expirePendingCampaign from firing — governance will terminate via evaluateCampaign
+        campaigns.setPendingExpiryBlock(campaignId, type(uint256).max);
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Pending);
+
+        emit CampaignDemoted(campaignId);
     }
 
     // -------------------------------------------------------------------------

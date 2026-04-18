@@ -284,10 +284,14 @@ contract DatumCampaigns is IDatumCampaigns {
     }
 
     function _validTransition(CampaignStatus from, CampaignStatus to) internal pure returns (bool) {
-        if (from == CampaignStatus.Active && to == CampaignStatus.Completed) return true;
-        if (from == CampaignStatus.Active && to == CampaignStatus.Terminated) return true;
-        if (from == CampaignStatus.Paused && to == CampaignStatus.Completed) return true;
-        if (from == CampaignStatus.Pending && to == CampaignStatus.Expired) return true;
+        if (from == CampaignStatus.Active  && to == CampaignStatus.Completed)  return true;
+        if (from == CampaignStatus.Active  && to == CampaignStatus.Terminated) return true;
+        if (from == CampaignStatus.Active  && to == CampaignStatus.Pending)    return true; // governance demotion
+        if (from == CampaignStatus.Paused  && to == CampaignStatus.Completed)  return true;
+        if (from == CampaignStatus.Paused  && to == CampaignStatus.Terminated) return true;
+        if (from == CampaignStatus.Paused  && to == CampaignStatus.Pending)    return true; // governance demotion
+        if (from == CampaignStatus.Pending && to == CampaignStatus.Expired)    return true;
+        if (from == CampaignStatus.Pending && to == CampaignStatus.Terminated) return true; // demoted + nay wins
         return false;
     }
 
@@ -295,6 +299,12 @@ contract DatumCampaigns is IDatumCampaigns {
     function setTerminationBlock(uint256 campaignId, uint256 blockNum) external {
         require(msg.sender == lifecycleContract, "E25");
         _campaigns[campaignId].terminationBlock = blockNum;
+    }
+
+    /// @inheritdoc IDatumCampaigns
+    function setPendingExpiryBlock(uint256 campaignId, uint256 blockNum) external {
+        require(msg.sender == lifecycleContract, "E25");
+        _campaigns[campaignId].pendingExpiryBlock = blockNum;
     }
 
     // -------------------------------------------------------------------------

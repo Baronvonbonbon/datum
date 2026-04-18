@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumGovernanceV2, DatumGovernanceSlash, DatumGovernanceHelper, DatumPauseRegistry, MockCampaigns } from "../typechain-types";
+import { DatumGovernanceV2, DatumGovernanceSlash, DatumGovernanceHelper, DatumPauseRegistry, MockCampaigns, MockCampaignLifecycle } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { mineBlocks, fundSigners } from "./helpers/mine";
@@ -17,6 +17,7 @@ describe("DatumGovernanceV2", function () {
   let v2: DatumGovernanceV2;
   let slash: DatumGovernanceSlash;
   let mock: MockCampaigns;
+  let mockLifecycle: MockCampaignLifecycle;
   let pauseReg: DatumPauseRegistry;
 
   let owner: HardhatEthersSigner;
@@ -80,9 +81,16 @@ describe("DatumGovernanceV2", function () {
     const HelperFactory = await ethers.getContractFactory("DatumGovernanceHelper");
     const helper = await HelperFactory.deploy(await mock.getAddress());
 
+    // Deploy MockCampaignLifecycle and wire
+    const LifecycleFactory = await ethers.getContractFactory("MockCampaignLifecycle");
+    mockLifecycle = await LifecycleFactory.deploy(await mock.getAddress());
+    await mockLifecycle.setGovernanceContract(await v2.getAddress());
+    await mock.setLifecycleContract(await mockLifecycle.getAddress());
+
     // Wire
     await v2.setSlashContract(await slash.getAddress());
     await v2.setHelper(await helper.getAddress());
+    await v2.setLifecycle(await mockLifecycle.getAddress());
     await mock.setGovernanceContract(await v2.getAddress());
   });
 
@@ -260,44 +268,40 @@ describe("DatumGovernanceV2", function () {
     await expect(v2.evaluateCampaign(cid)).to.be.revertedWith("E46");
   });
 
-  it("E3: evaluate fails without aye majority (E47)", async function () {
+  it("E3: evaluate Pending — aye=nay (nay wins at 50%) but grace not elapsed → E53", async function () {
     const cid = await setupCampaign(0);
-    // Equal aye and nay = no majority
+    // Equal aye and nay: nay wins the ≥50% check (exact tie), but grace hasn't elapsed
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
     await v2.connect(voter2).vote(cid, false, 0, { value: QUORUM });
 
-    await expect(v2.evaluateCampaign(cid)).to.be.revertedWith("E47");
+    await expect(v2.evaluateCampaign(cid)).to.be.revertedWith("E53");
   });
 
-  it("E4: evaluate Active→Terminated (nay majority + terminationQuorum + grace)", async function () {
+  it("E4: Active → demote → Pending → terminate (two-step nay path)", async function () {
     const cid = await setupCampaign(0);
 
-    // Activate first
+    // Step 1: Activate
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
     await v2.evaluateCampaign(cid);
-    expect(await mock.getCampaignStatus(cid)).to.equal(1);
+    expect(await mock.getCampaignStatus(cid)).to.equal(1); // Active
 
-    // Nay vote with larger weight
+    // Step 2: Nay majority — nayStake = 3×QUORUM → 75% nay, total = 4×QUORUM
     const nayStake = QUORUM * 3n;
     await v2.connect(voter2).vote(cid, false, 0, { value: nayStake });
 
-    // Must wait past grace period
-    // total = QUORUM + nayStake = 4*QUORUM
-    // grace = BASE_GRACE + total * GRACE_PER_QUORUM / QUORUM = 10 + 4*20 = 90 > MAX_GRACE=50
-    // capped at MAX_GRACE = 50
+    // Mine past grace period so demotion then immediate termination works
+    // total = 4*QUORUM, grace = BASE_GRACE + 4*GRACE_PER_QUORUM = 10 + 80 = 90 > MAX_GRACE=50
     await mineBlocks(MAX_GRACE + 1n);
 
-    // Need a mock lifecycle for terminateCampaign
-    // Since GovernanceV2 calls lifecycle.terminateCampaign(), we need it wired
-    // For this test, we'll set lifecycle to mock that accepts calls
-    // Actually, evaluateCampaign calls lifecycle.terminateCampaign(campaignId)
-    // We need to deploy a mock lifecycle or use the real one with mock campaigns
+    // First evaluate: Active → Demoted (Pending, result=5)
+    await expect(v2.evaluateCampaign(cid)).to.emit(v2, "CampaignEvaluated").withArgs(cid, 5n);
+    expect(await mock.getCampaignStatus(cid)).to.equal(0); // Pending
 
-    // GovernanceV2 requires lifecycle to be set. Let's deploy the real Lifecycle
-    // and wire it to mock campaigns.
-    // Actually let's just test that the revert happens correctly first.
-    // The call to lifecycle will fail because lifecycle isn't set.
-    // We need to set it up properly.
+    // Second evaluate: Pending → Terminated (grace already elapsed, result=4)
+    await v2.evaluateCampaign(cid);
+    expect(await mock.getCampaignStatus(cid)).to.equal(4); // Terminated
+    expect(await v2.resolved(cid)).to.be.true;
+    expect(await v2.resolvedWinningWeight(cid)).to.equal(nayStake);
   });
 
   it("E5: evaluate Completed→resolved", async function () {
@@ -366,26 +370,29 @@ describe("DatumGovernanceV2", function () {
   // Scaled grace period
   // =========================================================================
 
-  it("grace scales linearly with turnout", async function () {
+  it("grace scales linearly with turnout (tested on Pending termination path)", async function () {
     const cid = await setupCampaign(0);
 
     // Activate
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
     await v2.evaluateCampaign(cid);
 
-    // Nay vote with majority weight (must be >= 50% of total)
-    // nayStake = 2x QUORUM, total = 3*QUORUM, nay% = 66%
+    // Nay majority: nayStake = 2x QUORUM, total = 3*QUORUM, nay% = 66%
     const nayStake = QUORUM * 2n;
     await v2.connect(voter2).vote(cid, false, 0, { value: nayStake });
 
-    // total = 3*QUORUM, grace = BASE_GRACE + (3*QUORUM * GRACE_PER_QUORUM / QUORUM)
-    //       = 10 + 3*20 = 70 > MAX_GRACE=50 → capped at 50
-    // Should fail before 50 blocks
+    // Step 1: Demote to Pending (no grace check on Active→Demote)
+    await v2.evaluateCampaign(cid);
+    expect(await mock.getCampaignStatus(cid)).to.equal(0); // Pending
+
+    // Step 2: Try to terminate before grace elapses → E53
+    // total = 3*QUORUM, grace = BASE_GRACE + 3*GRACE_PER_QUORUM = 10 + 60 = 70 > MAX_GRACE=50 → 50
+    // firstNayBlock was set when voter2 voted, only ~2 blocks ago
     await mineBlocks(45);
     await expect(v2.evaluateCampaign(cid)).to.be.revertedWith("E53");
   });
 
-  it("grace capped at maxGraceBlocks", async function () {
+  it("grace capped at maxGraceBlocks (tested on Pending termination path)", async function () {
     const cid = await setupCampaign(0);
 
     // Activate
@@ -396,8 +403,12 @@ describe("DatumGovernanceV2", function () {
     const bigNay = QUORUM * 10n;
     await v2.connect(voter2).vote(cid, false, 0, { value: bigNay });
 
-    // total = 11*QUORUM, grace would be 10 + 11*20 = 230, capped at 50
-    // Should fail before 50 blocks
+    // Demote to Pending
+    await v2.evaluateCampaign(cid);
+    expect(await mock.getCampaignStatus(cid)).to.equal(0); // Pending
+
+    // Try to terminate before grace elapses
+    // total = 11*QUORUM, grace would be 10 + 11*20 = 230, capped at MAX_GRACE=50
     await mineBlocks(45);
     await expect(v2.evaluateCampaign(cid)).to.be.revertedWith("E53");
   });

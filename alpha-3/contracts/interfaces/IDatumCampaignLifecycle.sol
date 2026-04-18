@@ -8,6 +8,8 @@ interface IDatumCampaignLifecycle {
     event CampaignCompleted(uint256 indexed campaignId);
     event CampaignTerminated(uint256 indexed campaignId, uint256 terminationBlock);
     event CampaignExpired(uint256 indexed campaignId);
+    /// @notice Emitted when governance demotes Active/Paused → Pending.
+    event CampaignDemoted(uint256 indexed campaignId);
 
     /// @notice Complete a campaign (advertiser or settlement auto-complete).
     ///         Refunds remaining budget to advertiser via BudgetLedger.
@@ -25,4 +27,9 @@ interface IDatumCampaignLifecycle {
     ///         for inactivityTimeoutBlocks. Permissionless.
     ///         Full budget refund to advertiser via BudgetLedger.
     function expireInactiveCampaign(uint256 campaignId) external;
+
+    /// @notice Governance demotion: Active/Paused → Pending when nay falls below 50% threshold.
+    ///         No budget drained. pendingExpiryBlock set to max to prevent expiry-path conflict.
+    ///         Only callable by governance contract.
+    function demoteCampaign(uint256 campaignId) external;
 }

@@ -79,6 +79,10 @@ interface IDatumCampaigns {
     /// @notice Record termination block. Gated to lifecycle contract.
     function setTerminationBlock(uint256 campaignId, uint256 blockNum) external;
 
+    /// @notice Override pendingExpiryBlock. Gated to lifecycle contract.
+    ///         Used by demotion: sets to type(uint256).max to block expiry-path conflicts.
+    function setPendingExpiryBlock(uint256 campaignId, uint256 blockNum) external;
+
     // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------

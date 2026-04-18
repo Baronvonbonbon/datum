@@ -185,7 +185,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
         require(bps <= 10000, "E16");
 
         uint256 remaining = _budgets[campaignId].remaining;
-        amount = (remaining * bps) / 10000;
+        amount = (remaining * bps + 9999) / 10000; // ceiling division — no precision loss on small balances
         _budgets[campaignId].remaining = remaining - amount;
 
         if (amount > 0) {
