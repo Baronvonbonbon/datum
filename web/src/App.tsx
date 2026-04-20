@@ -13,6 +13,7 @@ import { Publishers } from "./pages/explorer/Publishers";
 import { PublisherProfile } from "./pages/explorer/PublisherProfile";
 import { AdvertiserProfile } from "./pages/explorer/AdvertiserProfile";
 import { HowItWorks } from "./pages/explorer/HowItWorks";
+import { Philosophy } from "./pages/explorer/Philosophy";
 
 // Advertiser
 import { AdvertiserDashboard } from "./pages/advertiser/Dashboard";
@@ -72,6 +73,7 @@ export function App() {
               <Route path="/publishers/:address" element={<PublisherProfile />} />
               <Route path="/advertisers/:address" element={<AdvertiserProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/philosophy" element={<Philosophy />} />
 
               {/* Advertiser */}
               <Route path="/advertiser" element={<AdvertiserDashboard />} />

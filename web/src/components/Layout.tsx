@@ -67,7 +67,7 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   {
     label: "Explorer",
-    matchPrefixes: ["/campaigns", "/publishers", "/advertisers", "/how-it-works"],
+    matchPrefixes: ["/campaigns", "/publishers", "/advertisers", "/how-it-works", "/philosophy"],
     headerPath: "/",
     headerExact: true,
     children: [
@@ -75,6 +75,7 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/campaigns", label: "Campaigns" },
       { path: "/publishers", label: "Publishers" },
       { path: "/how-it-works", label: "How It Works" },
+      { path: "/philosophy", label: "Philosophy" },
     ],
   },
   {
