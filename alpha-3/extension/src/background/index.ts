@@ -1212,6 +1212,7 @@ async function autoFlushDirect() {
           previousClaimHash: c.previousClaimHash,
           claimHash: c.claimHash,
           zkProof: c.zkProof,
+          nullifier: c.nullifier,
         })),
         publisherSig,
       };
@@ -1326,6 +1327,7 @@ function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
       zkProof: c.zkProof,
+      nullifier: c.nullifier,
     })),
   }));
 }

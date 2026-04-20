@@ -7,6 +7,11 @@ const ADMIN_LINKS = [
   { to: "/admin/protocol", label: "Protocol Fees" },
   { to: "/admin/rate-limiter", label: "Rate Limiter" },
   { to: "/admin/reputation", label: "Reputation" },
+  { to: "/admin/parameter-governance", label: "Param Gov" },
+  { to: "/admin/publisher-stake", label: "Pub Stake" },
+  { to: "/admin/publisher-governance", label: "Pub Gov" },
+  { to: "/admin/challenge-bonds", label: "Bonds" },
+  { to: "/admin/nullifier-registry", label: "Nullifiers" },
 ];
 
 export function AdminNav() {

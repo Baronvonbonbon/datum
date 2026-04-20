@@ -26,25 +26,20 @@ export function ReputationAdmin() {
     settled: string; rejected: string; score: number;
     anomaly?: boolean; cs?: string; cr?: string;
   } | null>(null);
-  const [lookupError, setLookupError] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
 
-  // Reporter management
-  const [reporterInput, setReporterInput] = useState("");
-  const [addTxState, setAddTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
-  const [addTxMsg, setAddTxMsg] = useState("");
-  const [removeTxState, setRemoveTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
-  const [removeTxMsg, setRemoveTxMsg] = useState("");
+  // Settlement wiring
+  const [settlementInput, setSettlementInput] = useState("");
+  const [settlementTxState, setSettlementTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
+  const [settlementTxMsg, setSettlementTxMsg] = useState("");
 
-  // Check reporter status
-  const [checkReporter, setCheckReporter] = useState("");
-  const [isReporter, setIsReporter] = useState<boolean | null>(null);
+  // Current settlement check
+  const [currentSettlement, setCurrentSettlement] = useState<string | null>(null);
 
   async function handleLookup() {
-    if (!contracts.reputation) { setLookupError("Reputation contract not configured."); return; }
-    if (!lookupAddr) { setLookupError("Enter a publisher address."); return; }
+    if (!contracts.reputation) return;
+    if (!lookupAddr) return;
     setLookupLoading(true);
-    setLookupError("");
     setLookupResult(null);
     try {
       const [settled, rejected, score] = await contracts.reputation.getPublisherStats(lookupAddr);
@@ -68,47 +63,31 @@ export function ReputationAdmin() {
     }
   }
 
-  async function handleAddReporter() {
+  async function handleSetSettlement() {
     if (!signer || !contracts.reputation) return;
-    if (!reporterInput) { setAddTxMsg("Enter reporter address."); setAddTxState("error"); return; }
-    setAddTxState("pending"); setAddTxMsg("");
+    if (!settlementInput) { setSettlementTxMsg("Enter settlement address."); setSettlementTxState("error"); return; }
+    setSettlementTxState("pending"); setSettlementTxMsg("");
     try {
       const c = contracts.reputation.connect(signer);
-      const tx = await c.addReporter(reporterInput.trim());
+      const tx = await c.setSettlement(settlementInput.trim());
       await confirmTx(tx);
-      setAddTxState("success");
-      setAddTxMsg("Reporter added.");
+      setSettlementTxState("success");
+      setSettlementTxMsg("Settlement address wired.");
+      setCurrentSettlement(settlementInput.trim());
     } catch (err) {
       push(humanizeError(err), "error");
-      setAddTxMsg(humanizeError(err));
-      setAddTxState("error");
+      setSettlementTxMsg(humanizeError(err));
+      setSettlementTxState("error");
     }
   }
 
-  async function handleRemoveReporter() {
-    if (!signer || !contracts.reputation) return;
-    if (!reporterInput) { setRemoveTxMsg("Enter reporter address."); setRemoveTxState("error"); return; }
-    setRemoveTxState("pending"); setRemoveTxMsg("");
+  async function handleCheckSettlement() {
+    if (!contracts.reputation) return;
     try {
-      const c = contracts.reputation.connect(signer);
-      const tx = await c.removeReporter(reporterInput.trim());
-      await confirmTx(tx);
-      setRemoveTxState("success");
-      setRemoveTxMsg("Reporter removed.");
-    } catch (err) {
-      push(humanizeError(err), "error");
-      setRemoveTxMsg(humanizeError(err));
-      setRemoveTxState("error");
-    }
-  }
-
-  async function handleCheckReporter() {
-    if (!contracts.reputation || !checkReporter) return;
-    try {
-      const result = await contracts.reputation.reporters(checkReporter.trim());
-      setIsReporter(result);
+      const addr = await contracts.reputation.settlement();
+      setCurrentSettlement(addr);
     } catch {
-      setIsReporter(null);
+      setCurrentSettlement(null);
     }
   }
 
@@ -124,7 +103,7 @@ export function ReputationAdmin() {
       <div className="nano-info nano-info--muted" style={{ marginBottom: 16, fontSize: 12 }}>
         Tracks per-publisher settlement acceptance rates. Score = settled / (settled + rejected) × 10000 bps.
         Anomaly detection (BM-9) flags campaigns where a publisher's rejection rate exceeds 2× their global rate.
-        Stats are recorded by approved reporter addresses (relay bot EOA).
+        Stats are recorded by Settlement directly (FP-16) — no relay-bot reporter needed.
       </div>
 
       {notDeployed && (
@@ -198,70 +177,57 @@ export function ReputationAdmin() {
         )}
       </div>
 
-      {/* Reporter Management */}
+      {/* Settlement Wiring */}
       {signer && (
         <div className="nano-card" style={{ padding: 14, marginBottom: 16 }}>
           <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-            Reporter Management
+            Settlement Wiring (FP-16)
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-            Only approved reporters (relay bot EOA) can call <code>recordSettlement()</code>.
+            Only the wired Settlement contract can call <code>recordSettlement()</code>.
+            This is set once during deploy and should match the active DatumSettlement address.
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
             <input
               type="text"
-              value={reporterInput}
-              onChange={(e) => setReporterInput(e.target.value)}
-              placeholder="Reporter address (0x...)"
+              value={settlementInput}
+              onChange={(e) => setSettlementInput(e.target.value)}
+              placeholder="Settlement address (0x...)"
               style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
             />
             <button
-              onClick={handleAddReporter}
-              disabled={addTxState === "pending" || notDeployed}
+              onClick={handleSetSettlement}
+              disabled={settlementTxState === "pending" || notDeployed}
               className="nano-btn nano-btn--ok"
               style={{ padding: "6px 12px", fontSize: 12 }}
             >
-              {addTxState === "pending" ? "..." : "Add"}
-            </button>
-            <button
-              onClick={handleRemoveReporter}
-              disabled={removeTxState === "pending" || notDeployed}
-              className="nano-btn nano-btn--danger"
-              style={{ padding: "6px 12px", fontSize: 12 }}
-            >
-              {removeTxState === "pending" ? "..." : "Remove"}
+              {settlementTxState === "pending" ? "..." : "Set"}
             </button>
           </div>
-          <TransactionStatus state={addTxState} message={addTxMsg} />
-          <TransactionStatus state={removeTxState} message={removeTxMsg} />
+          <TransactionStatus state={settlementTxState} message={settlementTxMsg} />
         </div>
       )}
 
-      {/* Check Reporter */}
+      {/* Current Settlement */}
       <div className="nano-card" style={{ padding: 14 }}>
         <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-          Check Reporter Status
+          Current Settlement Address
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input
-            type="text"
-            value={checkReporter}
-            onChange={(e) => { setCheckReporter(e.target.value); setIsReporter(null); }}
-            placeholder="Address (0x...)"
-            style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
-          />
           <button
-            onClick={handleCheckReporter}
+            onClick={handleCheckSettlement}
             disabled={notDeployed}
             className="nano-btn"
             style={{ padding: "6px 14px", fontSize: 12 }}
           >
-            Check
+            Read
           </button>
         </div>
-        {isReporter !== null && (
-          <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: isReporter ? "var(--ok)" : "var(--text-muted)" }}>
-            {isReporter ? "Approved reporter" : "Not a reporter"}
+        {currentSettlement !== null && (
+          <div style={{ marginTop: 8, fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+            {currentSettlement === "0x0000000000000000000000000000000000000000"
+              ? <span style={{ color: "var(--warn)" }}>Not set (address(0))</span>
+              : currentSettlement}
           </div>
         )}
       </div>

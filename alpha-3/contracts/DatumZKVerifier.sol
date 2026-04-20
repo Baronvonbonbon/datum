@@ -13,13 +13,14 @@ pragma solidity ^0.8.24;
 ///                                  [x_imag, x_real, y_imag, y_real] (128 bytes)
 ///           pi_c  : uint256[2]   — G1 point (64 bytes)
 ///
-///         Public input: publicInputsHash (bytes32) from DatumClaimValidator
-///           = blake256/keccak256(campaignId, publisher, user, impressions, cpm, nonce, prevHash)
-///           Truncated to BN254 scalar field: uint256(hash) % SCALAR_ORDER
+///         Public inputs (2):
+///           pub0 = claimHash — blake256/keccak256(campaignId, publisher, user, impressions, cpm, nonce, prevHash)
+///           pub1 = nullifier — Poseidon(userSecret, campaignId, windowId)
+///           Both truncated to BN254 scalar field: uint256(x) % SCALAR_ORDER
 ///
 ///         Circuit: circuits/impression.circom
-///           1 public input  (claimHash), 2 private witnesses (impressions, nonce)
-///           Constraint: impressions ∈ [1, 2^32) via Num2Bits(32)
+///           2 public inputs (claimHash, nullifier), 5 private witnesses
+///           Constraints: Num2Bits(32) + nonce binding + Poseidon(3) ≈ 293 total
 ///
 ///         VK must be set by owner after running scripts/setup-zk.mjs.
 ///         While unset, verify() returns false (fail-safe).
@@ -49,6 +50,7 @@ contract DatumZKVerifier {
         uint256[4] delta2;   // G2: [x_imag, x_real, y_imag, y_real]
         uint256[2] IC0;      // G1 constant term
         uint256[2] IC1;      // G1 coefficient for public input 0 (claimHash)
+        uint256[2] IC2;      // G1 coefficient for public input 1 (nullifier)
     }
 
     VerifyingKey private _vk;
@@ -71,13 +73,16 @@ contract DatumZKVerifier {
     /// @notice Set Groth16 verification key after trusted setup.
     ///         G2 point arrays must be in EIP-197 order: [x_imag, x_real, y_imag, y_real].
     ///         Run `node scripts/setup-zk.mjs` to generate these values.
+    ///         IC2 is required for the second public input (nullifier). Re-run setup after
+    ///         updating impression.circom to add the nullifier signal.
     function setVerifyingKey(
         uint256[2] calldata alpha1,
         uint256[4] calldata beta2,
         uint256[4] calldata gamma2,
         uint256[4] calldata delta2,
         uint256[2] calldata IC0,
-        uint256[2] calldata IC1
+        uint256[2] calldata IC1,
+        uint256[2] calldata IC2
     ) external {
         require(msg.sender == owner, "E18");
         _vk.alpha1 = alpha1;
@@ -86,6 +91,7 @@ contract DatumZKVerifier {
         _vk.delta2  = delta2;
         _vk.IC0     = IC0;
         _vk.IC1     = IC1;
+        _vk.IC2     = IC2;
         vkSet = true;
         emit VerifyingKeySet();
     }
@@ -108,10 +114,11 @@ contract DatumZKVerifier {
     // -------------------------------------------------------------------------
 
     /// @notice Verify a Groth16 proof for an impression claim.
-    /// @param proof     256 bytes: ABI-encoded (uint256[2] pi_a, uint256[4] pi_b, uint256[2] pi_c)
-    /// @param publicInputsHash  Claim hash from DatumClaimValidator (blake256/keccak256)
-    /// @return valid  True iff proof is valid for this claim hash under the current VK.
-    function verify(bytes calldata proof, bytes32 publicInputsHash)
+    /// @param proof              256 bytes: ABI-encoded (uint256[2] pi_a, uint256[4] pi_b, uint256[2] pi_c)
+    /// @param publicInputsHash   Claim hash from DatumClaimValidator (blake256/keccak256)
+    /// @param nullifier          Poseidon(userSecret, campaignId, windowId) — FP-5 replay prevention
+    /// @return valid  True iff proof is valid for these public inputs under the current VK.
+    function verify(bytes calldata proof, bytes32 publicInputsHash, bytes32 nullifier)
         external
         view
         returns (bool valid)
@@ -123,10 +130,11 @@ contract DatumZKVerifier {
         (uint256[2] memory pi_a, uint256[4] memory pi_b, uint256[2] memory pi_c) =
             abi.decode(proof, (uint256[2], uint256[4], uint256[2]));
 
-        // Public input: claimHash truncated to scalar field
+        // Public inputs truncated to BN254 scalar field
         uint256 pub0 = uint256(publicInputsHash) % SCALAR_ORDER;
+        uint256 pub1 = uint256(nullifier) % SCALAR_ORDER;
 
-        // vk_x = IC0 + IC1 * pub0
+        // vk_x = IC0 + IC1*pub0 + IC2*pub1
         // Step 1: IC1 * pub0  (ecMul, precompile 0x07)
         uint256 vkx; uint256 vky;
         {
@@ -140,6 +148,23 @@ contract DatumZKVerifier {
         {
             (bool ok, bytes memory out) = address(0x06).staticcall(
                 abi.encode(_vk.IC0[0], _vk.IC0[1], vkx, vky)
+            );
+            if (!ok || out.length < 64) return false;
+            (vkx, vky) = abi.decode(out, (uint256, uint256));
+        }
+        // Step 3: IC2 * pub1  (ecMul, precompile 0x07)
+        uint256 ic2x; uint256 ic2y;
+        {
+            (bool ok, bytes memory out) = address(0x07).staticcall(
+                abi.encode(_vk.IC2[0], _vk.IC2[1], pub1)
+            );
+            if (!ok || out.length < 64) return false;
+            (ic2x, ic2y) = abi.decode(out, (uint256, uint256));
+        }
+        // Step 4: vk_x + (IC2*pub1)  (ecAdd, precompile 0x06)
+        {
+            (bool ok, bytes memory out) = address(0x06).staticcall(
+                abi.encode(vkx, vky, ic2x, ic2y)
             );
             if (!ok || out.length < 64) return false;
             (vkx, vky) = abi.decode(out, (uint256, uint256));

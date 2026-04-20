@@ -83,6 +83,9 @@ contract DatumCampaigns is IDatumCampaigns {
     mapping(uint256 => address)  private _campaignRewardToken;
     mapping(uint256 => uint256) private _campaignRewardPerImpression;
 
+    // FP-2: optional challenge bonds contract (address(0) = disabled)
+    address public challengeBonds;
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -137,6 +140,12 @@ contract DatumCampaigns is IDatumCampaigns {
         budgetLedger = IDatumBudgetLedger(addr);
     }
 
+    /// @notice Set challenge bonds contract. Pass address(0) to disable.
+    function setChallengeBonds(address addr) external onlyOwner {
+        emit ContractReferenceChanged("challengeBonds", challengeBonds, addr);
+        challengeBonds = addr;
+    }
+
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
         pendingOwner = newOwner;
@@ -160,12 +169,14 @@ contract DatumCampaigns is IDatumCampaigns {
         bytes32[] calldata requiredTags,
         bool requireZkProof,
         address rewardToken,
-        uint256 rewardPerImpression
+        uint256 rewardPerImpression,
+        uint256 bondAmount
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
-        require(msg.value > 0, "E11");
+        require(msg.value > bondAmount, "E11"); // msg.value must cover bond + at least some budget
+        uint256 budgetValue = msg.value - bondAmount;
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
-        require(dailyCapPlanck > 0 && dailyCapPlanck <= msg.value, "E12");
+        require(dailyCapPlanck > 0 && dailyCapPlanck <= budgetValue, "E12");
         require(requiredTags.length <= 8, "E66");
 
         // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator
@@ -207,14 +218,23 @@ contract DatumCampaigns is IDatumCampaigns {
             _campaignRewardPerImpression[campaignId] = rewardPerImpression;
         }
 
-        // Escrow budget in BudgetLedger
-        budgetLedger.initializeBudget{value: msg.value}(campaignId, msg.value, dailyCapPlanck);
+        // Escrow budget in BudgetLedger (budget portion only)
+        budgetLedger.initializeBudget{value: budgetValue}(campaignId, budgetValue, dailyCapPlanck);
+
+        // FP-2: Lock optional bond in ChallengeBonds
+        if (bondAmount > 0 && challengeBonds != address(0)) {
+            (bool cbOk,) = challengeBonds.call{value: bondAmount}(
+                abi.encodeWithSelector(bytes4(keccak256("lockBond(uint256,address,address)")),
+                    campaignId, msg.sender, publisher)
+            );
+            require(cbOk, "E02");
+        }
 
         emit CampaignCreated(
             campaignId,
             msg.sender,
             publisher,
-            msg.value,
+            budgetValue,
             dailyCapPlanck,
             bidCpmPlanck,
             snapshot

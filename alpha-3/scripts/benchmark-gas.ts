@@ -306,7 +306,7 @@ async function main() {
   // Parse campaign ID from CampaignCreated event
   async function createCampaignAndGetId(signer: any, budget = BUDGET): Promise<bigint> {
     const tx = await campaigns.connect(signer).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: budget }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: budget }
     );
     const receipt = await tx.wait();
     const log = receipt!.logs.find((l: any) => {
@@ -334,7 +334,7 @@ async function main() {
   console.log("1. createCampaign");
   await measure("createCampaign",
     campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
     )
   );
 

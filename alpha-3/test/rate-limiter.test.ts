@@ -199,7 +199,7 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
         ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
         [campaignId, pub, usr, impressions, BID_CPM, nonce, prevHash]
       );
-      claims.push({ campaignId, publisher: pub, impressionCount: impressions, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" });
+      claims.push({ campaignId, publisher: pub, impressionCount: impressions, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash });
       prevHash = hash;
     }
     return claims;
@@ -301,6 +301,7 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
       zkProof: "0x",
+      nullifier: ethers.ZeroHash,
     }];
     const batch2 = { user: user.address, campaignId: cid2, claims: claims2 };
     const r2 = await settlement.connect(user).settleClaims.staticCall([batch2]);

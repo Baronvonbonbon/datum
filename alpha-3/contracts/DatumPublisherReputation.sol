@@ -9,9 +9,8 @@ import "./interfaces/IDatumPublisherReputation.sol";
 ///         rate is significantly higher than their global rate.
 ///
 ///         Architecture:
-///         - Reporter pattern: only approved callers (relay bot) can record stats.
-///           No Settlement contract changes required — relay bot parses ClaimSettled /
-///           ClaimRejected events after each batch and calls recordSettlement().
+///         - FP-16: Settlement calls recordSettlement() directly after each batch.
+///           No relay-bot reporter needed — reputation is fully on-chain and trustless.
 ///         - Score = accepted impressions / total impressions as bps (0–10000).
 ///           Computed on-read from raw counters; no decay or EMA needed at alpha scale.
 ///         - Anomaly (BM-9): campaign rejection rate > ANOMALY_FACTOR × global rate,
@@ -22,8 +21,8 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
     address public owner;
     address public pendingOwner;
 
-    /// @notice Approved reporters (relay bot addresses).
-    mapping(address => bool) public reporters;
+    /// @notice The Settlement contract — only caller allowed to record stats (FP-16).
+    address public settlement;
 
     // -------------------------------------------------------------------------
     // Global per-publisher counters
@@ -65,17 +64,10 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
         owner = msg.sender;
     }
 
-    function addReporter(address reporter) external {
+    function setSettlement(address addr) external {
         require(msg.sender == owner, "E18");
-        require(reporter != address(0), "E00");
-        reporters[reporter] = true;
-        emit ReporterAdded(reporter);
-    }
-
-    function removeReporter(address reporter) external {
-        require(msg.sender == owner, "E18");
-        reporters[reporter] = false;
-        emit ReporterRemoved(reporter);
+        require(addr != address(0), "E00");
+        settlement = addr;
     }
 
     function transferOwnership(address newOwner) external {
@@ -101,7 +93,7 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
         uint256 settled,
         uint256 rejected
     ) external override {
-        require(reporters[msg.sender], "E25");
+        require(msg.sender == settlement, "E18");
         require(publisher != address(0), "E00");
         if (settled == 0 && rejected == 0) return;
 

@@ -153,7 +153,7 @@ contract DatumClaimValidator is IDatumClaimValidator {
             if (zkReqOk && zkReqRet.length >= 32 && abi.decode(zkReqRet, (bool))) {
                 if (claim.zkProof.length == 0 || claim.zkProof.length > MAX_ZK_PROOF_SIZE) return (false, 16, 0, bytes32(0));
                 (bool zvOk, bytes memory zvRet) = zkVerifier.staticcall(
-                    abi.encodeWithSignature("verify(bytes,bytes32)", claim.zkProof, computedHash)
+                    abi.encodeWithSignature("verify(bytes,bytes32,bytes32)", claim.zkProof, computedHash, claim.nullifier)
                 );
                 if (!zvOk || zvRet.length < 32 || !abi.decode(zvRet, (bool))) {
                     return (false, 16, 0, bytes32(0));

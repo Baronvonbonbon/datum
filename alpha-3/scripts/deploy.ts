@@ -1,4 +1,4 @@
-// deploy.ts — Full 21-contract Alpha-3 deployment + wiring + ownership transfer
+// deploy.ts — Full 25-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
@@ -12,6 +12,11 @@
 //   - DatumReports              (community reporting — pages + ads)
 //   - DatumSettlementRateLimiter (BM-5: per-publisher window rate limiter)
 //   - DatumPublisherReputation  (BM-8+BM-9: reputation score + anomaly detection)
+//
+// FP-1–FP-4 fraud prevention contracts:
+//   - DatumPublisherStake       (FP-1+FP-4: publisher staking + bonding curve)
+//   - DatumChallengeBonds       (FP-2: advertiser challenge bonds)
+//   - DatumPublisherGovernance  (FP-3: conviction-weighted publisher fraud governance)
 //
 // Paseo eth-rpc workaround: getTransactionReceipt is broken for deploy txs.
 // We use raw signed transactions + getCreateAddress(sender, nonce) to derive
@@ -65,7 +70,7 @@ const PAUSE_GUARDIAN_2 = "0x09ce34740bCE52FB3cAa4A2D50cC2fbAD6F32C5b"; // Charli
 const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
 const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
 
-// ── Required address keys (21 contracts) ─────────────────────────────────────
+// ── Required address keys (25 contracts) ─────────────────────────────────────
 
 const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
@@ -75,13 +80,39 @@ const REQUIRED_KEYS = [
   // Alpha-3 satellites
   "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
   "reports", "rateLimiter", "reputation", "tokenRewardVault",
+  // FP-1–FP-4 fraud prevention
+  "publisherStake", "challengeBonds", "publisherGovernance",
+  // FP-5: per-user per-campaign per-window nullifier registry
+  "nullifierRegistry",
+  // T1-B: conviction-vote governance for FP system parameters
+  "parameterGovernance",
 ] as const;
 
 // BM-5 rate limiter deployment parameters
 const RATE_LIMITER_WINDOW_BLOCKS = 100n;              // ~10 minutes at 6s/block
 const RATE_LIMITER_MAX_IMPRESSIONS = 500_000n;        // 500K impressions per publisher per window
 
-const TOTAL_STEPS = 28; // 21 deploy + 7 wiring/validation sections
+// FP-1+FP-4 publisher stake deployment parameters
+const PUBLISHER_STAKE_BASE = parseDOT("1");           // 1 DOT minimum required stake
+const PUBLISHER_STAKE_PER_IMP = 1_000n;              // 1000 planck per cumulative impression
+const PUBLISHER_UNSTAKE_DELAY = 100_800n;             // ~7 days at 6s/block
+
+// FP-3 publisher governance parameters
+const PUB_GOV_QUORUM = parseDOT("100");              // 100 DOT conviction-weighted to uphold fraud
+const PUB_GOV_SLASH_BPS = 5000n;                     // 50% slash of publisher stake on fraud upheld
+const PUB_GOV_BOND_BONUS_BPS = 2000n;                // 20% of slash forwarded to ChallengeBonds pool
+const PUB_GOV_GRACE_BLOCKS = 14400n;                 // ~24h grace period after first nay vote
+
+// FP-5 nullifier registry deployment parameter
+const NULLIFIER_WINDOW_BLOCKS = 14400n;              // ~24h at 6s/block (Polkadot Hub)
+
+// T1-B parameter governance deployment parameters
+const PARAM_GOV_VOTING_PERIOD = 50400n;              // ~7d at 6s/block
+const PARAM_GOV_TIMELOCK = 14400n;                   // ~24h at 6s/block
+const PARAM_GOV_QUORUM = parseDOT("100");            // 100 DOT conviction-weighted
+const PARAM_GOV_BOND = parseDOT("2");                // 2 DOT propose bond
+
+const TOTAL_STEPS = 32; // 25 deploy + 7 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -430,7 +461,60 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumTokenRewardVault — ${err}`);
   }
 
-  console.log("\n=== All 21 contracts deployed ===\n");
+  try {
+    logStep("Deploying DatumPublisherStake (FP-1+FP-4)");
+    await deployOrReuse("publisherStake", "DatumPublisherStake", [
+      PUBLISHER_STAKE_BASE,
+      PUBLISHER_STAKE_PER_IMP,
+      PUBLISHER_UNSTAKE_DELAY,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPublisherStake — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumChallengeBonds (FP-2)");
+    await deployOrReuse("challengeBonds", "DatumChallengeBonds", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumChallengeBonds — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumPublisherGovernance (FP-3)");
+    await deployOrReuse("publisherGovernance", "DatumPublisherGovernance", [
+      addresses.publisherStake,
+      addresses.challengeBonds,
+      PUB_GOV_QUORUM,
+      PUB_GOV_SLASH_BPS,
+      PUB_GOV_BOND_BONUS_BPS,
+      PUB_GOV_GRACE_BLOCKS,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPublisherGovernance — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumNullifierRegistry (FP-5)");
+    await deployOrReuse("nullifierRegistry", "DatumNullifierRegistry", [
+      NULLIFIER_WINDOW_BLOCKS,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumNullifierRegistry — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumParameterGovernance (T1-B)");
+    await deployOrReuse("parameterGovernance", "DatumParameterGovernance", [
+      PARAM_GOV_VOTING_PERIOD,
+      PARAM_GOV_TIMELOCK,
+      PARAM_GOV_QUORUM,
+      PARAM_GOV_BOND,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumParameterGovernance — ${err}`);
+  }
+
+  console.log("\n=== All 26 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -653,7 +737,7 @@ async function main() {
     const vkCalldataPath = path.join(__dirname, "..", "circuits", "setVK-calldata.json");
     const zkIface = new ethers.Interface([
       "function vkSet() view returns (bool)",
-      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)",
+      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2)",
     ]);
 
     const vkSetData = zkIface.encodeFunctionData("vkSet");
@@ -667,13 +751,17 @@ async function main() {
       console.warn("        Run `node scripts/setup-zk.mjs` to generate it, then re-run deploy.ts.");
     } else {
       const vkCalldata = JSON.parse(fs.readFileSync(vkCalldataPath, "utf-8"));
-      await sendCall(
-        addresses.zkVerifier,
-        ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)"],
-        "setVerifyingKey",
-        [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1],
-      );
-      console.log("  SET: ZKVerifier.vk (Groth16 verifying key)");
+      if (!vkCalldata.IC2) {
+        console.warn("  SKIP: ZKVerifier.setVerifyingKey — calldata missing IC2 (re-run setup-zk.mjs after circuit update)");
+      } else {
+        await sendCall(
+          addresses.zkVerifier,
+          ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2)"],
+          "setVerifyingKey",
+          [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1, vkCalldata.IC2],
+        );
+        console.log("  SET: ZKVerifier.vk (Groth16 verifying key, 2 public inputs)");
+      }
     }
   }
 
@@ -695,6 +783,92 @@ async function main() {
     "DatumGovernanceV2", addresses.governanceV2,
     "helper", "setHelper",
     addresses.governanceHelper,
+  );
+
+  // ── FP-1+FP-4: PublisherStake ──
+  // Settlement calls recordImpressions() after each settled batch
+  await wireIfNeeded(
+    "PublisherStake.settlementContract",
+    "DatumPublisherStake", addresses.publisherStake,
+    "settlementContract", "setSettlementContract",
+    addresses.settlement,
+  );
+  // PublisherGovernance calls slash() to penalise fraud-upheld publishers
+  await wireIfNeeded(
+    "PublisherStake.slashContract",
+    "DatumPublisherStake", addresses.publisherStake,
+    "slashContract", "setSlashContract",
+    addresses.publisherGovernance,
+  );
+  // Settlement stake check: address(0) keeps check disabled until operator enables it
+  // Wire it so stake enforcement is active from first deploy.
+  await wireIfNeeded(
+    "Settlement.publisherStake",
+    "DatumSettlement", addresses.settlement,
+    "publisherStake", "setPublisherStake",
+    addresses.publisherStake,
+  );
+
+  // ── FP-2: ChallengeBonds ──
+  await wireIfNeeded(
+    "ChallengeBonds.campaignsContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "campaignsContract", "setCampaignsContract",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "ChallengeBonds.lifecycleContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "lifecycleContract", "setLifecycleContract",
+    addresses.campaignLifecycle,
+  );
+  await wireIfNeeded(
+    "ChallengeBonds.governanceContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "governanceContract", "setGovernanceContract",
+    addresses.publisherGovernance,
+  );
+  // Campaigns calls lockBond() when advertisers include a bond at campaign creation
+  await wireIfNeeded(
+    "Campaigns.challengeBonds",
+    "DatumCampaigns", addresses.campaigns,
+    "challengeBonds", "setChallengeBonds",
+    addresses.challengeBonds,
+  );
+  // Lifecycle calls returnBond() on campaign end / non-fraud resolution
+  await wireIfNeeded(
+    "Lifecycle.challengeBonds",
+    "DatumCampaignLifecycle", addresses.campaignLifecycle,
+    "challengeBonds", "setChallengeBonds",
+    addresses.challengeBonds,
+  );
+
+  // ── FP-5: NullifierRegistry ──
+  await wireIfNeeded(
+    "NullifierRegistry.settlement",
+    "DatumNullifierRegistry", addresses.nullifierRegistry,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.nullifierRegistry",
+    "DatumSettlement", addresses.settlement,
+    "nullifierRegistry", "setNullifierRegistry",
+    addresses.nullifierRegistry,
+  );
+
+  // ── FP-16: PublisherReputation — Settlement is sole trusted caller ──
+  await wireIfNeeded(
+    "Reputation.settlement",
+    "DatumPublisherReputation", addresses.reputation,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.publisherReputation",
+    "DatumSettlement", addresses.settlement,
+    "publisherReputation", "setPublisherReputation",
+    addresses.reputation,
   );
 
   console.log("\n  All wiring complete.");
@@ -823,7 +997,30 @@ async function main() {
   await check("Settlement.campaigns", await readAddr(addresses.settlement, "campaigns"), addresses.campaigns);
   await check("TokenRewardVault.settlement", await readAddr(addresses.tokenRewardVault, "settlement"), addresses.settlement);
 
-  // ── Validate all 21 addresses present and non-zero ──
+  // FP-1+FP-4: PublisherStake
+  await check("PublisherStake.settlementContract", await readAddr(addresses.publisherStake, "settlementContract"), addresses.settlement);
+  await check("PublisherStake.slashContract", await readAddr(addresses.publisherStake, "slashContract"), addresses.publisherGovernance);
+  await check("Settlement.publisherStake", await readAddr(addresses.settlement, "publisherStake"), addresses.publisherStake);
+
+  // FP-2: ChallengeBonds
+  await check("ChallengeBonds.campaignsContract", await readAddr(addresses.challengeBonds, "campaignsContract"), addresses.campaigns);
+  await check("ChallengeBonds.lifecycleContract", await readAddr(addresses.challengeBonds, "lifecycleContract"), addresses.campaignLifecycle);
+  await check("ChallengeBonds.governanceContract", await readAddr(addresses.challengeBonds, "governanceContract"), addresses.publisherGovernance);
+  await check("Campaigns.challengeBonds", await readAddr(addresses.campaigns, "challengeBonds"), addresses.challengeBonds);
+  await check("Lifecycle.challengeBonds", await readAddr(addresses.campaignLifecycle, "challengeBonds"), addresses.challengeBonds);
+
+  // FP-5: NullifierRegistry
+  await check("NullifierRegistry.settlement", await readAddr(addresses.nullifierRegistry, "settlement"), addresses.settlement);
+  await check("Settlement.nullifierRegistry", await readAddr(addresses.settlement, "nullifierRegistry"), addresses.nullifierRegistry);
+
+  // T1-B: ParameterGovernance — standalone, no cross-contract wiring needed at deploy time
+  // (ownership transfer to ParameterGovernance happens per-contract via governance proposals)
+
+  // FP-16: PublisherReputation
+  await check("Reputation.settlement", await readAddr(addresses.reputation, "settlement"), addresses.settlement);
+  await check("Settlement.publisherReputation", await readAddr(addresses.settlement, "publisherReputation"), addresses.reputation);
+
+  // ── Validate all 26 addresses present and non-zero ──
   logStep("Checking all addresses present");
   for (const key of REQUIRED_KEYS) {
     if (!addresses[key] || addresses[key] === ZERO_ADDRESS) {
@@ -867,7 +1064,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("21 contracts deployed and wired:\n");
+  console.log("25 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }

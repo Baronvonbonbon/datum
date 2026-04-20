@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
+import { getAssetMetadata } from "@shared/assetRegistry";
 
 const ERC20_ABI = [
   "function symbol() view returns (string)",
@@ -179,12 +180,23 @@ export function UserPanel({ address }: Props) {
             if (first) tokenAddr = await campaigns.getCampaignRewardToken(first.id);
           } catch { /* */ }
 
-          const [bal, sym, dec] = await Promise.all([
-            vault.userTokenBalance(address, tokenAddr).then((v: bigint) => BigInt(v)).catch(() => 0n),
-            new Contract(tokenAddr, ERC20_ABI, provider).symbol().catch(() => "TOKEN"),
-            new Contract(tokenAddr, ERC20_ABI, provider).decimals().catch(() => 18),
-          ]);
-          return { token: tokenAddr, symbol: sym as string, decimals: Number(dec), balance: bal, campaigns: cids };
+          const bal = await vault.userTokenBalance(address, tokenAddr).then((v: bigint) => BigInt(v)).catch(() => 0n);
+          // Use native asset registry for metadata if available, else fall back to ERC-20 ABI
+          const known = getAssetMetadata(tokenAddr);
+          let sym: string;
+          let dec: number;
+          if (known) {
+            sym = known.symbol;
+            dec = known.decimals;
+          } else {
+            const erc20 = new Contract(tokenAddr, ERC20_ABI, provider);
+            [sym, dec] = await Promise.all([
+              erc20.symbol().catch(() => "TOKEN"),
+              erc20.decimals().catch(() => 18),
+            ]) as [string, number];
+            dec = Number(dec);
+          }
+          return { token: tokenAddr, symbol: sym, decimals: dec, balance: bal, campaigns: cids };
         })
       );
 

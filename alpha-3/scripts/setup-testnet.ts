@@ -15,6 +15,7 @@
 //   5.3. Logs rate limiter settings
 //   5.5. Submits test reports (Grace)
 //   5.7. Wires Diana as reputation reporter (BM-8/BM-9)
+//   5.8. Diana stakes minimum publisher stake (FP-1, graceful skip if not deployed)
 //   6. Summary
 //
 // Uses raw JsonRpcProvider to bypass Paseo eth-rpc receipt bug (getTransactionReceipt
@@ -142,7 +143,7 @@ const rateLimiterAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -166,8 +167,15 @@ const reportsAbi = [
 ];
 
 const reputationAbi = [
-  "function addReporter(address reporter)",
-  "function reporters(address) view returns (bool)",
+  "function setSettlement(address addr)",
+  "function settlement() view returns (address)",
+];
+
+const publisherStakeAbi = [
+  "function stake() payable",
+  "function requiredStake(address publisher) view returns (uint256)",
+  "function staked(address publisher) view returns (uint256)",
+  "function isAdequatelyStaked(address publisher) view returns (bool)",
 ];
 
 async function main() {
@@ -199,21 +207,27 @@ async function main() {
   const addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
   log("INIT", "Loaded addresses from " + addrFile);
 
-  // Verify alpha-3 contracts are present (20 keys)
+  // Verify alpha-3 core contracts are present (21 keys; FP contracts are checked per-step)
   const alpha3Keys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-    "reports", "rateLimiter", "reputation",
+    "reports", "rateLimiter", "reputation", "tokenRewardVault",
   ];
   const missing = alpha3Keys.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
-    console.error("Re-run deploy.ts for alpha-3 (20-contract deploy).");
+    console.error("Re-run deploy.ts for alpha-3 (21-contract deploy).");
     process.exitCode = 1;
     return;
+  }
+  // FP contracts (22-26) are deployed separately; steps below skip gracefully if absent
+  const fpKeys = ["publisherStake", "challengeBonds", "publisherGovernance", "nullifierRegistry", "parameterGovernance"];
+  const missingFp = fpKeys.filter(k => !addrs[k]);
+  if (missingFp.length > 0) {
+    log("INIT", `FP contracts not yet deployed (${missingFp.join(", ")}) — FP steps will be skipped`);
   }
 
   // Interfaces for ABI encoding
@@ -376,7 +390,7 @@ async function main() {
 
     // Create campaign
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0],
+      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0, 0],
       BUDGET
     );
 
@@ -410,7 +424,7 @@ async function main() {
     const nextBeforeVal2 = BigInt(nextBefore2);
 
     await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false, ethers.ZeroAddress, 0],
+      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false, ethers.ZeroAddress, 0, 0],
       parseDOT("5")
     );
 
@@ -537,29 +551,60 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5.7. WIRE REPUTATION REPORTER (Diana = relay bot stand-in for testnet)
+  // 5.7. WIRE REPUTATION → SETTLEMENT (FP-16: Settlement is sole trusted caller)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("5.7", "--- Wiring reputation reporter (BM-8/BM-9) ---");
-  if (addrs.reputation) {
+  log("5.7", "--- Wiring reputation.settlement (FP-16) ---");
+  if (addrs.reputation && addrs.settlement) {
     try {
-      // Check if Diana is already a reporter
-      const isReporter = await rawProvider.call({
+      // Check if already wired to the correct settlement address
+      const currentRaw = await rawProvider.call({
         to: addrs.reputation,
-        data: reputationIface.encodeFunctionData("reporters", [diana.address]),
+        data: reputationIface.encodeFunctionData("settlement", []),
       });
-      const alreadyReporter = reputationIface.decodeFunctionResult("reporters", isReporter)[0];
-      if (alreadyReporter) {
-        log("5.7", `  diana already approved as reporter -- skipping`);
+      const current = reputationIface.decodeFunctionResult("settlement", currentRaw)[0];
+      if (current.toLowerCase() === addrs.settlement.toLowerCase()) {
+        log("5.7", `  already wired to settlement (${addrs.settlement}) -- skipping`);
       } else {
-        // Alice (owner) adds Diana as reporter
-        await sendCall(alice, rawProvider, addrs.reputation, reputationIface, "addReporter", [diana.address]);
-        log("5.7", `  diana (${diana.address}) added as reporter`);
+        await sendCall(alice, rawProvider, addrs.reputation, reputationIface, "setSettlement", [addrs.settlement]);
+        log("5.7", `  reputation.settlement set to ${addrs.settlement}`);
       }
     } catch (err) {
-      log("5.7", `  addReporter failed: ${String(err).slice(0, 100)}`);
+      log("5.7", `  setSettlement failed: ${String(err).slice(0, 100)}`);
     }
   } else {
-    log("5.7", "  reputation address not set -- skipping (deploy pending)");
+    log("5.7", "  reputation or settlement address not set -- skipping (deploy pending)");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 5.8. PUBLISHER STAKE — Diana stakes minimum required stake (FP-1)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("5.8", "--- Publisher stake (FP-1) ---");
+  if (addrs.publisherStake) {
+    const stakeIface = new Interface(publisherStakeAbi);
+    try {
+      // Read required and current stake for Diana
+      const [requiredRaw, stakedRaw] = await Promise.all([
+        readCall(rawProvider, addrs.publisherStake, stakeIface, "requiredStake", [diana.address]),
+        readCall(rawProvider, addrs.publisherStake, stakeIface, "staked", [diana.address]),
+      ]);
+      const required = BigInt(stakeIface.decodeFunctionResult("requiredStake", requiredRaw)[0]);
+      const alreadyStaked = BigInt(stakeIface.decodeFunctionResult("staked", stakedRaw)[0]);
+
+      if (alreadyStaked >= required) {
+        log("5.8", `  diana already adequately staked: ${formatDOT(alreadyStaked)} PAS (required: ${formatDOT(required)} PAS) -- skipping`);
+      } else {
+        const toStake = required - alreadyStaked + parseDOT("1"); // stake required + 1 PAS buffer
+        log("5.8", `  diana staking ${formatDOT(toStake)} PAS (required: ${formatDOT(required)} PAS, already staked: ${formatDOT(alreadyStaked)} PAS)`);
+        await sendCall(diana, rawProvider, addrs.publisherStake, stakeIface, "stake", [], toStake);
+        const newStakedRaw = await readCall(rawProvider, addrs.publisherStake, stakeIface, "staked", [diana.address]);
+        const newStaked = BigInt(stakeIface.decodeFunctionResult("staked", newStakedRaw)[0]);
+        log("5.8", `  diana new staked total: ${formatDOT(newStaked)} PAS`);
+      }
+    } catch (err) {
+      log("5.8", `  stake check/stake failed: ${String(err).slice(0, 150)}`);
+    }
+  } else {
+    log("5.8", "  publisherStake address not set -- skipping (FP contracts not yet deployed)");
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -578,17 +623,20 @@ async function main() {
     console.log(`  ${name.padEnd(8)} ${wallets[name].address}  ${formatDOT(bal)} PAS`);
   }
   console.log("");
-  console.log("Alpha-3 contract addresses (20):");
+  console.log("Alpha-3 contract addresses (21 core + FP if deployed):");
   const alpha3ContractKeys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
     "attestationVerifier", "governanceV2", "governanceSlash",
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
-    "reports", "rateLimiter", "reputation",
+    "reports", "rateLimiter", "reputation", "tokenRewardVault",
+    // FP contracts (present only after next redeploy)
+    "publisherStake", "challengeBonds", "publisherGovernance", "nullifierRegistry", "parameterGovernance",
   ];
   for (const key of alpha3ContractKeys) {
-    console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
+    if (addrs[key]) console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
+    else console.log(`  ${key.padEnd(24)} (not deployed)`);
   }
   console.log("");
   console.log("Publisher setup:");

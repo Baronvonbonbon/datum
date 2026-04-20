@@ -1,32 +1,48 @@
 pragma circom 2.0.0;
 
 include "../node_modules/circomlib/circuits/bitify.circom";
+include "../node_modules/circomlib/circuits/poseidon.circom";
 
 /// @title ImpressionClaim
-/// @notice Proves that an impression batch is valid for a specific claim:
-///           1. impressions ∈ [1, 2^32)  — non-zero, bounded batch size
-///           2. nonce is committed         — binds witness to this specific claim
-///           3. claimHash is a public input — ties the proof to a specific on-chain claim
+/// @notice Proves that an impression batch is valid for a specific claim, and
+///         commits to a per-user per-campaign per-window nullifier (FP-5).
 ///
-/// Public input:
+/// Public inputs:
 ///   claimHash  — blake256/keccak256(campaignId, publisher, user, impressions, cpm, nonce, prevHash)
 ///                truncated to BN254 scalar field: uint256(hash) % r
 ///                (DatumZKVerifier performs this truncation before verify)
+///   nullifier  — Poseidon(secret, campaignId, windowId)
+///                deterministic per user/campaign/window; submitted to DatumNullifierRegistry
+///                to prevent replay across batches in the same window.
 ///
 /// Private witnesses:
 ///   impressions — impression count in this batch (must be ≥ 1)
 ///   nonce       — claim nonce from the claim struct
+///   secret      — user's private secret (never revealed; kept client-side)
+///   campaignId  — campaign ID (committed through nullifier; prevents cross-campaign reuse)
+///   windowId    — floor(blockNumber / windowBlocks); window-scopes the nullifier
 ///
-/// Constraint count: 32 (Num2Bits) + 1 (nonce ref) ≈ 33
-/// Suitable for hermez ptau level 12 (4096 constraints).
+/// Constraints:
+///   32   Num2Bits(32)  — impressions range check
+///    1   nonce binding — quadratic commitment
+///  ~260  Poseidon(3)   — nullifier derivation
+///  ─────────────────
+///  ~293  total (well within ptau12 limit of 4096)
+///
+/// Trusted setup:
+///   Re-run `node scripts/setup-zk.mjs` after modifying this file to regenerate
+///   impression.zkey, vk.json, and setVK-calldata.json (now with IC0, IC1, IC2).
 template ImpressionClaim() {
-    signal input claimHash;    // public
+    signal input claimHash;    // public: claim hash (ties proof to on-chain claim)
+    signal input nullifier;    // public: Poseidon(secret, campaignId, windowId)
     signal input impressions;  // private: impression count
     signal input nonce;        // private: claim nonce
+    signal input secret;       // private: user's secret (never revealed)
+    signal input campaignId;   // private: campaign ID (committed through nullifier)
+    signal input windowId;     // private: floor(blockNumber / windowBlocks)
 
     // Range proof: impressions - 1 must fit in 32 bits
-    // This enforces impressions ∈ [1, 2^32+1) which is sufficient for batch bounds.
-    // If impressions == 0, (impressions - 1) underflows in the field → Num2Bits rejects it.
+    // Enforces impressions ∈ [1, 2^32+1). Underflows in the field if impressions == 0.
     component bits = Num2Bits(32);
     bits.in <== impressions - 1;
 
@@ -34,7 +50,14 @@ template ImpressionClaim() {
     signal nonceSquared;
     nonceSquared <== nonce * nonce;
 
-    // claimHash is declared public so it is always included in the IC array (no extra constraint needed)
+    // FP-5: Derive nullifier from user secret + campaign + window.
+    // Prevents the same user from claiming the same campaign twice in the same window.
+    // The relay bot computes windowId = floor(blockNumber / windowBlocks) off-chain.
+    component h = Poseidon(3);
+    h.inputs[0] <== secret;
+    h.inputs[1] <== campaignId;
+    h.inputs[2] <== windowId;
+    h.out === nullifier;
 }
 
-component main {public [claimHash]} = ImpressionClaim();
+component main {public [claimHash, nullifier]} = ImpressionClaim();

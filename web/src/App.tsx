@@ -44,6 +44,11 @@ import { BlocklistAdmin } from "./pages/admin/Blocklist";
 import { ProtocolFeesAdmin } from "./pages/admin/ProtocolFees";
 import { RateLimiterAdmin } from "./pages/admin/RateLimiter";
 import { ReputationAdmin } from "./pages/admin/Reputation";
+import { ParameterGovernanceAdmin } from "./pages/admin/ParameterGovernance";
+import { PublisherStakeAdmin } from "./pages/admin/PublisherStake";
+import { PublisherGovernanceAdmin } from "./pages/admin/PublisherGovernance";
+import { ChallengeBondsAdmin } from "./pages/admin/ChallengeBonds";
+import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -99,6 +104,11 @@ export function App() {
               <Route path="/admin/protocol" element={<ProtocolFeesAdmin />} />
               <Route path="/admin/rate-limiter" element={<RateLimiterAdmin />} />
               <Route path="/admin/reputation" element={<ReputationAdmin />} />
+              <Route path="/admin/parameter-governance" element={<ParameterGovernanceAdmin />} />
+              <Route path="/admin/publisher-stake" element={<PublisherStakeAdmin />} />
+              <Route path="/admin/publisher-governance" element={<PublisherGovernanceAdmin />} />
+              <Route path="/admin/challenge-bonds" element={<ChallengeBondsAdmin />} />
+              <Route path="/admin/nullifier-registry" element={<NullifierRegistryAdmin />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />

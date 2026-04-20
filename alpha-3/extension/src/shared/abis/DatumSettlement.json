@@ -338,6 +338,19 @@
   },
   {
     "inputs": [],
+    "name": "nullifierRegistry",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "owner",
     "outputs": [
       {
@@ -378,6 +391,32 @@
   {
     "inputs": [],
     "name": "pendingOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "publisherReputation",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "publisherStake",
     "outputs": [
       {
         "internalType": "address",
@@ -487,6 +526,45 @@
         "type": "address"
       }
     ],
+    "name": "setNullifierRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setPublisherReputation",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setPublisherStake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
     "name": "setPublishers",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -573,6 +651,11 @@
                 "internalType": "bytes",
                 "name": "zkProof",
                 "type": "bytes"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
               }
             ],
             "internalType": "struct IDatumSettlement.Claim[]",
@@ -586,6 +669,113 @@
       }
     ],
     "name": "settleClaims",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "settledCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rejectedCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalPaid",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IDatumSettlement.SettlementResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "campaignId",
+                "type": "uint256"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "campaignId",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "publisher",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "impressionCount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "clearingCpmPlanck",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "nonce",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "previousClaimHash",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "claimHash",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "zkProof",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "nullifier",
+                    "type": "bytes32"
+                  }
+                ],
+                "internalType": "struct IDatumSettlement.Claim[]",
+                "name": "claims",
+                "type": "tuple[]"
+              }
+            ],
+            "internalType": "struct IDatumSettlement.CampaignClaims[]",
+            "name": "campaigns",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct IDatumSettlement.UserClaimBatch[]",
+        "name": "batches",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "settleClaimsMulti",
     "outputs": [
       {
         "components": [

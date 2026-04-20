@@ -21,6 +21,11 @@ import DatumReportsAbi from "./abis/DatumReports.json";
 import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
+import DatumPublisherStakeAbi from "./abis/DatumPublisherStake.json";
+import DatumChallengeBondsAbi from "./abis/DatumChallengeBonds.json";
+import DatumPublisherGovernanceAbi from "./abis/DatumPublisherGovernance.json";
+import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
+import DatumParameterGovernanceAbi from "./abis/DatumParameterGovernance.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider | JsonRpcApiProvider;
@@ -277,4 +282,24 @@ export function getReputationContract(addresses: ContractAddresses, provider: Pr
 
 export function getTokenRewardVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.tokenRewardVault, abi(DatumTokenRewardVaultAbi), provider);
+}
+
+export function getPublisherStakeContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.publisherStake, abi(DatumPublisherStakeAbi), provider);
+}
+
+export function getChallengeBondsContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.challengeBonds, abi(DatumChallengeBondsAbi), provider);
+}
+
+export function getPublisherGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.publisherGovernance, abi(DatumPublisherGovernanceAbi), provider);
+}
+
+export function getNullifierRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.nullifierRegistry, abi(DatumNullifierRegistryAbi), provider);
+}
+
+export function getParameterGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.parameterGovernance, abi(DatumParameterGovernanceAbi), provider);
 }

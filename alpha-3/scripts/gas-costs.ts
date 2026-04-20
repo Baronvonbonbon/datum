@@ -209,16 +209,16 @@ async function main() {
   const bidCpm    = 100_000_000n;      // 0.01 DOT CPM
   const campaignBudget = 20_000_000_000n;  // 2 DOT budget
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression)",
-    [ZeroAddress, dailyCap, bidCpm, [], false, ZeroAddress, 0], PK.bob,
+    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    [ZeroAddress, dailyCap, bidCpm, [], false, ZeroAddress, 0, 0], PK.bob,
     "open campaign (no publisher, no tags)", campaignBudget);
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression)",
-    [diana.address, dailyCap, bidCpm, [], false, ZeroAddress, 0], PK.bob,
+    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    [diana.address, dailyCap, bidCpm, [], false, ZeroAddress, 0, 0], PK.bob,
     "targeted campaign (diana, no tags)", campaignBudget);
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression)",
-    [diana.address, dailyCap, bidCpm, [], true, ZeroAddress, 0], PK.bob,
+    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    [diana.address, dailyCap, bidCpm, [], true, ZeroAddress, 0, 0], PK.bob,
     "targeted + requireZkProof", campaignBudget);
   await est("Campaigns", ADDR.campaigns,
     "setMetadata(uint256 campaignId, bytes32 metadataHash)", [1n, ZeroHash], PK.bob);
@@ -373,14 +373,12 @@ async function main() {
 
   // ── DatumPublisherReputation ──────────────────────────────────────────────
   await est("Reputation", ADDR.reputation,
-    "addReporter(address reporter)", [diana.address], PK.alice,
-    "diana already reporter — may no-op or revert");
-  await est("Reputation", ADDR.reputation,
-    "removeReporter(address reporter)", [diana.address], PK.alice);
+    "setSettlement(address addr)", [ADDR.settlement], PK.alice,
+    "wire settlement — idempotent");
   await est("Reputation", ADDR.reputation,
     "recordSettlement(address publisher, uint256 campaignId, uint256 settled, uint256 rejected)",
-    [diana.address, 1n, 100n, 10n], PK.diana,
-    "diana is reporter");
+    [diana.address, 1n, 100n, 10n], PK.settlement,
+    "called by settlement contract");
 
   view("Reputation", "getScore(address) → uint16");
   view("Reputation", "isAnomaly(address, uint256) → bool");

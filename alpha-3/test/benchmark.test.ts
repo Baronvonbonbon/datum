@@ -114,6 +114,7 @@ function buildClaims(
       previousClaimHash: prevHash,
       claimHash: hash,
       zkProof,
+      nullifier: ethers.ZeroHash,
     });
     prevHash = hash;
   }
@@ -150,7 +151,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   let publisher2: HardhatEthersSigner;
   let user:       HardhatEthersSigner;
   let voter:      HardhatEthersSigner;
-  let reporter:   HardhatEthersSigner;
+  let repSettlement: HardhatEthersSigner;
 
   // Governance parameters (small values for fast tests)
   const QUORUM       = parseDOT("0.5");
@@ -176,7 +177,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     PENDING_TIMEOUT = substrate ? 3n : 50n;
     TAKE_RATE_DELAY = substrate ? 3n : 20n;
 
-    [owner, advertiser, publisher, publisher2, user, voter, reporter] = await ethers.getSigners();
+    [owner, advertiser, publisher, publisher2, user, voter, repSettlement] = await ethers.getSigners();
 
     // 1. Infrastructure
     pauseReg  = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, advertiser.address, publisher.address);
@@ -278,8 +279,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await lifecycle.setGovernanceContract(await v2.getAddress());
     await lifecycle.setSettlementContract(await settlement.getAddress());
 
-    // Reputation: authorize reporter
-    await reputation.addReporter(reporter.address);
+    // Reputation: wire settlement caller (FP-16)
+    await reputation.setSettlement(repSettlement.address);
 
     // Register publishers
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
@@ -299,7 +300,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   ): Promise<bigint> {
     const pubAddr = typeof pub === "string" ? pub : pub.address;
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pubAddr, dailyCap, cpm, requiredTags, requireZk, ethers.ZeroAddress, 0, { value: budget }
+      pubAddr, dailyCap, cpm, requiredTags, requireZk, ethers.ZeroAddress, 0, 0n, { value: budget }
     );
     await tx.wait();
     const cid = await campaigns.nextCampaignId() - 1n;
@@ -551,6 +552,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         previousClaimHash: ethers.ZeroHash,
         claimHash: hash,
         zkProof: "0x",
+        nullifier: ethers.ZeroHash,
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }
@@ -598,13 +600,13 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-REP-2: recordSettlement updates score correctly", async function () {
-      await reputation.connect(reporter).recordSettlement(publisher.address, 1n, 900n, 100n);
+      await reputation.connect(repSettlement).recordSettlement(publisher.address, 1n, 900n, 100n);
       // score = 900 / 1000 * 10000 = 9000
       expect(await reputation.getScore(publisher.address)).to.equal(9000n);
     });
 
     it("BM-REP-3: multiple campaigns accumulate per-campaign + global counters", async function () {
-      await reputation.connect(reporter).recordSettlement(publisher.address, 2n, 400n, 100n);
+      await reputation.connect(repSettlement).recordSettlement(publisher.address, 2n, 400n, 100n);
       const [gs, gr] = [await reputation.totalSettled(publisher.address), await reputation.totalRejected(publisher.address)];
       expect(gs).to.equal(1300n); // 900+400
       expect(gr).to.equal(200n);  // 100+100
@@ -617,19 +619,19 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-REP-4: isAnomaly detects 2× global rejection rate", async function () {
       const Factory = await ethers.getContractFactory("DatumPublisherReputation");
       const rep = await Factory.deploy();
-      await rep.addReporter(reporter.address);
+      await rep.setSettlement(repSettlement.address);
       // Global: 90% acceptance (900 settled, 100 rejected)
-      await rep.connect(reporter).recordSettlement(publisher.address, 1n, 900n, 100n);
+      await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 900n, 100n);
       // Campaign 2: 40% acceptance (4 settled, 6 rejected) — >2× global rejection rate
-      await rep.connect(reporter).recordSettlement(publisher.address, 2n, 4n, 6n);
+      await rep.connect(repSettlement).recordSettlement(publisher.address, 2n, 4n, 6n);
       expect(await rep.isAnomaly(publisher.address, 2n)).to.equal(true);
     });
 
     it("BM-REP-5: isAnomaly false below MIN_SAMPLE (10 total)", async function () {
       const Factory = await ethers.getContractFactory("DatumPublisherReputation");
       const rep = await Factory.deploy();
-      await rep.addReporter(reporter.address);
-      await rep.connect(reporter).recordSettlement(publisher.address, 1n, 3n, 6n); // 9 total < 10
+      await rep.setSettlement(repSettlement.address);
+      await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 3n, 6n); // 9 total < 10
       expect(await rep.isAnomaly(publisher.address, 1n)).to.equal(false);
     });
 
@@ -646,8 +648,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const Factory = await ethers.getContractFactory("DatumPublisherReputation");
       for (const s of DOT_PRICE_SCENARIOS) {
         const rep = await Factory.deploy();
-        await rep.addReporter(reporter.address);
-        await rep.connect(reporter).recordSettlement(publisher.address, 1n, 800n, 200n);
+        await rep.setSettlement(repSettlement.address);
+        await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 800n, 200n);
         // score = 800/1000*10000 = 8000 at all price points
         expect(await rep.getScore(publisher.address)).to.equal(8000n,
           `${s.label}: score should be 8000 regardless of DOT price`);
@@ -735,7 +737,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
       await expect(
         campaigns.connect(advertiser).createCampaign(
-          publisher2.address, TAG_DAILY, TAG_CPM, [cryptoTag], false, ethers.ZeroAddress, 0, { value: TAG_BUDGET }
+          publisher2.address, TAG_DAILY, TAG_CPM, [cryptoTag], false, ethers.ZeroAddress, 0, 0n, { value: TAG_BUDGET }
         )
       ).to.be.reverted; // E66 or validator rejection
     });
@@ -791,7 +793,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-2: campaign creation gas", async function () {
       await gasFor("createCampaign (fixed publisher)", () =>
         campaigns.connect(advertiser).createCampaign(
-          publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+          publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
         )
       );
     });
@@ -799,7 +801,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-3: governance vote gas", async function () {
       // Create a campaign to vote on
       const tx = await campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+        publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
       );
       await tx.wait();
       const cid = await campaigns.nextCampaignId() - 1n;
@@ -841,7 +843,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-GAS-8: reputation.recordSettlement gas", async function () {
       await gasFor("reputation.recordSettlement", () =>
-        reputation.connect(reporter).recordSettlement(publisher.address, 99n, 100n, 5n)
+        reputation.connect(repSettlement).recordSettlement(publisher.address, 99n, 100n, 5n)
       );
     });
 
@@ -869,7 +871,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     for (const s of DOT_PRICE_SCENARIOS) {
       it(`BM-LC: ${s.label} — full lifecycle (create→vote→activate→settle→complete)`, async function () {
         const tx = await campaigns.connect(advertiser).createCampaign(
-          publisher.address, s.dailyCap, s.cpm, [], false, ethers.ZeroAddress, 0, { value: s.budget }
+          publisher.address, s.dailyCap, s.cpm, [], false, ethers.ZeroAddress, 0, 0n, { value: s.budget }
         );
         await tx.wait();
         const cid = await campaigns.nextCampaignId() - 1n;

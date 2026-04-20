@@ -6,7 +6,7 @@ import { unlock, isConfigured, getSigner } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
-import { getTargetingRegistryContract, getPublishersContract, getProvider } from "@shared/contracts";
+import { getTargetingRegistryContract, getPublishersContract, getPublisherStakeContract, getChallengeBondsContract, getPublisherGovernanceContract, getProvider } from "@shared/contracts";
 import { getBlockedAddresses, addBlockedAddress, removeBlockedAddress } from "@shared/phishingList";
 
 interface InterestProfileData {
@@ -238,6 +238,21 @@ export function Settings({ address }: { address: string | null }) {
   // UB-6: Metadata fetch failure notification
   const [metadataFetchFailures, setMetadataFetchFailures] = useState(0);
 
+  // T2-C: Publisher stake & fraud health
+  const [fpHealthExpanded, setFpHealthExpanded] = useState(false);
+  const [fpHealthLoading, setFpHealthLoading] = useState(false);
+  const [fpHealthError, setFpHealthError] = useState<string | null>(null);
+  interface FpHealthData {
+    staked: bigint;
+    requiredStake: bigint;
+    isAdequate: boolean;
+    cumulativeImpressions: bigint;
+    pendingUnstake: bigint;
+    totalBonds: bigint;
+    activeProposals: number;
+  }
+  const [fpHealth, setFpHealth] = useState<FpHealthData | null>(null);
+
   // TX-6: Load publisher tags from on-chain TargetingRegistry
   async function loadPublisherTags() {
     const pubAddr = settings.publisherAddress || address;
@@ -354,6 +369,60 @@ export function Settings({ address }: { address: string | null }) {
   async function handleRemoveBlock(addr: string) {
     await removeBlockedAddress(addr);
     setBlockedAddresses(await getBlockedAddresses());
+  }
+
+  // T2-C: Load publisher stake & fraud health from FP contracts
+  async function loadFpHealth() {
+    const pubAddr = settings.publisherAddress || address;
+    if (!pubAddr) { setFpHealthError("No publisher address configured"); return; }
+    setFpHealthLoading(true);
+    setFpHealthError(null);
+    setFpHealth(null);
+    try {
+      const provider = getProvider(settings.rpcUrl);
+      const stakeContract = getPublisherStakeContract(settings.contractAddresses, provider);
+      const bondsContract = getChallengeBondsContract(settings.contractAddresses, provider);
+      const govContract = getPublisherGovernanceContract(settings.contractAddresses, provider);
+
+      const [staked, required, isAdequate, cumImp, pendingUnstake, totalBonds, nextProposalId] =
+        await Promise.all([
+          stakeContract.staked(pubAddr).catch(() => 0n),
+          stakeContract.requiredStake(pubAddr).catch(() => 0n),
+          stakeContract.isAdequatelyStaked(pubAddr).catch(() => false),
+          stakeContract.cumulativeImpressions(pubAddr).catch(() => 0n),
+          stakeContract.pendingUnstake(pubAddr).catch(() => 0n),
+          bondsContract.totalBonds(pubAddr).catch(() => 0n),
+          govContract.nextProposalId().catch(() => 0n),
+        ]);
+
+      // Scan proposals to count unresolved ones targeting this publisher
+      let activeProposals = 0;
+      const total = Number(nextProposalId);
+      const scans = [];
+      for (let i = 0; i < total; i++) {
+        scans.push(govContract.proposals(i).catch(() => null));
+      }
+      const results = await Promise.all(scans);
+      for (const p of results) {
+        if (p && !p.resolved && p.publisher.toLowerCase() === pubAddr.toLowerCase()) {
+          activeProposals++;
+        }
+      }
+
+      setFpHealth({
+        staked: BigInt(staked),
+        requiredStake: BigInt(required),
+        isAdequate: Boolean(isAdequate),
+        cumulativeImpressions: BigInt(cumImp),
+        pendingUnstake: BigInt(pendingUnstake),
+        totalBonds: BigInt(totalBonds),
+        activeProposals,
+      });
+    } catch (err) {
+      setFpHealthError("Failed to load: " + String(err).slice(0, 100));
+    } finally {
+      setFpHealthLoading(false);
+    }
   }
 
   return (
@@ -1067,6 +1136,146 @@ export function Settings({ address }: { address: string | null }) {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* T2-C: Publisher Stake & Fraud Health */}
+      {(settings.publisherAddress || address) && (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 16 }}>
+          <button
+            onClick={() => {
+              if (!fpHealthExpanded) loadFpHealth();
+              setFpHealthExpanded(!fpHealthExpanded);
+            }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6, marginBottom: 8, width: "100%", fontFamily: "inherit" }}
+          >
+            <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{fpHealthExpanded ? "▾" : "▸"}</span>
+            <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>Stake & Fraud Health</span>
+            {fpHealth && (
+              <span style={{
+                marginLeft: "auto",
+                fontSize: 10,
+                fontWeight: 600,
+                padding: "1px 6px",
+                borderRadius: "var(--radius-sm)",
+                background: fpHealth.isAdequate && fpHealth.activeProposals === 0
+                  ? "rgba(74,222,128,0.12)"
+                  : "rgba(252,165,165,0.12)",
+                color: fpHealth.isAdequate && fpHealth.activeProposals === 0
+                  ? "var(--ok)"
+                  : "var(--error)",
+                border: `1px solid ${fpHealth.isAdequate && fpHealth.activeProposals === 0 ? "rgba(74,222,128,0.3)" : "rgba(252,165,165,0.3)"}`,
+              }}>
+                {fpHealth.isAdequate && fpHealth.activeProposals === 0 ? "Healthy" : "Action needed"}
+              </span>
+            )}
+          </button>
+          {fpHealthExpanded && (
+            <div>
+              {fpHealthLoading ? (
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Loading...</div>
+              ) : fpHealthError ? (
+                <div style={{ color: "var(--error)", fontSize: 11 }}>{fpHealthError}</div>
+              ) : fpHealth ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {/* Stake status */}
+                  <div style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>Publisher Stake</span>
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: "var(--radius-sm)",
+                        background: fpHealth.isAdequate ? "rgba(74,222,128,0.12)" : "rgba(252,165,165,0.12)",
+                        color: fpHealth.isAdequate ? "var(--ok)" : "var(--error)",
+                        border: `1px solid ${fpHealth.isAdequate ? "rgba(74,222,128,0.3)" : "rgba(252,165,165,0.3)"}`,
+                      }}>
+                        {fpHealth.isAdequate ? "Adequately staked" : "UNDER-STAKED"}
+                      </span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 10px" }}>
+                      <div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Staked</div>
+                        <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
+                          {(Number(fpHealth.staked) / 1e10).toFixed(4)} DOT
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Required</div>
+                        <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
+                          {(Number(fpHealth.requiredStake) / 1e10).toFixed(4)} DOT
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Impressions</div>
+                        <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
+                          {fpHealth.cumulativeImpressions.toLocaleString()}
+                        </div>
+                      </div>
+                      {fpHealth.pendingUnstake > 0n && (
+                        <div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Pending unstake</div>
+                          <div style={{ color: "var(--warn)", fontSize: 11, fontFamily: "monospace" }}>
+                            {(Number(fpHealth.pendingUnstake) / 1e10).toFixed(4)} DOT
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {!fpHealth.isAdequate && (
+                      <div style={{ marginTop: 6, color: "var(--error)", fontSize: 10 }}>
+                        Settlement will reject your claims until stake reaches the required amount. Top up via the web app admin panel.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Governance proposals */}
+                  <div style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: `1px solid ${fpHealth.activeProposals > 0 ? "rgba(252,165,165,0.3)" : "var(--border)"}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>Fraud Governance</span>
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: "var(--radius-sm)",
+                        background: fpHealth.activeProposals > 0 ? "rgba(252,165,165,0.12)" : "rgba(74,222,128,0.12)",
+                        color: fpHealth.activeProposals > 0 ? "var(--error)" : "var(--ok)",
+                        border: `1px solid ${fpHealth.activeProposals > 0 ? "rgba(252,165,165,0.3)" : "rgba(74,222,128,0.3)"}`,
+                      }}>
+                        {fpHealth.activeProposals === 0 ? "No active proposals" : `${fpHealth.activeProposals} active proposal${fpHealth.activeProposals > 1 ? "s" : ""}`}
+                      </span>
+                    </div>
+                    {fpHealth.activeProposals > 0 && (
+                      <div style={{ marginTop: 6, color: "var(--error)", fontSize: 10 }}>
+                        Active fraud proposals target your publisher address. If upheld, a portion of your stake will be slashed. Check the governance dashboard.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Challenge bonds at risk */}
+                  {fpHealth.totalBonds > 0n && (
+                    <div style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500, marginBottom: 4 }}>Advertiser Challenge Bonds</div>
+                      <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
+                        {(Number(fpHealth.totalBonds) / 1e10).toFixed(4)} DOT
+                      </div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
+                        Total bonded by advertisers for campaigns on your site. Returned to advertisers on clean campaign end; bonus awarded if fraud is upheld against you.
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={loadFpHealth}
+                    disabled={fpHealthLoading}
+                    style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

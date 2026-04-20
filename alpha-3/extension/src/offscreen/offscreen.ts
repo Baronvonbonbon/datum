@@ -66,6 +66,7 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
       zkProof: c.zkProof,
+      nullifier: c.nullifier,
     })),
   }));
 

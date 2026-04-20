@@ -18,12 +18,24 @@ interface IDatumSettlement {
         bytes32 previousClaimHash;
         bytes32 claimHash;
         bytes zkProof;
+        bytes32 nullifier;   // FP-5: Poseidon(userSecret, campaignId, windowId); bytes32(0) = skip registry
     }
 
     struct ClaimBatch {
         address user;
         uint256 campaignId;
         Claim[] claims;
+    }
+
+    /// @notice Cross-campaign batching structs (settleClaimsMulti).
+    struct CampaignClaims {
+        uint256 campaignId;
+        Claim[] claims;
+    }
+
+    struct UserClaimBatch {
+        address user;
+        CampaignClaims[] campaigns;
     }
 
     struct SignedClaimBatch {
@@ -67,6 +79,10 @@ interface IDatumSettlement {
     // -------------------------------------------------------------------------
 
     function settleClaims(ClaimBatch[] calldata batches) external returns (SettlementResult memory result);
+
+    /// @notice Settle claims for multiple users across multiple campaigns in one TX.
+    ///         Max 10 users, 10 campaigns per user, 50 claims per campaign.
+    function settleClaimsMulti(UserClaimBatch[] calldata batches) external returns (SettlementResult memory result);
 
     // -------------------------------------------------------------------------
     // Views

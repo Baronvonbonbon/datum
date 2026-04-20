@@ -339,7 +339,7 @@ const publishersAbi = [
 const targetingAbi = ["function setTags(bytes32[] tags)"];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
@@ -352,8 +352,8 @@ const govAbi = [
 ];
 
 const reputationAbi = [
-  "function addReporter(address reporter)",
-  "function reporters(address) view returns (bool)",
+  "function setSettlement(address addr)",
+  "function settlement() view returns (address)",
 ];
 
 const erc20Abi = [
@@ -711,19 +711,20 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 11. WIRE REPUTATION REPORTER (Diana)
+  // 11. WIRE REPUTATION → SETTLEMENT (FP-16)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("11", "--- Wiring reputation reporter ---");
+  log("11", "--- Wiring reputation.settlement (FP-16) ---");
   try {
-    const isRep = await readCall(rawProvider, addrs.reputation, repIface, "reporters", [diana.address]);
-    if (repIface.decodeFunctionResult("reporters", isRep)[0]) {
-      log("11", "  Diana already a reporter");
+    const currentRaw = await readCall(rawProvider, addrs.reputation, repIface, "settlement", []);
+    const current = repIface.decodeFunctionResult("settlement", currentRaw)[0];
+    if (current.toLowerCase() === addrs.settlement.toLowerCase()) {
+      log("11", `  already wired to settlement -- skipping`);
     } else {
-      await sendCall(alice, rawProvider, addrs.reputation, repIface, "addReporter", [diana.address]);
-      log("11", `  Diana added as reporter`);
+      await sendCall(alice, rawProvider, addrs.reputation, repIface, "setSettlement", [addrs.settlement]);
+      log("11", `  reputation.settlement set to ${addrs.settlement}`);
     }
   } catch (err) {
-    log("11", `  addReporter failed: ${String(err).slice(0, 100)}`);
+    log("11", `  setSettlement failed: ${String(err).slice(0, 100)}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

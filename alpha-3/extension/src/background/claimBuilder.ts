@@ -6,6 +6,10 @@ import { solidityPacked, ZeroHash } from "ethers";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { Claim, ClaimChainState, Impression } from "@shared/types";
 import { generateZKProof } from "./zkProof";
+import { getUserSecret, computeWindowId } from "./poseidon";
+
+const WINDOW_BLOCKS = 14400; // 24h at 6s/block
+const LAST_BLOCK_KEY = "pollLastBlock";
 
 /** Blake2-256 hash of ABI-packed values. Matches ISystem(0x900).hashBlake256() on PolkaVM. */
 function blake2Hash(types: string[], values: unknown[]): string {
@@ -113,10 +117,18 @@ export const claimBuilder = {
         ]
       );
 
-      // Generate real Groth16 proof if campaign requires it (impression.circom, BN254)
-      const zkProof = campaign.requiresZkProof
-        ? await generateZKProof(claimHash, impressionCount, nonce)
-        : "0x";
+      // Generate real Groth16 proof + nullifier if campaign requires it (FP-5)
+      let zkProof = "0x";
+      let nullifier = ZeroHash; // bytes32(0) → NullifierRegistry skips check for non-ZK
+      if (campaign.requiresZkProof) {
+        const userSecret = await getUserSecret();
+        const blockStored = await chrome.storage.local.get(LAST_BLOCK_KEY);
+        const lastBlock: number = blockStored[LAST_BLOCK_KEY] ?? 0;
+        const windowId = computeWindowId(lastBlock, WINDOW_BLOCKS);
+        const zk = await generateZKProof(claimHash, impressionCount, nonce, userSecret, campaignId, windowId);
+        zkProof = zk.proofBytes;
+        nullifier = zk.nullifier;
+      }
 
       const claim: Claim = {
         campaignId,
@@ -127,6 +139,7 @@ export const claimBuilder = {
         previousClaimHash,
         claimHash,
         zkProof,
+        nullifier,
       };
 
       // Persist updated chain state
@@ -193,6 +206,7 @@ interface SerializedClaim {
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
+  nullifier: string;
   userAddress: string;
 }
 
@@ -222,6 +236,7 @@ function serializeClaim(claim: Claim, userAddress: string): SerializedClaim {
     previousClaimHash: claim.previousClaimHash,
     claimHash: claim.claimHash,
     zkProof: claim.zkProof,
+    nullifier: claim.nullifier,
     userAddress,
   };
 }

@@ -123,6 +123,7 @@ const calldata = {
   delta2: g2eip197(vk.vk_delta_2),
   IC0:    g1(vk.IC[0]),
   IC1:    g1(vk.IC[1]),
+  IC2:    g1(vk.IC[2]),  // FP-5: second public input (nullifier)
 };
 writeFileSync(
   path.join(CIRCUITS, "setVK-calldata.json"),
@@ -139,39 +140,56 @@ console.log(JSON.stringify(calldata, null, 2));
 // -----------------------------------------------------------------------
 console.log("\n→ Generating sample proof ...");
 
-// Sample claim: campaignId=1, impressions=100, nonce=1
-// claimHash is a dummy value (all zeros truncated to field)
-const sampleClaimHash = 0n % SCALAR_ORDER;  // replace with real claim hash in benchmark
-const sampleInput = {
-  claimHash:   sampleClaimHash.toString(),
-  impressions: "100",
-  nonce:       "1",
-};
-
+// Sample claim: campaignId=1, impressions=100, nonce=1, secret=42, windowId=0
+// The circuit enforces: Poseidon(secret, campaignId, windowId) === nullifier
+// We compute the nullifier via circomlibjs (if available) or skip the sample proof.
 const wasmPath = path.join(WASM_DIR, "impression.wasm");
-const { proof, publicSignals } = await snarkjs.groth16.fullProve(sampleInput, wasmPath, ZKEY);
-console.log("✓ Sample proof generated");
-console.log("  publicSignals:", publicSignals);
+try {
+  // Attempt to compute Poseidon(secret=42, campaignId=1, windowId=0)
+  const { buildPoseidon } = await import("circomlibjs").catch(() => null) ?? {};
+  let nullifierValue = "0";
+  if (buildPoseidon) {
+    const poseidon = await buildPoseidon();
+    const hash = poseidon([42n, 1n, 0n]);
+    nullifierValue = poseidon.F.toString(hash);
+  } else {
+    console.warn("  circomlibjs not installed — sample proof input may be inconsistent");
+    console.warn("  Run: npm install circomlibjs  (in alpha-3/) for a consistent sample proof");
+  }
 
-// Encode proof as 256-byte ABI-encoded (uint256[2], uint256[4], uint256[2])
-// pi_a: G1   [ax, ay]
-// pi_b: G2   [bx_imag, bx_real, by_imag, by_real]  (EIP-197 order)
-// pi_c: G1   [cx, cy]
-const sampleProof = {
-  pi_a:  [proof.pi_a[0], proof.pi_a[1]],
-  pi_b:  [
-    proof.pi_b[0][1], proof.pi_b[0][0],  // x_imag, x_real
-    proof.pi_b[1][1], proof.pi_b[1][0],  // y_imag, y_real
-  ],
-  pi_c:  [proof.pi_c[0], proof.pi_c[1]],
-  publicSignals,
-  input: sampleInput,
-};
-writeFileSync(
-  path.join(CIRCUITS, "sample-proof.json"),
-  JSON.stringify(sampleProof, null, 2)
-);
-console.log("✓ circuits/sample-proof.json written");
+  const sampleInput = {
+    claimHash:   "0",
+    nullifier:   nullifierValue,
+    impressions: "100",
+    nonce:       "1",
+    secret:      "42",
+    campaignId:  "1",
+    windowId:    "0",
+  };
+
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(sampleInput, wasmPath, ZKEY);
+  console.log("✓ Sample proof generated");
+  console.log("  publicSignals:", publicSignals);
+
+  const sampleProof = {
+    pi_a:  [proof.pi_a[0], proof.pi_a[1]],
+    pi_b:  [
+      proof.pi_b[0][1], proof.pi_b[0][0],  // x_imag, x_real
+      proof.pi_b[1][1], proof.pi_b[1][0],  // y_imag, y_real
+    ],
+    pi_c:  [proof.pi_c[0], proof.pi_c[1]],
+    publicSignals,
+    input: sampleInput,
+  };
+  writeFileSync(
+    path.join(CIRCUITS, "sample-proof.json"),
+    JSON.stringify(sampleProof, null, 2)
+  );
+  console.log("✓ circuits/sample-proof.json written");
+} catch (err) {
+  console.warn("  WARNING: sample proof generation failed:", err.message);
+  console.warn("  This is non-fatal — zkey and VK are already written above.");
+}
 
 console.log(`
 =============================================================
@@ -181,9 +199,9 @@ console.log(`
    1. In deploy.ts, after deploying DatumZKVerifier, call:
         await zkVerifier.setVerifyingKey(
           calldata.alpha1, calldata.beta2, calldata.gamma2,
-          calldata.delta2, calldata.IC0, calldata.IC1
+          calldata.delta2, calldata.IC0, calldata.IC1, calldata.IC2
         );
-      (values from circuits/setVK-calldata.json)
+      (values from circuits/setVK-calldata.json — IC2 is the nullifier public input)
 
    2. In benchmark-paseo.ts, import snarkjs and call:
         const { proof } = await snarkjs.groth16.fullProve(

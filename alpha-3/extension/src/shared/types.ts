@@ -8,7 +8,8 @@ export interface Claim {
   nonce: bigint;
   previousClaimHash: string; // bytes32 hex
   claimHash: string;         // bytes32 hex
-  zkProof: string;           // bytes hex, "0x" in MVP
+  zkProof: string;           // bytes hex, "0x" for non-ZK campaigns
+  nullifier: string;         // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
 }
 
 export interface ClaimBatch {
@@ -306,6 +307,7 @@ export interface SerializedClaim {
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
+  nullifier: string; // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
 }
 
 export interface SerializedClaimBatch {
@@ -351,6 +353,11 @@ export interface ContractAddresses {
   rateLimiter: string;          // BM-5: settlement rate limiter
   reputation: string;           // BM-8/BM-9: publisher reputation + anomaly detection
   tokenRewardVault: string;     // multi-token reward vault for per-campaign rewards
+  publisherStake: string;       // FP-1+FP-4: publisher staking + bonding curve
+  challengeBonds: string;       // FP-2: advertiser challenge bonds
+  publisherGovernance: string;  // FP-3: conviction-weighted publisher fraud governance
+  nullifierRegistry: string;    // FP-5: per-user per-campaign ZK nullifier replay prevention
+  parameterGovernance: string;  // T1-B: conviction-vote governance for FP system parameters
 }
 
 // User ad preferences — persisted in chrome.storage.local

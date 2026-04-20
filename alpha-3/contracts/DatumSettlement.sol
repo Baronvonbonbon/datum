@@ -5,6 +5,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
+import "./interfaces/IDatumPublisherStake.sol";
+import "./interfaces/IDatumNullifierRegistry.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches and distributes payments.
@@ -38,6 +40,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public tokenRewardVault;
     // Campaigns ref for reading reward token config
     address public campaigns;
+    // FP-1: optional publisher stake enforcement (address(0) = disabled)
+    address public publisherStake;
+    // FP-5: optional nullifier registry for per-user per-campaign per-window replay prevention (address(0) = disabled)
+    address public nullifierRegistry;
+    // FP-16: optional publisher reputation recorder (address(0) = disabled)
+    address public publisherReputation;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
 
@@ -123,6 +131,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         campaigns = addr;
     }
 
+    /// @notice Set publisher stake enforcement satellite. Pass address(0) to disable.
+    function setPublisherStake(address addr) external {
+        require(msg.sender == owner, "E18");
+        publisherStake = addr;
+    }
+
+    /// @notice Set FP-5 nullifier registry. Pass address(0) to disable.
+    function setNullifierRegistry(address addr) external {
+        require(msg.sender == owner, "E18");
+        nullifierRegistry = addr;
+    }
+
+    /// @notice Set FP-16 publisher reputation recorder. Pass address(0) to disable.
+    function setPublisherReputation(address addr) external {
+        require(msg.sender == owner, "E18");
+        publisherReputation = addr;
+    }
+
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, "E18");
         require(newOwner != address(0), "E00");
@@ -184,6 +210,68 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         }
     }
 
+    /// @inheritdoc IDatumSettlement
+    function settleClaimsMulti(UserClaimBatch[] calldata batches)
+        external
+        nonReentrant
+        returns (SettlementResult memory result)
+    {
+        require(claimValidator != address(0), "E00");
+
+        // Pause check
+        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
+            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
+        );
+        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+
+        require(batches.length <= 10, "E28");
+
+        for (uint256 u = 0; u < batches.length; u++) {
+            UserClaimBatch calldata ub = batches[u];
+            require(ub.campaigns.length <= 10, "E28");
+
+            // Auth: same rules as settleClaims — relay, attestation verifier, or self
+            // Per-publisher relay signer checked per campaign-batch below if needed.
+            for (uint256 c = 0; c < ub.campaigns.length; c++) {
+                CampaignClaims calldata cc = ub.campaigns[c];
+
+                bool isPublisherRelay = false;
+                if (publishers != address(0) && cc.claims.length > 0) {
+                    (bool rsOk, bytes memory rsRet) = publishers.staticcall(
+                        abi.encodeWithSelector(bytes4(keccak256("relaySigner(address)")), cc.claims[0].publisher)
+                    );
+                    if (rsOk && rsRet.length >= 32) {
+                        address pubRelay = abi.decode(rsRet, (address));
+                        isPublisherRelay = pubRelay != address(0) && msg.sender == pubRelay;
+                    }
+                }
+
+                require(
+                    msg.sender == ub.user || msg.sender == relayContract ||
+                    msg.sender == attestationVerifier || isPublisherRelay,
+                    "E32"
+                );
+
+                _processBatch(ub.user, cc.campaignId, cc.claims, result);
+            }
+        }
+    }
+
+    /// @dev Accumulator for per-batch aggregated payment and token reward totals.
+    ///      Using a struct avoids Solidity's 16-slot stack depth limit.
+    struct BatchAggregate {
+        uint256 total;            // total DOT deducted across all settled claims
+        uint256 publisherPayment; // publisher share of total
+        uint256 userPayment;      // user share of total
+        uint256 protocolFee;      // protocol share of total
+        address publisher;        // publisher address (from first settled claim)
+        uint256 tokenReward;      // accumulated token reward units
+        address rewardToken;      // ERC-20 reward token address (cached once per batch)
+        uint256 rewardPerImpression; // reward per impression (cached once per batch)
+        bool exhausted;           // true if any claim exhausted the campaign budget
+        uint256 impressionsSettled; // total impressions settled (for recordImpressions)
+    }
+
     function _processBatch(
         address user,
         uint256 campaignId,
@@ -206,7 +294,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         }
 
         uint256 prevSettledCount = result.settledCount;
+        uint256 prevRejectedCount = result.rejectedCount;
         bool gapFound = false;
+
+        // Aggregate state for this batch — amortises paymentVault + tokenReward calls
+        BatchAggregate memory agg;
+
+        // Cache token reward config once per batch (2 staticcalls instead of 2N)
+        if (tokenRewardVault != address(0) && campaigns != address(0)) {
+            (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
+                abi.encodeWithSelector(bytes4(0xf00b29a9), campaignId)  // getCampaignRewardToken(uint256)
+            );
+            if (rtOk && rtRet.length >= 32) {
+                agg.rewardToken = abi.decode(rtRet, (address));
+                if (agg.rewardToken != address(0)) {
+                    (bool rpOk, bytes memory rpRet) = campaigns.staticcall(
+                        abi.encodeWithSelector(bytes4(0x25c1c08e), campaignId)  // getCampaignRewardPerImpression(uint256)
+                    );
+                    if (rpOk && rpRet.length >= 32) {
+                        agg.rewardPerImpression = abi.decode(rpRet, (uint256));
+                    }
+                }
+            }
+        }
 
         for (uint256 i = 0; i < claims.length; i++) {
             Claim calldata claim = claims[i];
@@ -277,95 +387,136 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 }
             }
 
-            // Store hash from validator before settling
+            // FP-1: Publisher stake adequacy check (optional)
+            if (publisherStake != address(0)) {
+                if (!IDatumPublisherStake(publisherStake).isAdequatelyStaked(claim.publisher)) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(claim.campaignId, user, claim.nonce, 15);
+                    gapFound = true;
+                    continue;
+                }
+            }
+
+            // FP-5: Nullifier replay check (optional). bytes32(0) nullifier skips the check.
+            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
+                if (IDatumNullifierRegistry(nullifierRegistry).isUsed(claim.campaignId, claim.nullifier)) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(claim.campaignId, user, claim.nonce, 19);
+                    gapFound = true;
+                    continue;
+                }
+            }
+
+            // Compute payment split for this claim
+            uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
+            uint256 publisherPayment = (totalPayment * cTakeRate) / 10000;
+            uint256 rem = totalPayment - publisherPayment;
+            uint256 userPayment = (rem * 7500) / 10000;
+            uint256 protocolFee = rem - userPayment;
+
+            // Deduct from budget per-claim — BudgetLedger enforces daily cap correctly.
+            // DOT is transferred to PaymentVault by BudgetLedger on each deduction.
+            (bool dOk, bytes memory dRet) = budgetLedger.call(
+                abi.encodeWithSelector(bytes4(0xcdbb1755),
+                    claim.campaignId, totalPayment, paymentVault)
+            );
+            require(dOk && dRet.length >= 32, "E16");
+            if (abi.decode(dRet, (bool))) {
+                agg.exhausted = true;
+                gapFound = true;  // stop processing after budget exhausted
+            }
+
+            // Accumulate into batch aggregate (paymentVault credited once after loop)
+            agg.total += totalPayment;
+            agg.publisherPayment += publisherPayment;
+            agg.userPayment += userPayment;
+            agg.protocolFee += protocolFee;
+            if (agg.publisher == address(0)) agg.publisher = claim.publisher;
+
+            // Accumulate token reward (credited once after loop)
+            if (agg.rewardToken != address(0) && agg.rewardPerImpression > 0) {
+                agg.tokenReward += claim.impressionCount * agg.rewardPerImpression;
+            }
+
+            // Accumulate impression count for publisher stake bonding curve
+            agg.impressionsSettled += claim.impressionCount;
+
             lastClaimHash[user][claim.campaignId] = computedHash;
-            _settleSingleClaim(claim, user, cTakeRate, result);
+            lastNonce[user][claim.campaignId] = claim.nonce;
+
+            // FP-5: Register nullifier after successful settlement
+            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
+                IDatumNullifierRegistry(nullifierRegistry).submitNullifier(claim.nullifier, claim.campaignId);
+            }
+
+            result.settledCount++;
+            result.totalPaid += totalPayment;
+
+            emit ClaimSettled(
+                claim.campaignId,
+                user,
+                claim.publisher,
+                claim.impressionCount,
+                claim.clearingCpmPlanck,
+                claim.nonce,
+                publisherPayment,
+                userPayment,
+                protocolFee
+            );
+        }
+
+        // ── Aggregate paymentVault credit (1 call per batch instead of N) ────────
+        // DOT was already transferred to PaymentVault by each budgetLedger.deductAndTransfer.
+        // This call records how to split the accumulated DOT among publisher/user/protocol.
+        if (agg.total > 0) {
+            (bool vOk,) = paymentVault.call(
+                abi.encodeWithSelector(bytes4(0xdb96c4a4),
+                    agg.publisher, agg.publisherPayment, user, agg.userPayment, agg.protocolFee)
+            );
+            require(vOk, "E02");
+        }
+
+        // ── Aggregate token reward credit (1 call per batch instead of N) ────────
+        // Non-critical: don't revert if token budget exhausted — vault handles gracefully.
+        if (agg.tokenReward > 0) {
+            tokenRewardVault.call(
+                abi.encodeWithSelector(bytes4(0x113e0e1e),
+                    campaignId, agg.rewardToken, user, agg.tokenReward)
+            );
+        }
+
+        // ── FP-1: Record settled impressions on publisher stake bonding curve ────
+        // Non-critical: don't revert if recordImpressions fails (e.g., feature disabled mid-flight).
+        if (publisherStake != address(0) && agg.impressionsSettled > 0 && agg.publisher != address(0)) {
+            IDatumPublisherStake(publisherStake).recordImpressions(agg.publisher, agg.impressionsSettled);
+        }
+
+        // ── FP-16: Record reputation stats — Settlement is sole trusted caller ────
+        // Non-critical: don't revert if reputation call fails.
+        if (publisherReputation != address(0) && agg.publisher != address(0)) {
+            uint256 batchSettled = result.settledCount - prevSettledCount;
+            uint256 batchRejected = result.rejectedCount - prevRejectedCount;
+            if (batchSettled > 0 || batchRejected > 0) {
+                publisherReputation.call(
+                    abi.encodeWithSelector(
+                        bytes4(keccak256("recordSettlement(address,uint256,uint256,uint256)")),
+                        agg.publisher, campaignId, batchSettled, batchRejected
+                    )
+                );
+            }
+        }
+
+        // ── Auto-complete campaign if budget exhausted ────────────────────────────
+        if (agg.exhausted) {
+            (bool lOk,) = lifecycle.call(
+                abi.encodeWithSelector(bytes4(0x9553f180), campaignId)
+            );
+            require(lOk, "E02");
         }
 
         // BM-10: Record block of last successful settlement for this user/campaign
         if (interval > 0 && result.settledCount > prevSettledCount) {
             lastSettlementBlock[user][campaignId] = block.number;
-        }
-    }
-
-    function _settleSingleClaim(
-        Claim calldata claim,
-        address user,
-        uint16 cTakeRate,
-        SettlementResult memory result
-    ) internal {
-        uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
-        uint256 publisherPayment = (totalPayment * cTakeRate) / 10000;
-        uint256 remainder = totalPayment - publisherPayment;
-        uint256 userPayment = (remainder * 7500) / 10000;
-        uint256 protocolFee = remainder - userPayment;
-
-        // Deduct from budget — BudgetLedger sends DOT to PaymentVault
-        (bool dOk, bytes memory dRet) = budgetLedger.call(
-            abi.encodeWithSelector(bytes4(0xcdbb1755),
-                claim.campaignId, totalPayment, paymentVault)
-        );
-        require(dOk && dRet.length >= 32, "E16");
-        bool exhausted = abi.decode(dRet, (bool));
-
-        // Record balance split in PaymentVault (DOT already there from BudgetLedger)
-        (bool vOk,) = paymentVault.call(
-            abi.encodeWithSelector(bytes4(0xdb96c4a4),
-                claim.publisher, publisherPayment, user, userPayment, protocolFee)
-        );
-        require(vOk, "E02");
-
-        lastNonce[user][claim.campaignId] = claim.nonce;
-
-        result.settledCount++;
-        result.totalPaid += totalPayment;
-
-        emit ClaimSettled(
-            claim.campaignId,
-            user,
-            claim.publisher,
-            claim.impressionCount,
-            claim.clearingCpmPlanck,
-            claim.nonce,
-            publisherPayment,
-            userPayment,
-            protocolFee
-        );
-
-        // Token reward credit (if campaign has token reward configured)
-        if (tokenRewardVault != address(0) && campaigns != address(0)) {
-            (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
-                abi.encodeWithSelector(bytes4(0xf00b29a9), claim.campaignId)  // getCampaignRewardToken(uint256)
-            );
-            if (rtOk && rtRet.length >= 32) {
-                address rewardToken = abi.decode(rtRet, (address));
-                if (rewardToken != address(0)) {
-                    (bool rpOk, bytes memory rpRet) = campaigns.staticcall(
-                        abi.encodeWithSelector(bytes4(0x25c1c08e), claim.campaignId)  // getCampaignRewardPerImpression(uint256)
-                    );
-                    if (rpOk && rpRet.length >= 32) {
-                        uint256 rewardPerImpression = abi.decode(rpRet, (uint256));
-                        uint256 tokenAmount = claim.impressionCount * rewardPerImpression;
-                        if (tokenAmount > 0) {
-                            // creditReward(uint256,address,address,uint256)
-                            tokenRewardVault.call(
-                                abi.encodeWithSelector(bytes4(0x113e0e1e),
-                                    claim.campaignId, rewardToken, user, tokenAmount)
-                            );
-                            // Non-critical: don't revert settlement if token credit fails
-                            // (budget might be exhausted — vault handles gracefully)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Auto-complete if budget exhausted
-        if (exhausted) {
-            (bool lOk,) = lifecycle.call(
-                abi.encodeWithSelector(bytes4(0x9553f180), claim.campaignId)
-            );
-            require(lOk, "E02");
         }
     }
 }

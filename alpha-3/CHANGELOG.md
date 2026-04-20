@@ -2,6 +2,72 @@
 
 **Deployed:** 2026-03-31 on Paseo Testnet (Chain ID 420420417)
 
+---
+
+## FP-1–FP-4: Fraud Prevention (2026-04-19)
+
+### New contracts (21 → 24)
+
+| Contract | Role |
+|----------|------|
+| `DatumPublisherStake` | FP-1+FP-4: Publisher must lock DOT; bonding curve scales required stake with cumulative impressions |
+| `DatumChallengeBonds` | FP-2: Advertisers can optionally lock bonds at campaign creation; proportional bonus from slash pool on fraud |
+| `DatumPublisherGovernance` | FP-3: Conviction-weighted governance to uphold fraud claims against publishers; slashes stake, forwards bonus to ChallengeBonds pool |
+
+### Cross-campaign claim batching
+
+- `DatumSettlement.settleClaimsMulti(UserClaimBatch[])` — single TX settles across multiple users and campaigns
+- Struct hierarchy: `UserClaimBatch { address user; CampaignClaims[] campaigns; }` and `CampaignClaims { uint256 campaignId; Claim[] claims; }`
+- Batch limits: max 10 users per call, max 10 campaigns per user (E28 revert)
+- Auth: relay can settle any user; user can self-settle; others revert E32
+
+### Publisher staking (FP-1)
+
+- `stake()` — publisher locks native DOT; `requestUnstake()` + `unstake()` with delay (~7 days)
+- Settlement calls `setPublisherStake(addr)` to enforce stake check; address(0) disables
+- Claims from under-staked publishers rejected with reason code 15
+- E69: unstake would drop below required stake; E68: already pending; E70: delay not elapsed
+
+### Bonding curve (FP-4)
+
+- `requiredStake = baseStakePlanck + cumulativeImpressions × planckPerImpression`
+- Settlement calls `recordImpressions()` after each settled batch; stake requirement grows with publisher activity
+- `isAdequatelyStaked(publisher)` view for settlement check
+
+### Advertiser challenge bonds (FP-2)
+
+- `lockBond(campaignId, advertiser, publisher)` — called by Campaigns at creation with `bondAmount > 0`
+- `returnBond(campaignId)` — called by CampaignLifecycle on non-fraud campaign end
+- `addToPool(publisher, amount)` — called by PublisherGovernance when fraud is upheld (bondBonusBps% of slash)
+- `claimBonus(campaignId)` — advertiser withdraws proportional share from pool; bond is burned
+- E71: already bonded; E72: already claimed; E03: empty pool
+
+### Publisher governance (FP-3)
+
+- `propose(publisher, evidenceHash)` — anyone can propose; emits ProposalCreated
+- `vote(proposalId, aye, conviction)` payable — conviction 0-8, weights [1,2,3,4,6,9,14,18,21]
+- `withdrawVote(proposalId)` — returns locked DOT after conviction lockup expires; E42 if locked
+- `resolve(proposalId)` — upheld if ayeWeighted ≥ quorum; grace period after first nay vote; E43 before elapsed
+- On fraud upheld: `PublisherStake.slash()` called; bondBonusBps% forwarded to ChallengeBonds pool via `addToPool()`
+- E43: grace period not elapsed; E41: already resolved; E40: conviction out of range
+
+### Deploy script updates
+
+- REQUIRED_KEYS expanded from 21 to 24 (`publisherStake`, `challengeBonds`, `publisherGovernance`)
+- New deploy steps with constructor parameters for all 3 contracts
+- New wiring: stake↔settlement↔governance, bonds↔campaigns↔lifecycle↔governance
+- New validation checks for all new cross-contract references
+
+### Tests
+
+- `publisher-stake.test.ts` — 28 tests (PS1–PS28): staking, bonding curve, slash, impressions, setParams, ownership
+- `challenge-bonds.test.ts` — 20 tests (CB1–CB20): lockBond, returnBond, addToPool, claimBonus, ownership
+- `publisher-governance.test.ts` — 22 tests (PG1–PG22): propose, vote, withdrawVote, resolve, slash flow, admin
+- `settlement-multi.test.ts` — 15 tests (SM1–SM15): single/multi-user batching, auth, batch limits, FP-1 integration
+- **437/437 contract tests passing** (up from 353)
+
+---
+
 ## Overview
 
 Alpha-3 expands DATUM from 13 to 17 contracts with 4 new satellite modules, adds tag-based targeting infrastructure, applies all CRITICAL/HIGH security fixes, and deploys the full system to Paseo testnet. The browser extension gains event-driven campaign polling with O(1) lookups.

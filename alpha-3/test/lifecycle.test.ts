@@ -82,7 +82,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createAndActivate(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
     // Activate via governance
@@ -92,7 +92,7 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createPending(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
     );
     return (await campaigns.nextCampaignId()) - 1n;
   }

@@ -15,6 +15,7 @@ interface QueuedClaim {
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
+  nullifier: string;
   userAddress: string;
 }
 

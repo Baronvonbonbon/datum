@@ -204,6 +204,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "challengeBonds",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -238,6 +251,11 @@
       {
         "internalType": "uint256",
         "name": "rewardPerImpression",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bondAmount",
         "type": "uint256"
       }
     ],
@@ -639,6 +657,19 @@
       }
     ],
     "name": "setCampaignValidator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setChallengeBonds",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

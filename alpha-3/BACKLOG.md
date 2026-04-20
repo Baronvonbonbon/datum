@@ -512,6 +512,14 @@ Campaigns.createCampaign() → validator.validateCreation(advertiser, publisher)
 - ~~BM-7: SDK version registry on Publishers~~
 - ~~BM-2: Per-user settlement cap~~
 
+### Phase 4B: Fraud Prevention — **DONE (2026-04-19)**
+- ~~FP-1: Publisher staking (`DatumPublisherStake`)~~ — stake/unstake delay, recordImpressions, settlement integration (code 15 rejection)
+- ~~FP-2: Advertiser challenge bonds (`DatumChallengeBonds`)~~ — lockBond/returnBond/addToPool/claimBonus
+- ~~FP-3: Conviction-weighted publisher fraud governance (`DatumPublisherGovernance`)~~ — propose/vote/withdrawVote/resolve, slash→pool flow
+- ~~FP-4: Bonding curve for publisher volume~~ — integrated into DatumPublisherStake
+- ~~Cross-campaign claim batching (`settleClaimsMulti`)~~ — up to 10 users × 10 campaigns per TX
+- 437/437 contract tests passing
+
 ### Phase 5: ZK Integration (Blocked)
 - BM-1: Groth16 circuit + verifier + campaign toggle — Blocked on BN128 precompile
 - CH-1: Real ZK verifier replaces stub — Blocked

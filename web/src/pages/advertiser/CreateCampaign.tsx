@@ -16,6 +16,7 @@ import { CampaignMetadata } from "@shared/types";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
+import { KNOWN_ASSETS, assetIdToAddress, getAssetMetadata, searchAssets, type NativeAsset } from "@shared/assetRegistry";
 
 const ERC20_MINIMAL_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -40,6 +41,10 @@ export function CreateCampaign() {
   const [bidCpm, setBidCpm] = useState("0.001");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [requireZkProof, setRequireZkProof] = useState(false);
+  const [bondAmount, setBondAmount] = useState("");
+  const [tokenSource, setTokenSource] = useState<"erc20" | "native">("erc20");
+  const [selectedNativeAsset, setSelectedNativeAsset] = useState<NativeAsset | null>(null);
+  const [customAssetId, setCustomAssetId] = useState("");
   const [rewardToken, setRewardToken] = useState("");
   const [rewardPerImpression, setRewardPerImpression] = useState("");
   const [showTags, setShowTags] = useState(false);
@@ -188,6 +193,18 @@ export function CreateCampaign() {
       }
 
       setCreatedId(newId);
+
+      // Lock challenge bond if specified
+      const bondPlanck = bondAmount.trim() ? parseDOTSafe(bondAmount) : 0n;
+      if (bondPlanck > 0n && newId !== null && contracts.challengeBonds) {
+        setTxMsg("Locking challenge bond…");
+        const bonds = contracts.challengeBonds.connect(signer);
+        const bondTx = await confirmTx(() =>
+          bonds.lockBond(BigInt(newId), address, pubAddr, { value: bondPlanck })
+        );
+        if (bondTx) await bondTx.wait?.().catch(() => null);
+      }
+
       setTxState("success");
       setTxMsg(`Campaign #${newId ?? "?"} created!`);
       // Move to step 2 (metadata) instead of navigating away
@@ -240,16 +257,22 @@ export function CreateCampaign() {
       // Go to step 3 if reward token was configured, else navigate after delay
       const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
       if (rToken !== ethers.ZeroAddress) {
-        // Pre-fetch token symbol + decimals for step 3 display
-        try {
-          const erc20 = new Contract(rToken, ERC20_MINIMAL_ABI, contracts.readProvider);
-          const [sym, dec] = await Promise.all([
-            erc20.symbol().catch(() => "TOKEN"),
-            erc20.decimals().catch(() => 18),
-          ]);
-          setTokenSymbol(sym);
-          setTokenDecimals(Number(dec));
-        } catch { /* keep defaults */ }
+        // Pre-fetch token symbol + decimals — check native asset registry first
+        const known = getAssetMetadata(rToken);
+        if (known) {
+          setTokenSymbol(known.symbol);
+          setTokenDecimals(known.decimals);
+        } else {
+          try {
+            const erc20 = new Contract(rToken, ERC20_MINIMAL_ABI, contracts.readProvider);
+            const [sym, dec] = await Promise.all([
+              erc20.symbol().catch(() => "TOKEN"),
+              erc20.decimals().catch(() => 18),
+            ]);
+            setTokenSymbol(sym);
+            setTokenDecimals(Number(dec));
+          } catch { /* keep defaults */ }
+        }
         setTimeout(() => setStep(3), 1500);
       } else {
         setTimeout(() => navigate(`/advertiser/campaign/${createdId}`), 3000);
@@ -708,26 +731,141 @@ export function CreateCampaign() {
             </div>
           </div>
 
-          {/* Token reward (optional ERC-20) */}
+          {/* Challenge bond (optional — FP-2) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Challenge Bond (optional, {sym})</label>
+            <input
+              type="number"
+              value={bondAmount}
+              onChange={(e) => setBondAmount(e.target.value)}
+              min="0"
+              step="0.001"
+              className="nano-input"
+              placeholder="e.g. 1.0 — leave empty to skip"
+            />
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+              Lock {sym} alongside your campaign as a fraud challenge bond. Returned automatically if the campaign ends cleanly.
+              If a publisher fraud governance proposal is upheld, you receive a proportional share of the publisher's slashed stake.
+              Optional — campaigns without a bond still receive base DOT settlement.
+            </div>
+          </div>
+
+          {/* Token reward (optional — native Asset Hub token or ERC-20) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Token Reward (optional)</label>
             <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
-              Optionally reward users with an ERC-20 token per impression, in addition to DOT payments.
-              You must deposit token budget into the TokenRewardVault after campaign creation.
+              Reward users with a token per impression, in addition to DOT settlement.
+              You'll deposit the token budget after campaign creation.
             </div>
-            <input
-              type="text"
-              value={rewardToken}
-              onChange={(e) => setRewardToken(e.target.value)}
-              placeholder="ERC-20 token address (0x...)"
-              className="nano-input"
-            />
+
+            {/* Source toggle */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
+              <button type="button" onClick={() => { setTokenSource("native"); setRewardToken(""); setSelectedNativeAsset(null); setCustomAssetId(""); }} className={tokenSource === "native" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "6px 12px", fontSize: 12 }}>
+                Asset Hub Token
+              </button>
+              <button type="button" onClick={() => { setTokenSource("erc20"); setSelectedNativeAsset(null); setRewardToken(""); setCustomAssetId(""); }} className={tokenSource === "erc20" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "6px 12px", fontSize: 12 }}>
+                ERC-20 Contract
+              </button>
+            </div>
+
+            {tokenSource === "native" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {/* Quick-pick popular tokens */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {KNOWN_ASSETS.filter((a) => a.popular).map((a) => {
+                    const active = selectedNativeAsset?.address === a.address;
+                    return (
+                      <button key={`${a.network}-${a.assetId}`} type="button" onClick={() => { setSelectedNativeAsset(a); setRewardToken(a.address); setCustomAssetId(""); }} className={active ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 10px", fontSize: 12, fontWeight: 600 }}>
+                        {a.symbol}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Search input */}
+                <input
+                  type="text"
+                  value={customAssetId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCustomAssetId(v);
+                    // If they typed a pure number, try asset ID lookup
+                    const asNum = Number(v);
+                    if (v && Number.isInteger(asNum) && asNum > 0) {
+                      // Match trust-backed first; if not found, default to trust-backed precompile
+                      const match = KNOWN_ASSETS.find((a) => a.assetId === asNum && a.type === 'trust-backed') ?? KNOWN_ASSETS.find((a) => a.assetId === asNum);
+                      if (match) { setSelectedNativeAsset(match); setRewardToken(match.address); }
+                      else { setSelectedNativeAsset(null); setRewardToken(assetIdToAddress(asNum)); }
+                    } else if (!v) {
+                      // cleared
+                      if (!selectedNativeAsset) setRewardToken("");
+                    }
+                  }}
+                  placeholder="Search by ticker, name, or asset ID..."
+                  className="nano-input"
+                  style={{ fontSize: 12 }}
+                />
+
+                {/* Search results dropdown */}
+                {customAssetId.trim() && (() => {
+                  const results = searchAssets(customAssetId);
+                  if (results.length === 0) return null;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 180, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 4 }}>
+                      {results.map((a) => {
+                        const active = selectedNativeAsset?.assetId === a.assetId;
+                        return (
+                          <div key={`${a.network}-${a.assetId}`} onClick={() => { setSelectedNativeAsset(a); setRewardToken(a.address); setCustomAssetId(""); }} style={{ padding: "6px 10px", borderRadius: 4, cursor: "pointer", background: active ? "var(--accent-muted, rgba(99,102,241,0.12))" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: 12, color: "var(--text-strong)" }}>{a.symbol}</span>
+                              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 6 }}>{a.name}</span>
+                              <span style={{ fontSize: 10, color: a.network === 'kusama' ? "var(--text-muted)" : "var(--text-muted)", marginLeft: 6, opacity: 0.6 }}>{a.network === 'kusama' ? 'KSM' : 'DOT'}</span>
+                            </div>
+                            <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>ID {a.assetId} · {a.decimals}d</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Selected asset summary */}
+                {selectedNativeAsset && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--surface2)", borderRadius: 6 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>{selectedNativeAsset.symbol}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{selectedNativeAsset.name}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
+                      {selectedNativeAsset.decimals} decimals · ID {selectedNativeAsset.assetId}
+                    </span>
+                    <button type="button" onClick={() => { setSelectedNativeAsset(null); setRewardToken(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
+                  </div>
+                )}
+
+                {/* Derived address (collapsed) */}
+                {rewardToken && !selectedNativeAsset && (
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>
+                    Precompile: {rewardToken}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tokenSource === "erc20" && (
+              <input
+                type="text"
+                value={rewardToken}
+                onChange={(e) => setRewardToken(e.target.value)}
+                placeholder="ERC-20 token address (0x...)"
+                className="nano-input"
+              />
+            )}
+
             {rewardToken.trim() && ethers.isAddress(rewardToken.trim()) && (
               <input
                 type="text"
                 value={rewardPerImpression}
                 onChange={(e) => setRewardPerImpression(e.target.value)}
-                placeholder="Token amount per impression (in smallest unit)"
+                placeholder={`Token amount per impression (smallest unit${selectedNativeAsset ? ` — ${selectedNativeAsset.decimals} decimals for ${selectedNativeAsset.symbol}` : ""})`}
                 className="nano-input"
                 style={{ marginTop: 4 }}
               />

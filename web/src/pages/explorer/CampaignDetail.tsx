@@ -20,6 +20,7 @@ import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
+import { getAssetMetadata } from "@shared/assetRegistry";
 
 interface SettlementEvent {
   txHash: string;
@@ -82,6 +83,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   } | null>(null);
   const [reclaimingBudget, setReclaimingBudget] = useState(false);
   const [tokenBudgetMsg, setTokenBudgetMsg] = useState<string | null>(null);
+  const [bondAmount, setBondAmount] = useState<bigint | null>(null);
 
   useEffect(() => {
     if (id !== undefined) load(Number(id));
@@ -210,16 +212,22 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           contracts.campaigns.getCampaignRewardPerImpression(BigInt(campaignId)).catch(() => 0n),
         ]);
         if (rewardTok && rewardTok !== ethers.ZeroAddress) {
-          const erc20 = new ethers.Contract(rewardTok, [
-            "function symbol() view returns (string)",
-            "function decimals() view returns (uint8)",
-            "function name() view returns (string)",
-          ], contracts.readProvider);
-          const [sym, dec, nm] = await Promise.all([
-            erc20.symbol().catch(() => "TOKEN"),
-            erc20.decimals().catch(() => 18),
-            erc20.name().catch(() => "Unknown Token"),
-          ]);
+          const knownAsset = getAssetMetadata(rewardTok as string);
+          let sym: string, dec: number, nm: string;
+          if (knownAsset) {
+            sym = knownAsset.symbol; dec = knownAsset.decimals; nm = knownAsset.name;
+          } else {
+            const erc20 = new ethers.Contract(rewardTok, [
+              "function symbol() view returns (string)",
+              "function decimals() view returns (uint8)",
+              "function name() view returns (string)",
+            ], contracts.readProvider);
+            [sym, dec, nm] = await Promise.all([
+              erc20.symbol().catch(() => "TOKEN"),
+              erc20.decimals().catch(() => 18),
+              erc20.name().catch(() => "Unknown Token"),
+            ]);
+          }
           let remainingBudget = 0n;
           try {
             remainingBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(rewardTok, BigInt(campaignId)));
@@ -234,6 +242,12 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           setTokenReward(null);
         }
       } catch { /* no token reward */ }
+
+      // Challenge bond
+      try {
+        const b = await contracts.challengeBonds.bond(BigInt(campaignId)).catch(() => null);
+        setBondAmount(b !== null ? BigInt(b) : null);
+      } catch { setBondAmount(null); }
 
       // Initial settlement load
       await loadSettlements(campaignId);
@@ -630,6 +644,22 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               )}
             </div>
           )}
+        </section>
+      )}
+
+      {/* Challenge Bond */}
+      {bondAmount !== null && bondAmount > 0n && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Challenge Bond</h2>
+          <div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Locked Bond</div>
+            <div style={{ color: "var(--ok)", fontWeight: 700, fontSize: 18, fontFamily: "var(--font-mono)" }}>
+              <DOTAmount planck={bondAmount} />
+            </div>
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8 }}>
+            Returned to advertiser on clean campaign end; distributed to challengers if fraud is upheld by governance.
+          </div>
         </section>
       )}
 

@@ -260,7 +260,7 @@ const publishersAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
   "function getCampaign(uint256 campaignId) view returns (address advertiser, address publisher, uint256 bidCpmPlanck, uint16 takeRateBps, uint8 status)",
@@ -374,7 +374,7 @@ async function main() {
     const nextRaw = await readCall(rawProvider, A.campaigns, campIface, "nextCampaignId", []);
     const cid = BigInt(nextRaw[0]);
     await sendCall(advertiser, rawProvider, A.campaigns, campIface, "createCampaign",
-      [publisher, daily, cpm, requiredTags, requireZk, ZeroAddress, 0], budget);
+      [publisher, daily, cpm, requiredTags, requireZk, ZeroAddress, 0, 0], budget);
     await sendCall(alice, rawProvider, A.governanceV2, govIface, "vote",
       [cid, true, 0], VOTE_STAKE);
     await sendCall(bob, rawProvider, A.governanceV2, govIface, "evaluateCampaign", [cid]);

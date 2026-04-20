@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 /// @title IDatumPublisherReputation
 /// @notice BM-8 + BM-9: Per-publisher reputation scoring and cross-campaign anomaly detection.
+///         FP-16: Settlement calls recordSettlement() directly — no relay-bot reporter needed.
 interface IDatumPublisherReputation {
     event SettlementRecorded(
         address indexed publisher,
@@ -10,11 +11,9 @@ interface IDatumPublisherReputation {
         uint256 settled,
         uint256 rejected
     );
-    event ReporterAdded(address indexed reporter);
-    event ReporterRemoved(address indexed reporter);
 
     /// @notice Record settled and rejected impressions for a publisher in a campaign.
-    ///         Only callable by approved reporters (relay bot).
+    ///         Only callable by the wired Settlement contract.
     function recordSettlement(
         address publisher,
         uint256 campaignId,

@@ -28,6 +28,8 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     IDatumPauseRegistry public pauseRegistry;
     address public governanceContract;
     address public settlementContract;
+    // FP-2: optional challenge bonds contract (address(0) = disabled)
+    address public challengeBonds;
 
     /// @dev P20: Blocks of inactivity before a campaign can be expired.
     ///      30 days at 6s blocks = 432,000 blocks.
@@ -85,6 +87,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         settlementContract = addr;
     }
 
+    /// @notice Set challenge bonds contract. Pass address(0) to disable.
+    function setChallengeBonds(address addr) external onlyOwner {
+        emit ContractReferenceChanged("challengeBonds", challengeBonds, addr);
+        challengeBonds = addr;
+    }
+
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
         pendingOwner = newOwner;
@@ -123,6 +131,13 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
         // Drain remaining budget to advertiser
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        // FP-2: Return bond if set (non-critical — silently skip on failure)
+        if (challengeBonds != address(0)) {
+            challengeBonds.call(
+                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+            );
+        }
 
         emit CampaignCompleted(campaignId);
     }
@@ -176,6 +191,13 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         // Full refund to advertiser
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
+        // FP-2: Return bond if set (non-critical)
+        if (challengeBonds != address(0)) {
+            challengeBonds.call(
+                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+            );
+        }
+
         emit CampaignExpired(campaignId);
     }
 
@@ -225,6 +247,13 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
         campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Completed);
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        // FP-2: Return bond if set (non-critical)
+        if (challengeBonds != address(0)) {
+            challengeBonds.call(
+                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+            );
+        }
 
         emit CampaignCompleted(campaignId);
     }

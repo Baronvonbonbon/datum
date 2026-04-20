@@ -87,6 +87,7 @@ describe("Integration", function () {
         previousClaimHash: prevHash,
         claimHash: hash,
         zkProof: "0x",
+        nullifier: ethers.ZeroHash,
       });
       prevHash = hash;
     }
@@ -95,7 +96,7 @@ describe("Integration", function () {
 
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, [], false, ethers.ZeroAddress, 0, { value: budget }
+      pub.address, dailyCap, bidCpm, [], false, ethers.ZeroAddress, 0, 0n, { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -618,7 +619,7 @@ describe("Integration", function () {
   it("H5: attested settlement on open campaign verifies serving publisher", async function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -665,7 +666,7 @@ describe("Integration", function () {
   // H6: open campaign attestation with wrong signer reverts E34
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, { value: BUDGET }
+      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;

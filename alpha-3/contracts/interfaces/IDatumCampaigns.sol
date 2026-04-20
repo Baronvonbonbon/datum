@@ -64,7 +64,8 @@ interface IDatumCampaigns {
         bytes32[] calldata requiredTags,
         bool requireZkProof,
         address rewardToken,
-        uint256 rewardPerImpression
+        uint256 rewardPerImpression,
+        uint256 bondAmount
     ) external payable returns (uint256 campaignId);
 
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external;

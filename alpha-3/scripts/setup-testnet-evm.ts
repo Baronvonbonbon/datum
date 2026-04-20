@@ -142,7 +142,7 @@ const rateLimiterAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression) payable returns (uint256)",
+  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -166,8 +166,8 @@ const reportsAbi = [
 ];
 
 const reputationAbi = [
-  "function addReporter(address reporter)",
-  "function reporters(address) view returns (bool)",
+  "function setSettlement(address addr)",
+  "function settlement() view returns (address)",
 ];
 
 async function main() {
@@ -376,7 +376,7 @@ async function main() {
 
     // Create campaign
     await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0],
+      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0, 0],
       BUDGET
     );
 
@@ -537,29 +537,27 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5.7. WIRE REPUTATION REPORTER (Diana = relay bot stand-in for testnet)
+  // 5.7. WIRE REPUTATION → SETTLEMENT (FP-16)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("5.7", "--- Wiring reputation reporter (BM-8/BM-9) ---");
-  if (addrs.reputation) {
+  log("5.7", "--- Wiring reputation.settlement (FP-16) ---");
+  if (addrs.reputation && addrs.settlement) {
     try {
-      // Check if Diana is already a reporter
-      const isReporter = await rawProvider.call({
+      const currentRaw = await rawProvider.call({
         to: addrs.reputation,
-        data: reputationIface.encodeFunctionData("reporters", [diana.address]),
+        data: reputationIface.encodeFunctionData("settlement", []),
       });
-      const alreadyReporter = reputationIface.decodeFunctionResult("reporters", isReporter)[0];
-      if (alreadyReporter) {
-        log("5.7", `  diana already approved as reporter -- skipping`);
+      const current = reputationIface.decodeFunctionResult("settlement", currentRaw)[0];
+      if (current.toLowerCase() === addrs.settlement.toLowerCase()) {
+        log("5.7", `  already wired to settlement -- skipping`);
       } else {
-        // Alice (owner) adds Diana as reporter
-        await sendCall(alice, rawProvider, addrs.reputation, reputationIface, "addReporter", [diana.address]);
-        log("5.7", `  diana (${diana.address}) added as reporter`);
+        await sendCall(alice, rawProvider, addrs.reputation, reputationIface, "setSettlement", [addrs.settlement]);
+        log("5.7", `  reputation.settlement set to ${addrs.settlement}`);
       }
     } catch (err) {
-      log("5.7", `  addReporter failed: ${String(err).slice(0, 100)}`);
+      log("5.7", `  setSettlement failed: ${String(err).slice(0, 100)}`);
     }
   } else {
-    log("5.7", "  reputation address not set -- skipping (deploy pending)");
+    log("5.7", "  reputation or settlement address not set -- skipping (deploy pending)");
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

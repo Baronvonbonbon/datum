@@ -21,6 +21,7 @@ interface SerializedClaim {
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
+  nullifier: string;
   userAddress: string;
 }
 
@@ -187,5 +188,6 @@ function deserializeClaim(c: SerializedClaim): Claim {
     previousClaimHash: c.previousClaimHash,
     claimHash: c.claimHash,
     zkProof: c.zkProof,
+    nullifier: c.nullifier ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
   };
 }
