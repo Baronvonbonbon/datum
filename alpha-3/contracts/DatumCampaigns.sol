@@ -43,6 +43,9 @@ contract DatumCampaigns is IDatumCampaigns {
     /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
     uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
 
+    // Safe rollout: max campaign budget cap (0 = disabled)
+    uint256 public maxCampaignBudget;
+
     uint256 public immutable minimumCpmFloor;
     uint256 public immutable pendingTimeoutBlocks;
 
@@ -149,6 +152,12 @@ contract DatumCampaigns is IDatumCampaigns {
         challengeBonds = addr;
     }
 
+    /// @notice Set the maximum campaign budget. 0 disables the cap.
+    function setMaxCampaignBudget(uint256 amount) external onlyOwner {
+        maxCampaignBudget = amount;
+        emit MaxCampaignBudgetSet(amount);
+    }
+
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
         pendingOwner = newOwner;
@@ -181,6 +190,7 @@ contract DatumCampaigns is IDatumCampaigns {
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11"); // AUDIT-022: reject dust budgets
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= budgetValue, "E12");
+        require(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget, "E80");
         require(requiredTags.length <= 8, "E66");
 
         // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator

@@ -35,11 +35,17 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
     mapping(address => address) public relaySigner;
     mapping(address => bytes32) public profileHash;
 
+    // Safe rollout: admission whitelist (owner-managed; whitelistMode=false = open registration)
+    bool public whitelistMode;
+    mapping(address => bool) public approved;
+
     event AddressBlocked(address indexed addr);
     event AddressUnblocked(address indexed addr);
     event AllowlistToggled(address indexed publisher, bool enabled);
     event AdvertiserAllowlistUpdated(address indexed publisher, address indexed advertiser, bool allowed);
     event SdkVersionRegistered(address indexed publisher, bytes32 hash);
+    event WhitelistModeSet(bool enabled);
+    event PublisherApprovalSet(address indexed publisher, bool isApproved);
 
     constructor(uint256 _takeRateUpdateDelayBlocks, address _pauseRegistry) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
@@ -52,9 +58,27 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
         _;
     }
 
+    // -------------------------------------------------------------------------
+    // Safe rollout: admission whitelist
+    // -------------------------------------------------------------------------
+
+    /// @notice Enable or disable whitelist-only publisher registration.
+    function setWhitelistMode(bool enabled) external onlyOwner {
+        whitelistMode = enabled;
+        emit WhitelistModeSet(enabled);
+    }
+
+    /// @notice Approve or revoke a publisher address for registration in whitelist mode.
+    function setApproved(address publisher, bool isApproved) external onlyOwner {
+        require(publisher != address(0), "E00");
+        approved[publisher] = isApproved;
+        emit PublisherApprovalSet(publisher, isApproved);
+    }
+
     /// @inheritdoc IDatumPublishers
     function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused {
         require(!blocked[msg.sender], "E62");
+        require(!whitelistMode || approved[msg.sender], "E79");
         require(!_publishers[msg.sender].registered, "Already registered");
         require(
             takeRateBps >= MIN_TAKE_RATE_BPS && takeRateBps <= MAX_TAKE_RATE_BPS,

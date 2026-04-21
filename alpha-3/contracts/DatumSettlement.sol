@@ -46,6 +46,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public nullifierRegistry;
     // FP-16: optional publisher reputation recorder (address(0) = disabled)
     address public publisherReputation;
+    // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
+    uint16 public minReputationScore;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
 
@@ -147,6 +149,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     function setPublisherReputation(address addr) external {
         require(msg.sender == owner, "E18");
         publisherReputation = addr;
+    }
+
+    /// @notice Set minimum publisher reputation score required to settle. 0 = disabled.
+    function setMinReputationScore(uint16 score) external {
+        require(msg.sender == owner, "E18");
+        minReputationScore = score;
     }
 
     function transferOwnership(address newOwner) external {
@@ -289,6 +297,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
                     emit ClaimRejected(campaignId, user, claims[j].nonce, 18);
+                }
+                return;
+            }
+        }
+
+        // Safe rollout: reputation gate — reject entire batch if publisher score is below minimum
+        uint16 minRepScore = minReputationScore;
+        if (publisherReputation != address(0) && minRepScore > 0 && claims.length > 0) {
+            (bool repOk, bytes memory repRet) = publisherReputation.staticcall(
+                abi.encodeWithSelector(bytes4(keccak256("getScore(address)")), claims[0].publisher)
+            );
+            if (repOk && repRet.length >= 32 && abi.decode(repRet, (uint16)) < minRepScore) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 20);
                 }
                 return;
             }

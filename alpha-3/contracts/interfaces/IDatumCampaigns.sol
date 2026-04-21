@@ -52,6 +52,7 @@ interface IDatumCampaigns {
     event CampaignPaused(uint256 indexed campaignId);
     event CampaignResumed(uint256 indexed campaignId);
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+    event MaxCampaignBudgetSet(uint256 amount);
 
     // -------------------------------------------------------------------------
     // Campaign lifecycle
