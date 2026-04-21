@@ -24,6 +24,8 @@ contract DatumClaimValidator is IDatumClaimValidator {
     address public publishers;
     address public pauseRegistry;
     address public zkVerifier;
+    // AUDIT-005: CampaignValidator for allowlist snapshot checks
+    address public campaignValidator;
 
     constructor(address _campaigns, address _publishers, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
@@ -55,6 +57,12 @@ contract DatumClaimValidator is IDatumClaimValidator {
         require(msg.sender == owner, "E18");
         // addr may be address(0) to disable ZK enforcement globally
         zkVerifier = addr;
+    }
+
+    function setCampaignValidator(address addr) external {
+        require(msg.sender == owner, "E18");
+        // addr may be address(0) to disable snapshot checks
+        campaignValidator = addr;
     }
 
     function transferOwnership(address newOwner) external {
@@ -98,6 +106,25 @@ contract DatumClaimValidator is IDatumClaimValidator {
         // Check 3: publisher match
         if (cPublisher != address(0)) {
             if (claim.publisher != cPublisher) return (false, 5, 0, bytes32(0));
+            // AUDIT-005: For targeted campaigns, verify advertiser is still in allowlist snapshot
+            if (campaignValidator != address(0)) {
+                (bool alEnOk, bytes memory alEnRet) = campaignValidator.staticcall(
+                    abi.encodeWithSignature("campaignAllowlistEnabled(uint256)", claim.campaignId)
+                );
+                if (alEnOk && alEnRet.length >= 32 && abi.decode(alEnRet, (bool))) {
+                    // Allowlist was enabled at creation — get advertiser and check snapshot
+                    (bool advOk, bytes memory advRet) = campaigns.staticcall(
+                        abi.encodeWithSignature("getCampaignAdvertiser(uint256)", claim.campaignId)
+                    );
+                    if (advOk && advRet.length >= 32) {
+                        address advertiser = abi.decode(advRet, (address));
+                        (bool snapOk, bytes memory snapRet) = campaignValidator.staticcall(
+                            abi.encodeWithSignature("campaignAllowlistSnapshot(uint256,address)", claim.campaignId, advertiser)
+                        );
+                        if (!snapOk || snapRet.length < 32 || !abi.decode(snapRet, (bool))) return (false, 15, 0, bytes32(0));
+                    }
+                }
+            }
         } else {
             if (claim.publisher == address(0)) return (false, 5, 0, bytes32(0));
             // Open campaigns cannot be served by publishers with allowlist enabled (BM-7)

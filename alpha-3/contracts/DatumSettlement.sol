@@ -269,6 +269,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         address rewardToken;      // ERC-20 reward token address (cached once per batch)
         uint256 rewardPerImpression; // reward per impression (cached once per batch)
         bool exhausted;           // true if any claim exhausted the campaign budget
+        uint256 campaignIdExhausted; // campaignId that triggered budget exhaustion (for deferred completion)
         uint256 impressionsSettled; // total impressions settled (for recordImpressions)
     }
 
@@ -278,7 +279,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         Claim[] calldata claims,
         SettlementResult memory result
     ) internal {
-        require(claims.length <= 50, "E28");
+        require(claims.length <= 10, "E28");
 
         // BM-10: Min claim interval — reject entire batch if too soon since last settlement
         uint16 interval = minClaimInterval;
@@ -301,15 +302,17 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         BatchAggregate memory agg;
 
         // Cache token reward config once per batch (2 staticcalls instead of 2N)
+        // getCampaignRewardToken(uint256) → address
+        // getCampaignRewardPerImpression(uint256) → uint256
         if (tokenRewardVault != address(0) && campaigns != address(0)) {
             (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
-                abi.encodeWithSelector(bytes4(0xf00b29a9), campaignId)  // getCampaignRewardToken(uint256)
+                abi.encodeWithSelector(bytes4(0xf00b29a9), campaignId)
             );
             if (rtOk && rtRet.length >= 32) {
                 agg.rewardToken = abi.decode(rtRet, (address));
                 if (agg.rewardToken != address(0)) {
                     (bool rpOk, bytes memory rpRet) = campaigns.staticcall(
-                        abi.encodeWithSelector(bytes4(0x25c1c08e), campaignId)  // getCampaignRewardPerImpression(uint256)
+                        abi.encodeWithSelector(bytes4(0x25c1c08e), campaignId)
                     );
                     if (rpOk && rpRet.length >= 32) {
                         agg.rewardPerImpression = abi.decode(rpRet, (uint256));
@@ -334,9 +337,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
 
             // S12: Settlement-level blocklist check
+            // isBlocked(address publisher) → bool
             if (publishers != address(0)) {
                 (bool blOk, bytes memory blRet) = publishers.staticcall(
-                    abi.encodeWithSelector(bytes4(0xfbac3951), claim.publisher)  // isBlocked(address)
+                    abi.encodeWithSelector(bytes4(0xfbac3951), claim.publisher)
                 );
                 if (!blOk || blRet.length < 32 || abi.decode(blRet, (bool))) {
                     result.rejectedCount++;
@@ -407,6 +411,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 }
             }
 
+            // Effects first (CEI pattern): update chain state before any external calls
+            lastClaimHash[user][claim.campaignId] = computedHash;
+            lastNonce[user][claim.campaignId] = claim.nonce;
+            // FP-5: Register nullifier before payment interactions — prevents reuse if payment reverts
+            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
+                // submitNullifier(bytes32 nullifier, uint256 campaignId)
+                IDatumNullifierRegistry(nullifierRegistry).submitNullifier(claim.nullifier, claim.campaignId);
+            }
+
             // Compute payment split for this claim
             uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
             uint256 publisherPayment = (totalPayment * cTakeRate) / 10000;
@@ -414,8 +427,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             uint256 userPayment = (rem * 7500) / 10000;
             uint256 protocolFee = rem - userPayment;
 
-            // Deduct from budget per-claim — BudgetLedger enforces daily cap correctly.
+            // Interactions: deduct from budget — BudgetLedger enforces daily cap correctly.
             // DOT is transferred to PaymentVault by BudgetLedger on each deduction.
+            // deductAndTransfer(uint256 campaignId, uint256 amount, address vault)
             (bool dOk, bytes memory dRet) = budgetLedger.call(
                 abi.encodeWithSelector(bytes4(0xcdbb1755),
                     claim.campaignId, totalPayment, paymentVault)
@@ -423,6 +437,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             require(dOk && dRet.length >= 32, "E16");
             if (abi.decode(dRet, (bool))) {
                 agg.exhausted = true;
+                agg.campaignIdExhausted = campaignId;
                 gapFound = true;  // stop processing after budget exhausted
             }
 
@@ -440,14 +455,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
 
             // Accumulate impression count for publisher stake bonding curve
             agg.impressionsSettled += claim.impressionCount;
-
-            lastClaimHash[user][claim.campaignId] = computedHash;
-            lastNonce[user][claim.campaignId] = claim.nonce;
-
-            // FP-5: Register nullifier after successful settlement
-            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
-                IDatumNullifierRegistry(nullifierRegistry).submitNullifier(claim.nullifier, claim.campaignId);
-            }
 
             result.settledCount++;
             result.totalPaid += totalPayment;
@@ -468,6 +475,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         // ── Aggregate paymentVault credit (1 call per batch instead of N) ────────
         // DOT was already transferred to PaymentVault by each budgetLedger.deductAndTransfer.
         // This call records how to split the accumulated DOT among publisher/user/protocol.
+        // recordSplit(address publisher, uint256 publisherAmt, address user, uint256 userAmt, uint256 protocolFee)
         if (agg.total > 0) {
             (bool vOk,) = paymentVault.call(
                 abi.encodeWithSelector(bytes4(0xdb96c4a4),
@@ -478,6 +486,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
 
         // ── Aggregate token reward credit (1 call per batch instead of N) ────────
         // Non-critical: don't revert if token budget exhausted — vault handles gracefully.
+        // creditReward(uint256 campaignId, address token, address user, uint256 amount)
         if (agg.tokenReward > 0) {
             tokenRewardVault.call(
                 abi.encodeWithSelector(bytes4(0x113e0e1e),
@@ -506,10 +515,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
         }
 
-        // ── Auto-complete campaign if budget exhausted ────────────────────────────
+        // ── Auto-complete campaign if budget exhausted (deferred to after all loop work) ──
+        // completeCampaign(uint256 campaignId)
         if (agg.exhausted) {
             (bool lOk,) = lifecycle.call(
-                abi.encodeWithSelector(bytes4(0x9553f180), campaignId)
+                abi.encodeWithSelector(bytes4(0x9553f180), agg.campaignIdExhausted)
             );
             require(lOk, "E02");
         }

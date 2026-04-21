@@ -32,6 +32,10 @@ describe("DatumReports", function () {
     await mock.setCampaign(1, advertiser.address, publisher.address, 100n, 5000, 1);
     // campaignId=2: open campaign (publisher=address(0))
     await mock.setCampaign(2, advertiser.address, ethers.ZeroAddress, 100n, 3000, 1);
+    // campaignId=3-15: fresh campaigns for dedup-sensitive tests (AUDIT-023)
+    for (let i = 3; i <= 15; i++) {
+      await mock.setCampaign(i, advertiser.address, publisher.address, 100n, 5000, 1);
+    }
 
     const ReportsFactory = await ethers.getContractFactory("DatumReports");
     reports = await ReportsFactory.deploy(await mock.getAddress());
@@ -100,37 +104,42 @@ describe("DatumReports", function () {
   });
 
   // RP9: PageReported event emitted correctly
+  // Uses campaign 3 — reporter1 is fresh on this campaignId (AUDIT-023 dedup)
   it("RP9: reportPage emits PageReported event", async function () {
-    await expect(reports.connect(reporter1).reportPage(1, 5))
+    await expect(reports.connect(reporter1).reportPage(3, 5))
       .to.emit(reports, "PageReported")
-      .withArgs(1n, publisher.address, reporter1.address, 5n);
+      .withArgs(3n, publisher.address, reporter1.address, 5n);
   });
 
   it("RP9b: reportAd emits AdReported event", async function () {
-    await expect(reports.connect(reporter1).reportAd(1, 2))
+    // Uses campaign 4 — reporter1 is fresh on this campaignId (AUDIT-023 dedup)
+    await expect(reports.connect(reporter1).reportAd(4, 2))
       .to.emit(reports, "AdReported")
-      .withArgs(1n, advertiser.address, reporter1.address, 2n);
+      .withArgs(4n, advertiser.address, reporter1.address, 2n);
   });
 
   // RP10: Multiple reporters accumulate independently
+  // Uses campaign 5 — reporter1, reporter2, owner all fresh on this campaignId (AUDIT-023 dedup)
   it("RP10: multiple reporters accumulate pageReports correctly", async function () {
-    const before = await reports.pageReports(1);
-    await reports.connect(reporter1).reportPage(1, 1);
-    await reports.connect(reporter2).reportPage(1, 2);
-    await reports.connect(owner).reportPage(1, 3);
-    expect(await reports.pageReports(1)).to.equal(before + 3n);
+    const before = await reports.pageReports(5);
+    await reports.connect(reporter1).reportPage(5, 1);
+    await reports.connect(reporter2).reportPage(5, 2);
+    await reports.connect(owner).reportPage(5, 3);
+    expect(await reports.pageReports(5)).to.equal(before + 3n);
   });
 
   // RP11: All valid reason codes (1-5) are accepted
+  // Uses campaigns 6-10 — one per reason code, reporter1 fresh on each (AUDIT-023 dedup)
   it("RP11: all valid reason codes 1-5 accepted for reportPage", async function () {
     for (let r = 1; r <= 5; r++) {
-      await expect(reports.connect(reporter1).reportPage(1, r)).not.to.be.reverted;
+      await expect(reports.connect(reporter1).reportPage(5 + r, r)).not.to.be.reverted;
     }
   });
 
+  // Uses campaigns 11-15 — one per reason code, reporter1 fresh on each (AUDIT-023 dedup)
   it("RP11b: all valid reason codes 1-5 accepted for reportAd", async function () {
     for (let r = 1; r <= 5; r++) {
-      await expect(reports.connect(reporter1).reportAd(1, r)).not.to.be.reverted;
+      await expect(reports.connect(reporter1).reportAd(10 + r, r)).not.to.be.reverted;
     }
   });
 });

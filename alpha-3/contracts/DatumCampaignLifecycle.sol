@@ -132,11 +132,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         // Drain remaining budget to advertiser
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
-        // FP-2: Return bond if set (non-critical — silently skip on failure)
+        // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
-            challengeBonds.call(
+            (bool cbOk,) = challengeBonds.call(
                 abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
             );
+            require(cbOk, "E02");
         }
 
         emit CampaignCompleted(campaignId);
@@ -191,11 +192,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         // Full refund to advertiser
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
-        // FP-2: Return bond if set (non-critical)
+        // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
-            challengeBonds.call(
+            (bool cbOk,) = challengeBonds.call(
                 abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
             );
+            require(cbOk, "E02");
         }
 
         emit CampaignExpired(campaignId);
@@ -248,11 +250,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Completed);
         budgetLedger.drainToAdvertiser(campaignId, advertiser);
 
-        // FP-2: Return bond if set (non-critical)
+        // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
-            challengeBonds.call(
+            (bool cbOk,) = challengeBonds.call(
                 abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
             );
+            require(cbOk, "E02");
         }
 
         emit CampaignCompleted(campaignId);

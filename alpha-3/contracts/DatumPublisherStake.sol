@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumPublisherStake.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title DatumPublisherStake
 /// @notice FP-1 + FP-4: Publisher staking with bonding-curve required stake.
@@ -35,6 +36,9 @@ contract DatumPublisherStake is IDatumPublisherStake {
     uint256 public baseStakePlanck;
     uint256 public planckPerImpression;
     uint256 public unstakeDelayBlocks;
+    /// @notice AUDIT-012: Cap on requiredStake to prevent bonding curve runaway.
+    ///         Default 10^14 planck = 10,000 DOT.
+    uint256 public maxRequiredStake = 10**14;
 
     // ── State ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +79,13 @@ contract DatumPublisherStake is IDatumPublisherStake {
         planckPerImpression = _perImpression;
         unstakeDelayBlocks = _delay;
         emit ParamsUpdated(_base, _perImpression, _delay);
+    }
+
+    /// @notice AUDIT-012: Set the bonding curve cap. Owner-only.
+    function setMaxRequiredStake(uint256 cap) external {
+        require(msg.sender == owner, "E18");
+        require(cap > 0, "E00");
+        maxRequiredStake = cap;
     }
 
     function transferOwnership(address newOwner) external {
@@ -168,7 +179,8 @@ contract DatumPublisherStake is IDatumPublisherStake {
     }
 
     function requiredStake(address publisher) public view returns (uint256) {
-        return baseStakePlanck + _cumulativeImpressions[publisher] * planckPerImpression;
+        uint256 uncapped = baseStakePlanck + _cumulativeImpressions[publisher] * planckPerImpression;
+        return Math.min(uncapped, maxRequiredStake); // AUDIT-012: cap bonding curve runaway
     }
 
     function isAdequatelyStaked(address publisher) external view returns (bool) {

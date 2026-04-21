@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 
 /// @title DatumChallengeBonds
@@ -145,8 +146,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard {
         uint256 pool  = _bonusPool[publisher];
         require(pool > 0, "E03"); // no bonus pool yet
 
-        // Proportional share: bondAmt * pool / total (capped to pool)
-        uint256 share = (bondAmt * pool) / total;
+        // AUDIT-013: Use Math.mulDiv for overflow-safe proportional share; cap to pool balance
+        uint256 share = Math.mulDiv(bondAmt, pool, total);
         if (share > pool) share = pool;
 
         // Mark claimed and burn the bond (bond is NOT returned)

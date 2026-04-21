@@ -72,6 +72,8 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         require(block.number >= lockedUntilBlock, "E45");
 
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        // AUDIT-014: Campaign must be terminal before slash reward can be claimed
+        require(status == 3 || status == 4, "E60"); // 3=Completed, 4=Terminated
         bool winner = (status == 3 && direction == 1)
                    || (status == 4 && direction == 2);
         require(winner, "E56");

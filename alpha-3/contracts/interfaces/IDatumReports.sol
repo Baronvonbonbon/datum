@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 /// @title IDatumReports
 /// @notice Interface for community reporting of campaign pages and ads.
 ///         Counters are per-campaign and cumulative per publisher/advertiser.
-///         No on-chain deduplication — Sybil filtering happens off-chain.
+///         AUDIT-023: Per-address dedup prevents a single wallet from inflating counts.
 interface IDatumReports {
     // reason: 1=spam, 2=misleading, 3=inappropriate, 4=broken, 5=other
     event PageReported(uint256 indexed campaignId, address indexed publisher, address indexed reporter, uint8 reason);

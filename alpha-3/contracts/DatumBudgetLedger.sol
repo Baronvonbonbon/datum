@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 
 /// @title DatumBudgetLedger
@@ -185,7 +186,10 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
         require(bps <= 10000, "E16");
 
         uint256 remaining = _budgets[campaignId].remaining;
-        amount = (remaining * bps + 9999) / 10000; // ceiling division — no precision loss on small balances
+        // AUDIT-009: Use Math.mulDiv for overflow-safe precision; ceiling via +1 if remainder > 0
+        uint256 floor = Math.mulDiv(remaining, bps, 10000);
+        uint256 rem = (remaining * bps) % 10000; // safe: if mulDiv didn't overflow, this won't
+        amount = rem > 0 ? floor + 1 : floor; // ceiling division
         _budgets[campaignId].remaining = remaining - amount;
 
         if (amount > 0) {

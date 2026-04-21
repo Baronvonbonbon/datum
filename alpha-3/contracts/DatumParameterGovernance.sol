@@ -56,6 +56,10 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
     address public pendingOwner;
     uint256 private _locked;
 
+    // AUDIT-004: Whitelist — only permitted targets and selectors can be executed
+    mapping(address => bool) public whitelistedTargets;
+    mapping(address => mapping(bytes4 => bool)) public permittedSelectors;
+
     uint256 public votingPeriodBlocks;
     uint256 public timelockBlocks;
     uint256 public quorum;
@@ -92,7 +96,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
     ) external payable noReentrant returns (uint256 proposalId) {
         require(msg.value == proposeBond, "E11");
         require(target != address(0), "E00");
-        require(payload.length > 0, "E11");
+        require(payload.length >= 4, "E11");
 
         proposalId = nextProposalId++;
         Proposal storage p = _proposals[proposalId];
@@ -182,6 +186,13 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
 
         p.state = State.Executed;
 
+        // AUDIT-004: Validate target and selector before execution
+        require(whitelistedTargets[p.target], "E75");
+        bytes4 sel;
+        bytes memory payload = p.payload;
+        assembly { sel := mload(add(payload, 32)) }
+        require(permittedSelectors[p.target][sel], "E76");
+
         // Execute the parameter change
         (bool ok,) = p.target.call(p.payload);
         require(ok, "E02");
@@ -211,6 +222,17 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
     }
 
     // ── Admin ────────────────────────────────────────────────────────────────────
+
+    // AUDIT-004: Whitelist management
+    function setWhitelistedTarget(address target, bool allowed) external onlyOwner {
+        require(target != address(0), "E00");
+        whitelistedTargets[target] = allowed;
+    }
+
+    function setPermittedSelector(address target, bytes4 selector, bool allowed) external onlyOwner {
+        require(target != address(0), "E00");
+        permittedSelectors[target][selector] = allowed;
+    }
 
     function setParams(
         uint256 _votingPeriodBlocks,

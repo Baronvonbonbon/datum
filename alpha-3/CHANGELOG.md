@@ -4,6 +4,57 @@
 
 ---
 
+## Internal Security Audit + ZK Rebuild (2026-04-20)
+
+### Internal security audit — all 30 items implemented
+
+Full 30-item internal audit (`SECURITY-AUDIT-2026-04-20.md`) completed. Highlights by contract:
+
+| Contract | Items | Key fixes |
+|----------|-------|-----------|
+| DatumSettlement | AUDIT-002, 010, 020, 026, 027 | Nullifier registered before payment; 10-claim batch limit; `exhausted` flag deferred past batch loop; comments corrected |
+| DatumGovernanceV2 | AUDIT-001, 011 | Conviction floor check (`E74`); symmetric grace period via `lastSignificantVoteBlock` |
+| DatumCampaignLifecycle | AUDIT-003, 015 | Bond return fail-fast (`require(cbOk, "E02")`) |
+| DatumRelay | AUDIT-006 | v-value clamp (`require(v == 27 \|\| v == 28, "E30")`) |
+| DatumPublisherGovernance | AUDIT-007 | Vote lockup enforced on withdrawVote (`E42`) |
+| DatumCampaignValidator | AUDIT-008, 025 | Non-zero targeting registry guard; `TargetingRegistryCleared` event |
+| DatumBudgetLedger | AUDIT-009 | `Math.mulDiv` in `drainFraction` |
+| DatumPublisherStake | AUDIT-012 | `maxRequiredStake = 10**14` cap enforced via `Math.min` |
+| DatumChallengeBonds | AUDIT-013 | `Math.mulDiv` for bonus computation |
+| DatumGovernanceSlash | AUDIT-014 | Status gate for finalization |
+| DatumPublishers | AUDIT-016 | Pending take-rate re-register guard (`E78`) + `PublisherTakeRateApplied` event |
+| DatumNullifierRegistry | AUDIT-017 | Campaign existence check before nullifier ops |
+| DatumZKVerifier | AUDIT-018 | `VerifyingKeySet` event on `setVerifyingKey()` |
+| DatumTokenRewardVault | AUDIT-019 | `RewardCreditSkipped` event on failed credit |
+| DatumPauseRegistry | AUDIT-021 | `p.executed = true` (no delete) |
+| DatumCampaigns | AUDIT-022 | `MINIMUM_BUDGET_PLANCK = 10**9` enforced |
+| DatumReports | AUDIT-023 | Per-address dedup (`_hasReportedPage`/`_hasReportedAd`) |
+| DatumGovernanceHelper | AUDIT-024 | `bool immutable systemPrecompileAvailable` |
+| DatumTimelock | AUDIT-029 | `PROPOSAL_TIMEOUT = 604800` (7 days) |
+| DatumSettlementRateLimiter | AUDIT-030 | `MIN_WINDOW_SIZE = 10` |
+
+### Extension ABI sync
+
+- `DatumPublisherStake.json` updated: added `maxRequiredStake` view + `setMaxRequiredStake()` function
+- `DatumPublisherGovernance.json` updated: added `VoteRefunded` event
+
+### ZK circuit artifacts rebuilt
+
+- `node scripts/setup-zk.mjs` re-run for 2-public-input circuit (claimHash, nullifier)
+- `IC2` confirmed present in `circuits/vk.json` and `circuits/setVK-calldata.json`
+- `impression.zkey` and `impression_js/impression.wasm` current
+
+### deploy.ts
+
+- Summary text fixed: "26 contracts deployed and wired" (was "25")
+
+### Tests
+
+- **472/472 contract tests passing** (all audit items verified)
+- **203/203 extension tests passing**
+
+---
+
 ## FP-1–FP-4: Fraud Prevention (2026-04-19)
 
 ### New contracts (21 → 24)

@@ -24,6 +24,7 @@ contract DatumPauseRegistry {
         uint8 action;     // 1 = pause, 2 = unpause
         address proposer;
         uint8 approvals;
+        bool executed;    // AUDIT-021: replaces delete — prevents mapping ghost state
         mapping(address => bool) voted;
     }
     mapping(uint256 => Proposal) private _proposals;
@@ -100,6 +101,7 @@ contract DatumPauseRegistry {
         require(_isGuardian(msg.sender), "E18");
         Proposal storage p = _proposals[proposalId];
         require(p.action != 0, "E01");           // proposal exists
+        require(!p.executed, "E11");             // AUDIT-021: not already executed
         require(!p.voted[msg.sender], "E11");    // not already voted
         // Validate state hasn't changed since proposal
         require(p.action == 1 ? !paused : paused, "E11");
@@ -109,8 +111,8 @@ contract DatumPauseRegistry {
         emit PauseApproved(proposalId, msg.sender);
 
         if (p.approvals >= 2) {
+            p.executed = true; // AUDIT-021: mark executed instead of delete (mapping can't be cleared)
             _execute(p.action);
-            delete _proposals[proposalId]; // single-use
         }
     }
 

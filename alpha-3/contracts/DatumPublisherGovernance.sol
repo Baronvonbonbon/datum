@@ -186,9 +186,11 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
             // Refund prior lock if unlocked; otherwise fail gracefully
             // (voter must wait for their lockup to expire before re-voting)
             require(block.number >= v.lockedUntilBlock, "E42"); // prior lock still active
-            // Refund old locked amount
-            (bool ok,) = msg.sender.call{value: v.lockAmount}("");
+            // Refund old locked amount — AUDIT-007: emit event for auditability
+            uint256 refundAmount = v.lockAmount;
+            (bool ok,) = msg.sender.call{value: refundAmount}("");
             require(ok, "E02");
+            emit VoteRefunded(proposalId, msg.sender, refundAmount);
         }
 
         uint256 weight = msg.value * _weight(conviction);

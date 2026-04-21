@@ -27,6 +27,8 @@ interface IDatumPublisherGovernance {
     event ProposalCreated(uint256 indexed proposalId, address indexed publisher, bytes32 evidenceHash);
     event VoteCast(uint256 indexed proposalId, address indexed voter, bool aye, uint256 amount, uint8 conviction);
     event VoteWithdrawn(uint256 indexed proposalId, address indexed voter, uint256 amount);
+    /// @notice AUDIT-007: Emitted when a prior vote deposit is refunded during re-vote.
+    event VoteRefunded(uint256 indexed proposalId, address indexed voter, uint256 amount);
     event ProposalResolved(uint256 indexed proposalId, address indexed publisher, bool fraudUpfield, uint256 slashAmount);
 
     // ── Actions ────────────────────────────────────────────────────────────────

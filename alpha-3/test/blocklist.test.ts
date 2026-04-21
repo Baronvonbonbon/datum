@@ -57,6 +57,9 @@ describe("S12: Blocklist & Allowlist", function () {
       await pauseReg.getAddress()
     );
 
+    // AUDIT-005: wire Campaigns address into validator so storeAllowlistSnapshot passes access check
+    await campaignValidator.setCampaigns(await campaigns.getAddress());
+
     await ledger.setCampaigns(await campaigns.getAddress());
     await campaigns.setBudgetLedger(await ledger.getAddress());
     await campaigns.setLifecycleContract(lifecycleMock.address);

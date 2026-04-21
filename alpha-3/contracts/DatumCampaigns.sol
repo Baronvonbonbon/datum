@@ -40,6 +40,9 @@ contract DatumCampaigns is IDatumCampaigns {
         _locked = false;
     }
 
+    /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
+    uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
+
     uint256 public immutable minimumCpmFloor;
     uint256 public immutable pendingTimeoutBlocks;
 
@@ -175,15 +178,21 @@ contract DatumCampaigns is IDatumCampaigns {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > bondAmount, "E11"); // msg.value must cover bond + at least some budget
         uint256 budgetValue = msg.value - bondAmount;
+        require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11"); // AUDIT-022: reject dust budgets
         require(bidCpmPlanck >= minimumCpmFloor, "E27");
         require(dailyCapPlanck > 0 && dailyCapPlanck <= budgetValue, "E12");
         require(requiredTags.length <= 8, "E66");
 
         // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator
-        (bool valid, uint16 snapshot, address snapRelaySigner, bytes32[] memory snapPubTags) =
+        (bool valid, uint16 snapshot, address snapRelaySigner, bytes32[] memory snapPubTags, bool allowlistWasEnabled) =
             campaignValidator.validateCreation(msg.sender, publisher, requiredTags);
         require(valid, "E62");
         campaignId = nextCampaignId++;
+
+        // AUDIT-005: Store allowlist snapshot if publisher had allowlist enabled at creation
+        if (allowlistWasEnabled) {
+            campaignValidator.storeAllowlistSnapshot(campaignId, msg.sender, true);
+        }
 
         _campaigns[campaignId] = Campaign({
             advertiser: msg.sender,

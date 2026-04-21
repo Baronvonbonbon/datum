@@ -59,7 +59,8 @@ contract DatumZKVerifier {
     address public owner;
     address public pendingOwner;
 
-    event VerifyingKeySet();
+    /// @notice AUDIT-018: Includes hash of the full VK for on-chain auditability.
+    event VerifyingKeySet(bytes32 indexed vkHash);
     event OwnershipTransferred(address indexed prev, address indexed next);
 
     constructor() {
@@ -93,7 +94,8 @@ contract DatumZKVerifier {
         _vk.IC1     = IC1;
         _vk.IC2     = IC2;
         vkSet = true;
-        emit VerifyingKeySet();
+        bytes32 vkHash = keccak256(abi.encode(alpha1, beta2, gamma2, delta2, IC0, IC1, IC2));
+        emit VerifyingKeySet(vkHash); // AUDIT-018: include VK hash for auditability
     }
 
     function transferOwnership(address next) external {

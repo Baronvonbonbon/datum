@@ -36,7 +36,7 @@
 ### T1-E: Deploy script expansion to 26 contracts [scripts] ✓
 - [x] deploy.ts already had all 26 contracts + full FP wiring
 - [x] setup-testnet.ts: 21 required keys (hard fail), FP keys graceful skip, step 5.8 Diana publisher stake (idempotent), all-26 summary
-- [ ] NOTE: Re-run `node scripts/setup-zk.mjs` before next testnet deploy (circuit artifacts are stale — old 1-public-input build)
+- [x] Re-run `node scripts/setup-zk.mjs` before next testnet deploy — DONE 2026-04-20 (IC2 confirmed in vk.json + setVK-calldata.json)
 
 ---
 
@@ -105,7 +105,7 @@
 
 1. [x] All T1 items complete
 2. [x] All T2 items complete (T2-E pending, requires live redeploy)
-3. [x] Run `node scripts/setup-zk.mjs` (refresh circuit artifacts for 2-public-input circuit)
+3. [x] Run `node scripts/setup-zk.mjs` (refresh circuit artifacts for 2-public-input circuit) — DONE 2026-04-20
 4. [ ] Run `npx hardhat run scripts/deploy.ts --network polkadotTestnet` (26 contracts)
 5. [ ] Run `npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet`
 6. [ ] Update all contract addresses in `extension/src/shared/networks.ts` + `web/src/shared/networks.ts`

@@ -98,6 +98,7 @@ contract DatumRelay {
                 s := calldataload(add(sig.offset, 32))
                 v := byte(0, calldataload(add(sig.offset, 64)))
             }
+            require(v == 27 || v == 28, "E30"); // AUDIT-006: validate v before ecrecover
             require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
@@ -140,6 +141,7 @@ contract DatumRelay {
                         ps := calldataload(add(pubSig.offset, 32))
                         pv := byte(0, calldataload(add(pubSig.offset, 64)))
                     }
+                    require(pv == 27 || pv == 28, "E30"); // AUDIT-006: validate v before ecrecover
                     require(uint256(ps) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
                     address pubSigner = ecrecover(pubDigest, pv, pr, ps);
                     require(pubSigner != address(0) && pubSigner == expectedPub, "E34");

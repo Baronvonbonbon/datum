@@ -28,6 +28,8 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     address public owner;
     address public pendingOwner;
     address public settlement;
+    /// @notice AUDIT-017: Campaigns contract for campaign existence check in submitNullifier.
+    address public campaigns;
 
     /// @notice Number of blocks per nullifier window.
     ///         Relay bot: windowId = floor(blockNumber / windowBlocks).
@@ -54,6 +56,13 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     // -------------------------------------------------------------------------
     // Admin
     // -------------------------------------------------------------------------
+
+    /// @notice Set the campaigns contract for campaign existence checks.
+    function setCampaigns(address addr) external {
+        require(msg.sender == owner, "E18");
+        require(addr != address(0), "E00");
+        campaigns = addr;
+    }
 
     /// @notice Set the settlement contract that is allowed to call submitNullifier.
     function setSettlement(address addr) external {
@@ -91,6 +100,15 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     /// @inheritdoc IDatumNullifierRegistry
     function submitNullifier(bytes32 nullifier, uint256 campaignId) external override {
         require(msg.sender == settlement, "E18");
+        // AUDIT-017: Verify campaign exists (non-zero status) before registering nullifier
+        if (campaigns != address(0)) {
+            (bool cOk, bytes memory cRet) = campaigns.staticcall(
+                abi.encodeWithSelector(bytes4(0xe3c76d2e), campaignId) // getCampaignForSettlement
+            );
+            require(cOk && cRet.length >= 128, "E01");
+            uint8 status = abi.decode(cRet, (uint8));
+            require(status > 0, "E01"); // campaign does not exist
+        }
         require(!_used[campaignId][nullifier], "E73");
         _used[campaignId][nullifier] = true;
         emit NullifierSubmitted(campaignId, nullifier);

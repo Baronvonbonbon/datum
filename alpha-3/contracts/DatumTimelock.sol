@@ -9,7 +9,9 @@ contract DatumTimelock {
     address public owner;
     address public pendingOwner;
 
-    uint256 public constant TIMELOCK_DELAY = 172800; // 48 hours in seconds
+    uint256 public constant TIMELOCK_DELAY = 172800;    // 48 hours in seconds
+    /// @notice AUDIT-029: Proposals expire after 7 days post-delay to prevent stale execution.
+    uint256 public constant PROPOSAL_TIMEOUT = 604800;  // 7 days in seconds
 
     address public pendingTarget;
     bytes public pendingData;
@@ -41,6 +43,8 @@ contract DatumTimelock {
     function execute() external {
         require(pendingTarget != address(0), "E36");
         require(block.timestamp >= pendingTimestamp + TIMELOCK_DELAY, "E37");
+        // AUDIT-029: Reject stale proposals — must execute within PROPOSAL_TIMEOUT after delay
+        require(block.timestamp <= pendingTimestamp + TIMELOCK_DELAY + PROPOSAL_TIMEOUT, "E37");
 
         address target = pendingTarget;
         bytes memory data = pendingData;

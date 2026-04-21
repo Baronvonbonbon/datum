@@ -1064,7 +1064,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("25 contracts deployed and wired:\n");
+  console.log("26 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }

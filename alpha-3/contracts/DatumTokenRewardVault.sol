@@ -87,7 +87,10 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
         require(user != address(0), "E00");
 
         uint256 budget = campaignTokenBudget[token][campaignId];
-        if (budget == 0) return;  // silently skip if exhausted
+        if (budget == 0) {
+            emit RewardCreditSkipped(campaignId, token, user); // AUDIT-019
+            return;
+        }
 
         uint256 credit = amount;
         if (credit > budget) {

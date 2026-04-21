@@ -305,6 +305,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await tx.wait();
     const cid = await campaigns.nextCampaignId() - 1n;
     await v2.connect(voter).vote(cid, true, 0, { value: QUORUM });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period requires block cooldown
     await v2.evaluateCampaign(cid);
     expect(await campaigns.getCampaignStatus(cid)).to.equal(1, `campaign ${cid} not Active`);
     return cid;
@@ -529,16 +530,20 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-RL-2: claims exceeding cap rejected with reason 14", async function () {
+      // Create both campaigns first (before window mining) so the two settlements
+      // are in the same window — newActiveCampaign mines ~52 blocks for AUDIT-011 grace,
+      // which could cross a 200-block window boundary if done between settlements.
+      const cid1 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
+      const cid2 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
+
       // Mine past current window so we get a fresh start
       await mineBlocks(210);
 
-      const cid1 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
       // Use 49900 impressions (just under 50000 cap)
       const c1 = buildClaims(cid1, publisher.address, user.address, 1, RL_CPM, 49900n);
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid1, claims: c1 }]);
 
       // Next claim: 200 more → 50100 total > 50000 cap → rejected
-      const cid2 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
       const hash = ethers.solidityPackedKeccak256(
         ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
         [cid2, publisher.address, user.address, 200n, RL_CPM, 1n, ethers.ZeroHash]
@@ -663,12 +668,23 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   describe("BM-RPT: Community reports (DatumReports)", function () {
     // Create a fixed campaign to report on — use mock-compatible createCampaign
     let reportCampaignId: bigint;
+    // Extra campaigns for BM-RPT-3: dedup prevents same address from reporting same campaignId twice (AUDIT-023)
+    let rptPageCampaignIds: bigint[];
+    let rptAdCampaignIds: bigint[];
     const RPT_CPM    = parseDOT("0.2");
     const RPT_BUDGET = parseDOT("20");
     const RPT_DAILY  = parseDOT("4");
 
     before(async function () {
       reportCampaignId = await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM);
+      // 5 separate campaigns per reporter for each reason code in BM-RPT-3
+      // (AUDIT-023 dedup: same address cannot report same campaign twice)
+      rptPageCampaignIds = [];
+      rptAdCampaignIds   = [];
+      for (let i = 0; i < 5; i++) {
+        rptPageCampaignIds.push(await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM));
+        rptAdCampaignIds.push(await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM));
+      }
     });
 
     it("BM-RPT-1: reportPage increments pageReports and emits event", async function () {
@@ -688,9 +704,10 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-RPT-3: all 5 valid reason codes accepted", async function () {
+      // Use separate campaigns per iteration — AUDIT-023 dedup prevents re-reporting same campaign
       for (let r = 1; r <= 5; r++) {
-        await expect(reports.connect(user).reportPage(reportCampaignId, r)).not.to.be.reverted;
-        await expect(reports.connect(user).reportAd(reportCampaignId, r)).not.to.be.reverted;
+        await expect(reports.connect(user).reportPage(rptPageCampaignIds[r - 1], r)).not.to.be.reverted;
+        await expect(reports.connect(user).reportAd(rptAdCampaignIds[r - 1], r)).not.to.be.reverted;
       }
     });
 
@@ -878,6 +895,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
         // Vote + activate
         await v2.connect(voter).vote(cid, true, 0, { value: QUORUM });
+        await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
         await v2.evaluateCampaign(cid);
         expect(await campaigns.getCampaignStatus(cid)).to.equal(1);
 

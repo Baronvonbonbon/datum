@@ -101,6 +101,8 @@ contract DatumGovernanceV2 {
     mapping(uint256 => uint256) public slashCollected;
     mapping(uint256 => mapping(address => Vote)) private _votes;
     mapping(uint256 => uint256) public firstNayBlock;
+    // AUDIT-011: track last block where a vote changed the decisive side, for symmetric grace period
+    mapping(uint256 => uint256) public lastSignificantVoteBlock;
 
     // SM-5: Snapshot winning weight at resolution time (not finalization)
     mapping(uint256 => uint256) public resolvedWinningWeight;
@@ -197,6 +199,8 @@ contract DatumGovernanceV2 {
         require(msg.value > 0, "E41");
 
         Vote storage v = _votes[campaignId][msg.sender];
+        // AUDIT-001: conviction floor — cannot downgrade conviction on an active vote
+        require(conviction >= v.conviction, "E74");
         require(v.direction == 0, "E42");
 
         (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
@@ -218,6 +222,9 @@ contract DatumGovernanceV2 {
                 firstNayBlock[campaignId] = block.number;
             }
         }
+
+        // AUDIT-011: record last decisive-side vote block for symmetric grace period
+        lastSignificantVoteBlock[campaignId] = block.number;
 
         emit VoteCast(campaignId, msg.sender, aye, msg.value, conviction);
     }
@@ -283,6 +290,14 @@ contract DatumGovernanceV2 {
                         && nayWeighted[campaignId] >= terminationQuorum;
 
             if (ayeWins) {
+                // AUDIT-011: symmetric grace period — aye activation requires same cooldown as nay termination
+                uint256 ayeGrace = baseGraceBlocks;
+                if (quorumWeighted > 0) {
+                    ayeGrace += total * gracePerQuorum / quorumWeighted;
+                }
+                if (ayeGrace > maxGraceBlocks) ayeGrace = maxGraceBlocks;
+                uint256 lastVote = lastSignificantVoteBlock[campaignId];
+                require(lastVote == 0 || ayeGrace == 0 || block.number >= lastVote + ayeGrace, "E53");
                 IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
                 emit CampaignEvaluated(campaignId, 1);
             } else if (nayWins) {

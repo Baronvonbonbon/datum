@@ -256,6 +256,7 @@ describe("DatumGovernanceV2", function () {
   it("E1: evaluate Pending→Active (aye majority + quorum)", async function () {
     const cid = await setupCampaign(0);
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
 
     await v2.evaluateCampaign(cid);
     expect(await mock.getCampaignStatus(cid)).to.equal(1); // Active
@@ -282,6 +283,7 @@ describe("DatumGovernanceV2", function () {
 
     // Step 1: Activate
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(cid);
     expect(await mock.getCampaignStatus(cid)).to.equal(1); // Active
 
@@ -375,6 +377,7 @@ describe("DatumGovernanceV2", function () {
 
     // Activate
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(cid);
 
     // Nay majority: nayStake = 2x QUORUM, total = 3*QUORUM, nay% = 66%
@@ -397,6 +400,7 @@ describe("DatumGovernanceV2", function () {
 
     // Activate
     await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(cid);
 
     // Huge nay vote → grace would exceed MAX_GRACE

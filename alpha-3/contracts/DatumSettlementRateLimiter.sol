@@ -21,6 +21,9 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     address public owner;
     address public pendingOwner;
 
+    /// @notice AUDIT-030: Minimum window size to prevent DOS via near-zero windowBlocks.
+    uint256 public constant MIN_WINDOW_SIZE = 10;
+
     /// @notice Number of blocks per rate-limit window. ~100 blocks ≈ 10 min on Paseo (6s/block).
     uint256 public windowBlocks;
 
@@ -34,7 +37,7 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     constructor(uint256 _windowBlocks, uint256 _maxPublisherImpressionsPerWindow) {
-        require(_windowBlocks > 0, "E11");
+        require(_windowBlocks >= MIN_WINDOW_SIZE, "E11"); // AUDIT-030
         require(_maxPublisherImpressionsPerWindow > 0, "E11");
         owner = msg.sender;
         windowBlocks = _windowBlocks;
@@ -49,7 +52,7 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     /// @notice Update window size and per-publisher impression cap.
     function setLimits(uint256 _windowBlocks, uint256 _maxPublisherImpressionsPerWindow) external {
         require(msg.sender == owner, "E18");
-        require(_windowBlocks > 0, "E11");
+        require(_windowBlocks >= MIN_WINDOW_SIZE, "E11"); // AUDIT-030
         require(_maxPublisherImpressionsPerWindow > 0, "E11");
         windowBlocks = _windowBlocks;
         maxPublisherImpressionsPerWindow = _maxPublisherImpressionsPerWindow;

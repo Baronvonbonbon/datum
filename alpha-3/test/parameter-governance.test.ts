@@ -47,6 +47,10 @@ describe("DatumParameterGovernance", function () {
     // For ABI encoding tests only (no ownership needed)
     const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
     stakeContract = await StakeFactory.deploy(1_000_000_000n, 1_000n, 100n);
+
+    // AUDIT-004: whitelist MockCallTarget so PGV11 execute() can proceed
+    await gov.connect(owner).setWhitelistedTarget(await target.getAddress(), true);
+    await gov.connect(owner).setPermittedSelector(await target.getAddress(), "0xdeadbeef", true);
   });
 
   // ── PGV1: propose happy path ─────────────────────────────────────────────────
@@ -199,7 +203,7 @@ describe("DatumParameterGovernance", function () {
   it("PGV12 execute — before timelock reverts E40", async function () {
     // Create a new proposal and pass it, then try to execute immediately
     await gov.connect(proposer).propose(
-      await target.getAddress(), "0x01", "Early execute test",
+      await target.getAddress(), "0xdeadbeef", "Early execute test",
       { value: PROPOSE_BOND }
     );
     const proposalId = await gov.nextProposalId() - 1n;
@@ -229,7 +233,7 @@ describe("DatumParameterGovernance", function () {
 
   it("PGV13 reject — bond slashed to owner when quorum not met", async function () {
     await gov.connect(proposer).propose(
-      await target.getAddress(), "0x01", "No quorum",
+      await target.getAddress(), "0xdeadbeef", "No quorum",
       { value: PROPOSE_BOND }
     );
     const proposalId = await gov.nextProposalId() - 1n;
@@ -253,7 +257,7 @@ describe("DatumParameterGovernance", function () {
 
   it("PGV14 cancel — owner cancels, bond slashed", async function () {
     await gov.connect(proposer).propose(
-      await target.getAddress(), "0x01", "Cancel me",
+      await target.getAddress(), "0xdeadbeef", "Cancel me",
       { value: PROPOSE_BOND }
     );
     const proposalId = await gov.nextProposalId() - 1n;
@@ -272,7 +276,7 @@ describe("DatumParameterGovernance", function () {
 
   it("PGV15 cancel — non-owner reverts E18", async function () {
     await gov.connect(proposer).propose(
-      await target.getAddress(), "0x01", "Non-owner cancel",
+      await target.getAddress(), "0xdeadbeef", "Non-owner cancel",
       { value: PROPOSE_BOND }
     );
     const proposalId = await gov.nextProposalId() - 1n;

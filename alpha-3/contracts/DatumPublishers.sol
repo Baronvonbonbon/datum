@@ -80,6 +80,8 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
             "Take rate out of range"
         );
         require(newTakeRateBps != _publishers[msg.sender].takeRateBps, "E15");
+        // AUDIT-016: Prevent overwriting a pending update that hasn't been applied yet
+        require(_publishers[msg.sender].pendingTakeRateBps == 0, "E78");
 
         Publisher storage pub = _publishers[msg.sender];
         pub.pendingTakeRateBps = newTakeRateBps;

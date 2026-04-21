@@ -9,6 +9,8 @@ interface IDatumTokenRewardVault {
     event TokenBudgetDeposited(uint256 indexed campaignId, address indexed token, uint256 amount);
     event TokenRewardCredited(uint256 indexed campaignId, address indexed token, address indexed user, uint256 amount);
     event BudgetExhausted(uint256 indexed campaignId, address indexed token);
+    /// @notice AUDIT-019: Emitted when creditReward silently skips due to zero budget.
+    event RewardCreditSkipped(uint256 indexed campaignId, address indexed token, address indexed user);
     event TokenWithdrawal(address indexed user, address indexed token, uint256 amount);
     event TokenBudgetReclaimed(uint256 indexed campaignId, address indexed token, address indexed advertiser, uint256 amount);
 

@@ -14,6 +14,8 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
     address public immutable campaigns;
+    /// @notice AUDIT-024: Precompile availability captured at deploy — avoids repeated runtime check.
+    bool public immutable systemPrecompileAvailable;
 
     // Campaign status enum values — must match IDatumCampaigns.CampaignStatus
     uint8 private constant STATUS_COMPLETED   = 3;
@@ -26,6 +28,7 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
     constructor(address _campaigns) {
         require(_campaigns != address(0), "E00");
         campaigns = _campaigns;
+        systemPrecompileAvailable = SYSTEM_ADDR.code.length > 0; // AUDIT-024
     }
 
     /// @inheritdoc IDatumGovernanceHelper
@@ -45,7 +48,7 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
 
     /// @inheritdoc IDatumGovernanceHelper
     function checkMinBalance(uint256 amount) external view {
-        if (SYSTEM_ADDR.code.length > 0) {
+        if (systemPrecompileAvailable) {
             uint256 minBal = SYSTEM.minimumBalance();
             require(amount >= minBal, "E58");
         }

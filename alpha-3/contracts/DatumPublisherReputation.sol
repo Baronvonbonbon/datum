@@ -110,11 +110,14 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumPublisherReputation
+    /// @dev AUDIT-028: Returns 10000 (perfect) for publishers with no recorded activity.
+    ///      This avoids penalising newly registered publishers before they have settled any claims.
+    ///      Callers that require proven history should also check totalSettled > 0.
     function getScore(address publisher) external view override returns (uint16 score) {
         uint256 s = totalSettled[publisher];
         uint256 r = totalRejected[publisher];
         uint256 total = s + r;
-        if (total == 0) return 10000; // No data: assume perfect
+        if (total == 0) return 10000; // No data: assume perfect (see AUDIT-028 note above)
         return uint16((s * 10000) / total);
     }
 

@@ -194,15 +194,15 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
 
   it("BM2-2: claims exceeding cap are rejected with reason 13", async function () {
     const campaignId = await createTestCampaign();
-    // First batch: 50 claims × 1900 impressions = 95,000 (within cap)
-    const claims1 = buildClaimChain(campaignId, publisher.address, user.address, 50, BID_CPM, 1900n);
+    // First batch: 9 claims × 10000 impressions = 90,000 (within cap, ≤10 per batch)
+    const claims1 = buildClaimChain(campaignId, publisher.address, user.address, 9, BID_CPM, 10000n);
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: claims1 }]);
-    expect(await settlement.userCampaignSettled(user.address, campaignId)).to.equal(95000n);
+    expect(await settlement.userCampaignSettled(user.address, campaignId)).to.equal(90000n);
 
-    // Second batch: nonce 51, 10000 impressions → 95000 + 10000 = 105,000 > cap
+    // Second batch: nonce 10, 10001 impressions → 90000 + 10001 = 100,001 > cap (100,000)
     let prevHash = await settlement.lastClaimHash(user.address, campaignId);
-    const nonce = 51n;
-    const impressions = 10000n;
+    const nonce = 10n;
+    const impressions = 10001n;
     const hash = ethers.solidityPackedKeccak256(
       ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
       [campaignId, publisher.address, user.address, impressions, BID_CPM, nonce, prevHash]
@@ -233,16 +233,16 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
 
   it("BM2-3: cap is per-user per-campaign (different users independent)", async function () {
     const campaignId = await createTestCampaign();
-    // user settles 50,000
-    const claims1 = buildClaimChain(campaignId, publisher.address, user.address, 50, BID_CPM, 1000n);
+    // user settles 50,000 (5 claims × 10000, ≤10 per batch)
+    const claims1 = buildClaimChain(campaignId, publisher.address, user.address, 5, BID_CPM, 10000n);
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: claims1 }]);
 
-    // other settles 50,000 — should work (independent cap)
-    const claims2 = buildClaimChain(campaignId, publisher.address, other.address, 50, BID_CPM, 1000n);
+    // other settles 50,000 — should work (independent cap, ≤10 per batch)
+    const claims2 = buildClaimChain(campaignId, publisher.address, other.address, 5, BID_CPM, 10000n);
     const result = await settlement.connect(other).settleClaims.staticCall([
       { user: other.address, campaignId, claims: claims2 }
     ]);
-    expect(result.settledCount).to.equal(50n);
+    expect(result.settledCount).to.equal(5n);
   });
 
   it("BM2-4: MAX_USER_IMPRESSIONS is 100,000", async function () {

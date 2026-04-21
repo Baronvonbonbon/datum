@@ -1,6 +1,6 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-04-17
+**Last Updated:** 2026-04-20
 **Current Phase:** Alpha-3 (canonical, deployed on Paseo)
 **Testnet:** Paseo (Chain ID 420420417)
 **Web App:** https://datum.javcon.io
@@ -11,7 +11,7 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub (PolkaVM). Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04-10). The web app is live at **https://datum.javcon.io** (32 pages, 21-contract support). The alpha-3 browser extension is built (168/168 tests, 4-tab popup with Filters). All CRITICAL and HIGH security findings fixed. Pine RPC light-client bridge added. Alpha-2 archived.
+Alpha-3 is at feature-complete pre-audit status. **26 contracts** authored (21 live on Paseo v6, 5 FP contracts pending next redeploy). The web app is live at **https://datum.javcon.io** (37 pages, 26-contract support). The alpha-3 browser extension is built (203/203 tests, 4-tab popup with Filters). **All 30 internal security audit items implemented.** ZK circuit artifacts rebuilt for 2-public-input circuit. Pine RPC light-client bridge added. Alpha-2 archived.
 
 ---
 
@@ -19,7 +19,7 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 
 ### Smart Contracts — `alpha-3/contracts/` (canonical)
 
-**21 contracts**, 353/353 Hardhat EVM tests passing.
+**26 contracts**, 472/472 Hardhat EVM tests passing.
 
 | Contract | Group | Role | Deployed |
 |----------|-------|------|----------|
@@ -33,8 +33,8 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 | CampaignValidator | Campaign | Creation-time validation satellite | ✅ |
 | Campaigns | Campaign | Campaign creation, metadata, status, snapshots, token reward config | ✅ |
 | CampaignLifecycle | Campaign | complete / terminate / expire + P20 inactivity (30d) | ✅ |
-| ClaimValidator | Settlement | Claim validation: chain continuity, blocklist, rate-limit, ZK | ✅ |
-| Settlement | Settlement | Main entry: hash-chain + Blake2 + 3-way DOT split + non-critical token credit | ✅ |
+| ClaimValidator | Settlement | Claim validation: chain continuity, blocklist, rate-limit, ZK, publisher stake | ✅ |
+| Settlement | Settlement | Hash-chain + Blake2 + 3-way DOT split + token credit + `settleClaimsMulti` | ✅ |
 | SettlementRateLimiter | Settlement | BM-5: window-based per-publisher impression cap | ✅ |
 | AttestationVerifier | Settlement | P1: EIP-712 mandatory publisher co-signature | ✅ |
 | Publishers | Publisher | Registration, take rates, relay signer, profile, S12 blocklist | ✅ |
@@ -43,14 +43,20 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 | GovernanceHelper | Governance | Read-only aggregation helpers | ✅ |
 | GovernanceSlash | Governance | Slash pool finalization, winner rewards, 365d sweep | ✅ |
 | Reports | Satellite | Community reporting: `reportPage()` / `reportAd()`, reasons 1-5 | ✅ |
-| PublisherReputation | Satellite | BM-8 score + BM-9 anomaly detection (reporter pattern) | ✅ |
+| PublisherReputation | Satellite | BM-8 score + BM-9 anomaly detection (wired via Settlement) | ✅ |
+| PublisherStake | FP | FP-1+FP-4: Publisher DOT bonding curve; Settlement enforces; reason code 15 | ⏳ pending redeploy |
+| ChallengeBonds | FP | FP-2: Advertiser bonds at campaign creation; bonus from slash pool on fraud | ⏳ pending redeploy |
+| PublisherGovernance | FP | FP-3: Conviction-weighted fraud governance targeting publishers | ⏳ pending redeploy |
+| NullifierRegistry | FP | FP-5: Per-user per-campaign per-window ZK nullifier replay prevention (E73) | ⏳ pending redeploy |
+| ParameterGovernance | FP | FP-15: Conviction-vote DAO for protocol parameters | ⏳ pending redeploy |
 
 **New in alpha-3 (vs alpha-2):**
-- 8 new contracts: TargetingRegistry, CampaignValidator, ClaimValidator, GovernanceHelper, Reports, SettlementRateLimiter, PublisherReputation, TokenRewardVault
+- 13 new contracts: TargetingRegistry, CampaignValidator, ClaimValidator, GovernanceHelper, Reports, SettlementRateLimiter, PublisherReputation, TokenRewardVault, PublisherStake, ChallengeBonds, PublisherGovernance, NullifierRegistry, ParameterGovernance
 - Campaigns: `createCampaign` takes `requiredTags` (bytes32[]) + `requireZkProof` bool + optional `rewardToken`/`rewardPerImpression`
 - Publishers: `relaySigner`, `profileHash` mappings; `setRelaySigner()`, `setProfile()`
-- Settlement: `setRateLimiter()`, `setPublishers()` for S12 blocklist; non-critical `creditReward()` call to TokenRewardVault
-- Security fixes: C-1, C-2, H-1, H-2, H-3, S4, S6, T1-T3, empty-claims OOB, impression cap, blocklist fail-safe
+- Settlement: `settleClaimsMulti` (cross-user/campaign batching), `setRateLimiter()`, `setPublishers()`, non-critical `creditReward()` to TokenRewardVault, on-chain `recordSettlement()` to Reputation
+- ZK circuit: 2 public inputs (claimHash, nullifier); artifacts rebuilt 2026-04-20 with IC2
+- Security: all 30 internal audit items implemented (SECURITY-AUDIT-2026-04-20.md)
 
 **Toolchain:** Solidity 0.8.24, resolc 1.0.0, Hardhat 2.22, OZ 5.0, optimizer mode `z`
 
@@ -58,7 +64,7 @@ Alpha-3 is deployed. **All 21 contracts** are live on Paseo testnet (v6, 2026-04
 
 ### Browser Extension — `alpha-3/extension/` (alpha-3)
 
-v0.2.0, 21-contract support. 168/168 Jest tests passing. Manifest V3, Chrome/Chromium.
+v0.2.0, 26-contract support. 203/203 Jest tests passing. Manifest V3, Chrome/Chromium.
 
 **4-tab popup:** Claims, Earnings, Settings, Filters.
 
@@ -72,7 +78,9 @@ Key features:
 - **Report overlay** — ⚑ Report button, click-to-open reason picker (only on click, not on ad load)
 - **Publisher profile section** — in Settings: relay signer and profile hash display
 - **Second-price Vickrey auction** — interest-weighted effective bids; solo/floor/second-price mechanisms
-- **21-contract support** — all ABIs synced including Reports, RateLimiter, Reputation, TokenRewardVault
+- **26-contract support** — all 24 ABIs synced (incl. PublisherStake, ChallengeBonds, PublisherGovernance with full FP events)
+- **Native Asset Hub token metadata** — registry fallback for ERC-20 precompile addresses (no `symbol()`/`decimals()` call for known assets)
+- **FP state in Settings** — publisher stake balance + required stake, challenge bond status
 - EIP-1193 provider bridge, engagement tracking, IPFS multi-gateway (5 fallbacks), Shadow DOM ad injection, phishing list, content safety, AES-256-GCM multi-account wallet, auto-submit, claim export (P6), timelock monitor (H2)
 
 ---
@@ -81,18 +89,18 @@ Key features:
 
 v0.3.0, React 18 + Vite 6 + TypeScript + ethers v6. 0 TS errors.
 
-**32 pages across 6 sections:**
+**37 pages across 6 sections:**
 
 | Section | Count | Pages |
 |---------|-------|-------|
 | Explorer | 6 | Overview, HowItWorks, Campaigns, CampaignDetail, Publishers, PublisherProfile |
-| Advertiser | 6 | Dashboard, CreateCampaign (+ ERC-20 config), AdvertiserProfile, CampaignDetail, SetMetadata, Analytics |
+| Advertiser | 6 | Dashboard, CreateCampaign (+ native Asset Hub token toggle), AdvertiserProfile, CampaignDetail, SetMetadata, Analytics |
 | Publisher | 8 | Dashboard, Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile |
 | Governance | 4 | Dashboard, Vote, MyVotes, Parameters |
-| Admin | 6 | Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation |
-| Root | 2 | Demo (browse simulator + interest profile), Settings (network, RPC, 21 addresses, IPFS) |
+| Admin | 11 | Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation, PublisherStake, PublisherGovernance, ChallengeBonds, NullifierRegistry, ParameterGovernance |
+| Root | 2 | Demo (browse simulator + interest profile), Settings (network, RPC, 26 addresses, IPFS) |
 
-21-contract support. Deep-merge fix for contractAddresses. Null guard in contract factory. Theme toggle. Role badges. Demo page with live Vickrey auction simulation and interest profile bar chart.
+26-contract support. Native Asset Hub token precompile support in CreateCampaign. Challenge bond display in CampaignDetail. Deep-merge fix for contractAddresses. Null guard in contract factory. Theme toggle. Role badges. Demo page with live Vickrey auction simulation and interest profile bar chart.
 
 ---
 
@@ -131,7 +139,7 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations, process
 
 ---
 
-## Testnet Deployment (Paseo — Alpha-3 v6, 2026-04-10)
+## Testnet Deployment (Paseo — Alpha-3 v6, 2026-04-06)
 
 | Item | Value |
 |------|-------|
@@ -140,11 +148,13 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations, process
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
 | Web App | `https://datum.javcon.io` |
 | Currency | PAS (planck = 10^-10 PAS) |
-| Deployed | 2026-04-10 (v6: all 21 contracts, full redeploy) |
+| Deployed | 2026-04-06 (v6: all 21 contracts, full redeploy) |
 | Deployer | Alice `0x94CC36412EE0c099BfE7D61a35092e40342F62D7` |
 | Publisher | Diana `0xcA5668fB864Acab0aC7f4CFa73949174720b58D0` (50% take rate, relay signer) |
 
-### Alpha-3 Contract Addresses (v6 — all 21 deployed)
+**Note:** 5 FP contracts (PublisherStake, ChallengeBonds, PublisherGovernance, NullifierRegistry, ParameterGovernance) are ready in deploy.ts but pending v7 redeploy. ZK artifacts rebuilt 2026-04-20 for 2-public-input circuit.
+
+### Alpha-3 Contract Addresses (v6 — 21 deployed; 5 FP pending v7)
 
 | Contract | Address |
 |----------|---------|
@@ -180,9 +190,9 @@ Source: `alpha-3/deployed-addresses.json` (authoritative). Ownership: Campaigns,
 |-----------|-------|--------|
 | Alpha contracts | 132 | Passing (archived) |
 | Alpha-2 contracts | 187 | Passing (archived) |
-| Alpha-3 contracts | 353 / 353 | All passing |
-| Extension (alpha-3) | 168 / 168 | All passing |
-| **Total active** | **640 / 640** | |
+| Alpha-3 contracts | 472 / 472 | All passing |
+| Extension (alpha-3) | 203 / 203 | All passing |
+| **Total active** | **675 / 675** | |
 
 ---
 
@@ -194,8 +204,8 @@ Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Exten
 ### ✅ 2. Alpha-3 Deploy — DONE
 All 21 contracts deployed to Paseo 2026-04-10 (v6: full redeploy including TokenRewardVault).
 
-### ✅ 3. Security Audit (CRITICAL/HIGH) — DONE
-C-1, C-2, H-1, H-2, H-3 fixed 2026-03-28. S4, S6, T1-T3 fixed 2026-04-04.
+### ✅ 3. Security Audit (Internal — All 30 Items) — DONE
+C-1, C-2, H-1, H-2, H-3 fixed 2026-03-28. S4, S6, T1-T3 fixed 2026-04-04. Full 30-item internal audit (SECURITY-AUDIT-2026-04-20.md) implemented 2026-04-20. External audit pending.
 
 ### ✅ 4. Bot Mitigation (BM-5) — DONE
 DatumSettlementRateLimiter deployed. Window-based per-publisher impression cap. Wired in Settlement via `setRateLimiter()`.
@@ -204,7 +214,7 @@ DatumSettlementRateLimiter deployed. Window-based per-publisher impression cap. 
 DatumPublisherReputation deployed. Relay bot wired. Web admin UI at `/admin/reputation`. Reporter (Diana) wired via setup-testnet.ts step 5.7.
 
 ### ✅ 6. Real ZK Verifier — DONE
-Groth16/BN254 verifier live on Paseo. Trusted setup via `scripts/setup-zk.mjs`. Verifying key set post-deploy. 33-constraint impression circuit.
+Groth16/BN254 verifier live on Paseo. Trusted setup via `scripts/setup-zk.mjs`. Verifying key set post-deploy. Circuit: 2 public inputs (claimHash, nullifier). Artifacts rebuilt 2026-04-20; IC2 confirmed in vk.json + setVK-calldata.json.
 
 ### ✅ 7. Pine RPC Light Client — DONE (alpha)
 smoldot-based EIP-1193 provider in `pine/`. Translates eth JSON-RPC to Substrate ReviveApi calls. Eliminates centralized RPC proxy dependency for read operations and tx broadcast.
@@ -248,12 +258,12 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 | Category | Items | Status |
 |----------|-------|--------|
 | Targeting redesign (TX-*) | 7 | ✅ Core done (TX-1 through TX-4, TX-7) |
-| Bot mitigation (BM-*) | 9 | BM-2, BM-3, BM-5, BM-7, BM-8, BM-9 done; BM-6 open |
-| Security HIGH | 4 | ✅ All fixed |
-| Security MEDIUM | 6 | 4 fixed, 2 open (AttestationVerifier open-campaign, drainFraction precision) |
-| Security LOW | 5 | 2 fixed, 3 open (low risk) |
+| Bot mitigation (BM-*) | 9 | ✅ BM-2, BM-3, BM-5, BM-7, BM-8, BM-9 done; BM-6 deferred (viewability dispute) |
+| Fraud prevention (FP-*) | 5 | ✅ FP-1–FP-5, FP-15 implemented; FP-8 partial; others deferred |
+| Internal security audit | 30 | ✅ All 30 items implemented (SECURITY-AUDIT-2026-04-20.md) |
 | Pre-mainnet (S12 governance blocklist) | 1 | Open — hybrid admin/governance blocklist needs contract change |
-| User economics (UX + payout) | 4 | Token withdrawal UI + ERC-20 approve flow done; cross-campaign batching, auto-sweep open |
+| User economics (UX + payout) | 4 | ✅ Token withdrawal, ERC-20 approve flow, auto-sweep done; cross-campaign batching open |
+| Native Asset Hub token sidecar | 1 | ✅ Done — ERC-20 precompile registry, CreateCampaign toggle, extension metadata fallback |
 | Pine RPC | 3 | Alpha done; eth_subscribe, filter subs, production hardening open |
 | Pre-mainnet gate (MG-*) | 7 | External audit, Kusama deploy — not started |
 
@@ -263,14 +273,15 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 
 ```
 datum/
-├── alpha-3/          # Canonical contracts (21), tests (306), extension (156 tests)
-├── web/              # Web app (React + Vite, 32 pages, 21-contract support)
+├── alpha-3/          # Canonical contracts (26), tests (472), extension (203 tests)
+├── web/              # Web app (React + Vite, 37 pages, 26-contract support)
 ├── sdk/              # Publisher SDK (datum-sdk.js)
 ├── pine/             # Pine RPC: smoldot light-client eth JSON-RPC bridge
 ├── docs/             # Demo page + relay template
 ├── relay-bot/        # Publisher relay (gitignored) — BM-8/BM-9 wired
 ├── archive/          # PoC, alpha (9), alpha-2 (13), old extensions
 ├── BENCHMARKS.md     # Gas costs, settlement economics, CPM break-even analysis
+├── SECURITY-AUDIT-2026-04-20.md  # Internal audit — all 30 items implemented
 ├── SECURITY-AUDIT.md # 3-part audit with fix status tracker
 ├── BACKLOG.md        # Bugs, issues, missing features, open items
 ├── STATUS.md         # This file

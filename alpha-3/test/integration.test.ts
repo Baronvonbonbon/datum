@@ -206,6 +206,7 @@ describe("Integration", function () {
 
     // Vote aye (conviction 0 = 1x weight, no lockup)
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
 
     // Evaluate → Active
     await v2.evaluateCampaign(campaignId);
@@ -266,6 +267,7 @@ describe("Integration", function () {
 
     // Activate
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
 
@@ -320,6 +322,7 @@ describe("Integration", function () {
   it("D: Gap at claim 3 of 5 — only 1-2 settle", async function () {
     const campaignId = await createTestCampaign();
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const all5 = buildClaims(campaignId, publisher.address, user.address, 5, BID_CPM, 100n);
@@ -355,6 +358,7 @@ describe("Integration", function () {
 
     // Activate and settle
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const impressions = 1000n;
@@ -374,6 +378,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
 
@@ -446,6 +451,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
 
@@ -476,6 +482,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const impressions = 1000n;
@@ -498,6 +505,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const impressions = 1000n;
@@ -544,6 +552,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const impressions = 1000n;
@@ -562,6 +571,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const impressions = 1000n;
@@ -604,6 +614,7 @@ describe("Integration", function () {
     const campaignId = await createTestCampaign();
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
@@ -625,6 +636,7 @@ describe("Integration", function () {
     const campaignId = await campaigns.nextCampaignId() - 1n;
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
@@ -672,6 +684,7 @@ describe("Integration", function () {
     const campaignId = await campaigns.nextCampaignId() - 1n;
 
     await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n); // AUDIT-011: symmetric grace period
     await v2.evaluateCampaign(campaignId);
 
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
