@@ -10,6 +10,8 @@ export interface PinResult {
   ok: boolean;
   cid?: string;
   error?: string;
+  /** Non-fatal notice shown to the user (e.g. local-only pin visibility warning). */
+  warning?: string;
 }
 
 export interface PinConfig {
@@ -222,7 +224,23 @@ async function pinViaKubo(endpoint: string, apiKey: string, metadata: CampaignMe
     } catch { /* skip malformed line */ }
   }
   if (!cid) return { ok: false, error: "IPFS node response contained no CID — check CORS and node version" };
-  return { ok: true, cid };
+
+  // Fire-and-forget: ask public gateways to fetch the CID from the DHT.
+  // If the local node is publicly reachable, this seeds their cache so remote
+  // devices can load the creative. Silently ignored if the node is behind NAT.
+  const PUBLIC_GATEWAYS = ["https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/"];
+  for (const gw of PUBLIC_GATEWAYS) {
+    fetch(`${gw}${cid}`, { method: "HEAD" }).catch(() => {/* best-effort */});
+  }
+
+  return {
+    ok: true,
+    cid,
+    warning:
+      "Content pinned to local node only. Remote devices may not see it unless " +
+      "your IPFS node is publicly reachable (port 4001 open). " +
+      "For reliable remote access, also pin using Pinata or Web3.Storage.",
+  };
 }
 
 /** Validate custom endpoint URL — reject private/internal IPs and non-HTTPS */

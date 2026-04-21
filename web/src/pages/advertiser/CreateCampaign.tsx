@@ -244,7 +244,8 @@ export function CreateCampaign() {
     try {
       const pinResult = await pinToIPFS({ provider: settings.ipfsProvider ?? "pinata", apiKey, endpoint: settings.ipfsApiEndpoint }, validated);
       if (!pinResult.ok || !pinResult.cid) throw new Error(pinResult.error ?? "IPFS pin failed");
-      setPinStatus(`Pinned: ${pinResult.cid}`);
+      setPinStatus(`Pinned: ${pinResult.cid}${pinResult.warning ? " ⚠ local-only" : ""}`);
+      if (pinResult.warning) push(pinResult.warning, "warning");
 
       const metadataHash = cidToBytes32(pinResult.cid);
       const c = contracts.campaigns.connect(signer);

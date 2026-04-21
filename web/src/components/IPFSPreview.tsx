@@ -27,9 +27,13 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
     if (!primaryUrl) { setLoading(false); return; }
 
     // Fallback gateways tried in order when the primary returns 404.
-    // Local Kubo gateway first (handles locally-pinned testnet metadata).
+    // Only include localhost when the page itself is served from localhost —
+    // on remote devices localhost:8080 is that device's own machine (empty).
+    const isLocalOrigin =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
     const FALLBACK_GATEWAYS = [
-      "http://localhost:8080/ipfs/",
+      ...(isLocalOrigin ? ["http://localhost:8080/ipfs/"] : []),
       "https://ipfs.io/ipfs/",
       "https://cloudflare-ipfs.com/ipfs/",
     ];
