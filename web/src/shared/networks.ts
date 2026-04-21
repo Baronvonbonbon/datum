@@ -57,17 +57,18 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     explorerUrl: "https://blockscout-testnet.polkadot.io",
     pineChain: "paseo-asset-hub",
     addresses: {
-      // Alpha-3 v8 — 26 contracts (full FP) redeployed on Paseo 2026-04-20
+      // Alpha-3 v9 — budgetLedger + governanceV2 + governanceSlash redeployed 2026-04-21
+      // governanceV2: grace=10 blocks (testnet); budgetLedger: fresh (stale state cleared)
       campaigns:           "0x3CBa9E154C7ee369496a66Ea18119702E6D69F03",
       publishers:          "0x2d3938B16A711B3e393224776b1D1da5ceCF6FE7",
-      governanceV2:        "0x56ed8CA43E6F992aA3Ff3eB42dEAaB1DfBe0ae83",
-      governanceSlash:     "0x1428533537E81F2988ce8Ae09D48Ea4C84069b2B",
+      governanceV2:        "0x6165fe3501C8288B06a39d25eA7B93865591f84C",
+      governanceSlash:     "0x37af3c5118B5a4fd36cbE1e487F959E55b0E57c2",
       settlement:          "0x76653aF142011a1d58e6cA02e98E689d475e7823",
       relay:               "0xFA649AdfDcC12fE2aA2b80E3e1A76E4751402F06",
       pauseRegistry:       "0x305303dF07C7F9E265B6EBD3b7940F6e7c8EafD4",
       timelock:            "0x8b755205058F8B7162a2f362057c8a2391C948B4",
       zkVerifier:          "0x31F2DE45F985E24BFb0BC833B77e557491187f3f",
-      budgetLedger:        "0x663F713D1AD3E3361736F6A60F623067b3A7EF6E",
+      budgetLedger:        "0x7AF7E1Df8Ee7AFA5dea866EbD835D7882664aeA1",
       paymentVault:        "0xD51ce700B0cF51DA3E8385681ACB1c10c2407f20",
       lifecycle:           "0xF055Ac11e29aa075fEd7b85053014F57e0FB34E3",
       attestationVerifier: "0xb7fD46F20Ed92d86d7F3a9F529D6aC354Da34585",

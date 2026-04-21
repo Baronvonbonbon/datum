@@ -1,0 +1,602 @@
+[
+  {
+    "campaignIndex": 0,
+    "wikiArticle": "Motorcycle",
+    "bytes32": "0x6a1781705a3befe897eb184f86a75d4b7cd6dbf17272c44c3adbddd26a7f7d9a",
+    "cid": "QmUg6NpdFcFhxazx9BPRoHk6TBYc9WUE84hwVGJmoBghhk"
+  },
+  {
+    "campaignIndex": 1,
+    "wikiArticle": "Backpacking_travel",
+    "bytes32": "0xa95f7151fa42c443ff1cf8bcf217c6996989b591c0da2d6108359120f0ad3a14",
+    "cid": "QmXnYzCCQCaRf9uA2bo14udMCLcMe36pMQYjrvE5AyFbeF"
+  },
+  {
+    "campaignIndex": 2,
+    "wikiArticle": "Newspaper",
+    "bytes32": "0xdd71dc3aed85d7026a69a71ffead1e24dd4f348e7462d009d9f453a3325ef3c1",
+    "cid": "QmUeGcD5quZ7HWuM6xhrGP95BKBq6skiHLtci7yyBQc2hH"
+  },
+  {
+    "campaignIndex": 3,
+    "wikiArticle": "Culture",
+    "bytes32": "0xb39f2ff75cfa7ca3834cbd07afb75a8b2b814f2d34eaf21d0f18cd4de081e716",
+    "cid": "QmaAnh8MwDZYNSAsnEtqrCmm12VDTuwjVEFQaJsAtvJFeU"
+  },
+  {
+    "campaignIndex": 4,
+    "wikiArticle": "Restaurant",
+    "bytes32": "0xfff0e3be408e21c3e6d38bb14a5a18e289b32cddc672e6cb711eaea7f1ab86e4",
+    "cid": "QmYkv29o2TzM5D2ZGmRhUPBBQ33TVrPRj7UJfLmSoLvFJs"
+  },
+  {
+    "campaignIndex": 5,
+    "wikiArticle": "Hedge_fund",
+    "bytes32": "0x4d7114f99b02c8e5aa15f5a8a4a7d487cb9e65786eb9602575bc719b32488fc8",
+    "cid": "Qmanc9ugteyamZwAyovTMbcDNVq6u418QoS44NFDJVUatj"
+  },
+  {
+    "campaignIndex": 6,
+    "wikiArticle": "Online_forum",
+    "bytes32": "0x0f8b1952d45806c28b42c3814c884c37e7f268226c4d99ddd5458cc84d71189c",
+    "cid": "QmaykjEwWkNDpGz9q5UXiseBmeCBkvJjPn3odQxootME9p"
+  },
+  {
+    "campaignIndex": 7,
+    "wikiArticle": "Basketball",
+    "bytes32": "0xf3abe422e332479e2f96d3fbe5d07ef52166b5d4c6eb6bf4830bda7ee05585dd",
+    "cid": "QmczMBK7JHRDZZnREjM8f7hQMQE3n9ytyFgsy5sZwn56Ss"
+  },
+  {
+    "campaignIndex": 8,
+    "wikiArticle": "5G",
+    "bytes32": "0x24ac33bbe7ca0e1269ec2ce7be2bf3a6908b411c6436ab0b735685210ee58ffe",
+    "cid": "QmTwVoxsm6J65pFcwJAqBLPaQ2RX9VwqKkWNrdoEnWRAgu"
+  },
+  {
+    "campaignIndex": 9,
+    "wikiArticle": "OpenSea",
+    "bytes32": "0xf7a1649a4a1c2b164646401a96dbb71b74065365d05b30f3e32ac29469732efe",
+    "cid": "Qmc6mxNptr2xREP4Zintj7yhv6D3VtyZGKcPdKMp4Tnzks"
+  },
+  {
+    "campaignIndex": 10,
+    "wikiArticle": "Decentralized_autonomous_organization",
+    "bytes32": "0xf8f62481f9f947f21471b743052113b1b39aa9282386a34948edd0719d77287c",
+    "cid": "QmbxQgnjxq5Y4DahHFCVpeg5LKvCb1XtYnmNfFEBqSBDaf"
+  },
+  {
+    "campaignIndex": 11,
+    "wikiArticle": "Real_estate",
+    "bytes32": "0x9a4a042222d2995d631dadffc9dde0af9bcee15926c207ab6022c4da9d0c3989",
+    "cid": "QmSSphg1jQNoaiGQY8z4dgobfRg2mq5mLCNKNJn7RZattQ"
+  },
+  {
+    "campaignIndex": 12,
+    "wikiArticle": "Model_railway",
+    "bytes32": "0x387122238fb06abb187137b60d532f0d9439ec9b17c111db51850f98e0181e42",
+    "cid": "QmYFeriwn39YWm7af2pXk5iwDf41gof2kUj7zaxd4XLLeG"
+  },
+  {
+    "campaignIndex": 13,
+    "wikiArticle": "Visual_arts",
+    "bytes32": "0x2f1e80faa58af98e44b05fecae13c23592ef03c612442c7aa94b8229fc99471a",
+    "cid": "QmPLHBVgzcp3umz71VQUK6PqTHgs2q4pD2uUt1yK445dEJ"
+  },
+  {
+    "campaignIndex": 14,
+    "wikiArticle": "Substrate_framework",
+    "bytes32": "0x3737f681bd33ef69eded098b7230abc87693317eacdba28ce64526728f417db5",
+    "cid": "QmSzs295Gt9DYU52d5qHHSWB6CXqahwhQALDbshyeq7dqJ"
+  },
+  {
+    "campaignIndex": 15,
+    "wikiArticle": "Vocational_education",
+    "bytes32": "0x881a3b3d9939032034ce0b9ce853c6ef434f4b008c6f2a1f84dd3b31f10a9edb",
+    "cid": "QmUgApGXCzeqhzQrxGaznoYvNAitL6sJXzd6CwoRnbuPDF"
+  },
+  {
+    "campaignIndex": 16,
+    "wikiArticle": "Digital_art",
+    "bytes32": "0xc280928ef69d8e3312f63821086a4366bafa6c8c825ac0dbb613eb2b39f521cf",
+    "cid": "QmSLyDCCqmpMKUXjT9cdeWo2vtoqZ5uCLfWAYhoHrkF8Xx"
+  },
+  {
+    "campaignIndex": 17,
+    "wikiArticle": "Reddit",
+    "bytes32": "0x2ac314e086d364e227dabfe1581e517aac2e2d2248f2728661f6ff82c0a84dea",
+    "cid": "QmcZwvf5ScbXrXKy1MsxxEL7qP3kXM2VUR3U7GJYnCB1gE"
+  },
+  {
+    "campaignIndex": 18,
+    "wikiArticle": "Veganism",
+    "bytes32": "0x692ddb49bbeefcd34efb1044b094ce2e694ce21257b7662fec9197c344b71eb1",
+    "cid": "QmapTAGuyidYb1UTmEY27PfDNj2PHX2tZzbBDAVghdabdH"
+  },
+  {
+    "campaignIndex": 19,
+    "wikiArticle": "Gastronomy",
+    "bytes32": "0xe5300302d380a5a66e73ca122002fc3d325bca114a84383671a5814432c6d28d",
+    "cid": "QmNNGJSdbbAGD4KToPVMkyMWguhb25rVUPtarjNTHGoGdM"
+  },
+  {
+    "campaignIndex": 20,
+    "wikiArticle": "Cloud_computing",
+    "bytes32": "0xf5d7c1a04c06959148edc87e6ade68debd7f76838d9825a44f5c76d89d36daf2",
+    "cid": "Qmf4WF2zELathaeVYWSMnaphwdFBkLpobwcJwSAMYAAACk"
+  },
+  {
+    "campaignIndex": 21,
+    "wikiArticle": "Skin_care",
+    "bytes32": "0xefa3878b4d6596512b49cf5575b017b3d0f1f8fc1dc9874b49b39fecb8cc98bf",
+    "cid": "QmVW5krkZezdaV6nyNmqy3MHf7SVAvAAbNsfg4sXQwWyy4"
+  },
+  {
+    "campaignIndex": 22,
+    "wikiArticle": "Animal_cognition",
+    "bytes32": "0x7774efc62023c4e376cbbf8f5fe3994203737289839abb3323407f3713767a3c",
+    "cid": "QmUriU4xjZVD9ReJS4Ko7MZhUkLAfqrtfP1uVtNh58kvvJ"
+  },
+  {
+    "campaignIndex": 23,
+    "wikiArticle": "Electric_vehicle",
+    "bytes32": "0x7ddd96ceb0ff198892f98d5a5e207ac031938ff176776b306ef9e4cb968cee14",
+    "cid": "QmSD7BSavWaZ4HdR4dhhHQiYR6zh5LAHLWKADpP6dEYF6r"
+  },
+  {
+    "campaignIndex": 24,
+    "wikiArticle": "Relay_chain",
+    "bytes32": "0x933d4dba205889c97902f884d19fa094fdab44ed9d9cf9e1578b60364d57f2c3",
+    "cid": "QmeuU621u1myV3qQtoiAf3vLbBfBjj4Cxj8PBauHpSSGz5"
+  },
+  {
+    "campaignIndex": 25,
+    "wikiArticle": "Ethereum",
+    "bytes32": "0x11b382be3fafc6e414dc31fc2c4a418e0c8bef6305645af7699ebbe08b3b843d",
+    "cid": "QmdLinaRjYwnQBsvA8B1U1tjmPBLb4o6DaK8gTmVZXmmh9"
+  },
+  {
+    "campaignIndex": 26,
+    "wikiArticle": "Internet",
+    "bytes32": "0xeb29084b845ff0f60bc2f675155d1c48cad305288e0a440a4982647130e1945e",
+    "cid": "QmX3YQWicULiUpqNhWo9kefosoGU7qDzegfSN1EGcggGGT"
+  },
+  {
+    "campaignIndex": 27,
+    "wikiArticle": "On-chain_governance",
+    "bytes32": "0x7230738a479ec310e815e0f02dcf4ab8fc3e8a59d5266a6b7d4697717d0b6cda",
+    "cid": "QmVicjudxJ4WKV8KXCbrFPaedWQjJRNF9h1BBG8Vqt4Lqt"
+  },
+  {
+    "campaignIndex": 28,
+    "wikiArticle": "Football",
+    "bytes32": "0xecb54c29056ac2f58f7a5900f08bf8394e58378e9f3d1117192193eca7eb44bf",
+    "cid": "QmNYhn2qAGBE326Bh8rkKZT2Ji2h72LgpNF82kzktE5oDg"
+  },
+  {
+    "campaignIndex": 29,
+    "wikiArticle": "Manufacturing",
+    "bytes32": "0xbc2817354eced62c8d4dbc39ebd514a83540e08e0bbd8246849892665e265620",
+    "cid": "QmNxxVbWff4g1dhxaUiCyYxM3rXGkWZFmLhCntSBrVdbsX"
+  },
+  {
+    "campaignIndex": 30,
+    "wikiArticle": "Science_fiction",
+    "bytes32": "0x510ba0d82a2cc97d2a262b82f085dd88f70fae8e68e36e6c3a988d14b602f48e",
+    "cid": "QmNhX8nQnDqoCG7uxXWLdmsWTL9MKpjjGiuNJJpZxiAweY"
+  },
+  {
+    "campaignIndex": 31,
+    "wikiArticle": "Veterinary_medicine",
+    "bytes32": "0x8b6fde2d207cd0ee1012e0d77b85e2dec7e3101c6d2935929b1dd83f0be91918",
+    "cid": "QmUHzDoyVYP2AuMFSsR3EPqpKDigvWfej6xQ1q3CL7T556"
+  },
+  {
+    "campaignIndex": 32,
+    "wikiArticle": "Physical_fitness",
+    "bytes32": "0xed747b0cf9d18abfc725e8c2da4d37baee84dbd989b4d6ef0f7bbf2463e2dda6",
+    "cid": "QmejPqa3XM5U6mSt5cMbWQ2sw6LXCxhWWQm1jJe6ufWDH6"
+  },
+  {
+    "campaignIndex": 33,
+    "wikiArticle": "Gardening",
+    "bytes32": "0x9c35895cad7457273414092efadaa840d1b5b598b7bba09ff8019c42778523d3",
+    "cid": "QmX9G3KkAJQQQwt5QCJMkDo9QF1GLJAzN2hrwPVYzedxGa"
+  },
+  {
+    "campaignIndex": 34,
+    "wikiArticle": "Property_management",
+    "bytes32": "0x4643ccebee960d82d30a14e21bc190dba57a9cc6e11c9e804aa838bb7c2ac53d",
+    "cid": "QmSMVDsfYBq9A37pk887LrAVZA1XkG1do6GCi4vC7LBqHc"
+  },
+  {
+    "campaignIndex": 35,
+    "wikiArticle": "Online_forum",
+    "bytes32": "0x9139dfb493e03c5559d867264757fc7aade9d96bb58ff1942406176e4b9e3ffb",
+    "cid": "QmWcgDjXKyZvEMFvPvcaAfn7oj3Eutmstn4rtrSaKzdzp4"
+  },
+  {
+    "campaignIndex": 36,
+    "wikiArticle": "Manufacturing",
+    "bytes32": "0xa2c2dc2e05c599e4250d713e1756495dffa61c87f6a50b31e4ef6b2ff6cbb97b",
+    "cid": "QmeyLqBYx8mro91yR6oj4STifrcXgLbNSmzMpc5X4gECjs"
+  },
+  {
+    "campaignIndex": 37,
+    "wikiArticle": "Property_management",
+    "bytes32": "0xa573d17acb3cb11b4b680f7c1d96408ad265f04c0eb0e579c250c0688adc3c74",
+    "cid": "Qmdby2bWRNhgZgQaQf9Qh44vyTo8aAUHeayofVVWYW3B74"
+  },
+  {
+    "campaignIndex": 38,
+    "wikiArticle": "Demography",
+    "bytes32": "0x45e81b8dc047523b24a952c682a3c82d15307e3d4b6006711ea707f74f5de8ed",
+    "cid": "QmVLtyTMEfbjtwo1rE3x27MvhyTAmoi88tFVdTsy2qGcXk"
+  },
+  {
+    "campaignIndex": 39,
+    "wikiArticle": "Decentralized_autonomous_organization",
+    "bytes32": "0x9da9527427cee93edbdaec74a2ff9079796332dae9b6ebd0e6948f72e8d5a496",
+    "cid": "QmYo6j9BYqAQJhRjs5xMTWuECG1bNeZspAuyAMVWUx2bP2"
+  },
+  {
+    "campaignIndex": 40,
+    "wikiArticle": "Skin_care",
+    "bytes32": "0x39c67b78100355a8ce6f74ee59b49e2abd8ab8038e03d38e265a137ef61acb67",
+    "cid": "QmVfiKwLLsACnqbUE63cUe7V69A4QRoZVg33KYT4u1SU7S"
+  },
+  {
+    "campaignIndex": 41,
+    "wikiArticle": "Dog",
+    "bytes32": "0xc8030552445252d9278bc10a6a162b971bea7bbec6ce40dccdc200fcba03ed18",
+    "cid": "QmSsruvfZtzrFfQ543GpLqjpKxqK3pqFaAdkaDJmyGYJ4r"
+  },
+  {
+    "campaignIndex": 42,
+    "wikiArticle": "Anthropology",
+    "bytes32": "0x9033c0e4fae403516206a21703b13620d4e59af98c04105fc4a5630fe33f3c98",
+    "cid": "QmWyfKdpNHr2xPwuxNhpPsQ5uNTLxX19y7jaRcK5YxG1JV"
+  },
+  {
+    "campaignIndex": 43,
+    "wikiArticle": "Entrepreneurship",
+    "bytes32": "0x62de0dac135eb8c131e05873f995e2b60be7dd583a6ef6050da11cc84427df3e",
+    "cid": "QmSerop32Sur5xzWV7rNna3wpk1sEaUBtFjiDQnVpHXj7w"
+  },
+  {
+    "campaignIndex": 44,
+    "wikiArticle": "E-commerce",
+    "bytes32": "0x87b18653c77b2c19368c13760ee03e99460794ad20b056acfc996c8153d64325",
+    "cid": "QmYnXDb226ocnfT2pyrkNeA7e3FeTBpceBqrbVRBiE1FvH"
+  },
+  {
+    "campaignIndex": 45,
+    "wikiArticle": "Reddit",
+    "bytes32": "0x8e48640c1ca4dea732a9a334c54eb33d25affd7ba1069403141244c5b446c7a3",
+    "cid": "QmSU4kDA6aVPQ9ceUEZqz4GceAtjeQJ6HbLwzJ7jyiwtMz"
+  },
+  {
+    "campaignIndex": 46,
+    "wikiArticle": "Investigative_journalism",
+    "bytes32": "0xe9303577e8ee3f1ff5daca868592b8d73349131164f8fca167a39978c8e761b5",
+    "cid": "QmaYtXkjj18UvvSFy125J4izS4AfPw8aGovX71eBy1ukqj"
+  },
+  {
+    "campaignIndex": 47,
+    "wikiArticle": "Investigative_journalism",
+    "bytes32": "0xeb3b9fc0ea63074231a0d2f523be7c6e2b5e9eb2d85a650e6254801352d2ca9e",
+    "cid": "QmPnpZd6LaaGxJmmFf8Uoy8GswE2tVahh24zxQjXHyinp1"
+  },
+  {
+    "campaignIndex": 48,
+    "wikiArticle": "Science_fiction",
+    "bytes32": "0x126a6317a14a32407bc1ff1afa62bc3476a6e40b1408cf3d4cdc206e66449a93",
+    "cid": "QmY79YBRyJBqTSFBBMdZfufiv4YgKdzwcnUvvfnzeWNumH"
+  },
+  {
+    "campaignIndex": 49,
+    "wikiArticle": "Library_science",
+    "bytes32": "0x89c43a8459092e94e63e5f68625d61f8842dab2817d7512db5655bc9372161c3",
+    "cid": "Qmccjo4cvWHsLgJd9qxAgjbMtoYJcHJGZRpTKGFEHTwGaK"
+  },
+  {
+    "campaignIndex": 50,
+    "wikiArticle": "Vocational_education",
+    "bytes32": "0x068d05026e2d2d1fd37f73a500aadb1220397cb69ea7de50f74243698e252a7d",
+    "cid": "Qmbcpqjws9t3v8u6xcGUEdZymeMXYR5Yczkxbs8SttH2wj"
+  },
+  {
+    "campaignIndex": 51,
+    "wikiArticle": "Backpacking_travel",
+    "bytes32": "0x0febbbe83bb8c87f8e1be761ac99fb1adfc4afe95bf557a62fa9276886d38bd9",
+    "cid": "QmNapmc2qW8ruJaTc2QXrGhEp4isTgyYPugq9w3axwppGs"
+  },
+  {
+    "campaignIndex": 52,
+    "wikiArticle": "Backpacking_travel",
+    "bytes32": "0x9912f4487615fb420204ee9ab3353592a44ff69ea91f3c739ff0aa82b7b52788",
+    "cid": "QmQRQfFuJ2MXDRfSPXZENmkMQXucAwymFWgAYXzveJSNWc"
+  },
+  {
+    "campaignIndex": 53,
+    "wikiArticle": "Role-playing_game",
+    "bytes32": "0x3c829b935ffdbd056d9bd2ed4059c71ce25b7aeaea029b38ec375fbb446f9369",
+    "cid": "QmZLYydYJK71oKcWoV6xyQQW2XxY1MUWNBYAWCCD7sa782"
+  },
+  {
+    "campaignIndex": 54,
+    "wikiArticle": "Mortgage",
+    "bytes32": "0x8997a8cdcbeacc7b9657ed1be8bc28610c360098ad8dc3fa67addfa3acd11e4f",
+    "cid": "QmaQuL6zpQ39XmjbrsQR9W9BPv9QZgYLuq5vn4bCb24W4D"
+  },
+  {
+    "campaignIndex": 55,
+    "wikiArticle": "5G",
+    "bytes32": "0x748b29f8bda1636130388841a7f737438c11c1c8487bdc1478b6d855c6b85fe2",
+    "cid": "QmVN5duAmzYNGGUEpe9sqrtx4wUgU7LxSFasdm8e9Rcjuc"
+  },
+  {
+    "campaignIndex": 56,
+    "wikiArticle": "Decentralized_autonomous_organization",
+    "bytes32": "0xb6c373ed6be4648bff5dd0747a835753f456d4c5e69eee588d5a8f200efd37f2",
+    "cid": "QmWMApKqNvTGZb1q6eEWxLmQ1a23dnjLXpuKQjT9pf7h5V"
+  },
+  {
+    "campaignIndex": 57,
+    "wikiArticle": "Decentralized_finance",
+    "bytes32": "0x1024c03f5988d7fd783e895f29f503ded9cc554ee95767a1328643a8d6f849da",
+    "cid": "QmfH3N862A3pdb42DAvYSzQ3vGYat3PexV25LCgj4YELZ2"
+  },
+  {
+    "campaignIndex": 58,
+    "wikiArticle": "Hedge_fund",
+    "bytes32": "0xf47ff44ac325ae52c862ffd8c867e9ea54a438bac084bfc9ec8565dc461a8e12",
+    "cid": "QmbZT69ME6ACZk258mJkZRtLn8FJ7YdxT8MYrBhVtRALuE"
+  },
+  {
+    "campaignIndex": 59,
+    "wikiArticle": "Marketplace",
+    "bytes32": "0xd58bb58f0130bca97bc616e2103b45ec4f84382755c0c1c888dbaf64ca5ae92f",
+    "cid": "QmWzeerKFUsw4ApuT6c7LLo15zspSVL1zdwaTteNufmpZZ"
+  },
+  {
+    "campaignIndex": 60,
+    "wikiArticle": "Hobby",
+    "bytes32": "0xb424849f28688d6b07257895d9ae2654614b1e93455622c6077e1bfd2641d560",
+    "cid": "QmU7tvyRfG7yVw5qzynHQe16pStMAHw3qNFQ1Qu44H6X17"
+  },
+  {
+    "campaignIndex": 61,
+    "wikiArticle": "Football",
+    "bytes32": "0x51928e482d0befcdee4a0486ec98c0fd7e89b3fcd0b3367e4e5c480d8d218689",
+    "cid": "QmTUBu4Lb6KZF6zpJU6oeLjuSZdVS7SKFoAcmFNCo3G6yn"
+  },
+  {
+    "campaignIndex": 62,
+    "wikiArticle": "Football",
+    "bytes32": "0x1ba31ae69ca93242ca87ddee57647412036280e3c1b577fb13cf3dd9d0f86a98",
+    "cid": "QmUwYvoQdf9kZaq1kxTua4Fsyict8rjMMg8UCKSvwEFGsN"
+  },
+  {
+    "campaignIndex": 63,
+    "wikiArticle": "Anthropology",
+    "bytes32": "0xea89b9d3d835cb6cb3a047ef1714b399f6f4f12c62f5b60f76c0864b61c1d392",
+    "cid": "QmRU9j41HU7Qk111YdQeGx8kDhd5hJGCmtA1nzbEAK56az"
+  },
+  {
+    "campaignIndex": 64,
+    "wikiArticle": "Online_forum",
+    "bytes32": "0xa7a5e54a54c7a9aa70d0ffc6be49905ab4d0854889bb69f6b0e33514bb174795",
+    "cid": "QmTCwPZWbmWs3r5TCwoye1nXhCZSyhnzQGTbb2uKwRiCYU"
+  },
+  {
+    "campaignIndex": 65,
+    "wikiArticle": "Formula_One",
+    "bytes32": "0x096c145fdc47dd52813595f18c5ba890725feab178092234edb3fa5392604f5a",
+    "cid": "QmScaBHV7xUGc45tCS5HfN3fHzGfruUEDZucoyUYaobzNw"
+  },
+  {
+    "campaignIndex": 66,
+    "wikiArticle": "Tennis",
+    "bytes32": "0x679f4ab1179a5d1af60559c0fde8933386e747bcd97f68f8a62fb43f57de8155",
+    "cid": "QmY7U7Piu9khs36Nmq8nQEQmJEK5gxSegswzsQg789XAFz"
+  },
+  {
+    "campaignIndex": 67,
+    "wikiArticle": "Tennis",
+    "bytes32": "0xe84a9341d4448e7482b62409517c572412b2e25a4499a47cb42d51c54a01f2aa",
+    "cid": "QmVgSY1KDikypSanDJRFTjSZ25tiMcFLBsLmLj3KLv96Cj"
+  },
+  {
+    "campaignIndex": 68,
+    "wikiArticle": "Bond_finance",
+    "bytes32": "0xc986e7b73a8c156d2604833ca3fbc06ae9d01640baf9a214574431486519a0d5",
+    "cid": "QmbxZ8mfk4QiQaRJPfP51UJLoR3pZAn2NHMRuqABDUibnD"
+  },
+  {
+    "campaignIndex": 69,
+    "wikiArticle": "Science_fiction",
+    "bytes32": "0x46cb7fe4e3d7f80d6b51841c0b11fea298093cdeb4e2ab78a130a51f2b5c45c2",
+    "cid": "QmWXg4giwJTG1p9N9KxHN6ru9hHSbwDiTh1HTBBuExBJ2p"
+  },
+  {
+    "campaignIndex": 70,
+    "wikiArticle": "Polkadot_network",
+    "bytes32": "0xd1da217a44903ec6740f8686347e2678ac8ab0ce1245832f1197e08f75a1e4dd",
+    "cid": "QmbJQfRLr49sB6Vs4GTr4dcvwuFwxdLkCnd9GoG34f44GH"
+  },
+  {
+    "campaignIndex": 71,
+    "wikiArticle": "STEM_education",
+    "bytes32": "0x83269e7c1fd99568e47ad027a3cbefc6772f9a98e09932f0cdc28af08b041ff7",
+    "cid": "QmaMVEMTRBvTuYqemWQmgx6tgycweFzEFtKpmLpv8Cd2oe"
+  },
+  {
+    "campaignIndex": 72,
+    "wikiArticle": "Electric_vehicle",
+    "bytes32": "0x670ca4fee8524cea088dec5d56f84d090f9538e9b3de8ff671004cbb68fd3269",
+    "cid": "QmPoRZAKvbjThKo6FT9x3eG6vy26DWZNEP2NZg34FQ2kQB"
+  },
+  {
+    "campaignIndex": 73,
+    "wikiArticle": "On-chain_governance",
+    "bytes32": "0x4d93bee1b6854faa6123e77af0fa5ae9be4faf3afc5a7ef86701ea2de21cf4b8",
+    "cid": "Qmb4A24ZKCN9HCwCTA2b3YGbRZ2jEWptaoqP9QTsZiuFQb"
+  },
+  {
+    "campaignIndex": 74,
+    "wikiArticle": "Public_health",
+    "bytes32": "0x9ace1f1ee17d5f80fbb957ca8a1ef37581ae6f6c95a29db65ba46c329effa470",
+    "cid": "QmVVvq3VmEuuX1siQTAPvXENksNWciJ4zVveUwCuLq2zEy"
+  },
+  {
+    "campaignIndex": 75,
+    "wikiArticle": "Ethereum",
+    "bytes32": "0x94dde4338360cfc0505e8c947b80feaff152ce11753969e91a7f0d9feb9424aa",
+    "cid": "QmcXK2cg42k8sSHmuZHhzzYknq87zNNvMj2Bur5c3KFHSW"
+  },
+  {
+    "campaignIndex": 76,
+    "wikiArticle": "Gastronomy",
+    "bytes32": "0x308831824cf273742fd2dd7678e298455132194fb7ff175427d1ae6c8fea3358",
+    "cid": "QmT7WCBYvcwrc7xQpj3y6pmgmSoxDt7PW3u27CNhU96z2S"
+  },
+  {
+    "campaignIndex": 77,
+    "wikiArticle": "Contract_law",
+    "bytes32": "0xc46526fc0654fb7cab062dfe07f03df9ba0bb4621902c1dfb275786a95bdbd7d",
+    "cid": "QmaC7zdLkzLt632FqZAfuqsmP9N41eYoALrjhWkAcaJrZQ"
+  },
+  {
+    "campaignIndex": 78,
+    "wikiArticle": "5G",
+    "bytes32": "0x70646684dd9772e814e1c2d353a605f9fd6ca1e1c5111f70cd58aa34b80dcc7f",
+    "cid": "QmWC3d49fLAkMvfaWAodVBkSNoCmiV1n8u3kMwm4DGAiQV"
+  },
+  {
+    "campaignIndex": 79,
+    "wikiArticle": "Veganism",
+    "bytes32": "0x6329d7e3c52ba21fe14fb39d7ba5c9b3d15f82d2925a7a6abe8950b6ddf826f1",
+    "cid": "QmYrUTLv3Pw7Ev5gm22yZGz2cZR2oKHdZe3p3vBacrFQWa"
+  },
+  {
+    "campaignIndex": 80,
+    "wikiArticle": "Collecting",
+    "bytes32": "0x930f151b3ac02831671c24c967cc97df4dc4ca6c549882db95db4e6235569152",
+    "cid": "Qmef6zXyooZfLNfSsLBJssakB2wTvpoyDABZPBZZ3nUWPW"
+  },
+  {
+    "campaignIndex": 81,
+    "wikiArticle": "Substrate_framework",
+    "bytes32": "0x1ced94ec34ed0a7de3788b04697b93546168dc39bef623ab16bb901f6af4e3bb",
+    "cid": "QmW5nycXg81Erue46WW1V5gDt23rhnWd4JijL9i86ywLCc"
+  },
+  {
+    "campaignIndex": 82,
+    "wikiArticle": "E-commerce",
+    "bytes32": "0xddb90280cd11032ec5547e7e0a303ff73b6ffc8eb4386693a57c1a906b2b42ca",
+    "cid": "QmRUhyFnhqR1NfUbfbj8vV6hxjUHgkJqrSzM2UZe64i5gH"
+  },
+  {
+    "campaignIndex": 83,
+    "wikiArticle": "Social_media",
+    "bytes32": "0x5448c2538cef99bbb71de4b7bea4ab9c61172fd059432b0a0d04df0a7a63cd62",
+    "cid": "QmUVeRxJrAfcE4cx4AR8GHKwuTTJrT9c9vM3LYrArArUT8"
+  },
+  {
+    "campaignIndex": 84,
+    "wikiArticle": "Reddit",
+    "bytes32": "0xa3ef9845b74310d4869da7c84075557cbe6506db037f3ddb823e16cfbc7d16bf",
+    "cid": "Qmd56xE7BMAi9jxSzBi8gueMkiSuHP3Bn7pwbi2K6T2gKr"
+  },
+  {
+    "campaignIndex": 85,
+    "wikiArticle": "Microprocessor",
+    "bytes32": "0x6bd29d0bf8ded32744c01db73fd5ff3b3b7dba10ac026430d3cc50ba3ad8cfc1",
+    "cid": "QmUvDz6pViDYxMbH8hCjeNKFAGQ8X9GDLBaPESr9vKyEZq"
+  },
+  {
+    "campaignIndex": 86,
+    "wikiArticle": "Wikipedia",
+    "bytes32": "0x18c9278bd59e28bb969ee1dfd09578ef541b25ee9eef81683cd265ee47846b5d",
+    "cid": "QmURCY8SQxUS7yGEGqc8g3DWU7qYUSCXAqpavrRcPYKJKg"
+  },
+  {
+    "campaignIndex": 87,
+    "wikiArticle": "STEM_education",
+    "bytes32": "0xce45e08a87e0931618371f2c0c204b8baefd79e934cc41c1b40f842c4e8f8dcc",
+    "cid": "QmUfHViUVqbFUwHYvERMTCLdZAqGFhxZzajT8P2k5AUtiL"
+  },
+  {
+    "campaignIndex": 88,
+    "wikiArticle": "Contract_law",
+    "bytes32": "0xa2b3931162838b5403a1b50808306ff2518667527783d7302ffdd7f334a70217",
+    "cid": "QmW5sxjCKQT6GkRJiH71oNE8PCoRmPBqSJcJqK7mbyLeop"
+  },
+  {
+    "campaignIndex": 89,
+    "wikiArticle": "Aviation",
+    "bytes32": "0xecbde36bdbda43b350cf8e2dc3fe5fbf7871b8e3c3c3108ee188092d251f13ef",
+    "cid": "QmXoraAebyCAz59JZX1XRnv3oEH4aRrHceumghBo6PTm1N"
+  },
+  {
+    "campaignIndex": 90,
+    "wikiArticle": "Substrate_framework",
+    "bytes32": "0x339b00bb8da9a55bb7bec444a0b3746a083dfc1e0a45dbbb920195cb5afd780f",
+    "cid": "QmVRfBEYf7TobXKEJRvrQ8RufuNCFwH1VcWQgB7tovzBhU"
+  },
+  {
+    "campaignIndex": 91,
+    "wikiArticle": "Hobby",
+    "bytes32": "0xaf2c6394fabfa54303d8c94168ea1f80fb508a0130db6b2d49709682c084b851",
+    "cid": "QmNVoEQGZgZ7gjJe7mitZqedEz4zqj2qLwWx3nEU8RyN1t"
+  },
+  {
+    "campaignIndex": 92,
+    "wikiArticle": "Basketball",
+    "bytes32": "0x84c2988b6d15c78790b59ac82caec6043758039ecaf5defa169986741097846d",
+    "cid": "QmSXMPqGUjyeBUVf3DwaBqNvJUZSoaAihgG9uiK7vFg152"
+  },
+  {
+    "campaignIndex": 93,
+    "wikiArticle": "Novel",
+    "bytes32": "0xe485ae61d93a94a3ad3eaecb91a0370c828be570996348ec27d1d0b9a88b496b",
+    "cid": "QmYeSG1sumW3dYJmM7mz9yq5dRcpDmukuBMiheGhtwwL4E"
+  },
+  {
+    "campaignIndex": 94,
+    "wikiArticle": "Substrate_framework",
+    "bytes32": "0x29d2a1ccd01a4f61ab1be25fdb1a28b9f039e88ed4a9fb9662d0883306091144",
+    "cid": "QmWK4Pps8SBbXW6KzfkxvJxdcL2BNPMq9cysRC8owam6vc"
+  },
+  {
+    "campaignIndex": 95,
+    "wikiArticle": "Tourism",
+    "bytes32": "0x84ebf1e3811f33fc3cf1c1bffd344758d120c98f20a3a815dc9fac82d25ca5a5",
+    "cid": "QmSPxFKTkmqzdCjYddNsBn2cUZbsYqZvTFFc7xuwFzLsdu"
+  },
+  {
+    "campaignIndex": 96,
+    "wikiArticle": "Dog",
+    "bytes32": "0xb794b9a86f67877a1ed110b00a8a125f423cd96fa0e40706179862d565389b2f",
+    "cid": "QmYX887boTkrLkFPAm1t1QTdDf5wnH8skWui3XJnf1DMiA"
+  },
+  {
+    "campaignIndex": 97,
+    "wikiArticle": "Voting_system",
+    "bytes32": "0x11e12aa3a3bf6c3b5eb508152962936883630b05a5666672be4f6a005ead5447",
+    "cid": "QmbvuNh7VDqYtQ5ffNtqjyURayer6qDd618sLTs12VvpEA"
+  },
+  {
+    "campaignIndex": 98,
+    "wikiArticle": "Tennis",
+    "bytes32": "0xea8f1adf5312d660911dad53d71dd460ba9192060030fc5648307b13eb6e3049",
+    "cid": "QmSFgECrNroZLDzn3WZ7gGYLG5TQhtBTkKYwAqsMsToD9o"
+  },
+  {
+    "campaignIndex": 99,
+    "wikiArticle": "Theatre",
+    "bytes32": "0x2fd05e424418f453acae7437d3f09f969c834182f58cb275ec49ad3a9629bf59",
+    "cid": "QmVvAzNHAPrxBmSUvv9bNEfea8UudYt33Pe13zHb5z1gDi"
+  }
+]

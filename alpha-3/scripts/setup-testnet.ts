@@ -3,15 +3,14 @@
 // Prerequisite: Alice funded via faucet + contracts deployed (npm run deploy:testnet)
 //
 // This script:
-//   1. Funds all non-user accounts from Alice (Bob, Charlie, Diana, Eve, Frank, Grace)
+//   1. Funds all non-user accounts from Alice
 //   2. Registers Diana + Eve as publishers
 //   2.5. Sets publisher tags via TargetingRegistry (TX-1)
 //   2.6. Sets relaySigner for Diana (snapshotted at campaign creation)
 //   2.7. Sets publisher profile hash for Diana
-//   3. Creates test campaign 1 (Bob as advertiser, Diana as fixed publisher)
-//   3.5. Creates test campaign 2 (Charlie as advertiser, open — no fixed publisher)
-//   4. Votes aye (Frank) + activates both campaigns
-//   5. Sets metadata hashes
+//   3. Creates 100 competing campaigns (Bob + Charlie as advertisers)
+//   4. Frank votes aye + Alice evaluates each campaign to activate
+//   5. Sets metadata hashes (Wikipedia article-based bytes32 hashes)
 //   5.3. Logs rate limiter settings
 //   5.5. Submits test reports (Grace)
 //   5.7. Wires Diana as reputation reporter (BM-8/BM-9)
@@ -29,6 +28,7 @@ import { ethers, network } from "hardhat";
 import { JsonRpcProvider, Wallet, Interface, keccak256, toUtf8Bytes } from "ethers";
 import { parseDOT, formatDOT } from "../test/helpers/dot";
 import * as fs from "fs";
+import * as crypto from "crypto";
 
 // ── Test accounts ────────────────────────────────────────────────────────────
 // Keys stored in gitignored DEPLOY-TESTNET.md.
@@ -44,7 +44,17 @@ const ACCOUNTS = {
 };
 
 const TO_FUND = ["bob", "charlie", "diana", "eve", "frank", "grace"] as const;
-const FUND_AMOUNT = parseDOT("50"); // 50 PAS each
+
+// Per-account funding amounts. Bob/Charlie each create 50 campaigns (1 PAS each + gas).
+// Frank votes on all 100 campaigns (2 PAS stake each, conviction 0 = no lockup after resolve).
+const FUND_AMOUNTS: Record<string, bigint> = {
+  bob:     parseDOT("150"),  // 50 campaigns × 1 PAS budget + gas
+  charlie: parseDOT("150"),  // 50 campaigns × 1 PAS budget + gas
+  diana:   parseDOT("50"),
+  eve:     parseDOT("50"),
+  frank:   parseDOT("260"),  // 100 votes × 2 PAS stake + gas
+  grace:   parseDOT("50"),
+};
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
 
@@ -178,6 +188,201 @@ const publisherStakeAbi = [
   "function isAdequatelyStaked(address publisher) view returns (bool)",
 ];
 
+// ── Topic taxonomy (canonical tag strings from tagDictionary.ts) ─────────────
+
+const TOPICS = [
+  "topic:arts-entertainment",
+  "topic:autos-vehicles",
+  "topic:beauty-fitness",
+  "topic:books-literature",
+  "topic:business-industrial",
+  "topic:computers-electronics",
+  "topic:finance",
+  "topic:food-drink",
+  "topic:gaming",
+  "topic:health",
+  "topic:hobbies-leisure",
+  "topic:home-garden",
+  "topic:internet-telecom",
+  "topic:jobs-education",
+  "topic:law-government",
+  "topic:news",
+  "topic:online-communities",
+  "topic:people-society",
+  "topic:pets-animals",
+  "topic:real-estate",
+  "topic:reference",
+  "topic:science",
+  "topic:shopping",
+  "topic:sports",
+  "topic:travel",
+  "topic:crypto-web3",
+  "topic:defi",
+  "topic:nfts",
+  "topic:polkadot",
+  "topic:daos-governance",
+];
+
+// Wikipedia articles per topic — used to generate deterministic metadata hashes.
+// On mainnet these would be real IPFS CIDs; here they're keccak256 of the article name.
+const TOPIC_WIKI: Record<string, string[]> = {
+  "topic:arts-entertainment":    ["Cinema", "Theatre", "Visual_arts", "Performing_arts"],
+  "topic:autos-vehicles":        ["Automobile", "Electric_vehicle", "Formula_One", "Motorcycle"],
+  "topic:beauty-fitness":        ["Cosmetics", "Physical_fitness", "Skin_care", "Yoga"],
+  "topic:books-literature":      ["Novel", "Literature", "Science_fiction", "Poetry"],
+  "topic:business-industrial":   ["Entrepreneurship", "Supply_chain", "Manufacturing", "Venture_capital"],
+  "topic:computers-electronics": ["Computer_science", "Semiconductor", "Microprocessor", "Software_engineering"],
+  "topic:finance":               ["Stock_market", "Bond_finance", "Hedge_fund", "Index_fund"],
+  "topic:food-drink":            ["Cuisine", "Restaurant", "Veganism", "Gastronomy"],
+  "topic:gaming":                ["Video_game", "Esports", "Role-playing_game", "Game_design"],
+  "topic:health":                ["Medicine", "Nutrition", "Public_health", "Mental_health"],
+  "topic:hobbies-leisure":       ["Hobby", "Board_game", "Collecting", "Model_railway"],
+  "topic:home-garden":           ["Interior_design", "Gardening", "Home_improvement", "Architecture"],
+  "topic:internet-telecom":      ["Internet", "5G", "Cloud_computing", "Fiber_optic"],
+  "topic:jobs-education":        ["University", "Online_learning", "Vocational_education", "STEM_education"],
+  "topic:law-government":        ["Law", "Democracy", "Contract_law", "International_law"],
+  "topic:news":                  ["Journalism", "Newspaper", "Media_bias", "Investigative_journalism"],
+  "topic:online-communities":    ["Social_media", "Reddit", "Online_forum", "Discord"],
+  "topic:people-society":        ["Culture", "Sociology", "Demography", "Anthropology"],
+  "topic:pets-animals":          ["Dog", "Cat", "Animal_cognition", "Veterinary_medicine"],
+  "topic:real-estate":           ["Real_estate", "Mortgage", "Urban_planning", "Property_management"],
+  "topic:reference":             ["Encyclopedia", "Wikipedia", "Library_science", "Database"],
+  "topic:science":               ["Physics", "Chemistry", "Quantum_mechanics", "Astronomy"],
+  "topic:shopping":              ["E-commerce", "Retail", "Consumer_behaviour", "Marketplace"],
+  "topic:sports":                ["Football", "Basketball", "Tennis", "Olympic_Games"],
+  "topic:travel":                ["Tourism", "Backpacking_travel", "Aviation", "Hotel"],
+  "topic:crypto-web3":           ["Bitcoin", "Ethereum", "Blockchain", "Cryptocurrency"],
+  "topic:defi":                  ["Decentralized_finance", "Uniswap", "Yield_farming", "Aave_protocol"],
+  "topic:nfts":                  ["Non-fungible_token", "Digital_art", "OpenSea", "Bored_Ape_Yacht_Club"],
+  "topic:polkadot":              ["Polkadot_network", "Substrate_framework", "Parachain", "Relay_chain"],
+  "topic:daos-governance":       ["Decentralized_autonomous_organization", "On-chain_governance", "Voting_system", "Token_weighted_voting"],
+};
+
+// ── Seeded pseudo-random (LCG) ───────────────────────────────────────────────
+// Deterministic — same 100 campaigns every run.
+
+let _lcgState = 0xdeadbeef;
+
+function lcg(): number {
+  _lcgState = ((_lcgState * 1664525 + 1013904223) >>> 0);
+  return _lcgState;
+}
+
+function randFloat(): number {
+  return lcg() / 0x100000000;
+}
+
+function randInt(max: number): number {
+  return Math.floor(randFloat() * max);
+}
+
+// ── Campaign configuration ───────────────────────────────────────────────────
+
+const USDT_PRECOMPILE = "0x000007C000000000000000000000000001200000";
+const USDT_PER_IMPRESSION = 1000n; // 0.001 USDT (6 decimals) per impression
+
+interface CampaignSpec {
+  advertiserKey: "bob" | "charlie";
+  budget: bigint;
+  dailyCap: bigint;
+  bidCpm: bigint;       // planck
+  topicIndices: number[];
+  hasSidecar: boolean;
+  wikiArticle: string;
+  metadataBytes32: string; // SHA-256 of pinned IPFS content (filled in step 2.8)
+}
+
+// ── Metadata generation + IPFS pinning ──────────────────────────────────────
+
+function buildMetadata(topic: string, wikiArticle: string, idx: number): string {
+  const topicLabel = topic.replace("topic:", "").replace(/-/g, " ");
+  const articleTitle = wikiArticle.replace(/_/g, " ");
+  const category = topicLabel.slice(0, 64);
+  const title = `${articleTitle} – Datum Ad #${idx + 1}`.slice(0, 128);
+  const description = (
+    `Explore ${articleTitle} content on the decentralised Datum ad network. ` +
+    `Campaign ${idx + 1} targeting ${topicLabel} audiences with privacy-first delivery.`
+  ).slice(0, 256);
+  const adText = (
+    `Discover the best ${topicLabel} resources. Learn about ${articleTitle} ` +
+    `through verified, privacy-preserving advertising powered by Datum Protocol.`
+  ).slice(0, 512);
+  return JSON.stringify({
+    title,
+    description,
+    category,
+    version: 1,
+    creative: {
+      type: "text",
+      text: adText,
+      cta: "Learn More",
+      ctaUrl: `https://en.wikipedia.org/wiki/${wikiArticle}`,
+    },
+  });
+}
+
+function contentToBytes32(content: string): string {
+  const hash = crypto.createHash("sha256").update(content, "utf8").digest();
+  return "0x" + hash.toString("hex");
+}
+
+async function pinToKubo(content: string, apiBase = "http://localhost:5001"): Promise<string | null> {
+  try {
+    // Node 18 global fetch with FormData
+    const formData = new FormData();
+    formData.append("file", new Blob([content], { type: "application/json" }), "metadata.json");
+    const resp = await fetch(`${apiBase}/api/v0/add?pin=true&cid-version=0`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!resp.ok) return null;
+    const json = await resp.json() as { Hash: string; Name: string; Size: string };
+    return json.Hash; // CIDv0 "Qm..."
+  } catch {
+    return null;
+  }
+}
+
+// Build 100 campaign specs deterministically
+const NUM_CAMPAIGNS = 100;
+const CAMPAIGN_BUDGET = parseDOT("1"); // 1 PAS per campaign
+// CPM range: 0.3–0.7 PAS (expressed as planck range)
+const CPM_MIN = parseDOT("0.3");
+const CPM_RANGE = parseDOT("0.4"); // added to min
+
+const CAMPAIGN_SPECS: CampaignSpec[] = [];
+for (let i = 0; i < NUM_CAMPAIGNS; i++) {
+  const advertiserKey = (i % 2 === 0 ? "bob" : "charlie") as "bob" | "charlie";
+
+  // CPM: 0.3 to 0.7 PAS
+  const bidCpm = CPM_MIN + BigInt(Math.floor(randFloat() * Number(CPM_RANGE)));
+
+  // Tag distribution: 20% untagged, 60% single-tag, 20% two-tag
+  const tagRoll = randFloat();
+  let topicIndices: number[];
+  if (tagRoll < 0.20) {
+    topicIndices = [];
+  } else if (tagRoll < 0.80) {
+    topicIndices = [randInt(TOPICS.length)];
+  } else {
+    const t1 = randInt(TOPICS.length);
+    const t2 = (t1 + 1 + randInt(TOPICS.length - 1)) % TOPICS.length;
+    topicIndices = [t1, t2];
+  }
+
+  // Sidecar: ~20% of campaigns carry USDT per-impression reward
+  const hasSidecar = randFloat() < 0.20;
+
+  // Wikipedia article for metadata hash
+  const primaryIdx = topicIndices.length > 0 ? topicIndices[0] : randInt(TOPICS.length);
+  const wikiList = TOPIC_WIKI[TOPICS[primaryIdx]];
+  const wikiArticle = wikiList[randInt(wikiList.length)];
+
+  CAMPAIGN_SPECS.push({ advertiserKey, budget: CAMPAIGN_BUDGET, dailyCap: CAMPAIGN_BUDGET, bidCpm, topicIndices, hasSidecar, wikiArticle, metadataBytes32: "" });
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
 async function main() {
   // Raw provider bypasses hardhat-polkadot receipt bug
   const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
@@ -193,6 +398,7 @@ async function main() {
   const grace   = new Wallet(ACCOUNTS.grace.key, rawProvider);
 
   const wallets: Record<string, Wallet> = { alice, bob, charlie, diana, eve, frank, grace };
+  const advWallets: Record<"bob" | "charlie", Wallet> = { bob, charlie };
 
   log("INIT", `Alice (deployer): ${alice.address}`);
 
@@ -242,9 +448,9 @@ async function main() {
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
   log("INIT", `Alice balance: ${formatDOT(aliceBal)} PAS`);
-  const needed = FUND_AMOUNT * BigInt(TO_FUND.length);
-  if (aliceBal < needed + parseDOT("50")) {
-    console.error(`Alice needs at least ${formatDOT(needed + parseDOT("50"))} PAS to fund accounts + pay gas.`);
+  const totalNeeded = Object.values(FUND_AMOUNTS).reduce((a, b) => a + b, 0n);
+  if (aliceBal < totalNeeded + parseDOT("100")) {
+    console.error(`Alice needs at least ${formatDOT(totalNeeded + parseDOT("100"))} PAS to fund all accounts.`);
     console.error("Use the faucet: https://faucet.polkadot.io/ (Paseo)");
     process.exitCode = 1;
     return;
@@ -253,17 +459,18 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. FUND NON-USER ACCOUNTS
   // ═══════════════════════════════════════════════════════════════════════════
-  log("1", "--- Funding non-user accounts (50 PAS each) ---");
+  log("1", `--- Funding non-user accounts (variable amounts for 100-campaign load) ---`);
 
   for (const name of TO_FUND) {
     const w = wallets[name];
+    const target = FUND_AMOUNTS[name];
     const bal = await rawProvider.getBalance(w.address);
-    if (bal >= parseDOT("10")) {
-      log("1", `  ${name} already has ${formatDOT(bal)} PAS -- skipping`);
+    if (bal >= target * 3n / 4n) {
+      log("1", `  ${name} already has ${formatDOT(bal)} PAS (target ${formatDOT(target)}) -- skipping`);
       continue;
     }
     try {
-      await sendTransfer(alice, rawProvider, w.address, FUND_AMOUNT);
+      await sendTransfer(alice, rawProvider, w.address, target);
       const newBal = await rawProvider.getBalance(w.address);
       log("1", `  ${name} funded: ${formatDOT(newBal)} PAS`);
     } catch (err) {
@@ -282,7 +489,6 @@ async function main() {
     ["diana", diana, 5000n] as const,
     ["eve",   eve,   4000n] as const,
   ] as [string, typeof diana, bigint][]) {
-    // Check if already registered
     const result = await readCall(rawProvider, addrs.publishers, pubIface, "getPublisher", [wallet.address]);
     const decoded = pubIface.decodeFunctionResult("getPublisher", result);
     const registered = decoded[0];
@@ -306,28 +512,32 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   log("2.5", "--- Setting publisher tags (TargetingRegistry) ---");
 
-  // Diana: broad coverage — crypto, defi, tech, english
+  // Diana: broad coverage — crypto, defi, polkadot, technology, finance, english
   const dianaTags = [
-    tagHash("topic:crypto"),
+    tagHash("topic:crypto-web3"),
     tagHash("topic:defi"),
-    tagHash("topic:technology"),
+    tagHash("topic:polkadot"),
+    tagHash("topic:computers-electronics"),
+    tagHash("topic:finance"),
     tagHash("locale:en"),
   ];
   try {
     await sendCall(diana, rawProvider, addrs.targetingRegistry, targetIface, "setTags", [dianaTags]);
-    log("2.5", `  diana: ${dianaTags.length} tags set (crypto, defi, technology, en)`);
+    log("2.5", `  diana: ${dianaTags.length} tags set (crypto-web3, defi, polkadot, computers-electronics, finance, locale:en)`);
   } catch (err) {
     log("2.5", `  diana tags: ${String(err).slice(0, 100)}`);
   }
 
-  // Eve: niche — crypto only, english
+  // Eve: niche — crypto, nfts, daos-governance, english
   const eveTags = [
-    tagHash("topic:crypto"),
+    tagHash("topic:crypto-web3"),
+    tagHash("topic:nfts"),
+    tagHash("topic:daos-governance"),
     tagHash("locale:en"),
   ];
   try {
     await sendCall(eve, rawProvider, addrs.targetingRegistry, targetIface, "setTags", [eveTags]);
-    log("2.5", `  eve: ${eveTags.length} tags set (crypto, en)`);
+    log("2.5", `  eve: ${eveTags.length} tags set (crypto-web3, nfts, daos-governance, locale:en)`);
   } catch (err) {
     log("2.5", `  eve tags: ${String(err).slice(0, 100)}`);
   }
@@ -366,213 +576,183 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 3. CREATE TEST CAMPAIGN (Bob as advertiser, Diana as publisher)
+  // 2.8. GENERATE + PIN IPFS METADATA (real SHA-256 bytes32)
+  //
+  // Each campaign gets a JSON metadata object built from its topic + wiki article.
+  // Content is pinned to the local Kubo daemon (http://localhost:5001).
+  // bytes32 on-chain = raw SHA-256 of the JSON (no 0x1220 prefix).
+  // Extension poller reconstructs CIDv0 as base58(0x1220 + sha256_bytes).
   // ═══════════════════════════════════════════════════════════════════════════
-  log("3", "--- Creating test campaign ---");
+  log("2.8", "--- Generating + pinning IPFS metadata for all campaigns ---");
 
-  const BUDGET    = parseDOT("10");    // 10 PAS
-  const DAILY_CAP = parseDOT("10");    // daily cap = budget
-  const BID_CPM   = parseDOT("0.016"); // 0.016 PAS per 1000 impressions
-  const REQUIRED_TAGS: string[] = [];   // No required tags for basic test campaign
+  let pinOk = 0;
+  let pinFail = 0;
+  const cidsRecord: Array<{ campaignIndex: number; wikiArticle: string; bytes32: string; cid: string | null }> = [];
 
-  // We can't parse CampaignCreated from receipt (no receipts on Paseo),
-  // so read nextCampaignId before and after to determine the ID
+  for (let i = 0; i < CAMPAIGN_SPECS.length; i++) {
+    const spec = CAMPAIGN_SPECS[i];
+    const primaryTopic = spec.topicIndices.length > 0
+      ? TOPICS[spec.topicIndices[0]]
+      : TOPICS[i % TOPICS.length]; // deterministic for untagged
+    const content = buildMetadata(primaryTopic, spec.wikiArticle, i);
+    spec.metadataBytes32 = contentToBytes32(content);
+
+    const cid = await pinToKubo(content);
+    if (cid) {
+      pinOk++;
+      cidsRecord.push({ campaignIndex: i, wikiArticle: spec.wikiArticle, bytes32: spec.metadataBytes32, cid });
+    } else {
+      pinFail++;
+      cidsRecord.push({ campaignIndex: i, wikiArticle: spec.wikiArticle, bytes32: spec.metadataBytes32, cid: null });
+      if (pinFail === 1) log("2.8", "  Kubo unavailable or pin failed — bytes32 only (no IPFS pin)");
+    }
+    if ((i + 1) % 25 === 0) log("2.8", `  ${i + 1}/${CAMPAIGN_SPECS.length} processed (${pinOk} pinned, ${pinFail} hash-only)...`);
+  }
+  log("2.8", `  Done: ${pinOk} pinned to IPFS, ${pinFail} SHA-256 only`);
+
+  // Write CID reference file alongside this script
+  const cidsFile = __dirname + "/metadata-cids.json";
+  fs.writeFileSync(cidsFile, JSON.stringify(cidsRecord, null, 2));
+  log("2.8", `  CID reference written to ${cidsFile}`);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3. CREATE 100 COMPETING CAMPAIGNS
+  //
+  // Each campaign has:
+  //   - CPM: 0.30–0.70 PAS (randomly assigned)
+  //   - Tags: 20% untagged, 60% single-topic, 20% two-topic
+  //   - ~20% carry a USDT precompile sidecar (1000 µUSDT/impression)
+  //   - Metadata: keccak256("wikipedia:" + article) — deterministic demo hash
+  //   - Budget: 1 PAS each
+  //   - All open (no fixed publisher) — any registered publisher can serve
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("3", `--- Creating ${NUM_CAMPAIGNS} competing campaigns (CPM: 0.30–0.70 PAS each) ---`);
+
+  // Read nextCampaignId ONCE before the loop to get the base ID.
+  // On Paseo, eth_call state lags behind chain tip — reading inside the loop returns stale values.
+  // IDs are sequential: base, base+1, ..., base+N-1 (contract increments atomically on each create).
   const campExtraAbi = ["function nextCampaignId() view returns (uint256)"];
   const campExtraIface = new Interface(campExtraAbi);
+  const baseIdRaw = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
+  const baseCampaignId = BigInt(baseIdRaw);
+  log("3", `  nextCampaignId (base): ${baseCampaignId}`);
 
-  let campaignId: bigint;
+  const allCampaignIds: bigint[] = [];
+  const allCampaignSpecs: CampaignSpec[] = [];
 
-  try {
-    // Read current nextCampaignId (1-indexed, increments after each create)
-    const nextBefore = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
-    const nextBeforeVal = BigInt(nextBefore);
-    log("3", `  nextCampaignId before: ${nextBeforeVal.toString()}`);
+  let createFailed = 0;
+  for (let i = 0; i < CAMPAIGN_SPECS.length; i++) {
+    const spec = CAMPAIGN_SPECS[i];
+    const adv = advWallets[spec.advertiserKey];
+    const tags = spec.topicIndices.map(idx => tagHash(TOPICS[idx]));
+    const tagLabels = spec.topicIndices.map(idx => TOPICS[idx]).join(", ") || "untagged";
+    const rewardToken = spec.hasSidecar ? USDT_PRECOMPILE : ethers.ZeroAddress;
+    const rewardPerImpression = spec.hasSidecar ? USDT_PER_IMPRESSION : 0n;
+    const cpmFmt = (Number(spec.bidCpm) / 1e10).toFixed(3);
 
-    // Create campaign
-    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, REQUIRED_TAGS, false, ethers.ZeroAddress, 0, 0],
-      BUDGET
-    );
+    // Compute ID from base + offset (avoids Paseo eth_call state-lag)
+    const campaignId = baseCampaignId + BigInt(allCampaignIds.length);
 
-    // The created campaign has ID = nextBeforeVal (it was assigned then incremented)
-    campaignId = nextBeforeVal;
-    log("3", `Campaign created: ID ${campaignId.toString()}`);
-  } catch (err) {
-    console.error(`FAILED to create campaign: ${String(err).slice(0, 200)}`);
-    process.exitCode = 1;
-    return;
+    try {
+      await sendCall(
+        adv, rawProvider, addrs.campaigns, campIface, "createCampaign",
+        [ethers.ZeroAddress, spec.dailyCap, spec.bidCpm, tags, false, rewardToken, rewardPerImpression, 0],
+        spec.budget,
+      );
+
+      allCampaignIds.push(campaignId);
+      allCampaignSpecs.push(spec);
+      const sidecarLabel = spec.hasSidecar ? " +USDT" : "";
+      log("3", `  [${(i + 1).toString().padStart(3)}] ID ${campaignId} | ${spec.advertiserKey} | CPM ${cpmFmt} PAS | ${tagLabels}${sidecarLabel}`);
+    } catch (err) {
+      createFailed++;
+      log("3", `  [${(i + 1).toString().padStart(3)}] FAILED (${spec.advertiserKey}, CPM ${cpmFmt}): ${String(err).slice(0, 120)}`);
+    }
   }
-
-  log("3", `  Advertiser: Bob (${bob.address})`);
-  log("3", `  Publisher: Diana (${diana.address})`);
-  log("3", `  Budget: 10 PAS, CPM: 0.016 PAS`);
-
-  // Verify Pending
-  const statusResult = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [campaignId]);
-  const statusBefore = Number(BigInt(statusResult));
-  log("3", `  Status: ${STATUS_NAMES[statusBefore]}`);
+  log("3", `Created ${allCampaignIds.length}/${CAMPAIGN_SPECS.length} campaigns (${createFailed} failed)`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 3.5. CREATE TEST CAMPAIGN 2 (Charlie as advertiser, open — no fixed publisher)
-  // Demonstrates open campaigns: any registered publisher can serve impressions.
+  // 4. VOTE AYE (Frank) + EVALUATE TO ACTIVATE — all campaigns
   // ═══════════════════════════════════════════════════════════════════════════
-  log("3.5", "--- Creating open test campaign (Charlie, no fixed publisher) ---");
-
-  let campaignId2: bigint | null = null;
-  try {
-    const nextBefore2 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
-    const nextBeforeVal2 = BigInt(nextBefore2);
-
-    await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.012"), [], false, ethers.ZeroAddress, 0, 0],
-      parseDOT("5")
-    );
-
-    campaignId2 = nextBeforeVal2;
-    log("3.5", `  Open campaign created: ID ${campaignId2.toString()}`);
-    log("3.5", `  Advertiser: Charlie (${charlie.address})`);
-    log("3.5", `  Publisher: open (any registered publisher)`);
-    log("3.5", `  Budget: 5 PAS, CPM: 0.012 PAS`);
-  } catch (err) {
-    log("3.5", `  FAILED to create open campaign: ${String(err).slice(0, 200)}`);
-    // Non-fatal — continue with campaign 1 only
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 3.6. CREATE COMPETING CAMPAIGN 3 (IPFS + crypto targeting, highest CPM)
-  // Demonstrates: IPFS metadata, tag-based targeting, highest CPM price
-  // ═══════════════════════════════════════════════════════════════════════════
-  log("3.6", "--- Creating IPFS+crypto campaign (CPM: 0.020 PAS — highest) ---");
-
-  // Native Asset Hub USDT precompile (trust-backed, assetId=1984)
-  const USDT_PRECOMPILE = "0x000007C000000000000000000000000001200000";
-  // Deterministic metadata hash for demo — replace with real CIDv0 bytes32 on mainnet
-  const CAMPAIGN3_METADATA = keccak256(toUtf8Bytes("datum-demo-ipfs-campaign-crypto-v1"));
-  const CAMPAIGN3_TAGS = [
-    tagHash("topic:crypto-web3"),
-    tagHash("topic:defi"),
-  ];
-
-  let campaignId3: bigint | null = null;
-  try {
-    const nextBefore3 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
-    campaignId3 = BigInt(nextBefore3);
-    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.020"), CAMPAIGN3_TAGS, false, ethers.ZeroAddress, 0, 0],
-      parseDOT("5")
-    );
-    log("3.6", `  Created: ID ${campaignId3} | open | CPM 0.020 | tags: topic:crypto-web3, topic:defi`);
-    log("3.6", `  Advertiser: Bob | Publisher: any registered publisher`);
-  } catch (err) {
-    log("3.6", `  FAILED: ${String(err).slice(0, 200)}`);
-    campaignId3 = null;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 3.7. CREATE COMPETING CAMPAIGN 4 (native asset sidecar + finance targeting)
-  // Demonstrates: Asset Hub USDT precompile as sidecar reward token, mid CPM
-  // Note: creditReward silently fails on Paseo if precompile not live (non-critical)
-  // ═══════════════════════════════════════════════════════════════════════════
-  log("3.7", "--- Creating USDT sidecar campaign (CPM: 0.014 PAS — mid) ---");
-
-  const CAMPAIGN4_TAGS = [tagHash("topic:finance")];
-  const USDT_PER_IMPRESSION = 1000n; // 0.001 USDT (6 decimals) per impression
-
-  let campaignId4: bigint | null = null;
-  try {
-    const nextBefore4 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
-    campaignId4 = BigInt(nextBefore4);
-    await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
-      [ethers.ZeroAddress, parseDOT("3"), parseDOT("0.014"), CAMPAIGN4_TAGS, false, USDT_PRECOMPILE, USDT_PER_IMPRESSION, 0],
-      parseDOT("3")
-    );
-    log("3.7", `  Created: ID ${campaignId4} | open | CPM 0.014 | tags: topic:finance`);
-    log("3.7", `  Sidecar: USDT precompile (${USDT_PRECOMPILE}) | 0.001 USDT/impression`);
-  } catch (err) {
-    log("3.7", `  FAILED: ${String(err).slice(0, 200)}`);
-    campaignId4 = null;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 4. VOTE AYE (Frank) + EVALUATE TO ACTIVATE
-  // ═══════════════════════════════════════════════════════════════════════════
-  log("4", "--- Voting + activating campaign(s) ---");
+  log("4", "--- Voting + activating all campaigns ---");
 
   const quorumResult = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
   const quorum = BigInt(quorumResult);
   log("4", `  Governance quorum: ${formatDOT(quorum)} PAS (conviction-weighted)`);
 
-  // Conviction 0 = 1x weight. Stake >= quorum to pass with single voter.
+  // Conviction 0 = 1x weight. Single Frank vote covers quorum.
   const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
+  log("4", `  Vote stake per campaign: ${formatDOT(VOTE_STAKE)} PAS (conviction 0, no lockup)`);
 
   const frankBal = await rawProvider.getBalance(frank.address);
-  // Need enough for 2 campaigns + gas (each vote locks VOTE_STAKE)
-  const neededForVotes = VOTE_STAKE * 2n + parseDOT("2");
+  const neededForVotes = VOTE_STAKE * BigInt(allCampaignIds.length) + parseDOT("10");
   if (frankBal < neededForVotes) {
-    log("4", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, may not have enough for 2 votes (${formatDOT(neededForVotes)} needed)`);
+    log("4", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, needs ~${formatDOT(neededForVotes)} PAS for ${allCampaignIds.length} votes`);
   }
 
-  // Helper: vote + evaluate a single campaign
-  async function activateCampaign(cid: bigint, label: string): Promise<void> {
+  // Phase 4a: Frank votes aye on all campaigns
+  log("4", `  Phase 4a: Voting on ${allCampaignIds.length} campaigns...`);
+  let voteOk = 0;
+  const votedIds: bigint[] = [];
+  for (let i = 0; i < allCampaignIds.length; i++) {
+    const cid = allCampaignIds[i];
     try {
       await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
         [cid, true, 0],
-        VOTE_STAKE
+        VOTE_STAKE,
       );
-      log("4", `  Frank voted aye on ${label} (cid=${cid})`);
+      votedIds.push(cid);
+      voteOk++;
+      if ((i + 1) % 10 === 0) log("4", `    voted on ${i + 1}/${allCampaignIds.length}...`);
     } catch (err) {
-      log("4", `  vote failed for ${label}: ${String(err).slice(0, 150)}`);
-      return;
+      log("4", `    vote failed for ID ${cid}: ${String(err).slice(0, 100)}`);
     }
+  }
+  log("4", `  Voted on ${voteOk}/${allCampaignIds.length} campaigns`);
+
+  // Phase 4b: Alice evaluates all voted campaigns
+  log("4", `  Phase 4b: Evaluating ${votedIds.length} campaigns...`);
+  let activateOk = 0;
+  for (let i = 0; i < votedIds.length; i++) {
+    const cid = votedIds[i];
     try {
       await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [cid]);
-      const statusResult2 = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
-      const s = Number(BigInt(statusResult2));
-      log("4", `  ${label} status: ${STATUS_NAMES[s]}`);
-      if (s !== 1) log("4", `  WARNING: ${label} did not activate.`);
+      const statusRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
+      const s = Number(BigInt(statusRaw));
+      if (s === 1) {
+        activateOk++;
+      } else {
+        log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after evaluate`);
+      }
+      if ((i + 1) % 10 === 0) log("4", `    evaluated ${i + 1}/${votedIds.length}...`);
     } catch (err) {
-      log("4", `  evaluateCampaign failed for ${label}: ${String(err).slice(0, 150)}`);
+      log("4", `    evaluate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
     }
   }
-
-  await activateCampaign(campaignId, "campaign 1 (Diana)");
-  if (campaignId2 !== null) await activateCampaign(campaignId2, "campaign 2 (open)");
-  if (campaignId3 !== null) await activateCampaign(campaignId3, "campaign 3 (IPFS+crypto)");
-  if (campaignId4 !== null) await activateCampaign(campaignId4, "campaign 4 (USDT sidecar)");
+  log("4", `  Activated ${activateOk}/${votedIds.length} campaigns`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5. SET METADATA
+  // 5. SET METADATA — real IPFS SHA-256 bytes32 for all campaigns
+  //    (generated + pinned in step 2.8; bytes32 = SHA-256 of JSON content)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("5", "--- Setting metadata ---");
+  log("5", "--- Setting metadata (real IPFS SHA-256 bytes32) ---");
 
-  const metaHash = keccak256(toUtf8Bytes("testnet-campaign-" + campaignId.toString()));
-  try {
-    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId, metaHash]);
-    log("5", `  Campaign 1 metadata: ${metaHash.slice(0, 18)}...`);
-  } catch (err) {
-    log("5", `  setMetadata (campaign 1) failed: ${String(err).slice(0, 100)}`);
-  }
+  let metaOk = 0;
+  for (let i = 0; i < allCampaignIds.length; i++) {
+    const cid = allCampaignIds[i];
+    const spec = allCampaignSpecs[i];
+    const adv = advWallets[spec.advertiserKey];
+    const metaHash = spec.metadataBytes32 || keccak256(toUtf8Bytes("wikipedia:" + spec.wikiArticle));
 
-  if (campaignId2 !== null) {
-    const metaHash2 = keccak256(toUtf8Bytes("testnet-campaign-" + campaignId2.toString()));
     try {
-      await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId2, metaHash2]);
-      log("5", `  Campaign 2 metadata: ${metaHash2.slice(0, 18)}...`);
+      await sendCall(adv, rawProvider, addrs.campaigns, campIface, "setMetadata", [cid, metaHash]);
+      metaOk++;
+      if ((i + 1) % 20 === 0) log("5", `    metadata set for ${i + 1}/${allCampaignIds.length}...`);
     } catch (err) {
-      log("5", `  setMetadata (campaign 2) failed: ${String(err).slice(0, 100)}`);
+      log("5", `    setMetadata failed for ID ${cid} (${spec.wikiArticle}): ${String(err).slice(0, 100)}`);
     }
   }
-
-  // Campaign 3: IPFS metadata (deterministic demo hash — extension will attempt IPFS fetch)
-  if (campaignId3 !== null) {
-    try {
-      await sendCall(bob, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId3, CAMPAIGN3_METADATA]);
-      log("5", `  Campaign 3 metadata (IPFS): ${CAMPAIGN3_METADATA.slice(0, 18)}...`);
-    } catch (err) {
-      log("5", `  setMetadata (campaign 3) failed: ${String(err).slice(0, 100)}`);
-    }
-  }
-  // Campaign 4: no metadata — purely on-chain targeting
+  log("5", `  Set metadata on ${metaOk}/${allCampaignIds.length} campaigns`);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5.3. RATE LIMITER STATUS (BM-5)
@@ -596,23 +776,20 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5.5. TEST REPORTS (Grace reports page + ad on both campaigns)
+  // 5.5. TEST REPORTS (Grace reports page + ad on first 2 campaigns)
   // ═══════════════════════════════════════════════════════════════════════════
   log("5.5", "--- Submitting test reports (DatumReports) ---");
-  const reportCampaigns = [
-    { id: campaignId, label: "campaign 1" },
-    ...(campaignId2 !== null ? [{ id: campaignId2, label: "campaign 2" }] : []),
-  ];
-  for (const { id, label } of reportCampaigns) {
+  const reportTargets = allCampaignIds.slice(0, 2).map((id, i) => ({ id, label: `campaign ${i + 1}` }));
+  for (const { id, label } of reportTargets) {
     try {
       await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportPage", [id, 2]); // misleading
-      log("5.5", `  grace reported page on ${label} (reason=2 misleading)`);
+      log("5.5", `  grace reported page on ${label} ID ${id} (reason=2 misleading)`);
     } catch (err) {
       log("5.5", `  reportPage (${label}) failed: ${String(err).slice(0, 100)}`);
     }
     try {
       await sendCall(grace, rawProvider, addrs.reports, reportsIface, "reportAd", [id, 3]); // inappropriate
-      log("5.5", `  grace reported ad on ${label} (reason=3 inappropriate)`);
+      log("5.5", `  grace reported ad on ${label} ID ${id} (reason=3 inappropriate)`);
     } catch (err) {
       log("5.5", `  reportAd (${label}) failed: ${String(err).slice(0, 100)}`);
     }
@@ -624,7 +801,6 @@ async function main() {
   log("5.7", "--- Wiring reputation.settlement (FP-16) ---");
   if (addrs.reputation && addrs.settlement) {
     try {
-      // Check if already wired to the correct settlement address
       const currentRaw = await rawProvider.call({
         to: addrs.reputation,
         data: reputationIface.encodeFunctionData("settlement", []),
@@ -650,7 +826,6 @@ async function main() {
   if (addrs.publisherStake) {
     const stakeIface = new Interface(publisherStakeAbi);
     try {
-      // Read required and current stake for Diana
       const [requiredRaw, stakedRaw] = await Promise.all([
         readCall(rawProvider, addrs.publisherStake, stakeIface, "requiredStake", [diana.address]),
         readCall(rawProvider, addrs.publisherStake, stakeIface, "staked", [diana.address]),
@@ -661,7 +836,7 @@ async function main() {
       if (alreadyStaked >= required) {
         log("5.8", `  diana already adequately staked: ${formatDOT(alreadyStaked)} PAS (required: ${formatDOT(required)} PAS) -- skipping`);
       } else {
-        const toStake = required - alreadyStaked + parseDOT("1"); // stake required + 1 PAS buffer
+        const toStake = required - alreadyStaked + parseDOT("1"); // required + 1 PAS buffer
         log("5.8", `  diana staking ${formatDOT(toStake)} PAS (required: ${formatDOT(required)} PAS, already staked: ${formatDOT(alreadyStaked)} PAS)`);
         await sendCall(diana, rawProvider, addrs.publisherStake, stakeIface, "stake", [], toStake);
         const newStakedRaw = await readCall(rawProvider, addrs.publisherStake, stakeIface, "staked", [diana.address]);
@@ -679,23 +854,49 @@ async function main() {
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n=== Alpha-3 Testnet Setup Complete ===");
-  console.log("Competing campaigns (auction CPM ladder):");
-  if (campaignId3 !== null)
-    console.log(`  Campaign 3  : ID ${campaignId3} | CPM 0.020 PAS (HIGHEST) | IPFS metadata | topic:crypto-web3, topic:defi`);
-  console.log(`  Campaign 1  : ID ${campaignId} | CPM 0.016 PAS | fixed publisher (Diana)`);
-  if (campaignId4 !== null)
-    console.log(`  Campaign 4  : ID ${campaignId4} | CPM 0.014 PAS | USDT sidecar | topic:finance`);
-  if (campaignId2 !== null)
-    console.log(`  Campaign 2  : ID ${campaignId2} | CPM 0.012 PAS (LOWEST) | open | any publisher`);
-  console.log("Aye voter   : Frank", frank.address);
-  console.log("");
-  console.log("Funded accounts:");
+  console.log(`\n${allCampaignIds.length} competing campaigns seeded (CPM range: 0.30–0.70 PAS):`);
+
+  // Build summary stats
+  const sidecarCount = allCampaignSpecs.filter(s => s.hasSidecar).length;
+  const untaggedCount = allCampaignSpecs.filter(s => s.topicIndices.length === 0).length;
+  const oneTagCount = allCampaignSpecs.filter(s => s.topicIndices.length === 1).length;
+  const twoTagCount = allCampaignSpecs.filter(s => s.topicIndices.length === 2).length;
+  const bobCount = allCampaignSpecs.filter(s => s.advertiserKey === "bob").length;
+  const charlieCount = allCampaignSpecs.filter(s => s.advertiserKey === "charlie").length;
+
+  console.log(`  Advertisers : Bob (${bobCount}), Charlie (${charlieCount})`);
+  console.log(`  Tags        : ${untaggedCount} untagged, ${oneTagCount} single-topic, ${twoTagCount} two-topic`);
+  console.log(`  USDT sidecar: ${sidecarCount} campaigns carry 0.001 USDT/impression`);
+  const pinnedCount = cidsRecord.filter(r => r.cid !== null).length;
+  console.log(`  Metadata    : Real IPFS SHA-256 bytes32 (${pinnedCount}/${CAMPAIGN_SPECS.length} pinned to Kubo; see scripts/metadata-cids.json)`);;
+  console.log(`  Budget      : 1 PAS per campaign (${allCampaignIds.length} PAS total committed)`);
+
+  // Show top 10 by CPM
+  const sortedBySpec = allCampaignIds
+    .map((id, i) => ({ id, spec: allCampaignSpecs[i] }))
+    .sort((a, b) => (a.spec.bidCpm > b.spec.bidCpm ? -1 : 1));
+
+  console.log("\nTop 10 campaigns by CPM:");
+  for (const { id, spec } of sortedBySpec.slice(0, 10)) {
+    const cpmFmt = (Number(spec.bidCpm) / 1e10).toFixed(3);
+    const tagLabels = spec.topicIndices.map(i => TOPICS[i]).join(", ") || "untagged";
+    const sidecar = spec.hasSidecar ? " [+USDT]" : "";
+    console.log(`  ID ${String(id).padStart(4)} | CPM ${cpmFmt} PAS | ${tagLabels}${sidecar}`);
+  }
+
+  console.log("\nAuction mechanics:");
+  console.log("  Second-price (Vickrey) — winner pays effective second bid");
+  console.log("  effectiveBid = CPM × interestWeight (from user profile × tag match)");
+  console.log("  Floor: 30% of winner's CPM. Solo: 70% of bid.");
+  console.log("  USDT sidecars do not affect DOT auction ordering — pure incentive bonus");
+
+  console.log("\nFunded accounts:");
   for (const name of TO_FUND) {
     const bal = await rawProvider.getBalance(wallets[name].address);
     console.log(`  ${name.padEnd(8)} ${wallets[name].address}  ${formatDOT(bal)} PAS`);
   }
-  console.log("");
-  console.log("Alpha-3 contract addresses (21 core + FP if deployed):");
+
+  console.log("\nAlpha-3 contract addresses (21 core + FP if deployed):");
   const alpha3ContractKeys = [
     "pauseRegistry", "timelock", "publishers", "campaigns",
     "budgetLedger", "paymentVault", "campaignLifecycle",
@@ -703,21 +904,20 @@ async function main() {
     "settlement", "relay", "zkVerifier",
     "targetingRegistry", "campaignValidator", "claimValidator", "governanceHelper",
     "reports", "rateLimiter", "reputation", "tokenRewardVault",
-    // FP contracts (present only after next redeploy)
     "publisherStake", "challengeBonds", "publisherGovernance", "nullifierRegistry", "parameterGovernance",
   ];
   for (const key of alpha3ContractKeys) {
     if (addrs[key]) console.log(`  ${key.padEnd(24)} ${addrs[key]}`);
     else console.log(`  ${key.padEnd(24)} (not deployed)`);
   }
-  console.log("");
-  console.log("Publisher setup:");
+
+  console.log("\nPublisher setup:");
   console.log("  diana relaySigner  :", diana.address, "(set to self — relay bot uses Diana key)");
   console.log("  diana isReporter   : true (BM-8/BM-9 recordSettlement authorized)");
-  console.log("  diana tags         : topic:crypto, topic:defi, topic:technology, locale:en");
-  console.log("  eve tags           : topic:crypto, locale:en");
-  console.log("");
-  console.log("User accounts (fund via faucet for testing):");
+  console.log("  diana tags         : topic:crypto-web3, topic:defi, topic:polkadot, topic:computers-electronics, topic:finance, locale:en");
+  console.log("  eve tags           : topic:crypto-web3, topic:nfts, topic:daos-governance, locale:en");
+
+  console.log("\nUser accounts (fund via faucet for testing):");
   console.log("  hank     0x615BcbE62B43bB033e65533bB6FcCC8b6FcB5BbD");
   console.log("  iris     0xC59101dab8d0899F74d19a4f13bb2D9A030065af");
   console.log("  jack     0x705f35BC60EE574FA5d1D38Ef2CD4784dE9371d3");

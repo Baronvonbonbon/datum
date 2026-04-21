@@ -23,21 +23,45 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
     setLoading(true);
     setError(null);
 
-    const url = metadataUrl(metadataHash, settings.ipfsGateway);
-    if (!url) { setLoading(false); return; }
+    const primaryUrl = metadataUrl(metadataHash, settings.ipfsGateway);
+    if (!primaryUrl) { setLoading(false); return; }
 
-    fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((raw) => {
-        const validated = validateAndSanitize(raw);
-        if (!validated) throw new Error("Invalid metadata schema");
-        setMetadata(validated);
-      })
-      .catch((err) => setError(String(err).slice(0, 100)))
-      .finally(() => setLoading(false));
+    // Fallback gateways tried in order when the primary returns 404.
+    // Local Kubo gateway first (handles locally-pinned testnet metadata).
+    const FALLBACK_GATEWAYS = [
+      "http://localhost:8080/ipfs/",
+      "https://ipfs.io/ipfs/",
+      "https://cloudflare-ipfs.com/ipfs/",
+    ];
+
+    async function fetchWithFallback() {
+      const urls: string[] = [primaryUrl!];
+      for (const gw of FALLBACK_GATEWAYS) {
+        if (!gw.startsWith(settings.ipfsGateway.replace(/\/$/, ""))) {
+          const fb = metadataUrl(metadataHash, gw);
+          if (fb) urls.push(fb);
+        }
+      }
+
+      let lastErr = "";
+      for (const url of urls) {
+        try {
+          const r = await fetch(url);
+          if (r.status === 404) { lastErr = "Not pinned to gateway"; continue; }
+          if (!r.ok) { lastErr = `HTTP ${r.status}`; continue; }
+          const raw = await r.json();
+          const validated = validateAndSanitize(raw);
+          if (!validated) { lastErr = "Invalid metadata schema"; continue; }
+          setMetadata(validated);
+          return;
+        } catch (err) {
+          lastErr = String(err).slice(0, 80);
+        }
+      }
+      setError(lastErr);
+    }
+
+    fetchWithFallback().finally(() => setLoading(false));
   }, [metadataHash, settings.ipfsGateway]);
 
   if (!metadataHash || metadataHash === ZERO_HASH) {

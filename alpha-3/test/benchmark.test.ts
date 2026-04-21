@@ -288,8 +288,10 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     // 9. Token reward vault (ERC-20 sidecar)
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
-    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy();
+    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await campaigns.getAddress());
     await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
+    await settlement.setCampaigns(await campaigns.getAddress());
+    await tokenRewardVault.setSettlement(await settlement.getAddress());
 
     // Register publishers
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
@@ -1162,7 +1164,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       );
       await tx.wait();
       const cid = await campaigns.nextCampaignId() - 1n;
-      expect(await campaigns.getCampaignRewardToken(cid)).to.equal(USDT_PRECOMPILE);
+      expect((await campaigns.getCampaignRewardToken(cid)).toLowerCase()).to.equal(USDT_PRECOMPILE.toLowerCase());
       // Settlement will attempt creditReward; low-level call to precompile will silently fail on EVM
       // This validates the non-critical path handles unknown ERC-20 gracefully
       await v2.connect(voter).vote(cid, true, 0, { value: QUORUM });

@@ -509,63 +509,61 @@
     <div class="section-label">Competing Campaigns — Paseo Testnet</div>
     <div class="campaigns-panel">
       <p class="campaigns-intro">
-        Four campaigns are seeded on Paseo testnet at staggered CPM bids.
-        The Datum extension runs a Vickrey (second-price) auction on each page visit — effective bid = CPM × interest weight.
-        A lower-CPM campaign with a matching topic tag can beat a higher raw bid from an unmatched campaign.
-        Visit matching topics to watch the outcome change in the auction monitor below.
+        100 campaigns are seeded on Paseo testnet with CPM bids ranging from <strong>0.300–0.700 PAS</strong>.
+        Each campaign targets a random subset of the 30 topic taxonomy, with ~20% carrying a
+        <span class="sidecar-badge" style="display:inline">USDT</span> native asset sidecar reward per impression.
+        The Datum extension runs a Vickrey (second-price) auction on every page visit —
+        <strong>effectiveBid = CPM × interestWeight</strong>, so a lower-CPM campaign with a matching topic tag
+        routinely beats a higher raw bid from an unmatched advertiser.
       </p>
       <table class="campaigns-table">
         <thead>
           <tr>
-            <th>Rank</th>
-            <th>CPM (PAS)</th>
-            <th>Strategy</th>
-            <th>Wins on topic</th>
-            <th>Sidecar reward</th>
+            <th>Tier</th>
+            <th>CPM range (PAS)</th>
+            <th>Tag strategy</th>
+            <th>Best on</th>
+            <th>Sidecar</th>
           </tr>
         </thead>
         <tbody>
           <tr class="camp-row leader">
-            <td>1</td>
-            <td><span class="cpm">0.020</span></td>
+            <td>High</td>
+            <td><span class="cpm">0.55 – 0.70</span></td>
             <td>
-              IPFS metadata<br>
-              <span class="camp-tag match">topic:crypto-web3</span>
-              <span class="camp-tag match">topic:defi</span>
+              Single-topic precision<br>
+              <span class="camp-tag match">e.g. topic:crypto-web3</span>
             </td>
-            <td>Crypto, DeFi, Web3</td>
-            <td>—</td>
+            <td>Pages matching their one tag (highest effective bid)</td>
+            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
           </tr>
           <tr class="camp-row">
-            <td>2</td>
-            <td><span class="cpm">0.016</span></td>
-            <td>Fixed publisher (Diana) · no tag filter</td>
-            <td>Any (when served by Diana)</td>
-            <td>—</td>
-          </tr>
-          <tr class="camp-row">
-            <td>3</td>
-            <td><span class="cpm">0.014</span></td>
-            <td>
-              <span class="camp-tag match">topic:finance</span>
-              <br>native asset sidecar
+            <td>Mid</td>
+            <td><span class="cpm">0.40 – 0.54</span></td>
+            <td>Single- or dual-topic<br>
+              <span class="camp-tag match">e.g. topic:finance</span>
+              <span class="camp-tag">topic:science</span>
             </td>
-            <td>Finance, investing</td>
-            <td><span class="sidecar-badge">0.001 USDT/impression</span></td>
+            <td>Niche interest matches; lose on broad pages to high-tier</td>
+            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
           </tr>
           <tr class="camp-row">
-            <td>4</td>
-            <td><span class="cpm">0.012</span></td>
-            <td>Open · no tag filter</td>
-            <td>Any topic (floor bid)</td>
-            <td>—</td>
+            <td>Low</td>
+            <td><span class="cpm">0.30 – 0.39</span></td>
+            <td>Untagged (open) — no targeting<br>
+              <span style="color:#555;font-size:11px">falls back to page-tag weight</span>
+            </td>
+            <td>Pages with no higher-interest competitor; floor bid wins</td>
+            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
           </tr>
         </tbody>
       </table>
       <div class="hint" style="margin-top:10px">
-        Interest weight is multiplied into the effective bid. Visiting <strong>Crypto &amp; Web3</strong> or <strong>Finance</strong>
-        topics will match tag-targeted campaigns and shift the auction outcome.
-        Use the auto-tour to cycle through all 26 topics and watch the winning campaign change.
+        All 100 campaigns are active and competing simultaneously. Interest weight from your browse history is
+        multiplied into each effective bid — a 0.30 PAS campaign with a strong topic match can beat a 0.70 PAS
+        untagged campaign when your profile aligns. Sidecar USDT rewards are credited to user wallets via
+        DatumTokenRewardVault regardless of auction outcome — they do not affect CPM ordering.
+        Use the auto-tour to cycle all 30 topics and watch the winning campaign change in real time.
       </div>
     </div>
   </div>

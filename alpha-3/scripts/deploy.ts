@@ -52,8 +52,8 @@ const TAKE_RATE_UPDATE_DELAY = 14400n;               // ~24h
 const QUORUM_WEIGHTED = parseDOT("100");             // 100 DOT conviction-weighted total
 const SLASH_BPS = 1000n;                             // 10% slash on losing side
 const TERMINATION_QUORUM = parseDOT("100");          // 100 DOT nay-weighted minimum to terminate
-const BASE_GRACE_BLOCKS = 14400n;                    // ~24h minimum cooldown before termination
-const GRACE_PER_QUORUM = 14400n;                     // additional blocks per quorum-unit of total weight
+const BASE_GRACE_BLOCKS = 10n;                       // testnet: ~1 min (prod: 14400n ~24h)
+const GRACE_PER_QUORUM = 0n;                         // testnet: no per-quorum extension (prod: 14400n)
 const MAX_GRACE_BLOCKS = 100800n;                    // ~7d cap on total grace period
 
 // CampaignLifecycle — P20 inactivity timeout
