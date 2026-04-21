@@ -13,6 +13,8 @@ import {
   DatumCampaignLifecycle,
   DatumAttestationVerifier,
   DatumClaimValidator,
+  DatumTokenRewardVault,
+  MockERC20,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
@@ -39,6 +41,8 @@ describe("Integration", function () {
   let lifecycle: DatumCampaignLifecycle;
   let verifier: DatumAttestationVerifier;
   let claimValidator: DatumClaimValidator;
+  let tokenRewardVault: DatumTokenRewardVault;
+  let mockERC20: MockERC20;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -190,6 +194,11 @@ describe("Integration", function () {
     );
     await settlement.setClaimValidator(await claimValidator.getAddress());
     await settlement.setAttestationVerifier(await verifier.getAddress());
+
+    // Token reward vault (ERC-20 sidecar)
+    mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
+    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy();
+    await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
     await lifecycle.setBudgetLedger(await ledger.getAddress());
@@ -718,5 +727,191 @@ describe("Integration", function () {
         { user: user.address, campaignId, claims, publisherSig: wrongSig }
       ])
     ).to.be.revertedWith("E34");
+  });
+
+  // =========================================================================
+  // I: IPFS metadata + ERC-20 sidecar integration
+  // =========================================================================
+
+  it("I-1: IPFS metadata bytes32 round-trip — setMetadata / getCampaignMetadata", async function () {
+    // A known CIDv0 SHA-256 digest (bytes32 without the 0x1220 multihash prefix).
+    // Real extension uses cidToBytes32() from ipfs.ts; here we embed the raw digest.
+    const CID_SHA256 = "0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+    const campaignId = await createTestCampaign();
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n);
+    await v2.evaluateCampaign(campaignId);
+    expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
+
+    // Before setting metadata — should be zero
+    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(ethers.ZeroHash);
+
+    // Set metadata (advertiser owns the campaign)
+    await expect(campaigns.connect(advertiser).setMetadata(campaignId, CID_SHA256))
+      .to.emit(campaigns, "CampaignMetadataSet")
+      .withArgs(campaignId, CID_SHA256);
+
+    // Verify round-trip
+    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(CID_SHA256);
+
+    // Settle some impressions — metadata must survive
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 100n);
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }]);
+
+    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(CID_SHA256,
+      "metadata corrupted after settlement");
+  });
+
+  it("I-2: ERC-20 sidecar full flow — deposit → settle → credit → withdraw", async function () {
+    const REWARD_PER_IMP = 10n ** 15n;        // 0.001 TUSD per impression (18 dec)
+    const TOKEN_BUDGET   = REWARD_PER_IMP * 10000n; // enough for 10,000 impressions
+
+    // Create a campaign with ERC-20 reward token
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      publisher.address, DAILY_CAP, BID_CPM, [], false,
+      await mockERC20.getAddress(), REWARD_PER_IMP, 0n,
+      { value: BUDGET }
+    );
+    await tx.wait();
+    const campaignId = await campaigns.nextCampaignId() - 1n;
+
+    // Vote + activate
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n);
+    await v2.evaluateCampaign(campaignId);
+    expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
+
+    // Advertiser deposits token budget
+    await mockERC20.mint(advertiser.address, TOKEN_BUDGET);
+    await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), TOKEN_BUDGET);
+    await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+      campaignId, await mockERC20.getAddress(), TOKEN_BUDGET
+    );
+    expect(await tokenRewardVault.campaignTokenBudget(await mockERC20.getAddress(), campaignId))
+      .to.equal(TOKEN_BUDGET);
+
+    const impressions = 1000n;
+    const userTokenBefore = await tokenRewardVault.userTokenBalance(
+      await mockERC20.getAddress(), user.address
+    );
+
+    // Settle 1 claim × 1000 impressions
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, impressions);
+    const result = await settlement.connect(user).settleClaims.staticCall([
+      { user: user.address, campaignId, claims }
+    ]);
+    expect(result.settledCount).to.equal(1n);
+
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }]);
+
+    // ERC-20 credited to user in vault
+    const expectedCredit = REWARD_PER_IMP * impressions;
+    const userTokenAfter = await tokenRewardVault.userTokenBalance(
+      await mockERC20.getAddress(), user.address
+    );
+    expect(userTokenAfter - userTokenBefore).to.equal(expectedCredit);
+
+    // User withdraws ERC-20 reward to wallet
+    const walletBefore = await mockERC20.balanceOf(user.address);
+    await tokenRewardVault.connect(user).withdraw(await mockERC20.getAddress());
+    const walletAfter = await mockERC20.balanceOf(user.address);
+    expect(walletAfter - walletBefore).to.equal(expectedCredit);
+
+    // Vault balance zeroed for user
+    expect(await tokenRewardVault.userTokenBalance(
+      await mockERC20.getAddress(), user.address
+    )).to.equal(0n);
+  });
+
+  it("I-3: native asset precompile address stored as reward token, settlement non-critical path graceful", async function () {
+    // USDT precompile address (Asset Hub trust-backed, assetId 1984)
+    // Format: 0x{assetId_u32_BE_8hex}000000000000000000000000{suffix}0000
+    // assetId 1984 = 0x000007C0, suffix trust-backed = 0120
+    const USDT_PRECOMPILE = "0x000007C000000000000000000000000001200000";
+    const REWARD_PER_IMP  = 1000n; // 0.001 USDT (6 dec)
+
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      publisher.address, DAILY_CAP, BID_CPM, [], false,
+      USDT_PRECOMPILE, REWARD_PER_IMP, 0n,
+      { value: BUDGET }
+    );
+    await tx.wait();
+    const campaignId = await campaigns.nextCampaignId() - 1n;
+
+    // Verify precompile address stored as-is
+    expect(await campaigns.getCampaignRewardToken(campaignId)).to.equal(USDT_PRECOMPILE);
+    expect(await campaigns.getCampaignRewardPerImpression(campaignId)).to.equal(REWARD_PER_IMP);
+
+    // Activate campaign
+    await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+    await mineBlocks(MAX_GRACE + 1n);
+    await v2.evaluateCampaign(campaignId);
+    expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
+
+    // Settlement with native precompile: creditReward low-level call fails silently on Hardhat EVM
+    // (precompile address has no code in local EVM) — settlement must NOT revert
+    const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 500n);
+    const result = await settlement.connect(user).settleClaims.staticCall([
+      { user: user.address, campaignId, claims }
+    ]);
+    expect(result.settledCount).to.equal(1n, "DOT settlement must succeed even if token credit fails");
+    expect(result.rejectedCount).to.equal(0n);
+
+    // Settle for real — DOT payment still goes through
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }]);
+    expect(await vault.userBalance(user.address)).to.be.gt(0n, "DOT user balance should be credited");
+  });
+
+  it("I-4: three competing campaigns at different CPMs — payments proportional to bid", async function () {
+    const CPM_HIGH = parseDOT("0.050"); // $1 CPM at DOT $20 (premium)
+    const CPM_MID  = parseDOT("0.020"); // $1 CPM at DOT $50 (mid)
+    const CPM_LOW  = parseDOT("0.010"); // $1 CPM at DOT $100 (budget)
+    const COMP_BUDGET = parseDOT("5");
+    const COMP_DAILY  = parseDOT("1");
+    const impressions = 1000n;
+
+    // Helper: create + activate at given CPM
+    async function makeCompetingCampaign(cpm: bigint): Promise<bigint> {
+      const tx = await campaigns.connect(advertiser).createCampaign(
+        publisher.address, COMP_DAILY, cpm, [], false, ethers.ZeroAddress, 0, 0n, { value: COMP_BUDGET }
+      );
+      await tx.wait();
+      const cid = await campaigns.nextCampaignId() - 1n;
+      await v2.connect(voter1).vote(cid, true, 0, { value: QUORUM_WEIGHTED });
+      await mineBlocks(MAX_GRACE + 1n);
+      await v2.evaluateCampaign(cid);
+      return cid;
+    }
+
+    const cidH = await makeCompetingCampaign(CPM_HIGH);
+    const cidM = await makeCompetingCampaign(CPM_MID);
+    const cidL = await makeCompetingCampaign(CPM_LOW);
+
+    // Settle each campaign separately so user nonce chains don't collide
+    const pubBefore = await vault.publisherBalance(publisher.address);
+
+    const claimsH = buildClaims(cidH, publisher.address, user.address, 1, CPM_HIGH, impressions);
+    const claimsM = buildClaims(cidM, publisher.address, user.address, 1, CPM_MID,  impressions);
+    const claimsL = buildClaims(cidL, publisher.address, user.address, 1, CPM_LOW,  impressions);
+
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidH, claims: claimsH }]);
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidM, claims: claimsM }]);
+    await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidL, claims: claimsL }]);
+
+    const pubAfter = await vault.publisherBalance(publisher.address);
+    const totalPub = pubAfter - pubBefore;
+
+    // Publisher receives 50% of CPM × impressions / 1000 for each campaign
+    const pubH = (CPM_HIGH * impressions / 1000n * 5000n) / 10000n;
+    const pubM = (CPM_MID  * impressions / 1000n * 5000n) / 10000n;
+    const pubL = (CPM_LOW  * impressions / 1000n * 5000n) / 10000n;
+
+    expect(totalPub).to.equal(pubH + pubM + pubL, "publisher total payout mismatch across 3 competing CPMs");
+
+    // Premium campaign pays 5× more than budget campaign per 1000 impressions
+    expect(pubH).to.equal(pubL * 5n, "5× CPM ratio should produce 5× publisher payout");
+    // Mid campaign pays 2× more than budget
+    expect(pubM).to.equal(pubL * 2n, "2× CPM ratio should produce 2× publisher payout");
   });
 });

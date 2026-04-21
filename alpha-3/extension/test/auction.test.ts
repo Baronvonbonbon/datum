@@ -102,4 +102,109 @@ describe("auctionForPage", () => {
     expect(result.participants).toBe(3);
     expect(result.mechanism).toBe("second-price");
   });
+
+  // AUC-IPFS: Campaigns sourced from IPFS metadata (via campaignPoller) carry
+  // requiredTags derived from the IPFS JSON payload.  The auction must honour them.
+  describe("AUC-IPFS: IPFS-sourced tag campaigns in auction", () => {
+    // Simulate a campaign whose requiredTags were fetched from IPFS metadata
+    // (the poller stores them in chrome.storage; content script reads and passes as candidates)
+    test("AUC-IPFS-1: IPFS-sourced campaign with matching tags wins over tagless equal-bid campaign", () => {
+      // Campaign A: discovered via IPFS metadata, has topic:crypto-web3 tag
+      // Campaign B: plain on-chain campaign, no tags
+      // Both bid the same. User has strong crypto interest — A should win on effective bid.
+      const ipfsCampaign: CampaignCandidate = {
+        id: "ipfs-campaign",
+        bidCpmPlanck: "1000000000",
+        categoryId: 0,
+        publisher: "0x" + "aa".repeat(20),
+        requiredTags: [tagHash("topic:crypto-web3")], // from IPFS JSON metadata
+      };
+      const plainCampaign: CampaignCandidate = {
+        id: "plain-campaign",
+        bidCpmPlanck: "1000000000",
+        categoryId: 0,
+        publisher: "0x" + "bb".repeat(20),
+        // no requiredTags — falls back to page tags
+      };
+
+      // Page has no crypto tags — tagless campaign gets low fallback weight
+      const result = auctionForPage(
+        [ipfsCampaign, plainCampaign],
+        {},
+        cryptoProfile,
+        ["topic:defi"], // page topic — doesn't match plain campaign well
+      )!;
+
+      expect(result).not.toBeNull();
+      expect(result.winner.id).toBe("ipfs-campaign");
+    });
+
+    test("AUC-IPFS-2: IPFS campaign with non-matching tags loses to untagged higher-interest campaign", () => {
+      // Campaign A: IPFS-sourced, requires topic:gaming (user has no gaming interest)
+      // Campaign B: plain, no required tags (gets page-based interest weight)
+      const gamingCampaign: CampaignCandidate = {
+        id: "gaming",
+        bidCpmPlanck: "2000000000", // higher bid
+        categoryId: 0,
+        publisher: "0x" + "aa".repeat(20),
+        requiredTags: [tagHash("topic:gaming")],
+      };
+      const cryptoCampaign: CampaignCandidate = {
+        id: "crypto",
+        bidCpmPlanck: "1000000000",
+        categoryId: 0,
+        publisher: "0x" + "bb".repeat(20),
+        requiredTags: [tagHash("topic:crypto-web3")],
+      };
+
+      // User has 1.0 crypto weight, zero gaming weight
+      const result = auctionForPage(
+        [gamingCampaign, cryptoCampaign],
+        {},
+        cryptoProfile,
+        ["topic:crypto-web3"],
+      )!;
+
+      // effectiveBid_gaming  = 2000000000 * 0 (weight 0 → excluded or near-zero)
+      // effectiveBid_crypto  = 1000000000 * 1.0 * 1000 = 1e12
+      // Crypto wins despite lower raw bid
+      expect(result.winner.id).toBe("crypto");
+    });
+
+    test("AUC-IPFS-3: IPFS campaign competes with ERC-20 sidecar campaign — auction is bid-agnostic to token type", () => {
+      // The auction doesn't know about ERC-20 sidecars — it only sees CPM bids.
+      // A campaign with an ERC-20 sidecar (higher DOT CPM as it offers extra incentive)
+      // should win on effective bid alone.
+      const ercCampaign: CampaignCandidate = {
+        id: "erc20-sidecar",
+        bidCpmPlanck: "3000000000", // premium DOT CPM to attract publisher
+        categoryId: 0,
+        publisher: "0x" + "cc".repeat(20),
+        requiredTags: [tagHash("topic:crypto-web3")],
+        // In production this candidate would also carry rewardToken + rewardPerImpression
+        // from the poller, but the auction only uses bidCpmPlanck for ordering.
+      };
+      const ipfsCampaign: CampaignCandidate = {
+        id: "ipfs-only",
+        bidCpmPlanck: "1000000000",
+        categoryId: 0,
+        publisher: "0x" + "dd".repeat(20),
+        requiredTags: [tagHash("topic:crypto-web3")],
+      };
+
+      const result = auctionForPage(
+        [ercCampaign, ipfsCampaign],
+        {},
+        cryptoProfile,
+        ["topic:crypto-web3"],
+      )!;
+
+      expect(result.winner.id).toBe("erc20-sidecar");
+      expect(result.mechanism).toBe("second-price");
+      // Clearing CPM = second effective bid / winner interest weight (clamped to floor)
+      // Both have weight 1.0 (crypto match). Clearing = 1000000000 * 1.0 / 1.0 = 1000000000.
+      // Floor = 3000000000 * 30% = 900000000. Clearing > floor → second-price.
+      expect(result.clearingCpmPlanck).toBe(1000000000n);
+    });
+  });
 });

@@ -57,6 +57,8 @@ import {
   DatumPublisherReputation,
   DatumReports,
   DatumTargetingRegistry,
+  DatumTokenRewardVault,
+  MockERC20,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT, formatDOT } from "./helpers/dot";
@@ -143,6 +145,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   let reputation:   DatumPublisherReputation;
   let reports:      DatumReports;
   let targeting:    DatumTargetingRegistry;
+  let tokenRewardVault: DatumTokenRewardVault;
+  let mockERC20:    MockERC20;
 
   // Signers
   let owner:      HardhatEthersSigner;
@@ -281,6 +285,11 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     // Reputation: wire settlement caller (FP-16)
     await reputation.setSettlement(repSettlement.address);
+
+    // 9. Token reward vault (ERC-20 sidecar)
+    mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
+    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy();
+    await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
 
     // Register publishers
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
@@ -925,5 +934,418 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         console.log(`\n  [BM-LC ${s.label}] withdraw gas: ${withdrawRec?.gasUsed}`);
       });
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // BM-META: IPFS-infused campaign metadata (bytes32 CID hash round-trip)
+  // ---------------------------------------------------------------------------
+  // CIDv0 ↔ bytes32: strip 0x1220 multihash prefix from SHA-256 digest.
+  // cidToBytes32("Qm...") = keccak256 of the path for test purposes —
+  // the real extension strips the 0x1220 prefix from base58-decoded CID bytes.
+  // For benchmark we use a known 32-byte digest directly.
+  describe("BM-META: IPFS metadata campaigns", function () {
+    // Known CIDv0 SHA-256 digest (bytes32 without 0x1220 multihash prefix)
+    const IPFS_HASH = "0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" as const;
+    const CPM    = parseDOT("0.016");
+    const BUDGET = parseDOT("5");
+    const DAILY  = parseDOT("1");
+
+    it("BM-META-1: setMetadata stores bytes32 CID digest on-chain", async function () {
+      const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
+      const tx = await campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH);
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-META-1] setMetadata gas: ${receipt?.gasUsed}`);
+
+      expect(await campaigns.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
+    });
+
+    it("BM-META-2: getCampaignMetadata returns zero for campaigns without metadata", async function () {
+      const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
+      expect(await campaigns.getCampaignMetadata(cid)).to.equal(ethers.ZeroHash);
+    });
+
+    it("BM-META-3: setMetadata emits CampaignMetadataSet event", async function () {
+      const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
+      await expect(campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH))
+        .to.emit(campaigns, "CampaignMetadataSet")
+        .withArgs(cid, IPFS_HASH);
+    });
+
+    it("BM-META-4: metadata survives settlement (immutable tag data)", async function () {
+      const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
+      await campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH);
+
+      // Settle 1 claim
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+
+      // Metadata unchanged
+      expect(await campaigns.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
+    });
+
+    it("BM-META-5: two campaigns with different IPFS hashes coexist independently", async function () {
+      const hash1 = "0x" + "ab".repeat(32);
+      const hash2 = "0x" + "cd".repeat(32);
+      const cid1 = await newActiveCampaign(BUDGET, DAILY, CPM);
+      const cid2 = await newActiveCampaign(BUDGET, DAILY, CPM);
+      await campaigns.connect(advertiser).setMetadata(cid1, hash1);
+      await campaigns.connect(advertiser).setMetadata(cid2, hash2);
+      expect(await campaigns.getCampaignMetadata(cid1)).to.equal(hash1);
+      expect(await campaigns.getCampaignMetadata(cid2)).to.equal(hash2);
+    });
+
+    it("BM-META-6: gas comparison — settle IPFS campaign vs. no-metadata campaign", async function () {
+      // Campaign A: with metadata
+      const cidA = await newActiveCampaign(BUDGET, DAILY, CPM);
+      await campaigns.connect(advertiser).setMetadata(cidA, IPFS_HASH);
+      const claimsA = buildClaims(cidA, publisher.address, user.address, 1, CPM, 500n);
+      const txA = await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidA, claims: claimsA }]);
+      const recA = await txA.wait();
+
+      // Campaign B: without metadata
+      const cidB = await newActiveCampaign(BUDGET, DAILY, CPM);
+      const claimsB = buildClaims(cidB, publisher.address, user.address, 1, CPM, 500n);
+      const txB = await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidB, claims: claimsB }]);
+      const recB = await txB.wait();
+
+      console.log(`\n  [BM-META-6] settle w/ metadata: ${recA?.gasUsed} gas`);
+      console.log(`  [BM-META-6] settle no metadata:  ${recB?.gasUsed} gas`);
+      // Metadata is stored off-chain (IPFS); settlement gas should be equivalent
+      // Allow ±10% tolerance
+      const gasA = Number(recA?.gasUsed ?? 0n);
+      const gasB = Number(recB?.gasUsed ?? 0n);
+      expect(gasA).to.be.within(gasB * 0.9, gasB * 1.1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // BM-TOKEN: ERC-20 sidecar reward campaigns
+  // ---------------------------------------------------------------------------
+  // DatumTokenRewardVault: advertiser deposits ERC-20 budget; settlement credits
+  // per-impression amounts non-critically; user pulls via withdraw(token).
+  describe("BM-TOKEN: ERC-20 sidecar reward campaigns", function () {
+    const CPM              = parseDOT("0.016");
+    const BUDGET           = parseDOT("5");
+    const DAILY            = parseDOT("1");
+    const TOKEN_DECIMALS   = 18n;
+    const REWARD_PER_IMP   = 10n ** TOKEN_DECIMALS / 1000n; // 0.001 TUSD per impression
+    const TOKEN_BUDGET     = 1000n * REWARD_PER_IMP * 1000n; // 1000 TUSD (for 1M impressions)
+
+    async function newTokenCampaign(): Promise<bigint> {
+      const pubAddr = publisher.address;
+      const tx = await campaigns.connect(advertiser).createCampaign(
+        pubAddr, DAILY, CPM, [], false,
+        await mockERC20.getAddress(),
+        REWARD_PER_IMP,
+        0n,
+        { value: BUDGET }
+      );
+      await tx.wait();
+      const cid = await campaigns.nextCampaignId() - 1n;
+      await v2.connect(voter).vote(cid, true, 0, { value: QUORUM });
+      await mineBlocks(MAX_GRACE + 1n);
+      await v2.evaluateCampaign(cid);
+      expect(await campaigns.getCampaignStatus(cid)).to.equal(1);
+      return cid;
+    }
+
+    it("BM-TOKEN-1: campaign created with ERC-20 reward token", async function () {
+      const cid = await newTokenCampaign();
+      expect(await campaigns.getCampaignRewardToken(cid)).to.equal(await mockERC20.getAddress());
+      expect(await campaigns.getCampaignRewardPerImpression(cid)).to.equal(REWARD_PER_IMP);
+    });
+
+    it("BM-TOKEN-2: advertiser deposits ERC-20 budget to vault", async function () {
+      const cid = await newTokenCampaign();
+      await mockERC20.mint(advertiser.address, TOKEN_BUDGET);
+      await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), TOKEN_BUDGET);
+      const tx = await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+        cid, await mockERC20.getAddress(), TOKEN_BUDGET
+      );
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-TOKEN-2] depositCampaignBudget gas: ${receipt?.gasUsed}`);
+
+      expect(await tokenRewardVault.campaignTokenBudget(await mockERC20.getAddress(), cid))
+        .to.equal(TOKEN_BUDGET);
+    });
+
+    it("BM-TOKEN-3: settle credits ERC-20 reward to user balance", async function () {
+      const cid = await newTokenCampaign();
+      const impressions = 1000n;
+
+      // Fund vault
+      await mockERC20.mint(advertiser.address, TOKEN_BUDGET);
+      await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), TOKEN_BUDGET);
+      await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+        cid, await mockERC20.getAddress(), TOKEN_BUDGET
+      );
+
+      const tokenBalBefore = await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      );
+
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, impressions);
+      const tx = await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-TOKEN-3] settle w/ ERC-20 credit gas: ${receipt?.gasUsed}`);
+
+      const expectedReward = REWARD_PER_IMP * impressions;
+      const tokenBalAfter = await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      );
+      expect(tokenBalAfter - tokenBalBefore).to.equal(expectedReward);
+    });
+
+    it("BM-TOKEN-4: user withdraws ERC-20 reward", async function () {
+      const cid = await newTokenCampaign();
+      const impressions = 500n;
+
+      // Fund vault and settle
+      await mockERC20.mint(advertiser.address, TOKEN_BUDGET);
+      await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), TOKEN_BUDGET);
+      await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+        cid, await mockERC20.getAddress(), TOKEN_BUDGET
+      );
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, impressions);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+
+      const creditedAmount = await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      );
+      expect(creditedAmount).to.be.gt(0n);
+
+      const walletBefore = await mockERC20.balanceOf(user.address);
+      const tx = await tokenRewardVault.connect(user).withdraw(await mockERC20.getAddress());
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-TOKEN-4] ERC-20 withdraw gas: ${receipt?.gasUsed}`);
+
+      const walletAfter = await mockERC20.balanceOf(user.address);
+      expect(walletAfter - walletBefore).to.equal(creditedAmount);
+      expect(await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      )).to.equal(0n);
+    });
+
+    it("BM-TOKEN-5: settle continues (non-critical) when vault budget exhausted", async function () {
+      const cid = await newTokenCampaign();
+      // Deposit only 1 token unit — far less than reward for 1000 impressions
+      await mockERC20.mint(advertiser.address, 1n);
+      await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), 1n);
+      await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+        cid, await mockERC20.getAddress(), 1n
+      );
+
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 1000n);
+      // Settlement must NOT revert even though token budget is insufficient
+      const result = await settlement.connect(user).settleClaims.staticCall([
+        { user: user.address, campaignId: cid, claims }
+      ]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
+      // DOT payment still went through; token credit was skipped silently
+      expect(await vault.userBalance(user.address)).to.be.gt(0n);
+    });
+
+    it("BM-TOKEN-6: native asset precompile address accepted as reward token (no metadata calls)", async function () {
+      // USDT precompile address on Asset Hub — no name/symbol/decimals ABI
+      const USDT_PRECOMPILE = "0x000007C000000000000000000000000001200000";
+      const pubAddr = publisher.address;
+      // createCampaign with native asset address — should not revert (no metadata validation in contract)
+      const tx = await campaigns.connect(advertiser).createCampaign(
+        pubAddr, DAILY, CPM, [], false,
+        USDT_PRECOMPILE,
+        REWARD_PER_IMP,
+        0n,
+        { value: BUDGET }
+      );
+      await tx.wait();
+      const cid = await campaigns.nextCampaignId() - 1n;
+      expect(await campaigns.getCampaignRewardToken(cid)).to.equal(USDT_PRECOMPILE);
+      // Settlement will attempt creditReward; low-level call to precompile will silently fail on EVM
+      // This validates the non-critical path handles unknown ERC-20 gracefully
+      await v2.connect(voter).vote(cid, true, 0, { value: QUORUM });
+      await mineBlocks(MAX_GRACE + 1n);
+      await v2.evaluateCampaign(cid);
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n);
+      const result = await settlement.connect(user).settleClaims.staticCall([
+        { user: user.address, campaignId: cid, claims }
+      ]);
+      // DOT settlement succeeds; ERC-20 credit silently skipped for unknown precompile
+      expect(result.settledCount).to.equal(1n);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // BM-COMP: Multi-campaign CPM price competition
+  // ---------------------------------------------------------------------------
+  // Three concurrent campaigns with different CPM bids from the same advertiser.
+  // Publisher and user settle all three simultaneously to demonstrate that:
+  //   (a) each campaign honours its own CPM independently,
+  //   (b) a second-price auction dynamic is observable: higher-CPM campaign
+  //       pays the per-claim amount matching its own bid,
+  //   (c) gas cost scales linearly with campaign count in a multi-batch.
+  describe("BM-COMP: Competing campaign CPM price scenarios", function () {
+    const BUDGET = parseDOT("20");
+    const DAILY  = parseDOT("4");
+    // Three campaigns at different CPM: premium, mid, budget
+    const CPM_PREMIUM = parseDOT("0.5");   // $1 CPM at DOT $2 (premium)
+    const CPM_MID     = parseDOT("0.2");   // $1 CPM at DOT $5 (mid)
+    const CPM_BUDGET  = parseDOT("0.1");   // $1 CPM at DOT $10 (economy)
+
+    it("BM-COMP-1: three campaigns at different CPMs settle independently with correct payouts", async function () {
+      const cidP = await newActiveCampaign(BUDGET, DAILY, CPM_PREMIUM);
+      const cidM = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
+      const cidB = await newActiveCampaign(BUDGET, DAILY, CPM_BUDGET);
+
+      const impressions = 1000n;
+
+      const pubBalBefore  = await vault.publisherBalance(publisher.address);
+      const userBalBefore = await vault.userBalance(user.address);
+
+      // Settle all three in a single multi-campaign call (settleClaimsMulti pattern via three batches)
+      const batchP = { user: user.address, campaignId: cidP, claims: buildClaims(cidP, publisher.address, user.address, 1, CPM_PREMIUM, impressions) };
+      const batchM = { user: user.address, campaignId: cidM, claims: buildClaims(cidM, publisher.address, user.address, 1, CPM_MID,     impressions) };
+      const batchB = { user: user.address, campaignId: cidB, claims: buildClaims(cidB, publisher.address, user.address, 1, CPM_BUDGET,  impressions) };
+
+      const result = await settlement.connect(user).settleClaims.staticCall([batchP, batchM, batchB]);
+      expect(result.settledCount).to.equal(3n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      const tx = await settlement.connect(user).settleClaims([batchP, batchM, batchB]);
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-COMP-1] 3-campaign batch settle gas: ${receipt?.gasUsed}`);
+
+      const { pub: pubP, user: userP } = expectedPayments(CPM_PREMIUM, impressions, 1);
+      const { pub: pubM, user: userM } = expectedPayments(CPM_MID,     impressions, 1);
+      const { pub: pubB, user: userB } = expectedPayments(CPM_BUDGET,  impressions, 1);
+
+      const pubDelta  = (await vault.publisherBalance(publisher.address)) - pubBalBefore;
+      const userDelta = (await vault.userBalance(user.address)) - userBalBefore;
+
+      const expectedPubTotal  = pubP  + pubM  + pubB;
+      const expectedUserTotal = userP + userM + userB;
+
+      expect(pubDelta).to.equal(expectedPubTotal,  "publisher total payout mismatch");
+      expect(userDelta).to.equal(expectedUserTotal, "user total payout mismatch");
+
+      console.log(`  [BM-COMP-1] premium CPM (${formatDOT(CPM_PREMIUM)}): pub +${formatDOT(pubP)} DOT`);
+      console.log(`  [BM-COMP-1] mid CPM     (${formatDOT(CPM_MID)}): pub +${formatDOT(pubM)} DOT`);
+      console.log(`  [BM-COMP-1] budget CPM  (${formatDOT(CPM_BUDGET)}): pub +${formatDOT(pubB)} DOT`);
+    });
+
+    it("BM-COMP-2: per-campaign CPM honoured — premium pays 5× more than budget", async function () {
+      const cidP = await newActiveCampaign(BUDGET, DAILY, CPM_PREMIUM);
+      const cidB = await newActiveCampaign(BUDGET, DAILY, CPM_BUDGET);
+      const impressions = 1000n;
+
+      const pubBefore = await vault.publisherBalance(publisher.address);
+      await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cidP, claims: buildClaims(cidP, publisher.address, user.address, 1, CPM_PREMIUM, impressions) },
+      ]);
+      const pubAfterP = await vault.publisherBalance(publisher.address);
+
+      const pubBefore2 = await vault.publisherBalance(publisher.address);
+      await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cidB, claims: buildClaims(cidB, publisher.address, user.address, 1, CPM_BUDGET,  impressions) },
+      ]);
+      const pubAfterB = await vault.publisherBalance(publisher.address);
+
+      const premiumPub = pubAfterP - pubBefore;
+      const budgetPub  = pubAfterB - pubBefore2;
+
+      expect(premiumPub).to.equal(budgetPub * 5n,
+        `premium CPM (${formatDOT(CPM_PREMIUM)}) should pay exactly 5× budget CPM (${formatDOT(CPM_BUDGET)})`);
+    });
+
+    it("BM-COMP-3: IPFS campaign + ERC-20 sidecar campaign + plain campaign compete", async function () {
+      // Campaign A: has IPFS metadata
+      const cidA = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
+      const IPFS_HASH = "0x" + "aa".repeat(32);
+      await campaigns.connect(advertiser).setMetadata(cidA, IPFS_HASH);
+
+      // Campaign B: ERC-20 sidecar
+      const rewardPerImp = 10n ** 15n; // 0.001 TUSD per impression (18 dec)
+      const tokenBudget  = rewardPerImp * 5000n;
+      await mockERC20.mint(advertiser.address, tokenBudget);
+      const txB = await campaigns.connect(advertiser).createCampaign(
+        publisher.address, DAILY, CPM_PREMIUM, [], false,
+        await mockERC20.getAddress(), rewardPerImp, 0n, { value: BUDGET }
+      );
+      await txB.wait();
+      const cidB = await campaigns.nextCampaignId() - 1n;
+      await v2.connect(voter).vote(cidB, true, 0, { value: QUORUM });
+      await mineBlocks(MAX_GRACE + 1n);
+      await v2.evaluateCampaign(cidB);
+      await mockERC20.connect(advertiser).approve(await tokenRewardVault.getAddress(), tokenBudget);
+      await tokenRewardVault.connect(advertiser).depositCampaignBudget(
+        cidB, await mockERC20.getAddress(), tokenBudget
+      );
+
+      // Campaign C: plain
+      const cidC = await newActiveCampaign(BUDGET, DAILY, CPM_BUDGET);
+
+      const userTokenBefore = await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      );
+
+      const impressions = 1000n;
+      const batchA = { user: user.address, campaignId: cidA, claims: buildClaims(cidA, publisher.address, user.address, 1, CPM_MID,     impressions) };
+      const batchB = { user: user.address, campaignId: cidB, claims: buildClaims(cidB, publisher.address, user.address, 1, CPM_PREMIUM, impressions) };
+      const batchC = { user: user.address, campaignId: cidC, claims: buildClaims(cidC, publisher.address, user.address, 1, CPM_BUDGET,  impressions) };
+
+      const tx = await settlement.connect(user).settleClaims([batchA, batchB, batchC]);
+      const receipt = await tx.wait();
+      console.log(`\n  [BM-COMP-3] mixed 3-campaign settle gas: ${receipt?.gasUsed}`);
+
+      // IPFS campaign: metadata persisted
+      expect(await campaigns.getCampaignMetadata(cidA)).to.equal(IPFS_HASH);
+
+      // ERC-20 sidecar campaign: token credited
+      const userTokenAfter = await tokenRewardVault.userTokenBalance(
+        await mockERC20.getAddress(), user.address
+      );
+      expect(userTokenAfter - userTokenBefore).to.equal(rewardPerImp * impressions);
+
+      // All three settled
+      const { pub: pA } = expectedPayments(CPM_MID,     impressions, 1);
+      const { pub: pB } = expectedPayments(CPM_PREMIUM, impressions, 1);
+      const { pub: pC } = expectedPayments(CPM_BUDGET,  impressions, 1);
+      console.log(`  [BM-COMP-3] IPFS mid-CPM pub payout:    ${formatDOT(pA)} DOT`);
+      console.log(`  [BM-COMP-3] ERC-20 premium-CPM payout:  ${formatDOT(pB)} DOT`);
+      console.log(`  [BM-COMP-3] plain budget-CPM payout:    ${formatDOT(pC)} DOT`);
+    });
+
+    it("BM-COMP-4: gas scales linearly — 1 vs 3 campaigns in one settleClaims call", async function () {
+      const cidSingle = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
+      const cid2      = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
+      const cid3      = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
+      const impressions = 100n;
+
+      // Single campaign
+      const txSingle = await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cidSingle, claims: buildClaims(cidSingle, publisher.address, user.address, 1, CPM_MID, impressions) }
+      ]);
+      const recSingle = await txSingle.wait();
+
+      // Three campaigns
+      const txTriple = await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cid2, claims: buildClaims(cid2, publisher.address, user.address, 1, CPM_MID, impressions) },
+        { user: user.address, campaignId: cid3, claims: buildClaims(cid3, publisher.address, user.address, 1, CPM_MID, impressions) },
+        { user: user.address, campaignId: cidSingle, claims: buildClaims(cidSingle, publisher.address, user.address, 1, CPM_MID, impressions) },
+      ]);
+      const recTriple = await txTriple.wait();
+
+      const gasSingle = Number(recSingle?.gasUsed ?? 0n);
+      const gasTriple = Number(recTriple?.gasUsed ?? 0n);
+
+      console.log(`\n  [BM-COMP-4] 1-campaign settle: ${gasSingle} gas`);
+      console.log(`  [BM-COMP-4] 3-campaign settle: ${gasTriple} gas`);
+      console.log(`  [BM-COMP-4] per-campaign overhead: ~${Math.round((gasTriple - gasSingle) / 2)} gas`);
+
+      // Triple should be 2–4× single (linear ± overhead)
+      expect(gasTriple).to.be.within(gasSingle * 1.5, gasSingle * 4.5);
+    });
   });
 });

@@ -439,6 +439,61 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 3.6. CREATE COMPETING CAMPAIGN 3 (IPFS + crypto targeting, highest CPM)
+  // Demonstrates: IPFS metadata, tag-based targeting, highest CPM price
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("3.6", "--- Creating IPFS+crypto campaign (CPM: 0.020 PAS — highest) ---");
+
+  // Native Asset Hub USDT precompile (trust-backed, assetId=1984)
+  const USDT_PRECOMPILE = "0x000007C000000000000000000000000001200000";
+  // Deterministic metadata hash for demo — replace with real CIDv0 bytes32 on mainnet
+  const CAMPAIGN3_METADATA = keccak256(toUtf8Bytes("datum-demo-ipfs-campaign-crypto-v1"));
+  const CAMPAIGN3_TAGS = [
+    tagHash("topic:crypto-web3"),
+    tagHash("topic:defi"),
+  ];
+
+  let campaignId3: bigint | null = null;
+  try {
+    const nextBefore3 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
+    campaignId3 = BigInt(nextBefore3);
+    await sendCall(bob, rawProvider, addrs.campaigns, campIface, "createCampaign",
+      [ethers.ZeroAddress, parseDOT("5"), parseDOT("0.020"), CAMPAIGN3_TAGS, false, ethers.ZeroAddress, 0, 0],
+      parseDOT("5")
+    );
+    log("3.6", `  Created: ID ${campaignId3} | open | CPM 0.020 | tags: topic:crypto-web3, topic:defi`);
+    log("3.6", `  Advertiser: Bob | Publisher: any registered publisher`);
+  } catch (err) {
+    log("3.6", `  FAILED: ${String(err).slice(0, 200)}`);
+    campaignId3 = null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3.7. CREATE COMPETING CAMPAIGN 4 (native asset sidecar + finance targeting)
+  // Demonstrates: Asset Hub USDT precompile as sidecar reward token, mid CPM
+  // Note: creditReward silently fails on Paseo if precompile not live (non-critical)
+  // ═══════════════════════════════════════════════════════════════════════════
+  log("3.7", "--- Creating USDT sidecar campaign (CPM: 0.014 PAS — mid) ---");
+
+  const CAMPAIGN4_TAGS = [tagHash("topic:finance")];
+  const USDT_PER_IMPRESSION = 1000n; // 0.001 USDT (6 decimals) per impression
+
+  let campaignId4: bigint | null = null;
+  try {
+    const nextBefore4 = await readCall(rawProvider, addrs.campaigns, campExtraIface, "nextCampaignId", []);
+    campaignId4 = BigInt(nextBefore4);
+    await sendCall(charlie, rawProvider, addrs.campaigns, campIface, "createCampaign",
+      [ethers.ZeroAddress, parseDOT("3"), parseDOT("0.014"), CAMPAIGN4_TAGS, false, USDT_PRECOMPILE, USDT_PER_IMPRESSION, 0],
+      parseDOT("3")
+    );
+    log("3.7", `  Created: ID ${campaignId4} | open | CPM 0.014 | tags: topic:finance`);
+    log("3.7", `  Sidecar: USDT precompile (${USDT_PRECOMPILE}) | 0.001 USDT/impression`);
+  } catch (err) {
+    log("3.7", `  FAILED: ${String(err).slice(0, 200)}`);
+    campaignId4 = null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 4. VOTE AYE (Frank) + EVALUATE TO ACTIVATE
   // ═══════════════════════════════════════════════════════════════════════════
   log("4", "--- Voting + activating campaign(s) ---");
@@ -482,6 +537,8 @@ async function main() {
 
   await activateCampaign(campaignId, "campaign 1 (Diana)");
   if (campaignId2 !== null) await activateCampaign(campaignId2, "campaign 2 (open)");
+  if (campaignId3 !== null) await activateCampaign(campaignId3, "campaign 3 (IPFS+crypto)");
+  if (campaignId4 !== null) await activateCampaign(campaignId4, "campaign 4 (USDT sidecar)");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5. SET METADATA
@@ -505,6 +562,17 @@ async function main() {
       log("5", `  setMetadata (campaign 2) failed: ${String(err).slice(0, 100)}`);
     }
   }
+
+  // Campaign 3: IPFS metadata (deterministic demo hash — extension will attempt IPFS fetch)
+  if (campaignId3 !== null) {
+    try {
+      await sendCall(bob, rawProvider, addrs.campaigns, campIface, "setMetadata", [campaignId3, CAMPAIGN3_METADATA]);
+      log("5", `  Campaign 3 metadata (IPFS): ${CAMPAIGN3_METADATA.slice(0, 18)}...`);
+    } catch (err) {
+      log("5", `  setMetadata (campaign 3) failed: ${String(err).slice(0, 100)}`);
+    }
+  }
+  // Campaign 4: no metadata — purely on-chain targeting
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5.3. RATE LIMITER STATUS (BM-5)
@@ -611,10 +679,14 @@ async function main() {
   // 6. SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n=== Alpha-3 Testnet Setup Complete ===");
-  console.log("Campaign 1  : ID", campaignId.toString(), "(Bob → Diana, fixed publisher)");
-  if (campaignId2 !== null) {
-    console.log("Campaign 2  : ID", campaignId2.toString(), "(Charlie → open, any publisher)");
-  }
+  console.log("Competing campaigns (auction CPM ladder):");
+  if (campaignId3 !== null)
+    console.log(`  Campaign 3  : ID ${campaignId3} | CPM 0.020 PAS (HIGHEST) | IPFS metadata | topic:crypto-web3, topic:defi`);
+  console.log(`  Campaign 1  : ID ${campaignId} | CPM 0.016 PAS | fixed publisher (Diana)`);
+  if (campaignId4 !== null)
+    console.log(`  Campaign 4  : ID ${campaignId4} | CPM 0.014 PAS | USDT sidecar | topic:finance`);
+  if (campaignId2 !== null)
+    console.log(`  Campaign 2  : ID ${campaignId2} | CPM 0.012 PAS (LOWEST) | open | any publisher`);
   console.log("Aye voter   : Frank", frank.address);
   console.log("");
   console.log("Funded accounts:");

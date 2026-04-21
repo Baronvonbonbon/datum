@@ -415,6 +415,41 @@
       border-bottom: 1px solid #0d0d0d;
     }
     .auction-debug-log .log-entry .log-ts { color: #444; margin-right: 6px; }
+
+    /* Competing Campaigns Panel */
+    .campaigns-section { margin-bottom: 32px; }
+    .campaigns-panel {
+      background: #0a0a0a;
+      border: 1px solid #1e1e1e;
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+    .campaigns-intro { font-size: 12px; color: #888; margin-bottom: 12px; line-height: 1.6; }
+    .campaigns-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .campaigns-table th {
+      text-align: left; color: #555; font-size: 10px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 4px 10px 4px 0; border-bottom: 1px solid #1e1e1e;
+    }
+    .campaigns-table td {
+      padding: 5px 10px 5px 0; border-bottom: 1px solid #0f0f0f;
+      color: #aaa; vertical-align: top;
+    }
+    .camp-row.leader td { background: #1a0811; }
+    .camp-row.leader .cpm { color: #e6007a; font-weight: 700; }
+    .cpm { color: #9ecaff; }
+    .camp-tag { display: inline-block; background: #1e1e1e; border: 1px solid #2a2a2a;
+      border-radius: 10px; padding: 1px 7px; margin: 1px 2px 1px 0; font-size: 10px; color: #888; }
+    .camp-tag.match { border-color: #e6007a55; color: #e6007a; background: #1a0811; }
+    .sidecar-badge {
+      display: inline-block; background: #0d1f0d; border: 1px solid #1a4a1a;
+      border-radius: 10px; padding: 1px 7px; font-size: 10px; color: #5cb85c;
+    }
   </style>
 </head>
 <body>
@@ -467,6 +502,72 @@
     <div class="section-label">Interest profile (this session)</div>
     <div id="profile-bars"></div>
     <div class="hint">This mirrors what the Datum extension stores in your browser. Open the extension popup to see the live weighted profile and watch auction bids change.</div>
+  </div>
+
+  <!-- Competing Campaigns (seeded on Paseo testnet) -->
+  <div class="campaigns-section">
+    <div class="section-label">Competing Campaigns — Paseo Testnet</div>
+    <div class="campaigns-panel">
+      <p class="campaigns-intro">
+        Four campaigns are seeded on Paseo testnet at staggered CPM bids.
+        The Datum extension runs a Vickrey (second-price) auction on each page visit — effective bid = CPM × interest weight.
+        A lower-CPM campaign with a matching topic tag can beat a higher raw bid from an unmatched campaign.
+        Visit matching topics to watch the outcome change in the auction monitor below.
+      </p>
+      <table class="campaigns-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>CPM (PAS)</th>
+            <th>Strategy</th>
+            <th>Wins on topic</th>
+            <th>Sidecar reward</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="camp-row leader">
+            <td>1</td>
+            <td><span class="cpm">0.020</span></td>
+            <td>
+              IPFS metadata<br>
+              <span class="camp-tag match">topic:crypto-web3</span>
+              <span class="camp-tag match">topic:defi</span>
+            </td>
+            <td>Crypto, DeFi, Web3</td>
+            <td>—</td>
+          </tr>
+          <tr class="camp-row">
+            <td>2</td>
+            <td><span class="cpm">0.016</span></td>
+            <td>Fixed publisher (Diana) · no tag filter</td>
+            <td>Any (when served by Diana)</td>
+            <td>—</td>
+          </tr>
+          <tr class="camp-row">
+            <td>3</td>
+            <td><span class="cpm">0.014</span></td>
+            <td>
+              <span class="camp-tag match">topic:finance</span>
+              <br>native asset sidecar
+            </td>
+            <td>Finance, investing</td>
+            <td><span class="sidecar-badge">0.001 USDT/impression</span></td>
+          </tr>
+          <tr class="camp-row">
+            <td>4</td>
+            <td><span class="cpm">0.012</span></td>
+            <td>Open · no tag filter</td>
+            <td>Any topic (floor bid)</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="hint" style="margin-top:10px">
+        Interest weight is multiplied into the effective bid. Visiting <strong>Crypto &amp; Web3</strong> or <strong>Finance</strong>
+        topics will match tag-targeted campaigns and shift the auction outcome.
+        Use the auto-tour to cycle through all 26 topics and watch the winning campaign change.
+      </div>
+    </div>
   </div>
 
   <!-- Auction Debug Monitor -->
