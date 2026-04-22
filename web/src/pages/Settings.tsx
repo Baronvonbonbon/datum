@@ -224,6 +224,14 @@ export function Settings() {
             {testStatus === "ok" && <span style={{ fontSize: 12, color: "var(--ok)" }}>{testMsg}</span>}
             {testStatus === "error" && <span style={{ fontSize: 12, color: "var(--error)" }}>{testMsg}</span>}
           </div>
+
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            View gateway:{" "}
+            <code style={{ background: "var(--bg-raised)", padding: "1px 4px", borderRadius: 3, userSelect: "all" }}>
+              {settings.ipfsGateway || "not set"}
+            </code>
+            {" "}— creatives are fetched from this URL. Must be HTTPS when accessing from a remote device.
+          </div>
         </div>
       </Section>
 
