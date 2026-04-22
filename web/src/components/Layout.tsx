@@ -10,6 +10,7 @@ import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { PrivacyBanner } from "./PrivacyBanner";
+import { Footer } from "./Footer";
 import { useContracts } from "../hooks/useContracts";
 import type { JsonRpcApiProvider } from "ethers";
 
@@ -357,9 +358,12 @@ export function Layout() {
         </nav>
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        <main ref={mainRef} style={{ flex: 1, overflow: "auto", padding: "28px 32px", maxWidth: "none" }}>
-          <Outlet />
-        </main>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+          <main ref={mainRef} style={{ flex: 1, padding: "28px 32px", maxWidth: "none" }}>
+            <Outlet />
+          </main>
+          <Footer />
+        </div>
       </div>
 
       {showConnect && <WalletConnect onClose={() => setShowConnect(false)} />}
