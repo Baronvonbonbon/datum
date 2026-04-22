@@ -56,6 +56,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [metadataHash, setMetadataHash] = useState<string>("0x" + "0".repeat(64));
   const [snapshotRelaySigner, setSnapshotRelaySigner] = useState<string | null>(null);
   const [snapshotTags, setSnapshotTags] = useState<string[]>([]);
+  const [requiredTags, setRequiredTags] = useState<string[]>([]);
   const [requiresZkProof, setRequiresZkProof] = useState(false);
   const [pageReportCount, setPageReportCount] = useState<bigint>(0n);
   const [adReportCount, setAdReportCount] = useState<bigint>(0n);
@@ -173,15 +174,17 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         });
       } catch { /* GovernanceV2 not configured */ }
 
-      // Snapshot relay signer + publisher tags + ZK requirement
+      // Snapshot relay signer + publisher tags + required tags + ZK requirement
       try {
-        const [relayAddr, pubTags, zkReq] = await Promise.all([
+        const [relayAddr, pubTags, reqTags, zkReq] = await Promise.all([
           contracts.campaigns.getCampaignRelaySigner(BigInt(campaignId)).catch(() => ethers.ZeroAddress),
           contracts.campaigns.getCampaignPublisherTags(BigInt(campaignId)).catch(() => []),
+          contracts.campaigns.getCampaignTags(BigInt(campaignId)).catch(() => []),
           contracts.campaigns.getCampaignRequiresZkProof(BigInt(campaignId)).catch(() => false),
         ]);
         setSnapshotRelaySigner(relayAddr !== ethers.ZeroAddress ? relayAddr as string : null);
         setSnapshotTags((pubTags as string[]).map((h: string) => tagLabel(h) ?? h.slice(0, 10) + "..."));
+        setRequiredTags((reqTags as string[]).map((h: string) => tagLabel(h) ?? h.slice(0, 10) + "..."));
         setRequiresZkProof(Boolean(zkReq));
       } catch { /* not deployed */ }
 
@@ -404,6 +407,16 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           </InfoCard>
         )}
       </div>
+
+      {/* Required Tags */}
+      {requiredTags.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, flexShrink: 0 }}>Required publisher tags:</span>
+          {requiredTags.map((tag, i) => (
+            <span key={i} className="nano-badge" style={{ color: "var(--accent)" }}>{tag}</span>
+          ))}
+        </div>
+      )}
 
       {/* Publisher Snapshot */}
       {!isOpen && (snapshotRelaySigner || snapshotTags.length > 0) && (

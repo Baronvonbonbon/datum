@@ -17,6 +17,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { queryFilterAll } from "@shared/eventQuery";
 import { useToast } from "../../context/ToastContext";
+import { tagLabel } from "@shared/tagDictionary";
 
 export function Vote() {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +34,7 @@ export function Vote() {
   const [myVote, setMyVote] = useState<any>(null);
   const [metadataHash, setMetadataHash] = useState("0x" + "0".repeat(64));
   const [tokenReward, setTokenReward] = useState<{ token: string; rewardPerImpression: bigint; remainingBudget: bigint; meta: { symbol: string; decimals: number } | null } | null>(null);
+  const [requiredTags, setRequiredTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [isAye, setIsAye] = useState(true);
@@ -71,6 +73,12 @@ export function Vote() {
         const logs = await queryFilterAll(contracts.campaigns, filter);
         if (logs.length > 0) setMetadataHash((logs[logs.length - 1] as any).args?.metadataHash ?? "0x" + "0".repeat(64));
       } catch { /* no events */ }
+
+      // Required tags
+      try {
+        const rawTags: string[] = await contracts.campaigns.getCampaignTags(BigInt(cid));
+        setRequiredTags(rawTags.map((h) => tagLabel(h) ?? h.slice(0, 10) + "..."));
+      } catch { /* not deployed */ }
 
       // Token reward sidecar
       try {
@@ -133,6 +141,16 @@ export function Vote() {
       </div>
 
       <IPFSPreview metadataHash={metadataHash} />
+
+      {/* Required Tags */}
+      {requiredTags.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "12px 0" }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 11, flexShrink: 0 }}>Required publisher tags:</span>
+          {requiredTags.map((tag, i) => (
+            <span key={i} className="nano-badge" style={{ color: "var(--accent)" }}>{tag}</span>
+          ))}
+        </div>
+      )}
 
       {/* Token Reward Sidecar — relevant for voters evaluating the campaign */}
       {tokenReward && tokenReward.meta && (

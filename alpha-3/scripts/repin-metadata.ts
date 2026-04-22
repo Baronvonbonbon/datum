@@ -1,16 +1,19 @@
-// repin-metadata.ts — Re-pin all 100 seeded campaign metadata JSONs to a Kubo IPFS node.
+// repin-metadata.ts — Re-pin all 100 seeded campaign metadata JSONs to an IPFS node.
 //
 // Uses the same deterministic buildMetadata() logic as setup-testnet.ts, so the
 // generated content is identical and produces the same CIDs.
 //
 // Usage:
-//   npx ts-node scripts/repin-metadata.ts [kubo-api-base]
+//   npx ts-node scripts/repin-metadata.ts                           → Kubo at localhost:5001
+//   npx ts-node scripts/repin-metadata.ts http://localhost:5001     → Kubo at custom URL
+//   npx ts-node scripts/repin-metadata.ts selfhosted <api-key>      → ipfs-datum.javcon.io
 //
-// Default kubo-api-base: http://localhost:5001
-// Example (remote node):  npx ts-node scripts/repin-metadata.ts https://my-node.example.com:5001
+// Kubo mode: multipart POST to /api/v0/add (requires CORS headers set on the daemon).
+// Selfhosted mode: JSON POST to https://ipfs-datum.javcon.io/add with Bearer auth.
+//   Get your API key from: Settings → IPFS → Upload API key field.
 //
-// After pinning, the script fires HEAD requests to public gateways to seed
-// their DHT caches so remote devices can fetch the content.
+// After pinning in selfhosted mode, warms the gateway cache for all 100 CIDs so
+// remote devices can fetch metadata immediately.
 
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -156,11 +159,58 @@ async function pinToKubo(content: string, apiBase: string): Promise<string | nul
   }
 }
 
+// ── Selfhosted pin (ipfs-datum.javcon.io custom JSON proxy) ───────────────────
+
+const SELFHOSTED_UPLOAD_URL = "https://ipfs-datum.javcon.io/add";
+const SELFHOSTED_GATEWAY_URL = "https://ipfs-datum.javcon.io/ipfs/";
+
+async function pinToSelfhosted(content: string, apiKey: string): Promise<string | null> {
+  try {
+    const resp = await fetch(SELFHOSTED_UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: content,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(`    selfhosted error ${resp.status}: ${text.slice(0, 200)}`);
+      return null;
+    }
+    const data = await resp.json() as Record<string, unknown>;
+    const cid = (data.IpfsHash ?? data.cid ?? data.Hash ?? data.hash) as string | undefined;
+    if (!cid) {
+      console.error(`    selfhosted returned no CID: ${JSON.stringify(data).slice(0, 200)}`);
+      return null;
+    }
+    return cid;
+  } catch (err) {
+    console.error(`    fetch failed: ${String(err).slice(0, 150)}`);
+    return null;
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const apiBase = process.argv[2]?.trim().replace(/\/$/, "") ?? "http://localhost:5001";
-  console.log(`\nRepin metadata — Kubo API: ${apiBase}`);
+  // Usage:
+  //   npx ts-node scripts/repin-metadata.ts                           → Kubo at localhost:5001
+  //   npx ts-node scripts/repin-metadata.ts http://localhost:5001     → Kubo at custom URL
+  //   npx ts-node scripts/repin-metadata.ts selfhosted <api-key>      → ipfs-datum.javcon.io
+  const arg1 = process.argv[2]?.trim() ?? "";
+  const isSelfhosted = arg1 === "selfhosted";
+  const selfhostedKey = isSelfhosted ? (process.argv[3]?.trim() ?? "") : "";
+
+  if (isSelfhosted && !selfhostedKey) {
+    console.error("Usage: npx ts-node scripts/repin-metadata.ts selfhosted <api-key>");
+    process.exitCode = 1;
+    return;
+  }
+
+  const apiBase = isSelfhosted ? SELFHOSTED_UPLOAD_URL : (arg1 || "http://localhost:5001");
+  console.log(`\nRepin metadata — ${isSelfhosted ? `selfhosted (${SELFHOSTED_UPLOAD_URL})` : `Kubo API: ${apiBase}`}`);
   console.log(`Campaigns: ${NUM_CAMPAIGNS}\n`);
 
   // Load existing CID reference for verification
@@ -190,7 +240,7 @@ async function main() {
     }
 
     process.stdout.write(`[${String(i + 1).padStart(3)}/${NUM_CAMPAIGNS}] ${spec.wikiArticle.padEnd(36)} `);
-    const cid = await pinToKubo(content, apiBase);
+    const cid = isSelfhosted ? await pinToSelfhosted(content, selfhostedKey) : await pinToKubo(content, apiBase);
 
     if (cid) {
       pinOk++;
@@ -220,32 +270,51 @@ async function main() {
   console.log(`  CID mismatches:  ${cidMismatch} (0 = ✓ same content as before)`);
 
   if (pinOk > 0) {
-    // Seed public gateway caches so remote devices can fetch via DHT
-    console.log(`\nSeeding public gateway caches (fire-and-forget)...`);
-    const PUBLIC_GATEWAYS = ["https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/", "https://dweb.link/ipfs/"];
     const pinnedCids = results.filter(r => r.cid).map(r => r.cid!);
-    // Seed a sample (first, last, and 3 random) to avoid hammering gateways
-    const sampleCids = [
-      pinnedCids[0],
-      pinnedCids[Math.floor(pinnedCids.length / 2)],
-      pinnedCids[pinnedCids.length - 1],
-    ].filter(Boolean);
-    for (const cid of sampleCids) {
-      for (const gw of PUBLIC_GATEWAYS) {
-        fetch(`${gw}${cid}`, { method: "HEAD" }).catch(() => {/* best-effort */});
+
+    if (isSelfhosted) {
+      // Warm the selfhosted gateway cache for all 100 CIDs — these are already pinned
+      // on the node so HEAD requests will resolve immediately.
+      console.log(`\nWarming selfhosted gateway cache for all ${pinnedCids.length} CIDs...`);
+      let warmed = 0;
+      for (const cid of pinnedCids) {
+        fetch(`${SELFHOSTED_GATEWAY_URL}${cid}`, { method: "HEAD" }).then(() => { warmed++; }).catch(() => {/* best-effort */});
       }
+      // Give the fire-and-forgets a moment to fire before the process exits
+      await new Promise(res => setTimeout(res, 1500));
+      console.log(`  Sent HEAD requests for ${pinnedCids.length} CIDs to ${SELFHOSTED_GATEWAY_URL}`);
+      console.log(`  Remote devices can now fetch metadata via ${SELFHOSTED_GATEWAY_URL}<cid>`);
+    } else {
+      // Seed public gateway caches so remote devices can fetch via DHT
+      console.log(`\nSeeding public gateway caches (fire-and-forget)...`);
+      const PUBLIC_GATEWAYS = ["https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/", "https://dweb.link/ipfs/"];
+      const sampleCids = [
+        pinnedCids[0],
+        pinnedCids[Math.floor(pinnedCids.length / 2)],
+        pinnedCids[pinnedCids.length - 1],
+      ].filter(Boolean);
+      for (const cid of sampleCids) {
+        for (const gw of PUBLIC_GATEWAYS) {
+          fetch(`${gw}${cid}`, { method: "HEAD" }).catch(() => {/* best-effort */});
+        }
+      }
+      console.log(`  Seeded ${sampleCids.length} sample CIDs across ${PUBLIC_GATEWAYS.length} gateways`);
+      console.log(`\nIf your node is publicly reachable (port 4001 open), gateways will`);
+      console.log(`find the rest of the content via DHT within a few minutes.`);
     }
-    console.log(`  Seeded ${sampleCids.length} sample CIDs across ${PUBLIC_GATEWAYS.length} gateways`);
-    console.log(`\nIf your node is publicly reachable (port 4001 open), gateways will`);
-    console.log(`find the rest of the content via DHT within a few minutes.`);
   }
 
   if (pinFail > 0) {
     console.log(`\nTroubleshooting:`);
-    console.log(`  - Is Kubo running?      ipfs daemon`);
-    console.log(`  - CORS enabled?         ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'`);
-    console.log(`  - Custom endpoint?      npx ts-node scripts/repin-metadata.ts http://localhost:5001`);
-    console.log(`  - HTTPS node?           npx ts-node scripts/repin-metadata.ts https://ipfs-datum.javcon.io`);
+    if (isSelfhosted) {
+      console.log(`  - Check API key is correct (Settings → IPFS Upload API key)`);
+      console.log(`  - Check node is up:     curl -I https://ipfs-datum.javcon.io/ipfs/`);
+    } else {
+      console.log(`  - Is Kubo running?      ipfs daemon`);
+      console.log(`  - CORS enabled?         ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'`);
+      console.log(`  - Custom endpoint?      npx ts-node scripts/repin-metadata.ts http://localhost:5001`);
+      console.log(`  - Pin to selfhosted?    npx ts-node scripts/repin-metadata.ts selfhosted <api-key>`);
+    }
   }
 }
 
