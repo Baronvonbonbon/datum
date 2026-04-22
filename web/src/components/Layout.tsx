@@ -9,6 +9,7 @@ import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
+import { PrivacyBanner } from "./PrivacyBanner";
 import { useContracts } from "../hooks/useContracts";
 import type { JsonRpcApiProvider } from "ethers";
 
@@ -362,6 +363,7 @@ export function Layout() {
       </div>
 
       {showConnect && <WalletConnect onClose={() => setShowConnect(false)} />}
+      <PrivacyBanner />
     </div>
   );
 }

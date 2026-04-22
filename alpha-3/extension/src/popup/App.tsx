@@ -43,6 +43,18 @@ export function App() {
   const [walletState, setWalletState] = useState<WalletState>("loading");
   const [error, setError] = useState<string | null>(null);
 
+  // Privacy consent gate — must be accepted before wallet setup
+  const [privacyAccepted, setPrivacyAccepted] = useState<boolean | null>(null);
+  useEffect(() => {
+    chrome.storage.local.get("privacyAccepted").then((s) => {
+      setPrivacyAccepted(!!s.privacyAccepted);
+    });
+  }, []);
+  function handleAcceptPrivacy() {
+    chrome.storage.local.set({ privacyAccepted: true });
+    setPrivacyAccepted(true);
+  }
+
   // Setup form state
   const [setupMode, setSetupMode] = useState<"import" | "generate" | null>(null);
   const [keyInput, setKeyInput] = useState("");
@@ -369,6 +381,73 @@ export function App() {
 
   // --- Render ---
 
+  // Privacy consent screen — shown before wallet setup on first use
+  // (walletState "loading" passes through so initWalletState can run in background)
+  if (privacyAccepted === false && walletState !== "loading" && walletState !== "locked" && walletState !== "unlocked") {
+    return (
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ textAlign: "center" }}>
+          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>Privacy &amp; Data Use</div>
+        </div>
+
+        <div style={{
+          background: "var(--bg-raised)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)", padding: 12, fontSize: 11, lineHeight: 1.6,
+          color: "var(--text-muted)", maxHeight: 280, overflowY: "auto",
+        }}>
+          <p style={{ color: "var(--text)", fontWeight: 600, marginBottom: 8 }}>
+            By using Datum you agree to the following data practices:
+          </p>
+
+          <p style={{ fontWeight: 600, color: "var(--accent)", marginBottom: 4 }}>Stays on your device only</p>
+          <ul style={{ margin: "0 0 10px 0", paddingLeft: 16 }}>
+            <li>Your browsing history and interest profile (page topics, locale, platform) — used only for local ad auction, never transmitted</li>
+            <li>Your ZK user secret — used to generate nullifiers; never sent anywhere</li>
+            <li>Your wallet private key — encrypted at rest with your password; never leaves your device</li>
+          </ul>
+
+          <p style={{ fontWeight: 600, color: "var(--accent)", marginBottom: 4 }}>Sent to the relay when you submit claims</p>
+          <ul style={{ margin: "0 0 10px 0", paddingLeft: 16 }}>
+            <li>Your wallet address, claim hashes, nullifiers, and nonces</li>
+            <li>Your wallet address is also shared with the publisher's attestation endpoint for fraud verification</li>
+          </ul>
+
+          <p style={{ fontWeight: 600, color: "var(--accent)", marginBottom: 4 }}>Permanently public on-chain</p>
+          <ul style={{ margin: "0 0 10px 0", paddingLeft: 16 }}>
+            <li>Your wallet address appears in every <code>ClaimSettled</code> event alongside payment amounts and campaign IDs</li>
+            <li>Nullifier hashes (not reversible — do not reveal your identity without your secret)</li>
+            <li>Settlement nonces and campaign activity timing</li>
+            <li>On-chain data is immutable and cannot be deleted</li>
+          </ul>
+
+          <p style={{ fontWeight: 600, color: "var(--accent)", marginBottom: 4 }}>Your jurisdiction &amp; legal responsibility</p>
+          <ul style={{ margin: "0 0 10px 0", paddingLeft: 16 }}>
+            <li>You are solely responsible for determining whether your use of Datum complies with the laws and regulations of your jurisdiction</li>
+            <li>Datum is provided as-is with no warranties of any kind</li>
+            <li>Earning from ad impressions may constitute taxable income in your jurisdiction — you are responsible for compliance</li>
+          </ul>
+
+          <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 8 }}>
+            Full privacy policy: <span style={{ color: "var(--accent)" }}>PRIVACY-POLICY.md</span> in the Datum repository.
+            This is an alpha build for testing only. No independent security audit has been performed.
+          </p>
+        </div>
+
+        <button
+          onClick={handleAcceptPrivacy}
+          style={primaryBtn}
+        >
+          I Understand and Agree
+        </button>
+        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, textAlign: "center", lineHeight: 1.4 }}>
+          Continuing implies consent to the above data practices as described in the Datum privacy policy.
+          No guarantees are made. Use at your own risk.
+        </div>
+      </div>
+    );
+  }
+
   // Setup / unlock screens
   if (walletState === "loading") {
     return <div style={{ padding: 24, color: "var(--text-muted)", textAlign: "center" }}>Loading...</div>;
@@ -396,7 +475,9 @@ export function App() {
             This wallet is for development and testing only.
             Do NOT use keys that control real funds.
             No independent security audit has been performed.
-            Use at your own risk.
+            Use at your own risk.{" "}
+            Your wallet address will be recorded on-chain when claims are settled.
+            By proceeding you confirm you have read and agreed to the Datum privacy policy.
           </div>
         </div>
 
