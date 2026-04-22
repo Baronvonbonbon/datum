@@ -1,85 +1,66 @@
 # Multi-Pricing Model Implementation Plan
-# CPE → CPC → CPA + Budget Pots
+# Single-Campaign Action Pots: View → Click → Remote Action
 
-**Date:** 2026-04-22
-**Phases:** 3 (CPE → CPC → CPA)
-**Breaking change:** Claim hash preimage extends in Phase 1 — relay bot + extension must release together.
-
----
-
-## Overview
-
-Three new pricing models on top of the existing CPM infrastructure:
-
-| Model | Trigger | Proof mechanism | New contract | Phase |
-|-------|---------|----------------|--------------|-------|
-| CPE | Engagement quality ≥ threshold | Existing ZK + quality score | None | 1 |
-| CPC | Verified click (`isTrusted`) | Extension-signed click + impression correlation | `DatumClickRegistry` | 2 |
-| CPA | On-chain conversion trigger | Advertiser contract call | `DatumConversionRegistry` + `DatumConversionTrigger` | 3 |
-
-**Pots architecture:** Separate linked campaigns per pricing model via `parentCampaignId`. Each pot has its own budget, rate, daily cap, and lifecycle. Reuses all existing governance, budget ledger, and lifecycle infrastructure with zero new accounting complexity.
+**Date:** 2026-04-22 (revised)
+**Replaces:** previous linked-campaign pots design
 
 ---
 
-## What the Current Architecture Hardcodes (and must change)
+## Design Principle
 
-| Layer | Current assumption | Needs to change |
-|-------|--------------------|----------------|
-| `Claim` struct | `impressionCount` + `clearingCpmPlanck` only | Add `pricingModel`, `qualityScore`, `clickSessionHash`, `conversionHash` |
-| Hash preimage | 7 fields, implicit CPM | 11 fields, includes pricing metadata — **BREAKING** |
-| Payment formula | `(clearingCpmPlanck * impressionCount) / 1000` | Branch on `pricingModel` |
-| `DatumCampaigns` | Single `bidCpmPlanck` | Add `pricingModel`, `minQualityScoreBps`, `parentCampaignId` |
-| `DatumClaimValidator` | Validates `clearingCpm ≤ bidCpm` | Route validation by pricing model |
-| `claimBuilder.ts` | Fires on `ENGAGEMENT_RECORDED` | New triggers per event type |
+One campaign. Multiple action pots within it. Each pot has its own budget, daily cap, and rate. The same impression auction selects the campaign; after that, independent events (click, remote action) trigger separate settlement draws from separate pots — without creating separate campaigns or governance flows.
 
----
-
-## Phase 1 — CPE (Cost Per Engagement)
-
-**Scope:** Flat rate per engagement event. Uses existing quality score infrastructure (`qualityScore.ts`). No new contracts. Campaign sets a minimum quality score threshold; payment scales with quality.
-
----
-
-### P1-C1: `DatumCampaigns.sol`
-
-Add to Campaign struct:
-```solidity
-uint8  pricingModel;          // 0=CPM, 1=CPE, 2=CPC, 3=CPA
-uint16 minQualityScoreBps;    // CPE only: 0-10000 (0.0-1.0); 0 for CPM
-uint256 parentCampaignId;     // 0 = standalone; non-zero = child pot
+```
+Campaign
+├── Pot 0 (View / CPM)     budget=5 DOT  rate=1 DOT CPM   ← auction selects on this bid
+├── Pot 1 (Click / CPC)    budget=3 DOT  rate=0.5 DOT/click
+└── Pot 2 (Remote Action)  budget=2 DOT  rate=2 DOT/action  ← verifier-signed
 ```
 
-Add to `createCampaign()` parameters:
-```solidity
-uint8   pricingModel,
-uint16  minQualityScoreBps,
-uint256 parentCampaignId
-```
+User flow:
+1. Impression → claim queued against Pot 0 (view)
+2. User clicks CTA → claim queued against Pot 1 (click)
+3. User installs app / connects wallet → verifier signs confirmation → claim queued against Pot 2 (action)
 
-Add validations:
-- `pricingModel == CPE → require(minQualityScoreBps > 0 && ≤ 10000, "E88")`
-- `parentCampaignId > 0 → verify parent exists, same advertiser, same publisher`
-- Enforce single-level hierarchy (parent's parentCampaignId must be 0)
-
-Add view functions: `getPricingModel()`, `getMinQualityScore()`, `getParentCampaignId()`, `getChildCampaigns()`
-
-Add event: `CampaignPricingModelSet(campaignId, pricingModel, minQualityScoreBps, parentId)`
+Each pot settles independently. A pot exhausting its budget does not affect the others.
 
 ---
 
-### P1-C2: `interfaces/IDatumSettlement.sol` — **BREAKING CHANGE**
+## Data Model Changes
 
-Extend `Claim` struct with fields that will carry through all three phases:
+### New struct: `ActionPotConfig` (in `IDatumCampaigns`)
+
+```solidity
+struct ActionPotConfig {
+    uint8   actionType;       // 0=view, 1=click, 2=remote-action
+    uint256 budgetPlanck;     // funds escrowed for this pot
+    uint256 dailyCapPlanck;   // daily spend cap for this pot
+    uint256 ratePlanck;       // view: bidCpmPlanck (per-1000); click/action: flat per event
+    address actionVerifier;   // action type 2 only: EOA whose sig confirms the action
+}
+```
+
+`actionType=0` (view) is the only one that participates in the Vickrey auction. Its `ratePlanck` is the CPM bid. Campaigns without a view pot do not appear in the impression auction.
+
+Constraints at creation:
+- At most one pot per `actionType` (no duplicate action types)
+- At least one pot required
+- `sum(pot.budgetPlanck) + bondAmount == msg.value`
+- View pot `ratePlanck >= minimumCpmFloor`
+- Click/action pot `ratePlanck > 0`
+- Action pot: `actionVerifier != address(0)`
+
+### Claim struct: add `actionType`
+
 ```solidity
 struct Claim {
     uint256 campaignId;
     address publisher;
-    uint256 impressionCount;      // repurposed as "eventCount" for non-CPM
-    uint256 clearingCpmPlanck;    // repurposed as "ratePlanck" for non-CPM
-    uint8   pricingModel;         // NEW Phase 1
-    uint16  qualityScore;         // NEW Phase 1: 0-10000 bps
-    bytes32 clickSessionHash;     // NEW Phase 2: bytes32(0) for non-click claims
-    bytes32 conversionHash;       // NEW Phase 3: bytes32(0) for non-conversion claims
+    uint256 eventCount;           // renamed from impressionCount — 1 for clicks/actions
+    uint256 ratePlanck;           // renamed from clearingCpmPlanck — auction rate for view; flat for click/action
+    uint8   actionType;           // NEW: 0=view, 1=click, 2=remote-action
+    bytes32 clickSessionHash;     // type 1 only; bytes32(0) otherwise
+    bytes32 actionVerifierSig;    // type 2 only; bytes32(0) otherwise  [see note below]
     uint256 nonce;
     bytes32 previousClaimHash;
     bytes32 claimHash;
@@ -88,449 +69,412 @@ struct Claim {
 }
 ```
 
-Adding all four fields now avoids a second breaking change in Phase 2/3. Non-relevant fields are `bytes32(0)` / `0`.
+> Note on `actionVerifierSig`: the full signature is 65 bytes (r, s, v). It can be passed alongside the claim as a separate `bytes` parameter rather than packed into the struct — this keeps the struct clean and avoids the 32-byte truncation issue. See P1-C2 below.
 
-**New hash preimage (all phases from day 1):**
+**New hash preimage (BREAKING — implement once, covers all action types):**
 ```
-blake2(campaignId, publisher, user, impressionCount, ratePlanck,
-       pricingModel, qualityScore, clickSessionHash, conversionHash,
-       nonce, previousHash)
+blake2(campaignId, publisher, user, eventCount, ratePlanck,
+       actionType, clickSessionHash, nonce, previousHash)
 ```
 
----
+`actionVerifierSig` is NOT in the hash (it's a proof of the hash, not part of it).
 
-### P1-C3: `DatumClaimValidator.sol`
+### BudgetLedger: second key on actionType
 
-Add routing in `validateClaim()`:
 ```solidity
-if (campaign.pricingModel == 0) {
-    // CPM: existing check
-    require(claim.clearingCpmPlanck <= cBidCpm, "E06");
-} else if (campaign.pricingModel == 1) {
-    // CPE: rate check + quality check
-    require(claim.clearingCpmPlanck <= cBidCpm, "E06");
-    require(claim.qualityScore >= campaign.minQualityScoreBps, "E88");
-}
-// CPC / CPA: validated in Phase 2/3
+// Before
+mapping(uint256 => Budget) private _budgets;
+
+// After
+mapping(uint256 => mapping(uint8 => Budget)) private _budgets;
 ```
 
-Fetch `pricingModel` + `minQualityScoreBps` from campaigns contract alongside existing `bidCpmPlanck`.
+All BudgetLedger functions that touch `_budgets` gain a `uint8 actionType` parameter.
 
----
+### Settlement: separate hash chains per action type
 
-### P1-C4: `DatumSettlement.sol`
-
-Replace the single payment line with a dispatch function:
 ```solidity
-function _computePayment(Claim calldata claim, uint8 pricingModel, uint16 qualityScore)
-    internal pure returns (uint256)
-{
-    if (pricingModel == 0) {
-        // CPM
-        return (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
-    } else if (pricingModel == 1) {
-        // CPE: quality-weighted, still per-impression
-        return (claim.clearingCpmPlanck * claim.qualityScore * claim.impressionCount) / 10_000_000;
-        // Division: /1000 (CPM) × /10000 (bps quality) = /10_000_000
-    } else if (pricingModel == 2) {
-        // CPC: flat per click
-        return claim.clearingCpmPlanck * claim.impressionCount; // impressionCount = clickCount here
-    } else if (pricingModel == 3) {
-        // CPA: flat per conversion
-        return claim.clearingCpmPlanck * claim.impressionCount; // impressionCount = conversionCount
-    }
-    revert("E92");
+// Before
+mapping(address => mapping(uint256 => uint256)) public lastNonce;
+mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
+
+// After
+mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public lastNonce;
+mapping(address => mapping(uint256 => mapping(uint8 => bytes32))) public lastClaimHash;
+```
+
+---
+
+## Phase 1 — Core Infrastructure (All Action Types)
+
+Everything in this phase must ship together. It's the foundation the click and action handling builds on.
+
+---
+
+### C1: `DatumCampaigns.sol`
+
+**Remove** from Campaign struct: `bidCpmPlanck`, `snapshotTakeRateBps` (moved into pot/validation)
+**Keep** in Campaign struct: `advertiser`, `publisher`, `pendingExpiryBlock`, `terminationBlock`, `status`
+
+**Add** mappings:
+```solidity
+mapping(uint256 => ActionPotConfig[]) private _campaignPots;
+```
+
+**Change** `createCampaign()` signature:
+```solidity
+function createCampaign(
+    address publisher,
+    ActionPotConfig[] calldata actionPots,   // replaces bidCpmPlanck + dailyCapPlanck
+    bytes32[] calldata requiredTags,
+    bool requireZkProof,
+    address rewardToken,
+    uint256 rewardPerImpression,
+    uint256 bondAmount
+) external payable returns (uint256 campaignId)
+```
+
+Validation additions:
+- `require(actionPots.length > 0 && actionPots.length <= 3, "E93")`
+- Loop: detect duplicate `actionType`, check each `budgetPlanck >= MINIMUM_BUDGET_PLANCK`
+- Compute `totalBudget = sum(pot.budgetPlanck)`, assert `msg.value == totalBudget + bondAmount`
+- View pot: `require(ratePlanck >= minimumCpmFloor, "E27")`
+- Action pot: `require(actionVerifier != address(0), "E00")`
+- For each pot: call `budgetLedger.initializeBudget{value: pot.budgetPlanck}(campaignId, pot.actionType, pot.budgetPlanck, pot.dailyCapPlanck)`
+
+**Add** view functions:
+```solidity
+function getCampaignPots(uint256 id) external view returns (ActionPotConfig[] memory)
+function getCampaignPot(uint256 id, uint8 actionType) external view returns (ActionPotConfig memory)
+function getCampaignViewBid(uint256 id) external view returns (uint256)  // returns view pot ratePlanck for auction
+```
+
+**Impact on `getCampaignForSettlement()`:** Add `ActionPotConfig` return value (or make settlement call `getCampaignPot(id, actionType)` separately).
+
+---
+
+### C2: `DatumBudgetLedger.sol`
+
+All functions gain `uint8 actionType`:
+
+```solidity
+function initializeBudget(uint256 campaignId, uint8 actionType, uint256 budget, uint256 dailyCap) external payable
+function deductAndTransfer(uint256 campaignId, uint8 actionType, uint256 amount, address recipient) external nonReentrant returns (bool exhausted)
+function drainToAdvertiser(uint256 campaignId, address advertiser) external nonReentrant returns (uint256 drained)
+// drainToAdvertiser loops over all actionTypes (0,1,2) and drains each
+function drainFraction(uint256 campaignId, address recipient, uint256 bps) external nonReentrant returns (uint256 amount)
+// drainFraction loops and drains proportionally from each pot
+function getRemainingBudget(uint256 campaignId, uint8 actionType) external view returns (uint256)
+function getTotalRemainingBudget(uint256 campaignId) external view returns (uint256)
+// getTotalRemainingBudget sums across all three actionTypes
+```
+
+`_budgets[campaignId][actionType]` is the new storage key.
+
+`drainToAdvertiser` and `drainFraction` loop `actionType` in `[0, 1, 2]` and drain whichever are non-zero. This keeps the lifecycle contract's refund path simple.
+
+`sweepDust` loops the same three keys.
+
+`lastSettlementBlock` stays keyed by `campaignId` only (any pot settlement counts as activity).
+
+---
+
+### C3: `interfaces/IDatumSettlement.sol` — **BREAKING CHANGE**
+
+Replace the `Claim` struct with the new version (see Data Model section above). Rename `impressionCount` → `eventCount` and `clearingCpmPlanck` → `ratePlanck` in struct and all events.
+
+Add `bytes[] calldata actionSigs` as a parallel array to `Claim[]` in settlement functions (for type-2 claims that carry a verifier signature). Length must match `claims` length; non-action claims pass `bytes("")`.
+
+```solidity
+struct ClaimBatch {
+    address user;
+    uint256 campaignId;
+    Claim[] claims;
+    bytes[] actionSigs;   // NEW: parallel to claims; "" for view/click claims
 }
 ```
 
+Update `settleClaimsMulti` struct similarly.
+
 ---
 
-### P1-E1: `shared/types.ts`
+### C4: `DatumClaimValidator.sol`
 
-Add to `Claim`:
-```typescript
-pricingModel: number;        // 0-3
-qualityScore: bigint;        // 0-10000 bps
-clickSessionHash: string;    // bytes32 hex, "0x00..00" for non-click
-conversionHash: string;      // bytes32 hex, "0x00..00" for non-conversion
+Add routing by `actionType`:
+
+```solidity
+// Type 0: view (CPM)
+require(claim.ratePlanck <= pot.ratePlanck, "E06");
+require(claim.clickSessionHash == bytes32(0), "E93");
+
+// Type 1: click (CPC)
+require(claim.clickSessionHash != bytes32(0), "E90");
+require(clickRegistry.hasUnclaimed(claim.clickSessionHash), "E90");
+require(claim.ratePlanck == pot.ratePlanck, "E06"); // flat rate, no clearing discount
+
+// Type 2: remote action
+require(claim.ratePlanck == pot.ratePlanck, "E06");
+// Verifier sig checked here — pass actionSig from ClaimBatch:
+address signer = recoverActionSigner(computedHash, actionSig);
+require(signer == pot.actionVerifier, "E94");
 ```
 
-Add to campaign interface:
-```typescript
-pricingModel: number;
-minQualityScore: number;     // 0-10000 bps
-parentCampaignId: string;    // "0" if standalone
+`recoverActionSigner` uses `ecrecover` on the claim hash (already computed as part of hash chain validation).
+
+Fetch the relevant `ActionPotConfig` via `campaigns.getCampaignPot(campaignId, actionType)`.
+
+---
+
+### C5: `DatumSettlement.sol`
+
+**Hash chains:** change `lastNonce` and `lastClaimHash` to triple-keyed maps (see Data Model section).
+
+**Budget deduction:** pass `claim.actionType` to `deductAndTransfer`:
+```solidity
+(bool dOk, bytes memory dRet) = budgetLedger.call(
+    abi.encodeWithSelector(DEDUCT_SELECTOR,
+        claim.campaignId, claim.actionType, totalPayment, paymentVault)
+);
 ```
 
----
+**Payment formula dispatch:**
+```solidity
+uint256 totalPayment;
+if (claim.actionType == 0) {
+    // View: CPM formula
+    totalPayment = (claim.ratePlanck * claim.eventCount) / 1000;
+} else {
+    // Click or Remote Action: flat rate × event count (eventCount is always 1 per claim)
+    totalPayment = claim.ratePlanck * claim.eventCount;
+}
+```
 
-### P1-E2: `claimBuilder.ts` — **BREAKING CHANGE**
+**After CPC settlement:** call `clickRegistry.markClaimed(claim.clickSessionHash)`.
 
-Update hash computation to 11-field preimage (see P1-C2).
+**Rate limiter:** pass `claim.actionType` to `checkAndIncrement` so view-impression caps don't mix with click/action caps. Add `actionType` param to `IDatumSettlementRateLimiter`.
 
-For CPM campaigns: pass `pricingModel=0`, `qualityScore=0`, `clickSessionHash=ZeroHash`, `conversionHash=ZeroHash`.
-
-For CPE campaigns: compute `qualityScore` from the `EngagementEvent` using `computeQualityScore()` × 10000 (convert 0.0-1.0 → 0-10000 bps). If `qualityScore < campaign.minQualityScore`, drop the claim (do not queue).
-
----
-
-### P1-E3: `campaignPoller.ts`
-
-Fetch `pricingModel`, `minQualityScoreBps`, `parentCampaignId` via multicall alongside existing fields. Store in `activeCampaigns` cache. Extension reads these when building claims.
-
----
-
-### P1-W1: `CreateCampaign.tsx`
-
-Add pricing model selector. For CPE: show "Min Quality Score (%)" input (0-100; converted to bps internally) and "Engagement Rate (planck per 1000 impressions × quality)". Hide the "Bid CPM" label, show "Rate" instead.
-
-Add optional "Link to Parent Campaign" dropdown (lists advertiser's active standalone campaigns).
+**Reputation:** pass click/action counts to `publisherReputation.recordSettlement()` after each batch.
 
 ---
 
-### P1-T: Tests
+### C6: `DatumClickRegistry.sol` (new)
 
-**Contract:**
-- `campaigns.test.ts`: create CPE campaign; create child pot; reject grandchild pot; reject CPE with zero quality threshold
-- `settlement.test.ts`: CPE payment formula; CPE claim below threshold rejected (E88); CPM still works unchanged
-- `claim-validator.test.ts` (new): routing test for pricingModel 0 vs 1
-
-**Extension:**
-- `claimBuilder.test.ts`: update Blake2 hash test for 11-field preimage; test qualityScore bps conversion; CPE claim drops if below threshold
-
----
-
-## Phase 2 — CPC (Cost Per Click)
-
-**Scope:** Flat rate per verified click. Click captured in content script via `event.isTrusted`. New `DatumClickRegistry` contract enforces impression-before-click correlation and prevents double-claiming.
-
----
-
-### P2-C1: `DatumClickRegistry.sol` (new)
+One click per (user, campaign) lifetime. Records session hash; settlement marks claimed.
 
 ```solidity
 contract DatumClickRegistry {
-    struct ClickSession {
+    struct Session {
         uint256 campaignId;
         address user;
         uint256 blockNumber;
         bool    claimed;
     }
-    // sessionHash = blake2(user, campaignId, nonce) — submitted by relay
-    mapping(bytes32 => ClickSession) public sessions;
-    mapping(address => mapping(uint256 => uint256)) public clickCount;
+    mapping(bytes32 => Session) public sessions;
+    // sessionHash = blake2(user, campaignId, impressionNonce)
+    // impressionNonce ties the click to a specific prior impression claim
+
     uint256 public constant MAX_CLICKS_PER_USER_PER_CAMPAIGN = 1;
+    mapping(address => mapping(uint256 => uint256)) public clickCount;
 
-    address public settlement;
-    address public relay;
+    address public relay;     // records clicks (relay bot submits on behalf of user)
+    address public settlement; // marks claimed
 
-    function recordClick(bytes32 sessionHash, uint256 campaignId, address user) external; // relay-only
+    function recordClick(bytes32 sessionHash, uint256 campaignId, address user, uint256 blockNum) external; // relay-only
     function markClaimed(bytes32 sessionHash) external; // settlement-only
     function hasUnclaimed(bytes32 sessionHash) external view returns (bool);
 }
 ```
 
-Key invariant: one click per (user, campaignId) lifetime. `MAX_CLICKS_PER_USER_PER_CAMPAIGN = 1` prevents click farming.
+`sessionHash = blake2(user, campaignId, impressionNonce)` — ties the click to the specific impression nonce from the user's view chain. This prevents orphan clicks (clicks without a prior impression).
 
 ---
 
-### P2-C2: `DatumClaimValidator.sol`
+### E1: `shared/types.ts`
 
-Add CPC branch:
-```solidity
-} else if (pricingModel == 2) {
-    require(claim.clickSessionHash != bytes32(0), "E90");
-    require(clickRegistry.hasUnclaimed(claim.clickSessionHash), "E90");
-}
-```
+Update `Claim` interface to match new struct (rename `impressionCount` → `eventCount`, `clearingCpmPlanck` → `ratePlanck`; add `actionType`, `clickSessionHash`).
 
-After validation passes, settlement calls `clickRegistry.markClaimed()`.
+Add `ActionPotConfig` interface. Update `Campaign` interface: remove `bidCpmPlanck`, add `pots: ActionPotConfig[]`.
 
 ---
 
-### P2-C3: `DatumSettlement.sol`
+### E2: `claimBuilder.ts` — **BREAKING CHANGE**
 
-After successful CPC settlement, call `clickRegistry.markClaimed(claim.clickSessionHash)` to prevent reuse. Wire `clickRegistry` address via `setClickRegistry()` (owner-only, same pattern as other satellite addresses).
+Update hash preimage to 9 fields (see Data Model section).
+
+Add `actionType` parameter to `onImpression()`. Existing call sites pass `actionType=0`. New call sites for click and action pass `1` and `2`.
+
+Separate chain state per action type: storage key changes from `chainState:${user}:${campaignId}` to `chainState:${user}:${campaignId}:${actionType}`.
+
+For action type 1 (click): populate `clickSessionHash = blake2(user, campaignId, impressionNonce)` where `impressionNonce` is the last settled view nonce for this campaign.
 
 ---
 
-### P2-E1: `content/adSlot.ts`
+### E3: `campaignPoller.ts`
 
-Add to ad element setup:
+Fetch `getCampaignPots()` instead of `bidCpmPlanck` + `dailyCap` separately. Expose `viewBid` (Pot 0 `ratePlanck`) as the auction input. Cache full `pots` array per campaign.
+
+---
+
+### E4: `auction.ts`
+
+Change `c.bidCpmPlanck` reference to `c.viewBid` (view pot rate). No other changes — auction only ever runs on type-0 pots.
+
+---
+
+### W1: `CreateCampaign.tsx`
+
+Replace single budget/CPM inputs with per-pot configuration. Default: one view pot (always present). Optional: add click pot, add action pot (shows `actionVerifier` address input).
+
+Per pot: budget amount, daily cap, rate. Total estimated spend shown as sum of all pot budgets.
+
+---
+
+## Phase 2 — Click Capture
+
+Depends on Phase 1 infrastructure (ClickRegistry wired in Phase 1, but only used in Phase 2).
+
+---
+
+### E5: `content/adSlot.ts`
+
+Add click listener:
 ```typescript
-adElement.addEventListener("click", async (e: MouseEvent) => {
-  if (!e.isTrusted) return;  // browser-enforced; blocks programmatic clicks
-  const now = Date.now();
-  const sessionHash = computeClickSessionHash(campaignId, userAddress, nonce);
-  chrome.runtime.sendMessage({
-    type: "AD_CLICK",
-    campaignId,
-    publisherAddress,
-    sessionHash,
-    timestamp: now,
-  });
-}, { once: true }); // once: true — one click per impression rendering
-```
-
-`{ once: true }` ensures only one click event fires per ad rendering, regardless of how many times the user clicks.
-
----
-
-### P2-E2: `background/index.ts`
-
-Add `AD_CLICK` message handler:
-```typescript
-case "AD_CLICK":
-  await clickHandler.onAdClick(msg);
-  break;
+adElement.addEventListener("click", (e: MouseEvent) => {
+    if (!e.isTrusted) return;
+    // Only fire if campaign has a click pot
+    if (!campaign.pots.some(p => p.actionType === 1)) return;
+    // Minimum dwell: reject click < 500ms after impression start
+    if (Date.now() - impressionStartTime < 500) return;
+    chrome.runtime.sendMessage({
+        type: "AD_CLICK",
+        campaignId,
+        publisherAddress,
+        impressionNonce: currentImpressionNonce,
+        timestamp: Date.now(),
+    });
+}, { once: true });
 ```
 
 ---
 
-### P2-E3: `background/clickHandler.ts` (new)
+### E6: `background/clickHandler.ts` (new)
 
-- Receive `AD_CLICK` message
-- Verify a matching impression exists in `activeCampaigns` within the last 5 minutes (prevents orphan clicks)
-- Store click session in `chrome.storage.local`: key `click:${campaignId}:${sessionHash}`
-- Submit click to relay (or queue for batch relay submission)
-- Queue CPC claim for settlement with `clickSessionHash` populated
-
-Minimum dwell check: reject clicks where `Date.now() - impressionStartTime < 500ms` (sub-500ms click is likely bot).
+- Handle `AD_CLICK` message
+- Compute `sessionHash = blake2(user, campaignId, impressionNonce)`
+- Store in `chrome.storage.local`: `click:${campaignId}:${sessionHash}`
+- Submit session to relay (relay calls `clickRegistry.recordClick()`)
+- Build and queue a type-1 Claim with `clickSessionHash` populated, chain state keyed `(user, campaignId, 1)`
 
 ---
 
-### P2-E4: `shared/types.ts`
+### R1: `relay-bot.mjs` (Phase 2 additions)
 
-Already updated in Phase 1 (added `clickSessionHash` to Claim struct). No additional changes.
-
----
-
-### P2-W1: `CreateCampaign.tsx`
-
-Add CPC to pricing model selector. Show "Click Rate (planck per click)" input. Add publisher CTR advisory: fetch DatumPublisherReputation score; warn if historical CTR > 10%.
+- Accept click sessions from extension
+- Call `clickRegistry.recordClick(sessionHash, campaignId, user, blockNum)` before settlement
+- Submit type-1 claims with `clickSessionHash` in the claim batch
 
 ---
 
-### P2-R1: `relay-bot.mjs`
+## Phase 3 — Remote Action Confirmation
 
-- Receive click sessions from extension
-- Call `DatumClickRegistry.recordClick()` for each valid click
-- Submit CPC claims with populated `clickSessionHash` to settlement
+Depends on Phase 1 (action verifier signature validation is already wired in ClaimValidator).
 
----
-
-### P2-T: Tests
-
-**Contract:**
-- `click-registry.test.ts` (new): record click; mark claimed; reject second claim; reject unknown session hash; enforce MAX_CLICKS_PER_USER_PER_CAMPAIGN
-- `settlement.test.ts`: CPC claim with valid click settles; CPC claim without click rejects (E90); double-claim rejected
-- `claim-validator.test.ts`: CPC routing; missing clickSessionHash rejected
-
-**Extension:**
-- `clickHandler.test.ts` (new): isTrusted gate; orphan click rejection (no prior impression); sub-500ms dwell rejection; session hash computation
-- `claimBuilder.test.ts`: CPC claim with clickSessionHash; `once: true` click listener fires only once
+No new contracts needed. The advertiser runs a verifier service (or wallet) whose address is set at campaign creation. When a user completes an action, they request a signature from that service — the service checks the action occurred (e.g., confirms wallet connection, install receipt, etc.) and signs the claim hash.
 
 ---
 
-## Phase 3 — CPA (Cost Per Action)
+### E7: `background/actionHandler.ts` (new)
 
-**Scope:** Flat rate per on-chain conversion. Advertiser deploys `DatumConversionTrigger` on their site/contract; user wallet calls it after completing the goal; extension polls for the on-chain event.
+- Listen for `REMOTE_ACTION` message (triggered by extension on external event)
+- Collect verifier signature from the advertiser's service (HTTPS endpoint, URL stored in campaign metadata)
+- Build and queue a type-2 Claim with `actionSig` populated, chain state keyed `(user, campaignId, 2)`
 
----
+### E8: `content/index.ts`
 
-### P3-C1: `DatumConversionRegistry.sol` (new)
+Detect advertiser's action trigger (meta tag or JS call in page): `<meta name="datum-action" content="campaignId:42">` or `window.datumAction({ campaignId: 42 })`. On detection, send `REMOTE_ACTION` to background.
 
-Central registry; conversion trigger contracts write into it.
+### W2: `CreateCampaign.tsx` (Phase 3 addition)
 
-```solidity
-contract DatumConversionRegistry {
-    struct Conversion {
-        uint256 campaignId;
-        address user;
-        uint256 blockNumber;
-        bool    claimed;
-    }
-    mapping(bytes32 => Conversion) public conversions;
-    // conversionHash = blake2(campaignId, user, actionId, blockNumber)
-
-    mapping(uint256 => address) public campaignTrigger; // campaignId → trigger address
-
-    function registerTrigger(uint256 campaignId, address trigger) external; // campaign advertiser only
-    function recordConversion(bytes32 conversionHash, uint256 campaignId, address user) external; // trigger-only
-    function markClaimed(bytes32 conversionHash) external; // settlement-only
-    function hasUnclaimed(bytes32 conversionHash) external view returns (bool);
-    event ConversionRecorded(uint256 indexed campaignId, address indexed user, bytes32 conversionHash);
-}
-```
+For action pot: add `actionVerifier` address input with explanation ("The address that will sign action confirmations — typically your backend wallet or oracle"). Add optional `actionCallbackUrl` to campaign metadata (IPFS) so the extension knows where to request the signature.
 
 ---
 
-### P3-C2: `DatumConversionTrigger.sol` (template)
+## Deployment Sequence
 
-Advertiser deploys one per campaign. Calls `ConversionRegistry.recordConversion()` when user completes the goal.
+### Phase 1 (all at once — BREAKING)
+1. Redeploy `DatumBudgetLedger` (new `actionType` key)
+2. Redeploy `DatumCampaigns` (ActionPotConfig[], new createCampaign signature)
+3. Deploy `DatumClickRegistry` (ready for Phase 2, wired but not yet used)
+4. Redeploy `DatumClaimValidator` (routing by actionType)
+5. Redeploy `DatumSettlement` (new hash chains, budget deduction with actionType)
+6. Wire: `settlement.setClickRegistry()`, re-run all `setX()` wiring ops
+7. Release relay bot with new 9-field hash preimage **simultaneously** with extension
+8. `setup-testnet.ts`: create test campaign with view + click pots
 
-```solidity
-contract DatumConversionTrigger {
-    IConversionRegistry public registry;
-    uint256 public campaignId;
-    address public advertiser;
+### Phase 2
+- No new contracts
+- Extension release with click listener + clickHandler
+- Relay bot update to submit click sessions
 
-    mapping(address => bool) public hasConverted; // one conversion per user
-
-    function triggerConversion(address user) external {
-        require(msg.sender == user || msg.sender == advertiser, "E18");
-        require(!hasConverted[user], "E73"); // reuse of existing error code
-        hasConverted[user] = true;
-        bytes32 h = blake2(abi.encodePacked(campaignId, user, block.number));
-        registry.recordConversion(h, campaignId, user);
-    }
-}
-```
-
----
-
-### P3-C3: `DatumClaimValidator.sol`
-
-Add CPA branch:
-```solidity
-} else if (pricingModel == 3) {
-    require(claim.conversionHash != bytes32(0), "E91");
-    require(conversionRegistry.hasUnclaimed(claim.conversionHash), "E91");
-}
-```
+### Phase 3
+- No new contracts
+- Extension release with actionHandler + content trigger detection
+- Advertiser documentation: verifier service setup
 
 ---
 
-### P3-C4: `DatumCampaigns.sol`
+## Files Touched
 
-Add to `createCampaign()` for CPA: `address conversionTrigger` parameter. After campaign creation, call `conversionRegistry.registerTrigger(campaignId, conversionTrigger)`.
-
----
-
-### P3-E1: `background/conversionPoller.ts` (new)
-
-Poll `ConversionRegistry` for `ConversionRecorded(campaignId, user, conversionHash)` events where `user == connectedAddress`. Cache hits in `chrome.storage.local`: `conversion:${campaignId}:${conversionHash}`. On hit: queue CPA claim with `conversionHash` populated.
-
-Poll interval: 60 seconds (conversions are low-frequency; no need to match block time).
-
----
-
-### P3-W1: `CreateCampaign.tsx`
-
-Add CPA to pricing model selector. Show "Action Rate (planck per conversion)" input. Add "Conversion Trigger" section: display the `DatumConversionTrigger` contract ABI + deployment instructions; verify trigger is registered on-chain (call `conversionRegistry.campaignTrigger()`) before allowing campaign activation.
-
----
-
-### P3-W2: `web/src/pages/advertiser/PotManagement.tsx` (new)
-
-Dashboard view of linked campaigns (parent + children). Shows per-pot budget, daily cap, spend, event count, rate. Allows creating new child pot from parent. Budget allocation summary across the pot family.
-
----
-
-### P3-T: Tests
-
-**Contract:**
-- `conversion-registry.test.ts` (new): record conversion; register trigger; reject unknown trigger; mark claimed; reject double-claim
-- `settlement.test.ts`: CPA claim with valid conversion settles; without conversion rejects (E91); double-claim rejected
-- `campaigns.test.ts`: create CPA campaign with trigger address; trigger registered in registry
-
-**Extension:**
-- `conversionPoller.test.ts` (new): poll for ConversionRecorded events; dedup; cache; queue CPA claim
+| File | Phase | Change |
+|------|-------|--------|
+| `contracts/DatumCampaigns.sol` | 1 | ActionPotConfig[], multi-pot createCampaign |
+| `contracts/DatumBudgetLedger.sol` | 1 | `(campaignId, actionType)` key, all functions |
+| `contracts/DatumSettlement.sol` | 1 | Triple-keyed hash chains, actionType-routed deduction |
+| `contracts/DatumClaimValidator.sol` | 1 | Routing by actionType, verifier sig recovery |
+| `contracts/DatumSettlementRateLimiter.sol` | 1 | actionType param added |
+| `contracts/interfaces/IDatumSettlement.sol` | 1 | New Claim struct — **BREAKING** |
+| `contracts/interfaces/IDatumCampaigns.sol` | 1 | ActionPotConfig struct, new createCampaign sig |
+| `contracts/interfaces/IDatumBudgetLedger.sol` | 1 | actionType params |
+| `contracts/DatumClickRegistry.sol` | 1 | **New contract** (deployed in P1, used in P2) |
+| `extension/src/shared/types.ts` | 1 | Claim + Campaign interfaces |
+| `extension/src/background/claimBuilder.ts` | 1 | 9-field hash, per-actionType chain state — **BREAKING** |
+| `extension/src/background/campaignPoller.ts` | 1 | Fetch pots array |
+| `extension/src/background/auction.ts` | 1 | viewBid instead of bidCpmPlanck |
+| `extension/src/content/adSlot.ts` | 2 | Click listener |
+| `extension/src/background/clickHandler.ts` | 2 | **New file** |
+| `extension/src/background/actionHandler.ts` | 3 | **New file** |
+| `extension/src/content/index.ts` | 3 | Action trigger detection |
+| `web/src/pages/advertiser/CreateCampaign.tsx` | 1,2,3 | Per-pot UI |
+| `alpha-3/scripts/deploy.ts` | 1 | ClickRegistry deploy + wiring |
+| `alpha-3/scripts/setup-testnet.ts` | 1 | Multi-pot test campaign |
+| `relay-bot/relay-bot.mjs` | 1,2 | New hash preimage + click sessions |
 
 ---
 
-## Cross-Cutting Concerns
-
-### Auction — No Changes Needed
-
-`auction.ts` works for all pricing models without modification. The second-price Vickrey clears on effective CPM bid. For CPC/CPA campaigns, `bidCpmPlanck` represents the per-click or per-conversion rate; the auction treats it identically to a CPM rate. Interest weighting still applies. Advertisers set their rate higher for CPC/CPA campaigns (since per-event value is higher) which naturally produces correct auction ordering.
-
-### Publisher Reputation Integration
-
-`DatumPublisherReputation` should track anomalies per pricing model:
-- CPC: flag publishers with CTR > 3× network average (`MIN_SAMPLE = 50 clicks`)
-- CPA: flag publishers with conversion rate > 2× network average (`MIN_SAMPLE = 20 conversions`)
-
-Update `relay-bot.mjs`: after CPC/CPA settlement, call `reputation.recordSettlement()` with click/conversion counts alongside impression counts.
-
-### Rate Limiter Integration
-
-`DatumSettlementRateLimiter` currently caps impression counts per publisher per window. For CPC/CPA, the same contract applies — the `impressionCount` field in the CPC/CPA `Claim` carries click/conversion counts. No contract change needed; the rate limiter just caps the event count regardless of type. Publishers can still be rate-limited on total events per window.
-
-### ZK Circuit — No Changes for Phase 1/2
-
-The existing impression ZK circuit (`impression.circom`) remains unchanged for CPM and CPE — qualityScore is a plain field in the hash, not a circuit witness. ZK is optional for CPC/CPA (checkbox per campaign); if required, the circuit would need to commit to clickSessionHash or conversionHash as a public input. Defer this to post-beta.
-
-### Error Codes (New)
+## Error Codes (New)
 
 | Code | Meaning |
 |------|---------|
-| E88 | CPE: quality score below campaign minimum |
-| E89 | Invalid pricing model (future-proofing) |
-| E90 | CPC: click session hash invalid or already claimed |
-| E91 | CPA: conversion hash invalid or already claimed |
-| E92 | Unknown pricing model in settlement dispatch |
+| E88 | Invalid action type value (>2) |
+| E90 | Click session hash invalid or already claimed |
+| E93 | Duplicate action type in pot config, or actionPots empty |
+| E94 | Action verifier signature invalid |
 
 ---
 
-## Deployment Per Phase
+## Key Design Decisions
 
-### Phase 1 Deploy Checklist
-- [ ] Redeploy `DatumCampaigns` (new fields + createCampaign signature)
-- [ ] Redeploy `DatumSettlement` (payment dispatch)
-- [ ] Redeploy `DatumClaimValidator` (quality score validation)
-- [ ] ABI sync: web + extension for all three
-- [ ] Release relay bot with new 11-field hash preimage simultaneously with extension
-- [ ] Announce migration: old claims from pre-Phase-1 clients will be rejected
-- [ ] `setup-testnet.ts`: add test CPE campaign creation
-- [ ] `deploy.ts`: add new `REQUIRED_KEYS` for updated contracts; bump to 27-contract deploy (no new contracts in P1)
+**Why `actionVerifier` is an EOA, not a contract:**
+The advertiser controls an address. When a user completes an action, their device calls the advertiser's HTTPS endpoint (URL stored in IPFS metadata), which checks the action and signs `ecrecover`-compatible message. No on-chain infrastructure required from the advertiser — just a key pair. This is the same trust model as `relaySigner` on the publisher side.
 
-### Phase 2 Deploy Checklist
-- [ ] Deploy `DatumClickRegistry`
-- [ ] Redeploy `DatumSettlement` (wire clickRegistry)
-- [ ] Redeploy `DatumClaimValidator` (CPC branch)
-- [ ] `deploy.ts`: 28-contract deploy; wire `settlement.setClickRegistry()`
-- [ ] ABI sync + relay bot update for click submission
-- [ ] Extension release with click tracking
+**Why click sessions tie to `impressionNonce`:**
+`sessionHash = blake2(user, campaignId, impressionNonce)` means a click claim can only be submitted if a view claim with that specific nonce exists and was settled. This prevents click-farming without impressions and makes the session cryptographically unforgeable.
 
-### Phase 3 Deploy Checklist
-- [ ] Deploy `DatumConversionRegistry`
-- [ ] Deploy `DatumConversionTrigger` template (not in REQUIRED_KEYS — advertiser deploys per campaign)
-- [ ] Redeploy `DatumSettlement` + `DatumClaimValidator` (CPA branch)
-- [ ] `deploy.ts`: 29-contract deploy; wire `settlement.setConversionRegistry()`
-- [ ] ABI sync + relay bot update for conversion polling
-- [ ] Extension release with conversionPoller
+**Why `actionType=0` is the only auction input:**
+The click and action rates are fixed at campaign creation — there's nothing to auction. Only the view CPM competes in the Vickrey auction. Once the campaign wins an impression slot, its click/action pots are available as a bonus if the user engages further. This cleanly separates price discovery (auction) from intent signaling (click) from conversion proof (action).
 
----
+**Why the action verifier signature is NOT in the claim hash:**
+The claim hash is `blake2(...fields...)`. The verifier signature is `sign(claimHash)`. Including the sig in the hash would be circular. The sig is passed alongside the claim in `actionSigs[]` and recovered during validation to check it matches `pot.actionVerifier`.
 
-## Files Touched Summary
-
-| File | Phase | Change type |
-|------|-------|-------------|
-| `contracts/DatumCampaigns.sol` | 1 | New fields, new params, new views |
-| `contracts/DatumSettlement.sol` | 1,2,3 | Payment dispatch, new registries wired |
-| `contracts/DatumClaimValidator.sol` | 1,2,3 | Validation routing by pricingModel |
-| `contracts/interfaces/IDatumSettlement.sol` | 1 | Claim struct — **BREAKING** |
-| `contracts/interfaces/IDatumCampaigns.sol` | 1 | Campaign struct + createCampaign signature |
-| `contracts/DatumClickRegistry.sol` | 2 | **New contract** |
-| `contracts/DatumConversionRegistry.sol` | 3 | **New contract** |
-| `contracts/DatumConversionTrigger.sol` | 3 | **New template contract** |
-| `extension/src/shared/types.ts` | 1 | Claim + Campaign interfaces |
-| `extension/src/background/claimBuilder.ts` | 1 | New hash preimage — **BREAKING** |
-| `extension/src/background/campaignPoller.ts` | 1 | Fetch pricing fields |
-| `extension/src/content/adSlot.ts` | 2 | Click listener with isTrusted gate |
-| `extension/src/background/clickHandler.ts` | 2 | **New file** |
-| `extension/src/background/conversionPoller.ts` | 3 | **New file** |
-| `extension/src/background/index.ts` | 2,3 | New message handlers |
-| `web/src/pages/advertiser/CreateCampaign.tsx` | 1,2,3 | Pricing model selector + pot UI |
-| `web/src/pages/advertiser/PotManagement.tsx` | 3 | **New page** |
-| `alpha-3/scripts/deploy.ts` | 1,2,3 | New contracts per phase |
-| `alpha-3/scripts/setup-testnet.ts` | 1 | Add CPE test campaign |
-| `relay-bot/relay-bot.mjs` | 1,2,3 | New hash preimage; click/conversion submission |
-| `alpha-3/test/campaigns.test.ts` | 1 | New pricing model tests |
-| `alpha-3/test/settlement.test.ts` | 1,2,3 | New formula + model tests |
-| `alpha-3/test/click-registry.test.ts` | 2 | **New test file** |
-| `alpha-3/test/conversion-registry.test.ts` | 3 | **New test file** |
-| `extension/test/claimBuilder.test.ts` | 1 | Update hash preimage test |
-| `extension/test/clickHandler.test.ts` | 2 | **New test file** |
-| `extension/test/conversionPoller.test.ts` | 3 | **New test file** |
+**Budget independence:**
+Each pot's budget is independent. A campaign's view pot running dry doesn't stop click/action rewards from paying out on already-shown impressions. This matters most for CPA: a user might complete an action hours after the view pot expired — they should still get paid if the action pot has remaining budget.
