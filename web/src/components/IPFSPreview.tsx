@@ -35,7 +35,10 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
     const FALLBACK_GATEWAYS = [
       ...(isLocalOrigin ? ["http://localhost:8080/ipfs/"] : []),
       "https://ipfs.io/ipfs/",
+      "https://dweb.link/ipfs/",
       "https://cloudflare-ipfs.com/ipfs/",
+      "https://w3s.link/ipfs/",
+      "https://4everland.io/ipfs/",
     ];
 
     // IPFS gateways may wait 30–60 s probing the DHT before returning 404.
@@ -75,31 +78,32 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
         return;
       }
 
+      const tried: string[] = [];
       let lastErr = "";
       for (const url of urls) {
         if (unmounted) return;
+        const host = new URL(url).hostname;
+        tried.push(host);
         // Fresh controller per URL so a timeout on one doesn't cancel the rest.
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
         try {
           const r = await fetch(url, { signal: ctl.signal });
           clearTimeout(timer);
-          if (r.status === 404) { lastErr = "Not pinned to gateway"; continue; }
+          if (r.status === 404) { lastErr = "not found"; continue; }
           if (!r.ok) { lastErr = `HTTP ${r.status}`; continue; }
           const raw = await r.json();
           const validated = validateAndSanitize(raw);
-          if (!validated) { lastErr = "Invalid metadata schema"; continue; }
+          if (!validated) { lastErr = "invalid metadata schema"; continue; }
           if (!unmounted) setMetadata(validated);
           return;
         } catch (err) {
           clearTimeout(timer);
           if (unmounted) return;
-          lastErr = ctl.signal.aborted
-            ? "Gateway timed out — content may not be publicly pinned"
-            : String(err).slice(0, 80);
+          lastErr = ctl.signal.aborted ? "timed out" : "fetch error";
         }
       }
-      if (!unmounted) setError(lastErr);
+      if (!unmounted) setError(`Not found on any gateway (tried: ${tried.join(", ")}) — last error: ${lastErr}`);
     }
 
     fetchWithFallback().finally(() => { if (!unmounted) setLoading(false); });
