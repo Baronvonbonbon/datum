@@ -38,6 +38,12 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
       "https://cloudflare-ipfs.com/ipfs/",
     ];
 
+    // IPFS gateways may wait 30–60 s probing the DHT before returning 404.
+    // Cap each gateway attempt at 8 s using a per-request AbortController,
+    // and track unmount separately so we don't call setState after cleanup.
+    const TIMEOUT_MS = 8000;
+    let unmounted = false;
+
     async function fetchWithFallback() {
       const urls: string[] = [primaryUrl!];
       for (const gw of FALLBACK_GATEWAYS) {
@@ -49,23 +55,33 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
 
       let lastErr = "";
       for (const url of urls) {
+        if (unmounted) return;
+        // Fresh controller per URL so a timeout on one doesn't cancel the rest.
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
         try {
-          const r = await fetch(url);
+          const r = await fetch(url, { signal: ctl.signal });
+          clearTimeout(timer);
           if (r.status === 404) { lastErr = "Not pinned to gateway"; continue; }
           if (!r.ok) { lastErr = `HTTP ${r.status}`; continue; }
           const raw = await r.json();
           const validated = validateAndSanitize(raw);
           if (!validated) { lastErr = "Invalid metadata schema"; continue; }
-          setMetadata(validated);
+          if (!unmounted) setMetadata(validated);
           return;
         } catch (err) {
-          lastErr = String(err).slice(0, 80);
+          clearTimeout(timer);
+          if (unmounted) return;
+          lastErr = ctl.signal.aborted
+            ? "Gateway timed out — content may not be publicly pinned"
+            : String(err).slice(0, 80);
         }
       }
-      setError(lastErr);
+      if (!unmounted) setError(lastErr);
     }
 
-    fetchWithFallback().finally(() => setLoading(false));
+    fetchWithFallback().finally(() => { if (!unmounted) setLoading(false); });
+    return () => { unmounted = true; };
   }, [metadataHash, settings.ipfsGateway]);
 
   if (!metadataHash || metadataHash === ZERO_HASH) {
