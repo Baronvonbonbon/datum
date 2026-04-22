@@ -120,6 +120,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/admin/protocol", label: "Protocol Fees" },
       { path: "/admin/rate-limiter", label: "Rate Limiter" },
       { path: "/admin/reputation", label: "Reputation" },
+      { path: "/admin/parameter-governance", label: "Param Gov" },
+      { path: "/admin/publisher-stake", label: "Pub Stake" },
+      { path: "/admin/publisher-governance", label: "Pub Gov" },
+      { path: "/admin/challenge-bonds", label: "Bonds" },
+      { path: "/admin/nullifier-registry", label: "Nullifiers" },
     ],
   },
   {
