@@ -79,9 +79,10 @@ interface AutoFlushResult {
 
 interface Props {
   address: string | null;
+  onSettled?: () => void;
 }
 
-export function ClaimQueue({ address }: Props) {
+export function ClaimQueue({ address, onSettled }: Props) {
   const [queueState, setQueueState] = useState<QueueState | null>(null);
   const [autoFlushResult, setAutoFlushResult] = useState<AutoFlushResult | null>(null);
   const [campaigns, setCampaigns] = useState<Record<string, CampaignMeta>>({});
@@ -266,7 +267,7 @@ export function ClaimQueue({ address }: Props) {
       if (daemonResp?.ok) {
         const settled = BigInt(daemonResp.settledCount ?? 0);
         setResult({ settledCount: settled, rejectedCount: 0n, totalPaid: 0n });
-        if (settled > 0) await loadState();
+        if (settled > 0) { await loadState(); onSettled?.(); }
         return;
       }
       if (daemonResp?.error) {
@@ -443,6 +444,7 @@ export function ClaimQueue({ address }: Props) {
           settledNonces,
         });
         await loadState();
+        onSettled?.();
       }
 
       // Handle nonce mismatch: if all claims were rejected, try to re-sync from chain
@@ -517,7 +519,7 @@ export function ClaimQueue({ address }: Props) {
         if (daemonResp?.ok) {
           const settled = BigInt(daemonResp.settledCount ?? 0);
           setResult({ settledCount: settled, rejectedCount: 0n, totalPaid: 0n });
-          if (settled > 0) await loadState();
+          if (settled > 0) { await loadState(); onSettled?.(); }
           return;
         }
       } catch { /* fall through to user wallet */ }
@@ -647,6 +649,7 @@ export function ClaimQueue({ address }: Props) {
           settledNonces,
         });
         await loadState();
+        onSettled?.();
       }
 
       if (settledCount === 0n && rejectedCount > 0n) {
@@ -824,6 +827,22 @@ export function ClaimQueue({ address }: Props) {
 
       if (Object.keys(warnings).length > 0) setAttestationWarnings(warnings);
       setSignedCount(signedBatches.length);
+
+      // Remove signed claims from local queue — relay holds them now
+      if (signedBatches.length > 0) {
+        const settledNonces: Record<string, string[]> = {};
+        for (const b of signedBatches) {
+          const cid = String(b.campaignId);
+          settledNonces[cid] = b.claims.map((c: any) => String(c.nonce));
+        }
+        await chrome.runtime.sendMessage({
+          type: "REMOVE_SETTLED_CLAIMS",
+          userAddress: address,
+          settledNonces,
+        });
+        await loadState();
+        onSettled?.();
+      }
     } catch (err) {
       setError(humanizeError(err));
     } finally {

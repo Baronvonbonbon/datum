@@ -23,9 +23,10 @@ interface TokenReward {
 
 interface Props {
   address: string | null;
+  refreshTrigger?: number;
 }
 
-export function UserPanel({ address }: Props) {
+export function UserPanel({ address, refreshTrigger }: Props) {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -92,7 +93,7 @@ export function UserPanel({ address }: Props) {
     chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" }).then((resp) => {
       if (resp?.preferences?.sweepAddress) setSweepAddress(resp.preferences.sweepAddress);
     });
-  }, [loadBalance, loadBehaviorChains]);
+  }, [loadBalance, loadBehaviorChains, refreshTrigger]);
 
   async function withdraw() {
     if (!address) return;

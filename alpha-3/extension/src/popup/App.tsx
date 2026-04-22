@@ -91,6 +91,8 @@ export function App() {
 
   // Refresh key: incremented on login/unlock to force-remount all tab components
   const [refreshKey, setRefreshKey] = useState(0);
+  // Earnings key: incremented after any successful settlement to trigger balance refresh in UserPanel
+  const [earningsKey, setEarningsKey] = useState(0);
 
   // Chain heartbeat state
   const [chainStatus, setChainStatus] = useState<{
@@ -1017,8 +1019,8 @@ export function App() {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {tab === "claims" && <ClaimQueue key={refreshKey} address={address} />}
-        {tab === "user" && <UserPanel key={refreshKey} address={address} />}
+        {tab === "claims" && <ClaimQueue key={refreshKey} address={address} onSettled={() => setEarningsKey((k) => k + 1)} />}
+        {tab === "user" && <UserPanel key={refreshKey} address={address} refreshTrigger={earningsKey} />}
         {tab === "filters" && <FiltersTab />}
         {tab === "reports" && <ReportsTab />}
         {tab === "settings" && <Settings key={refreshKey} address={address} />}
