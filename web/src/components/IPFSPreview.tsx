@@ -44,13 +44,35 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
     const TIMEOUT_MS = 8000;
     let unmounted = false;
 
+    // When the page is on a secure origin (HTTPS or localhost), the browser
+    // blocks HTTP gateway URLs as mixed content — they fail with "Failed to fetch"
+    // before any network request is made. Skip them entirely.
+    const pageIsSecure =
+      window.location.protocol === "https:" ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
+    function isAllowedUrl(url: string): boolean {
+      try {
+        return !pageIsSecure || new URL(url).protocol === "https:";
+      } catch {
+        return false;
+      }
+    }
+
     async function fetchWithFallback() {
-      const urls: string[] = [primaryUrl!];
+      const candidates: string[] = [primaryUrl!];
       for (const gw of FALLBACK_GATEWAYS) {
         if (!gw.startsWith(settings.ipfsGateway.replace(/\/$/, ""))) {
           const fb = metadataUrl(metadataHash, gw);
-          if (fb) urls.push(fb);
+          if (fb) candidates.push(fb);
         }
+      }
+      const urls = candidates.filter(isAllowedUrl);
+
+      if (urls.length === 0) {
+        setError("No reachable gateway — configure an HTTPS gateway in Settings");
+        return;
       }
 
       let lastErr = "";
