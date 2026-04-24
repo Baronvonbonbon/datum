@@ -11,7 +11,7 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { StatusBadge } from "../../components/StatusBadge";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS } from "@shared/conviction";
-import { parseDOT, parseDOTSafe, WEI_PER_PLANCK } from "@shared/dot";
+import { parseDOT, parseDOTSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
@@ -110,7 +110,7 @@ export function Vote() {
     try {
       const planck = parseDOTSafe(amount);
       const c = contracts.governanceV2.connect(signer);
-      const tx = await c.vote(BigInt(id!), isAye, conviction, { value: planck * WEI_PER_PLANCK });
+      const tx = await c.vote(BigInt(id!), isAye, conviction, { value: planck });
       await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Voted ${isAye ? "Aye" : "Nay"} with ${amount} ${sym} at conviction ${conviction}.`);
