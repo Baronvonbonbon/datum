@@ -5,7 +5,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
-import { parseDOTSafe } from "@shared/dot";
+import { parseDOTSafe, WEI_PER_PLANCK } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
@@ -168,7 +168,7 @@ export function CreateCampaign() {
       const rPerImp = rToken !== ethers.ZeroAddress && rewardPerImpression.trim() ? BigInt(rewardPerImpression.trim()) : 0n;
       const c = contracts.campaigns.connect(signer);
       const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, tagHashes, requireZkProof, rToken, rPerImp, {
-        value: budgetPlanck,
+        value: budgetPlanck * WEI_PER_PLANCK,
       });
       await confirmTx(tx);
 
@@ -200,7 +200,7 @@ export function CreateCampaign() {
         setTxMsg("Locking challenge bond…");
         const bonds = contracts.challengeBonds.connect(signer);
         const bondTx = await confirmTx(() =>
-          bonds.lockBond(BigInt(newId), address, pubAddr, { value: bondPlanck })
+          bonds.lockBond(BigInt(newId), address, pubAddr, { value: bondPlanck * WEI_PER_PLANCK })
         );
         if (bondTx) await bondTx.wait?.().catch(() => null);
       }
