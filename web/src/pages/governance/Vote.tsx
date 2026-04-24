@@ -48,16 +48,17 @@ export function Vote() {
   async function load(cid: number) {
     setLoading(true);
     try {
-      const [c, adv, aye, nay, resolved, quorum] = await Promise.all([
+      const [c, adv, aye, nay, resolved, quorum, viewBid] = await Promise.all([
         contracts.campaigns.getCampaignForSettlement(BigInt(cid)),
         contracts.campaigns.getCampaignAdvertiser(BigInt(cid)),
         contracts.governanceV2.ayeWeighted(BigInt(cid)).catch(() => 0n),
         contracts.governanceV2.nayWeighted(BigInt(cid)).catch(() => 0n),
         contracts.governanceV2.resolved(BigInt(cid)).catch(() => false),
         contracts.governanceV2.quorumWeighted().catch(() => 0n),
+        contracts.campaigns.getCampaignViewBid(BigInt(cid)).catch(() => 0n),
       ]);
 
-      setCampaign({ id: cid, status: Number(c[0]), advertiser: adv, bidCpmPlanck: BigInt(c[2]) });
+      setCampaign({ id: cid, status: Number(c[0]), advertiser: adv, bidCpmPlanck: BigInt(viewBid) });
       setGov({ ayeWeighted: BigInt(aye), nayWeighted: BigInt(nay), resolved: Boolean(resolved), quorum: BigInt(quorum) });
 
       if (address) {

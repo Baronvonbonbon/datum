@@ -51,7 +51,10 @@ export function AdvertiserDashboard() {
       await Promise.all(
         allIds.map(async (id) => {
           try {
-            const c = await contracts.campaigns.getCampaignForSettlement(BigInt(id));
+            const [c, viewBid] = await Promise.all([
+              contracts.campaigns.getCampaignForSettlement(BigInt(id)),
+              contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
+            ]);
             // Check if this campaign belongs to the connected wallet
             const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
             if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
@@ -81,7 +84,7 @@ export function AdvertiserDashboard() {
             } catch { /* getCampaignTags may not exist */ }
             mine.push({
               id, status: Number(c[0]), publisher: c[1] as string,
-              bidCpmPlanck: BigInt(c[2]), snapshotTakeRateBps: Number(c[3]),
+              bidCpmPlanck: BigInt(viewBid), snapshotTakeRateBps: Number(c[2]),
               remaining, originalBudget, metadataHash, tags,
             });
           } catch { /* skip */ }

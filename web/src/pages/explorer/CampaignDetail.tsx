@@ -119,17 +119,18 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     setLoading(true);
     setError(null);
     try {
-      const [c, adv] = await Promise.all([
+      const [c, adv, viewBid] = await Promise.all([
         contracts.campaigns.getCampaignForSettlement(BigInt(campaignId)),
         contracts.campaigns.getCampaignAdvertiser(BigInt(campaignId)),
+        contracts.campaigns.getCampaignViewBid(BigInt(campaignId)).catch(() => 0n),
       ]);
 
       setCampaign({
         id: campaignId,
         status: Number(c[0]),
         publisher: c[1] as string,
-        bidCpmPlanck: BigInt(c[2]),
-        snapshotTakeRateBps: Number(c[3]),
+        bidCpmPlanck: BigInt(viewBid),
+        snapshotTakeRateBps: Number(c[2]),
         advertiser: adv as string,
       });
 

@@ -56,9 +56,10 @@ export function Campaigns() {
 
       const results = await Promise.all(ids.map(async (id) => {
         try {
-          const [c, adv] = await Promise.all([
+          const [c, adv, viewBid] = await Promise.all([
             contracts.campaigns.getCampaignForSettlement(BigInt(id)),
             contracts.campaigns.getCampaignAdvertiser(BigInt(id)),
+            contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
           ]);
 
           // Try to get metadata hash from events (scan recent logs)
@@ -76,8 +77,8 @@ export function Campaigns() {
             id,
             status: Number(c[0]),
             publisher: c[1] as string,
-            bidCpmPlanck: BigInt(c[2]),
-            snapshotTakeRateBps: Number(c[3]),
+            bidCpmPlanck: BigInt(viewBid),
+            snapshotTakeRateBps: Number(c[2]),
             advertiser: adv as string,
             metadataHash,
           } as CampaignRow;

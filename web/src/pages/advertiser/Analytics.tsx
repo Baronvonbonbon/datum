@@ -42,7 +42,10 @@ export function CampaignAnalytics() {
           const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
           if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
 
-          const c = await contracts.campaigns.getCampaignForSettlement(BigInt(id));
+          const [c, viewBid] = await Promise.all([
+            contracts.campaigns.getCampaignForSettlement(BigInt(id)),
+            contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
+          ]);
           let remaining = 0n, originalBudget = 0n;
           try {
             remaining = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(id)));
@@ -76,7 +79,7 @@ export function CampaignAnalytics() {
             id, status: Number(c[0]),
             totalImpressions, totalUserPaid, totalPublisherPaid, totalProtocolFees,
             remaining, originalBudget, uniqueUsers, settlementCount,
-            bidCpmPlanck: BigInt(c[2]),
+            bidCpmPlanck: BigInt(viewBid),
           });
         } catch { /* skip */ }
       }));

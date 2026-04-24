@@ -53,12 +53,13 @@ export function GovernanceDashboard() {
   // Fetch a single campaign's governance data
   const fetchCampaign = useCallback(async (id: number): Promise<GovCampaign | null> => {
     try {
-      const [c, adv, aye, nay, resolved] = await Promise.all([
+      const [c, adv, aye, nay, resolved, viewBid] = await Promise.all([
         contracts.campaigns.getCampaignForSettlement(BigInt(id)),
         contracts.campaigns.getCampaignAdvertiser(BigInt(id)),
         contracts.governanceV2.ayeWeighted(BigInt(id)).catch(() => 0n),
         contracts.governanceV2.nayWeighted(BigInt(id)).catch(() => 0n),
         contracts.governanceV2.resolved(BigInt(id)).catch(() => false),
+        contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
       ]);
 
       let myVoteDir = 0;
@@ -115,7 +116,7 @@ export function GovernanceDashboard() {
       return {
         id, status: Number(c[0]),
         advertiser: adv as string,
-        bidCpmPlanck: BigInt(c[2]),
+        bidCpmPlanck: BigInt(viewBid),
         ayeWeighted: BigInt(aye),
         nayWeighted: BigInt(nay),
         resolved: Boolean(resolved),
