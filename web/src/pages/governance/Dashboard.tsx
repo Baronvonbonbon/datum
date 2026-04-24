@@ -235,15 +235,46 @@ export function GovernanceDashboard() {
       return true;
     });
 
+  const hasPublisherGov = !!settings.contractAddresses.publisherGovernance;
+  const hasParameterGov = !!settings.contractAddresses.parameterGovernance;
+
   return (
     <div className="nano-fade">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Governance</h1>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Link to="/governance/my-votes" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>My Votes</Link>
           <Link to="/governance/parameters" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Parameters</Link>
+          {hasPublisherGov && (
+            <Link to="/governance/publisher-fraud" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none", color: "var(--error)" }}>Publisher Fraud</Link>
+          )}
+          {hasParameterGov && (
+            <Link to="/governance/protocol" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Protocol Changes</Link>
+          )}
         </div>
       </div>
+
+      {/* Governance mode overview — shown when additional governance systems are active */}
+      {(hasPublisherGov || hasParameterGov) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 20 }}>
+          <Link to="/governance" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--accent)" }}>
+            <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Campaign Governance</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Approve, reject, and monitor ad campaigns via conviction voting.</div>
+          </Link>
+          {hasPublisherGov && (
+            <Link to="/governance/publisher-fraud" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--error)" }}>
+              <div style={{ color: "var(--error)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Publisher Fraud</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Accuse publishers of fraud. Aye majority slashes stake and distributes bond bonuses.</div>
+            </Link>
+          )}
+          {hasParameterGov && (
+            <Link to="/governance/protocol" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--role-advertiser)" }}>
+              <div style={{ color: "var(--role-advertiser)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Protocol Changes</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Propose and vote on protocol parameter changes. Bond required; passed proposals enter timelock.</div>
+            </Link>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={() => setFilter("active")} className={filter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>

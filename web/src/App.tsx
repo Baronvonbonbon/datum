@@ -38,6 +38,8 @@ import { GovernanceDashboard } from "./pages/governance/Dashboard";
 import { Vote } from "./pages/governance/Vote";
 import { MyVotes } from "./pages/governance/MyVotes";
 import { GovernanceParameters } from "./pages/governance/Parameters";
+import { PublisherFraud } from "./pages/governance/PublisherFraud";
+import { ProtocolParams } from "./pages/governance/ProtocolParams";
 
 // Admin
 import { TimelockAdmin } from "./pages/admin/Timelock";
@@ -99,6 +101,8 @@ export function App() {
               <Route path="/governance/vote/:id" element={<Vote />} />
               <Route path="/governance/my-votes" element={<MyVotes />} />
               <Route path="/governance/parameters" element={<GovernanceParameters />} />
+              <Route path="/governance/publisher-fraud" element={<PublisherFraud />} />
+              <Route path="/governance/protocol" element={<ProtocolParams />} />
 
               {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
