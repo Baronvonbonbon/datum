@@ -28,8 +28,9 @@
     },
     {
       "inputs": [
-        { "internalType": "address", "name": "publisher", "type": "address" },
-        { "internalType": "uint256", "name": "impressionCount", "type": "uint256" }
+        { "internalType": "address", "name": "publisher",  "type": "address" },
+        { "internalType": "uint256", "name": "eventCount", "type": "uint256" },
+        { "internalType": "uint8",   "name": "actionType", "type": "uint8"   }
       ],
       "name": "checkAndIncrement",
       "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],

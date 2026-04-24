@@ -85,6 +85,30 @@ async function main() {
   // Filter active campaigns
   const activeCampaigns = campaigns.filter((c) => Number(c.status) === 1 /* Active */);
 
+  // Detect remote-action conversion tag early — conversion pages may have no matching
+  // campaign ad to show, so this must run before any early-return from auction/pool logic.
+  // Publisher places <meta name="datum-action" content="<campaignId>"> on thank-you pages.
+  {
+    const actionMeta = document.querySelector('meta[name="datum-action"]');
+    if (actionMeta) {
+      const actionCampaignId = actionMeta.getAttribute("content")?.trim();
+      if (actionCampaignId && /^\d+$/.test(actionCampaignId)) {
+        const actionCampaign = activeCampaigns.find((c: any) => c.id === actionCampaignId);
+        const actionPublisher = (actionCampaign?.publisher && actionCampaign.publisher !== "0x0000000000000000000000000000000000000000")
+          ? actionCampaign.publisher : publisherAddress;
+        if (actionPublisher && actionPublisher !== "0x0000000000000000000000000000000000000000") {
+          try {
+            chrome.runtime.sendMessage({
+              type: "REMOTE_ACTION",
+              campaignId: actionCampaignId,
+              publisherAddress: actionPublisher,
+            });
+          } catch {}
+        }
+      }
+    }
+  }
+
   // Build page tag hash set for matching
   const pageTagHashes = new Set(tags.map((t) => tagHash(t).toLowerCase()));
 
@@ -205,7 +229,7 @@ async function main() {
       allBids: selectionResponse?.allBids ?? [],
       campaigns: pool.map((c: any) => ({
         id: c.id,
-        bidCpmPlanck: c.bidCpmPlanck,
+        viewBid: c.viewBid,
         requiredTags: c.requiredTags ?? [],
         publisher: c.publisher,
         status: c.status,
@@ -315,6 +339,24 @@ async function main() {
     return null;
   })();
 
+  // Record impression before building adConfig — nonce is needed for click (type-1) claim.
+  // Must run after effectivePublisher and attestation are resolved.
+  const campaignTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
+  let impressionNonce: string | null = null;
+  try {
+    const impResp = await chrome.runtime.sendMessage({
+      type: "IMPRESSION_RECORDED",
+      campaignId,
+      url: window.location.href,
+      category: category ?? "",
+      publisherAddress: effectivePublisher,
+      clearingCpmPlanck,
+      attestation: attestation ?? undefined,
+      campaignTags,
+    });
+    impressionNonce = impResp?.impressionNonce ?? null;
+  } catch {}
+
   const adConfig = {
     campaignId,
     publisherAddress: effectivePublisher,
@@ -326,6 +368,17 @@ async function main() {
     ipfsGateway,
     currencySymbol,
     topicLabel: firstTopicTag?.label,
+    impressionNonce: impressionNonce ?? undefined,
+    onCtaClick: impressionNonce ? () => {
+      try {
+        chrome.runtime.sendMessage({
+          type: "AD_CLICK",
+          campaignId: String(campaignId),
+          publisherAddress: effectivePublisher,
+          impressionNonce: impressionNonce!,
+        });
+      } catch {}
+    } : undefined,
     onReport: () => {
       try {
         chrome.runtime.sendMessage({ type: "BLOCK_CAMPAIGN", campaignId: String(campaignId) });
@@ -373,22 +426,6 @@ async function main() {
   if (adElement) {
     startTracking(campaignId, adElement);
   }
-
-  // Notify background to build a claim (with auction clearing CPM + attestation)
-  // Include campaign tags so background can record ad-exposure in interest profile
-  const campaignTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
-  try {
-    chrome.runtime.sendMessage({
-      type: "IMPRESSION_RECORDED",
-      campaignId,
-      url: window.location.href,
-      category: category ?? "",
-      publisherAddress: effectivePublisher,
-      clearingCpmPlanck,
-      attestation: attestation ?? undefined,
-      campaignTags,
-    });
-  } catch {}
 }
 
 // Run on page load — wait for DOM to be ready

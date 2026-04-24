@@ -25,7 +25,7 @@ describe("isCampaignAllowed", () => {
   test("allows campaign with default preferences", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000000000", requiredTags: [cryptoHash] },
+        { id: "1", viewBid: "1000000000", requiredTags: [cryptoHash] },
         defaultPrefs(),
       )
     ).toBe(true);
@@ -34,7 +34,7 @@ describe("isCampaignAllowed", () => {
   test("blocks campaign by ID", () => {
     expect(
       isCampaignAllowed(
-        { id: "42", bidCpmPlanck: "1000" },
+        { id: "42", viewBid: "1000" },
         defaultPrefs({ blockedCampaigns: ["42"] }),
       )
     ).toBe(false);
@@ -43,7 +43,7 @@ describe("isCampaignAllowed", () => {
   test("blocks campaign by blocked tag", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000", requiredTags: [gamesHash] },
+        { id: "1", viewBid: "1000", requiredTags: [gamesHash] },
         defaultPrefs({ blockedTags: ["topic:gaming"] }),
       )
     ).toBe(false);
@@ -52,7 +52,7 @@ describe("isCampaignAllowed", () => {
   test("allows campaign whose tags are not blocked", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000", requiredTags: [cryptoHash] },
+        { id: "1", viewBid: "1000", requiredTags: [cryptoHash] },
         defaultPrefs({ blockedTags: ["topic:gaming"] }),
       )
     ).toBe(true);
@@ -61,7 +61,7 @@ describe("isCampaignAllowed", () => {
   test("blocks campaign below min bid CPM", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "500" },
+        { id: "1", viewBid: "500" },
         defaultPrefs({ minBidCpm: "1000" }),
       )
     ).toBe(false);
@@ -70,7 +70,7 @@ describe("isCampaignAllowed", () => {
   test("allows campaign at or above min bid CPM", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000" },
+        { id: "1", viewBid: "1000" },
         defaultPrefs({ minBidCpm: "1000" }),
       )
     ).toBe(true);
@@ -79,7 +79,7 @@ describe("isCampaignAllowed", () => {
   test("minBidCpm of '0' allows any bid", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1" },
+        { id: "1", viewBid: "1" },
         defaultPrefs({ minBidCpm: "0" }),
       )
     ).toBe(true);
@@ -88,7 +88,7 @@ describe("isCampaignAllowed", () => {
   test("open campaign (no requiredTags) is allowed even with blocked tags", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000" },
+        { id: "1", viewBid: "1000" },
         defaultPrefs({ blockedTags: ["topic:gaming", "topic:finance"] }),
       )
     ).toBe(true);
@@ -97,7 +97,7 @@ describe("isCampaignAllowed", () => {
   test("filterMode=selected blocks campaign without allowed topic", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000", requiredTags: [gamesHash] },
+        { id: "1", viewBid: "1000", requiredTags: [gamesHash] },
         defaultPrefs({ filterMode: "selected", allowedTopics: ["topic:crypto-web3"] }),
       )
     ).toBe(false);
@@ -106,7 +106,7 @@ describe("isCampaignAllowed", () => {
   test("filterMode=selected allows campaign with matching topic", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000", requiredTags: [cryptoHash] },
+        { id: "1", viewBid: "1000", requiredTags: [cryptoHash] },
         defaultPrefs({ filterMode: "selected", allowedTopics: ["topic:crypto-web3"] }),
       )
     ).toBe(true);
@@ -115,7 +115,7 @@ describe("isCampaignAllowed", () => {
   test("filterMode=selected: open campaign (no requiredTags) always passes", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", bidCpmPlanck: "1000" },
+        { id: "1", viewBid: "1000" },
         defaultPrefs({ filterMode: "selected", allowedTopics: ["topic:crypto-web3"] }),
       )
     ).toBe(true);

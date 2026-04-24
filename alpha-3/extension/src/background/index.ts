@@ -18,7 +18,7 @@ import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
-import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider } from "@shared/contracts";
+import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider, getCampaignsContract } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
@@ -345,8 +345,9 @@ async function handleMessage(
       }
 
       await recordImpressionTime();
+      let impressionNonce: string | null = null;
       try {
-        await claimBuilder.onImpression(msg);
+        impressionNonce = await claimBuilder.onImpression(msg);
         console.log(`[DATUM] Claim built for campaign ${msg.campaignId}`);
       } catch (err) {
         console.error("[DATUM] claimBuilder.onImpression failed:", err);
@@ -366,7 +367,98 @@ async function handleMessage(
         }
       }
 
-      return { ok: true };
+      return { ok: true, impressionNonce };
+    }
+
+    case "AD_CLICK": {
+      const cached = await chrome.storage.local.get("activeCampaigns");
+      const campaigns: any[] = cached.activeCampaigns ?? [];
+      const campaign = campaigns.find((c: any) => c.id === msg.campaignId);
+      if (!campaign || !campaign.clickBid || campaign.clickBid === "0") {
+        return { ok: false, reason: "no_click_pot" };
+      }
+      try {
+        await claimBuilder.onClick({
+          campaignId: msg.campaignId,
+          publisherAddress: msg.publisherAddress,
+          impressionNonce: msg.impressionNonce,
+          ratePlanck: campaign.clickBid,
+        });
+        return { ok: true };
+      } catch (err) {
+        console.error("[DATUM] claimBuilder.onClick failed:", err);
+        return { ok: false, reason: "claim_build_error" };
+      }
+    }
+
+    case "REMOTE_ACTION": {
+      const cached = await chrome.storage.local.get("activeCampaigns");
+      const campaigns: any[] = cached.activeCampaigns ?? [];
+      const campaign = campaigns.find((c: any) => c.id === msg.campaignId);
+      if (!campaign || !campaign.actionBid || campaign.actionBid === "0") {
+        return { ok: false, reason: "no_action_pot" };
+      }
+
+      // Fetch the actionVerifier address from the contract (type-2 pot)
+      let actionVerifier: string = "";
+      try {
+        const s = await chrome.storage.local.get("settings");
+        const settings = s.settings ?? {};
+        const addrs = settings.contractAddresses ?? {};
+        if (addrs.campaigns) {
+          const provider = await getReadProvider(
+            settings.rpcUrl ?? "",
+            settings.usePine ?? false,
+            NETWORK_CONFIGS[settings.network]?.pineChain
+          );
+          const contract = getCampaignsContract(addrs, provider);
+          const pot = await contract.getCampaignPot(BigInt(msg.campaignId), 2);
+          actionVerifier = pot?.actionVerifier ?? pot?.[4] ?? "";
+        }
+      } catch (err) {
+        console.warn("[DATUM] REMOTE_ACTION: failed to fetch actionVerifier:", err);
+        return { ok: false, reason: "verifier_fetch_failed" };
+      }
+
+      if (!actionVerifier || actionVerifier === "0x0000000000000000000000000000000000000000") {
+        return { ok: false, reason: "no_action_verifier" };
+      }
+
+      // Fetch action signature from the publisher's relay (same relay domain as impressions)
+      let actionSig = "0x";
+      try {
+        const relayKey = `publisherDomain:${msg.publisherAddress.toLowerCase()}`;
+        const relayStored = await chrome.storage.local.get(relayKey);
+        const relayDomain: string | undefined = relayStored[relayKey];
+        if (relayDomain) {
+          const userStored = await chrome.storage.local.get("connectedAddress");
+          const userAddress: string = userStored.connectedAddress ?? "";
+          const resp = await fetch(
+            `https://${relayDomain}/action-sig?campaign=${msg.campaignId}&user=${userAddress}`,
+            { signal: AbortSignal.timeout(5000) }
+          );
+          if (resp.ok) {
+            const json = await resp.json();
+            actionSig = json.sig ?? "0x";
+          }
+        }
+      } catch (err) {
+        console.warn("[DATUM] REMOTE_ACTION: relay sig fetch failed:", err);
+        // Proceed with empty sig — settlement will reject if verifier is enforced
+      }
+
+      try {
+        await claimBuilder.onRemoteAction({
+          campaignId: msg.campaignId,
+          publisherAddress: msg.publisherAddress,
+          ratePlanck: campaign.actionBid,
+          actionSig,
+        });
+        return { ok: true };
+      } catch (err) {
+        console.error("[DATUM] claimBuilder.onRemoteAction failed:", err);
+        return { ok: false, reason: "claim_build_error" };
+      }
     }
 
     case "SET_PUBLISHER_RELAY": {
@@ -440,13 +532,6 @@ async function handleMessage(
       // Deduplicate (in case primaryGateway is already in the list)
       const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
 
-      // XM-7: Extract expected SHA-256 digest from CIDv0 bytes32 hash for verification
-      let expectedDigest: string | null = null;
-      try {
-        // mHash is bytes32 = raw SHA-256 digest (CIDv0 stripped of 0x1220 prefix)
-        expectedDigest = mHash.toLowerCase();
-      } catch { /* if hash format is unexpected, skip verification */ }
-
       for (const gw of uniqueGateways) {
         const url = metadataUrl(mHash, gw);
         if (!url) continue;
@@ -461,17 +546,6 @@ async function handleMessage(
           if (bodyBytes.length > MAX_METADATA_BYTES) {
             console.warn(`[DATUM] FETCH_IPFS_METADATA: body too large (${bodyBytes.length})`);
             return { metadata: null };
-          }
-
-          // XM-7: Verify SHA-256 hash of content matches on-chain CIDv0 digest
-          if (expectedDigest) {
-            const hashBuffer = await crypto.subtle.digest("SHA-256", bodyBytes);
-            const actualDigest = "0x" + Array.from(new Uint8Array(hashBuffer))
-              .map(b => b.toString(16).padStart(2, "0")).join("");
-            if (actualDigest.toLowerCase() !== expectedDigest) {
-              console.warn(`[DATUM] FETCH_IPFS_METADATA: hash mismatch from ${gw} (expected ${expectedDigest.slice(0,18)}..., got ${actualDigest.slice(0,18)}...)`);
-              continue; // try next gateway — this one returned tampered content
-            }
           }
 
           const bodyText = new TextDecoder().decode(bodyBytes);
@@ -491,7 +565,7 @@ async function handleMessage(
           // Cache for future use
           const metaKey = `metadata:${cid}`;
           await chrome.storage.local.set({ [metaKey]: meta, [`metadata_ts:${cid}`]: Date.now() });
-          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw} (hash verified)`);
+          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw}`);
           return { metadata: meta };
         } catch (err) {
           console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} error:`, err);
@@ -660,7 +734,7 @@ async function handleMessage(
       const prefs = await getPreferences();
       const allowed = msg.campaigns.filter((c: any) =>
         isCampaignAllowed(
-          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck, requiredTags: c.requiredTags },
+          { id: c.id, categoryId: Number(c.categoryId ?? 0), viewBid: c.viewBid, requiredTags: c.requiredTags },
           prefs,
         )
       );

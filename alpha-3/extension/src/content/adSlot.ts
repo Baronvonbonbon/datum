@@ -29,6 +29,10 @@ export interface AdSlotConfig {
   clearingCpmPlanck?: string;
   ipfsGateway?: string;
   currencySymbol?: string;
+  /** bytes32 nonce from the view impression; enables click (type-1) claim */
+  impressionNonce?: string;
+  /** Called when user clicks the CTA (isTrusted + 500ms dwell guard applied in adSlot) */
+  onCtaClick?: () => void;
   /** Mute this campaign for the user (no on-chain tx) */
   onReport?: () => void;
   /** Submit on-chain reportAd(campaignId, reason) */
@@ -343,6 +347,25 @@ function earningHtml(cpm?: string, symbol?: string, mech?: { label: string; colo
   </div>`;
 }
 
+// ── CTA click capture (type-1 / CPC) ─────────────────────────────────────────
+
+/**
+ * Attaches a click listener to the CTA <a> inside a shadow root.
+ * Guards:
+ *  - isTrusted (blocks synthetic clicks)
+ *  - 500ms minimum dwell time since adInjectedAt
+ */
+function attachCtaClickCapture(shadow: ShadowRoot, config: AdSlotConfig, adInjectedAt: number): void {
+  if (!config.onCtaClick) return;
+  const cta = shadow.querySelector("a[target='_blank']") as HTMLAnchorElement | null;
+  if (!cta) return;
+  cta.addEventListener("click", (e: MouseEvent) => {
+    if (!e.isTrusted) return; // block synthetic clicks
+    if (Date.now() - adInjectedAt < 500) return; // 500ms dwell guard
+    config.onCtaClick!();
+  });
+}
+
 // ── injectAdSlot (fixed overlay) ──────────────────────────────────────────────
 
 export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
@@ -435,6 +458,8 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   shadow.appendChild(wrapper);
   document.body.appendChild(host);
 
+  const injectedAt = Date.now();
+
   // Image error suppression (XL-3)
   shadow.querySelectorAll(".datum-ad-img").forEach((img: Element) => {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
@@ -445,6 +470,9 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
 
   // Report overlay (replaces simple mute-and-remove)
   attachReportOverlay(shadow, wrapper, host, config);
+
+  // CTA click capture (type-1 CPC claim)
+  attachCtaClickCapture(shadow, config, injectedAt);
 
   return host;
 }
@@ -536,6 +564,8 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
 
   shadow.appendChild(wrapper);
 
+  const injectedAt = Date.now();
+
   // Image error suppression (XL-3)
   shadow.querySelectorAll(".datum-ad-img").forEach((img: Element) => {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
@@ -550,6 +580,9 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
     ...config,
     onReport: () => { config.onReport?.(); wrapper.remove(); },
   });
+
+  // CTA click capture (type-1 CPC claim)
+  attachCtaClickCapture(shadow, config, injectedAt);
 
   return target;
 }

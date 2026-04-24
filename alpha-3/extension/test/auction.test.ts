@@ -3,8 +3,8 @@ import { auctionForPage, CampaignCandidate, AuctionResult } from "../src/backgro
 import { UserInterestProfile } from "../src/background/interestProfile";
 import { tagHash } from "../src/shared/tagDictionary";
 
-function candidate(id: string, bidCpmPlanck: string, categoryId = 0): CampaignCandidate {
-  return { id, bidCpmPlanck, categoryId, publisher: "0x" + "11".repeat(20) };
+function candidate(id: string, viewBid: string, categoryId = 0): CampaignCandidate {
+  return { id, viewBid, categoryId, publisher: "0x" + "11".repeat(20) };
 }
 
 const flatProfile: UserInterestProfile = {
@@ -24,7 +24,7 @@ describe("auctionForPage", () => {
     expect(auctionForPage([], {}, flatProfile)).toBeNull();
   });
 
-  test("solo campaign: 70% of bid", () => {
+  test("solo campaign: 85% of bid", () => {
     const result = auctionForPage(
       [candidate("1", "1000000000")],
       {},
@@ -32,8 +32,9 @@ describe("auctionForPage", () => {
     )!;
     expect(result.mechanism).toBe("solo");
     expect(result.winner.id).toBe("1");
-    expect(result.clearingCpmPlanck).toBe(700000000n); // 70%
+    expect(result.clearingCpmPlanck).toBe(850000000n); // 85%
     expect(result.participants).toBe(1);
+    expect(result.bidEfficiency).toBeCloseTo(0.85);
   });
 
   test("solo campaign minimum clearing is 1", () => {
@@ -55,18 +56,19 @@ describe("auctionForPage", () => {
     expect(result.participants).toBe(2);
   });
 
-  test("two campaigns: clearing CPM clamped to floor (30%)", () => {
+  test("two campaigns: clearing CPM clamped to floor (65%)", () => {
     // high=1000, low=1. With flat profile (interest=0.1 default):
     // effectiveBid_high = 1000*100 = 100000, effectiveBid_low = 1*100 = 100
-    // clearingRaw = 100 / 100 = 1. Floor = 1000 * 30% = 300.
-    // clearingCpm = floor = 300
+    // clearingRaw = 100 / 100 = 1. Floor = 1000 * 65% = 650.
+    // clearingCpm = floor = 650
     const result = auctionForPage(
       [candidate("high", "1000"), candidate("low", "1")],
       {},
       flatProfile,
     )!;
     expect(result.mechanism).toBe("floor");
-    expect(result.clearingCpmPlanck).toBe(300n); // 30% of 1000
+    expect(result.clearingCpmPlanck).toBe(650n); // 65% of 1000
+    expect(result.bidEfficiency).toBeCloseTo(0.65);
   });
 
   test("interest profile affects effective bid and winner", () => {
@@ -114,14 +116,14 @@ describe("auctionForPage", () => {
       // Both bid the same. User has strong crypto interest — A should win on effective bid.
       const ipfsCampaign: CampaignCandidate = {
         id: "ipfs-campaign",
-        bidCpmPlanck: "1000000000",
+        viewBid: "1000000000",
         categoryId: 0,
         publisher: "0x" + "aa".repeat(20),
         requiredTags: [tagHash("topic:crypto-web3")], // from IPFS JSON metadata
       };
       const plainCampaign: CampaignCandidate = {
         id: "plain-campaign",
-        bidCpmPlanck: "1000000000",
+        viewBid: "1000000000",
         categoryId: 0,
         publisher: "0x" + "bb".repeat(20),
         // no requiredTags — falls back to page tags
@@ -144,14 +146,14 @@ describe("auctionForPage", () => {
       // Campaign B: plain, no required tags (gets page-based interest weight)
       const gamingCampaign: CampaignCandidate = {
         id: "gaming",
-        bidCpmPlanck: "2000000000", // higher bid
+        viewBid: "2000000000", // higher bid
         categoryId: 0,
         publisher: "0x" + "aa".repeat(20),
         requiredTags: [tagHash("topic:gaming")],
       };
       const cryptoCampaign: CampaignCandidate = {
         id: "crypto",
-        bidCpmPlanck: "1000000000",
+        viewBid: "1000000000",
         categoryId: 0,
         publisher: "0x" + "bb".repeat(20),
         requiredTags: [tagHash("topic:crypto-web3")],
@@ -177,16 +179,16 @@ describe("auctionForPage", () => {
       // should win on effective bid alone.
       const ercCampaign: CampaignCandidate = {
         id: "erc20-sidecar",
-        bidCpmPlanck: "3000000000", // premium DOT CPM to attract publisher
+        viewBid: "3000000000", // premium DOT CPM to attract publisher
         categoryId: 0,
         publisher: "0x" + "cc".repeat(20),
         requiredTags: [tagHash("topic:crypto-web3")],
         // In production this candidate would also carry rewardToken + rewardPerImpression
-        // from the poller, but the auction only uses bidCpmPlanck for ordering.
+        // from the poller, but the auction only uses viewBid for ordering.
       };
       const ipfsCampaign: CampaignCandidate = {
         id: "ipfs-only",
-        bidCpmPlanck: "1000000000",
+        viewBid: "1000000000",
         categoryId: 0,
         publisher: "0x" + "dd".repeat(20),
         requiredTags: [tagHash("topic:crypto-web3")],
@@ -200,11 +202,11 @@ describe("auctionForPage", () => {
       )!;
 
       expect(result.winner.id).toBe("erc20-sidecar");
-      expect(result.mechanism).toBe("second-price");
       // Clearing CPM = second effective bid / winner interest weight (clamped to floor)
       // Both have weight 1.0 (crypto match). Clearing = 1000000000 * 1.0 / 1.0 = 1000000000.
-      // Floor = 3000000000 * 30% = 900000000. Clearing > floor → second-price.
-      expect(result.clearingCpmPlanck).toBe(1000000000n);
+      // Floor = 3000000000 * 65% = 1950000000. Clearing < floor → floor mechanism.
+      expect(result.mechanism).toBe("floor");
+      expect(result.clearingCpmPlanck).toBe(1950000000n);
     });
   });
 });

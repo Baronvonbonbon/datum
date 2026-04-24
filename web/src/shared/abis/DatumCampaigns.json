@@ -62,19 +62,7 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "budgetPlanck",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "dailyCapPlanck",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "bidCpmPlanck",
+        "name": "totalBudgetPlanck",
         "type": "uint256"
       },
       {
@@ -158,6 +146,32 @@
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "MaxCampaignBudgetSet",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MINIMUM_BUDGET_PLANCK",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "acceptOwnership",
     "outputs": [],
@@ -224,14 +238,36 @@
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "dailyCapPlanck",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "bidCpmPlanck",
-        "type": "uint256"
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "actionType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "budgetPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyCapPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "ratePlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "actionVerifier",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct IDatumCampaigns.ActionPotConfig[]",
+        "name": "pots",
+        "type": "tuple[]"
       },
       {
         "internalType": "bytes32[]",
@@ -310,11 +346,6 @@
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "bidCpmPlanck",
-        "type": "uint256"
-      },
-      {
         "internalType": "uint16",
         "name": "snapshotTakeRateBps",
         "type": "uint16"
@@ -337,6 +368,103 @@
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "actionType",
+        "type": "uint8"
+      }
+    ],
+    "name": "getCampaignPot",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "actionType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "budgetPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyCapPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "ratePlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "actionVerifier",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct IDatumCampaigns.ActionPotConfig",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getCampaignPots",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "actionType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "budgetPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dailyCapPlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "ratePlanck",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "actionVerifier",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct IDatumCampaigns.ActionPotConfig[]",
+        "name": "",
+        "type": "tuple[]"
       }
     ],
     "stateMutability": "view",
@@ -502,6 +630,25 @@
         "type": "uint256"
       }
     ],
+    "name": "getCampaignViewBid",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
     "name": "getPendingExpiryBlock",
     "outputs": [
       {
@@ -534,6 +681,19 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxCampaignBudget",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -704,6 +864,19 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxCampaignBudget",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "campaignId",
         "type": "uint256"
       },
@@ -810,25 +983,5 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "maxCampaignBudget",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "amount", "type": "uint256" }],
-    "name": "setMaxCampaignBudget",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "anonymous": false,
-    "inputs": [{ "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }],
-    "name": "MaxCampaignBudgetSet",
-    "type": "event"
   }
 ]

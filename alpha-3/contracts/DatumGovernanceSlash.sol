@@ -71,7 +71,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         require(direction != 0, "E44");
         require(block.number >= lockedUntilBlock, "E45");
 
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         // AUDIT-014: Campaign must be terminal before slash reward can be claimed
         require(status == 3 || status == 4, "E60"); // 3=Completed, 4=Terminated
         bool winner = (status == 3 && direction == 1)
@@ -114,7 +114,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         (uint8 direction, uint256 lockAmount, uint8 conviction,)
             = DatumGovernanceV2(payable(voting)).getVote(campaignId, voter);
 
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         bool winner = (status == 3 && direction == 1) || (status == 4 && direction == 2);
         if (!winner || direction == 0) return 0;
 

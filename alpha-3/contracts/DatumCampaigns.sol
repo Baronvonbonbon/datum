@@ -9,13 +9,12 @@ import "./interfaces/IDatumBudgetLedger.sol";
 /// @title DatumCampaigns (Core)
 /// @notice Campaign state management — creation, activation, pausing, metadata, views.
 ///
-///         Alpha-2 restructuring: budget fields extracted to DatumBudgetLedger,
-///         lifecycle transitions (complete/terminate/expire) extracted to
-///         DatumCampaignLifecycle. This contract is the canonical source of
-///         campaign struct data and status.
+///         Alpha-3 multi-pricing: campaigns hold one or more action pots (view/click/
+///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
+///         in DatumBudgetLedger per (campaignId, actionType).
 ///
-///         Campaign struct reduced from 10 to 8 storage slots (budget fields removed).
-///         Lifecycle contract updates status via setCampaignStatus() (gated).
+///         bidCpmPlanck is removed; use getCampaignViewBid() for the view pot rate,
+///         or getCampaignPots() for the full pot list.
 ///
 ///         S2: Zero-address checks on all setters.
 ///         S3: ContractReferenceChanged events on wiring changes.
@@ -81,13 +80,18 @@ contract DatumCampaigns is IDatumCampaigns {
     // ZK proof requirement — set at creation, immutable per campaign
     mapping(uint256 => bool) private _campaignRequiresZkProof;
 
-    // Metadata hash — mutable by advertiser, stored for event-free retrieval (e.g. light clients)
+    // Metadata hash — mutable by advertiser
     mapping(uint256 => bytes32) private _campaignMetadata;
 
     // Token reward — set at creation, immutable per campaign
-    // rewardToken == address(0) means no token reward
     mapping(uint256 => address)  private _campaignRewardToken;
-    mapping(uint256 => uint256) private _campaignRewardPerImpression;
+    mapping(uint256 => uint256)  private _campaignRewardPerImpression;
+
+    // Action pots — set at creation, immutable per campaign
+    // Up to 3 pots (actionType 0/1/2). _campaignPotCount tracks how many are configured.
+    mapping(uint256 => ActionPotConfig[]) private _campaignPots;
+    // Quick lookup for view pot rate (used by auction)
+    mapping(uint256 => uint256) private _campaignViewBid;
 
     // FP-2: optional challenge bonds contract (address(0) = disabled)
     address public challengeBonds;
@@ -176,8 +180,7 @@ contract DatumCampaigns is IDatumCampaigns {
     /// @inheritdoc IDatumCampaigns
     function createCampaign(
         address publisher,
-        uint256 dailyCapPlanck,
-        uint256 bidCpmPlanck,
+        ActionPotConfig[] calldata pots,
         bytes32[] calldata requiredTags,
         bool requireZkProof,
         address rewardToken,
@@ -185,13 +188,32 @@ contract DatumCampaigns is IDatumCampaigns {
         uint256 bondAmount
     ) external payable noReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
-        require(msg.value > bondAmount, "E11"); // msg.value must cover bond + at least some budget
+        require(msg.value > bondAmount, "E11");
         uint256 budgetValue = msg.value - bondAmount;
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11"); // AUDIT-022: reject dust budgets
-        require(bidCpmPlanck >= minimumCpmFloor, "E27");
-        require(dailyCapPlanck > 0 && dailyCapPlanck <= budgetValue, "E12");
         require(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget, "E80");
         require(requiredTags.length <= 8, "E66");
+
+        // Validate pots: 1–3 pots, no duplicate actionTypes, rates ≥ floor for view pots, budgets sum to budgetValue
+        require(pots.length >= 1 && pots.length <= 3, "E93"); // E93: invalid pot count
+        {
+            bool[3] memory seen;
+            uint256 totalPotBudget;
+            for (uint256 i = 0; i < pots.length; i++) {
+                require(pots[i].actionType <= 2, "E88"); // E88: invalid action type
+                require(!seen[pots[i].actionType], "E93"); // E93: duplicate action type
+                seen[pots[i].actionType] = true;
+                require(pots[i].budgetPlanck > 0, "E11");
+                require(pots[i].dailyCapPlanck > 0 && pots[i].dailyCapPlanck <= pots[i].budgetPlanck, "E12");
+                require(pots[i].ratePlanck > 0, "E11");
+                if (pots[i].actionType == 0) {
+                    // View pot: rate is CPM — enforce minimum floor
+                    require(pots[i].ratePlanck >= minimumCpmFloor, "E27");
+                }
+                totalPotBudget += pots[i].budgetPlanck;
+            }
+            require(totalPotBudget == budgetValue, "E11"); // pot budgets must sum exactly to budget
+        }
 
         // SE-3: Delegate blocklist/allowlist/registration/tag checks to CampaignValidator
         (bool valid, uint16 snapshot, address snapRelaySigner, bytes32[] memory snapPubTags, bool allowlistWasEnabled) =
@@ -209,36 +231,41 @@ contract DatumCampaigns is IDatumCampaigns {
             publisher: publisher,
             pendingExpiryBlock: block.number + pendingTimeoutBlocks,
             terminationBlock: 0,
-            bidCpmPlanck: bidCpmPlanck,
             snapshotTakeRateBps: snapshot,
             status: CampaignStatus.Pending
         });
 
-        // Store required tags in separate mapping (not in struct — PVM size)
+        // Store required tags
         if (requiredTags.length > 0) {
             for (uint256 i = 0; i < requiredTags.length; i++) {
                 _campaignTags[campaignId].push(requiredTags[i]);
             }
         }
 
-        // Store publisher snapshots (relay signer + tag set at creation time)
+        // Store publisher snapshots
         _campaignRelaySigners[campaignId] = snapRelaySigner;
         for (uint256 i = 0; i < snapPubTags.length; i++) {
             _campaignPublisherTags[campaignId].push(snapPubTags[i]);
         }
 
-        // Store ZK proof requirement (immutable per campaign)
         if (requireZkProof) _campaignRequiresZkProof[campaignId] = true;
 
-        // Store token reward config (immutable per campaign)
         if (rewardToken != address(0)) {
             require(rewardPerImpression > 0, "E11");
             _campaignRewardToken[campaignId] = rewardToken;
             _campaignRewardPerImpression[campaignId] = rewardPerImpression;
         }
 
-        // Escrow budget in BudgetLedger (budget portion only)
-        budgetLedger.initializeBudget{value: budgetValue}(campaignId, budgetValue, dailyCapPlanck);
+        // Store pots and initialize budget per pot
+        for (uint256 i = 0; i < pots.length; i++) {
+            _campaignPots[campaignId].push(pots[i]);
+            if (pots[i].actionType == 0) {
+                _campaignViewBid[campaignId] = pots[i].ratePlanck;
+            }
+            budgetLedger.initializeBudget{value: pots[i].budgetPlanck}(
+                campaignId, pots[i].actionType, pots[i].budgetPlanck, pots[i].dailyCapPlanck
+            );
+        }
 
         // FP-2: Lock optional bond in ChallengeBonds
         if (bondAmount > 0 && challengeBonds != address(0)) {
@@ -249,15 +276,7 @@ contract DatumCampaigns is IDatumCampaigns {
             require(cbOk, "E02");
         }
 
-        emit CampaignCreated(
-            campaignId,
-            msg.sender,
-            publisher,
-            budgetValue,
-            dailyCapPlanck,
-            bidCpmPlanck,
-            snapshot
-        );
+        emit CampaignCreated(campaignId, msg.sender, publisher, budgetValue, snapshot);
     }
 
     // -------------------------------------------------------------------------
@@ -274,7 +293,7 @@ contract DatumCampaigns is IDatumCampaigns {
     }
 
     // -------------------------------------------------------------------------
-    // Governance activation (unchanged)
+    // Governance activation
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
@@ -284,13 +303,12 @@ contract DatumCampaigns is IDatumCampaigns {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(c.status == CampaignStatus.Pending, "E20");
-
         c.status = CampaignStatus.Active;
         emit CampaignActivated(campaignId);
     }
 
     // -------------------------------------------------------------------------
-    // Advertiser pause/resume (unchanged)
+    // Advertiser pause/resume
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
@@ -316,7 +334,6 @@ contract DatumCampaigns is IDatumCampaigns {
     /// @inheritdoc IDatumCampaigns
     function setCampaignStatus(uint256 campaignId, CampaignStatus newStatus) external {
         require(msg.sender == lifecycleContract, "E25");
-        // SM-7: Validate status transitions
         CampaignStatus current = _campaigns[campaignId].status;
         require(_validTransition(current, newStatus), "E67");
         _campaigns[campaignId].status = newStatus;
@@ -325,12 +342,12 @@ contract DatumCampaigns is IDatumCampaigns {
     function _validTransition(CampaignStatus from, CampaignStatus to) internal pure returns (bool) {
         if (from == CampaignStatus.Active  && to == CampaignStatus.Completed)  return true;
         if (from == CampaignStatus.Active  && to == CampaignStatus.Terminated) return true;
-        if (from == CampaignStatus.Active  && to == CampaignStatus.Pending)    return true; // governance demotion
+        if (from == CampaignStatus.Active  && to == CampaignStatus.Pending)    return true;
         if (from == CampaignStatus.Paused  && to == CampaignStatus.Completed)  return true;
         if (from == CampaignStatus.Paused  && to == CampaignStatus.Terminated) return true;
-        if (from == CampaignStatus.Paused  && to == CampaignStatus.Pending)    return true; // governance demotion
+        if (from == CampaignStatus.Paused  && to == CampaignStatus.Pending)    return true;
         if (from == CampaignStatus.Pending && to == CampaignStatus.Expired)    return true;
-        if (from == CampaignStatus.Pending && to == CampaignStatus.Terminated) return true; // demoted + nay wins
+        if (from == CampaignStatus.Pending && to == CampaignStatus.Terminated) return true;
         return false;
     }
 
@@ -386,13 +403,32 @@ contract DatumCampaigns is IDatumCampaigns {
         return _campaignMetadata[campaignId];
     }
 
-    /// @dev Alpha-2: returns 4 values (no remainingBudget — now on BudgetLedger).
+    /// @dev Returns 3 values: status, publisher, snapshotTakeRateBps.
+    ///      Rate lookups are done via getCampaignPot(id, actionType) by ClaimValidator.
     function getCampaignForSettlement(uint256 campaignId) external view returns (
-        uint8 status, address publisher, uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps
+        uint8 status, address publisher, uint16 snapshotTakeRateBps
     ) {
         Campaign storage c = _campaigns[campaignId];
-        return (uint8(c.status), c.publisher, c.bidCpmPlanck, c.snapshotTakeRateBps);
+        return (uint8(c.status), c.publisher, c.snapshotTakeRateBps);
+    }
+
+    /// @inheritdoc IDatumCampaigns
+    function getCampaignPot(uint256 campaignId, uint8 actionType) external view returns (ActionPotConfig memory) {
+        ActionPotConfig[] storage pots = _campaignPots[campaignId];
+        for (uint256 i = 0; i < pots.length; i++) {
+            if (pots[i].actionType == actionType) return pots[i];
+        }
+        revert("E01"); // pot not found
+    }
+
+    /// @inheritdoc IDatumCampaigns
+    function getCampaignPots(uint256 campaignId) external view returns (ActionPotConfig[] memory) {
+        return _campaignPots[campaignId];
+    }
+
+    /// @inheritdoc IDatumCampaigns
+    function getCampaignViewBid(uint256 campaignId) external view returns (uint256) {
+        return _campaignViewBid[campaignId];
     }
 
     function getCampaignRewardToken(uint256 campaignId) external view returns (address) {
@@ -402,5 +438,4 @@ contract DatumCampaigns is IDatumCampaigns {
     function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256) {
         return _campaignRewardPerImpression[campaignId];
     }
-
 }

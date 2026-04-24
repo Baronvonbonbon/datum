@@ -38,8 +38,9 @@ interface SerializedCampaign {
   advertiser: string;
   publisher: string;
   remainingBudget: string;
-  dailyCap: string;
-  bidCpmPlanck: string;
+  viewBid: string;           // view pot ratePlanck (CPM); "0" if no view pot
+  clickBid: string;          // click pot ratePlanck (flat per-click); "0" if no click pot
+  actionBid: string;         // remote-action pot ratePlanck; "0" if no action pot
   snapshotTakeRateBps: string;
   status: string;
   /** @deprecated Use requiredTags for matching. Kept for backward compat synthesis. */
@@ -111,8 +112,9 @@ export const campaignPoller = {
                   advertiser: "",
                   publisher: "",
                   remainingBudget: "0",
-                  dailyCap: "0",
-                  bidCpmPlanck: "0",
+                  viewBid: "0",
+                  clickBid: "0",
+                  actionBid: "0",
                   snapshotTakeRateBps: "0",
                   status: CampaignStatus.Pending.toString(),
                   categoryId: "0",
@@ -147,8 +149,6 @@ export const campaignPoller = {
               if (!index[cid]) {
                 const advertiser = (args[1] ?? args.advertiser) ?? "";
                 const publisher = (args[2] ?? args.publisher) ?? "";
-                const dailyCap = BigInt(args[4] ?? args.dailyCapPlanck ?? 0).toString();
-                const bidCpmPlanck = BigInt(args[5] ?? args.bidCpmPlanck ?? 0).toString();
                 const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
                 const categoryId = Number(args[7] ?? args.categoryId ?? 0).toString();
 
@@ -157,8 +157,9 @@ export const campaignPoller = {
                   advertiser: advertiser.toString(),
                   publisher: publisher.toString(),
                   remainingBudget: "0",
-                  dailyCap,
-                  bidCpmPlanck,
+                  viewBid: "0",    // filled in by Phase 2 getCampaignViewBid call
+                  clickBid: "0",   // filled in by Phase 2 getCampaignPots call
+                  actionBid: "0",  // filled in by Phase 2 getCampaignPots call
                   snapshotTakeRateBps,
                   status: CampaignStatus.Pending.toString(),
                   categoryId,
@@ -183,8 +184,7 @@ export const campaignPoller = {
                     advertiser: "",
                     publisher: "",
                     remainingBudget: "0",
-                    dailyCap: "0",
-                    bidCpmPlanck: "0",
+                    viewBid: "0",
                     snapshotTakeRateBps: "0",
                     status: CampaignStatus.Pending.toString(),
                     categoryId: "0",
@@ -237,9 +237,11 @@ export const campaignPoller = {
       // Batch status + settlement data refresh
       const statusTasks = refreshIds.map(id => async () => {
         try {
-          const [status, settlementData, relaySigner, requiresZkProof] = await Promise.all([
+          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
             contract.getCampaignForSettlement(BigInt(id)),
+            contract.getCampaignViewBid(BigInt(id)).catch(() => 0n),
+            contract.getCampaignPots(BigInt(id)).catch(() => [] as any[]),
             contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
             contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
           ]);
@@ -247,8 +249,19 @@ export const campaignPoller = {
           const camp = index[id];
           camp.status = status.toString();
           camp.publisher = settlementData[1] ?? camp.publisher;
-          camp.bidCpmPlanck = BigInt(settlementData[2]).toString();
-          camp.snapshotTakeRateBps = Number(settlementData[3]).toString();
+          camp.snapshotTakeRateBps = Number(settlementData[2]).toString();
+          camp.viewBid = BigInt(viewBid).toString();
+
+          // Extract click (type-1) and remote-action (type-2) pot rates
+          if (Array.isArray(pots)) {
+            for (const pot of pots) {
+              const aType = Number(pot.actionType ?? pot[0]);
+              const rate = BigInt(pot.ratePlanck ?? pot[3] ?? 0n).toString();
+              if (aType === 1) camp.clickBid = rate;
+              if (aType === 2) camp.actionBid = rate;
+            }
+          }
+
           if (relaySigner && relaySigner !== "0x0000000000000000000000000000000000000000") {
             camp.relaySigner = relaySigner;
           }
@@ -426,9 +439,11 @@ export const campaignPoller = {
 
       const statusTasks = refreshIds.map(id => async () => {
         try {
-          const [status, settlementData, relaySigner, requiresZkProof] = await Promise.all([
+          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
             contract.getCampaignForSettlement(BigInt(id)),
+            contract.getCampaignViewBid(BigInt(id)).catch(() => 0n),
+            contract.getCampaignPots(BigInt(id)).catch(() => [] as any[]),
             contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
             contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
           ]);
@@ -436,8 +451,18 @@ export const campaignPoller = {
           const camp = index[id];
           camp.status = status.toString();
           camp.publisher = settlementData[1] ?? camp.publisher;
-          camp.bidCpmPlanck = BigInt(settlementData[2]).toString();
-          camp.snapshotTakeRateBps = Number(settlementData[3]).toString();
+          camp.snapshotTakeRateBps = Number(settlementData[2]).toString();
+          camp.viewBid = BigInt(viewBid).toString();
+
+          if (Array.isArray(pots)) {
+            for (const pot of pots) {
+              const aType = Number(pot.actionType ?? pot[0]);
+              const rate = BigInt(pot.ratePlanck ?? pot[3] ?? 0n).toString();
+              if (aType === 1) camp.clickBid = rate;
+              if (aType === 2) camp.actionBid = rate;
+            }
+          }
+
           if (relaySigner && relaySigner !== "0x0000000000000000000000000000000000000000") {
             camp.relaySigner = relaySigner;
           }

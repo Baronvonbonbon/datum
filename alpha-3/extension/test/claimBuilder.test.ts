@@ -24,7 +24,7 @@ beforeEach(() => {
   resetStore();
   seedStore({
     connectedAddress: USER,
-    activeCampaigns: [{ id: CAMPAIGN_ID, bidCpmPlanck: BID_CPM }],
+    activeCampaigns: [{ id: CAMPAIGN_ID, viewBid: BID_CPM }],
   });
 });
 
@@ -69,19 +69,19 @@ describe("claimBuilder.onImpression", () => {
   test("uses clearingCpmPlanck from message if provided", async () => {
     await claimBuilder.onImpression(makeMsg({ clearingCpmPlanck: "3000000000" }));
     const store = getStore();
-    expect(store.claimQueue[0].clearingCpmPlanck).toBe("3000000000");
+    expect(store.claimQueue[0].ratePlanck).toBe("3000000000");
   });
 
-  test("falls back to bidCpmPlanck if clearingCpmPlanck not provided", async () => {
+  test("falls back to viewBid if clearingCpmPlanck not provided", async () => {
     await claimBuilder.onImpression(makeMsg());
     const store = getStore();
-    expect(store.claimQueue[0].clearingCpmPlanck).toBe(BID_CPM);
+    expect(store.claimQueue[0].ratePlanck).toBe(BID_CPM);
   });
 
   test("drops impression if no connectedAddress", async () => {
     resetStore();
     seedStore({
-      activeCampaigns: [{ id: CAMPAIGN_ID, bidCpmPlanck: BID_CPM }],
+      activeCampaigns: [{ id: CAMPAIGN_ID, viewBid: BID_CPM }],
     });
     await claimBuilder.onImpression(makeMsg());
     const store = getStore();
@@ -104,7 +104,8 @@ describe("claimBuilder.syncFromChain", () => {
     await claimBuilder.syncFromChain(USER, CAMPAIGN_ID, 5, onChainHash);
 
     const store = getStore();
-    const stateKey = `chainState:${USER}:${CAMPAIGN_ID}`;
+    // Chain state is keyed by actionType (0 for view claims)
+    const stateKey = `chainState:${USER}:${CAMPAIGN_ID}:0`;
     expect(store[stateKey].lastNonce).toBe(5);
     expect(store[stateKey].lastClaimHash).toBe(onChainHash);
     // Queue should be cleared for this campaign

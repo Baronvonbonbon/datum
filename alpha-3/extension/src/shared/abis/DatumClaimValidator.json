@@ -149,51 +149,18 @@
       "inputs": [
         {
           "components": [
-            {
-              "internalType": "uint256",
-              "name": "campaignId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "publisher",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "impressionCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "clearingCpmPlanck",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "nonce",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "previousClaimHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "claimHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes",
-              "name": "zkProof",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "nullifier",
-              "type": "bytes32"
-            }
+            { "internalType": "uint256", "name": "campaignId",       "type": "uint256" },
+            { "internalType": "address", "name": "publisher",        "type": "address" },
+            { "internalType": "uint256", "name": "eventCount",       "type": "uint256" },
+            { "internalType": "uint256", "name": "ratePlanck",       "type": "uint256" },
+            { "internalType": "uint8",   "name": "actionType",       "type": "uint8"   },
+            { "internalType": "bytes32", "name": "clickSessionHash", "type": "bytes32" },
+            { "internalType": "uint256", "name": "nonce",            "type": "uint256" },
+            { "internalType": "bytes32", "name": "previousClaimHash","type": "bytes32" },
+            { "internalType": "bytes32", "name": "claimHash",        "type": "bytes32" },
+            { "internalType": "bytes",   "name": "zkProof",          "type": "bytes"   },
+            { "internalType": "bytes32", "name": "nullifier",        "type": "bytes32" },
+            { "internalType": "bytes",   "name": "actionSig",        "type": "bytes"   }
           ],
           "internalType": "struct IDatumSettlement.Claim",
           "name": "claim",

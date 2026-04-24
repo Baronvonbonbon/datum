@@ -1,0 +1,18 @@
+[
+  {"type":"constructor","inputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"owner","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
+  {"type":"function","name":"pendingOwner","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
+  {"type":"function","name":"relay","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
+  {"type":"function","name":"settlement","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
+  {"type":"function","name":"setRelay","inputs":[{"name":"addr","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"setSettlement","inputs":[{"name":"addr","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"transferOwnership","inputs":[{"name":"newOwner","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"acceptOwnership","inputs":[],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"recordClick","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"markClaimed","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},
+  {"type":"function","name":"hasUnclaimed","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"},
+  {"type":"function","name":"sessionHash","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[{"name":"","type":"bytes32"}],"stateMutability":"pure"},
+  {"type":"event","name":"ClickRecorded","inputs":[{"name":"sessionHash","type":"bytes32","indexed":true},{"name":"user","type":"address","indexed":true},{"name":"campaignId","type":"uint256","indexed":true}],"anonymous":false},
+  {"type":"event","name":"ClickClaimed","inputs":[{"name":"sessionHash","type":"bytes32","indexed":true}],"anonymous":false},
+  {"type":"event","name":"ContractReferenceChanged","inputs":[{"name":"name","type":"string","indexed":false},{"name":"oldAddr","type":"address","indexed":false},{"name":"newAddr","type":"address","indexed":false}],"anonymous":false}
+]

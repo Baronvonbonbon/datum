@@ -15,13 +15,16 @@ let _inMemoryLockSince = 0;
 interface SerializedClaim {
   campaignId: string;
   publisher: string;
-  impressionCount: string;
-  clearingCpmPlanck: string;
+  eventCount: string;
+  ratePlanck: string;
+  actionType: string;
+  clickSessionHash: string;
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
   nullifier: string;
+  actionSig: string;
   userAddress: string;
 }
 
@@ -41,7 +44,7 @@ export const claimQueue = {
     for (const c of queue) {
       if (!byUser[c.userAddress]) byUser[c.userAddress] = {};
       const cid = c.campaignId;
-      byUser[c.userAddress][cid] = (byUser[c.userAddress][cid] ?? 0) + Number(c.impressionCount ?? 1);
+      byUser[c.userAddress][cid] = (byUser[c.userAddress][cid] ?? 0) + Number(c.eventCount ?? 1);
     }
     for (const r of rawQueue) {
       if (!byUser[r.userAddress]) byUser[r.userAddress] = {};
@@ -182,12 +185,15 @@ function deserializeClaim(c: SerializedClaim): Claim {
   return {
     campaignId: BigInt(c.campaignId),
     publisher: c.publisher,
-    impressionCount: BigInt(c.impressionCount),
-    clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+    eventCount: BigInt(c.eventCount),
+    ratePlanck: BigInt(c.ratePlanck),
+    actionType: Number(c.actionType ?? 0),
+    clickSessionHash: c.clickSessionHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
     nonce: BigInt(c.nonce),
     previousClaimHash: c.previousClaimHash,
     claimHash: c.claimHash,
     zkProof: c.zkProof,
     nullifier: c.nullifier ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+    actionSig: c.actionSig ?? "0x",
   };
 }

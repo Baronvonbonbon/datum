@@ -46,13 +46,13 @@ const ACCOUNTS = {
 const TO_FUND = ["bob", "charlie", "diana", "eve", "frank", "grace"] as const;
 
 // Per-account funding amounts. Bob/Charlie each create 50 campaigns (1 PAS each + gas).
-// Frank votes on all 100 campaigns (2 PAS stake each, conviction 0 = no lockup after resolve).
+// Frank votes on all 100 campaigns (100 PAS stake each to meet quorum, conviction 0 = no lockup).
 const FUND_AMOUNTS: Record<string, bigint> = {
-  bob:     parseDOT("150"),  // 50 campaigns × 1 PAS budget + gas
-  charlie: parseDOT("150"),  // 50 campaigns × 1 PAS budget + gas
+  bob:     parseDOT("150"),   // 50 campaigns × 1 PAS budget + gas
+  charlie: parseDOT("150"),   // 50 campaigns × 1 PAS budget + gas
   diana:   parseDOT("50"),
   eve:     parseDOT("50"),
-  frank:   parseDOT("260"),  // 100 votes × 2 PAS stake + gas
+  frank:   parseDOT("10500"), // 100 votes × 100 PAS stake (quorum) + 500 gas buffer
   grace:   parseDOT("50"),
 };
 
@@ -88,6 +88,20 @@ async function waitForNonce(
     await new Promise(r => setTimeout(r, 1000));
   }
   throw new Error(`Timeout waiting for nonce > ${targetNonce}`);
+}
+
+async function waitForBlock(
+  provider: JsonRpcProvider,
+  targetBlock: number,
+  maxWait = 300,
+): Promise<void> {
+  for (let i = 0; i < maxWait; i++) {
+    const hex = await provider.send("eth_blockNumber", []);
+    if (parseInt(hex, 16) >= targetBlock) return;
+    if (i % 15 === 0 && i > 0) console.log(`    ...waiting for block ${targetBlock} (${i}s)`);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(`Timeout waiting for block ${targetBlock}`);
 }
 
 async function sendCall(
@@ -149,11 +163,12 @@ const publishersAbi = [
 
 const rateLimiterAbi = [
   "function windowBlocks() view returns (uint256)",
+  "function maxPublisherEventsPerWindow() view returns (uint256)",
   "function maxPublisherImpressionsPerWindow() view returns (uint256)",
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  "function createCampaign(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -293,6 +308,37 @@ interface CampaignSpec {
 }
 
 // ── Metadata generation + IPFS pinning ──────────────────────────────────────
+
+/**
+ * Convert a CIDv0 ("Qm...") to a 0x-prefixed 32-byte hex string by stripping the
+ * 0x1220 multihash prefix.  This gives the same bytes32 that bytes32ToCid() expects:
+ * the SHA-256 of the dag-pb block (not SHA-256 of the raw JSON content).
+ * Using cidToBytes32(actualCid) ensures the extension can reconstruct the correct URL.
+ */
+const BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function cidToBytes32(cid: string): string {
+  let num = 0n;
+  for (const c of cid) {
+    const idx = BASE58_CHARS.indexOf(c);
+    if (idx < 0) throw new Error(`Invalid base58 char in CID: ${c}`);
+    num = num * 58n + BigInt(idx);
+  }
+  let leadingZeros = 0;
+  for (const c of cid) {
+    if (c === "1") leadingZeros++;
+    else break;
+  }
+  const bytes: number[] = [];
+  while (num > 0n) {
+    bytes.unshift(Number(num & 0xffn));
+    num >>= 8n;
+  }
+  const full = new Uint8Array([...new Array(leadingZeros).fill(0), ...bytes]);
+  if (full.length !== 34 || full[0] !== 0x12 || full[1] !== 0x20) {
+    throw new Error(`Not a CIDv0 sha256 multihash: ${cid}`);
+  }
+  return "0x" + Array.from(full.slice(2)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
 function buildMetadata(topic: string, wikiArticle: string, idx: number): string {
   const topicLabel = topic.replace("topic:", "").replace(/-/g, " ");
@@ -576,12 +622,15 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2.8. GENERATE + PIN IPFS METADATA (real SHA-256 bytes32)
+  // 2.8. GENERATE + PIN IPFS METADATA
   //
   // Each campaign gets a JSON metadata object built from its topic + wiki article.
   // Content is pinned to the local Kubo daemon (http://localhost:5001).
-  // bytes32 on-chain = raw SHA-256 of the JSON (no 0x1220 prefix).
-  // Extension poller reconstructs CIDv0 as base58(0x1220 + sha256_bytes).
+  // bytes32 on-chain = cidToBytes32(actualCid) — SHA-256 of the dag-pb block as
+  // embedded in the CIDv0 multihash.  This is what bytes32ToCid() expects, so the
+  // extension poller can reconstruct the correct IPFS URL from the on-chain hash.
+  // Fallback (Kubo unavailable): contentToBytes32(raw JSON) stored instead — the URL
+  // reconstructed by bytes32ToCid() will be wrong, but the on-chain hash is still set.
   // ═══════════════════════════════════════════════════════════════════════════
   log("2.8", "--- Generating + pinning IPFS metadata for all campaigns ---");
 
@@ -595,20 +644,25 @@ async function main() {
       ? TOPICS[spec.topicIndices[0]]
       : TOPICS[i % TOPICS.length]; // deterministic for untagged
     const content = buildMetadata(primaryTopic, spec.wikiArticle, i);
-    spec.metadataBytes32 = contentToBytes32(content);
 
     const cid = await pinToKubo(content);
     if (cid) {
+      // Use the CID-derived bytes32: cidToBytes32 strips 0x1220 multihash prefix,
+      // giving SHA-256 of the dag-pb block.  bytes32ToCid() reconstructs the correct URL.
+      spec.metadataBytes32 = cidToBytes32(cid);
       pinOk++;
       cidsRecord.push({ campaignIndex: i, wikiArticle: spec.wikiArticle, bytes32: spec.metadataBytes32, cid });
     } else {
+      // Fallback: raw-JSON SHA-256.  bytes32ToCid() will produce a non-existent CID,
+      // but the hash is at least deterministic and non-zero so the poller picks it up.
+      spec.metadataBytes32 = contentToBytes32(content);
       pinFail++;
       cidsRecord.push({ campaignIndex: i, wikiArticle: spec.wikiArticle, bytes32: spec.metadataBytes32, cid: null });
-      if (pinFail === 1) log("2.8", "  Kubo unavailable or pin failed — bytes32 only (no IPFS pin)");
+      if (pinFail === 1) log("2.8", "  Kubo unavailable or pin failed — using contentToBytes32 fallback");
     }
     if ((i + 1) % 25 === 0) log("2.8", `  ${i + 1}/${CAMPAIGN_SPECS.length} processed (${pinOk} pinned, ${pinFail} hash-only)...`);
   }
-  log("2.8", `  Done: ${pinOk} pinned to IPFS, ${pinFail} SHA-256 only`);
+  log("2.8", `  Done: ${pinOk} pinned to IPFS, ${pinFail} hash-only (Kubo unavailable)`);
 
   // Write CID reference file alongside this script
   const cidsFile = __dirname + "/metadata-cids.json";
@@ -656,7 +710,7 @@ async function main() {
     try {
       await sendCall(
         adv, rawProvider, addrs.campaigns, campIface, "createCampaign",
-        [ethers.ZeroAddress, spec.dailyCap, spec.bidCpm, tags, false, rewardToken, rewardPerImpression, 0],
+        [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n],
         spec.budget,
       );
 
@@ -710,6 +764,17 @@ async function main() {
   }
   log("4", `  Voted on ${voteOk}/${allCampaignIds.length} campaigns`);
 
+  // Phase 4b: Wait for BASE_GRACE_BLOCKS (10) past the last vote before evaluating
+  // evaluateCampaign reverts with E53 if block.number < lastVote + baseGraceBlocks
+  {
+    const curHex = await rawProvider.send("eth_blockNumber", []);
+    const curBlock = parseInt(curHex, 16);
+    const graceBlocks = 10; // matches deploy.ts BASE_GRACE_BLOCKS
+    const targetBlock = curBlock + graceBlocks + 1;
+    log("4", `  Waiting for grace period (block ${curBlock} → ${targetBlock}, +${graceBlocks + 1} blocks)...`);
+    await waitForBlock(rawProvider, targetBlock);
+  }
+
   // Phase 4b: Alice evaluates all voted campaigns
   log("4", `  Phase 4b: Evaluating ${votedIds.length} campaigns...`);
   let activateOk = 0;
@@ -762,12 +827,12 @@ async function main() {
     try {
       const [wbRaw, maxRaw] = await Promise.all([
         readCall(rawProvider, addrs.rateLimiter, rateLimiterIface, "windowBlocks", []),
-        readCall(rawProvider, addrs.rateLimiter, rateLimiterIface, "maxPublisherImpressionsPerWindow", []),
+        readCall(rawProvider, addrs.rateLimiter, rateLimiterIface, "maxPublisherEventsPerWindow", []),
       ]);
       const wb = rateLimiterIface.decodeFunctionResult("windowBlocks", wbRaw)[0];
-      const maxImp = rateLimiterIface.decodeFunctionResult("maxPublisherImpressionsPerWindow", maxRaw)[0];
+      const maxImp = rateLimiterIface.decodeFunctionResult("maxPublisherEventsPerWindow", maxRaw)[0];
       log("5.3", `  windowBlocks: ${wb.toString()} (~${(Number(wb) * 6 / 3600).toFixed(1)}h at 6s/block)`);
-      log("5.3", `  maxPerWindow: ${maxImp.toString()} impressions`);
+      log("5.3", `  maxPerWindow: ${maxImp.toString()} events`);
     } catch (err) {
       log("5.3", `  read failed: ${String(err).slice(0, 100)}`);
     }

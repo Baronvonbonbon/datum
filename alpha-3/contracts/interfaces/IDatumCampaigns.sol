@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 /// @title IDatumCampaigns
-/// @notice Interface for DATUM campaign state management (alpha-2 Core).
-///         Budget fields extracted to IDatumBudgetLedger. Lifecycle transitions
-///         extracted to IDatumCampaignLifecycle. This contract is the canonical
-///         source of campaign struct data and status.
+/// @notice Interface for DATUM campaign state management (alpha-3 multi-pricing).
+///         Campaigns hold one or more action pots (view/click/remote-action), each
+///         with independent budget, daily cap, and rate. Budget is escrowed in
+///         DatumBudgetLedger on a per-(campaignId, actionType) basis.
 interface IDatumCampaigns {
     // -------------------------------------------------------------------------
     // Enums
@@ -21,16 +21,25 @@ interface IDatumCampaigns {
     }
 
     // -------------------------------------------------------------------------
-    // Structs (slimmed: budget fields moved to BudgetLedger)
+    // Structs
     // -------------------------------------------------------------------------
 
+    /// @notice Configuration for a single action-type pot within a campaign.
+    struct ActionPotConfig {
+        uint8   actionType;      // 0=view (CPM), 1=click (CPC), 2=remote-action (CPA)
+        uint256 budgetPlanck;    // DOT budget allocated to this pot
+        uint256 dailyCapPlanck;  // daily spend cap for this pot
+        uint256 ratePlanck;      // rate: per-1000 events for view, flat per-event for click/action
+        address actionVerifier;  // type-2 only: EOA whose ECDSA sig is required; address(0) for type-0/1
+    }
+
+    /// @notice Core campaign state (budget fields live in DatumBudgetLedger).
     struct Campaign {
         address advertiser;
         address publisher;
         uint256 pendingExpiryBlock;
         uint256 terminationBlock;
-        uint256 bidCpmPlanck;
-        uint16 snapshotTakeRateBps;
+        uint16  snapshotTakeRateBps;
         CampaignStatus status;
     }
 
@@ -42,10 +51,8 @@ interface IDatumCampaigns {
         uint256 indexed campaignId,
         address indexed advertiser,
         address indexed publisher,
-        uint256 budgetPlanck,
-        uint256 dailyCapPlanck,
-        uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps
+        uint256 totalBudgetPlanck,
+        uint16  snapshotTakeRateBps
     );
     event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash);
     event CampaignActivated(uint256 indexed campaignId);
@@ -58,10 +65,17 @@ interface IDatumCampaigns {
     // Campaign lifecycle
     // -------------------------------------------------------------------------
 
+    /// @notice Create a campaign with one or more action pots.
+    /// @param publisher      Target publisher (address(0) = open campaign).
+    /// @param pots           Action pot configs. At least one required; max 3. Budgets must sum to msg.value - bondAmount.
+    /// @param requiredTags   Publisher tag requirements (max 8).
+    /// @param requireZkProof Whether ZK proof is required for view claims.
+    /// @param rewardToken    Optional ERC-20 token reward address (address(0) = disabled).
+    /// @param rewardPerImpression Token reward per settled view event (0 if no token reward).
+    /// @param bondAmount     Advertiser challenge bond (deducted from msg.value before budgeting).
     function createCampaign(
         address publisher,
-        uint256 dailyCapPlanck,
-        uint256 bidCpmPlanck,
+        ActionPotConfig[] calldata pots,
         bytes32[] calldata requiredTags,
         bool requireZkProof,
         address rewardToken,
@@ -82,7 +96,6 @@ interface IDatumCampaigns {
     function setTerminationBlock(uint256 campaignId, uint256 blockNum) external;
 
     /// @notice Override pendingExpiryBlock. Gated to lifecycle contract.
-    ///         Used by demotion: sets to type(uint256).max to block expiry-path conflicts.
     function setPendingExpiryBlock(uint256 campaignId, uint256 blockNum) external;
 
     // -------------------------------------------------------------------------
@@ -97,10 +110,22 @@ interface IDatumCampaigns {
     function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory);
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
     function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
+
+    /// @notice Returns campaign settlement data (3-tuple — no bidCpmPlanck, pots handle rates).
     function getCampaignForSettlement(uint256 campaignId) external view returns (
-        uint8 status, address publisher, uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps
+        uint8 status, address publisher, uint16 snapshotTakeRateBps
     );
+
+    /// @notice Returns the ActionPotConfig for a specific action type. Reverts if pot not configured.
+    function getCampaignPot(uint256 campaignId, uint8 actionType) external view returns (ActionPotConfig memory);
+
+    /// @notice Returns all configured action pots for a campaign.
+    function getCampaignPots(uint256 campaignId) external view returns (ActionPotConfig[] memory);
+
+    /// @notice Returns ratePlanck from the view (type-0) pot. Used by the auction.
+    ///         Returns 0 if no view pot is configured.
+    function getCampaignViewBid(uint256 campaignId) external view returns (uint256);
+
     function getPendingExpiryBlock(uint256 campaignId) external view returns (uint256);
     function nextCampaignId() external view returns (uint256);
     function getCampaignRewardToken(uint256 campaignId) external view returns (address);

@@ -6,18 +6,16 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 
 /// @title DatumBudgetLedger
-/// @notice Per-campaign budget escrow and daily cap enforcement.
-///         Extracted from DatumCampaigns (alpha) to free PVM bytecode headroom.
+/// @notice Per-campaign per-pot budget escrow and daily cap enforcement.
+///         Supports three action pots per campaign: 0=view, 1=click, 2=remote-action.
+///         Budget is keyed on (campaignId, actionType).
 ///
-///         Campaigns initializes budget at campaign creation (payable).
-///         Settlement calls deductAndTransfer to deduct + forward DOT to PaymentVault.
-///         Lifecycle calls drainToAdvertiser/drainFraction for refund paths.
+///         Campaigns initializes each pot at campaign creation (payable, once per pot).
+///         Settlement calls deductAndTransfer with the actionType to deduct the right pot.
+///         Lifecycle calls drainToAdvertiser/drainFraction which loop all pots internally.
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site to avoid resolc codegen bug.
-///
-///         Hardening: ReentrancyGuard on all value-transfer paths,
-///         ContractReferenceChanged events on admin setters.
 contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     // -------------------------------------------------------------------------
     // Authorization
@@ -47,10 +45,10 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
         uint256 lastSpendDay;
     }
 
-    mapping(uint256 => Budget) private _budgets;
+    /// @dev Keyed by (campaignId, actionType). actionType: 0=view, 1=click, 2=remote-action.
+    mapping(uint256 => mapping(uint8 => Budget)) private _budgets;
 
-    /// @dev P20: Tracks the last block where a deduction occurred for each campaign.
-    ///      Used by CampaignLifecycle.expireInactiveCampaign() to detect stale campaigns.
+    /// @dev P20: Tracks the last block where a deduction occurred for each campaign (any pot).
     mapping(uint256 => uint256) public lastSettlementBlock;
 
     // -------------------------------------------------------------------------
@@ -102,26 +100,32 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Budget initialization (Campaigns only)
+    // Budget initialization (Campaigns only — once per pot)
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumBudgetLedger
     function initializeBudget(
-        uint256 campaignId, uint256 budget, uint256 dailyCap
+        uint256 campaignId,
+        uint8   actionType,
+        uint256 budget,
+        uint256 dailyCap
     ) external payable {
         require(msg.sender == campaigns, "E25");
+        require(actionType <= 2, "E88"); // E88: invalid action type
         require(msg.value == budget, "E16");
-        require(_budgets[campaignId].remaining == 0, "E14");
+        require(_budgets[campaignId][actionType].remaining == 0, "E14"); // prevent double-init
 
-        _budgets[campaignId] = Budget({
+        _budgets[campaignId][actionType] = Budget({
             remaining: budget,
             dailyCap: dailyCap,
             dailySpent: 0,
             lastSpendDay: 0
         });
-        lastSettlementBlock[campaignId] = block.number;
+        if (lastSettlementBlock[campaignId] == 0) {
+            lastSettlementBlock[campaignId] = block.number;
+        }
 
-        emit BudgetInitialized(campaignId, budget, dailyCap);
+        emit BudgetInitialized(campaignId, actionType, budget, dailyCap);
     }
 
     // -------------------------------------------------------------------------
@@ -130,11 +134,15 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     /// @inheritdoc IDatumBudgetLedger
     function deductAndTransfer(
-        uint256 campaignId, uint256 amount, address recipient
+        uint256 campaignId,
+        uint8   actionType,
+        uint256 amount,
+        address recipient
     ) external nonReentrant returns (bool exhausted) {
         require(msg.sender == settlement, "E25");
+        require(actionType <= 2, "E88");
 
-        Budget storage b = _budgets[campaignId];
+        Budget storage b = _budgets[campaignId][actionType];
         require(amount <= b.remaining, "E16");
 
         // Daily cap reset on new day
@@ -150,26 +158,31 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
         b.remaining -= amount;
         lastSettlementBlock[campaignId] = block.number;
 
-        emit BudgetDeducted(campaignId, amount, b.remaining);
+        emit BudgetDeducted(campaignId, actionType, amount, b.remaining);
 
         exhausted = (b.remaining == 0);
 
-        // Forward DOT to recipient (PaymentVault)
         _send(recipient, amount);
     }
 
     // -------------------------------------------------------------------------
-    // Budget drain (Lifecycle only)
+    // Budget drain (Lifecycle only — loops all pots internally)
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumBudgetLedger
     function drainToAdvertiser(
-        uint256 campaignId, address advertiser
+        uint256 campaignId,
+        address advertiser
     ) external nonReentrant returns (uint256 drained) {
         require(msg.sender == lifecycle, "E25");
 
-        drained = _budgets[campaignId].remaining;
-        _budgets[campaignId].remaining = 0;
+        for (uint8 t = 0; t <= 2; t++) {
+            uint256 rem = _budgets[campaignId][t].remaining;
+            if (rem > 0) {
+                _budgets[campaignId][t].remaining = 0;
+                drained += rem;
+            }
+        }
 
         emit BudgetDrained(campaignId, advertiser, drained);
 
@@ -180,17 +193,23 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     /// @inheritdoc IDatumBudgetLedger
     function drainFraction(
-        uint256 campaignId, address recipient, uint256 bps
+        uint256 campaignId,
+        address recipient,
+        uint256 bps
     ) external nonReentrant returns (uint256 amount) {
         require(msg.sender == lifecycle, "E25");
         require(bps <= 10000, "E16");
 
-        uint256 remaining = _budgets[campaignId].remaining;
-        // AUDIT-009: Use Math.mulDiv for overflow-safe precision; ceiling via +1 if remainder > 0
-        uint256 floor = Math.mulDiv(remaining, bps, 10000);
-        uint256 rem = (remaining * bps) % 10000; // safe: if mulDiv didn't overflow, this won't
-        amount = rem > 0 ? floor + 1 : floor; // ceiling division
-        _budgets[campaignId].remaining = remaining - amount;
+        for (uint8 t = 0; t <= 2; t++) {
+            uint256 remaining = _budgets[campaignId][t].remaining;
+            if (remaining == 0) continue;
+            // AUDIT-009: Use Math.mulDiv for overflow-safe precision; ceiling via +1 if remainder > 0
+            uint256 floor = Math.mulDiv(remaining, bps, 10000);
+            uint256 rem = (remaining * bps) % 10000;
+            uint256 potAmount = rem > 0 ? floor + 1 : floor;
+            _budgets[campaignId][t].remaining = remaining - potAmount;
+            amount += potAmount;
+        }
 
         if (amount > 0) {
             _send(recipient, amount);
@@ -203,22 +222,27 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
 
     event DustSwept(uint256 indexed campaignId, address recipient, uint256 amount);
 
-    /// @notice Sweep rounding dust from terminal campaigns to protocol owner.
-    ///         Permissionless — anyone can call. Only works when remaining > 0
-    ///         and campaign status is Completed (3), Terminated (4), or Expired (5).
+    /// @notice Sweep rounding dust from terminal campaigns to protocol treasury.
+    ///         Permissionless — anyone can call. Only works for terminal campaign statuses (3,4,5).
     function sweepDust(uint256 campaignId) external nonReentrant {
-        uint256 dust = _budgets[campaignId].remaining;
-        require(dust > 0, "E03");
-
         // Check campaign is terminal via staticcall to getCampaignStatus
         (bool ok, bytes memory ret) = campaigns.staticcall(
             abi.encodeWithSignature("getCampaignStatus(uint256)", campaignId)
         );
         require(ok && ret.length >= 32, "E01");
         uint8 status = abi.decode(ret, (uint8));
-        require(status >= 3, "E14");  // 3=Completed, 4=Terminated, 5=Expired
+        require(status >= 3, "E14"); // 3=Completed, 4=Terminated, 5=Expired
 
-        _budgets[campaignId].remaining = 0;
+        uint256 dust;
+        for (uint8 t = 0; t <= 2; t++) {
+            uint256 rem = _budgets[campaignId][t].remaining;
+            if (rem > 0) {
+                _budgets[campaignId][t].remaining = 0;
+                dust += rem;
+            }
+        }
+        require(dust > 0, "E03");
+
         emit DustSwept(campaignId, treasury, dust);
         _send(treasury, dust);
     }
@@ -227,12 +251,21 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard {
     // Views
     // -------------------------------------------------------------------------
 
-    function getRemainingBudget(uint256 campaignId) external view returns (uint256) {
-        return _budgets[campaignId].remaining;
+    /// @inheritdoc IDatumBudgetLedger
+    function getRemainingBudget(uint256 campaignId, uint8 actionType) external view returns (uint256) {
+        return _budgets[campaignId][actionType].remaining;
     }
 
-    function getDailyCap(uint256 campaignId) external view returns (uint256) {
-        return _budgets[campaignId].dailyCap;
+    /// @inheritdoc IDatumBudgetLedger
+    function getTotalRemainingBudget(uint256 campaignId) external view returns (uint256 total) {
+        for (uint8 t = 0; t <= 2; t++) {
+            total += _budgets[campaignId][t].remaining;
+        }
+    }
+
+    /// @inheritdoc IDatumBudgetLedger
+    function getDailyCap(uint256 campaignId, uint8 actionType) external view returns (uint256) {
+        return _budgets[campaignId][actionType].dailyCap;
     }
 
     // -------------------------------------------------------------------------

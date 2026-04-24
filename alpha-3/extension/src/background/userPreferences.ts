@@ -76,7 +76,7 @@ export async function unblockTag(tag: string): Promise<void> {
 
 /** Check if a campaign is allowed by user preferences */
 export function isCampaignAllowed(
-  campaign: { id?: string; categoryId?: number; bidCpmPlanck?: string; requiredTags?: string[] },
+  campaign: { id?: string; categoryId?: number; viewBid?: string; requiredTags?: string[] },
   prefs: UserPreferences,
 ): boolean {
   // Blocked campaign ID
@@ -103,8 +103,8 @@ export function isCampaignAllowed(
   }
 
   // Min bid CPM
-  if (prefs.minBidCpm && prefs.minBidCpm !== "0" && campaign.bidCpmPlanck) {
-    if (BigInt(campaign.bidCpmPlanck) < BigInt(prefs.minBidCpm)) return false;
+  if (prefs.minBidCpm && prefs.minBidCpm !== "0" && campaign.viewBid) {
+    if (BigInt(campaign.viewBid) < BigInt(prefs.minBidCpm)) return false;
   }
 
   return true;

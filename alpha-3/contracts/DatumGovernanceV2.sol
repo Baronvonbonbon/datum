@@ -203,7 +203,7 @@ contract DatumGovernanceV2 {
         require(conviction >= v.conviction, "E74");
         require(v.direction == 0, "E42");
 
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         require(status == 0 || status == 1, "E43");
 
         uint256 weight = msg.value * _weight(conviction);
@@ -278,7 +278,7 @@ contract DatumGovernanceV2 {
     function evaluateCampaign(uint256 campaignId) external {
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(abi.encodeWithSelector(bytes4(0x5c975abb)));
         require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
 
         uint256 total = ayeWeighted[campaignId] + nayWeighted[campaignId];
 

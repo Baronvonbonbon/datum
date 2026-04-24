@@ -38,7 +38,7 @@ contract DatumGovernanceHelper is IDatumGovernanceHelper {
         uint256 lockAmount,
         uint256 slashBps
     ) external view returns (uint256 slash) {
-        (uint8 status,,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         bool loser = (status == STATUS_COMPLETED  && voteDirection == VOTE_NAY)
                   || (status == STATUS_TERMINATED && voteDirection == VOTE_AYE);
         if (loser) {

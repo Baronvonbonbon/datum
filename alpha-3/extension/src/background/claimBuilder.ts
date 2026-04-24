@@ -1,10 +1,10 @@
-// Builds claims from impressions, maintaining per-(user, campaign) hash chains.
-// Alpha-2: Uses Blake2-256 on PolkaVM (keccak256 fallback for local Hardhat EVM).
-// Hash preimage: (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
+// Builds claims from impressions/clicks/actions, maintaining per-(user, campaign, actionType) hash chains.
+// Alpha-3 multi-pricing: uses 9-field Blake2-256 preimage.
+// Hash preimage: (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
 
-import { solidityPacked, ZeroHash } from "ethers";
+import { solidityPacked, ZeroHash, zeroPadValue, toBeHex } from "ethers";
 import { blake2b } from "@noble/hashes/blake2.js";
-import { Claim, ClaimChainState, Impression } from "@shared/types";
+import { Claim, ClaimChainState } from "@shared/types";
 import { generateZKProof } from "./zkProof";
 import { getUserSecret, computeWindowId } from "./poseidon";
 
@@ -35,6 +35,11 @@ function bytesToHex(bytes: Uint8Array): string {
 const CHAIN_STATE_PREFIX = "chainState:";
 const QUEUE_KEY = "claimQueue";
 
+/** Convert uint256 nonce to bytes32 hex string (for clickSessionHash field in type-1 claims). */
+function nonceToBytes32(nonce: bigint): string {
+  return zeroPadValue(toBeHex(nonce), 32);
+}
+
 // Per-(user, campaign) mutex to prevent nonce race conditions
 const locks = new Map<string, Promise<void>>();
 function withLock(key: string, fn: () => Promise<void>): Promise<void> {
@@ -46,26 +51,32 @@ function withLock(key: string, fn: () => Promise<void>): Promise<void> {
 }
 
 export const claimBuilder = {
+  /**
+   * Build and queue a type-0 (view/CPM) claim from an impression event.
+   * Returns the impressionNonce (bytes32) so the click handler can reference it.
+   */
   async onImpression(msg: {
     campaignId: string;
     url: string;
     category: string;
     publisherAddress: string;
-    clearingCpmPlanck?: string; // auction-determined clearing CPM
-  }): Promise<void> {
+    clearingCpmPlanck?: string; // auction-determined clearing CPM (falls back to viewBid)
+  }): Promise<string | null> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
     if (!userAddress) {
       console.warn("[DATUM] Impression dropped: no connectedAddress in storage. Unlock wallet first.");
-      return;
+      return null;
     }
 
-    // Serialize per-(user, campaign) to prevent nonce race from concurrent tabs
-    const lockKey = `${userAddress}:${msg.campaignId}`;
+    let impressionNonce: string | null = null;
+
+    // Serialize per-(user, campaign, actionType) to prevent nonce race from concurrent tabs
+    const lockKey = `${userAddress}:${msg.campaignId}:0`;
     await withLock(lockKey, async () => {
       const campaignId = BigInt(msg.campaignId);
 
-      // Fetch bidCpmPlanck from cached campaigns
+      // Fetch viewBid from cached campaigns
       const cached = await chrome.storage.local.get("activeCampaigns");
       const campaigns = cached.activeCampaigns ?? [];
       const campaign = campaigns.find((c: { id: string }) => c.id === msg.campaignId);
@@ -76,7 +87,7 @@ export const claimBuilder = {
 
       // Validate publisher address before touching chain state.
       // A zero/missing/mismatched publisher causes settlement rejection, permanently
-      // corrupting the hash chain for this (user, campaign) pair.
+      // corrupting the hash chain for this (user, campaign, actionType) triple.
       const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
       const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/i;
       if (!msg.publisherAddress || !ETH_ADDR_RE.test(msg.publisherAddress) ||
@@ -90,28 +101,33 @@ export const claimBuilder = {
         return;
       }
 
-      const chainState = await getChainState(userAddress, msg.campaignId);
+      const chainState = await getChainState(userAddress, msg.campaignId, 0);
       console.log(`[DATUM] onImpression: campaign=${msg.campaignId} chainState.lastNonce=${chainState.lastNonce} chainState.lastClaimHash=${chainState.lastClaimHash.slice(0, 12)}…`);
 
-      const impressionCount = 1n;
-      // Use auction clearing CPM if provided, otherwise fall back to bid CPM
-      const clearingCpmPlanck = msg.clearingCpmPlanck
+      const eventCount = 1n;
+      // Use auction clearing CPM if provided, otherwise fall back to viewBid
+      const ratePlanck = msg.clearingCpmPlanck
         ? BigInt(msg.clearingCpmPlanck)
-        : BigInt(campaign.bidCpmPlanck);
+        : BigInt(campaign.viewBid ?? "0");
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash =
         chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
-      // Blake2-256 on PolkaVM; matches Settlement._validateClaim() hash order:
-      // (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
+      // For type-0 (view) claims: clickSessionHash = ZeroHash
+      const clickSessionHash = ZeroHash;
+
+      // Blake2-256 on PolkaVM; 9-field preimage matches DatumClaimValidator.validateClaim():
+      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
       const claimHash = blake2Hash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [
           campaignId,
           msg.publisherAddress,
           userAddress,
-          impressionCount,
-          clearingCpmPlanck,
+          eventCount,
+          ratePlanck,
+          0,               // actionType = 0 (view)
+          clickSessionHash,
           nonce,
           previousClaimHash,
         ]
@@ -125,7 +141,7 @@ export const claimBuilder = {
         const blockStored = await chrome.storage.local.get(LAST_BLOCK_KEY);
         const lastBlock: number = blockStored[LAST_BLOCK_KEY] ?? 0;
         const windowId = computeWindowId(lastBlock, WINDOW_BLOCKS);
-        const zk = await generateZKProof(claimHash, impressionCount, nonce, userSecret, campaignId, windowId);
+        const zk = await generateZKProof(claimHash, eventCount, nonce, userSecret, campaignId, windowId);
         zkProof = zk.proofBytes;
         nullifier = zk.nullifier;
       }
@@ -133,26 +149,160 @@ export const claimBuilder = {
       const claim: Claim = {
         campaignId,
         publisher: msg.publisherAddress,
-        impressionCount,
-        clearingCpmPlanck,
+        eventCount,
+        ratePlanck,
+        actionType: 0,
+        clickSessionHash,
         nonce,
         previousClaimHash,
         claimHash,
         zkProof,
         nullifier,
+        actionSig: "0x",
       };
 
       // Persist updated chain state
-      await setChainState(userAddress, msg.campaignId, {
+      await setChainState(userAddress, msg.campaignId, 0, {
         userAddress,
         campaignId: msg.campaignId,
+        actionType: 0,
         lastNonce: Number(nonce),
         lastClaimHash: claimHash,
       });
 
       // Append claim to queue
       await appendToQueue(claim, userAddress);
-      console.log(`[DATUM] Claim queued: campaign=${msg.campaignId} nonce=${nonce} prevHash=${previousClaimHash.slice(0, 12)}… claimHash=${claimHash.slice(0, 12)}… user=${userAddress.slice(0, 10)}…`);
+      console.log(`[DATUM] View claim queued: campaign=${msg.campaignId} nonce=${nonce} prevHash=${previousClaimHash.slice(0, 12)}… claimHash=${claimHash.slice(0, 12)}… user=${userAddress.slice(0, 10)}…`);
+
+      // Return the impression nonce as bytes32 so click handler can reference this session
+      impressionNonce = nonceToBytes32(nonce);
+    });
+
+    return impressionNonce;
+  },
+
+  /**
+   * Build and queue a type-1 (click/CPC) claim.
+   * Called by clickHandler after the relay records the click session on-chain.
+   *
+   * @param impressionNonce - bytes32 nonce from the original impression (clickSessionHash field)
+   */
+  async onClick(msg: {
+    campaignId: string;
+    publisherAddress: string;
+    impressionNonce: string; // bytes32 from the corresponding view impression
+    ratePlanck: string;      // click pot ratePlanck
+  }): Promise<void> {
+    const stored = await chrome.storage.local.get("connectedAddress");
+    const userAddress: string | undefined = stored.connectedAddress;
+    if (!userAddress) {
+      console.warn("[DATUM] Click claim dropped: no connectedAddress in storage.");
+      return;
+    }
+
+    const lockKey = `${userAddress}:${msg.campaignId}:1`;
+    await withLock(lockKey, async () => {
+      const campaignId = BigInt(msg.campaignId);
+      const chainState = await getChainState(userAddress, msg.campaignId, 1);
+
+      const eventCount = 1n;
+      const ratePlanck = BigInt(msg.ratePlanck);
+      const nonce = BigInt(chainState.lastNonce + 1);
+      const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
+      const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
+
+      const claimHash = blake2Hash(
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash]
+      );
+
+      const claim: Claim = {
+        campaignId,
+        publisher: msg.publisherAddress,
+        eventCount,
+        ratePlanck,
+        actionType: 1,
+        clickSessionHash,
+        nonce,
+        previousClaimHash,
+        claimHash,
+        zkProof: "0x",
+        nullifier: ZeroHash,
+        actionSig: "0x",
+      };
+
+      await setChainState(userAddress, msg.campaignId, 1, {
+        userAddress,
+        campaignId: msg.campaignId,
+        actionType: 1,
+        lastNonce: Number(nonce),
+        lastClaimHash: claimHash,
+      });
+
+      await appendToQueue(claim, userAddress);
+      console.log(`[DATUM] Click claim queued: campaign=${msg.campaignId} nonce=${nonce} session=${clickSessionHash.slice(0, 12)}…`);
+    });
+  },
+
+  /**
+   * Build and queue a type-2 (remote-action/CPA) claim.
+   * Called by actionHandler after fetching the verifier signature from the advertiser backend.
+   *
+   * @param actionSig - 65-byte EIP-191 signature from the pot's actionVerifier EOA
+   */
+  async onRemoteAction(msg: {
+    campaignId: string;
+    publisherAddress: string;
+    ratePlanck: string;  // remote-action pot ratePlanck
+    actionSig: string;   // 65-byte hex signature from actionVerifier
+  }): Promise<void> {
+    const stored = await chrome.storage.local.get("connectedAddress");
+    const userAddress: string | undefined = stored.connectedAddress;
+    if (!userAddress) {
+      console.warn("[DATUM] Remote action claim dropped: no connectedAddress in storage.");
+      return;
+    }
+
+    const lockKey = `${userAddress}:${msg.campaignId}:2`;
+    await withLock(lockKey, async () => {
+      const campaignId = BigInt(msg.campaignId);
+      const chainState = await getChainState(userAddress, msg.campaignId, 2);
+
+      const eventCount = 1n;
+      const ratePlanck = BigInt(msg.ratePlanck);
+      const nonce = BigInt(chainState.lastNonce + 1);
+      const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
+
+      const claimHash = blake2Hash(
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash]
+      );
+
+      const claim: Claim = {
+        campaignId,
+        publisher: msg.publisherAddress,
+        eventCount,
+        ratePlanck,
+        actionType: 2,
+        clickSessionHash: ZeroHash,
+        nonce,
+        previousClaimHash,
+        claimHash,
+        zkProof: "0x",
+        nullifier: ZeroHash,
+        actionSig: msg.actionSig,
+      };
+
+      await setChainState(userAddress, msg.campaignId, 2, {
+        userAddress,
+        campaignId: msg.campaignId,
+        actionType: 2,
+        lastNonce: Number(nonce),
+        lastClaimHash: claimHash,
+      });
+
+      await appendToQueue(claim, userAddress);
+      console.log(`[DATUM] Remote action claim queued: campaign=${msg.campaignId} nonce=${nonce}`);
     });
   },
 
@@ -161,11 +311,13 @@ export const claimBuilder = {
     userAddress: string,
     campaignId: string,
     onChainNonce: number,
-    onChainHash: string
+    onChainHash: string,
+    actionType: number = 0
   ): Promise<void> {
-    await setChainState(userAddress, campaignId, {
+    await setChainState(userAddress, campaignId, actionType, {
       userAddress,
       campaignId,
+      actionType,
       lastNonce: onChainNonce,
       lastClaimHash: onChainHash,
     });
@@ -178,18 +330,19 @@ export const claimBuilder = {
 // Chain state helpers
 // -------------------------------------------------------------------------
 
-async function getChainState(userAddress: string, campaignId: string): Promise<ClaimChainState> {
-  const key = `${CHAIN_STATE_PREFIX}${userAddress}:${campaignId}`;
+async function getChainState(userAddress: string, campaignId: string, actionType: number): Promise<ClaimChainState> {
+  const key = `${CHAIN_STATE_PREFIX}${userAddress}:${campaignId}:${actionType}`;
   const stored = await chrome.storage.local.get(key);
-  return stored[key] ?? { userAddress, campaignId, lastNonce: 0, lastClaimHash: ZeroHash };
+  return stored[key] ?? { userAddress, campaignId, actionType, lastNonce: 0, lastClaimHash: ZeroHash };
 }
 
 async function setChainState(
   userAddress: string,
   campaignId: string,
+  actionType: number,
   state: ClaimChainState
 ): Promise<void> {
-  const key = `${CHAIN_STATE_PREFIX}${userAddress}:${campaignId}`;
+  const key = `${CHAIN_STATE_PREFIX}${userAddress}:${campaignId}:${actionType}`;
   await chrome.storage.local.set({ [key]: state });
 }
 
@@ -200,13 +353,16 @@ async function setChainState(
 interface SerializedClaim {
   campaignId: string;
   publisher: string;
-  impressionCount: string;
-  clearingCpmPlanck: string;
+  eventCount: string;
+  ratePlanck: string;
+  actionType: string;
+  clickSessionHash: string;
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
   nullifier: string;
+  actionSig: string;
   userAddress: string;
 }
 
@@ -230,13 +386,16 @@ function serializeClaim(claim: Claim, userAddress: string): SerializedClaim {
   return {
     campaignId: claim.campaignId.toString(),
     publisher: claim.publisher,
-    impressionCount: claim.impressionCount.toString(),
-    clearingCpmPlanck: claim.clearingCpmPlanck.toString(),
+    eventCount: claim.eventCount.toString(),
+    ratePlanck: claim.ratePlanck.toString(),
+    actionType: claim.actionType.toString(),
+    clickSessionHash: claim.clickSessionHash,
     nonce: claim.nonce.toString(),
     previousClaimHash: claim.previousClaimHash,
     claimHash: claim.claimHash,
     zkProof: claim.zkProof,
     nullifier: claim.nullifier,
+    actionSig: claim.actionSig,
     userAddress,
   };
 }

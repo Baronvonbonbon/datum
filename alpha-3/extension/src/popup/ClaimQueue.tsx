@@ -67,7 +67,7 @@ interface QueueState {
 // Minimal campaign info we need for earnings estimate
 interface CampaignMeta {
   id: string;
-  bidCpmPlanck: string;
+  viewBid: string;
 }
 
 interface AutoFlushResult {
@@ -930,7 +930,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           {userClaims && Object.entries(userClaims).map(([cid, count]) => {
             const meta = campaigns[cid];
             const estPlanck = meta
-              ? (BigInt(meta.bidCpmPlanck) * BigInt(count) * 7500n) / (1000n * 10000n)
+              ? (BigInt(meta.viewBid) * BigInt(count) * 7500n) / (1000n * 10000n)
               : null;
             const anyBusy = submitting || signing || submittingCampaign !== null || discardingCampaign !== null;
             return (

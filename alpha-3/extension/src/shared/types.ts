@@ -1,15 +1,27 @@
 // Shared types mirroring IDatumSettlement.sol and IDatumCampaigns.sol structs
 
+// Per-campaign action pot config (mirrors IDatumCampaigns.ActionPotConfig)
+export interface ActionPotConfig {
+  actionType: number;         // 0=view/CPM, 1=click/CPC, 2=remote-action/CPA
+  budgetPlanck: bigint;
+  dailyCapPlanck: bigint;
+  ratePlanck: bigint;         // CPM rate (type-0) or flat rate per event (type-1/2)
+  actionVerifier: string;     // EOA that signs type-2 claims (address(0) for type-0/1)
+}
+
 export interface Claim {
   campaignId: bigint;
   publisher: string;
-  impressionCount: bigint;
-  clearingCpmPlanck: bigint;
+  eventCount: bigint;         // renamed from impressionCount
+  ratePlanck: bigint;         // renamed from clearingCpmPlanck; CPM for type-0, flat for type-1/2
+  actionType: number;         // 0=view, 1=click, 2=remote-action
+  clickSessionHash: string;   // bytes32: impressionNonce for type-1, ZeroHash otherwise
   nonce: bigint;
-  previousClaimHash: string; // bytes32 hex
-  claimHash: string;         // bytes32 hex
-  zkProof: string;           // bytes hex, "0x" for non-ZK campaigns
-  nullifier: string;         // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  previousClaimHash: string;  // bytes32 hex
+  claimHash: string;          // bytes32 hex
+  zkProof: string;            // bytes hex, "0x" for non-ZK campaigns
+  nullifier: string;          // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  actionSig: string;          // bytes hex, "0x" for type-0/1; 65-byte sig for type-2
 }
 
 export interface ClaimBatch {
@@ -34,15 +46,15 @@ export interface SettlementResult {
 export interface Campaign {
   advertiser: string;
   publisher: string;
-  remainingBudget: bigint;  // planck
-  dailyCap: bigint;         // planck
-  bidCpmPlanck: bigint;
+  remainingBudget: bigint;      // total planck across all pots
+  pots?: ActionPotConfig[];     // per-action-type budget pots
+  viewBid?: bigint;             // view pot ratePlanck (CPM); undefined if no view pot
   snapshotTakeRateBps: number;
   status: CampaignStatus;
-  categoryId: number;       // deprecated — use requiredTags (TX-3)
+  categoryId: number;           // deprecated — use requiredTags (TX-3)
   pendingExpiryBlock: bigint;
   terminationBlock: bigint;
-  requiredTags: string[];   // TX-3: bytes32 tag hashes required for this campaign
+  requiredTags: string[];       // TX-3: bytes32 tag hashes required for this campaign
 }
 
 // Campaign metadata fetched from IPFS
@@ -289,10 +301,11 @@ export interface Impression {
   category: string;
 }
 
-// Per-(userAddress, campaignId) claim chain state persisted in chrome.storage.local
+// Per-(userAddress, campaignId, actionType) claim chain state persisted in chrome.storage.local
 export interface ClaimChainState {
   userAddress: string;
-  campaignId: string;  // bigint as string for JSON serialization
+  campaignId: string;   // bigint as string for JSON serialization
+  actionType: number;   // 0=view, 1=click, 2=remote-action
   lastNonce: number;
   lastClaimHash: string; // bytes32 hex
 }
@@ -301,13 +314,16 @@ export interface ClaimChainState {
 export interface SerializedClaim {
   campaignId: string;
   publisher: string;
-  impressionCount: string;
-  clearingCpmPlanck: string;
+  eventCount: string;          // renamed from impressionCount
+  ratePlanck: string;          // renamed from clearingCpmPlanck
+  actionType: string;          // "0", "1", or "2"
+  clickSessionHash: string;    // bytes32 hex; ZeroHash for type-0/2
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
   zkProof: string;
-  nullifier: string; // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  nullifier: string;           // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  actionSig: string;           // bytes hex; "0x" for type-0/1
 }
 
 export interface SerializedClaimBatch {
@@ -358,6 +374,7 @@ export interface ContractAddresses {
   publisherGovernance: string;  // FP-3: conviction-weighted publisher fraud governance
   nullifierRegistry: string;    // FP-5: per-user per-campaign ZK nullifier replay prevention
   parameterGovernance: string;  // T1-B: conviction-vote governance for FP system parameters
+  clickRegistry: string;        // FP-CPC: impression→click session registry for CPC fraud prevention
 }
 
 // User ad preferences — persisted in chrome.storage.local

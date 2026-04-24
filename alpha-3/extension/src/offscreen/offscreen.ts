@@ -60,13 +60,16 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
     claims: b.claims.map((c) => ({
       campaignId: BigInt(c.campaignId),
       publisher: c.publisher,
-      impressionCount: BigInt(c.impressionCount),
-      clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+      eventCount: BigInt(c.eventCount),
+      ratePlanck: BigInt(c.ratePlanck),
+      actionType: Number(c.actionType ?? 0),
+      clickSessionHash: c.clickSessionHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
       nonce: BigInt(c.nonce),
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
       zkProof: c.zkProof,
       nullifier: c.nullifier,
+      actionSig: c.actionSig ?? "0x",
     })),
   }));
 
@@ -93,32 +96,43 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       await new Promise((r) => setTimeout(r, 2000));
     }
 
-    // Verify on-chain lastNonce per campaign to determine what settled
+    // Verify on-chain lastNonce per (campaign, actionType) to determine what settled
     const settledNonces: Record<string, string[]> = {};
     for (const b of contractBatches) {
       const cid = b.campaignId.toString();
-      try {
-        const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
-        console.log(`[DATUM offscreen] campaign=${cid} on-chain nonce=${onChainNonce}, batch first=${b.claims[0].nonce} last=${b.claims[b.claims.length - 1].nonce}`);
-        if (onChainNonce >= b.claims[0].nonce) {
-          const count = Number(onChainNonce - b.claims[0].nonce + 1n);
-          const settled = b.claims.slice(0, count);
-          settledNonces[cid] = settled.map((c) => c.nonce.toString());
-          settledCount += settled.length;
-          if (count < b.claims.length) {
-            // Partial — remaining claims rejected
+      settledNonces[cid] = settledNonces[cid] ?? [];
+
+      // Group claims by actionType — each has its own nonce chain
+      const byActionType = new Map<number, typeof b.claims>();
+      for (const c of b.claims) {
+        const arr = byActionType.get(c.actionType) ?? [];
+        arr.push(c);
+        byActionType.set(c.actionType, arr);
+      }
+
+      for (const [actionType, claims] of byActionType) {
+        const sortedClaims = claims.sort((a, z) => (a.nonce < z.nonce ? -1 : 1));
+        try {
+          const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId, actionType);
+          console.log(`[DATUM offscreen] campaign=${cid} actionType=${actionType} on-chain nonce=${onChainNonce}`);
+          if (onChainNonce >= sortedClaims[0].nonce) {
+            const count = Number(onChainNonce - sortedClaims[0].nonce + 1n);
+            const settled = sortedClaims.slice(0, count);
+            settledNonces[cid].push(...settled.map((c) => c.nonce.toString()));
+            settledCount += settled.length;
+            if (count < sortedClaims.length) {
+              rejectedCampaignIds.add(cid);
+              rejectedCount += sortedClaims.length - count;
+            }
+          } else {
             rejectedCampaignIds.add(cid);
-            rejectedCount += b.claims.length - count;
+            rejectedCount += sortedClaims.length;
           }
-        } else {
-          // Nothing settled
-          rejectedCampaignIds.add(cid);
-          rejectedCount += b.claims.length;
+        } catch {
+          // RPC error — optimistically treat as settled
+          settledNonces[cid].push(...sortedClaims.map((c) => c.nonce.toString()));
+          settledCount += sortedClaims.length;
         }
-      } catch {
-        // RPC error — optimistically treat as settled
-        settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
-        settledCount += b.claims.length;
       }
     }
 

@@ -11,7 +11,7 @@ interface CampaignCandidate {
   id: string;
   publisher: string;
   status: number | string;
-  bidCpmPlanck: string;
+  viewBid: string;
   categoryId: number | string;
   requiredTags?: string[];
 }
@@ -66,7 +66,7 @@ function scoreCampaign(
   }
 
   // Bid weight: higher-bidding campaigns get proportionally more impressions
-  const bidWeight = Number(campaign.bidCpmPlanck);
+  const bidWeight = Number(campaign.viewBid);
 
   // Minimum score floor: ensure all campaigns have a chance even with empty profile
   const baseScore = bidWeight * 0.1;

@@ -6,15 +6,23 @@ import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/ISystem.sol";
 
 /// @title DatumClaimValidator
-/// @notice Validates settlement claims: campaign lookup, publisher match, blocklist,
-///         nonce chain, hash chain (Blake2-256 on PolkaVM / keccak256 on EVM).
-///         Extracted from DatumSettlement (SE-1) to free PVM headroom.
+/// @notice Validates settlement claims — extracted from Settlement (SE-1) for PVM headroom.
+///
+///         Alpha-3 multi-pricing changes:
+///           - Claim struct: impressionCount→eventCount, clearingCpmPlanck→ratePlanck,
+///             plus actionType and clickSessionHash fields.
+///           - Hash preimage is now 9 fields (was 7): adds actionType + clickSessionHash.
+///           - Rate check calls getCampaignPot(campaignId, actionType) instead of
+///             reading bidCpmPlanck from getCampaignForSettlement.
+///           - Type-1 (click): checks clickRegistry.hasUnclaimed for session validity.
+///           - Type-2 (remote-action): ecrecover checks actionSig against pot.actionVerifier.
+///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
 contract DatumClaimValidator is IDatumClaimValidator {
     ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
-    // BM-2: Matches Settlement.MAX_USER_IMPRESSIONS — prevents overflow in payment calc
-    uint256 private constant MAX_CLAIM_IMPRESSIONS = 100000;
+    // BM-2: Matches Settlement.MAX_USER_EVENTS — prevents overflow in payment calc
+    uint256 private constant MAX_CLAIM_EVENTS = 100000;
     // ZK-2: Groth16/BN254 proof is exactly 256 bytes; 1024-byte cap guards against oversized calldata abuse.
     uint256 private constant MAX_ZK_PROOF_SIZE = 1024;
 
@@ -26,6 +34,8 @@ contract DatumClaimValidator is IDatumClaimValidator {
     address public zkVerifier;
     // AUDIT-005: CampaignValidator for allowlist snapshot checks
     address public campaignValidator;
+    // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
+    address public clickRegistry;
 
     constructor(address _campaigns, address _publishers, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
@@ -55,14 +65,17 @@ contract DatumClaimValidator is IDatumClaimValidator {
 
     function setZKVerifier(address addr) external {
         require(msg.sender == owner, "E18");
-        // addr may be address(0) to disable ZK enforcement globally
         zkVerifier = addr;
     }
 
     function setCampaignValidator(address addr) external {
         require(msg.sender == owner, "E18");
-        // addr may be address(0) to disable snapshot checks
         campaignValidator = addr;
+    }
+
+    function setClickRegistry(address addr) external {
+        require(msg.sender == owner, "E18");
+        clickRegistry = addr;
     }
 
     function transferOwnership(address newOwner) external {
@@ -88,19 +101,22 @@ contract DatumClaimValidator is IDatumClaimValidator {
         uint256 expectedNonce,
         bytes32 expectedPrevHash
     ) external view override returns (bool, uint8, uint16, bytes32) {
-        // Check 1: non-zero impressions within allowed range
-        if (claim.impressionCount == 0) return (false, 2, 0, bytes32(0));
-        if (claim.impressionCount > MAX_CLAIM_IMPRESSIONS) return (false, 17, 0, bytes32(0));
+        // Check 0: valid action type
+        if (claim.actionType > 2) return (false, 21, 0, bytes32(0)); // E88 mapped to reason 21
 
-        // Check 2: campaign exists and is active
+        // Check 1: non-zero events within allowed range
+        if (claim.eventCount == 0) return (false, 2, 0, bytes32(0));
+        if (claim.eventCount > MAX_CLAIM_EVENTS) return (false, 17, 0, bytes32(0));
+
+        // Check 2: campaign exists and is active; get publisher + take rate (3-tuple now)
+        // getCampaignForSettlement(uint256) → (uint8 status, address publisher, uint16 takeRate)
         (bool cOk, bytes memory cRet) = campaigns.staticcall(
             abi.encodeWithSelector(bytes4(0xe3c76d2e), claim.campaignId)
         );
-        require(cOk && cRet.length >= 128, "E01");
-        (uint8 status, address cPublisher, uint256 cBidCpm, uint16 cTakeRate)
-            = abi.decode(cRet, (uint8, address, uint256, uint16));
+        require(cOk && cRet.length >= 96, "E01");
+        (uint8 status, address cPublisher, uint16 cTakeRate)
+            = abi.decode(cRet, (uint8, address, uint16));
 
-        if (cBidCpm == 0) return (false, 3, 0, bytes32(0));
         if (status != 1) return (false, 4, 0, bytes32(0));
 
         // Check 3: publisher match
@@ -112,7 +128,6 @@ contract DatumClaimValidator is IDatumClaimValidator {
                     abi.encodeWithSignature("campaignAllowlistEnabled(uint256)", claim.campaignId)
                 );
                 if (alEnOk && alEnRet.length >= 32 && abi.decode(alEnRet, (bool))) {
-                    // Allowlist was enabled at creation — get advertiser and check snapshot
                     (bool advOk, bytes memory advRet) = campaigns.staticcall(
                         abi.encodeWithSignature("getCampaignAdvertiser(uint256)", claim.campaignId)
                     );
@@ -140,8 +155,18 @@ contract DatumClaimValidator is IDatumClaimValidator {
         );
         if (!blOk || blRet.length < 32 || abi.decode(blRet, (bool))) return (false, 11, 0, bytes32(0));
 
-        // Check 5: clearing CPM <= bid CPM
-        if (claim.clearingCpmPlanck > cBidCpm) return (false, 6, 0, bytes32(0));
+        // Check 5: rate check — fetch pot config for this action type
+        // getCampaignPot(uint256 campaignId, uint8 actionType) → ActionPotConfig
+        (bool pOk, bytes memory pRet) = campaigns.staticcall(
+            abi.encodeWithSignature("getCampaignPot(uint256,uint8)", claim.campaignId, claim.actionType)
+        );
+        if (!pOk || pRet.length < 160) return (false, 3, 0, bytes32(0)); // pot not found
+        // ActionPotConfig: (uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)
+        // ABI decode — note: uint8 is padded to 32 bytes in ABI encoding
+        (,,,uint256 potRate, address potActionVerifier) =
+            abi.decode(pRet, (uint8, uint256, uint256, uint256, address));
+        if (potRate == 0) return (false, 3, 0, bytes32(0));
+        if (claim.ratePlanck > potRate) return (false, 6, 0, bytes32(0));
 
         // Check 6: nonce chain
         if (claim.nonce != expectedNonce) return (false, 7, 0, bytes32(0));
@@ -153,13 +178,16 @@ contract DatumClaimValidator is IDatumClaimValidator {
             if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0, bytes32(0));
         }
 
-        // Check 8: claim hash (Blake2-256 on PolkaVM, keccak256 on EVM)
+        // Check 8: claim hash (9-field preimage: adds actionType + clickSessionHash)
+        // Blake2-256 on PolkaVM, keccak256 on EVM
         bytes memory packed = abi.encodePacked(
             claim.campaignId,
             claim.publisher,
             user,
-            claim.impressionCount,
-            claim.clearingCpmPlanck,
+            claim.eventCount,
+            claim.ratePlanck,
+            claim.actionType,
+            claim.clickSessionHash,
             claim.nonce,
             claim.previousClaimHash
         );
@@ -171,9 +199,8 @@ contract DatumClaimValidator is IDatumClaimValidator {
         }
         if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
 
-        // Check 9: ZK proof (if campaign requires it and verifier is wired)
-        // Public inputs hash = computedHash (commits to all claim fields including CPM + nonce)
-        if (zkVerifier != address(0)) {
+        // Check 9: ZK proof (view claims only, if campaign requires it)
+        if (claim.actionType == 0 && zkVerifier != address(0)) {
             (bool zkReqOk, bytes memory zkReqRet) = campaigns.staticcall(
                 abi.encodeWithSignature("getCampaignRequiresZkProof(uint256)", claim.campaignId)
             );
@@ -188,6 +215,39 @@ contract DatumClaimValidator is IDatumClaimValidator {
             }
         }
 
+        // Check 10 (type-1 only): verify click session exists and is unclaimed
+        if (claim.actionType == 1) {
+            if (clickRegistry == address(0)) return (false, 22, 0, bytes32(0)); // E90 → reason 22
+            if (claim.clickSessionHash == bytes32(0)) return (false, 22, 0, bytes32(0));
+            // hasUnclaimed(address user, uint256 campaignId, bytes32 impressionNonce) → bool
+            // Note: clickSessionHash in the claim IS the impressionNonce used to compute the session
+            (bool crOk, bytes memory crRet) = clickRegistry.staticcall(
+                abi.encodeWithSignature("hasUnclaimed(address,uint256,bytes32)", user, claim.campaignId, claim.clickSessionHash)
+            );
+            if (!crOk || crRet.length < 32 || !abi.decode(crRet, (bool))) return (false, 22, 0, bytes32(0));
+        }
+
+        // Check 11 (type-2 only): verify actionSig from the pot's actionVerifier EOA
+        if (claim.actionType == 2) {
+            if (potActionVerifier == address(0)) return (false, 23, 0, bytes32(0)); // E94 → reason 23
+            if (claim.actionSig.length != 65) return (false, 23, 0, bytes32(0));
+            // sig is over computedHash (the full claim hash)
+            bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", computedHash));
+            (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.actionSig);
+            address recovered = ecrecover(ethHash, v, r, s);
+            if (recovered == address(0) || recovered != potActionVerifier) return (false, 23, 0, bytes32(0));
+        }
+
         return (true, 0, cTakeRate, computedHash);
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal
+    // -------------------------------------------------------------------------
+
+    function _splitSig(bytes calldata sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+        r = bytes32(sig[:32]);
+        s = bytes32(sig[32:64]);
+        v = uint8(sig[64]);
     }
 }

@@ -1,6 +1,6 @@
 // Second-price Vickrey auction for campaign selection (P19)
-// effectiveBid = bidCpmPlanck * interestWeight
-// Clearing CPM = secondEffectiveBid / winnerInterestWeight, clamped to [bidCpm*30%, bidCpm]
+// effectiveBid = viewBid * interestWeight  (viewBid = view/CPM pot ratePlanck)
+// Clearing CPM = secondEffectiveBid / winnerInterestWeight, clamped to [viewBid*30%, viewBid]
 //
 // TX-3: Tag-based interest weighting. Campaigns carry requiredTags (bytes32[]).
 // Interest weight = average tag weight from profile using tag strings.
@@ -12,7 +12,7 @@ import { tagStringFromHash } from "@shared/tagDictionary";
 
 export interface CampaignCandidate {
   id: string;
-  bidCpmPlanck: string;  // serialized bigint
+  viewBid: string;          // serialized bigint — view pot ratePlanck (CPM)
   categoryId: number;
   publisher: string;
   requiredTags?: string[];  // TX-3: bytes32 tag hashes
@@ -21,9 +21,9 @@ export interface CampaignCandidate {
 
 export interface ScoredBid {
   id: string;
-  bidCpmPlanck: string;
+  viewBid: string;          // serialized bigint — view pot ratePlanck
   interestWeight: number;
-  effectiveBidMicro: string; // effectiveBid.toString() (bidCpm * weight * 1000)
+  effectiveBidMicro: string; // effectiveBid.toString() (viewBid * weight * 1000)
 }
 
 export interface AuctionResult {
@@ -32,6 +32,8 @@ export interface AuctionResult {
   participants: number;
   mechanism: "second-price" | "solo" | "floor";
   allScored: ScoredBid[];
+  /** Ratio of clearingCpmPlanck to winner's viewBid (0–1). Indicates auction efficiency. */
+  bidEfficiency: number;
 }
 
 /**
@@ -52,7 +54,7 @@ export function auctionForPage(
   // Compute effective bids
   const scored = campaigns.map((c) => {
     const interestWeight = Math.max(getTagWeight(profile, c, pageTags), 0.1);
-    const bidCpm = BigInt(c.bidCpmPlanck);
+    const bidCpm = BigInt(c.viewBid);
     // effectiveBid in micro-planck (multiply by 1000 for precision)
     const effectiveBid = bidCpm * BigInt(Math.round(interestWeight * 1000));
     return { campaign: c, bidCpm, interestWeight, effectiveBid };
@@ -70,20 +72,22 @@ export function auctionForPage(
 
   const allScored: ScoredBid[] = scored.map((s) => ({
     id: String(s.campaign.id ?? s.campaign.campaignId ?? "?"),
-    bidCpmPlanck: s.bidCpm.toString(),
+    viewBid: s.bidCpm.toString(),
     interestWeight: s.interestWeight,
     effectiveBidMicro: s.effectiveBid.toString(),
   }));
 
   if (campaigns.length === 1) {
-    // Solo: 70% of bid
-    const clearingCpm = (bidCpm * 70n) / 100n;
+    // Solo: 85% of bid (raised from 70% — reduces solo discount)
+    const clearingCpm = (bidCpm * 85n) / 100n;
+    const finalCpm = clearingCpm > 0n ? clearingCpm : 1n;
     return {
       winner: winner.campaign,
-      clearingCpmPlanck: clearingCpm > 0n ? clearingCpm : 1n,
+      clearingCpmPlanck: finalCpm,
       participants: 1,
       mechanism: "solo",
       allScored,
+      bidEfficiency: bidCpm > 0n ? Number(finalCpm) / Number(bidCpm) : 0,
     };
   }
 
@@ -92,8 +96,8 @@ export function auctionForPage(
   // clearingCpm = secondEffectiveBid / (winnerInterestWeight * 1000)
   const clearingRaw = second.effectiveBid / BigInt(Math.round(winner.interestWeight * 1000));
 
-  // Clamp to [bidCpm * 30%, bidCpm]
-  const floor = (bidCpm * 30n) / 100n;
+  // Clamp to [bidCpm * 65%, bidCpm] (floor raised from 30% — tighter range)
+  const floor = (bidCpm * 65n) / 100n;
   let clearingCpm: bigint;
   let mechanism: "second-price" | "floor";
 
@@ -114,6 +118,7 @@ export function auctionForPage(
     participants: campaigns.length,
     mechanism,
     allScored,
+    bidEfficiency: bidCpm > 0n ? Number(clearingCpm) / Number(bidCpm) : 0,
   };
 }
 

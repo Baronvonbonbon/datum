@@ -7,20 +7,27 @@ import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
 import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumNullifierRegistry.sol";
+import "./interfaces/IDatumClickRegistry.sol";
 
 /// @title DatumSettlement
 /// @notice Processes claim batches and distributes payments.
 ///
-///         Alpha-3 restructuring (SE-1):
-///           - Claim validation extracted to DatumClaimValidator satellite.
-///           - Settlement no longer holds campaigns/publishers refs or ISystem import.
-///           - Frees ~2.5 KB PVM headroom for future features.
+///         Alpha-3 multi-pricing changes:
+///           - Claim struct: impressionCount→eventCount, clearingCpmPlanck→ratePlanck,
+///             plus actionType, clickSessionHash, actionSig fields.
+///           - Chain state triple-keyed: (user, campaignId, actionType).
+///           - Payment formula: view (type-0) = (ratePlanck × eventCount) / 1000;
+///             click/action (type-1/2) = ratePlanck × eventCount.
+///           - BudgetLedger.deductAndTransfer now takes actionType.
+///           - Type-1 claims: Settlement calls clickRegistry.markClaimed after success.
+///           - rateLimiter.checkAndIncrement now takes actionType.
 ///
-///         Revenue formula (unchanged):
-///           totalPayment    = (clearingCpmPlanck * impressionCount) / 1000
-///           publisherPayment = totalPayment * snapshotTakeRateBps / 10000
+///         Revenue formula:
+///           totalPayment    = (ratePlanck × eventCount / 1000) for view
+///                           = (ratePlanck × eventCount) for click/action
+///           publisherPayment = totalPayment × snapshotTakeRateBps / 10000
 ///           remainder       = totalPayment - publisherPayment
-///           userPayment     = remainder * 7500 / 10000   (75%)
+///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public owner;
@@ -48,19 +55,22 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     address public publisherReputation;
     // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
     uint16 public minReputationScore;
+    // CPC: click registry for type-1 session tracking (address(0) = disabled)
+    address public clickRegistry;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
 
-    mapping(address => mapping(uint256 => uint256)) public lastNonce;
-    mapping(address => mapping(uint256 => bytes32)) public lastClaimHash;
+    // Triple-keyed chain state: (user, campaignId, actionType)
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256)))  public lastNonce;
+    mapping(address => mapping(uint256 => mapping(uint8 => bytes32))) public lastClaimHash;
 
-    // BM-2: Per-user per-campaign cumulative settlement tracking
-    mapping(address => mapping(uint256 => uint256)) public userCampaignSettled;
-    uint256 public constant MAX_USER_IMPRESSIONS = 100000;
+    // BM-2: Per-user per-campaign per-actionType cumulative settlement tracking
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public userCampaignSettled;
+    uint256 public constant MAX_USER_EVENTS = 100000;
 
     // BM-10: Minimum blocks between settlement batches per user per campaign (0 = disabled)
     uint16 public minClaimInterval;
-    mapping(address => mapping(uint256 => uint256)) public lastSettlementBlock;
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public lastSettlementBlock;
 
     constructor(address _pauseRegistry) {
         require(_pauseRegistry != address(0), "E00");
@@ -102,59 +112,55 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         attestationVerifier = addr;
     }
 
-    /// @notice Set the BM-5 rate limiter satellite. Pass address(0) to disable.
     function setRateLimiter(address addr) external {
         require(msg.sender == owner, "E18");
         rateLimiter = addr;
     }
 
-    /// @notice Set minimum blocks between settlement batches per user per campaign. 0 = disabled.
     function setMinClaimInterval(uint16 interval) external {
         require(msg.sender == owner, "E18");
         minClaimInterval = interval;
     }
 
-    /// @notice Set publishers ref for S12 settlement-level blocklist check. Pass address(0) to disable.
     function setPublishers(address addr) external {
         require(msg.sender == owner, "E18");
         publishers = addr;
     }
 
-    /// @notice Set token reward vault. Pass address(0) to disable token rewards.
     function setTokenRewardVault(address addr) external {
         require(msg.sender == owner, "E18");
         tokenRewardVault = addr;
     }
 
-    /// @notice Set campaigns ref for reading reward token config.
     function setCampaigns(address addr) external {
         require(msg.sender == owner, "E18");
         require(addr != address(0), "E00");
         campaigns = addr;
     }
 
-    /// @notice Set publisher stake enforcement satellite. Pass address(0) to disable.
     function setPublisherStake(address addr) external {
         require(msg.sender == owner, "E18");
         publisherStake = addr;
     }
 
-    /// @notice Set FP-5 nullifier registry. Pass address(0) to disable.
     function setNullifierRegistry(address addr) external {
         require(msg.sender == owner, "E18");
         nullifierRegistry = addr;
     }
 
-    /// @notice Set FP-16 publisher reputation recorder. Pass address(0) to disable.
     function setPublisherReputation(address addr) external {
         require(msg.sender == owner, "E18");
         publisherReputation = addr;
     }
 
-    /// @notice Set minimum publisher reputation score required to settle. 0 = disabled.
     function setMinReputationScore(uint16 score) external {
         require(msg.sender == owner, "E18");
         minReputationScore = score;
+    }
+
+    function setClickRegistry(address addr) external {
+        require(msg.sender == owner, "E18");
+        clickRegistry = addr;
     }
 
     function transferOwnership(address newOwner) external {
@@ -169,7 +175,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         pendingOwner = address(0);
     }
 
-    /// @notice Reject accidental ETH deposits (S6)
     receive() external payable { revert("E03"); }
 
     // -------------------------------------------------------------------------
@@ -184,7 +189,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     {
         require(claimValidator != address(0), "E00");
 
-        // Pause check via plain staticcall (no typed interface import)
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
             abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
         );
@@ -195,9 +199,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
 
-            // Per-publisher relay auth: check if msg.sender is the registered relaySigner
-            // for this batch's publisher (uses publishers ref, same one used for blocklist checks).
-            // Falls back to global relayContract for backwards compatibility.
             bool isPublisherRelay = false;
             if (publishers != address(0) && batch.claims.length > 0) {
                 (bool rsOk, bytes memory rsRet) = publishers.staticcall(
@@ -226,9 +227,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     {
         require(claimValidator != address(0), "E00");
 
-        // Pause check
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
-            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
+            abi.encodeWithSelector(bytes4(0x5c975abb))
         );
         require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
 
@@ -238,8 +238,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             UserClaimBatch calldata ub = batches[u];
             require(ub.campaigns.length <= 10, "E28");
 
-            // Auth: same rules as settleClaims — relay, attestation verifier, or self
-            // Per-publisher relay signer checked per campaign-batch below if needed.
             for (uint256 c = 0; c < ub.campaigns.length; c++) {
                 CampaignClaims calldata cc = ub.campaigns[c];
 
@@ -265,20 +263,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         }
     }
 
-    /// @dev Accumulator for per-batch aggregated payment and token reward totals.
-    ///      Using a struct avoids Solidity's 16-slot stack depth limit.
     struct BatchAggregate {
-        uint256 total;            // total DOT deducted across all settled claims
-        uint256 publisherPayment; // publisher share of total
-        uint256 userPayment;      // user share of total
-        uint256 protocolFee;      // protocol share of total
-        address publisher;        // publisher address (from first settled claim)
-        uint256 tokenReward;      // accumulated token reward units
-        address rewardToken;      // ERC-20 reward token address (cached once per batch)
-        uint256 rewardPerImpression; // reward per impression (cached once per batch)
-        bool exhausted;           // true if any claim exhausted the campaign budget
-        uint256 campaignIdExhausted; // campaignId that triggered budget exhaustion (for deferred completion)
-        uint256 impressionsSettled; // total impressions settled (for recordImpressions)
+        uint256 total;
+        uint256 publisherPayment;
+        uint256 userPayment;
+        uint256 protocolFee;
+        address publisher;
+        uint256 tokenReward;
+        address rewardToken;
+        uint256 rewardPerImpression;
+        bool exhausted;
+        uint256 campaignIdExhausted;
+        uint256 eventsSettled;
     }
 
     function _processBatch(
@@ -289,10 +285,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     ) internal {
         require(claims.length <= 10, "E28");
 
-        // BM-10: Min claim interval — reject entire batch if too soon since last settlement
+        // All claims in a batch must share the same actionType (validated by chain state key)
+        // We read actionType from the first claim for batch-level checks
+        uint8 batchActionType = claims.length > 0 ? claims[0].actionType : 0;
+
+        // BM-10: Min claim interval
         uint16 interval = minClaimInterval;
         if (interval > 0) {
-            uint256 lastBlock = lastSettlementBlock[user][campaignId];
+            uint256 lastBlock = lastSettlementBlock[user][campaignId][batchActionType];
             if (lastBlock != 0 && block.number < lastBlock + interval) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
@@ -302,7 +302,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
         }
 
-        // Safe rollout: reputation gate — reject entire batch if publisher score is below minimum
+        // Safe rollout: reputation gate
         uint16 minRepScore = minReputationScore;
         if (publisherReputation != address(0) && minRepScore > 0 && claims.length > 0) {
             (bool repOk, bytes memory repRet) = publisherReputation.staticcall(
@@ -321,13 +321,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         uint256 prevRejectedCount = result.rejectedCount;
         bool gapFound = false;
 
-        // Aggregate state for this batch — amortises paymentVault + tokenReward calls
         BatchAggregate memory agg;
 
-        // Cache token reward config once per batch (2 staticcalls instead of 2N)
-        // getCampaignRewardToken(uint256) → address
-        // getCampaignRewardPerImpression(uint256) → uint256
-        if (tokenRewardVault != address(0) && campaigns != address(0)) {
+        // Cache token reward config once per batch (view claims only)
+        if (tokenRewardVault != address(0) && campaigns != address(0) && batchActionType == 0) {
             (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
                 abi.encodeWithSelector(bytes4(0xf00b29a9), campaignId)
             );
@@ -360,7 +357,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
 
             // S12: Settlement-level blocklist check
-            // isBlocked(address publisher) → bool
             if (publishers != address(0)) {
                 (bool blOk, bytes memory blRet) = publishers.staticcall(
                     abi.encodeWithSelector(bytes4(0xfbac3951), claim.publisher)
@@ -374,8 +370,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
 
             // Delegate validation to ClaimValidator satellite (SE-1)
-            uint256 expectedNonce = lastNonce[user][claim.campaignId] + 1;
-            bytes32 expectedPrevHash = lastClaimHash[user][claim.campaignId];
+            uint256 expectedNonce  = lastNonce[user][claim.campaignId][claim.actionType] + 1;
+            bytes32 expectedPrevHash = lastClaimHash[user][claim.campaignId][claim.actionType];
 
             (bool ok, uint8 reasonCode, uint16 cTakeRate, bytes32 computedHash) =
                 IDatumClaimValidator(claimValidator).validateClaim(
@@ -383,28 +379,26 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 );
 
             if (!ok) {
-                if (reasonCode == 7) {
-                    gapFound = true;
-                }
+                if (reasonCode == 7) gapFound = true;
                 result.rejectedCount++;
                 emit ClaimRejected(claim.campaignId, user, claim.nonce, reasonCode);
                 continue;
             }
 
-            // BM-2: Per-user settlement cap check
-            uint256 newTotal = userCampaignSettled[user][claim.campaignId] + claim.impressionCount;
-            if (newTotal > MAX_USER_IMPRESSIONS) {
+            // BM-2: Per-user settlement cap check (per actionType)
+            uint256 newTotal = userCampaignSettled[user][claim.campaignId][claim.actionType] + claim.eventCount;
+            if (newTotal > MAX_USER_EVENTS) {
                 result.rejectedCount++;
                 emit ClaimRejected(claim.campaignId, user, claim.nonce, 13);
                 gapFound = true;
                 continue;
             }
-            userCampaignSettled[user][claim.campaignId] = newTotal;
+            userCampaignSettled[user][claim.campaignId][claim.actionType] = newTotal;
 
-            // BM-5: Per-publisher window rate limit check (optional)
+            // BM-5: Per-publisher window rate limit (optional; rate limiter gates type-0 only)
             if (rateLimiter != address(0)) {
                 bool allowed = IDatumSettlementRateLimiter(rateLimiter).checkAndIncrement(
-                    claim.publisher, claim.impressionCount
+                    claim.publisher, claim.eventCount, claim.actionType
                 );
                 if (!allowed) {
                     result.rejectedCount++;
@@ -424,8 +418,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 }
             }
 
-            // FP-5: Nullifier replay check (optional). bytes32(0) nullifier skips the check.
-            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
+            // FP-5: Nullifier replay check (view claims only, optional)
+            if (claim.actionType == 0 && nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
                 if (IDatumNullifierRegistry(nullifierRegistry).isUsed(claim.campaignId, claim.nullifier)) {
                     result.rejectedCount++;
                     emit ClaimRejected(claim.campaignId, user, claim.nonce, 19);
@@ -434,50 +428,62 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 }
             }
 
-            // Effects first (CEI pattern): update chain state before any external calls
-            lastClaimHash[user][claim.campaignId] = computedHash;
-            lastNonce[user][claim.campaignId] = claim.nonce;
-            // FP-5: Register nullifier before payment interactions — prevents reuse if payment reverts
-            if (nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
-                // submitNullifier(bytes32 nullifier, uint256 campaignId)
+            // Effects first (CEI): update chain state before external calls
+            lastClaimHash[user][claim.campaignId][claim.actionType] = computedHash;
+            lastNonce[user][claim.campaignId][claim.actionType] = claim.nonce;
+
+            // FP-5: Register nullifier (view claims only)
+            if (claim.actionType == 0 && nullifierRegistry != address(0) && claim.nullifier != bytes32(0)) {
                 IDatumNullifierRegistry(nullifierRegistry).submitNullifier(claim.nullifier, claim.campaignId);
             }
 
-            // Compute payment split for this claim
-            uint256 totalPayment = (claim.clearingCpmPlanck * claim.impressionCount) / 1000;
+            // CPC: mark click session as claimed (type-1 only)
+            if (claim.actionType == 1 && clickRegistry != address(0) && claim.clickSessionHash != bytes32(0)) {
+                IDatumClickRegistry(clickRegistry).markClaimed(user, claim.campaignId, claim.clickSessionHash);
+            }
+
+            // Compute payment
+            uint256 totalPayment;
+            if (claim.actionType == 0) {
+                // CPM: rate per 1000 events
+                totalPayment = (claim.ratePlanck * claim.eventCount) / 1000;
+            } else {
+                // CPC / CPA: flat rate per event
+                totalPayment = claim.ratePlanck * claim.eventCount;
+            }
+
             uint256 publisherPayment = (totalPayment * cTakeRate) / 10000;
             uint256 rem = totalPayment - publisherPayment;
             uint256 userPayment = (rem * 7500) / 10000;
             uint256 protocolFee = rem - userPayment;
 
-            // Interactions: deduct from budget — BudgetLedger enforces daily cap correctly.
-            // DOT is transferred to PaymentVault by BudgetLedger on each deduction.
-            // deductAndTransfer(uint256 campaignId, uint256 amount, address vault)
+            // deductAndTransfer(uint256 campaignId, uint8 actionType, uint256 amount, address vault)
             (bool dOk, bytes memory dRet) = budgetLedger.call(
-                abi.encodeWithSelector(bytes4(0xcdbb1755),
-                    claim.campaignId, totalPayment, paymentVault)
+                abi.encodeWithSignature(
+                    "deductAndTransfer(uint256,uint8,uint256,address)",
+                    claim.campaignId, claim.actionType, totalPayment, paymentVault
+                )
             );
             require(dOk && dRet.length >= 32, "E16");
             if (abi.decode(dRet, (bool))) {
                 agg.exhausted = true;
                 agg.campaignIdExhausted = campaignId;
-                gapFound = true;  // stop processing after budget exhausted
+                gapFound = true;
             }
 
-            // Accumulate into batch aggregate (paymentVault credited once after loop)
             agg.total += totalPayment;
             agg.publisherPayment += publisherPayment;
             agg.userPayment += userPayment;
             agg.protocolFee += protocolFee;
             if (agg.publisher == address(0)) agg.publisher = claim.publisher;
 
-            // Accumulate token reward (credited once after loop)
-            if (agg.rewardToken != address(0) && agg.rewardPerImpression > 0) {
-                agg.tokenReward += claim.impressionCount * agg.rewardPerImpression;
+            // Token reward (view claims only)
+            if (claim.actionType == 0 && agg.rewardToken != address(0) && agg.rewardPerImpression > 0) {
+                agg.tokenReward += claim.eventCount * agg.rewardPerImpression;
             }
 
-            // Accumulate impression count for publisher stake bonding curve
-            agg.impressionsSettled += claim.impressionCount;
+            // Track events for publisher stake bonding curve
+            agg.eventsSettled += claim.eventCount;
 
             result.settledCount++;
             result.totalPaid += totalPayment;
@@ -486,8 +492,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
                 claim.campaignId,
                 user,
                 claim.publisher,
-                claim.impressionCount,
-                claim.clearingCpmPlanck,
+                claim.eventCount,
+                claim.ratePlanck,
+                claim.actionType,
                 claim.nonce,
                 publisherPayment,
                 userPayment,
@@ -495,9 +502,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             );
         }
 
-        // ── Aggregate paymentVault credit (1 call per batch instead of N) ────────
-        // DOT was already transferred to PaymentVault by each budgetLedger.deductAndTransfer.
-        // This call records how to split the accumulated DOT among publisher/user/protocol.
+        // Aggregate paymentVault credit
         // recordSplit(address publisher, uint256 publisherAmt, address user, uint256 userAmt, uint256 protocolFee)
         if (agg.total > 0) {
             (bool vOk,) = paymentVault.call(
@@ -507,9 +512,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             require(vOk, "E02");
         }
 
-        // ── Aggregate token reward credit (1 call per batch instead of N) ────────
-        // Non-critical: don't revert if token budget exhausted — vault handles gracefully.
-        // creditReward(uint256 campaignId, address token, address user, uint256 amount)
+        // Aggregate token reward credit (view claims only, non-critical)
         if (agg.tokenReward > 0) {
             tokenRewardVault.call(
                 abi.encodeWithSelector(bytes4(0x113e0e1e),
@@ -517,16 +520,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             );
         }
 
-        // ── FP-1: Record settled impressions on publisher stake bonding curve ────
-        // Non-critical: don't revert if recordImpressions fails (e.g., feature disabled mid-flight).
-        if (publisherStake != address(0) && agg.impressionsSettled > 0 && agg.publisher != address(0)) {
-            IDatumPublisherStake(publisherStake).recordImpressions(agg.publisher, agg.impressionsSettled);
+        // FP-1: Record settled events on publisher stake bonding curve
+        if (publisherStake != address(0) && agg.eventsSettled > 0 && agg.publisher != address(0)) {
+            IDatumPublisherStake(publisherStake).recordImpressions(agg.publisher, agg.eventsSettled);
         }
 
-        // ── FP-16: Record reputation stats — Settlement is sole trusted caller ────
-        // Non-critical: don't revert if reputation call fails.
+        // FP-16: Record reputation stats
         if (publisherReputation != address(0) && agg.publisher != address(0)) {
-            uint256 batchSettled = result.settledCount - prevSettledCount;
+            uint256 batchSettled  = result.settledCount  - prevSettledCount;
             uint256 batchRejected = result.rejectedCount - prevRejectedCount;
             if (batchSettled > 0 || batchRejected > 0) {
                 publisherReputation.call(
@@ -538,7 +539,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             }
         }
 
-        // ── Auto-complete campaign if budget exhausted (deferred to after all loop work) ──
+        // Auto-complete campaign if budget exhausted
         // completeCampaign(uint256 campaignId)
         if (agg.exhausted) {
             (bool lOk,) = lifecycle.call(
@@ -547,9 +548,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
             require(lOk, "E02");
         }
 
-        // BM-10: Record block of last successful settlement for this user/campaign
+        // BM-10: Record block of last successful settlement
         if (interval > 0 && result.settledCount > prevSettledCount) {
-            lastSettlementBlock[user][campaignId] = block.number;
+            lastSettlementBlock[user][campaignId][batchActionType] = block.number;
         }
     }
 }
