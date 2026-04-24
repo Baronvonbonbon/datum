@@ -36,9 +36,25 @@ export function CreateCampaign() {
 
   const [isOpen, setIsOpen] = useState(true);
   const [publisher, setPublisher] = useState("");
-  const [budget, setBudget] = useState("1");
-  const [dailyCap, setDailyCap] = useState("0.1");
-  const [bidCpm, setBidCpm] = useState("0.001");
+
+  // View pot (CPM) — always required
+  const [viewBudget, setViewBudget] = useState("1");
+  const [viewDailyCap, setViewDailyCap] = useState("0.1");
+  const [viewBidCpm, setViewBidCpm] = useState("0.001");
+
+  // Click pot (CPC) — optional
+  const [enableClick, setEnableClick] = useState(false);
+  const [clickBudget, setClickBudget] = useState("0.5");
+  const [clickDailyCap, setClickDailyCap] = useState("0.05");
+  const [clickRate, setClickRate] = useState("0.001");
+
+  // Action pot (CPA) — optional, requires verifier address
+  const [enableAction, setEnableAction] = useState(false);
+  const [actionBudget, setActionBudget] = useState("0.5");
+  const [actionDailyCap, setActionDailyCap] = useState("0.05");
+  const [actionRate, setActionRate] = useState("0.01");
+  const [actionVerifier, setActionVerifier] = useState("");
+
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [requireZkProof, setRequireZkProof] = useState(false);
   const [bondAmount, setBondAmount] = useState("");
@@ -159,16 +175,33 @@ export function CreateCampaign() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const budgetPlanck = parseDOTSafe(budget);
-      const dailyCapPlanck = parseDOTSafe(dailyCap);
-      const bidCpmPlanck = parseDOTSafe(bidCpm);
+      const bondPlanck = bondAmount.trim() ? parseDOTSafe(bondAmount) : 0n;
+
+      // Build action pot array
+      const pots: { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string }[] = [];
+      const viewBudgetPlanck = parseDOTSafe(viewBudget);
+      const viewDailyCapPlanck = parseDOTSafe(viewDailyCap);
+      const viewBidCpmPlanck = parseDOTSafe(viewBidCpm);
+      pots.push({ actionType: 0, budgetPlanck: viewBudgetPlanck, dailyCapPlanck: viewDailyCapPlanck, ratePlanck: viewBidCpmPlanck, actionVerifier: ethers.ZeroAddress });
+
+      if (enableClick) {
+        pots.push({ actionType: 1, budgetPlanck: parseDOTSafe(clickBudget), dailyCapPlanck: parseDOTSafe(clickDailyCap), ratePlanck: parseDOTSafe(clickRate), actionVerifier: ethers.ZeroAddress });
+      }
+      if (enableAction) {
+        const verifier = actionVerifier.trim();
+        if (!ethers.isAddress(verifier)) { setTxMsg("Action verifier address is invalid."); setTxState("error"); return; }
+        pots.push({ actionType: 2, budgetPlanck: parseDOTSafe(actionBudget), dailyCapPlanck: parseDOTSafe(actionDailyCap), ratePlanck: parseDOTSafe(actionRate), actionVerifier: verifier });
+      }
+
+      const totalBudgetPlanck = pots.reduce((s, p) => s + p.budgetPlanck, 0n);
+      const totalValue = totalBudgetPlanck + bondPlanck;
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
       const rPerImp = rToken !== ethers.ZeroAddress && rewardPerImpression.trim() ? BigInt(rewardPerImpression.trim()) : 0n;
       const c = contracts.campaigns.connect(signer);
-      const tx = await c.createCampaign(pubAddr, dailyCapPlanck, bidCpmPlanck, tagHashes, requireZkProof, rToken, rPerImp, {
-        value: budgetPlanck,
+      const tx = await c.createCampaign(pubAddr, pots, tagHashes, requireZkProof, rToken, rPerImp, bondPlanck, {
+        value: totalValue,
       });
       await confirmTx(tx);
 
@@ -193,21 +226,8 @@ export function CreateCampaign() {
       }
 
       setCreatedId(newId);
-
-      // Lock challenge bond if specified
-      const bondPlanck = bondAmount.trim() ? parseDOTSafe(bondAmount) : 0n;
-      if (bondPlanck > 0n && newId !== null && contracts.challengeBonds) {
-        setTxMsg("Locking challenge bond…");
-        const bonds = contracts.challengeBonds.connect(signer);
-        const bondTx = await confirmTx(() =>
-          bonds.lockBond(BigInt(newId), address, pubAddr, { value: bondPlanck })
-        );
-        if (bondTx) await bondTx.wait?.().catch(() => null);
-      }
-
       setTxState("success");
       setTxMsg(`Campaign #${newId ?? "?"} created!`);
-      // Move to step 2 (metadata) instead of navigating away
       setStep(2);
     } catch (err) {
       push(humanizeError(err), "error");
@@ -590,28 +610,98 @@ export function CreateCampaign() {
             </div>
           )}
 
-          {/* Budget */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Total Budget ({sym})</label>
-            <input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>This amount will be escrowed in the smart contract.</div>
-          </div>
-
-          {/* Daily cap */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Daily Cap ({sym})</label>
-            <input type="number" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum spend per 24h period (~14,400 blocks).</div>
-            {Number(dailyCap) > Number(budget) && (
-              <div style={{ fontSize: 11, color: "var(--warn)" }}>Daily cap exceeds total budget — contract will reject this.</div>
+          {/* View Pot (CPM) — always required */}
+          <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ color: "var(--text-strong)", fontSize: 13, fontWeight: 600 }}>View Pot — CPM (required)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                <input type="number" value={viewBudget} onChange={(e) => setViewBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                <input type="number" value={viewDailyCap} onChange={(e) => setViewDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/1k views ({sym})</label>
+                <input type="number" value={viewBidCpm} onChange={(e) => setViewBidCpm(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+              </div>
+            </div>
+            {Number(viewDailyCap) > Number(viewBudget) && (
+              <div style={{ fontSize: 11, color: "var(--warn)" }}>Daily cap exceeds budget — contract will reject this.</div>
             )}
           </div>
 
-          {/* Bid CPM */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Bid CPM ({sym} per 1,000 impressions)</label>
-            <input type="number" value={bidCpm} onChange={(e) => setBidCpm(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Maximum CPM you'll pay. Actual cost is second-price (Vickrey auction).</div>
+          {/* Click Pot (CPC) — optional */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={enableClick} onChange={(e) => setEnableClick(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Enable Click Pot — CPC (optional)</span>
+            </label>
+            {enableClick && (
+              <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                    <input type="number" value={clickBudget} onChange={(e) => setClickBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                    <input type="number" value={clickDailyCap} onChange={(e) => setClickDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/click ({sym})</label>
+                    <input type="number" value={clickRate} onChange={(e) => setClickRate(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                </div>
+                {Number(clickDailyCap) > Number(clickBudget) && (
+                  <div style={{ fontSize: 11, color: "var(--warn)" }}>Daily cap exceeds budget — contract will reject this.</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Action Pot (CPA) — optional, requires verifier address */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={enableAction} onChange={(e) => setEnableAction(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Enable Action Pot — CPA (optional)</span>
+            </label>
+            {enableAction && (
+              <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                    <input type="number" value={actionBudget} onChange={(e) => setActionBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                    <input type="number" value={actionDailyCap} onChange={(e) => setActionDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/action ({sym})</label>
+                    <input type="number" value={actionRate} onChange={(e) => setActionRate(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Action Verifier Address (0x...)</label>
+                  <input type="text" value={actionVerifier} onChange={(e) => setActionVerifier(e.target.value)} placeholder="0x... contract that verifies the action occurred" className="nano-input" required />
+                </div>
+                {Number(actionDailyCap) > Number(actionBudget) && (
+                  <div style={{ fontSize: 11, color: "var(--warn)" }}>Daily cap exceeds budget — contract will reject this.</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Total budget summary */}
+          <div style={{ display: "flex", justifyContent: "flex-end", fontSize: 12, color: "var(--text-muted)" }}>
+            Total escrowed: <strong style={{ color: "var(--text-strong)", marginLeft: 4 }}>
+              {(Number(viewBudget || 0) + (enableClick ? Number(clickBudget || 0) : 0) + (enableAction ? Number(actionBudget || 0) : 0)).toFixed(4)} {sym}
+            </strong>
+            {bondAmount && Number(bondAmount) > 0 && (
+              <span style={{ marginLeft: 4 }}>+ {Number(bondAmount).toFixed(4)} {sym} bond</span>
+            )}
           </div>
 
           {/* Tag-based targeting */}
@@ -876,7 +966,7 @@ export function CreateCampaign() {
           <TransactionStatus state={txState} message={txMsg} />
 
           <button type="submit" disabled={txState === "pending" || !signer} className="nano-btn nano-btn-accent" style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600 }}>
-            {txState === "pending" ? "Creating..." : `Create Campaign (${budget} ${sym})`}
+            {txState === "pending" ? "Creating..." : `Create Campaign (${(Number(viewBudget || 0) + (enableClick ? Number(clickBudget || 0) : 0) + (enableAction ? Number(actionBudget || 0) : 0)).toFixed(4)} ${sym})`}
           </button>
         </form>
       )}
