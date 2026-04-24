@@ -31,6 +31,7 @@ import { Allowlist } from "./pages/publisher/Allowlist";
 import { Earnings } from "./pages/publisher/Earnings";
 import { SDKSetup } from "./pages/publisher/SDKSetup";
 import { PublisherProfile } from "./pages/publisher/Profile";
+import { PublisherStake } from "./pages/publisher/Stake";
 
 // Governance
 import { GovernanceDashboard } from "./pages/governance/Dashboard";
@@ -91,6 +92,7 @@ export function App() {
               <Route path="/publisher/earnings" element={<Earnings />} />
               <Route path="/publisher/sdk" element={<SDKSetup />} />
               <Route path="/publisher/profile" element={<PublisherProfile />} />
+              <Route path="/publisher/stake" element={<PublisherStake />} />
 
               {/* Governance */}
               <Route path="/governance" element={<GovernanceDashboard />} />

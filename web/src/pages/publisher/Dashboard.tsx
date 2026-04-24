@@ -9,7 +9,6 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { tagLabel } from "@shared/tagDictionary";
 import { ConfirmModal } from "../../components/ConfirmModal";
-import { TokenRewards } from "../../components/TokenRewards";
 
 export function PublisherDashboard() {
   const contracts = useContracts();
@@ -191,23 +190,13 @@ export function PublisherDashboard() {
             )}
           </div>
 
-          {/* Token Rewards */}
-          <div className="nano-card" style={{ padding: 16 }}>
-            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Token Rewards</div>
-            <TokenRewards
-              userAddress={address}
-              vault={contracts.tokenRewardVault}
-              readProvider={contracts.readProvider}
-              signer={signer}
-            />
-          </div>
-
           {/* Quick links */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Link to="/publisher/rate" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Update Take Rate</Link>
             <Link to="/publisher/categories" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Tags</Link>
             <Link to="/publisher/allowlist" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Allowlist</Link>
             <Link to="/publisher/earnings" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Full Earnings</Link>
+            <Link to="/publisher/stake" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Stake</Link>
             <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>
             <Link to="/publisher/profile" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Profile</Link>
           </div>

@@ -57,7 +57,7 @@ export function Earnings() {
         const id = String(e.args?.campaignId ?? "?");
         const existing = byCampaign.get(id);
         const payment = BigInt(e.args?.publisherPayment ?? 0);
-        const impressions = BigInt(e.args?.impressionCount ?? 0);
+        const impressions = BigInt(e.args?.eventCount ?? 0);
         if (existing) {
           existing.totalPublisherPayment += payment;
           existing.totalImpressions += impressions;
