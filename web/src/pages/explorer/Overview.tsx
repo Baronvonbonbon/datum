@@ -42,7 +42,7 @@ export function Overview() {
     try {
       const filter = contracts.settlement.filters.ClaimSettled();
       const logs = await queryFilterAll(contracts.settlement, filter);
-      const total = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
+      const total = logs.reduce((s: number, log: any) => s + Number(log.args?.eventCount ?? 0), 0);
       setStats((prev) => prev ? { ...prev, totalImpressions: total } : prev);
     } catch { /* settlement not configured */ }
   }
@@ -60,8 +60,7 @@ export function Overview() {
       let active = 0;
       let pending = 0;
 
-      const scanCount = Math.min(total, 50);
-      const ids = Array.from({ length: scanCount }, (_, i) => total - 1 - i).filter((i) => i >= 0);
+      const ids = Array.from({ length: total }, (_, i) => total - 1 - i).filter((i) => i >= 0);
 
       await Promise.all(ids.map(async (id) => {
         try {

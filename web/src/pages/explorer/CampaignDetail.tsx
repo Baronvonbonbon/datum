@@ -22,15 +22,18 @@ import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 import { getAssetMetadata } from "@shared/assetRegistry";
 
+const ACTION_LABELS: Record<number, string> = { 0: "View", 1: "Click", 2: "Action" };
+
 interface SettlementEvent {
   txHash: string;
   blockNumber: number;
   user: string;
   publisher: string;
   impressionCount: bigint;
-  clearingCpmPlanck: bigint;
+  ratePlanck: bigint;
   userPayment: bigint;
   publisherPayment: bigint;
+  actionType: number;
 }
 
 const REPORT_REASONS: Record<number, string> = {
@@ -106,10 +109,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         blockNumber: log.blockNumber,
         user: log.args?.user ?? "",
         publisher: log.args?.publisher ?? "",
-        impressionCount: BigInt(log.args?.impressionCount ?? 0),
-        clearingCpmPlanck: BigInt(log.args?.clearingCpmPlanck ?? 0),
+        impressionCount: BigInt(log.args?.eventCount ?? 0),
+        ratePlanck: BigInt(log.args?.ratePlanck ?? 0),
         userPayment: BigInt(log.args?.userPayment ?? 0),
         publisherPayment: BigInt(log.args?.publisherPayment ?? 0),
+        actionType: Number(log.args?.actionType ?? 0),
       }));
       setSettlements(evts.reverse()); // newest first
     } catch { /* no settlement contract */ }
@@ -744,15 +748,16 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               onClick={() => {
                 const rows = settlements.map((s) => ({
                   Block: s.blockNumber,
+                  Type: ACTION_LABELS[s.actionType] ?? String(s.actionType),
                   User: s.user,
                   Publisher: s.publisher,
-                  Impressions: s.impressionCount.toString(),
-                  CPM: formatDOT(s.clearingCpmPlanck),
+                  Events: s.impressionCount.toString(),
+                  Rate: formatDOT(s.ratePlanck),
                   "User Earned": formatDOT(s.userPayment),
                   "Publisher Earned": formatDOT(s.publisherPayment),
                   Tx: s.txHash,
                 }));
-                downloadCSV(`campaign-${id}-settlements.csv`, toCSV(["Block", "User", "Publisher", "Impressions", "CPM", "User Earned", "Publisher Earned", "Tx"], rows));
+                downloadCSV(`campaign-${id}-settlements.csv`, toCSV(["Block", "Type", "User", "Publisher", "Events", "Rate", "User Earned", "Publisher Earned", "Tx"], rows));
               }}
               className="nano-btn"
               style={{ fontSize: 10, padding: "2px 8px", marginLeft: 8, textTransform: "none", fontWeight: 400, float: "right" }}
@@ -770,10 +775,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                 <thead>
                   <tr>
                     <th>Block</th>
+                    <th>Type</th>
                     <th>User</th>
                     <th>Publisher</th>
-                    <th>Impressions</th>
-                    <th>CPM</th>
+                    <th>Events</th>
+                    <th>Rate</th>
                     <th>User Earned</th>
                     <th>Tx</th>
                   </tr>
@@ -784,10 +790,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                     .map((s, i) => (
                     <tr key={i}>
                       <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>#{s.blockNumber}</td>
+                      <td><span className="nano-badge" style={{ fontSize: 10 }}>{ACTION_LABELS[s.actionType] ?? String(s.actionType)}</span></td>
                       <td><AddressDisplay address={s.user} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td><AddressDisplay address={s.publisher} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td style={{ color: "var(--ok)", fontSize: 12 }}>{s.impressionCount.toString()}</td>
-                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.clearingCpmPlanck} /></td>
+                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.ratePlanck} /></td>
                       <td style={{ fontSize: 12 }}><DOTAmount planck={s.userPayment} /></td>
                       <td>
                         {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (
