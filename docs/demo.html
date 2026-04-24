@@ -24,6 +24,18 @@
       { slug: "crypto-web3",        label: "Crypto & Web3",         iab: "IAB13",
         section: "Cryptocurrency",  keywords: "bitcoin, ethereum, defi, web3, blockchain, token",
         title: "Bitcoin & DeFi Weekly — Latest Crypto News" },
+      { slug: "defi",               label: "DeFi",                  iab: "IAB13",
+        section: "DeFi & Yield",    keywords: "decentralized finance, yield farming, liquidity pools, AMM, staking, governance tokens",
+        title: "DeFi Pulse: Decentralized Finance Protocols & Yields" },
+      { slug: "nfts",               label: "NFTs & Digital Art",    iab: "IAB1",
+        section: "NFTs",            keywords: "nft, non-fungible token, digital art, opensea, minting, collection, metaverse",
+        title: "NFT Now: Digital Art, Collections & Marketplace News" },
+      { slug: "polkadot",           label: "Polkadot Ecosystem",    iab: "IAB19",
+        section: "Polkadot",        keywords: "polkadot, parachain, substrate, relay chain, kusama, dot, parity, web3 foundation",
+        title: "Polkadot Network: Parachains, Governance & Ecosystem" },
+      { slug: "daos-governance",    label: "DAOs & Governance",     iab: "IAB13",
+        section: "DAOs",            keywords: "dao, decentralized autonomous organization, on-chain governance, voting, proposal, treasury",
+        title: "DeepDAO: DAO Analytics, Treasury & Governance" },
       { slug: "finance",            label: "Finance",               iab: "IAB13",
         section: "Personal Finance", keywords: "stock market, investing, portfolio, ETF, interest rates",
         title: "Market Watch: Stocks, Bonds & Investing" },
@@ -510,7 +522,7 @@
     <div class="campaigns-panel">
       <p class="campaigns-intro">
         100 campaigns are seeded on Paseo testnet with CPM bids ranging from <strong>0.300–0.700 PAS</strong>.
-        Each campaign targets a random subset of the 30 topic taxonomy, with ~20% carrying a
+        Each campaign targets a random subset of the 30-topic taxonomy (including Polkadot-native topics like DeFi, NFTs, Polkadot Ecosystem, and DAOs), with ~20% carrying a
         <span class="sidecar-badge" style="display:inline">USDT</span> native asset sidecar reward per impression.
         The Datum extension runs a Vickrey (second-price) auction on every page visit —
         <strong>effectiveBid = CPM × interestWeight</strong>, so a lower-CPM campaign with a matching topic tag
@@ -852,7 +864,7 @@ function renderAuctionDebug(detail) {
   html += "<br>";
 
   html += '<span class="dbg-label">Clearing CPM: </span>';
-  html += '<span class="dbg-hi">' + formatPlanck(detail.clearingCpmPlanck) + ' DOT</span>';
+  html += '<span class="dbg-hi">' + formatPlanck(detail.clearingCpmPlanck) + ' PAS</span>';
   html += "<br>";
 
   // Bid table
