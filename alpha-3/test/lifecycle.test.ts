@@ -82,7 +82,9 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createAndActivate(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
     // Activate via governance
@@ -92,7 +94,9 @@ describe("DatumCampaignLifecycle", function () {
 
   async function createPending(): Promise<bigint> {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     return (await campaigns.nextCampaignId()) - 1n;
   }
@@ -110,7 +114,7 @@ describe("DatumCampaignLifecycle", function () {
     expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
     // Advertiser should receive budget minus gas
     expect(advBalAfter - advBalBefore + gasUsed).to.equal(BUDGET);
-    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+    expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
   });
 
   // LC2: terminateCampaign by governance (10% slash, 90% refund)
@@ -137,7 +141,7 @@ describe("DatumCampaignLifecycle", function () {
     // Governance receives slash minus gas for calling
     expect(govBalAfter - govBalBefore + gasUsed).to.equal(slashAmount);
 
-    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+    expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
   });
 
   // LC3: expirePendingCampaign after timeout
@@ -236,7 +240,7 @@ describe("DatumCampaignLifecycle", function () {
 
     expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
     expect(advBalAfter - advBalBefore).to.equal(BUDGET);
-    expect(await ledger.getRemainingBudget(cid)).to.equal(0n);
+    expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
   });
 
   // LC11: expireInactiveCampaign reverts before timeout

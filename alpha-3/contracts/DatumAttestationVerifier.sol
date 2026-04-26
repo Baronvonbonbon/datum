@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
 
 /// @title DatumAttestationVerifier
 /// @notice P1: Mandatory publisher attestation for direct claim settlement.
@@ -30,7 +31,7 @@ contract DatumAttestationVerifier {
 
     IDatumSettlement public immutable settlement;
     IDatumCampaignsSettlement public immutable campaigns;
-    address public immutable pauseRegistry;
+    IDatumPauseRegistry public immutable pauseRegistry;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
@@ -43,7 +44,7 @@ contract DatumAttestationVerifier {
         require(_pauseRegistry != address(0), "E00");
         settlement = IDatumSettlement(_settlement);
         campaigns = IDatumCampaignsSettlement(_campaigns);
-        pauseRegistry = _pauseRegistry;
+        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         DOMAIN_SEPARATOR = keccak256(abi.encode(
             keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
             keccak256("DatumAttestationVerifier"),
@@ -73,10 +74,7 @@ contract DatumAttestationVerifier {
         returns (IDatumSettlement.SettlementResult memory result)
     {
         // S4: Pause check (mirrors Settlement.settleClaims)
-        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
-            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
-        );
-        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+        require(!pauseRegistry.paused(), "P");
 
         IDatumSettlement.ClaimBatch[] memory forwardBatches =
             new IDatumSettlement.ClaimBatch[](batches.length);
@@ -87,7 +85,7 @@ contract DatumAttestationVerifier {
             require(ab.claims.length > 0, "E28");
 
             // Determine expected publisher signer
-            (, address cPublisher,,) = campaigns.getCampaignForSettlement(ab.campaignId);
+            (, address cPublisher,) = campaigns.getCampaignForSettlement(ab.campaignId);
             address expectedPublisher = cPublisher;
             if (expectedPublisher == address(0)) {
                 // Open campaign: verify against the actual serving publisher.
@@ -123,6 +121,7 @@ contract DatumAttestationVerifier {
                 s := calldataload(add(sig.offset, 32))
                 v := byte(0, calldataload(add(sig.offset, 64)))
             }
+            require(v == 27 || v == 28, "E30");
             require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
             address pubSigner = ecrecover(digest, v, r, s);
             address relaySig = campaigns.getCampaignRelaySigner(ab.campaignId);

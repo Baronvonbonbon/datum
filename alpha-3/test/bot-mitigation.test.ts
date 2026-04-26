@@ -50,19 +50,22 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
       );
       claims.push({
         campaignId,
         publisher: publisherAddr,
-        impressionCount: impressionsPerClaim,
-        clearingCpmPlanck: baseCpm,
+        eventCount: impressionsPerClaim,
+        ratePlanck: baseCpm,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
         zkProof: "0x",
         nullifier: ethers.ZeroHash,
+        actionSig: "0x",
       });
       prevHash = hash;
     }
@@ -72,7 +75,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP): Promise<bigint> {
     const id = nextCampaignId++;
     await mock.setCampaign(id, owner.address, publisher.address, BID_CPM, TAKE_RATE_BPS, 1);
-    await mock.initBudget(id, budget, dailyCap, { value: budget });
+    await mock.initBudget(id, 0, budget, dailyCap, { value: budget });
     return id;
   }
 
@@ -189,7 +192,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     expect(result.rejectedCount).to.equal(0n);
 
     await settlement.connect(user).settleClaims([batch]);
-    expect(await settlement.userCampaignSettled(user.address, campaignId)).to.equal(10000n);
+    expect(await settlement.userCampaignSettled(user.address, campaignId, 0)).to.equal(10000n);
   });
 
   it("BM2-2: claims exceeding cap are rejected with reason 13", async function () {
@@ -197,26 +200,29 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     // First batch: 9 claims × 10000 impressions = 90,000 (within cap, ≤10 per batch)
     const claims1 = buildClaimChain(campaignId, publisher.address, user.address, 9, BID_CPM, 10000n);
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: claims1 }]);
-    expect(await settlement.userCampaignSettled(user.address, campaignId)).to.equal(90000n);
+    expect(await settlement.userCampaignSettled(user.address, campaignId, 0)).to.equal(90000n);
 
     // Second batch: nonce 10, 10001 impressions → 90000 + 10001 = 100,001 > cap (100,000)
-    let prevHash = await settlement.lastClaimHash(user.address, campaignId);
+    let prevHash = await settlement.lastClaimHash(user.address, campaignId, 0);
     const nonce = 10n;
     const impressions = 10001n;
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [campaignId, publisher.address, user.address, impressions, BID_CPM, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [campaignId, publisher.address, user.address, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
     );
     const overClaim = {
       campaignId,
       publisher: publisher.address,
-      impressionCount: impressions,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: impressions,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([
@@ -245,7 +251,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     expect(result.settledCount).to.equal(5n);
   });
 
-  it("BM2-4: MAX_USER_IMPRESSIONS is 100,000", async function () {
-    expect(await settlement.MAX_USER_IMPRESSIONS()).to.equal(100000n);
+  it("BM2-4: MAX_USER_EVENTS is 100,000", async function () {
+    expect(await settlement.MAX_USER_EVENTS()).to.equal(100000n);
   });
 });

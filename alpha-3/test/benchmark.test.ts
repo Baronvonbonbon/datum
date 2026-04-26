@@ -104,19 +104,22 @@ function buildClaims(
   for (let i = 1; i <= count; i++) {
     const nonce = BigInt(i);
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [campaignId, publisherAddr, userAddr, impressions, cpm, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash]
     );
     claims.push({
       campaignId,
       publisher: publisherAddr,
-      impressionCount: impressions,
-      clearingCpmPlanck: cpm,
+      eventCount: impressions,
+      ratePlanck: cpm,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
       zkProof,
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     });
     prevHash = hash;
   }
@@ -275,6 +278,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await settlement.setClaimValidator(await claimVal.getAddress());
     await settlement.setAttestationVerifier(await verifier.getAddress());
     await settlement.setRateLimiter(await rateLimiter.getAddress());
+    await rateLimiter.setSettlement(await settlement.getAddress());
 
     await claimVal.setZKVerifier(await zkVerifier.getAddress());
 
@@ -311,7 +315,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   ): Promise<bigint> {
     const pubAddr = typeof pub === "string" ? pub : pub.address;
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pubAddr, dailyCap, cpm, requiredTags, requireZk, ethers.ZeroAddress, 0, 0n, { value: budget }
+      pubAddr,
+      [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ethers.ZeroAddress }],
+      requiredTags, requireZk, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
     await tx.wait();
     const cid = await campaigns.nextCampaignId() - 1n;
@@ -556,19 +562,22 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
       // Next claim: 200 more → 50100 total > 50000 cap → rejected
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [cid2, publisher.address, user.address, 200n, RL_CPM, 1n, ethers.ZeroHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [cid2, publisher.address, user.address, 200n, RL_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash]
       );
       const c2 = [{
         campaignId: cid2,
         publisher:  publisher.address,
-        impressionCount: 200n,
-        clearingCpmPlanck: RL_CPM,
+        eventCount: 200n,
+        ratePlanck: RL_CPM,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
         nonce: 1n,
         previousClaimHash: ethers.ZeroHash,
         claimHash: hash,
         zkProof: "0x",
         nullifier: ethers.ZeroHash,
+        actionSig: "0x",
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }
@@ -765,7 +774,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
       await expect(
         campaigns.connect(advertiser).createCampaign(
-          publisher2.address, TAG_DAILY, TAG_CPM, [cryptoTag], false, ethers.ZeroAddress, 0, 0n, { value: TAG_BUDGET }
+          publisher2.address,
+          [{ actionType: 0, budgetPlanck: TAG_BUDGET, dailyCapPlanck: TAG_DAILY, ratePlanck: TAG_CPM, actionVerifier: ethers.ZeroAddress }],
+          [cryptoTag], false, ethers.ZeroAddress, 0n, 0n, { value: TAG_BUDGET }
         )
       ).to.be.reverted; // E66 or validator rejection
     });
@@ -821,7 +832,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-2: campaign creation gas", async function () {
       await gasFor("createCampaign (fixed publisher)", () =>
         campaigns.connect(advertiser).createCampaign(
-          publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+          publisher.address,
+          [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+          [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
         )
       );
     });
@@ -829,7 +842,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-GAS-3: governance vote gas", async function () {
       // Create a campaign to vote on
       const tx = await campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY, CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       );
       await tx.wait();
       const cid = await campaigns.nextCampaignId() - 1n;
@@ -899,7 +914,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     for (const s of DOT_PRICE_SCENARIOS) {
       it(`BM-LC: ${s.label} — full lifecycle (create→vote→activate→settle→complete)`, async function () {
         const tx = await campaigns.connect(advertiser).createCampaign(
-          publisher.address, s.dailyCap, s.cpm, [], false, ethers.ZeroAddress, 0, 0n, { value: s.budget }
+          publisher.address,
+          [{ actionType: 0, budgetPlanck: s.budget, dailyCapPlanck: s.dailyCap, ratePlanck: s.cpm, actionVerifier: ethers.ZeroAddress }],
+          [], false, ethers.ZeroAddress, 0n, 0n, { value: s.budget }
         );
         await tx.wait();
         const cid = await campaigns.nextCampaignId() - 1n;
@@ -1036,7 +1053,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     async function newTokenCampaign(): Promise<bigint> {
       const pubAddr = publisher.address;
       const tx = await campaigns.connect(advertiser).createCampaign(
-        pubAddr, DAILY, CPM, [], false,
+        pubAddr,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false,
         await mockERC20.getAddress(),
         REWARD_PER_IMP,
         0n,
@@ -1156,7 +1175,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const pubAddr = publisher.address;
       // createCampaign with native asset address — should not revert (no metadata validation in contract)
       const tx = await campaigns.connect(advertiser).createCampaign(
-        pubAddr, DAILY, CPM, [], false,
+        pubAddr,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false,
         USDT_PRECOMPILE,
         REWARD_PER_IMP,
         0n,
@@ -1272,7 +1293,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const tokenBudget  = rewardPerImp * 5000n;
       await mockERC20.mint(advertiser.address, tokenBudget);
       const txB = await campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY, CPM_PREMIUM, [], false,
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM_PREMIUM, actionVerifier: ethers.ZeroAddress }],
+        [], false,
         await mockERC20.getAddress(), rewardPerImp, 0n, { value: BUDGET }
       );
       await txB.wait();

@@ -275,6 +275,9 @@ export interface ContractAddresses {
   publisherGovernance: string; // FP-3: conviction-weighted publisher fraud governance
   nullifierRegistry: string;   // FP-5: per-user per-campaign ZK nullifier replay prevention
   parameterGovernance: string; // T1-B: conviction-vote governance for FP system parameters
+  adminGovernance: string;     // Phase 0: team admin direct approval
+  governanceRouter: string;    // Stable-address proxy for governance ladder transitions
+  council: string;             // Phase 1: N-of-M trusted council voting
 }
 
 export type IpfsProvider =

@@ -59,19 +59,22 @@ describe("DatumSettlement.settleClaimsMulti", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, IMPRESSIONS, BID_CPM, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, publisherAddr, userAddr, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
       claims.push({
         campaignId,
         publisher: publisherAddr,
-        impressionCount: IMPRESSIONS,
-        clearingCpmPlanck: BID_CPM,
+        eventCount: IMPRESSIONS,
+        ratePlanck: BID_CPM,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
         zkProof: "0x",
         nullifier: ethers.ZeroHash,
+        actionSig: "0x",
       });
       prevHash = hash;
     }
@@ -81,7 +84,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
   async function createCampaign(budget = BUDGET, dailyCap = DAILY_CAP): Promise<bigint> {
     const id = nextId();
     await mock.setCampaign(id, owner.address, publisher.address, BID_CPM, TAKE_RATE_BPS, 1);
-    await mock.initBudget(id, budget, dailyCap, { value: budget });
+    await mock.initBudget(id, 0, budget, dailyCap, { value: budget });
     return id;
   }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
 
 /// @title DatumSettlementRateLimiter
@@ -20,9 +21,9 @@ import "./interfaces/IDatumSettlementRateLimiter.sol";
 ///         - No storage cleanup needed — stale windows naturally become unreachable.
 ///         - Optional in Settlement: address(0) = disabled (zero extra gas for existing claims).
 ///         - No pause check: rate limiting should work regardless of protocol pause state.
-contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
-    address public owner;
-    address public pendingOwner;
+contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter, Ownable2Step {
+    /// @notice Only this address may call checkAndIncrement (set to the Settlement contract).
+    address public settlement;
 
     /// @notice AUDIT-030: Minimum window size to prevent DOS via near-zero windowBlocks.
     uint256 public constant MIN_WINDOW_SIZE = 10;
@@ -37,12 +38,10 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     mapping(address => mapping(uint256 => uint256)) public publisherWindowEvents;
 
     event LimitsUpdated(uint256 windowBlocks, uint256 maxPublisherEventsPerWindow);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-    constructor(uint256 _windowBlocks, uint256 _maxPublisherEventsPerWindow) {
+    constructor(uint256 _windowBlocks, uint256 _maxPublisherEventsPerWindow) Ownable(msg.sender) {
         require(_windowBlocks >= MIN_WINDOW_SIZE, "E11"); // AUDIT-030
         require(_maxPublisherEventsPerWindow > 0, "E11");
-        owner = msg.sender;
         windowBlocks = _windowBlocks;
         maxPublisherEventsPerWindow = _maxPublisherEventsPerWindow;
         emit LimitsUpdated(_windowBlocks, _maxPublisherEventsPerWindow);
@@ -53,8 +52,7 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
     // -------------------------------------------------------------------------
 
     /// @notice Update window size and per-publisher event cap.
-    function setLimits(uint256 _windowBlocks, uint256 _maxPublisherEventsPerWindow) external {
-        require(msg.sender == owner, "E18");
+    function setLimits(uint256 _windowBlocks, uint256 _maxPublisherEventsPerWindow) external onlyOwner {
         require(_windowBlocks >= MIN_WINDOW_SIZE, "E11"); // AUDIT-030
         require(_maxPublisherEventsPerWindow > 0, "E11");
         windowBlocks = _windowBlocks;
@@ -62,17 +60,27 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
         emit LimitsUpdated(_windowBlocks, _maxPublisherEventsPerWindow);
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function setSettlement(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        settlement = addr;
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        emit OwnershipTransferred(owner, pendingOwner);
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
+    }
+
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -85,6 +93,7 @@ contract DatumSettlementRateLimiter is IDatumSettlementRateLimiter {
         uint256 eventCount,
         uint8   actionType
     ) external override returns (bool) {
+        require(msg.sender == settlement, "E18");
         // Rate limiting applies to view claims only; click/action claims are controlled by other mechanisms
         if (actionType != 0) return true;
 

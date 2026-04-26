@@ -274,24 +274,27 @@ describe("DatumNullifierRegistry — Settlement integration", function () {
     // Create a test campaign
     campaignId = 1n;
     await mock.setCampaign(campaignId, owner.address, publisher.address, BID_CPM, TAKE_RATE, 1);
-    await mock.initBudget(campaignId, BUDGET, DAILY_CAP, { value: BUDGET });
+    await mock.initBudget(campaignId, 0, BUDGET, DAILY_CAP, { value: BUDGET });
   });
 
   function buildClaim(nonce: bigint, prevHash: string, nullifier: string): any {
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [campaignId, publisher.address, user.address, IMPRESSIONS, BID_CPM, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [campaignId, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
     );
     return {
       campaignId,
       publisher: publisher.address,
-      impressionCount: IMPRESSIONS,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: IMPRESSIONS,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
       zkProof: "0x",
       nullifier,
+      actionSig: "0x",
     };
   }
 
@@ -307,7 +310,7 @@ describe("DatumNullifierRegistry — Settlement integration", function () {
     await tx1.wait();
 
     // Second claim with same nullifier — should be rejected, not revert
-    const prevHash = await settlement.lastClaimHash(user.address, campaignId);
+    const prevHash = await settlement.lastClaimHash(user.address, campaignId, 0);
     const claim2 = buildClaim(2n, prevHash, nullifier);
     const result = await settlement.connect(user).settleClaims.staticCall([
       { user: user.address, campaignId, claims: [claim2] }
@@ -329,22 +332,25 @@ describe("DatumNullifierRegistry — Settlement integration", function () {
     // Use campaign 2 to avoid nonce collisions with NR15
     const cid2 = 2n;
     await mock.setCampaign(cid2, owner.address, publisher.address, BID_CPM, TAKE_RATE, 1);
-    await mock.initBudget(cid2, BUDGET, DAILY_CAP, { value: BUDGET });
+    await mock.initBudget(cid2, 0, BUDGET, DAILY_CAP, { value: BUDGET });
 
     const claimHash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [cid2, publisher.address, user.address, IMPRESSIONS, BID_CPM, 1n, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [cid2, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash]
     );
     const claim = {
       campaignId: cid2,
       publisher: publisher.address,
-      impressionCount: IMPRESSIONS,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: IMPRESSIONS,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce: 1n,
       previousClaimHash: ethers.ZeroHash,
       claimHash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,  // skip registry
+      actionSig: "0x",
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([

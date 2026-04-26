@@ -20,6 +20,17 @@ contract MockCampaigns {
         uint256 terminationBlock;
     }
 
+    struct ActionPotConfig {
+        uint8 actionType;
+        uint256 budgetPlanck;
+        uint256 dailyCapPlanck;
+        uint256 ratePlanck;
+        address actionVerifier;
+    }
+
+    // Per-campaign per-actionType pot rates (set on initBudget, or manually)
+    mapping(uint256 => mapping(uint8 => uint256)) public campaignPotRate;
+
     mapping(uint256 => MockCampaign) public campaigns;
 
     address public settlementContract;
@@ -77,25 +88,37 @@ contract MockCampaigns {
 
     /// @dev Test helper: forwards initializeBudget to BudgetLedger.
     ///      MockCampaigns is set as budgetLedger.campaigns, so this call is authorized.
-    function initBudget(uint256 campaignId, uint256 budget, uint256 dailyCap) external payable {
+    function initBudget(uint256 campaignId, uint8 actionType, uint256 budget, uint256 dailyCap) external payable {
         require(msg.value == budget, "E16");
+        // Store pot rate from campaign config for getCampaignPot
+        campaignPotRate[campaignId][actionType] = campaigns[campaignId].bidCpmPlanck;
         (bool ok,) = budgetLedger.call{value: budget}(
-            abi.encodeWithSignature("initializeBudget(uint256,uint256,uint256)", campaignId, budget, dailyCap)
+            abi.encodeWithSignature("initializeBudget(uint256,uint8,uint256,uint256)", campaignId, actionType, budget, dailyCap)
         );
         require(ok, "E02");
+    }
+
+    /// @dev Returns ActionPotConfig for ClaimValidator rate check.
+    function getCampaignPot(uint256 campaignId, uint8 actionType) external view returns (ActionPotConfig memory) {
+        return ActionPotConfig({
+            actionType: actionType,
+            budgetPlanck: 0,
+            dailyCapPlanck: 0,
+            ratePlanck: campaignPotRate[campaignId][actionType],
+            actionVerifier: address(0)
+        });
     }
 
     // -------------------------------------------------------------------------
     // IDatumCampaigns interface (subset used by other contracts)
     // -------------------------------------------------------------------------
 
-    /// @dev 4-value return matching alpha-2 interface (no remainingBudget).
+    /// @dev 3-value return matching alpha-3 IDatumCampaignsMinimal interface.
     function getCampaignForSettlement(uint256 campaignId) external view returns (
-        uint8 status, address publisher, uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps
+        uint8 status, address publisher, uint16 snapshotTakeRateBps
     ) {
         MockCampaign storage c = campaigns[campaignId];
-        return (uint8(c.status), c.publisher, c.bidCpmPlanck, c.snapshotTakeRateBps);
+        return (uint8(c.status), c.publisher, c.snapshotTakeRateBps);
     }
 
     function activateCampaign(uint256 campaignId) external {

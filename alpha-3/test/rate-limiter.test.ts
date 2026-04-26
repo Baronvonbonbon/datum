@@ -35,21 +35,30 @@ describe("DatumSettlementRateLimiter", function () {
 
     const Factory = await ethers.getContractFactory("DatumSettlementRateLimiter");
     limiter = await Factory.deploy(WINDOW_BLOCKS, MAX_PER_WINDOW);
+    // Allow owner to call checkAndIncrement directly in unit tests
+    await limiter.setSettlement(owner.address);
+
+    // Align to a fresh window boundary so RL1–RL4 all land in the same window
+    // regardless of how many blocks prior test suites have mined.
+    const cur = BigInt(await ethers.provider.getBlockNumber());
+    const remainder = cur % WINDOW_BLOCKS;
+    const toNextWindow = remainder === 0n ? 0n : WINDOW_BLOCKS - remainder;
+    if (toNextWindow > 0n) await mineBlocks(toNextWindow);
   });
 
   // RL1: checkAndIncrement within limit returns true
   it("RL1: checkAndIncrement within limit returns true and records impressions", async function () {
-    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 500n);
+    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 500n, 0);
     expect(result).to.equal(true);
     // Actually apply
-    await limiter.checkAndIncrement(publisher.address, 500n);
+    await limiter.checkAndIncrement(publisher.address, 500n, 0);
     const [, impressions] = await limiter.currentWindowUsage(publisher.address);
     expect(impressions).to.equal(500n);
   });
 
   // RL2: second call within same window accumulates
   it("RL2: second call within same window accumulates correctly", async function () {
-    await limiter.checkAndIncrement(publisher.address, 400n);
+    await limiter.checkAndIncrement(publisher.address, 400n, 0);
     const [, impressions] = await limiter.currentWindowUsage(publisher.address);
     expect(impressions).to.equal(900n); // 500 + 400
   });
@@ -57,7 +66,7 @@ describe("DatumSettlementRateLimiter", function () {
   // RL3: exceeding cap returns false and does not record
   it("RL3: exceeding cap returns false and impressions not recorded", async function () {
     // 900 used, 101 would exceed 1000
-    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 101n);
+    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 101n, 0);
     expect(result).to.equal(false);
     // Impressions unchanged
     const [, impressions] = await limiter.currentWindowUsage(publisher.address);
@@ -66,9 +75,9 @@ describe("DatumSettlementRateLimiter", function () {
 
   // RL4: exactly at cap is allowed
   it("RL4: exactly at cap (900 + 100 = 1000) is allowed", async function () {
-    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 100n);
+    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 100n, 0);
     expect(result).to.equal(true);
-    await limiter.checkAndIncrement(publisher.address, 100n);
+    await limiter.checkAndIncrement(publisher.address, 100n, 0);
     const [, impressions] = await limiter.currentWindowUsage(publisher.address);
     expect(impressions).to.equal(1000n);
   });
@@ -82,7 +91,7 @@ describe("DatumSettlementRateLimiter", function () {
     expect(windowIdAfter).to.be.gt(windowIdBefore);
     expect(impressionsAfter).to.equal(0n);
     // Should accept impressions again
-    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 1000n);
+    const result = await limiter.checkAndIncrement.staticCall(publisher.address, 1000n, 0);
     expect(result).to.equal(true);
   });
 
@@ -92,7 +101,7 @@ describe("DatumSettlementRateLimiter", function () {
       .to.emit(limiter, "LimitsUpdated")
       .withArgs(20n, 2000n);
     expect(await limiter.windowBlocks()).to.equal(20n);
-    expect(await limiter.maxPublisherImpressionsPerWindow()).to.equal(2000n);
+    expect(await limiter.maxPublisherEventsPerWindow()).to.equal(2000n);
     // Restore
     await limiter.connect(owner).setLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
@@ -121,8 +130,8 @@ describe("DatumSettlementRateLimiter", function () {
   it("RL10: publisher1 and publisher2 have independent window counts", async function () {
     // Mine to fresh window
     await mineBlocks(Number(WINDOW_BLOCKS) + 1);
-    await limiter.checkAndIncrement(publisher.address, 800n);
-    await limiter.checkAndIncrement(publisher2.address, 300n);
+    await limiter.checkAndIncrement(publisher.address, 800n, 0);
+    await limiter.checkAndIncrement(publisher2.address, 300n, 0);
     const [, imp1] = await limiter.currentWindowUsage(publisher.address);
     const [, imp2] = await limiter.currentWindowUsage(publisher2.address);
     expect(imp1).to.equal(800n);
@@ -196,10 +205,10 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [campaignId, pub, usr, impressions, BID_CPM, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, pub, usr, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
-      claims.push({ campaignId, publisher: pub, impressionCount: impressions, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash });
+      claims.push({ campaignId, publisher: pub, eventCount: impressions, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" });
       prevHash = hash;
     }
     return claims;
@@ -251,13 +260,14 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
     // Deploy and wire rate limiter: window=100, cap=500 impressions/window
     const LimiterFactory = await ethers.getContractFactory("DatumSettlementRateLimiter");
     limiter = await LimiterFactory.deploy(100n, 500n);
+    await limiter.setSettlement(await settlement.getAddress());
     await settlement.setRateLimiter(await limiter.getAddress());
   });
 
   async function newCampaign(): Promise<bigint> {
     const id = nextCampaignId++;
     await mock.setCampaign(id, owner.address, publisher.address, BID_CPM, TAKE_RATE_BPS, 1);
-    await mock.initBudget(id, BUDGET, DAILY_CAP, { value: BUDGET });
+    await mock.initBudget(id, 0, BUDGET, DAILY_CAP, { value: BUDGET });
     return id;
   }
 
@@ -289,19 +299,22 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
     const cid2 = await newCampaign();
     // Need a fresh chain for cid2
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [cid2, publisher.address, user.address, 200n, BID_CPM, 1n, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [cid2, publisher.address, user.address, 200n, BID_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash]
     );
     const claims2 = [{
       campaignId: cid2,
       publisher: publisher.address,
-      impressionCount: 200n,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: 200n,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce: 1n,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     }];
     const batch2 = { user: user.address, campaignId: cid2, claims: claims2 };
     const r2 = await settlement.connect(user).settleClaims.staticCall([batch2]);

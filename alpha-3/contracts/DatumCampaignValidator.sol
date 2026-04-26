@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumCampaignValidator.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumTargetingRegistry.sol";
@@ -10,11 +11,9 @@ import "./interfaces/IDatumTargetingRegistry.sol";
 ///         publisher registration, take rate snapshot, and TX-1 tag matching.
 ///         Extracted from DatumCampaigns (SE-3) to free PVM headroom and
 ///         enable MG-1 (timelock-gated blocklist migration).
-contract DatumCampaignValidator is IDatumCampaignValidator {
+contract DatumCampaignValidator is IDatumCampaignValidator, Ownable2Step {
     uint16 private constant DEFAULT_TAKE_RATE_BPS = 5000;
 
-    address public owner;
-    address public pendingOwner;
     IDatumPublishers public publishers;
     IDatumTargetingRegistry public targetingRegistry;
 
@@ -25,9 +24,8 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
     mapping(uint256 => bool) public campaignAllowlistEnabled;
     mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
 
-    constructor(address _publishers, address _targetingRegistry) {
+    constructor(address _publishers, address _targetingRegistry) Ownable(msg.sender) {
         require(_publishers != address(0), "E00");
-        owner = msg.sender;
         publishers = IDatumPublishers(_publishers);
         // targetingRegistry can be address(0) initially — tag checks skipped
         if (_targetingRegistry != address(0)) {
@@ -39,15 +37,13 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
     // Admin
     // -------------------------------------------------------------------------
 
-    function setPublishers(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublishers(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         publishers = IDatumPublishers(addr);
     }
 
     // AUDIT-025: Allow clearing the targeting registry; emit event for auditability
-    function setTargetingRegistry(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setTargetingRegistry(address addr) external onlyOwner {
         targetingRegistry = IDatumTargetingRegistry(addr);
         if (addr == address(0)) {
             emit TargetingRegistryCleared();
@@ -55,8 +51,7 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
     }
 
     // AUDIT-005: Set Campaigns reference (used for storeAllowlistSnapshot access control)
-    function setCampaigns(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         campaigns = addr;
     }
@@ -68,16 +63,22 @@ contract DatumCampaignValidator is IDatumCampaignValidator {
         campaignAllowlistSnapshot[campaignId][advertiser] = isAllowed;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

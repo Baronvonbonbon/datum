@@ -6,8 +6,7 @@ pragma solidity ^0.8.24;
 ///         Alpha-2: remainingBudget removed (now on BudgetLedger).
 interface IDatumCampaignsSettlement {
     function getCampaignForSettlement(uint256 campaignId) external view returns (
-        uint8 status, address publisher, uint256 bidCpmPlanck,
-        uint16 snapshotTakeRateBps
+        uint8 status, address publisher, uint16 snapshotTakeRateBps
     );
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);

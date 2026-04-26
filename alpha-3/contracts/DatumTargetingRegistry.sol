@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumTargetingRegistry.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -10,12 +11,10 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///         (e.g., keccak256("topic:defi"), keccak256("locale:en-US")).
 ///         Campaigns specify required tags; matching is AND logic.
 ///         Replaces the fixed uint256 categoryBitmask on DatumPublishers.
-contract DatumTargetingRegistry is IDatumTargetingRegistry {
+contract DatumTargetingRegistry is IDatumTargetingRegistry, Ownable2Step {
     uint8 public constant MAX_PUBLISHER_TAGS = 32;
     uint8 public constant MAX_CAMPAIGN_TAGS = 8;
 
-    address public owner;
-    address public pendingOwner;
     IDatumPublishers public publishers;
     IDatumPauseRegistry public pauseRegistry;
 
@@ -24,17 +23,11 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry {
     // Publisher address → tag hash → bool (for O(1) lookup in hasAllTags)
     mapping(address => mapping(bytes32 => bool)) private _publisherTagSet;
 
-    constructor(address _publishers, address _pauseRegistry) {
+    constructor(address _publishers, address _pauseRegistry) Ownable(msg.sender) {
         require(_publishers != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
-        owner = msg.sender;
         publishers = IDatumPublishers(_publishers);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
-    }
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "E18");
-        _;
     }
 
     modifier whenNotPaused() {
@@ -51,15 +44,22 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry {
         publishers = IDatumPublishers(addr);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

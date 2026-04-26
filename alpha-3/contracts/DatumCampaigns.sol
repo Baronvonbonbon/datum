@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumCampaignValidator.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -18,26 +20,10 @@ import "./interfaces/IDatumBudgetLedger.sol";
 ///
 ///         S2: Zero-address checks on all setters.
 ///         S3: ContractReferenceChanged events on wiring changes.
-contract DatumCampaigns is IDatumCampaigns {
+contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable2Step {
     // -------------------------------------------------------------------------
     // Configuration
     // -------------------------------------------------------------------------
-
-    address public owner;
-    address public pendingOwner;
-    bool private _locked;
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "E18");
-        _;
-    }
-
-    modifier noReentrant() {
-        require(!_locked, "E57");
-        _locked = true;
-        _;
-        _locked = false;
-    }
 
     /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
     uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
@@ -105,10 +91,9 @@ contract DatumCampaigns is IDatumCampaigns {
         uint256 _pendingTimeoutBlocks,
         address _campaignValidator,
         address _pauseRegistry
-    ) {
+    ) Ownable(msg.sender) {
         require(_campaignValidator != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
-        owner = msg.sender;
         minimumCpmFloor = _minimumCpmFloor;
         pendingTimeoutBlocks = _pendingTimeoutBlocks;
         campaignValidator = IDatumCampaignValidator(_campaignValidator);
@@ -162,15 +147,22 @@ contract DatumCampaigns is IDatumCampaigns {
         emit MaxCampaignBudgetSet(amount);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -186,7 +178,7 @@ contract DatumCampaigns is IDatumCampaigns {
         address rewardToken,
         uint256 rewardPerImpression,
         uint256 bondAmount
-    ) external payable noReentrant returns (uint256 campaignId) {
+    ) external payable nonReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.paused(), "P");
         require(msg.value > bondAmount, "E11");
         uint256 budgetValue = msg.value - bondAmount;

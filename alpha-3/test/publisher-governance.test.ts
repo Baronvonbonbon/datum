@@ -4,6 +4,7 @@ import {
   DatumPublisherGovernance,
   DatumPublisherStake,
   DatumChallengeBonds,
+  DatumPauseRegistry,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { mineBlocks, fundSigners } from "./helpers/mine";
@@ -19,6 +20,7 @@ describe("DatumPublisherGovernance", function () {
   let gov: DatumPublisherGovernance;
   let stakeContract: DatumPublisherStake;
   let bondsContract: DatumChallengeBonds;
+  let pauseReg: DatumPauseRegistry;
 
   let owner: HardhatEthersSigner;
   let publisher: HardhatEthersSigner;
@@ -50,11 +52,16 @@ describe("DatumPublisherGovernance", function () {
     const BondsFactory = await ethers.getContractFactory("DatumChallengeBonds");
     bondsContract = await BondsFactory.deploy();
 
+    // Deploy DatumPauseRegistry
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await PauseFactory.deploy(owner.address, publisher.address, voter1.address);
+
     // Deploy DatumPublisherGovernance
     const GovFactory = await ethers.getContractFactory("DatumPublisherGovernance");
     gov = await GovFactory.deploy(
       stakeContract.target,
       bondsContract.target,
+      await pauseReg.getAddress(),
       QUORUM,
       SLASH_BPS,
       BOND_BONUS_BPS,

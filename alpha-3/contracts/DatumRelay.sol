@@ -103,11 +103,11 @@ contract DatumRelay {
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
 
-            // Publisher co-signature (4-value return)
+            // Publisher co-signature (3-value return)
             // Required for all campaigns when provided. Open campaigns verify
             // against claims[0].publisher and enforce all claims use same publisher (SM-1).
             if (sb.publisherSig.length > 0) {
-                (, address cPublisher,,) = campaigns.getCampaignForSettlement(sb.campaignId);
+                (, address cPublisher,) = campaigns.getCampaignForSettlement(sb.campaignId);
                 address expectedPub = cPublisher;
                 if (expectedPub == address(0)) {
                     expectedPub = sb.claims[0].publisher;

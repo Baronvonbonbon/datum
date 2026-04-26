@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumParameterGovernance.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
 
 /**
  * DatumParameterGovernance — T1-B
@@ -21,7 +24,7 @@ import "./interfaces/IDatumParameterGovernance.sol";
  *              E11 bad value, E18 not owner, E40 proposal state/condition error,
  *              E57 reentrancy.
  */
-contract DatumParameterGovernance is IDatumParameterGovernance {
+contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard, Ownable2Step {
 
     // ── Conviction table ────────────────────────────────────────────────────────
     uint8 public constant MAX_CONVICTION = 8;
@@ -52,9 +55,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
     }
 
     // ── Storage ─────────────────────────────────────────────────────────────────
-    address public owner;
-    address public pendingOwner;
-    uint256 private _locked;
+    IDatumPauseRegistry public pauseRegistry;
 
     // AUDIT-004: Whitelist — only permitted targets and selectors can be executed
     mapping(address => bool) public whitelistedTargets;
@@ -70,17 +71,18 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
     mapping(uint256 => mapping(address => Vote)) private _votes;
 
     // ── Modifiers ───────────────────────────────────────────────────────────────
-    modifier onlyOwner() { require(msg.sender == owner, "E18"); _; }
-    modifier noReentrant() { require(_locked == 0, "E57"); _locked = 1; _; _locked = 0; }
+    modifier whenNotPaused() { require(!pauseRegistry.paused(), "P"); _; }
 
     // ── Constructor ─────────────────────────────────────────────────────────────
     constructor(
+        address _pauseRegistry,
         uint256 _votingPeriodBlocks,
         uint256 _timelockBlocks,
         uint256 _quorum,
         uint256 _proposeBond
-    ) {
-        owner = msg.sender;
+    ) Ownable(msg.sender) {
+        require(_pauseRegistry != address(0), "E00");
+        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         votingPeriodBlocks = _votingPeriodBlocks;
         timelockBlocks = _timelockBlocks;
         quorum = _quorum;
@@ -93,7 +95,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         address target,
         bytes calldata payload,
         string calldata description
-    ) external payable noReentrant returns (uint256 proposalId) {
+    ) external payable nonReentrant whenNotPaused returns (uint256 proposalId) {
         require(msg.value == proposeBond, "E11");
         require(target != address(0), "E00");
         require(payload.length >= 4, "E11");
@@ -112,7 +114,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         emit Proposed(proposalId, msg.sender, target, description);
     }
 
-    function vote(uint256 proposalId, bool aye, uint8 conviction) external payable noReentrant {
+    function vote(uint256 proposalId, bool aye, uint8 conviction) external payable nonReentrant whenNotPaused {
         require(conviction <= MAX_CONVICTION, "E40");
         require(msg.value > 0, "E03");
 
@@ -145,7 +147,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         emit Voted(proposalId, msg.sender, aye, msg.value, conviction);
     }
 
-    function withdrawVote(uint256 proposalId) external noReentrant {
+    function withdrawVote(uint256 proposalId) external nonReentrant {
         Vote storage v = _votes[proposalId][msg.sender];
         require(v.lockAmount > 0, "E03");
         require(block.number >= v.lockUntil, "E40");
@@ -160,7 +162,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         emit VoteWithdrawn(proposalId, msg.sender, amount);
     }
 
-    function resolve(uint256 proposalId) external {
+    function resolve(uint256 proposalId) external whenNotPaused {
         Proposal storage p = _proposals[proposalId];
         require(p.state == State.Active, "E40");
         require(block.number > p.endBlock, "E40");
@@ -173,13 +175,13 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
             // Slash bond to owner
             uint256 bond = p.bond;
             p.bond = 0;
-            (bool ok,) = owner.call{value: bond}("");
+            (bool ok,) = owner().call{value: bond}("");
             require(ok, "E02");
         }
         emit Resolved(proposalId, uint8(p.state));
     }
 
-    function execute(uint256 proposalId) external noReentrant {
+    function execute(uint256 proposalId) external nonReentrant whenNotPaused {
         Proposal storage p = _proposals[proposalId];
         require(p.state == State.Passed, "E40");
         require(block.number >= p.executeAfter, "E40");
@@ -207,7 +209,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         emit Executed(proposalId, p.target);
     }
 
-    function cancel(uint256 proposalId) external onlyOwner noReentrant {
+    function cancel(uint256 proposalId) external onlyOwner nonReentrant {
         Proposal storage p = _proposals[proposalId];
         require(p.state == State.Active || p.state == State.Passed, "E40");
 
@@ -215,7 +217,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
 
         uint256 bond = p.bond;
         p.bond = 0;
-        (bool ok,) = owner.call{value: bond}("");
+        (bool ok,) = owner().call{value: bond}("");
         require(ok, "E02");
 
         emit Cancelled(proposalId);
@@ -247,15 +249,22 @@ contract DatumParameterGovernance is IDatumParameterGovernance {
         emit ParamsUpdated(_votingPeriodBlocks, _timelockBlocks, _quorum, _proposeBond);
     }
 
-    function transferOwnership(address next) external onlyOwner {
-        require(next != address(0), "E00");
-        pendingOwner = next;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // ── Views ────────────────────────────────────────────────────────────────────

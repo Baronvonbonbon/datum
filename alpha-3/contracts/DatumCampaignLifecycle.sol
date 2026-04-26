@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -16,13 +17,11 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///
 ///         Termination: 10% slash to governance, 90% refund to advertiser.
 ///         Completion/Expiry: full remaining budget refund to advertiser.
-contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
+contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Ownable2Step {
     // -------------------------------------------------------------------------
     // References
     // -------------------------------------------------------------------------
 
-    address public owner;
-    address public pendingOwner;
     IDatumCampaigns public campaigns;
     IDatumBudgetLedger public budgetLedger;
     IDatumPauseRegistry public pauseRegistry;
@@ -35,11 +34,6 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     ///      30 days at 6s blocks = 432,000 blocks.
     uint256 public immutable inactivityTimeoutBlocks;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "E18");
-        _;
-    }
-
     modifier whenNotPaused() {
         require(!pauseRegistry.paused(), "P");
         _;
@@ -51,10 +45,9 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _pauseRegistry, uint256 _inactivityTimeoutBlocks) {
+    constructor(address _pauseRegistry, uint256 _inactivityTimeoutBlocks) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
         require(_inactivityTimeoutBlocks > 0, "E00");
-        owner = msg.sender;
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         inactivityTimeoutBlocks = _inactivityTimeoutBlocks;
     }
@@ -93,15 +86,22 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
         challengeBonds = addr;
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -111,7 +111,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
     /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Advertiser or settlement (auto-complete) can call.
     ///      Drains remaining budget to advertiser via BudgetLedger.
-    function completeCampaign(uint256 campaignId) external nonReentrant {
+    function completeCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
         require(
@@ -176,7 +176,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard {
 
     /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Callable by anyone once pendingExpiryBlock has passed.
-    function expirePendingCampaign(uint256 campaignId) external nonReentrant {
+    function expirePendingCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
 

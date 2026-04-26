@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/ISystem.sol";
@@ -17,7 +18,7 @@ import "./interfaces/ISystem.sol";
 ///           - Type-1 (click): checks clickRegistry.hasUnclaimed for session validity.
 ///           - Type-2 (remote-action): ecrecover checks actionSig against pot.actionVerifier.
 ///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
-contract DatumClaimValidator is IDatumClaimValidator {
+contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
     ISystem private constant SYSTEM = ISystem(0x0000000000000000000000000000000000000900);
     address private constant SYSTEM_ADDR = 0x0000000000000000000000000000000000000900;
 
@@ -26,8 +27,6 @@ contract DatumClaimValidator is IDatumClaimValidator {
     // ZK-2: Groth16/BN254 proof is exactly 256 bytes; 1024-byte cap guards against oversized calldata abuse.
     uint256 private constant MAX_ZK_PROOF_SIZE = 1024;
 
-    address public owner;
-    address public pendingOwner;
     address public campaigns;
     address public publishers;
     address public pauseRegistry;
@@ -37,11 +36,10 @@ contract DatumClaimValidator is IDatumClaimValidator {
     // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
     address public clickRegistry;
 
-    constructor(address _campaigns, address _publishers, address _pauseRegistry) {
+    constructor(address _campaigns, address _publishers, address _pauseRegistry) Ownable(msg.sender) {
         require(_campaigns != address(0), "E00");
         require(_publishers != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
-        owner = msg.sender;
         campaigns = _campaigns;
         publishers = _publishers;
         pauseRegistry = _pauseRegistry;
@@ -51,43 +49,44 @@ contract DatumClaimValidator is IDatumClaimValidator {
     // Admin
     // -------------------------------------------------------------------------
 
-    function setCampaigns(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         campaigns = addr;
     }
 
-    function setPublishers(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublishers(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         publishers = addr;
     }
 
-    function setZKVerifier(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setZKVerifier(address addr) external onlyOwner {
         zkVerifier = addr;
     }
 
-    function setCampaignValidator(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaignValidator(address addr) external onlyOwner {
         campaignValidator = addr;
     }
 
-    function setClickRegistry(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setClickRegistry(address addr) external onlyOwner {
         clickRegistry = addr;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -234,6 +233,8 @@ contract DatumClaimValidator is IDatumClaimValidator {
             // sig is over computedHash (the full claim hash)
             bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", computedHash));
             (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.actionSig);
+            if (v != 27 && v != 28) return (false, 23, 0, bytes32(0));
+            if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) return (false, 23, 0, bytes32(0));
             address recovered = ecrecover(ethHash, v, r, s);
             if (recovered == address(0) || recovered != potActionVerifier) return (false, 23, 0, bytes32(0));
         }

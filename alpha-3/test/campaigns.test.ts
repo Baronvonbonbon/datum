@@ -80,7 +80,9 @@ describe("DatumCampaigns", function () {
   // L1: Create campaign with registered publisher
   it("L1: createCampaign with registered publisher succeeds", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n,
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
     await tx.wait();
@@ -91,20 +93,22 @@ describe("DatumCampaigns", function () {
     expect(await campaigns.getCampaignAdvertiser(id)).to.equal(advertiser.address);
 
     // Budget should be in ledger
-    expect(await ledger.getRemainingBudget(id)).to.equal(BUDGET);
-    expect(await ledger.getDailyCap(id)).to.equal(DAILY_CAP);
+    expect(await ledger.getRemainingBudget(id, 0)).to.equal(BUDGET);
+    expect(await ledger.getDailyCap(id, 0)).to.equal(DAILY_CAP);
   });
 
   // L2: Create open campaign (publisher = address(0))
   it("L2: createCampaign with publisher=address(0) uses DEFAULT_TAKE_RATE_BPS", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n,
+      ethers.ZeroAddress,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
 
-    const [status, pub, bidCpm, takeRate] = await campaigns.getCampaignForSettlement(id);
+    const [status, pub, takeRate] = await campaigns.getCampaignForSettlement(id);
     expect(status).to.equal(0); // Pending
     expect(pub).to.equal(ethers.ZeroAddress);
     expect(takeRate).to.equal(5000); // DEFAULT_TAKE_RATE_BPS
@@ -114,7 +118,9 @@ describe("DatumCampaigns", function () {
   it("L3: createCampaign with unregistered publisher reverts E62", async function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        other.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n,
+        other.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
@@ -124,7 +130,9 @@ describe("DatumCampaigns", function () {
   it("L4: createCampaign with zero value reverts E11", async function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n,
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n,
         { value: 0 }
       )
     ).to.be.revertedWith("E11");
@@ -148,7 +156,9 @@ describe("DatumCampaigns", function () {
   it("L6: advertiser can pause and resume Active campaign", async function () {
     // Create and activate a campaign
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -168,24 +178,27 @@ describe("DatumCampaigns", function () {
     expect(await campaigns.getCampaignStatus(id)).to.equal(1); // Active
   });
 
-  // L7: getCampaignForSettlement returns 4 values
-  it("L7: getCampaignForSettlement returns 4 values", async function () {
+  // L7: getCampaignForSettlement returns 3 values
+  it("L7: getCampaignForSettlement returns 3 values", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
-    const [status, pub, bidCpm, takeRate] = await campaigns.getCampaignForSettlement(id);
+    const [status, pub, takeRate] = await campaigns.getCampaignForSettlement(id);
     expect(status).to.equal(0);
     expect(pub).to.equal(publisher.address);
-    expect(bidCpm).to.equal(BID_CPM);
     expect(takeRate).to.equal(TAKE_RATE_BPS);
   });
 
   // L8: ZK proof requirement stored per-campaign
   it("L8: createCampaign with requireZkProof=true stores flag", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], true, ethers.ZeroAddress, 0, 0n,
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], true, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
     await tx.wait();
@@ -200,7 +213,9 @@ describe("DatumCampaigns", function () {
 
   it("setCampaignStatus only callable by lifecycleContract", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -217,7 +232,9 @@ describe("DatumCampaigns", function () {
 
   it("SM-7: setCampaignStatus rejects invalid transition (E67)", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 
@@ -233,7 +250,9 @@ describe("DatumCampaigns", function () {
 
   it("setTerminationBlock only callable by lifecycleContract", async function () {
     await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const id = await campaigns.nextCampaignId() - 1n;
 

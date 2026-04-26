@@ -2,6 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import {
   DatumParameterGovernance,
+  DatumPauseRegistry,
   DatumPublisherStake,
   MockCallTarget,
 } from "../typechain-types";
@@ -20,6 +21,7 @@ import { mineBlocks, fundSigners } from "./helpers/mine";
 
 describe("DatumParameterGovernance", function () {
   let gov: DatumParameterGovernance;
+  let pauseReg: DatumPauseRegistry;
   let target: MockCallTarget;
   let stakeContract: DatumPublisherStake;
 
@@ -38,8 +40,11 @@ describe("DatumParameterGovernance", function () {
     await fundSigners();
     [owner, proposer, voter1, voter2, other] = await ethers.getSigners();
 
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await PauseFactory.deploy(owner.address, proposer.address, voter1.address);
+
     const GovFactory = await ethers.getContractFactory("DatumParameterGovernance");
-    gov = await GovFactory.deploy(VOTING_PERIOD, TIMELOCK, QUORUM, PROPOSE_BOND);
+    gov = await GovFactory.deploy(await pauseReg.getAddress(), VOTING_PERIOD, TIMELOCK, QUORUM, PROPOSE_BOND);
 
     const TargetFactory = await ethers.getContractFactory("MockCallTarget");
     target = await TargetFactory.deploy();

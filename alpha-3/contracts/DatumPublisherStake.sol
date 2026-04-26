@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumPublisherStake.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title DatumPublisherStake
 /// @notice FP-1 + FP-4: Publisher staking with bonding-curve required stake.
@@ -21,10 +23,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 ///         are rejected with reason code 15.
 ///
 ///         Slash is called by PublisherGovernance when a fraud proposal resolves aye.
-contract DatumPublisherStake is IDatumPublisherStake {
-    address public owner;
-    address public pendingOwner;
-
+contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, Ownable2Step {
     /// @notice Settlement contract — authorised to call recordImpressions.
     address public settlementContract;
 
@@ -50,9 +49,8 @@ contract DatumPublisherStake is IDatumPublisherStake {
         uint256 _baseStakePlanck,
         uint256 _planckPerImpression,
         uint256 _unstakeDelayBlocks
-    ) {
+    ) Ownable(msg.sender) {
         require(_unstakeDelayBlocks > 0, "E00");
-        owner = msg.sender;
         baseStakePlanck = _baseStakePlanck;
         planckPerImpression = _planckPerImpression;
         unstakeDelayBlocks = _unstakeDelayBlocks;
@@ -60,20 +58,17 @@ contract DatumPublisherStake is IDatumPublisherStake {
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
-    function setSettlementContract(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setSettlementContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         settlementContract = addr;
     }
 
-    function setSlashContract(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setSlashContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         slashContract = addr;
     }
 
-    function setParams(uint256 _base, uint256 _perImpression, uint256 _delay) external {
-        require(msg.sender == owner, "E18");
+    function setParams(uint256 _base, uint256 _perImpression, uint256 _delay) external onlyOwner {
         require(_delay > 0, "E00");
         baseStakePlanck = _base;
         planckPerImpression = _perImpression;
@@ -82,22 +77,27 @@ contract DatumPublisherStake is IDatumPublisherStake {
     }
 
     /// @notice AUDIT-012: Set the bonding curve cap. Owner-only.
-    function setMaxRequiredStake(uint256 cap) external {
-        require(msg.sender == owner, "E18");
+    function setMaxRequiredStake(uint256 cap) external onlyOwner {
         require(cap > 0, "E00");
         maxRequiredStake = cap;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     receive() external payable { revert("E03"); }
@@ -128,7 +128,7 @@ contract DatumPublisherStake is IDatumPublisherStake {
     }
 
     /// @inheritdoc IDatumPublisherStake
-    function unstake() external {
+    function unstake() external nonReentrant {
         UnstakeRequest memory req = _pendingUnstake[msg.sender];
         require(req.amount > 0, "E01");
         require(block.number >= req.availableBlock, "E70"); // delay not elapsed
@@ -152,7 +152,7 @@ contract DatumPublisherStake is IDatumPublisherStake {
     // ── Governance slash ───────────────────────────────────────────────────────
 
     /// @inheritdoc IDatumPublisherStake
-    function slash(address publisher, uint256 amount, address recipient) external {
+    function slash(address publisher, uint256 amount, address recipient) external nonReentrant {
         require(msg.sender == slashContract, "E18");
         require(recipient != address(0), "E00");
         uint256 available = _staked[publisher];

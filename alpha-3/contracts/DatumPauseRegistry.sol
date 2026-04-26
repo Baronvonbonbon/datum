@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+
 /// @title DatumPauseRegistry
 /// @notice Global emergency pause circuit breaker.
 ///         SM-6: pause/unpause require 2-of-3 guardian approval.
@@ -11,9 +13,7 @@ pragma solidity ^0.8.24;
 ///         3. Owner can update guardian set (owner itself should be a multisig for mainnet).
 ///         Replay protection: each proposal is single-use (deleted on execution).
 ///         All DATUM contracts check paused() via staticcall before critical operations.
-contract DatumPauseRegistry {
-    address public owner;
-    address public pendingOwner;
+contract DatumPauseRegistry is Ownable2Step {
     bool public paused;
 
     // SM-6: 2-of-3 guardian multisig for pause/unpause
@@ -35,8 +35,7 @@ contract DatumPauseRegistry {
     event PauseProposed(uint256 indexed proposalId, uint8 action, address indexed proposer);
     event PauseApproved(uint256 indexed proposalId, address indexed approver);
 
-    constructor(address g0, address g1, address g2) {
-        owner = msg.sender;
+    constructor(address g0, address g1, address g2) Ownable(msg.sender) {
         _setGuardians(g0, g1, g2);
     }
 
@@ -44,8 +43,7 @@ contract DatumPauseRegistry {
     // Owner admin
     // -------------------------------------------------------------------------
 
-    function setGuardians(address g0, address g1, address g2) external {
-        require(msg.sender == owner, "E18");
+    function setGuardians(address g0, address g1, address g2) external onlyOwner {
         _setGuardians(g0, g1, g2);
     }
 
@@ -58,16 +56,22 @@ contract DatumPauseRegistry {
         emit GuardiansUpdated(g0, g1, g2);
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -128,14 +132,12 @@ contract DatumPauseRegistry {
 
     /// @notice Emergency override: owner can pause/unpause directly (escape hatch for mainnet).
     ///         On mainnet, owner should be a Gnosis Safe — so this is still multisig-gated.
-    function pause() external {
-        require(msg.sender == owner, "E18");
+    function pause() external onlyOwner {
         paused = true;
         emit Paused(msg.sender);
     }
 
-    function unpause() external {
-        require(msg.sender == owner, "E18");
+    function unpause() external onlyOwner {
         paused = false;
         emit Unpaused(msg.sender);
     }

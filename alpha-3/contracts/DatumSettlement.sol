@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumSettlement.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
 import "./interfaces/IDatumPublisherStake.sol";
@@ -29,14 +31,12 @@ import "./interfaces/IDatumClickRegistry.sol";
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
-    address public owner;
-    address public pendingOwner;
+contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
     address public budgetLedger;
     address public paymentVault;
     address public lifecycle;
     address public relayContract;
-    address public pauseRegistry;
+    IDatumPauseRegistry public pauseRegistry;
     address public attestationVerifier;
     address public claimValidator;
     // BM-5: optional rate limiter (address(0) = disabled)
@@ -72,10 +72,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     uint16 public minClaimInterval;
     mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public lastSettlementBlock;
 
-    constructor(address _pauseRegistry) {
+    constructor(address _pauseRegistry) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
-        owner = msg.sender;
-        pauseRegistry = _pauseRegistry;
+        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
     }
 
     // -------------------------------------------------------------------------
@@ -87,8 +86,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         address _paymentVault,
         address _lifecycle,
         address _relay
-    ) external {
-        require(msg.sender == owner, "E18");
+    ) external onlyOwner {
         require(_budgetLedger != address(0), "E00");
         require(_paymentVault != address(0), "E00");
         require(_lifecycle != address(0), "E00");
@@ -100,79 +98,73 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
         emit SettlementConfigured(_budgetLedger, _paymentVault, _lifecycle, _relay);
     }
 
-    function setClaimValidator(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setClaimValidator(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         claimValidator = addr;
     }
 
-    function setAttestationVerifier(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setAttestationVerifier(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         attestationVerifier = addr;
     }
 
-    function setRateLimiter(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setRateLimiter(address addr) external onlyOwner {
         rateLimiter = addr;
     }
 
-    function setMinClaimInterval(uint16 interval) external {
-        require(msg.sender == owner, "E18");
+    function setMinClaimInterval(uint16 interval) external onlyOwner {
         minClaimInterval = interval;
     }
 
-    function setPublishers(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublishers(address addr) external onlyOwner {
         publishers = addr;
     }
 
-    function setTokenRewardVault(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setTokenRewardVault(address addr) external onlyOwner {
         tokenRewardVault = addr;
     }
 
-    function setCampaigns(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         campaigns = addr;
     }
 
-    function setPublisherStake(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublisherStake(address addr) external onlyOwner {
         publisherStake = addr;
     }
 
-    function setNullifierRegistry(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setNullifierRegistry(address addr) external onlyOwner {
         nullifierRegistry = addr;
     }
 
-    function setPublisherReputation(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublisherReputation(address addr) external onlyOwner {
         publisherReputation = addr;
     }
 
-    function setMinReputationScore(uint16 score) external {
-        require(msg.sender == owner, "E18");
+    function setMinReputationScore(uint16 score) external onlyOwner {
         minReputationScore = score;
     }
 
-    function setClickRegistry(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setClickRegistry(address addr) external onlyOwner {
         clickRegistry = addr;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     receive() external payable { revert("E03"); }
@@ -189,10 +181,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     {
         require(claimValidator != address(0), "E00");
 
-        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
-            abi.encodeWithSelector(bytes4(0x5c975abb))  // paused()
-        );
-        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+        require(!pauseRegistry.paused(), "P");
 
         require(batches.length <= 10, "E28");
 
@@ -227,10 +216,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard {
     {
         require(claimValidator != address(0), "E00");
 
-        (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(
-            abi.encodeWithSelector(bytes4(0x5c975abb))
-        );
-        require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
+        require(!pauseRegistry.paused(), "P");
 
         require(batches.length <= 10, "E28");
 

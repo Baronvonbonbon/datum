@@ -180,6 +180,10 @@ const govV2Abi = [
   "function evaluateCampaign(uint256 campaignId)",
 ];
 
+const adminGovAbi = [
+  "function activateCampaign(uint256 campaignId)",
+];
+
 const targetingAbi = [
   "function setTags(bytes32[] tags)",
 ];
@@ -486,6 +490,7 @@ async function main() {
   const pubIface = new Interface(publishersAbi);
   const campIface = new Interface(campaignsAbi);
   const govIface = new Interface(govV2Abi);
+  const adminGovIface = new Interface(adminGovAbi);
   const targetIface = new Interface(targetingAbi);
   const reportsIface = new Interface(reportsAbi);
   const reputationIface = new Interface(reputationAbi);
@@ -775,26 +780,29 @@ async function main() {
     await waitForBlock(rawProvider, targetBlock);
   }
 
-  // Phase 4b: Alice evaluates all voted campaigns
-  log("4", `  Phase 4b: Evaluating ${votedIds.length} campaigns...`);
+  // Phase 4b: Alice activates all campaigns via AdminGovernance (Phase 0 governor).
+  // GovernanceV2 votes above demonstrate conviction-weighted voting; activation goes
+  // through the Router's current governor (AdminGovernance) since the Phase 2
+  // transition requires a 48h Timelock delay and hasn't happened on testnet yet.
+  log("4", `  Phase 4b: Activating ${allCampaignIds.length} campaigns via AdminGovernance...`);
   let activateOk = 0;
-  for (let i = 0; i < votedIds.length; i++) {
-    const cid = votedIds[i];
+  for (let i = 0; i < allCampaignIds.length; i++) {
+    const cid = allCampaignIds[i];
     try {
-      await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [cid]);
+      await sendCall(alice, rawProvider, addrs.adminGovernance, adminGovIface, "activateCampaign", [cid]);
       const statusRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
       const s = Number(BigInt(statusRaw));
       if (s === 1) {
         activateOk++;
       } else {
-        log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after evaluate`);
+        log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after activate`);
       }
-      if ((i + 1) % 10 === 0) log("4", `    evaluated ${i + 1}/${votedIds.length}...`);
+      if ((i + 1) % 10 === 0) log("4", `    activated ${i + 1}/${allCampaignIds.length}...`);
     } catch (err) {
-      log("4", `    evaluate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
+      log("4", `    activate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
     }
   }
-  log("4", `  Activated ${activateOk}/${votedIds.length} campaigns`);
+  log("4", `  Activated ${activateOk}/${allCampaignIds.length} campaigns`);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 5. SET METADATA — real IPFS SHA-256 bytes32 for all campaigns

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumNullifierRegistry.sol";
 
 /// @title DatumNullifierRegistry
@@ -19,14 +20,12 @@ import "./interfaces/IDatumNullifierRegistry.sol";
 ///         through the Poseidon hash inside the circuit).
 ///
 ///         25th contract in the Alpha-3 deployment.
-contract DatumNullifierRegistry is IDatumNullifierRegistry {
+contract DatumNullifierRegistry is IDatumNullifierRegistry, Ownable2Step {
 
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
 
-    address public owner;
-    address public pendingOwner;
     address public settlement;
     /// @notice AUDIT-017: Campaigns contract for campaign existence check in submitNullifier.
     address public campaigns;
@@ -39,7 +38,6 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     /// @dev campaignId => nullifier => used
     mapping(uint256 => mapping(bytes32 => bool)) private _used;
 
-    event OwnershipTransferred(address indexed prev, address indexed next);
     event SettlementSet(address indexed settlement);
     event WindowBlocksUpdated(uint256 oldValue, uint256 newValue);
 
@@ -47,9 +45,8 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(uint256 _windowBlocks) {
+    constructor(uint256 _windowBlocks) Ownable(msg.sender) {
         require(_windowBlocks > 0, "E11");
-        owner = msg.sender;
         windowBlocks = _windowBlocks;
     }
 
@@ -58,39 +55,41 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry {
     // -------------------------------------------------------------------------
 
     /// @notice Set the campaigns contract for campaign existence checks.
-    function setCampaigns(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         campaigns = addr;
     }
 
     /// @notice Set the settlement contract that is allowed to call submitNullifier.
-    function setSettlement(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         settlement = addr;
         emit SettlementSet(addr);
     }
 
     /// @notice Update the window size. Does not invalidate existing nullifiers.
-    function setWindowBlocks(uint256 _windowBlocks) external {
-        require(msg.sender == owner, "E18");
+    function setWindowBlocks(uint256 _windowBlocks) external onlyOwner {
         require(_windowBlocks > 0, "E11");
         emit WindowBlocksUpdated(windowBlocks, _windowBlocks);
         windowBlocks = _windowBlocks;
     }
 
-    function transferOwnership(address next) external {
-        require(msg.sender == owner, "E18");
-        require(next != address(0), "E00");
-        pendingOwner = next;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        emit OwnershipTransferred(owner, pendingOwner);
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

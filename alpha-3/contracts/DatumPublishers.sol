@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
+import "./interfaces/IDatumPublisherStake.sol";
 
 /// @title DatumPublishers
 /// @notice Publisher registry and take rate management.
@@ -39,6 +40,11 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
     bool public whitelistMode;
     mapping(address => bool) public approved;
 
+    // Stake-gated registration: if stakeGate > 0, a publisher with staked() >= stakeGate
+    // bypasses the whitelist check. address(0) = stake gate disabled.
+    IDatumPublisherStake public publisherStake;
+    uint256 public stakeGate;
+
     event AddressBlocked(address indexed addr);
     event AddressUnblocked(address indexed addr);
     event AllowlistToggled(address indexed publisher, bool enabled);
@@ -46,6 +52,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
     event SdkVersionRegistered(address indexed publisher, bytes32 hash);
     event WhitelistModeSet(bool enabled);
     event PublisherApprovalSet(address indexed publisher, bool isApproved);
+    event StakeGateSet(address indexed stakeContract, uint256 threshold);
 
     constructor(uint256 _takeRateUpdateDelayBlocks, address _pauseRegistry) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
@@ -75,10 +82,22 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
         emit PublisherApprovalSet(publisher, isApproved);
     }
 
+    /// @notice Set the stake contract and minimum stake threshold for registration bypass.
+    ///         stakeContract == address(0) disables stake-gated bypass entirely.
+    ///         threshold == 0 with a non-zero contract also disables (effectively open).
+    function setStakeGate(address stakeContract, uint256 threshold) external onlyOwner {
+        publisherStake = IDatumPublisherStake(stakeContract);
+        stakeGate = threshold;
+        emit StakeGateSet(stakeContract, threshold);
+    }
+
     /// @inheritdoc IDatumPublishers
     function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused {
         require(!blocked[msg.sender], "E62");
-        require(!whitelistMode || approved[msg.sender], "E79");
+        bool stakedEnough = address(publisherStake) != address(0) &&
+            stakeGate > 0 &&
+            publisherStake.staked(msg.sender) >= stakeGate;
+        require(!whitelistMode || approved[msg.sender] || stakedEnough, "E79");
         require(!_publishers[msg.sender].registered, "Already registered");
         require(
             takeRateBps >= MIN_TAKE_RATE_BPS && takeRateBps <= MAX_TAKE_RATE_BPS,

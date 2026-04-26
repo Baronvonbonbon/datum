@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
@@ -22,10 +23,7 @@ import "./interfaces/IDatumChallengeBonds.sol";
 ///         returnBond — called by DatumCampaignLifecycle on complete/expire
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution
 ///         claimBonus — called by advertiser directly
-contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard {
-    address public owner;
-    address public pendingOwner;
-
+contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard, Ownable2Step {
     /// @notice Campaigns contract — authorised to call lockBond.
     address public campaignsContract;
 
@@ -47,40 +45,41 @@ contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard {
 
     // ── Constructor ────────────────────────────────────────────────────────────
 
-    constructor() {
-        owner = msg.sender;
-    }
+    constructor() Ownable(msg.sender) {}
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
-    function setCampaignsContract(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setCampaignsContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         campaignsContract = addr;
     }
 
-    function setLifecycleContract(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setLifecycleContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         lifecycleContract = addr;
     }
 
-    function setGovernanceContract(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setGovernanceContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         governanceContract = addr;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     receive() external payable { revert("E03"); }

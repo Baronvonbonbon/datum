@@ -1,4 +1,4 @@
-// deploy.ts — Full 25-contract Alpha-3 deployment + wiring + ownership transfer
+// deploy.ts — Full 29-contract Alpha-3 deployment + wiring + ownership transfer
 //
 // Deploys in dependency order, wires all cross-contract references,
 // transfers ownership of Campaigns + Settlement to Timelock,
@@ -17,6 +17,11 @@
 //   - DatumPublisherStake       (FP-1+FP-4: publisher staking + bonding curve)
 //   - DatumChallengeBonds       (FP-2: advertiser challenge bonds)
 //   - DatumPublisherGovernance  (FP-3: conviction-weighted publisher fraud governance)
+//
+// Governance ladder (Phase 0 → 1 → 2):
+//   - DatumGovernanceRouter     (stable proxy: campaigns + lifecycle point here forever)
+//   - DatumAdminGovernance      (Phase 0: team multisig direct approval)
+//   - DatumCouncil              (Phase 1: N-of-M trusted council; Phase 2 uses GovernanceV2)
 //
 // Paseo eth-rpc workaround: getTransactionReceipt is broken for deploy txs.
 // We use raw signed transactions + getCreateAddress(sender, nonce) to derive
@@ -86,6 +91,8 @@ const REQUIRED_KEYS = [
   "nullifierRegistry",
   // T1-B: conviction-vote governance for FP system parameters
   "parameterGovernance",
+  // Governance ladder (Phase 0 → 1 → 2)
+  "governanceRouter", "adminGovernance", "council",
 ] as const;
 
 // BM-5 rate limiter deployment parameters
@@ -112,7 +119,18 @@ const PARAM_GOV_TIMELOCK = 14400n;                   // ~24h at 6s/block
 const PARAM_GOV_QUORUM = parseDOT("100");            // 100 DOT conviction-weighted
 const PARAM_GOV_BOND = parseDOT("2");                // 2 DOT propose bond
 
-const TOTAL_STEPS = 32; // 25 deploy + 7 wiring/validation sections
+// Governance ladder — DatumCouncil Phase 1 parameters
+// Testnet: fast periods so proposals can be tested without waiting days.
+// Mainnet: tune to longer blocks (e.g. 50400 voting, 14400 execution delay, 100800 veto).
+const COUNCIL_VOTING_PERIOD = 100n;                  // testnet: ~10 min
+const COUNCIL_EXECUTION_DELAY = 10n;                 // testnet: ~1 min
+const COUNCIL_VETO_WINDOW = 200n;                    // testnet: ~20 min
+const COUNCIL_MAX_EXECUTION_WINDOW = 100n;           // testnet: ~10 min
+const COUNCIL_THRESHOLD = 1n;                        // 1-of-1 for testnet (deployer is sole member)
+// For mainnet, set initial members to Gnosis Safe addresses of council members.
+// Council members and threshold can be changed later via council self-governance proposals.
+
+const TOTAL_STEPS = 34; // 29 deploy + 5 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -484,6 +502,7 @@ async function main() {
     await deployOrReuse("publisherGovernance", "DatumPublisherGovernance", [
       addresses.publisherStake,
       addresses.challengeBonds,
+      addresses.pauseRegistry,
       PUB_GOV_QUORUM,
       PUB_GOV_SLASH_BPS,
       PUB_GOV_BOND_BONUS_BPS,
@@ -505,6 +524,7 @@ async function main() {
   try {
     logStep("Deploying DatumParameterGovernance (T1-B)");
     await deployOrReuse("parameterGovernance", "DatumParameterGovernance", [
+      addresses.pauseRegistry,
       PARAM_GOV_VOTING_PERIOD,
       PARAM_GOV_TIMELOCK,
       PARAM_GOV_QUORUM,
@@ -514,7 +534,49 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumParameterGovernance — ${err}`);
   }
 
-  console.log("\n=== All 26 contracts deployed ===\n");
+  // --- Governance ladder ---
+  // Deploy Router first (with deployer as placeholder governor — updated after AdminGov is deployed).
+  // Router is the stable address that campaigns + lifecycle point to forever.
+  // Governor pointer inside Router is what changes across phases.
+
+  try {
+    logStep("Deploying DatumGovernanceRouter (governance ladder stable proxy)");
+    await deployOrReuse("governanceRouter", "DatumGovernanceRouter", [
+      addresses.campaigns,
+      addresses.campaignLifecycle,
+      deployer.address,              // placeholder governor — overwritten to adminGovernance below
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumGovernanceRouter — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumAdminGovernance (Phase 0: team multisig governance)");
+    await deployOrReuse("adminGovernance", "DatumAdminGovernance", [
+      addresses.governanceRouter,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumAdminGovernance — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumCouncil (Phase 1: N-of-M trusted council)");
+    // Testnet: deployer is the sole initial council member. Threshold = 1.
+    // Production: pass a list of Gnosis Safe / hardware wallet addresses.
+    await deployOrReuse("council", "DatumCouncil", [
+      [deployer.address],            // initialMembers
+      COUNCIL_THRESHOLD,
+      deployer.address,              // guardian (deployer can veto during alpha)
+      COUNCIL_VOTING_PERIOD,
+      COUNCIL_EXECUTION_DELAY,
+      COUNCIL_VETO_WINDOW,
+      COUNCIL_MAX_EXECUTION_WINDOW,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumCouncil — ${err}`);
+  }
+
+  console.log("\n=== All 29 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -602,6 +664,14 @@ async function main() {
     addresses.rateLimiter,
   );
 
+  // ── RateLimiter.setSettlement(settlement) — C3: access-control gate ──
+  await wireIfNeeded(
+    "RateLimiter.settlement",
+    "DatumSettlementRateLimiter", addresses.rateLimiter,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
   // ── Settlement.setPublishers(publishers) — S12 settlement-level blocklist ──
   await wireIfNeeded(
     "Settlement.publishers",
@@ -651,7 +721,7 @@ async function main() {
     "Campaigns.governanceContract",
     "DatumCampaigns", addresses.campaigns,
     "governanceContract", "setGovernanceContract",
-    addresses.governanceV2,
+    addresses.governanceRouter,      // stable Router — never changes even across phases
   );
   await wireIfNeeded(
     "Campaigns.settlementContract",
@@ -705,7 +775,7 @@ async function main() {
     "Lifecycle.governanceContract",
     "DatumCampaignLifecycle", addresses.campaignLifecycle,
     "governanceContract", "setGovernanceContract",
-    addresses.governanceV2,
+    addresses.governanceRouter,      // stable Router — slash ETH goes to Router.receive()
   );
   await wireIfNeeded(
     "Lifecycle.settlementContract",
@@ -783,6 +853,40 @@ async function main() {
     "DatumGovernanceV2", addresses.governanceV2,
     "helper", "setHelper",
     addresses.governanceHelper,
+  );
+
+  // ── Governance ladder: Router.setGovernor(Admin=0, adminGovernance) ──
+  // Sets Phase 0 (AdminGovernance) as the initial governor.
+  // Phase transitions (→ Council, → OpenGov) go through the Timelock after ownership transfer.
+  {
+    const routerIface = new ethers.Interface([
+      "function governor() view returns (address)",
+      "function setGovernor(uint8 newPhase, address newGovernor)",
+    ]);
+    const govData = routerIface.encodeFunctionData("governor");
+    const govResult = await rawProvider.call({ to: addresses.governanceRouter, data: govData });
+    const currentGov = ethers.AbiCoder.defaultAbiCoder().decode(["address"], govResult)[0].toLowerCase();
+
+    if (currentGov === addresses.adminGovernance.toLowerCase()) {
+      console.log("  OK (already set): GovernanceRouter.governor = adminGovernance");
+    } else {
+      const setGovData = routerIface.encodeFunctionData("setGovernor", [0, addresses.adminGovernance]);
+      const nonce = await rawProvider.getTransactionCount(deployer.address);
+      await deployer.sendTransaction({
+        to: addresses.governanceRouter, data: setGovData,
+        gasLimit: 500000000n, type: 0, gasPrice: 1000000000000n,
+      });
+      await waitForNonce(rawProvider, deployer.address, nonce);
+      console.log("  SET: GovernanceRouter.setGovernor(Admin, adminGovernance)");
+    }
+  }
+
+  // ── Governance ladder: AdminGovernance.setRouter if stale ──
+  await wireIfNeeded(
+    "AdminGovernance.router",
+    "DatumAdminGovernance", addresses.adminGovernance,
+    "router", "setRouter",
+    addresses.governanceRouter,
   );
 
   // ── FP-1+FP-4: PublisherStake ──
@@ -920,9 +1024,15 @@ async function main() {
   await transferOwnershipIfNeeded("Settlement", "DatumSettlement", addresses.settlement);
   // S12: Blocklist admin (blockAddress/unblockAddress) must go through 48h timelock for mainnet transparency
   await transferOwnershipIfNeeded("Publishers", "DatumPublishers", addresses.publishers);
+  // Governance ladder: phase transitions (setGovernor) must go through 48h timelock
+  await transferOwnershipIfNeeded("GovernanceRouter", "DatumGovernanceRouter", addresses.governanceRouter);
 
   console.log("\n  Future admin changes go through:");
   console.log("    timelock.propose(target, abi.encodeCall(...)) -> 48h -> timelock.execute()");
+  console.log("  Phase transitions:");
+  console.log("    Phase 0→1: timelock → router.setGovernor(Council, councilAddr)");
+  console.log("    Phase 1→2: timelock → router.setGovernor(OpenGov, governanceV2Addr)");
+  console.log("               + govV2.setCampaigns(router) + govV2.setLifecycle(router)");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 4: Post-deploy validation
@@ -956,7 +1066,7 @@ async function main() {
   // Campaigns
   await check("Campaigns.budgetLedger", await readAddr(addresses.campaigns, "budgetLedger"), addresses.budgetLedger);
   await check("Campaigns.lifecycleContract", await readAddr(addresses.campaigns, "lifecycleContract"), addresses.campaignLifecycle);
-  await check("Campaigns.governanceContract", await readAddr(addresses.campaigns, "governanceContract"), addresses.governanceV2);
+  await check("Campaigns.governanceContract", await readAddr(addresses.campaigns, "governanceContract"), addresses.governanceRouter);
   await check("Campaigns.settlementContract", await readAddr(addresses.campaigns, "settlementContract"), addresses.settlement);
   await check("Campaigns.campaignValidator", await readAddr(addresses.campaigns, "campaignValidator"), addresses.campaignValidator);
   // 2-step ownership: transferOwnership sets pendingOwner; Timelock calls acceptOwnership to finalize.
@@ -975,13 +1085,20 @@ async function main() {
   // CampaignLifecycle
   await check("Lifecycle.campaigns", await readAddr(addresses.campaignLifecycle, "campaigns"), addresses.campaigns);
   await check("Lifecycle.budgetLedger", await readAddr(addresses.campaignLifecycle, "budgetLedger"), addresses.budgetLedger);
-  await check("Lifecycle.governanceContract", await readAddr(addresses.campaignLifecycle, "governanceContract"), addresses.governanceV2);
+  await check("Lifecycle.governanceContract", await readAddr(addresses.campaignLifecycle, "governanceContract"), addresses.governanceRouter);
   await check("Lifecycle.settlementContract", await readAddr(addresses.campaignLifecycle, "settlementContract"), addresses.settlement);
 
   // GovernanceV2
   await check("GovernanceV2.slashContract", await readAddr(addresses.governanceV2, "slashContract"), addresses.governanceSlash);
   await check("GovernanceV2.lifecycle", await readAddr(addresses.governanceV2, "lifecycle"), addresses.campaignLifecycle);
   await check("GovernanceV2.helper", await readAddr(addresses.governanceV2, "helper"), addresses.governanceHelper);
+
+  // GovernanceRouter (Phase 0)
+  await check("GovernanceRouter.campaigns", await readAddr(addresses.governanceRouter, "campaigns"), addresses.campaigns);
+  await check("GovernanceRouter.lifecycle", await readAddr(addresses.governanceRouter, "lifecycle"), addresses.campaignLifecycle);
+  await check("GovernanceRouter.governor", await readAddr(addresses.governanceRouter, "governor"), addresses.adminGovernance);
+  await check("AdminGovernance.router", await readAddr(addresses.adminGovernance, "router"), addresses.governanceRouter);
+  await check("GovernanceRouter.pendingOwner", await readAddr(addresses.governanceRouter, "pendingOwner"), addresses.timelock);
 
   // ClaimValidator
   await check("ClaimValidator.campaigns", await readAddr(addresses.claimValidator, "campaigns"), addresses.campaigns);
@@ -1064,7 +1181,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-3 Deployment Complete ===\n");
-  console.log("26 contracts deployed and wired:\n");
+  console.log("29 contracts deployed and wired:\n");
   for (const key of REQUIRED_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }
@@ -1074,6 +1191,7 @@ async function main() {
   console.log("  - DatumCampaigns");
   console.log("  - DatumSettlement");
   console.log("  - DatumPublishers (S12: blocklist admin gated)");
+  console.log("  - DatumGovernanceRouter (phase transitions gated)");
   console.log("\nTo configure the extension, addresses auto-load from deployed-addresses.json.");
   console.log("To set up testnet: npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet");
 }

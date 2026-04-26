@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./DatumGovernanceV2.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 
@@ -11,11 +13,9 @@ import "./interfaces/IDatumCampaignsMinimal.sol";
 ///         Alpha-2: getCampaignForSettlement returns 4 values (no remainingBudget).
 ///         M4: sweepSlashPool() — permissionless sweep of unclaimed slash after deadline.
 ///         Hardening: ReentrancyGuard on claim/sweep (value transfer via slashAction).
-contract DatumGovernanceSlash is ReentrancyGuard {
+contract DatumGovernanceSlash is ReentrancyGuard, Ownable2Step {
     address public voting;
     address public campaigns;
-    address public owner;
-    address public pendingOwner;
 
     uint256 public constant SWEEP_DEADLINE_BLOCKS = 5256000; // ~365 days
 
@@ -25,26 +25,31 @@ contract DatumGovernanceSlash is ReentrancyGuard {
     mapping(uint256 => mapping(address => bool)) public claimed;
     mapping(uint256 => uint256) public totalClaimed;
 
-    constructor(address _voting, address _campaigns) {
+    constructor(address _voting, address _campaigns) Ownable(msg.sender) {
         require(_voting != address(0), "E00");
         require(_campaigns != address(0), "E00");
-        owner = msg.sender;
         voting = _voting;
         campaigns = _campaigns;
     }
 
     receive() external payable {}
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     /// @notice Finalize slash using weight snapshot from resolution time (SM-5)
@@ -81,7 +86,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         uint256 voterWeight = lockAmount * DatumGovernanceV2(payable(voting)).convictionWeight(conviction);
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
         require(winningWeight[campaignId] > 0, "E61");
-        uint256 share = pool * voterWeight / winningWeight[campaignId];
+        uint256 share = Math.mulDiv(pool, voterWeight, winningWeight[campaignId]);
         require(share > 0, "E61");
 
         claimed[campaignId][msg.sender] = true;
@@ -103,7 +108,7 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         totalClaimed[campaignId] += remaining;
 
         // Transfer remaining pool to owner (protocol treasury)
-        DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, owner, remaining);
+        DatumGovernanceV2(payable(voting)).slashAction(0, campaignId, owner(), remaining);
     }
 
     /// @notice View: claimable slash reward for a voter
@@ -121,6 +126,6 @@ contract DatumGovernanceSlash is ReentrancyGuard {
         uint256 voterWeight = lockAmount * DatumGovernanceV2(payable(voting)).convictionWeight(conviction);
         uint256 pool = DatumGovernanceV2(payable(voting)).slashCollected(campaignId);
         if (winningWeight[campaignId] == 0) return 0;
-        return pool * voterWeight / winningWeight[campaignId];
+        return Math.mulDiv(pool, voterWeight, winningWeight[campaignId]);
     }
 }

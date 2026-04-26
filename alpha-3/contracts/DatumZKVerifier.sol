@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+
 /// @title DatumZKVerifier
 /// @notice Real Groth16 verifier using BN254 precompiles:
 ///           0x06 — ecAdd (G1 addition)
@@ -24,7 +26,7 @@ pragma solidity ^0.8.24;
 ///
 ///         VK must be set by owner after running scripts/setup-zk.mjs.
 ///         While unset, verify() returns false (fail-safe).
-contract DatumZKVerifier {
+contract DatumZKVerifier is Ownable2Step {
 
     // -------------------------------------------------------------------------
     // BN254 constants
@@ -56,16 +58,10 @@ contract DatumZKVerifier {
     VerifyingKey private _vk;
     bool public vkSet;
 
-    address public owner;
-    address public pendingOwner;
-
     /// @notice AUDIT-018: Includes hash of the full VK for on-chain auditability.
     event VerifyingKeySet(bytes32 indexed vkHash);
-    event OwnershipTransferred(address indexed prev, address indexed next);
 
-    constructor() {
-        owner = msg.sender;
-    }
+    constructor() Ownable(msg.sender) {}
 
     // -------------------------------------------------------------------------
     // Admin
@@ -84,8 +80,7 @@ contract DatumZKVerifier {
         uint256[2] calldata IC0,
         uint256[2] calldata IC1,
         uint256[2] calldata IC2
-    ) external {
-        require(msg.sender == owner, "E18");
+    ) external onlyOwner {
         _vk.alpha1 = alpha1;
         _vk.beta2   = beta2;
         _vk.gamma2  = gamma2;
@@ -98,17 +93,22 @@ contract DatumZKVerifier {
         emit VerifyingKeySet(vkHash); // AUDIT-018: include VK hash for auditability
     }
 
-    function transferOwnership(address next) external {
-        require(msg.sender == owner, "E18");
-        require(next != address(0), "E00");
-        pendingOwner = next;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        emit OwnershipTransferred(owner, pendingOwner);
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

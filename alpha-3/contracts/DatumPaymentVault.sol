@@ -50,9 +50,22 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable2Step 
         settlement = addr;
     }
 
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
+    }
+
     function transferOwnership(address newOwner) public override(Ownable2Step) onlyOwner {
         require(newOwner != address(0), "E00");
         super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

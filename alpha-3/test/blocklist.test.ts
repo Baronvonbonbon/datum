@@ -134,7 +134,9 @@ describe("S12: Blocklist & Allowlist", function () {
 
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
 
@@ -150,7 +152,9 @@ describe("S12: Blocklist & Allowlist", function () {
 
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        scamPub.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+        scamPub.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
   });
@@ -158,7 +162,9 @@ describe("S12: Blocklist & Allowlist", function () {
   it("BK6: unblocked address can registerPublisher and createCampaign", async function () {
     // Verify advertiser (unblocked above) can create campaigns
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -169,7 +175,9 @@ describe("S12: Blocklist & Allowlist", function () {
     await publishers.blockAddress(advertiser.address);
     await expect(
       campaigns.connect(advertiser).createCampaign(
-        ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+        ethers.ZeroAddress,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
     await publishers.unblockAddress(advertiser.address);
@@ -231,7 +239,9 @@ describe("S12: Blocklist & Allowlist", function () {
   it("AL3: createCampaign respects allowlist — allowed advertiser succeeds", async function () {
     // Allowlist is enabled, advertiser is allowed (from AL2b)
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -242,14 +252,18 @@ describe("S12: Blocklist & Allowlist", function () {
     // other is not on publisher's allowlist — validator returns (false, 0)
     await expect(
       campaigns.connect(other).createCampaign(
-        publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
   });
 
   it("AL5: open campaign (publisher=0) bypasses allowlist", async function () {
     const tx = await campaigns.connect(other).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      ethers.ZeroAddress,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -260,7 +274,9 @@ describe("S12: Blocklist & Allowlist", function () {
     await publishers.connect(publisher).setAllowlistEnabled(false);
 
     const tx = await campaigns.connect(other).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;

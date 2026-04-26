@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumPublisherReputation.sol";
 
 /// @title DatumPublisherReputation
@@ -17,10 +18,7 @@ import "./interfaces/IDatumPublisherReputation.sol";
 ///           with MIN_SAMPLE guard to avoid false positives on tiny datasets.
 ///         - Optional integration: ClaimValidator or off-chain tooling can query
 ///           getScore() / isAnomaly() to weight decisions. No hard enforcement in alpha-3.
-contract DatumPublisherReputation is IDatumPublisherReputation {
-    address public owner;
-    address public pendingOwner;
-
+contract DatumPublisherReputation is IDatumPublisherReputation, Ownable2Step {
     /// @notice The Settlement contract — only caller allowed to record stats (FP-16).
     address public settlement;
 
@@ -60,26 +58,29 @@ contract DatumPublisherReputation is IDatumPublisherReputation {
     // Constructor / admin
     // -------------------------------------------------------------------------
 
-    constructor() {
-        owner = msg.sender;
-    }
+    constructor() Ownable(msg.sender) {}
 
-    function setSettlement(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         settlement = addr;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------

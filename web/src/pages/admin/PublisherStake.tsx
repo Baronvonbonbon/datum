@@ -34,6 +34,13 @@ export function PublisherStakeAdmin() {
   const [slashTxState, setSlashTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [slashTxMsg, setSlashTxMsg] = useState("");
 
+  // Stake gate
+  const [gateInfo, setGateInfo] = useState<{ contract: string; threshold: bigint } | null>(null);
+  const [gateContract, setGateContract] = useState("");
+  const [gateThreshold, setGateThreshold] = useState("");
+  const [gateTxState, setGateTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
+  const [gateTxMsg, setGateTxMsg] = useState("");
+
   async function handleLookup() {
     if (!contracts.publisherStake) return;
     setLookupLoading(true);
@@ -88,6 +95,41 @@ export function PublisherStakeAdmin() {
     } catch (err) {
       setParamsTxState("error");
       setParamsTxMsg(humanizeError(err));
+    }
+  }
+
+  async function loadGate() {
+    if (!contracts.publishers) return;
+    try {
+      const [contractAddr, threshold] = await Promise.all([
+        contracts.publishers.publisherStake(),
+        contracts.publishers.stakeGate(),
+      ]);
+      setGateInfo({ contract: contractAddr, threshold });
+      setGateContract(contractAddr);
+      setGateThreshold(threshold.toString());
+    } catch (err) {
+      push({ message: humanizeError(err), type: "error" });
+    }
+  }
+
+  async function handleSetGate() {
+    if (!contracts.publishers || !signer) return;
+    setGateTxState("pending");
+    setGateTxMsg("Setting stake gate…");
+    try {
+      const pub = contracts.publishers.connect(signer);
+      const tx = await confirmTx(() =>
+        pub.setStakeGate(gateContract, BigInt(gateThreshold || "0"))
+      );
+      if (!tx) { setGateTxState("idle"); return; }
+      await tx.wait();
+      setGateTxState("success");
+      setGateTxMsg("Stake gate updated.");
+      await loadGate();
+    } catch (err) {
+      setGateTxState("error");
+      setGateTxMsg(humanizeError(err));
     }
   }
 
@@ -163,6 +205,38 @@ export function PublisherStakeAdmin() {
           {paramsTxState === "pending" ? "Updating…" : "setParams"}
         </button>
         <TransactionStatus state={paramsTxState} message={paramsTxMsg} />
+      </section>
+
+      {/* Registration Gate */}
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>Registration Gate (owner only)</h2>
+        <p style={{ color: "#888", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+          When whitelist mode is on, publishers who have staked at least <b>threshold</b> planck bypass the
+          manual approval list and can register freely. Set threshold to 0 or contract to zero address to disable.
+        </p>
+        <button onClick={loadGate} style={{ marginBottom: "0.5rem", fontSize: "0.8rem" }}>Load current values</button>
+        {gateInfo && (
+          <div style={{ marginBottom: "0.5rem", background: "var(--surface)", padding: "0.75rem", borderRadius: 8, fontSize: "0.85rem" }}>
+            <div><b>Stake contract:</b> {gateInfo.contract === "0x0000000000000000000000000000000000000000" ? "not set" : gateInfo.contract}</div>
+            <div><b>Threshold:</b> {gateInfo.threshold === 0n ? "disabled (0)" : `${formatEther(gateInfo.threshold)} DOT`}</div>
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          <input
+            placeholder="Stake contract address (0x… or zero to disable)"
+            value={gateContract}
+            onChange={e => setGateContract(e.target.value)}
+          />
+          <input
+            placeholder="Threshold (planck, 0 = disabled)"
+            value={gateThreshold}
+            onChange={e => setGateThreshold(e.target.value)}
+          />
+          <button onClick={handleSetGate} disabled={gateTxState === "pending" || !gateContract}>
+            {gateTxState === "pending" ? "Updating…" : "setStakeGate"}
+          </button>
+        </div>
+        <TransactionStatus state={gateTxState} message={gateTxMsg} />
       </section>
 
       {/* Slash */}

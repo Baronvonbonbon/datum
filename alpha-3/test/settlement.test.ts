@@ -61,19 +61,22 @@ describe("DatumSettlement", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
       );
       claims.push({
         campaignId,
         publisher: publisherAddr,
-        impressionCount: impressionsPerClaim,
-        clearingCpmPlanck: baseCpm,
+        eventCount: impressionsPerClaim,
+        ratePlanck: baseCpm,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
         zkProof: "0x",
         nullifier: ethers.ZeroHash,
+        actionSig: "0x",
       });
       prevHash = hash;
     }
@@ -90,7 +93,7 @@ describe("DatumSettlement", function () {
       1 // Active
     );
     // Initialize budget via mock's initBudget helper (forwards to BudgetLedger)
-    await mock.initBudget(id, budget, dailyCap, { value: budget });
+    await mock.initBudget(id, 0, budget, dailyCap, { value: budget });
     return id;
   }
 
@@ -241,7 +244,7 @@ describe("DatumSettlement", function () {
     // Create a campaign for a different publisher (use `other` as publisher)
     const cidB = nextCampaignId++;
     await mock.setCampaign(cidB, owner.address, other.address, BID_CPM, TAKE_RATE_BPS, 1);
-    await mock.initBudget(cidB, BUDGET, DAILY_CAP, { value: BUDGET });
+    await mock.initBudget(cidB, 0, BUDGET, DAILY_CAP, { value: BUDGET });
 
     // Register `protocol` as relaySigner for `publisher` (not for `other`)
     await mock.setRelaySigner(publisher.address, protocol.address);
@@ -264,19 +267,22 @@ describe("DatumSettlement", function () {
     const highCpm = BID_CPM + 1n;
     const nonce = 1n;
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 1000n, highCpm, nonce, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [cid, publisher.address, user.address, 1000n, highCpm, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
     );
     const claims = [{
       campaignId: cid,
       publisher: publisher.address,
-      impressionCount: 1000n,
-      clearingCpmPlanck: highCpm,
+      eventCount: 1000n,
+      ratePlanck: highCpm,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -299,19 +305,22 @@ describe("DatumSettlement", function () {
     const cid = await createTestCampaign();
     const nonZeroPrev = ethers.keccak256(ethers.toUtf8Bytes("not-zero"));
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 1000n, BID_CPM, 1n, nonZeroPrev]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, 1n, nonZeroPrev]
     );
     const claims = [{
       campaignId: cid,
       publisher: publisher.address,
-      impressionCount: 1000n,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: 1000n,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce: 1n,
       previousClaimHash: nonZeroPrev,
       claimHash: hash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -354,19 +363,22 @@ describe("DatumSettlement", function () {
     const cid = await createTestCampaign();
     const nonce = 1n;
     const hash = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 0n, BID_CPM, nonce, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [cid, publisher.address, user.address, 0n, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
     );
     const claims = [{
       campaignId: cid,
       publisher: publisher.address,
-      impressionCount: 0n,
-      clearingCpmPlanck: BID_CPM,
+      eventCount: 0n,
+      ratePlanck: BID_CPM,
+      actionType: 0,
+      clickSessionHash: ethers.ZeroHash,
       nonce,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
       zkProof: "0x",
       nullifier: ethers.ZeroHash,
+      actionSig: "0x",
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -585,7 +597,7 @@ describe("DatumSettlement", function () {
       };
 
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
-      expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
 
       const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
       expect(result.settledCount).to.equal(0n);
@@ -601,7 +613,7 @@ describe("DatumSettlement", function () {
       expect(result.settledCount).to.equal(1n);
 
       await settlement.connect(user).settleClaims([batch]);
-      expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
     });
 
     // Publisher co-signature tests
@@ -739,7 +751,7 @@ describe("DatumSettlement", function () {
         id, advertiserAddr(), ethers.ZeroAddress, BID_CPM, 5000,
         1 // Active
       );
-      await mock.initBudget(id, budget, dailyCap, { value: budget });
+      await mock.initBudget(id, 0, budget, dailyCap, { value: budget });
       return id;
     }
 
@@ -779,7 +791,7 @@ describe("DatumSettlement", function () {
     const batch = { user: user.address, campaignId: cid, claims };
 
     await settlement.connect(user).settleClaims([batch]);
-    expect(await settlement.lastNonce(user.address, cid)).to.equal(1n);
+    expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
 
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
     expect(result.settledCount).to.equal(0n);
@@ -815,16 +827,16 @@ describe("DatumSettlement", function () {
       // Build fresh chain starting from nonce 2
       const claims2 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       // claims2 starts at nonce 1 — hack nonce to 2 by rebuilding off settled state
-      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
       };
 
       const tx = await settlement.connect(user).settleClaims([batch2]);
@@ -848,16 +860,16 @@ describe("DatumSettlement", function () {
       // Advance past the interval
       await mineBlocks(10);
 
-      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -872,16 +884,16 @@ describe("DatumSettlement", function () {
       const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: claims1 }]);
 
-      const prevHash = await settlement.lastClaimHash(user.address, cid);
+      const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, impressionCount: 1000n, clearingCpmPlanck: BID_CPM, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -904,7 +916,7 @@ describe("DatumSettlement", function () {
     expect(result.rejectedCount).to.equal(0n);
 
     await settlement.connect(user).settleClaims([batch1, batch2]);
-    expect(await settlement.lastNonce(user.address, cid1)).to.equal(3n);
-    expect(await settlement.lastNonce(user.address, cid2)).to.equal(2n);
+    expect(await settlement.lastNonce(user.address, cid1, 0)).to.equal(3n);
+    expect(await settlement.lastNonce(user.address, cid2, 0)).to.equal(2n);
   });
 });

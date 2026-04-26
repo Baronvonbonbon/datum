@@ -11,6 +11,28 @@
     "type": "constructor"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ReentrancyGuardReentrantCall",
     "type": "error"
@@ -117,6 +139,44 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "address",
         "name": "budgetLedger",
@@ -146,7 +206,7 @@
   },
   {
     "inputs": [],
-    "name": "MAX_USER_IMPRESSIONS",
+    "name": "MAX_USER_EVENTS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -217,6 +277,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "clickRegistry",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -246,23 +319,30 @@
   },
   {
     "inputs": [
-      {"internalType": "address","name": "","type": "address"},
-      {"internalType": "uint256","name": "","type": "uint256"},
-      {"internalType": "uint8","name": "","type": "uint8"}
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
     ],
     "name": "lastClaimHash",
-    "outputs": [{"internalType": "bytes32","name": "","type": "bytes32"}],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {"internalType": "address","name": "","type": "address"},
-      {"internalType": "uint256","name": "","type": "uint256"},
-      {"internalType": "uint8","name": "","type": "uint8"}
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
     ],
-    "name": "lastNonce",
-    "outputs": [{"internalType": "uint256","name": "","type": "uint256"}],
     "stateMutability": "view",
     "type": "function"
   },
@@ -277,6 +357,40 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "name": "lastNonce",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "name": "lastSettlementBlock",
@@ -318,6 +432,19 @@
   },
   {
     "inputs": [],
+    "name": "minReputationScore",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "nullifierRegistry",
     "outputs": [
       {
@@ -347,7 +474,7 @@
     "name": "pauseRegistry",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumPauseRegistry",
         "name": "",
         "type": "address"
       }
@@ -447,6 +574,13 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -488,12 +622,38 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setClickRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint16",
         "name": "interval",
         "type": "uint16"
       }
     ],
     "name": "setMinClaimInterval",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "score",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMinReputationScore",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -592,18 +752,66 @@
           },
           {
             "components": [
-              {"internalType": "uint256","name": "campaignId","type": "uint256"},
-              {"internalType": "address","name": "publisher","type": "address"},
-              {"internalType": "uint256","name": "eventCount","type": "uint256"},
-              {"internalType": "uint256","name": "ratePlanck","type": "uint256"},
-              {"internalType": "uint8","name": "actionType","type": "uint8"},
-              {"internalType": "bytes32","name": "clickSessionHash","type": "bytes32"},
-              {"internalType": "uint256","name": "nonce","type": "uint256"},
-              {"internalType": "bytes32","name": "previousClaimHash","type": "bytes32"},
-              {"internalType": "bytes32","name": "claimHash","type": "bytes32"},
-              {"internalType": "bytes","name": "zkProof","type": "bytes"},
-              {"internalType": "bytes32","name": "nullifier","type": "bytes32"},
-              {"internalType": "bytes","name": "actionSig","type": "bytes"}
+              {
+                "internalType": "uint256",
+                "name": "campaignId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "publisher",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "eventCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "ratePlanck",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint8",
+                "name": "actionType",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "clickSessionHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "previousClaimHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "claimHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes",
+                "name": "zkProof",
+                "type": "bytes"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes",
+                "name": "actionSig",
+                "type": "bytes"
+              }
             ],
             "internalType": "struct IDatumSettlement.Claim[]",
             "name": "claims",
@@ -673,13 +881,23 @@
                   },
                   {
                     "internalType": "uint256",
-                    "name": "impressionCount",
+                    "name": "eventCount",
                     "type": "uint256"
                   },
                   {
                     "internalType": "uint256",
-                    "name": "clearingCpmPlanck",
+                    "name": "ratePlanck",
                     "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint8",
+                    "name": "actionType",
+                    "type": "uint8"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "clickSessionHash",
+                    "type": "bytes32"
                   },
                   {
                     "internalType": "uint256",
@@ -705,6 +923,11 @@
                     "internalType": "bytes32",
                     "name": "nullifier",
                     "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "actionSig",
+                    "type": "bytes"
                   }
                 ],
                 "internalType": "struct IDatumSettlement.Claim[]",
@@ -787,6 +1010,11 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "name": "userCampaignSettled",
@@ -798,20 +1026,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "minReputationScore",
-    "outputs": [{ "internalType": "uint16", "name": "", "type": "uint16" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint16", "name": "score", "type": "uint16" }],
-    "name": "setMinReputationScore",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

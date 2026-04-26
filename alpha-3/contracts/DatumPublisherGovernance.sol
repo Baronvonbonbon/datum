@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumPublisherGovernance.sol";
 import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
 
 /// @title DatumPublisherGovernance
 /// @notice FP-3: Conviction-weighted fraud proposals targeting publishers.
@@ -26,7 +29,7 @@ import "./interfaces/IDatumChallengeBonds.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (unlike GovernanceV2 campaign slash) —
 ///         they simply can't withdraw until lockup expires.
-contract DatumPublisherGovernance is IDatumPublisherGovernance {
+contract DatumPublisherGovernance is IDatumPublisherGovernance, ReentrancyGuard, Ownable2Step {
     uint8 public constant MAX_CONVICTION = 8;
 
     // ── Conviction table (same as GovernanceV2, hardcoded for PVM size) ────────
@@ -57,24 +60,18 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
 
     // ── Configuration ──────────────────────────────────────────────────────────
 
-    address public owner;
-    address public pendingOwner;
-
     IDatumPublisherStake public publisherStake;
     IDatumChallengeBonds public challengeBonds;
+    IDatumPauseRegistry public pauseRegistry;
 
     uint256 public quorum;
     uint256 public slashBps;
     uint256 public bondBonusBps;
     uint256 public minGraceBlocks;
 
-    uint256 private _locked;
-
-    modifier noReentrant() {
-        require(_locked == 0, "E57");
-        _locked = 1;
+    modifier whenNotPaused() {
+        require(!pauseRegistry.paused(), "P");
         _;
-        _locked = 0;
     }
 
     // ── State ──────────────────────────────────────────────────────────────────
@@ -89,17 +86,19 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
     constructor(
         address _publisherStake,
         address _challengeBonds,
+        address _pauseRegistry,
         uint256 _quorum,
         uint256 _slashBps,
         uint256 _bondBonusBps,
         uint256 _minGraceBlocks
-    ) {
+    ) Ownable(msg.sender) {
         require(_publisherStake != address(0), "E00");
+        require(_pauseRegistry != address(0), "E00");
         require(_slashBps <= 10000, "E00");
         require(_bondBonusBps <= 10000, "E00");
-        owner = msg.sender;
         publisherStake = IDatumPublisherStake(_publisherStake);
         challengeBonds = _challengeBonds == address(0) ? IDatumChallengeBonds(address(0)) : IDatumChallengeBonds(_challengeBonds);
+        pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         quorum = _quorum;
         slashBps = _slashBps;
         bondBonusBps = _bondBonusBps;
@@ -109,19 +108,21 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
-    function setPublisherStake(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setPublisherStake(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         publisherStake = IDatumPublisherStake(addr);
     }
 
-    function setChallengeBonds(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setChallengeBonds(address addr) external onlyOwner {
         challengeBonds = IDatumChallengeBonds(addr);
     }
 
-    function setParams(uint256 _quorum, uint256 _slashBps, uint256 _bondBonusBps, uint256 _minGrace) external {
-        require(msg.sender == owner, "E18");
+    function setPauseRegistry(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        pauseRegistry = IDatumPauseRegistry(addr);
+    }
+
+    function setParams(uint256 _quorum, uint256 _slashBps, uint256 _bondBonusBps, uint256 _minGrace) external onlyOwner {
         require(_slashBps <= 10000, "E00");
         require(_bondBonusBps <= 10000, "E00");
         quorum = _quorum;
@@ -130,22 +131,28 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
         minGraceBlocks = _minGrace;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // ── Publisher governance actions ───────────────────────────────────────────
 
     /// @inheritdoc IDatumPublisherGovernance
-    function propose(address publisher, bytes32 evidenceHash) external {
+    function propose(address publisher, bytes32 evidenceHash) external whenNotPaused {
         require(publisher != address(0), "E00");
         require(evidenceHash != bytes32(0), "E00");
 
@@ -164,7 +171,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
     }
 
     /// @inheritdoc IDatumPublisherGovernance
-    function vote(uint256 proposalId, bool aye, uint8 conviction) external payable noReentrant {
+    function vote(uint256 proposalId, bool aye, uint8 conviction) external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "E11");
         require(conviction <= MAX_CONVICTION, "E40");
 
@@ -212,7 +219,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
     }
 
     /// @inheritdoc IDatumPublisherGovernance
-    function withdrawVote(uint256 proposalId) external noReentrant {
+    function withdrawVote(uint256 proposalId) external nonReentrant {
         Vote storage v = _votes[proposalId][msg.sender];
         require(v.direction != 0, "E01");
         require(block.number >= v.lockedUntilBlock, "E42");
@@ -237,7 +244,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance {
     }
 
     /// @inheritdoc IDatumPublisherGovernance
-    function resolve(uint256 proposalId) external noReentrant {
+    function resolve(uint256 proposalId) external nonReentrant whenNotPaused {
         Proposal storage p = _proposals[proposalId];
         require(p.createdBlock > 0, "E01");
         require(!p.resolved, "E41");

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+
 /// @title DatumTimelock
 /// @notice Standalone 48-hour timelock for admin changes on DATUM contracts.
 ///         Owner proposes a call (target + calldata), waits 48h, then anyone can execute.
 ///         Contracts whose ownership is transferred to this timelock gain 48h delay protection.
-contract DatumTimelock {
-    address public owner;
-    address public pendingOwner;
-
+contract DatumTimelock is ReentrancyGuard, Ownable2Step {
     uint256 public constant TIMELOCK_DELAY = 172800;    // 48 hours in seconds
     /// @notice AUDIT-029: Proposals expire after 7 days post-delay to prevent stale execution.
     uint256 public constant PROPOSAL_TIMEOUT = 604800;  // 7 days in seconds
@@ -21,14 +21,7 @@ contract DatumTimelock {
     event ChangeExecuted(address indexed target, bytes data);
     event ChangeCancelled(address indexed target);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "E18");
-        _;
-    }
-
-    constructor() {
-        owner = msg.sender;
-    }
+    constructor() Ownable(msg.sender) {}
 
     function propose(address target, bytes calldata data) external onlyOwner {
         require(target != address(0), "E00");
@@ -40,7 +33,7 @@ contract DatumTimelock {
         emit ChangeProposed(target, data, block.timestamp + TIMELOCK_DELAY);
     }
 
-    function execute() external {
+    function execute() external nonReentrant {
         require(pendingTarget != address(0), "E36");
         require(block.timestamp >= pendingTimestamp + TIMELOCK_DELAY, "E37");
         // AUDIT-029: Reject stale proposals — must execute within PROPOSAL_TIMEOUT after delay
@@ -68,14 +61,24 @@ contract DatumTimelock {
         emit ChangeCancelled(target);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
     }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
+    }
+
+    /// @notice Accept ETH so timelocked proposals can forward value.
+    receive() external payable {}
 }

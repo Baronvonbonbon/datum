@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumPublisherStake } from "../typechain-types";
+import { DatumPublisherStake, DatumPublishers, DatumPauseRegistry } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { mineBlocks, fundSigners } from "./helpers/mine";
 
@@ -293,5 +293,107 @@ describe("DatumPublisherStake", function () {
     await stake.connect(other).transferOwnership(owner.address);
     await stake.connect(owner).acceptOwnership();
     expect(await stake.owner()).to.equal(owner.address);
+  });
+});
+
+// ── Stake-gated publisher registration (PG-1 – PG-7) ────────────────────────
+// Tests for DatumPublishers.setStakeGate() and stake-bypass logic in registerPublisher().
+
+describe("DatumPublishers — stake-gated registration", function () {
+  let stakeContract: DatumPublisherStake;
+  let publishers: DatumPublishers;
+  let pauseReg: DatumPauseRegistry;
+
+  let owner: HardhatEthersSigner;
+  let pub1: HardhatEthersSigner;
+  let pub2: HardhatEthersSigner;
+  let pub3: HardhatEthersSigner;
+  let other: HardhatEthersSigner;
+
+  const BASE_STAKE   = 1_000_000_000n; // 0.1 DOT
+  const GATE         = 5_000_000_000n; // 0.5 DOT — the registration threshold
+  const TAKE_RATE    = 5000;
+
+  before(async function () {
+    await fundSigners();
+    [owner, pub1, pub2, pub3, other] = await ethers.getSigners();
+
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await PauseFactory.deploy(owner.address, pub1.address, pub2.address);
+
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    stakeContract = await StakeFactory.deploy(BASE_STAKE, 0n, 10n);
+
+    const PubFactory = await ethers.getContractFactory("DatumPublishers");
+    publishers = await PubFactory.deploy(100n, await pauseReg.getAddress());
+
+    // Enable whitelist mode so stake-gate bypass is meaningful
+    await publishers.connect(owner).setWhitelistMode(true);
+  });
+
+  // PG-1: setStakeGate stores contract + threshold and emits event
+  it("PG-1: setStakeGate stores values and emits StakeGateSet", async function () {
+    await expect(
+      publishers.connect(owner).setStakeGate(await stakeContract.getAddress(), GATE)
+    )
+      .to.emit(publishers, "StakeGateSet")
+      .withArgs(await stakeContract.getAddress(), GATE);
+
+    expect(await publishers.publisherStake()).to.equal(await stakeContract.getAddress());
+    expect(await publishers.stakeGate()).to.equal(GATE);
+  });
+
+  // PG-2: publisher without sufficient stake is rejected in whitelist mode
+  it("PG-2: publisher with insufficient stake cannot register in whitelist mode", async function () {
+    // pub1 has no stake at all
+    await expect(
+      publishers.connect(pub1).registerPublisher(TAKE_RATE)
+    ).to.be.revertedWith("E79");
+  });
+
+  // PG-3: publisher with exactly GATE stake can register without whitelist approval
+  it("PG-3: publisher meeting stake gate registers without whitelist approval", async function () {
+    await stakeContract.connect(pub1).stake({ value: GATE });
+    expect(await stakeContract.staked(pub1.address)).to.equal(GATE);
+
+    await publishers.connect(pub1).registerPublisher(TAKE_RATE);
+    expect((await publishers.getPublisher(pub1.address)).registered).to.be.true;
+  });
+
+  // PG-4: publisher with stake below gate is rejected even if just 1 planck short
+  it("PG-4: stake one planck below gate is rejected", async function () {
+    await stakeContract.connect(pub2).stake({ value: GATE - 1n });
+    await expect(
+      publishers.connect(pub2).registerPublisher(TAKE_RATE)
+    ).to.be.revertedWith("E79");
+  });
+
+  // PG-5: manually approved publisher registers regardless of stake
+  it("PG-5: manually approved publisher registers even with zero stake", async function () {
+    // pub3 has no stake
+    await publishers.connect(owner).setApproved(pub3.address, true);
+    await publishers.connect(pub3).registerPublisher(TAKE_RATE);
+    expect((await publishers.getPublisher(pub3.address)).registered).to.be.true;
+  });
+
+  // PG-6: disabling stake gate (threshold=0) blocks stake bypass
+  it("PG-6: stakeGate=0 disables stake-based bypass", async function () {
+    await publishers.connect(owner).setStakeGate(await stakeContract.getAddress(), 0n);
+    // pub2 still has GATE-1 stake — not approved, gate disabled → rejected
+    await expect(
+      publishers.connect(pub2).registerPublisher(TAKE_RATE)
+    ).to.be.revertedWith("E79");
+    // Restore
+    await publishers.connect(owner).setStakeGate(await stakeContract.getAddress(), GATE);
+  });
+
+  // PG-7: setting stakeContract to zero address disables bypass (even if stakeGate > 0)
+  it("PG-7: zero stakeContract address disables bypass", async function () {
+    await publishers.connect(owner).setStakeGate(ethers.ZeroAddress, GATE);
+    await expect(
+      publishers.connect(pub2).registerPublisher(TAKE_RATE)
+    ).to.be.revertedWith("E79");
+    // Restore
+    await publishers.connect(owner).setStakeGate(await stakeContract.getAddress(), GATE);
   });
 });

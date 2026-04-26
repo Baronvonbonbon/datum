@@ -79,19 +79,22 @@ describe("Integration", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethers.solidityPackedKeccak256(
-        ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, impressions, cpm, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash]
       );
       claims.push({
         campaignId,
         publisher: publisherAddr,
-        impressionCount: impressions,
-        clearingCpmPlanck: cpm,
+        eventCount: impressions,
+        ratePlanck: cpm,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
         zkProof: "0x",
         nullifier: ethers.ZeroHash,
+        actionSig: "0x",
       });
       prevHash = hash;
     }
@@ -100,7 +103,9 @@ describe("Integration", function () {
 
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      pub.address, dailyCap, bidCpm, [], false, ethers.ZeroAddress, 0, 0n, { value: budget }
+      pub.address,
+      [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: bidCpm, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
     await tx.wait();
     const id = await campaigns.nextCampaignId() - 1n;
@@ -194,10 +199,12 @@ describe("Integration", function () {
     );
     await settlement.setClaimValidator(await claimValidator.getAddress());
     await settlement.setAttestationVerifier(await verifier.getAddress());
+    await settlement.setCampaigns(await campaigns.getAddress());
 
     // Token reward vault (ERC-20 sidecar)
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
-    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy();
+    tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await campaigns.getAddress());
+    await tokenRewardVault.setSettlement(await settlement.getAddress());
     await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
@@ -243,7 +250,7 @@ describe("Integration", function () {
 
     // Complete campaign via Lifecycle — refund remaining budget to advertiser
     const advBalBefore = await ethers.provider.getBalance(advertiser.address);
-    const remaining = await ledger.getRemainingBudget(campaignId);
+    const remaining = await ledger.getRemainingBudget(campaignId, 0);
     const completeTx = await lifecycle.connect(advertiser).completeCampaign(campaignId);
     const completeReceipt = await completeTx.wait();
     const advBalAfter = await ethers.provider.getBalance(advertiser.address);
@@ -345,7 +352,7 @@ describe("Integration", function () {
     expect(result.rejectedCount).to.equal(3n);
 
     await settlement.connect(user).settleClaims([batch]);
-    expect(await settlement.lastNonce(user.address, campaignId)).to.equal(2n);
+    expect(await settlement.lastNonce(user.address, campaignId, 0)).to.equal(2n);
   });
 
   // Scenario E: Take rate snapshot
@@ -355,7 +362,7 @@ describe("Integration", function () {
 
     const campaignId = await createTestCampaign(BUDGET, DAILY_CAP, BID_CPM, lowPublisher as any);
 
-    const [, , , takeRate] = await campaigns.getCampaignForSettlement(campaignId);
+    const [, , takeRate] = await campaigns.getCampaignForSettlement(campaignId);
     expect(takeRate).to.equal(3000);
 
     // Update to 80%
@@ -639,7 +646,9 @@ describe("Integration", function () {
   it("H5: attested settlement on open campaign verifies serving publisher", async function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      ethers.ZeroAddress,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -687,7 +696,9 @@ describe("Integration", function () {
   // H6: open campaign attestation with wrong signer reverts E34
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
-      ethers.ZeroAddress, DAILY_CAP, BID_CPM, [], false, ethers.ZeroAddress, 0, 0n, { value: BUDGET }
+      ethers.ZeroAddress,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
@@ -769,7 +780,9 @@ describe("Integration", function () {
 
     // Create a campaign with ERC-20 reward token
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false,
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false,
       await mockERC20.getAddress(), REWARD_PER_IMP, 0n,
       { value: BUDGET }
     );
@@ -832,15 +845,17 @@ describe("Integration", function () {
     const REWARD_PER_IMP  = 1000n; // 0.001 USDT (6 dec)
 
     const tx = await campaigns.connect(advertiser).createCampaign(
-      publisher.address, DAILY_CAP, BID_CPM, [], false,
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false,
       USDT_PRECOMPILE, REWARD_PER_IMP, 0n,
       { value: BUDGET }
     );
     await tx.wait();
     const campaignId = await campaigns.nextCampaignId() - 1n;
 
-    // Verify precompile address stored as-is
-    expect(await campaigns.getCampaignRewardToken(campaignId)).to.equal(USDT_PRECOMPILE);
+    // Verify precompile address stored as-is (compare checksummed)
+    expect(await campaigns.getCampaignRewardToken(campaignId)).to.equal(ethers.getAddress(USDT_PRECOMPILE));
     expect(await campaigns.getCampaignRewardPerImpression(campaignId)).to.equal(REWARD_PER_IMP);
 
     // Activate campaign
@@ -874,7 +889,9 @@ describe("Integration", function () {
     // Helper: create + activate at given CPM
     async function makeCompetingCampaign(cpm: bigint): Promise<bigint> {
       const tx = await campaigns.connect(advertiser).createCampaign(
-        publisher.address, COMP_DAILY, cpm, [], false, ethers.ZeroAddress, 0, 0n, { value: COMP_BUDGET }
+        publisher.address,
+        [{ actionType: 0, budgetPlanck: COMP_BUDGET, dailyCapPlanck: COMP_DAILY, ratePlanck: cpm, actionVerifier: ethers.ZeroAddress }],
+        [], false, ethers.ZeroAddress, 0n, 0n, { value: COMP_BUDGET }
       );
       await tx.wait();
       const cid = await campaigns.nextCampaignId() - 1n;

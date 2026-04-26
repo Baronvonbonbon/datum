@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
 
 /// @title DatumTokenRewardVault
@@ -12,9 +14,8 @@ import "./interfaces/IDatumTokenRewardVault.sol";
 ///
 ///         Separated from DatumPaymentVault to keep ETH-native accounting isolated.
 ///         Only supports EVM-native ERC-20 tokens (not native Asset Hub assets).
-contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
-    address public owner;
-    address public pendingOwner;
+contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Ownable2Step {
+    using SafeERC20 for IERC20;
     address public settlement;
     address public campaigns;
 
@@ -23,9 +24,8 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
     // token => campaignId => remaining budget
     mapping(address => mapping(uint256 => uint256)) public campaignTokenBudget;
 
-    constructor(address _campaigns) {
+    constructor(address _campaigns) Ownable(msg.sender) {
         require(_campaigns != address(0), "E00");
-        owner = msg.sender;
         campaigns = _campaigns;
     }
 
@@ -33,22 +33,27 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
     // Admin
     // -------------------------------------------------------------------------
 
-    function setSettlement(address addr) external {
-        require(msg.sender == owner, "E18");
+    function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         settlement = addr;
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
@@ -70,8 +75,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
         require(msg.sender == advertiser, "E18");
 
         // Pull tokens from advertiser (requires prior approve)
-        bool transferred = IERC20(token).transferFrom(msg.sender, address(this), amount);
-        require(transferred, "E02");
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         campaignTokenBudget[token][campaignId] += amount;
         emit TokenBudgetDeposited(campaignId, token, amount);
@@ -113,8 +117,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
         require(amount > 0, "E03");
         userTokenBalance[token][msg.sender] = 0;
 
-        bool transferred = IERC20(token).transfer(msg.sender, amount);
-        require(transferred, "E02");
+        IERC20(token).safeTransfer(msg.sender, amount);
         emit TokenWithdrawal(msg.sender, token, amount);
     }
 
@@ -125,8 +128,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
         require(amount > 0, "E03");
         userTokenBalance[token][msg.sender] = 0;
 
-        bool transferred = IERC20(token).transfer(recipient, amount);
-        require(transferred, "E02");
+        IERC20(token).safeTransfer(recipient, amount);
         emit TokenWithdrawal(msg.sender, token, amount);
     }
 
@@ -156,8 +158,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard {
         require(remaining > 0, "E03");
         campaignTokenBudget[token][campaignId] = 0;
 
-        bool transferred = IERC20(token).transfer(advertiser, remaining);
-        require(transferred, "E02");
+        IERC20(token).safeTransfer(advertiser, remaining);
         emit TokenBudgetReclaimed(campaignId, token, advertiser, remaining);
     }
 

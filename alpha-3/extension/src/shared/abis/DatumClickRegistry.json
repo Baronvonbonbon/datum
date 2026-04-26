@@ -1,18 +1,339 @@
 [
-  {"type":"constructor","inputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"owner","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
-  {"type":"function","name":"pendingOwner","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
-  {"type":"function","name":"relay","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
-  {"type":"function","name":"settlement","inputs":[],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
-  {"type":"function","name":"setRelay","inputs":[{"name":"addr","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"setSettlement","inputs":[{"name":"addr","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"transferOwnership","inputs":[{"name":"newOwner","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"acceptOwnership","inputs":[],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"recordClick","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"markClaimed","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},
-  {"type":"function","name":"hasUnclaimed","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[{"name":"","type":"bool"}],"stateMutability":"view"},
-  {"type":"function","name":"sessionHash","inputs":[{"name":"user","type":"address"},{"name":"campaignId","type":"uint256"},{"name":"impressionNonce","type":"bytes32"}],"outputs":[{"name":"","type":"bytes32"}],"stateMutability":"pure"},
-  {"type":"event","name":"ClickRecorded","inputs":[{"name":"sessionHash","type":"bytes32","indexed":true},{"name":"user","type":"address","indexed":true},{"name":"campaignId","type":"uint256","indexed":true}],"anonymous":false},
-  {"type":"event","name":"ClickClaimed","inputs":[{"name":"sessionHash","type":"bytes32","indexed":true}],"anonymous":false},
-  {"type":"event","name":"ContractReferenceChanged","inputs":[{"name":"name","type":"string","indexed":false},{"name":"oldAddr","type":"address","indexed":false},{"name":"newAddr","type":"address","indexed":false}],"anonymous":false}
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "sessionHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ClickClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "sessionHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClickRecorded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "oldAddr",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "newAddr",
+        "type": "address"
+      }
+    ],
+    "name": "ContractReferenceChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "acceptOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "impressionNonce",
+        "type": "bytes32"
+      }
+    ],
+    "name": "hasUnclaimed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "impressionNonce",
+        "type": "bytes32"
+      }
+    ],
+    "name": "markClaimed",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pendingOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "impressionNonce",
+        "type": "bytes32"
+      }
+    ],
+    "name": "recordClick",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "relay",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "impressionNonce",
+        "type": "bytes32"
+      }
+    ],
+    "name": "sessionHash",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setRelay",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "setSettlement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlement",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
 ]

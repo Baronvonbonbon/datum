@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumGovernanceHelper.sol";
@@ -27,7 +29,7 @@ import "./interfaces/IDatumGovernanceHelper.sol";
 ///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
-contract DatumGovernanceV2 {
+contract DatumGovernanceV2 is ReentrancyGuard, Ownable2Step {
     uint8 public constant MAX_CONVICTION = 8;
 
     // -------------------------------------------------------------------------
@@ -67,15 +69,12 @@ contract DatumGovernanceV2 {
     // Configuration
     // -------------------------------------------------------------------------
 
-    address public owner;
-    address public pendingOwner;
     address public campaigns;
     address public slashContract;
     IDatumCampaignLifecycle public lifecycle;
     address public pauseRegistry;
     IDatumGovernanceHelper public helper;
 
-    uint256 private _locked;
 
     uint256 public quorumWeighted;
     uint256 public slashBps;
@@ -129,11 +128,10 @@ contract DatumGovernanceV2 {
         uint256 _gracePerQuorum,
         uint256 _maxGrace,
         address _pauseRegistry
-    ) {
+    ) Ownable(msg.sender) {
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         require(_maxGrace >= _baseGrace, "E00");
-        owner = msg.sender;
         campaigns = _campaigns;
         quorumWeighted = _quorum;
         slashBps = _slashBps;
@@ -155,44 +153,55 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     // SL-4: Removed once-only guard — allows correction if wrong address was set
-    function setSlashContract(address _slash) external {
-        require(msg.sender == owner, "E18");
+    function setSlashContract(address _slash) external onlyOwner {
         emit ContractReferenceChanged("slashContract", slashContract, _slash);
         slashContract = _slash;
     }
 
-    function setLifecycle(address _lifecycle) external {
-        require(msg.sender == owner, "E18");
+    function setLifecycle(address _lifecycle) external onlyOwner {
         require(_lifecycle != address(0), "E00");
         emit ContractReferenceChanged("lifecycle", address(lifecycle), _lifecycle);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
     }
 
-    function setHelper(address _helper) external {
-        require(msg.sender == owner, "E18");
+    function setHelper(address _helper) external onlyOwner {
         require(_helper != address(0), "E00");
         emit ContractReferenceChanged("helper", address(helper), _helper);
         helper = IDatumGovernanceHelper(_helper);
     }
 
-    function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E18");
-        require(newOwner != address(0), "E00");
-        pendingOwner = newOwner;
+    /// @notice Phase 3 Router compatibility: update the campaigns reference.
+    ///         In the governance ladder, govV2.campaigns is set to the Router so
+    ///         activateCampaign/getCampaignForSettlement route through the Router.
+    function setCampaigns(address _campaigns) external onlyOwner {
+        require(_campaigns != address(0), "E00");
+        emit ContractReferenceChanged("campaigns", campaigns, _campaigns);
+        campaigns = _campaigns;
     }
 
-    function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "E18");
-        owner = pendingOwner;
-        pendingOwner = address(0);
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
+    }
+
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
     }
 
     // -------------------------------------------------------------------------
     // Voting
     // -------------------------------------------------------------------------
 
-    function vote(uint256 campaignId, bool aye, uint8 conviction) external payable {
-        require(_locked == 0, "E57");
+    function vote(uint256 campaignId, bool aye, uint8 conviction) external payable nonReentrant {
         (bool pOk, bytes memory pRet) = pauseRegistry.staticcall(abi.encodeWithSelector(bytes4(0x5c975abb)));
         require(pOk && pRet.length >= 32 && !abi.decode(pRet, (bool)), "P");
         require(conviction <= MAX_CONVICTION, "E40");
@@ -233,9 +242,7 @@ contract DatumGovernanceV2 {
     // Withdrawal
     // -------------------------------------------------------------------------
 
-    function withdraw(uint256 campaignId) external {
-        require(_locked == 0, "E57");
-        _locked = 1;
+    function withdraw(uint256 campaignId) external nonReentrant {
         Vote storage v = _votes[campaignId][msg.sender];
         require(v.direction != 0, "E44");
         require(block.number >= v.lockedUntilBlock, "E45");
@@ -268,7 +275,6 @@ contract DatumGovernanceV2 {
         require(ok, "E02");
 
         emit VoteWithdrawn(campaignId, msg.sender, refund, slash);
-        _locked = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -344,15 +350,12 @@ contract DatumGovernanceV2 {
     // -------------------------------------------------------------------------
 
     // SL-9: Validate action parameter — only action 0 (transfer) is implemented
-    function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external {
-        require(_locked == 0, "E57");
-        _locked = 1;
+    function slashAction(uint8 action, uint256 /*campaignId*/, address target, uint256 value) external nonReentrant {
         require(msg.sender == slashContract, "E19");
         require(action == 0, "E65");
         helper.checkMinBalance(value);
         (bool ok,) = target.call{value: value}("");
         require(ok, "E02");
-        _locked = 0;
     }
 
     // -------------------------------------------------------------------------
