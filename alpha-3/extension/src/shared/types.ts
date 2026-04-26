@@ -375,6 +375,9 @@ export interface ContractAddresses {
   nullifierRegistry: string;    // FP-5: per-user per-campaign ZK nullifier replay prevention
   parameterGovernance: string;  // T1-B: conviction-vote governance for FP system parameters
   clickRegistry: string;        // FP-CPC: impression→click session registry for CPC fraud prevention
+  adminGovernance: string;      // Phase 0: team admin direct approval
+  governanceRouter: string;     // Stable-address proxy for governance ladder transitions
+  council: string;              // Phase 1: N-of-M trusted council voting
 }
 
 // User ad preferences — persisted in chrome.storage.local

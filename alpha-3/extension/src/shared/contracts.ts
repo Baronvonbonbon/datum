@@ -27,6 +27,9 @@ import DatumPublisherGovernanceAbi from "./abis/DatumPublisherGovernance.json";
 import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
 import DatumParameterGovernanceAbi from "./abis/DatumParameterGovernance.json";
 import DatumClickRegistryAbi from "./abis/DatumClickRegistry.json";
+import DatumAdminGovernanceAbi from "./abis/DatumAdminGovernance.json";
+import DatumGovernanceRouterAbi from "./abis/DatumGovernanceRouter.json";
+import DatumCouncilAbi from "./abis/DatumCouncil.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider | JsonRpcApiProvider;
@@ -262,4 +265,16 @@ export function getParameterGovernanceContract(addresses: ContractAddresses, pro
 
 export function getClickRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.clickRegistry, abi(DatumClickRegistryAbi), provider);
+}
+
+export function getAdminGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.adminGovernance, abi(DatumAdminGovernanceAbi), provider);
+}
+
+export function getGovernanceRouterContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.governanceRouter, abi(DatumGovernanceRouterAbi), provider);
+}
+
+export function getCouncilContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.council, abi(DatumCouncilAbi), provider);
 }

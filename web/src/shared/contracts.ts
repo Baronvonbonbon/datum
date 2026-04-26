@@ -26,6 +26,10 @@ import DatumChallengeBondsAbi from "./abis/DatumChallengeBonds.json";
 import DatumPublisherGovernanceAbi from "./abis/DatumPublisherGovernance.json";
 import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
 import DatumParameterGovernanceAbi from "./abis/DatumParameterGovernance.json";
+import DatumAdminGovernanceAbi from "./abis/DatumAdminGovernance.json";
+import DatumGovernanceRouterAbi from "./abis/DatumGovernanceRouter.json";
+import DatumCouncilAbi from "./abis/DatumCouncil.json";
+import DatumZKVerifierAbi from "./abis/DatumZKVerifier.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider | JsonRpcApiProvider;
@@ -302,4 +306,20 @@ export function getNullifierRegistryContract(addresses: ContractAddresses, provi
 
 export function getParameterGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.parameterGovernance, abi(DatumParameterGovernanceAbi), provider);
+}
+
+export function getAdminGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.adminGovernance, abi(DatumAdminGovernanceAbi), provider);
+}
+
+export function getGovernanceRouterContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.governanceRouter, abi(DatumGovernanceRouterAbi), provider);
+}
+
+export function getCouncilContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.council, abi(DatumCouncilAbi), provider);
+}
+
+export function getZKVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.zkVerifier, abi(DatumZKVerifierAbi), provider);
 }
