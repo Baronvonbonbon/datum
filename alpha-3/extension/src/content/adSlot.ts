@@ -317,10 +317,10 @@ function wrapperStyles(maxWidth: string, fixedHeight = false): string {
 }
 
 function datumBadge(): string {
-  return `<span style="
-    font-weight: 700; color: ${D.accent}; font-size: 10px;
-    letter-spacing: 1.2px; text-transform: uppercase;
-  ">◆ DATUM</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:6px;">` +
+    `<span style="font-size:10px;color:${D.textMuted};font-weight:400;letter-spacing:0.3px;">Sponsored</span>` +
+    `<span style="font-weight:700;color:${D.accent};font-size:10px;letter-spacing:1.2px;text-transform:uppercase;">◆ DATUM</span>` +
+    `</span>`;
 }
 
 function reportBtnHtml(): string {

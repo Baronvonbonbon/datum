@@ -743,7 +743,11 @@ async function handleMessage(
     }
 
     case "UPDATE_INTEREST": {
-      await interestProfile.updateProfile(msg.tags ?? []);
+      if ((msg.delta ?? 1) < 0) {
+        await interestProfile.removeRecentVisits(msg.tags ?? []);
+      } else {
+        await interestProfile.updateProfile(msg.tags ?? []);
+      }
       return { ok: true };
     }
 
@@ -1298,13 +1302,16 @@ async function autoFlushDirect() {
         claims: b.claims.map((c) => ({
           campaignId: c.campaignId,
           publisher: c.publisher,
-          impressionCount: c.impressionCount,
-          clearingCpmPlanck: c.clearingCpmPlanck,
+          eventCount: c.eventCount,
+          ratePlanck: c.ratePlanck,
+          actionType: c.actionType,
+          clickSessionHash: c.clickSessionHash,
           nonce: c.nonce,
           previousClaimHash: c.previousClaimHash,
           claimHash: c.claimHash,
           zkProof: c.zkProof,
           nullifier: c.nullifier,
+          actionSig: c.actionSig,
         })),
         publisherSig,
       };
@@ -1336,7 +1343,8 @@ async function autoFlushDirect() {
     for (const b of batches) {
       const cid = b.campaignId.toString();
       try {
-        const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+        const actionType = b.claims[0]?.actionType ?? 0;
+        const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId, actionType);
         console.log(`[DATUM] Auto-flush: campaign=${cid} on-chain nonce=${onChainNonce}, batch first=${b.claims[0].nonce} last=${b.claims[b.claims.length - 1].nonce}`);
         if (onChainNonce >= b.claims[0].nonce) {
           const count = Number(onChainNonce - b.claims[0].nonce + 1n);
@@ -1413,13 +1421,16 @@ function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
     claims: b.claims.map((c) => ({
       campaignId: c.campaignId.toString(),
       publisher: c.publisher,
-      impressionCount: c.impressionCount.toString(),
-      clearingCpmPlanck: c.clearingCpmPlanck.toString(),
+      eventCount: c.eventCount.toString(),
+      ratePlanck: c.ratePlanck.toString(),
+      actionType: c.actionType.toString(),
+      clickSessionHash: c.clickSessionHash,
       nonce: c.nonce.toString(),
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
       zkProof: c.zkProof,
       nullifier: c.nullifier,
+      actionSig: c.actionSig,
     })),
   }));
 }

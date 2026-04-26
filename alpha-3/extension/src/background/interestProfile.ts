@@ -161,6 +161,36 @@ export const interestProfile = {
     return profile;
   },
 
+  /** Remove the most recent visit for each listed tag (negative interest signal).
+   *  Called when the user clicks "Not interested" on an ad. */
+  async removeRecentVisits(tags: string[]): Promise<void> {
+    if (tags.length === 0) return;
+    if (_profileLock) {
+      // Treat as a no-op rather than queuing alongside positive updates
+      return;
+    }
+    _profileLock = true;
+    try {
+      const profile = await this.getProfile();
+      const tagSet = new Set(tags);
+      const removed = new Set<string>();
+      // Walk backwards — remove the single most recent visit per tag
+      for (let i = profile.visits.length - 1; i >= 0 && removed.size < tagSet.size; i--) {
+        const tag = profile.visits[i].tag;
+        if (tagSet.has(tag) && !removed.has(tag)) {
+          profile.visits.splice(i, 1);
+          removed.add(tag);
+        }
+      }
+      const { weights, visitCounts } = computeWeights(profile.visits);
+      profile.weights = weights;
+      profile.visitCounts = visitCounts;
+      await chrome.storage.local.set({ [STORAGE_KEY]: profile });
+    } finally {
+      _profileLock = false;
+    }
+  },
+
   /** Reset the interest profile (user-initiated) */
   async resetProfile(): Promise<void> {
     await chrome.storage.local.remove(STORAGE_KEY);

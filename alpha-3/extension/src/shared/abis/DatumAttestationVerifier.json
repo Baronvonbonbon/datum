@@ -11,6 +11,11 @@
           "internalType": "address",
           "name": "_campaigns",
           "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pauseRegistry",
+          "type": "address"
         }
       ],
       "stateMutability": "nonpayable",
@@ -35,6 +40,19 @@
       "outputs": [
         {
           "internalType": "contract IDatumCampaignsSettlement",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pauseRegistry",
+      "outputs": [
+        {
+          "internalType": "contract IDatumPauseRegistry",
           "name": "",
           "type": "address"
         }
@@ -70,13 +88,23 @@
                 },
                 {
                   "internalType": "uint256",
-                  "name": "impressionCount",
+                  "name": "eventCount",
                   "type": "uint256"
                 },
                 {
                   "internalType": "uint256",
-                  "name": "clearingCpmPlanck",
+                  "name": "ratePlanck",
                   "type": "uint256"
+                },
+                {
+                  "internalType": "uint8",
+                  "name": "actionType",
+                  "type": "uint8"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "clickSessionHash",
+                  "type": "bytes32"
                 },
                 {
                   "internalType": "uint256",
@@ -96,6 +124,16 @@
                 {
                   "internalType": "bytes",
                   "name": "zkProof",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "nullifier",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "actionSig",
                   "type": "bytes"
                 }
               ],
