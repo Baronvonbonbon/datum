@@ -4,7 +4,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
-import { CampaignMetadata } from "@shared/types";
+import { CampaignMetadata, AdFormat, AD_FORMAT_SIZES, CreativeAsset } from "@shared/types";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
@@ -28,6 +28,8 @@ export function SetMetadata() {
   const [cta, setCta] = useState("Learn More");
   const [ctaUrl, setCtaUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [formatImages, setFormatImages] = useState<Partial<Record<AdFormat, string>>>({});
+  const [videoUrl, setVideoUrl] = useState("");
 
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txMsg, setTxMsg] = useState("");
@@ -36,6 +38,10 @@ export function SetMetadata() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!signer) return;
+
+    const perFormatImages: CreativeAsset[] = (Object.entries(formatImages) as [AdFormat, string][])
+      .filter(([, url]) => url.trim())
+      .map(([format, url]) => ({ format, url: url.trim() }));
 
     const metadata: CampaignMetadata = {
       title: title.trim(),
@@ -47,6 +53,8 @@ export function SetMetadata() {
         cta: cta.trim(),
         ctaUrl: ctaUrl.trim(),
         ...(imageUrl.trim() ? { imageUrl: imageUrl.trim() } : {}),
+        ...(perFormatImages.length > 0 ? { images: perFormatImages } : {}),
+        ...(videoUrl.trim() ? { videoUrl: videoUrl.trim() } : {}),
       },
       version: 1,
     };
@@ -135,8 +143,36 @@ export function SetMetadata() {
         <Field label="CTA URL (HTTPS only)" maxLen={2048}>
           <input type="url" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
         </Field>
-        <Field label="Image URL (optional, HTTPS or IPFS gateway)">
-          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="nano-input" placeholder="https://..." />
+        <Field label="Fallback Image URL (optional, HTTPS or IPFS)">
+          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — used when no per-format image matches" />
+        </Field>
+
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>Per-format Images (optional)</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+            Upload format-specific images to IPFS and paste their URLs here. The extension picks the best match for the publisher's ad slot.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {(Object.entries(AD_FORMAT_SIZES) as [AdFormat, { w: number; h: number }][]).map(([fmt, size]) => (
+              <div key={fmt}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmt}</span>
+                  <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>{size.w}×{size.h}</span>
+                </div>
+                <input
+                  value={formatImages[fmt] ?? ""}
+                  onChange={(e) => setFormatImages((prev) => ({ ...prev, [fmt]: e.target.value }))}
+                  className="nano-input"
+                  placeholder="https://... or IPFS CID"
+                  style={{ fontSize: 11 }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Field label="Video URL (optional, HTTPS or IPFS)">
+          <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — plays muted, click to unmute" />
         </Field>
 
         {pinStatus && <div style={{ color: "var(--ok)", fontSize: 12 }}>{pinStatus}</div>}

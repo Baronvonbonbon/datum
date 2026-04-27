@@ -80,6 +80,7 @@ export interface CampaignMetadata {
     ctaUrl: string;
     imageUrl?: string;
     images?: CreativeAsset[];
+    videoUrl?: string;
   };
   version: number;
 }

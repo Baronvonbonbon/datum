@@ -68,6 +68,12 @@ export function validateMetadata(raw: unknown): ValidationResult {
     if ((creative.imageUrl as string).length > MAX_IMAGE_URL) return { valid: false, error: `creative.imageUrl exceeds ${MAX_IMAGE_URL} chars` };
   }
 
+  // Optional video URL validation
+  if (creative.videoUrl !== undefined) {
+    if (typeof creative.videoUrl !== "string") return { valid: false, error: "creative.videoUrl must be a string" };
+    if ((creative.videoUrl as string).length > MAX_IMAGE_URL) return { valid: false, error: `creative.videoUrl exceeds ${MAX_IMAGE_URL} chars` };
+  }
+
   // Optional per-format images array validation
   let validatedImages: CampaignMetadata["creative"]["images"] | undefined;
   if (creative.images !== undefined) {
@@ -102,6 +108,7 @@ export function validateMetadata(raw: unknown): ValidationResult {
       ctaUrl: creative.ctaUrl as string,
       ...(typeof creative.imageUrl === "string" && creative.imageUrl ? { imageUrl: creative.imageUrl } : {}),
       ...(validatedImages && validatedImages.length > 0 ? { images: validatedImages } : {}),
+      ...(typeof creative.videoUrl === "string" && creative.videoUrl ? { videoUrl: creative.videoUrl } : {}),
     },
   };
 
