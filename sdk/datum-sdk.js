@@ -6,8 +6,12 @@
  * with the DATUM browser extension.
  *
  * Usage:
- *   <script src="datum-sdk.js" data-tags="topic:crypto-web3,locale:en" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
+ *   <script src="datum-sdk.js" data-tags="topic:crypto-web3,locale:en" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com" data-slot="leaderboard"></script>
  *   <div id="datum-ad-slot"></div>
+ *
+ * Slot formats (data-slot): leaderboard (728×90), medium-rectangle (300×250),
+ *   wide-skyscraper (160×600), half-page (300×600), mobile-banner (320×50),
+ *   square (250×250), large-rectangle (336×280). Defaults to medium-rectangle.
  *
  * Tag format: comma-separated dimension:value strings (e.g., "topic:defi,locale:en").
  * Short-form values without dimension prefix are auto-resolved (e.g., "defi" → "topic:defi").
@@ -88,6 +92,18 @@
 
   var publisherAddress = scriptTag ? scriptTag.getAttribute("data-publisher") || "" : "";
   var relayUrl = scriptTag ? scriptTag.getAttribute("data-relay") || "" : "";
+  var slotFormat = scriptTag ? scriptTag.getAttribute("data-slot") || "medium-rectangle" : "medium-rectangle";
+
+  // Slot format → pixel dimensions (IAB standard sizes)
+  var SLOT_SIZES = {
+    "leaderboard":      { w: 728, h: 90  },
+    "medium-rectangle": { w: 300, h: 250 },
+    "wide-skyscraper":  { w: 160, h: 600 },
+    "half-page":        { w: 300, h: 600 },
+    "mobile-banner":    { w: 320, h: 50  },
+    "square":           { w: 250, h: 250 },
+    "large-rectangle":  { w: 336, h: 280 },
+  };
 
   // Tags: comma-separated dimension:value strings or short-form values
   var tagsStr = scriptTag ? scriptTag.getAttribute("data-tags") || "" : "";
@@ -101,12 +117,13 @@
     ? excludedStr.split(",").map(function (s) { return resolveTag(s.trim()); }).filter(Boolean)
     : [];
 
-  // Ensure ad slot placeholder exists
+  // Ensure ad slot placeholder exists and is sized to the declared format
   function ensureAdSlot() {
-    if (!document.getElementById("datum-ad-slot")) {
-      var slot = document.createElement("div");
+    var existing = document.getElementById("datum-ad-slot");
+    var slot = existing;
+    if (!slot) {
+      slot = document.createElement("div");
       slot.id = "datum-ad-slot";
-      slot.style.cssText = "min-height:90px;min-width:300px;";
       // Append after the script tag if possible, otherwise body
       if (scriptTag && scriptTag.parentNode) {
         scriptTag.parentNode.insertBefore(slot, scriptTag.nextSibling);
@@ -114,6 +131,13 @@
         document.body.appendChild(slot);
       }
     }
+    // Apply format dimensions so the page reserves the correct space
+    var size = SLOT_SIZES[slotFormat] || SLOT_SIZES["medium-rectangle"];
+    slot.style.width = size.w + "px";
+    slot.style.height = size.h + "px";
+    slot.style.minWidth = size.w + "px";
+    slot.style.minHeight = size.h + "px";
+    slot.setAttribute("data-slot-format", slotFormat);
   }
 
   // Dispatch SDK ready event
@@ -127,6 +151,7 @@
           excludedTags: excludedTags,
           relay: relayUrl,
           version: VERSION,
+          slotFormat: slotFormat,
         },
       })
     );

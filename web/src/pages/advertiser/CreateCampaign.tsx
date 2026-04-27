@@ -12,7 +12,7 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, validateCustomTag, tagDisplayLabel, tagLabel } from "@shared/tagDictionary";
 import { queryFilterAll } from "@shared/eventQuery";
-import { CampaignMetadata } from "@shared/types";
+import { CampaignMetadata, AdFormat, AD_FORMAT_SIZES, CreativeAsset } from "@shared/types";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
@@ -80,6 +80,8 @@ export function CreateCampaign() {
   const [metaCta, setMetaCta] = useState("Learn More");
   const [metaCtaUrl, setMetaCtaUrl] = useState("");
   const [metaImageUrl, setMetaImageUrl] = useState("");
+  // Per-format images: map from AdFormat → URL string
+  const [formatImages, setFormatImages] = useState<Partial<Record<AdFormat, string>>>({});
   const [metaTxState, setMetaTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [metaTxMsg, setMetaTxMsg] = useState("");
   const [pinStatus, setPinStatus] = useState<string | null>(null);
@@ -240,11 +242,16 @@ export function CreateCampaign() {
     e.preventDefault();
     if (!signer || createdId === null) return;
 
+    const perFormatImages: CreativeAsset[] = (Object.entries(formatImages) as [AdFormat, string][])
+      .filter(([, url]) => url.trim())
+      .map(([format, url]) => ({ format, url: url.trim() }));
+
     const metadata: CampaignMetadata = {
       title: metaTitle.trim(), description: metaDesc.trim(), category: metaCategory.trim(),
       creative: {
         type: "text", text: metaText.trim(), cta: metaCta.trim(), ctaUrl: metaCtaUrl.trim(),
         ...(metaImageUrl.trim() ? { imageUrl: metaImageUrl.trim() } : {}),
+        ...(perFormatImages.length > 0 ? { images: perFormatImages } : {}),
       },
       version: 1,
     };
@@ -407,9 +414,35 @@ export function CreateCampaign() {
                   <input type="url" value={metaCtaUrl} onChange={(e) => setMetaCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
                 </WizardField>
               </div>
-              <WizardField label="Image URL (optional)">
-                <input value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)} className="nano-input" placeholder="https://..." />
+              <WizardField label="Fallback Image URL (optional)">
+                <input value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — used when no per-format image matches" />
               </WizardField>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
+                  Per-format Images (optional)
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+                  Upload format-specific images to IPFS and paste their URLs here. The browser extension picks the best match for the publisher's ad slot. Images are stored in your IPFS metadata — verifiable on-chain.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {(Object.entries(AD_FORMAT_SIZES) as [AdFormat, { w: number; h: number }][]).map(([fmt, size]) => (
+                    <div key={fmt}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
+                        <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmt}</span>
+                        <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>{size.w}×{size.h}</span>
+                      </div>
+                      <input
+                        value={formatImages[fmt] ?? ""}
+                        onChange={(e) => setFormatImages((prev) => ({ ...prev, [fmt]: e.target.value }))}
+                        className="nano-input"
+                        placeholder="https://... or IPFS CID"
+                        style={{ fontSize: 11 }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               {pinStatus && <div style={{ color: "var(--ok)", fontSize: 12 }}>{pinStatus}</div>}
               <TransactionStatus state={metaTxState} message={metaTxMsg} />

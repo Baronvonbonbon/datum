@@ -4,6 +4,7 @@
 
 import { sanitizeCtaUrl } from "@shared/contentSafety";
 import { bytes32ToCid } from "@shared/ipfs";
+import { AdFormat, AD_FORMAT_SIZES, CreativeAsset } from "@shared/types";
 
 export interface CampaignCreative {
   title: string;
@@ -15,6 +16,7 @@ export interface CampaignCreative {
     cta: string;
     ctaUrl: string;
     imageUrl?: string;
+    images?: CreativeAsset[];
   };
   version: number;
 }
@@ -31,6 +33,8 @@ export interface AdSlotConfig {
   currencySymbol?: string;
   /** bytes32 nonce from the view impression; enables click (type-1) claim */
   impressionNonce?: string;
+  /** IAB slot format declared by the publisher (e.g., "leaderboard") */
+  slotFormat?: string;
   /** Called when user clicks the CTA (isTrusted + 500ms dwell guard applied in adSlot) */
   onCtaClick?: () => void;
   /** Mute this campaign for the user (no on-chain tx) */
@@ -111,6 +115,114 @@ function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
     return (gw.endsWith("/") ? gw : gw + "/") + imageUrl;
   }
   return null;
+}
+
+/**
+ * Pick the best creative image URL for a given slot format.
+ * Priority: exact format match → any available image → legacy imageUrl field.
+ */
+function resolveCreativeImage(
+  creative: CampaignCreative["creative"],
+  slotFormat: string | undefined,
+  gateway: string | undefined,
+): string | null {
+  const images = creative.images;
+  if (images && images.length > 0) {
+    // Exact format match
+    const exact = slotFormat
+      ? images.find((img) => img.format === slotFormat)
+      : null;
+    const chosen = exact ?? images[0];
+    const resolved = resolveImageUrl(chosen.url, gateway);
+    if (resolved) return resolved;
+  }
+  // Fall back to legacy imageUrl
+  if (creative.imageUrl) return resolveImageUrl(creative.imageUrl, gateway);
+  return null;
+}
+
+/** Formats that render best with horizontal layout (image left, text right) */
+const HORIZONTAL_FORMATS = new Set(["leaderboard", "mobile-banner"]);
+
+/**
+ * Build the creative body HTML for a given format.
+ * Horizontal: image on the left, text+CTA on the right.
+ * Vertical: image on top, text+CTA below.
+ */
+function creativeBodyHtml(
+  meta: CampaignCreative,
+  config: AdSlotConfig,
+  isInline: boolean,
+): string {
+  const c = meta.creative;
+  const safeUrl = sanitizeCtaUrl(c.ctaUrl);
+  const imgUrl = resolveCreativeImage(c, config.slotFormat, config.ipfsGateway);
+  const mech = config.auctionMechanism ? MECHANISM_LABELS[config.auctionMechanism] : null;
+  const format = config.slotFormat as AdFormat | undefined;
+  const isHorizontal = format ? HORIZONTAL_FORMATS.has(format) : false;
+  const isTall = format === "wide-skyscraper" || format === "half-page";
+
+  const ctaHtml = safeUrl
+    ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
+        display:inline-block;background:${D.accentBtn};color:${D.accent};
+        border:1px solid ${D.border}55;border-radius:${D.radiusSm};
+        padding:${isHorizontal ? "4px 10px" : "6px 14px"};font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;
+      ">${escapeHtml(c.cta)} →</a>`
+    : `<span style="
+        display:inline-block;background:${D.accentBtn};color:${D.textMuted};
+        border:1px solid ${D.border}33;border-radius:${D.radiusSm};
+        padding:${isHorizontal ? "4px 10px" : "6px 14px"};font-size:12px;
+      ">${escapeHtml(c.cta)}</span>`;
+
+  const footerHtml = `
+    <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
+      Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
+    </div>
+    ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+  `;
+
+  if (isHorizontal && imgUrl) {
+    // Horizontal layout: image left (~30%), text+CTA right
+    const imgW = format === "mobile-banner" ? 44 : 80;
+    const imgH = format === "mobile-banner" ? 40 : 70;
+    return `
+      <div style="display:flex;gap:10px;align-items:center;">
+        <img src="${escapeHtml(imgUrl)}" alt="" style="
+          width:${imgW}px;height:${imgH}px;border-radius:${D.radiusSm};
+          object-fit:cover;flex-shrink:0;
+        " class="datum-ad-img" />
+        <div style="flex:1;min-width:0;">
+          <div style="color:${D.text};font-size:${format === "mobile-banner" ? "11px" : "13px"};font-weight:600;margin-bottom:2px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${escapeHtml(meta.title)}
+          </div>
+          ${format !== "mobile-banner" ? `<div style="color:#bbb;font-size:11px;margin-bottom:6px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(c.text)}</div>` : ""}
+          <div>${ctaHtml}</div>
+        </div>
+      </div>
+      ${footerHtml}
+    `;
+  }
+
+  // Vertical layout
+  const imgMaxH = isTall ? 220 : isInline ? 200 : 150;
+  const imgHtml = imgUrl
+    ? `<img src="${escapeHtml(imgUrl)}" alt="" style="
+        width:100%;max-height:${imgMaxH}px;border-radius:${D.radiusSm};
+        margin-bottom:8px;display:block;object-fit:cover;
+      " class="datum-ad-img" />`
+    : "";
+
+  return `
+    ${imgHtml}
+    <div style="color:${D.text};font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
+      ${escapeHtml(meta.title)}
+    </div>
+    <div style="color:#bbb;font-size:12px;margin-bottom:10px;line-height:1.4;">
+      ${escapeHtml(c.text)}
+    </div>
+    <div style="margin-bottom:6px;">${ctaHtml}</div>
+    ${footerHtml}
+  `;
 }
 
 function ipfsLinkFromHash(hash?: string): string | null {
@@ -299,7 +411,7 @@ function attachReportOverlay(
 
 // ── Shared wrapper styles ─────────────────────────────────────────────────────
 
-function wrapperStyles(maxWidth: string, fixedHeight = false): string {
+function wrapperStyles(maxWidth: string, fixedHeight = false, overflow = false): string {
   return `
     background: ${D.bgCard};
     color: ${D.text};
@@ -312,7 +424,9 @@ function wrapperStyles(maxWidth: string, fixedHeight = false): string {
     max-width: ${maxWidth};
     box-shadow: 0 4px 24px ${D.borderGlow}, 0 0 0 1px rgba(100,100,255,0.07);
     position: relative;
+    box-sizing: border-box;
     ${fixedHeight ? "min-height: 100px;" : ""}
+    ${overflow ? "overflow: hidden;" : ""}
   `;
 }
 
@@ -395,44 +509,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   `;
 
   if (meta?.creative) {
-    const c = meta.creative;
-    const safeUrl = sanitizeCtaUrl(c.ctaUrl);
-    const imgUrl = c.imageUrl ? resolveImageUrl(c.imageUrl, config.ipfsGateway) : null;
-
-    const ctaHtml = safeUrl
-      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
-          display:inline-block;background:${D.accentBtn};color:${D.accent};
-          border:1px solid ${D.border}55;border-radius:${D.radiusSm};
-          padding:6px 14px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;
-        ">${escapeHtml(c.cta)} →</a>`
-      : `<span style="
-          display:inline-block;background:${D.accentBtn};color:${D.textMuted};
-          border:1px solid ${D.border}33;border-radius:${D.radiusSm};
-          padding:6px 14px;font-size:12px;
-        ">${escapeHtml(c.cta)}</span>`;
-
-    const imgHtml = imgUrl
-      ? `<img src="${escapeHtml(imgUrl)}" alt="" style="
-          max-width:100%;max-height:150px;border-radius:${D.radiusSm};
-          margin-bottom:8px;display:block;object-fit:cover;
-        " class="datum-ad-img" />`
-      : "";
-
-    wrapper.innerHTML = `
-      ${headerControls}
-      ${imgHtml}
-      <div style="color:${D.text};font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
-        ${escapeHtml(meta.title)}
-      </div>
-      <div style="color:#bbb;font-size:12px;margin-bottom:10px;line-height:1.4;">
-        ${escapeHtml(c.text)}
-      </div>
-      <div style="margin-bottom:6px;">${ctaHtml}</div>
-      <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
-        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
-      </div>
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
-    `;
+    wrapper.innerHTML = `${headerControls}${creativeBodyHtml(meta, config, false)}`;
   } else {
     const ipfsLink = ipfsLinkFromHash(config.metadataHash);
     wrapper.innerHTML = `
@@ -484,9 +561,14 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   (target as any).__datumShadow = shadow;
   if (shadow.querySelector(".datum-inline-wrapper")) return null;
 
+  // Determine wrapper width from declared slot format
+  const format = config.slotFormat as AdFormat | undefined;
+  const formatSize = format && AD_FORMAT_SIZES[format] ? AD_FORMAT_SIZES[format] : null;
+  const maxWidth = formatSize ? `${formatSize.w}px` : "728px";
+
   const wrapper = document.createElement("div");
   wrapper.className = "datum-inline-wrapper";
-  wrapper.style.cssText = wrapperStyles("728px");
+  wrapper.style.cssText = wrapperStyles(maxWidth, false, true);
 
   const meta = config.metadata;
   const mech = config.auctionMechanism ? MECHANISM_LABELS[config.auctionMechanism] : null;
@@ -502,44 +584,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   `;
 
   if (meta?.creative) {
-    const c = meta.creative;
-    const safeUrl = sanitizeCtaUrl(c.ctaUrl);
-    const imgUrl = c.imageUrl ? resolveImageUrl(c.imageUrl, config.ipfsGateway) : null;
-
-    const ctaHtml = safeUrl
-      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="
-          display:inline-block;background:${D.accentBtn};color:${D.accent};
-          border:1px solid ${D.border}55;border-radius:${D.radiusSm};
-          padding:6px 14px;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;
-        ">${escapeHtml(c.cta)} →</a>`
-      : `<span style="
-          display:inline-block;background:${D.accentBtn};color:${D.textMuted};
-          border:1px solid ${D.border}33;border-radius:${D.radiusSm};
-          padding:6px 14px;font-size:12px;
-        ">${escapeHtml(c.cta)}</span>`;
-
-    const imgHtml = imgUrl
-      ? `<img src="${escapeHtml(imgUrl)}" alt="" style="
-          max-width:100%;max-height:200px;border-radius:${D.radiusSm};
-          margin-bottom:8px;display:block;object-fit:cover;
-        " class="datum-ad-img" />`
-      : "";
-
-    wrapper.innerHTML = `
-      ${headerControls}
-      ${imgHtml}
-      <div style="color:${D.text};font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.3;">
-        ${escapeHtml(meta.title)}
-      </div>
-      <div style="color:#bbb;font-size:12px;margin-bottom:10px;line-height:1.4;">
-        ${escapeHtml(c.text)}
-      </div>
-      <div style="margin-bottom:6px;">${ctaHtml}</div>
-      <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
-        Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
-      </div>
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
-    `;
+    wrapper.innerHTML = `${headerControls}${creativeBodyHtml(meta, config, true)}`;
   } else {
     const ipfsLink = ipfsLinkFromHash(config.metadataHash);
     wrapper.innerHTML = `

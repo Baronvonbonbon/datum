@@ -57,10 +57,44 @@ export interface Campaign {
   requiredTags: string[];       // TX-3: bytes32 tag hashes required for this campaign
 }
 
+// IAB-standard ad slot formats supported by the DATUM SDK.
+// Publishers declare one of these via data-slot="<format>" on their script tag.
+// Advertisers upload per-format images in IPFS creative metadata.
+export type AdFormat =
+  | "leaderboard"       // 728×90  — horizontal banner
+  | "medium-rectangle"  // 300×250 — "the box"
+  | "wide-skyscraper"   // 160×600 — sidebar
+  | "half-page"         // 300×600 — tall sidebar
+  | "mobile-banner"     // 320×50  — mobile horizontal
+  | "square"            // 250×250
+  | "large-rectangle";  // 336×280
+
+/** Pixel dimensions for each format */
+export const AD_FORMAT_SIZES: Record<AdFormat, { w: number; h: number }> = {
+  "leaderboard":      { w: 728, h: 90  },
+  "medium-rectangle": { w: 300, h: 250 },
+  "wide-skyscraper":  { w: 160, h: 600 },
+  "half-page":        { w: 300, h: 600 },
+  "mobile-banner":    { w: 320, h: 50  },
+  "square":           { w: 250, h: 250 },
+  "large-rectangle":  { w: 336, h: 280 },
+};
+
+/** A single format-specific creative image stored in IPFS metadata */
+export interface CreativeAsset {
+  /** Target slot format */
+  format: AdFormat;
+  /** HTTPS URL or bare IPFS CID (e.g. "QmXxx...") */
+  url: string;
+  /** Optional alt text for accessibility */
+  alt?: string;
+}
+
 // Campaign metadata fetched from IPFS
 // Field length caps enforced by contentSafety.ts:
 //   title ≤ 128, description ≤ 256, category ≤ 64,
-//   creative.text ≤ 512, creative.cta ≤ 64, creative.ctaUrl ≤ 2048
+//   creative.text ≤ 512, creative.cta ≤ 64, creative.ctaUrl ≤ 2048,
+//   creative.images[] ≤ 7 entries, each url ≤ 2048
 export interface CampaignMetadata {
   title: string;
   description: string;
@@ -70,7 +104,10 @@ export interface CampaignMetadata {
     text: string;
     cta: string;
     ctaUrl: string;
-    imageUrl?: string;  // optional HTTPS URL or IPFS gateway URL for creative image
+    /** Legacy single image — used when no per-format images or no format match */
+    imageUrl?: string;
+    /** Per-format images (max 7 — one per AdFormat). Stored in IPFS for full transparency. */
+    images?: CreativeAsset[];
   };
   version: number;
 }

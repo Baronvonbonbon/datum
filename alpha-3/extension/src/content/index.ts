@@ -408,6 +408,7 @@ async function main() {
         });
       } catch {}
     },
+    slotFormat: sdkInfo?.slotFormat,
   };
 
   // Inject ad: inline into SDK slot if available, overlay otherwise

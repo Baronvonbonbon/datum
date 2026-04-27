@@ -42,6 +42,32 @@ export interface Campaign {
   terminationBlock: bigint;
 }
 
+// IAB-standard ad slot formats supported by the DATUM SDK.
+export type AdFormat =
+  | "leaderboard"       // 728×90
+  | "medium-rectangle"  // 300×250
+  | "wide-skyscraper"   // 160×600
+  | "half-page"         // 300×600
+  | "mobile-banner"     // 320×50
+  | "square"            // 250×250
+  | "large-rectangle";  // 336×280
+
+export const AD_FORMAT_SIZES: Record<AdFormat, { w: number; h: number }> = {
+  "leaderboard":      { w: 728, h: 90  },
+  "medium-rectangle": { w: 300, h: 250 },
+  "wide-skyscraper":  { w: 160, h: 600 },
+  "half-page":        { w: 300, h: 600 },
+  "mobile-banner":    { w: 320, h: 50  },
+  "square":           { w: 250, h: 250 },
+  "large-rectangle":  { w: 336, h: 280 },
+};
+
+export interface CreativeAsset {
+  format: AdFormat;
+  url: string;
+  alt?: string;
+}
+
 // Campaign metadata fetched from IPFS
 export interface CampaignMetadata {
   title: string;
@@ -53,6 +79,7 @@ export interface CampaignMetadata {
     cta: string;
     ctaUrl: string;
     imageUrl?: string;
+    images?: CreativeAsset[];
   };
   version: number;
 }

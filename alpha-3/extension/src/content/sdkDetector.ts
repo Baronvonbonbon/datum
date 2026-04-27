@@ -8,6 +8,7 @@ export interface SDKInfo {
   relay: string;           // Publisher relay URL (empty = none declared)
   version: string;         // SDK version string
   hasAdSlot: boolean;      // Whether <div id="datum-ad-slot"> exists
+  slotFormat: string;      // IAB slot format declared via data-slot (e.g., "leaderboard")
 }
 
 /**
@@ -34,6 +35,7 @@ export function detectSDK(): Promise<SDKInfo | null> {
 
       const detail = (e as CustomEvent).detail;
       if (detail && detail.publisher) {
+        const slotEl = document.getElementById("datum-ad-slot");
         resolve({
           publisher: String(detail.publisher),
           tags: Array.isArray(detail.tags)
@@ -44,7 +46,8 @@ export function detectSDK(): Promise<SDKInfo | null> {
             : [],
           relay: String(detail.relay ?? ""),
           version: String(detail.version ?? "unknown"),
-          hasAdSlot: !!document.getElementById("datum-ad-slot"),
+          hasAdSlot: !!slotEl,
+          slotFormat: String(detail.slotFormat ?? slotEl?.getAttribute("data-slot-format") ?? "medium-rectangle"),
         });
       } else {
         resolve(null);
@@ -92,12 +95,14 @@ function parseScriptTag(el: HTMLScriptElement): SDKInfo | null {
     ? excludedStr.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
+  const slotEl = document.getElementById("datum-ad-slot");
   return {
     publisher,
     tags,
     excludedTags,
     relay: el.getAttribute("data-relay") || "",
     version: "detected",
-    hasAdSlot: !!document.getElementById("datum-ad-slot"),
+    hasAdSlot: !!slotEl,
+    slotFormat: el.getAttribute("data-slot") || slotEl?.getAttribute("data-slot-format") || "medium-rectangle",
   };
 }

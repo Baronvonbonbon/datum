@@ -1,7 +1,7 @@
 // Content safety validation for ad creative metadata.
 // Validates schema shape, URL schemes, and content blocklist before rendering.
 
-import { CampaignMetadata } from "./types";
+import { CampaignMetadata, AdFormat } from "./types";
 
 // Field length caps
 const MAX_TITLE = 128;
@@ -11,6 +11,12 @@ const MAX_CREATIVE_TEXT = 512;
 const MAX_CTA = 64;
 const MAX_CTA_URL = 2048;
 const MAX_IMAGE_URL = 2048;
+const MAX_IMAGES = 7;
+
+const VALID_AD_FORMATS = new Set<AdFormat>([
+  "leaderboard", "medium-rectangle", "wide-skyscraper",
+  "half-page", "mobile-banner", "square", "large-rectangle",
+]);
 
 // Metadata byte-size cap (checked before JSON.parse in campaignPoller)
 export const MAX_METADATA_BYTES = 10_240; // 10 KB
@@ -56,10 +62,32 @@ export function validateMetadata(raw: unknown): ValidationResult {
   if ((creative.cta as string).length > MAX_CTA) return { valid: false, error: `creative.cta exceeds ${MAX_CTA} chars` };
   if ((creative.ctaUrl as string).length > MAX_CTA_URL) return { valid: false, error: `creative.ctaUrl exceeds ${MAX_CTA_URL} chars` };
 
-  // Optional image URL validation
+  // Optional single image URL validation
   if (creative.imageUrl !== undefined) {
     if (typeof creative.imageUrl !== "string") return { valid: false, error: "creative.imageUrl must be a string" };
     if ((creative.imageUrl as string).length > MAX_IMAGE_URL) return { valid: false, error: `creative.imageUrl exceeds ${MAX_IMAGE_URL} chars` };
+  }
+
+  // Optional per-format images array validation
+  let validatedImages: CampaignMetadata["creative"]["images"] | undefined;
+  if (creative.images !== undefined) {
+    if (!Array.isArray(creative.images)) return { valid: false, error: "creative.images must be an array" };
+    if ((creative.images as unknown[]).length > MAX_IMAGES) return { valid: false, error: `creative.images exceeds ${MAX_IMAGES} entries` };
+    validatedImages = [];
+    for (const entry of creative.images as unknown[]) {
+      if (entry === null || typeof entry !== "object") return { valid: false, error: "creative.images entry must be an object" };
+      const e = entry as Record<string, unknown>;
+      if (typeof e.format !== "string" || !VALID_AD_FORMATS.has(e.format as AdFormat)) {
+        return { valid: false, error: `creative.images entry has invalid format: ${e.format}` };
+      }
+      if (typeof e.url !== "string") return { valid: false, error: "creative.images entry missing url" };
+      if (e.url.length > MAX_IMAGE_URL) return { valid: false, error: `creative.images entry url exceeds ${MAX_IMAGE_URL} chars` };
+      validatedImages.push({
+        format: e.format as AdFormat,
+        url: e.url as string,
+        ...(typeof e.alt === "string" && e.alt ? { alt: e.alt as string } : {}),
+      });
+    }
   }
 
   const data: CampaignMetadata = {
@@ -73,6 +101,7 @@ export function validateMetadata(raw: unknown): ValidationResult {
       cta: creative.cta as string,
       ctaUrl: creative.ctaUrl as string,
       ...(typeof creative.imageUrl === "string" && creative.imageUrl ? { imageUrl: creative.imageUrl } : {}),
+      ...(validatedImages && validatedImages.length > 0 ? { images: validatedImages } : {}),
     },
   };
 
