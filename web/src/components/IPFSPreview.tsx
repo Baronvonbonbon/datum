@@ -11,13 +11,58 @@ interface ImageEntry {
   alt?: string;
 }
 
-function resolveImageUrl(url: string, gateway: string): string {
-  if (url.startsWith("https://")) return url;
-  if (url.startsWith("Qm") && url.length >= 46) {
-    const gw = gateway.endsWith("/") ? gateway : gateway + "/";
-    return gw + url;
+const IMAGE_FALLBACK_GATEWAYS = [
+  "https://ipfs.io/ipfs/",
+  "https://dweb.link/ipfs/",
+  "https://cloudflare-ipfs.com/ipfs/",
+  "https://w3s.link/ipfs/",
+];
+
+function buildImageCandidates(url: string, gateway: string): string[] {
+  if (url.startsWith("https://")) return [url];
+  if (!(url.startsWith("Qm") && url.length >= 46)) return [url];
+
+  const isLocal =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+  const gw = gateway.endsWith("/") ? gateway : gateway + "/";
+  const primary = gw + url;
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (u: string) => { if (!seen.has(u)) { seen.add(u); out.push(u); } };
+
+  // On localhost, try the local Kubo gateway first (where the content was pinned)
+  if (isLocal) push(`http://localhost:8080/ipfs/${url}`);
+  push(primary);
+  for (const fb of IMAGE_FALLBACK_GATEWAYS) {
+    if (!fb.startsWith(gw.replace(/\/$/, ""))) push(fb + url);
   }
-  return url;
+  return out;
+}
+
+// Tries gateway candidates in order via onError fallback
+function ImageWithFallback({
+  candidates,
+  alt,
+  style,
+}: {
+  candidates: string[];
+  alt: string;
+  style?: React.CSSProperties;
+}) {
+  const [idx, setIdx] = useState(0);
+  if (candidates.length === 0) return <span style={{ color: "var(--error)", fontSize: 12 }}>No image URL</span>;
+  if (idx >= candidates.length) return <span style={{ color: "var(--error)", fontSize: 12 }}>Image unavailable on all gateways</span>;
+  return (
+    <img
+      key={candidates[idx]}
+      src={candidates[idx]}
+      alt={alt}
+      style={style}
+      onError={() => setIdx((i) => i + 1)}
+    />
+  );
 }
 
 function ImageViewerModal({
@@ -48,7 +93,7 @@ function ImageViewerModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, prev, next, images.length]);
 
-  const resolvedUrl = resolveImageUrl(entry.url, gateway);
+  const candidates = buildImageCandidates(entry.url, gateway);
 
   return (
     <div
@@ -103,9 +148,8 @@ function ImageViewerModal({
 
         {/* Image */}
         <div style={{ display: "flex", justifyContent: "center", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
-          <img
-            key={resolvedUrl}
-            src={resolvedUrl}
+          <ImageWithFallback
+            candidates={candidates}
             alt={entry.alt ?? entry.format ?? "ad creative"}
             style={{ maxWidth: "min(80vw, 760px)", maxHeight: "65vh", display: "block", objectFit: "contain" }}
           />
