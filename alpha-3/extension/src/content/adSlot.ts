@@ -17,6 +17,8 @@ export interface CampaignCreative {
     ctaUrl: string;
     imageUrl?: string;
     images?: CreativeAsset[];
+    /** Optional video creative URL (HTTPS or bare IPFS CID). Plays autoplay muted loop. */
+    videoUrl?: string;
   };
   version: number;
 }
@@ -112,7 +114,10 @@ function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
   } catch { /* not a full URL */ }
   if (imageUrl.startsWith("Qm") && imageUrl.length >= 46) {
     const gw = gateway || "https://dweb.link/ipfs/";
-    return (gw.endsWith("/") ? gw : gw + "/") + imageUrl;
+    const base = (gw.endsWith("/") ? gw : gw + "/") + imageUrl;
+    // Kubo's HTTP gateway wraps non-image content in HTML; ?format=raw forces raw bytes.
+    const isKuboLocal = gw.includes("localhost:8080") || gw.includes("127.0.0.1:8080");
+    return isKuboLocal ? base + "?format=raw" : base;
   }
   return null;
 }
@@ -141,6 +146,49 @@ function resolveCreativeImage(
   return null;
 }
 
+/**
+ * Resolve a video URL (HTTPS or bare IPFS CID) to an embeddable src.
+ * Same logic as resolveImageUrl — gateways serve video bytes transparently.
+ */
+function resolveVideoUrl(videoUrl: string, gateway?: string): string | null {
+  return resolveImageUrl(videoUrl, gateway);
+}
+
+/**
+ * Build the HTML for a muted autoplay video with an unmute toggle button.
+ * The toggle button has class "datum-mute-toggle" — wired up by attachVideoControls().
+ */
+function videoHtml(videoUrl: string, maxH: number): string {
+  return `
+    <div style="position:relative;margin-bottom:8px;">
+      <video class="datum-ad-video" src="${escapeHtml(videoUrl)}"
+        autoplay muted loop playsinline
+        style="width:100%;max-height:${maxH}px;border-radius:${D.radiusSm};display:block;object-fit:cover;">
+      </video>
+      <button class="datum-mute-toggle" title="Toggle sound" style="
+        position:absolute;bottom:6px;right:6px;
+        background:rgba(0,0,0,0.55);color:#fff;border:none;border-radius:3px;
+        font-size:10px;padding:2px 7px;cursor:pointer;font-family:inherit;line-height:1.6;
+      ">Unmute</button>
+    </div>
+  `;
+}
+
+/**
+ * Wire the mute-toggle button inside a shadow root to the video element.
+ * Call after wrapper.innerHTML is set.
+ */
+function attachVideoControls(shadow: ShadowRoot): void {
+  const video = shadow.querySelector(".datum-ad-video") as HTMLVideoElement | null;
+  const btn = shadow.querySelector(".datum-mute-toggle") as HTMLButtonElement | null;
+  if (!video || !btn) return;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    video.muted = !video.muted;
+    btn.textContent = video.muted ? "Unmute" : "Mute";
+  });
+}
+
 /** Formats that render best with horizontal layout (image left, text right) */
 const HORIZONTAL_FORMATS = new Set(["leaderboard", "mobile-banner"]);
 
@@ -156,7 +204,8 @@ function creativeBodyHtml(
 ): string {
   const c = meta.creative;
   const safeUrl = sanitizeCtaUrl(c.ctaUrl);
-  const imgUrl = resolveCreativeImage(c, config.slotFormat, config.ipfsGateway);
+  const resolvedVideo = c.videoUrl ? resolveVideoUrl(c.videoUrl, config.ipfsGateway) : null;
+  const imgUrl = resolvedVideo ? null : resolveCreativeImage(c, config.slotFormat, config.ipfsGateway);
   const mech = config.auctionMechanism ? MECHANISM_LABELS[config.auctionMechanism] : null;
   const format = config.slotFormat as AdFormat | undefined;
   const isHorizontal = format ? HORIZONTAL_FORMATS.has(format) : false;
@@ -205,12 +254,16 @@ function creativeBodyHtml(
 
   // Vertical layout
   const imgMaxH = isTall ? 220 : isInline ? 200 : 150;
-  const imgHtml = imgUrl
-    ? `<img src="${escapeHtml(imgUrl)}" alt="" style="
-        width:100%;max-height:${imgMaxH}px;border-radius:${D.radiusSm};
-        margin-bottom:8px;display:block;object-fit:cover;
-      " class="datum-ad-img" />`
-    : "";
+  const mediaHtml = resolvedVideo
+    ? videoHtml(resolvedVideo, imgMaxH)
+    : imgUrl
+      ? `<img src="${escapeHtml(imgUrl)}" alt="" style="
+          width:100%;max-height:${imgMaxH}px;border-radius:${D.radiusSm};
+          margin-bottom:8px;display:block;object-fit:cover;
+        " class="datum-ad-img" />`
+      : "";
+  // keep legacy variable name so the template below doesn't need restructuring
+  const imgHtml = mediaHtml;
 
   return `
     ${imgHtml}
@@ -542,6 +595,9 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
   });
 
+  // Video mute toggle
+  attachVideoControls(shadow);
+
   // Close button
   shadow.querySelector(".datum-close")?.addEventListener("click", () => host.remove());
 
@@ -615,6 +671,9 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   shadow.querySelectorAll(".datum-ad-img").forEach((img: Element) => {
     (img as HTMLImageElement).onerror = () => { (img as HTMLElement).style.display = "none"; };
   });
+
+  // Video mute toggle
+  attachVideoControls(shadow);
 
   // Report overlay (target is the host element for inline; use wrapper removal on hide)
   const inlineHost: HTMLElement = {

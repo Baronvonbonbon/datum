@@ -7,7 +7,7 @@ export type ContentToBackground =
   | { type: "REMOTE_ACTION"; campaignId: string; publisherAddress: string }
   | { type: "GET_ACTIVE_CAMPAIGNS" }
   | { type: "UPDATE_INTEREST"; tags: string[]; category?: string }
-  | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string }
+  | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string; pageTags?: string[]; slotFormat?: string; excludedCampaignIds?: string[] }
   | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
   | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean }

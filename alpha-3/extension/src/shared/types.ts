@@ -94,6 +94,7 @@ export interface CreativeAsset {
 // Field length caps enforced by contentSafety.ts:
 //   title ≤ 128, description ≤ 256, category ≤ 64,
 //   creative.text ≤ 512, creative.cta ≤ 64, creative.ctaUrl ≤ 2048,
+//   creative.imageUrl ≤ 2048, creative.videoUrl ≤ 2048,
 //   creative.images[] ≤ 7 entries, each url ≤ 2048
 export interface CampaignMetadata {
   title: string;
@@ -108,6 +109,12 @@ export interface CampaignMetadata {
     imageUrl?: string;
     /** Per-format images (max 7 — one per AdFormat). Stored in IPFS for full transparency. */
     images?: CreativeAsset[];
+    /**
+     * Optional video creative (HTTPS URL or bare IPFS CID).
+     * Rendered as <video autoplay muted loop playsinline> in the ad slot.
+     * Advertisers signal video campaigns with the "creative:video" tag.
+     */
+    videoUrl?: string;
   };
   version: number;
 }

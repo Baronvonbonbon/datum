@@ -33,7 +33,7 @@ function buildImageCandidates(url: string, gateway: string): string[] {
   const push = (u: string) => { if (!seen.has(u)) { seen.add(u); out.push(u); } };
 
   // On localhost, try the local Kubo gateway first (where the content was pinned)
-  if (isLocal) push(`http://localhost:8080/ipfs/${url}`);
+  if (isLocal) push(`http://localhost:8080/ipfs/${url}?format=raw`);
   push(primary);
   for (const fb of IMAGE_FALLBACK_GATEWAYS) {
     if (!fb.startsWith(gw.replace(/\/$/, ""))) push(fb + url);

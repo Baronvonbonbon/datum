@@ -764,8 +764,11 @@ async function handleMessage(
       if (allowed.length === 0) return { selected: null };
 
       // Filter out campaigns with blocked advertiser/publisher addresses
+      // Also filter campaigns already assigned to another slot this page load
+      const excludedIds = new Set<string>(msg.excludedCampaignIds ?? []);
       const safeAllowed: typeof allowed = [];
       for (const c of allowed) {
+        if (excludedIds.has(String(c.id))) continue;
         const advBlocked = await isAddressBlocked(c.advertiser ?? "");
         const pubBlocked = await isAddressBlocked(c.publisher ?? "");
         if (advBlocked || pubBlocked) {
@@ -777,9 +780,12 @@ async function handleMessage(
 
       if (safeAllowed.length === 0) return { selected: null };
 
-      // Run auction — pass page tags so tagless campaigns use page context
+      // Build effective page tags: merge base page tags + format tag for this slot
+      // format:X tag allows campaigns to require a specific IAB slot type via requiredTags
       const profile = await interestProfile.getProfile();
-      const pageTags: string[] = msg.pageTags ?? [];
+      const pageTags: string[] = [...(msg.pageTags ?? [])];
+      if (msg.slotFormat) pageTags.push(`format:${msg.slotFormat}`);
+
       const auctionResult = auctionForPage(
         safeAllowed as CampaignCandidate[],
         {},

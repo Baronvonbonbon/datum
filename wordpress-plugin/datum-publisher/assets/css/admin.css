@@ -1,0 +1,82 @@
+/* DATUM Publisher — Admin & block editor styles */
+
+/* ── Settings page ─────────────────────────────────────────────── */
+
+.datum-settings-wrap {
+	max-width: 860px;
+}
+
+.datum-settings-title {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 23px;
+}
+
+.datum-logo {
+	font-size: 28px;
+	color: #e6007a;
+	line-height: 1;
+}
+
+.datum-status {
+	margin: 12px 0 20px;
+	padding: 10px 16px;
+	border-radius: 4px;
+	border-left: 4px solid;
+}
+
+.datum-status--active {
+	background: #edfaed;
+	border-color: #46b450;
+	color: #2c6b2f;
+}
+
+.datum-status--inactive {
+	background: #fff8e5;
+	border-color: #ffb900;
+	color: #7a5800;
+}
+
+.datum-mono {
+	font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+	font-size: 13px;
+}
+
+.datum-usage {
+	margin-top: 24px;
+}
+
+.datum-usage pre {
+	background: #1d2327;
+	color: #f0f0f0;
+	padding: 14px 18px;
+	border-radius: 4px;
+	font-size: 13px;
+	overflow-x: auto;
+	max-width: 600px;
+}
+
+.datum-usage code {
+	font-size: 13px;
+}
+
+.datum-formats-table {
+	max-width: 480px;
+	margin-top: 8px;
+}
+
+.datum-formats-table td code {
+	background: #f0f0f1;
+	padding: 2px 6px;
+	border-radius: 3px;
+	font-size: 12px;
+}
+
+/* ── Block editor preview ───────────────────────────────────────── */
+
+.datum-block-preview {
+	/* Styles applied inline for specificity inside the editor;
+	   this class is available for theme overrides if needed. */
+	user-select: none;
+}

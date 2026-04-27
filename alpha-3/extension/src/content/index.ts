@@ -191,78 +191,19 @@ async function main() {
   if (pool.length === 0) {
     // No matching campaigns — show default house ad (Polkadot philosophy)
     if (sdkInfo?.hasAdSlot) {
-      const target = document.getElementById("datum-ad-slot");
-      if (target) {
-        injectDefaultAdInline(target);
-        return;
+      for (const slot of (sdkInfo.slots.length > 0 ? sdkInfo.slots : [])) {
+        injectDefaultAdInline(slot.el);
       }
+      if (sdkInfo.slots.length > 0) return;
     }
     injectDefaultAd();
     return;
   }
 
-  // Use auction-based campaign selection via background (interest-aware + Vickrey)
-  let selectionResponse: any = null;
-  try {
-    selectionResponse = await chrome.runtime.sendMessage({
-      type: "SELECT_CAMPAIGN",
-      campaigns: pool,
-      pageCategory: category ?? "",
-      pageTags: tags,  // pass page tag strings so auction can weight tagless campaigns
-    });
-  } catch { return; } // background inactive
-  let match = selectionResponse?.selected ?? null;
-  const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
-  const auctionMechanism: string | undefined = selectionResponse?.mechanism;
+  const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
+  const currencySymbol = getCurrencySymbol((settingsStored.settings?.network ?? "polkadotHub") as NetworkName);
 
-  // Dispatch auction debug event for demo/debug pages to consume
-  try {
-    const debugDetail = {
-      timestamp: Date.now(),
-      pageTags: tags,
-      pageCategory: category,
-      poolSize: pool.length,
-      winnerId: match?.id ?? match?.campaignId ?? null,
-      mechanism: auctionMechanism ?? (match ? "legacy" : "none"),
-      clearingCpmPlanck: clearingCpmPlanck ?? null,
-      participants: selectionResponse?.participants ?? 0,
-      allBids: selectionResponse?.allBids ?? [],
-      campaigns: pool.map((c: any) => ({
-        id: c.id,
-        viewBid: c.viewBid,
-        requiredTags: c.requiredTags ?? [],
-        publisher: c.publisher,
-        status: c.status,
-      })),
-    };
-    window.dispatchEvent(new CustomEvent("datum-auction-debug", { detail: debugDetail }));
-  } catch { /* non-critical */ }
-
-  // If background returned null (all campaigns blocked/filtered), show house ad
-  if (!match) {
-    if (sdkInfo?.hasAdSlot) {
-      const target = document.getElementById("datum-ad-slot");
-      if (target) { injectDefaultAdInline(target); return; }
-    }
-    injectDefaultAd();
-    return;
-  }
-
-  const campaignId = match.id ?? match.campaignId;
-  const dedupeKey = `${campaignId}:${window.location.href}`;
-  if (seenThisLoad.has(dedupeKey)) return;
-
-  // Check 5-minute per-campaign dedup in storage
-  const storageKey = `impression:${campaignId}:${window.location.hostname}`;
-  const stored = await chrome.storage.local.get(storageKey);
-  const lastSeen: number = stored[storageKey] ?? 0;
-  const dedupMinutes = 5 * 60 * 1000;
-  if (Date.now() - lastSeen < dedupMinutes) return;
-
-  seenThisLoad.add(dedupeKey);
-  await chrome.storage.local.set({ [storageKey]: Date.now() });
-
-  // If SDK declares a relay URL, push it to background for publisher domain mapping
+  // Push relay URL to background once (not per slot)
   if (sdkInfo?.relay && sdkInfo.publisher) {
     try {
       chrome.runtime.sendMessage({
@@ -273,160 +214,215 @@ async function main() {
     } catch {}
   }
 
-  // Perform handshake with SDK if present
+  // Perform handshake with SDK once (not per slot) — shared attestation
   let attestation: Attestation | null = null;
   if (sdkInfo) {
     attestation = await performHandshake(sdkInfo.publisher);
   }
 
-  // Load cached IPFS metadata for creative rendering
-  const metaKey = `metadata:${campaignId}`;
-  const metaStored = await chrome.storage.local.get(metaKey);
-
-  // Defense-in-depth: re-validate metadata from storage before rendering
-  let validatedMeta = null;
-  const rawMeta = metaStored[metaKey] ?? null;
-  console.log(`[DATUM] Campaign ${campaignId}: cached metadata=${!!rawMeta}, metadataHash=${match.metadataHash ?? "none"}`);
-  if (rawMeta) {
-    const result = validateMetadata(rawMeta);
-    if (result.valid && result.data && passesContentBlocklist(result.data)) {
-      // Defense-in-depth: check CTA URL against phishing deny list
-      if (result.data.creative.ctaUrl && await isUrlPhishing(result.data.creative.ctaUrl)) {
-        console.warn(`[DATUM] Campaign ${campaignId} CTA URL flagged as phishing, rejecting`);
-      } else {
-        validatedMeta = result.data;
-      }
-    } else {
-      console.warn(`[DATUM] Campaign ${campaignId}: cached metadata failed re-validation: ${result.error ?? "blocklist"}`);
-    }
-  }
-
-  // If no cached metadata but hash available, fetch via background (no CSP restrictions)
-  if (!validatedMeta && match.metadataHash) {
-    console.log(`[DATUM] Campaign ${campaignId}: requesting IPFS fetch from background...`);
+  /**
+   * Select a campaign for one slot and inject it.
+   * excludedIds: campaigns already assigned to earlier slots this page load.
+   */
+  async function fillSlot(
+    slotFormat: string,
+    slotEl: HTMLElement | null,
+    excludedCampaignIds: string[],
+  ): Promise<string | null> {
+    let selectionResponse: any = null;
     try {
-      const fetchResp = await chrome.runtime.sendMessage({
-        type: "FETCH_IPFS_METADATA",
-        campaignId,
-        metadataHash: match.metadataHash,
+      selectionResponse = await chrome.runtime.sendMessage({
+        type: "SELECT_CAMPAIGN",
+        campaigns: pool,
+        pageCategory: category ?? "",
+        pageTags: tags,
+        slotFormat,
+        excludedCampaignIds,
       });
-      console.log(`[DATUM] Campaign ${campaignId}: FETCH_IPFS_METADATA response:`, fetchResp?.metadata ? "got metadata" : "null");
-      if (fetchResp?.metadata) {
-        validatedMeta = fetchResp.metadata;
+    } catch { return null; }
+
+    const match = selectionResponse?.selected ?? null;
+    const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
+    const auctionMechanism: string | undefined = selectionResponse?.mechanism;
+
+    // Dispatch auction debug event (one per slot)
+    try {
+      window.dispatchEvent(new CustomEvent("datum-auction-debug", {
+        detail: {
+          timestamp: Date.now(),
+          slotFormat,
+          pageTags: tags,
+          pageCategory: category,
+          poolSize: pool.length,
+          excludedCampaignIds,
+          winnerId: match?.id ?? match?.campaignId ?? null,
+          mechanism: auctionMechanism ?? (match ? "legacy" : "none"),
+          clearingCpmPlanck: clearingCpmPlanck ?? null,
+          participants: selectionResponse?.participants ?? 0,
+          allBids: selectionResponse?.allBids ?? [],
+          campaigns: pool.map((c: any) => ({
+            id: c.id,
+            viewBid: c.viewBid,
+            requiredTags: c.requiredTags ?? [],
+            publisher: c.publisher,
+            status: c.status,
+          })),
+        },
+      }));
+    } catch { /* non-critical */ }
+
+    if (!match) {
+      if (slotEl) injectDefaultAdInline(slotEl);
+      else injectDefaultAd();
+      return null;
+    }
+
+    const campaignId = match.id ?? match.campaignId;
+    const dedupeKey = `${campaignId}:${window.location.href}:${slotFormat}`;
+    if (seenThisLoad.has(dedupeKey)) return null;
+
+    // Check 5-minute per-campaign per-slot dedup in storage
+    const storageKey = `impression:${campaignId}:${window.location.hostname}:${slotFormat}`;
+    const stored = await chrome.storage.local.get(storageKey);
+    const lastSeen: number = stored[storageKey] ?? 0;
+    if (Date.now() - lastSeen < 5 * 60 * 1000) return null;
+
+    seenThisLoad.add(dedupeKey);
+    await chrome.storage.local.set({ [storageKey]: Date.now() });
+
+    // Load + validate cached IPFS metadata
+    const metaKey = `metadata:${campaignId}`;
+    const metaStored = await chrome.storage.local.get(metaKey);
+    let validatedMeta = null;
+    const rawMeta = metaStored[metaKey] ?? null;
+    console.log(`[DATUM] Campaign ${campaignId} slot=${slotFormat}: cached metadata=${!!rawMeta}`);
+    if (rawMeta) {
+      const result = validateMetadata(rawMeta);
+      if (result.valid && result.data && passesContentBlocklist(result.data)) {
+        if (result.data.creative.ctaUrl && await isUrlPhishing(result.data.creative.ctaUrl)) {
+          console.warn(`[DATUM] Campaign ${campaignId} CTA URL flagged as phishing, rejecting`);
+        } else {
+          validatedMeta = result.data;
+        }
+      } else {
+        console.warn(`[DATUM] Campaign ${campaignId}: cached metadata failed re-validation: ${result.error ?? "blocklist"}`);
       }
-    } catch (err) {
-      console.warn(`[DATUM] Campaign ${campaignId}: FETCH_IPFS_METADATA failed:`, err);
     }
-  }
-
-  // Resolve effective publisher: for open campaigns, use SDK publisher or settings publisher
-  const effectivePublisher = match.publisher === "0x0000000000000000000000000000000000000000"
-    ? publisherAddress
-    : match.publisher;
-
-  const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
-
-  const currencySymbol = getCurrencySymbol((settingsStored.settings?.network ?? "polkadotHub") as NetworkName);
-
-  const firstTopicTag = (() => {
-    const tags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
-    for (const hash of tags) {
-      const tagStr = tagStringFromHash(hash);
-      if (!tagStr || !tagStr.startsWith("topic:")) continue;
-      const label = TAG_LABELS[tagStr] ?? tagStr.replace("topic:", "");
-      return { hash, label };
+    if (!validatedMeta && match.metadataHash) {
+      try {
+        const fetchResp = await chrome.runtime.sendMessage({
+          type: "FETCH_IPFS_METADATA",
+          campaignId,
+          metadataHash: match.metadataHash,
+        });
+        if (fetchResp?.metadata) validatedMeta = fetchResp.metadata;
+      } catch (err) {
+        console.warn(`[DATUM] Campaign ${campaignId}: FETCH_IPFS_METADATA failed:`, err);
+      }
     }
-    return null;
-  })();
 
-  // Record impression before building adConfig — nonce is needed for click (type-1) claim.
-  // Must run after effectivePublisher and attestation are resolved.
-  const campaignTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
-  let impressionNonce: string | null = null;
-  try {
-    const impResp = await chrome.runtime.sendMessage({
-      type: "IMPRESSION_RECORDED",
+    const effectivePublisher = match.publisher === "0x0000000000000000000000000000000000000000"
+      ? publisherAddress
+      : match.publisher;
+
+    const firstTopicTag = (() => {
+      const reqTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
+      for (const hash of reqTags) {
+        const tagStr = tagStringFromHash(hash);
+        if (!tagStr || !tagStr.startsWith("topic:")) continue;
+        const label = TAG_LABELS[tagStr] ?? tagStr.replace("topic:", "");
+        return { hash, label };
+      }
+      return null;
+    })();
+
+    // Record impression (per slot — each slot impression is independent)
+    const campaignTags: string[] = Array.isArray(match.requiredTags) ? match.requiredTags : [];
+    let impressionNonce: string | null = null;
+    try {
+      const impResp = await chrome.runtime.sendMessage({
+        type: "IMPRESSION_RECORDED",
+        campaignId,
+        url: window.location.href,
+        category: category ?? "",
+        publisherAddress: effectivePublisher,
+        clearingCpmPlanck,
+        attestation: attestation ?? undefined,
+        campaignTags,
+      });
+      impressionNonce = impResp?.impressionNonce ?? null;
+    } catch {}
+
+    const adConfig = {
       campaignId,
-      url: window.location.href,
-      category: category ?? "",
       publisherAddress: effectivePublisher,
+      category: category ?? "",
+      metadata: validatedMeta,
+      metadataHash: match.metadataHash || undefined,
+      auctionMechanism: auctionMechanism as any,
       clearingCpmPlanck,
-      attestation: attestation ?? undefined,
-      campaignTags,
-    });
-    impressionNonce = impResp?.impressionNonce ?? null;
-  } catch {}
+      ipfsGateway,
+      currencySymbol,
+      topicLabel: firstTopicTag?.label,
+      slotFormat,
+      impressionNonce: impressionNonce ?? undefined,
+      onCtaClick: impressionNonce ? () => {
+        try {
+          chrome.runtime.sendMessage({
+            type: "AD_CLICK",
+            campaignId: String(campaignId),
+            publisherAddress: effectivePublisher,
+            impressionNonce: impressionNonce!,
+          });
+        } catch {}
+      } : undefined,
+      onReport: () => {
+        try { chrome.runtime.sendMessage({ type: "BLOCK_CAMPAIGN", campaignId: String(campaignId) }); } catch {}
+      },
+      onReportAd: (reason: number) => {
+        try { chrome.runtime.sendMessage({ type: "REPORT_AD", campaignId: String(campaignId), reason }); } catch {}
+      },
+      onReportPage: (reason: number) => {
+        try { chrome.runtime.sendMessage({ type: "REPORT_PAGE", campaignId: String(campaignId), reason }); } catch {}
+      },
+      onHideTopic: firstTopicTag ? () => {
+        try { chrome.runtime.sendMessage({ type: "BLOCK_TAG", tag: firstTopicTag.hash }); } catch {}
+      } : undefined,
+      onNotInterested: () => {
+        try {
+          chrome.runtime.sendMessage({
+            type: "UPDATE_INTEREST",
+            tags: Array.isArray(match.requiredTags) ? match.requiredTags : [],
+            delta: -1,
+          });
+        } catch {}
+      },
+    };
 
-  const adConfig = {
-    campaignId,
-    publisherAddress: effectivePublisher,
-    category: category ?? "",
-    metadata: validatedMeta,
-    metadataHash: match.metadataHash || undefined,
-    auctionMechanism: auctionMechanism as any,
-    clearingCpmPlanck,
-    ipfsGateway,
-    currencySymbol,
-    topicLabel: firstTopicTag?.label,
-    impressionNonce: impressionNonce ?? undefined,
-    onCtaClick: impressionNonce ? () => {
-      try {
-        chrome.runtime.sendMessage({
-          type: "AD_CLICK",
-          campaignId: String(campaignId),
-          publisherAddress: effectivePublisher,
-          impressionNonce: impressionNonce!,
-        });
-      } catch {}
-    } : undefined,
-    onReport: () => {
-      try {
-        chrome.runtime.sendMessage({ type: "BLOCK_CAMPAIGN", campaignId: String(campaignId) });
-      } catch {}
-    },
-    onReportAd: (reason: number) => {
-      try {
-        chrome.runtime.sendMessage({ type: "REPORT_AD", campaignId: String(campaignId), reason });
-      } catch {}
-    },
-    onReportPage: (reason: number) => {
-      try {
-        chrome.runtime.sendMessage({ type: "REPORT_PAGE", campaignId: String(campaignId), reason });
-      } catch {}
-    },
-    onHideTopic: firstTopicTag ? () => {
-      try {
-        chrome.runtime.sendMessage({ type: "BLOCK_TAG", tag: firstTopicTag.hash });
-      } catch {}
-    } : undefined,
-    onNotInterested: () => {
-      try {
-        chrome.runtime.sendMessage({
-          type: "UPDATE_INTEREST",
-          tags: Array.isArray(match.requiredTags) ? match.requiredTags : [],
-          delta: -1,
-        });
-      } catch {}
-    },
-    slotFormat: sdkInfo?.slotFormat,
-  };
-
-  // Inject ad: inline into SDK slot if available, overlay otherwise
-  let adElement: HTMLElement | null = null;
-  if (sdkInfo?.hasAdSlot) {
-    const target = document.getElementById("datum-ad-slot");
-    if (target) {
-      adElement = injectAdSlotInline(target, adConfig);
+    let adElement: HTMLElement | null = null;
+    if (slotEl) {
+      adElement = injectAdSlotInline(slotEl, adConfig);
     }
-  }
-  if (!adElement) {
-    adElement = injectAdSlot(adConfig);
+    if (!adElement) {
+      adElement = injectAdSlot(adConfig);
+    }
+    if (adElement) startTracking(campaignId, adElement);
+
+    return String(campaignId);
   }
 
-  // Start engagement tracking
-  if (adElement) {
-    startTracking(campaignId, adElement);
+  // ── Multi-slot path (SDK with [data-datum-slot] elements) ─────────────────────
+  if (sdkInfo?.slots && sdkInfo.slots.length > 0) {
+    const assignedIds: string[] = [];
+    for (const slot of sdkInfo.slots) {
+      const winnerId = await fillSlot(slot.format, slot.el, assignedIds);
+      if (winnerId) assignedIds.push(winnerId);
+    }
+    return;
   }
+
+  // ── Single-slot / overlay path ────────────────────────────────────────────────
+  await fillSlot(sdkInfo?.slotFormat ?? "medium-rectangle", null, []);
 }
 
 // Run on page load — wait for DOM to be ready

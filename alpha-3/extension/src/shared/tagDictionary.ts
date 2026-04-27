@@ -76,6 +76,18 @@ export const TAG_DICTIONARY: Record<string, string[]> = {
     "audience:creator",
     "audience:investor",
   ],
+  format: [
+    "format:leaderboard",
+    "format:medium-rectangle",
+    "format:wide-skyscraper",
+    "format:half-page",
+    "format:mobile-banner",
+    "format:square",
+    "format:large-rectangle",
+  ],
+  creative: [
+    "creative:video",
+  ],
 };
 
 /** Map taxonomy category slug → tag string (e.g., "crypto-web3" → "topic:crypto-web3") */
@@ -248,6 +260,14 @@ export const TAG_LABELS: Record<string, string> = {
   "audience:professional": "Professionals",
   "audience:creator": "Creators",
   "audience:investor": "Investors",
+  "format:leaderboard": "Leaderboard (728×90)",
+  "format:medium-rectangle": "Medium Rectangle (300×250)",
+  "format:wide-skyscraper": "Wide Skyscraper (160×600)",
+  "format:half-page": "Half Page (300×600)",
+  "format:mobile-banner": "Mobile Banner (320×50)",
+  "format:square": "Square (250×250)",
+  "format:large-rectangle": "Large Rectangle (336×280)",
+  "creative:video": "Video Creative",
 };
 
 // Build reverse lookup: hash → display label

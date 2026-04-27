@@ -1,5 +1,13 @@
 // SDK Detector — checks if the current page has the DATUM Publisher SDK embedded.
 // Looks for the datum-sdk.js script tag OR listens for the datum:sdk-ready event.
+// Supports both single-slot (legacy #datum-ad-slot) and multi-slot ([data-datum-slot]) pages.
+
+export interface SDKSlot {
+  /** The host element that will receive the inline ad */
+  el: HTMLElement;
+  /** IAB slot format declared on the element (e.g., "leaderboard") */
+  format: string;
+}
 
 export interface SDKInfo {
   publisher: string;       // Publisher's on-chain address
@@ -7,8 +15,10 @@ export interface SDKInfo {
   excludedTags: string[];  // Publisher-side tag blacklist (e.g., "topic:gambling")
   relay: string;           // Publisher relay URL (empty = none declared)
   version: string;         // SDK version string
-  hasAdSlot: boolean;      // Whether <div id="datum-ad-slot"> exists
-  slotFormat: string;      // IAB slot format declared via data-slot (e.g., "leaderboard")
+  hasAdSlot: boolean;      // Whether any ad slot element exists
+  slotFormat: string;      // IAB slot format of the first slot (backward compat)
+  /** All declared slots. Length ≥ 1 when hasAdSlot is true. */
+  slots: SDKSlot[];
 }
 
 /**
@@ -35,19 +45,17 @@ export function detectSDK(): Promise<SDKInfo | null> {
 
       const detail = (e as CustomEvent).detail;
       if (detail && detail.publisher) {
-        const slotEl = document.getElementById("datum-ad-slot");
+        const slots = collectSlots(detail.slots);
+        const firstFormat = slots[0]?.format ?? String(detail.slotFormat ?? "medium-rectangle");
         resolve({
           publisher: String(detail.publisher),
-          tags: Array.isArray(detail.tags)
-            ? detail.tags.map(String)
-            : [],
-          excludedTags: Array.isArray(detail.excludedTags)
-            ? detail.excludedTags.map(String)
-            : [],
+          tags: Array.isArray(detail.tags) ? detail.tags.map(String) : [],
+          excludedTags: Array.isArray(detail.excludedTags) ? detail.excludedTags.map(String) : [],
           relay: String(detail.relay ?? ""),
           version: String(detail.version ?? "unknown"),
-          hasAdSlot: !!slotEl,
-          slotFormat: String(detail.slotFormat ?? slotEl?.getAttribute("data-slot-format") ?? "medium-rectangle"),
+          hasAdSlot: slots.length > 0,
+          slotFormat: firstFormat,
+          slots,
         });
       } else {
         resolve(null);
@@ -67,6 +75,40 @@ export function detectSDK(): Promise<SDKInfo | null> {
   });
 }
 
+/**
+ * Collect all [data-datum-slot] elements from the page.
+ * Falls back to a single legacy #datum-ad-slot element.
+ */
+function collectSlots(sdkSlots?: Array<{ id: string; format: string }>): SDKSlot[] {
+  // Multi-slot: [data-datum-slot] elements (modern SDK)
+  const multiSlotEls = document.querySelectorAll<HTMLElement>("[data-datum-slot]");
+  if (multiSlotEls.length > 0) {
+    return Array.from(multiSlotEls).map((el) => ({
+      el,
+      format: el.getAttribute("data-datum-slot") || "medium-rectangle",
+    }));
+  }
+
+  // If the SDK event carried a slots array, resolve elements by id
+  if (sdkSlots && sdkSlots.length > 0) {
+    const result: SDKSlot[] = [];
+    for (const s of sdkSlots) {
+      const el = document.getElementById(s.id);
+      if (el) result.push({ el, format: s.format });
+    }
+    if (result.length > 0) return result;
+  }
+
+  // Legacy fallback: single #datum-ad-slot
+  const legacy = document.getElementById("datum-ad-slot");
+  if (legacy) {
+    const format = legacy.getAttribute("data-slot-format") || "medium-rectangle";
+    return [{ el: legacy, format }];
+  }
+
+  return [];
+}
+
 function findSDKScript(): HTMLScriptElement | null {
   const scripts = document.querySelectorAll("script[data-publisher]");
   for (let i = 0; i < scripts.length; i++) {
@@ -83,26 +125,27 @@ function parseScriptTag(el: HTMLScriptElement): SDKInfo | null {
   const publisher = el.getAttribute("data-publisher") || "";
   if (!publisher) return null;
 
-  // Parse data-tags attribute (comma-separated dimension:value strings)
   const tagStr = el.getAttribute("data-tags") || "";
-  const tags = tagStr
-    ? tagStr.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
+  const tags = tagStr ? tagStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
 
-  // Parse data-excluded-tags attribute (publisher-side tag blacklist)
   const excludedStr = el.getAttribute("data-excluded-tags") || "";
   const excludedTags = excludedStr
     ? excludedStr.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
-  const slotEl = document.getElementById("datum-ad-slot");
+  const slots = collectSlots();
+  const firstFormat = slots[0]?.format
+    ?? el.getAttribute("data-slot")
+    ?? "medium-rectangle";
+
   return {
     publisher,
     tags,
     excludedTags,
     relay: el.getAttribute("data-relay") || "",
     version: "detected",
-    hasAdSlot: !!slotEl,
-    slotFormat: el.getAttribute("data-slot") || slotEl?.getAttribute("data-slot-format") || "medium-rectangle",
+    hasAdSlot: slots.length > 0,
+    slotFormat: firstFormat,
+    slots,
   };
 }
