@@ -16,7 +16,8 @@ import { CATEGORY_TO_TAG, tagHash } from "@shared/tagDictionary";
 
 const STORAGE_KEY = "activeCampaigns";
 const INDEX_KEY = "campaignIndex";       // Map<id, campaign> as Record<string,SerializedCampaign>
-const LAST_BLOCK_KEY = "pollLastBlock";  // last block scanned for events
+const LAST_BLOCK_KEY = "pollLastBlock";  // highest block scanned (for forward / new-block scanning)
+const SCAN_BACK_KEY = "pollScanBackBlock"; // lowest block yet to scan backwards (0=done, undefined=not started)
 const METADATA_TTL_MS = 3600_000;        // 1 hour cache TTL for IPFS metadata
 const BATCH_SIZE = 5;                    // parallel RPC calls per batch (low to avoid Paseo rate limits)
 const EVENT_CHUNK_SIZE = 10_000;         // max block range per eth_getLogs request
@@ -86,19 +87,68 @@ export const campaignPoller = {
         ? getBudgetLedgerContract(addresses, provider) : null;
 
       // Load existing index from storage
-      const stored = await chrome.storage.local.get([INDEX_KEY, LAST_BLOCK_KEY]);
+      const stored = await chrome.storage.local.get([INDEX_KEY, LAST_BLOCK_KEY, SCAN_BACK_KEY]);
       const index: Record<string, SerializedCampaign> = stored[INDEX_KEY] ?? {};
-      const lastBlock: number = stored[LAST_BLOCK_KEY] ?? 0;
+      const lastBlock: number = stored[LAST_BLOCK_KEY] ?? -1;
+      // undefined = first poll not yet complete; 0 = fully scanned to genesis; N = continue from N-1
+      const scanBackBlock: number | undefined = stored[SCAN_BACK_KEY];
 
       // ── Phase 1: Campaign discovery ────────────────────────────────────
-      // With Pine (smoldot light client), eth_getLogs is not supported — skip event
-      // scanning and go directly to the nextCampaignId fallback.
-      // With a centralized RPC, use CampaignCreated events for efficient discovery.
+      // Backward-first strategy: scan the most recent chunk on the first poll so campaigns
+      // can start serving ads immediately, then extend one chunk backward per poll cycle
+      // until the full chain history has been covered.
+      //
+      // pollLastBlock  — highest block scanned; -1 = never polled.
+      // pollScanBackBlock — lowest block yet to scan; undefined = first poll pending;
+      //                     0 = history complete; N = next backward chunk ends at N-1.
+      //
+      // Pine path: eth_getLogs unsupported — use nextCampaignId enumeration instead.
       const currentBlock = await provider.getBlockNumber();
-      const fromBlock = lastBlock > 0 ? lastBlock + 1 : 0;
-      let newCampaignIds: string[] = [];
+      const isFirstPoll = lastBlock < 0;
 
-      if (fromBlock <= currentBlock) {
+      // Forward window: most recent chunk only on first poll; new blocks only thereafter.
+      const forwardFrom = isFirstPoll
+        ? Math.max(0, currentBlock - EVENT_CHUNK_SIZE + 1)
+        : lastBlock + 1;
+
+      let newCampaignIds: string[] = [];
+      // nextScanBackBlock is written to storage at the end of the poll.
+      let nextScanBackBlock: number | undefined = scanBackBlock;
+
+      // Helper: bootstrap a campaign entry from CampaignCreated event args.
+      // Returns the new campaign ID, or null if already in the index.
+      const addFromCreatedEvent = (args: any): string | null => {
+        const cid = (args[0] ?? args.campaignId)?.toString();
+        if (!cid || index[cid]) return null;
+        const advertiser = (args[1] ?? args.advertiser) ?? "";
+        const publisher  = (args[2] ?? args.publisher)  ?? "";
+        const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
+        const categoryId          = Number(args[7] ?? args.categoryId ?? 0).toString();
+        index[cid] = {
+          id: cid,
+          advertiser: advertiser.toString(),
+          publisher: publisher.toString(),
+          remainingBudget: "0",
+          viewBid: "0",    // filled in by Phase 2 getCampaignViewBid call
+          clickBid: "0",   // filled in by Phase 2 getCampaignPots call
+          actionBid: "0",  // filled in by Phase 2 getCampaignPots call
+          snapshotTakeRateBps,
+          status: CampaignStatus.Pending.toString(),
+          categoryId,
+          pendingExpiryBlock: "0",
+          terminationBlock: "0",
+        };
+        return cid;
+      };
+
+      // Helper: apply a CampaignMetadataSet event to the index.
+      const applyMetadataEvent = (args: any): void => {
+        const cid = (args[0] ?? args.campaignId)?.toString();
+        const hash: string = args[1] ?? args.metadataHash ?? "";
+        if (cid && hash && index[cid]) index[cid].metadataHash = hash;
+      };
+
+      if (forwardFrom <= currentBlock) {
         // Pine path: eth_getLogs unsupported — enumerate via nextCampaignId directly
         if (pineChain) {
           try {
@@ -125,54 +175,25 @@ export const campaignPoller = {
             }
           } catch { /* give up on discovery this cycle */ }
         } else {
-          // Centralized RPC path: use CampaignCreated events
+          // ── Phase 1a: Forward scan (most recent chunk / new blocks since last poll) ──
           try {
             const filter = contract.filters.CampaignCreated();
-            // Chunk large ranges to stay within public RPC limits (some nodes cap at 10k blocks).
             const allEvents: any[] = [];
-            for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
+            for (let chunkFrom = forwardFrom; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
               const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
               const chunk = await contract.queryFilter(filter, chunkFrom, chunkTo);
               allEvents.push(...chunk);
-              // Throttle between chunks to avoid hitting Paseo public RPC rate limits
               if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
                 await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
               }
             }
             for (const ev of allEvents) {
-              const args = (ev as any).args;
-              if (!args) continue;
-              const cid = (args[0] ?? args.campaignId)?.toString();
-              if (!cid) continue;
-
-              // Bootstrap new campaign entry from event data
-              if (!index[cid]) {
-                const advertiser = (args[1] ?? args.advertiser) ?? "";
-                const publisher = (args[2] ?? args.publisher) ?? "";
-                const snapshotTakeRateBps = Number(args[6] ?? args.snapshotTakeRateBps ?? 0).toString();
-                const categoryId = Number(args[7] ?? args.categoryId ?? 0).toString();
-
-                index[cid] = {
-                  id: cid,
-                  advertiser: advertiser.toString(),
-                  publisher: publisher.toString(),
-                  remainingBudget: "0",
-                  viewBid: "0",    // filled in by Phase 2 getCampaignViewBid call
-                  clickBid: "0",   // filled in by Phase 2 getCampaignPots call
-                  actionBid: "0",  // filled in by Phase 2 getCampaignPots call
-                  snapshotTakeRateBps,
-                  status: CampaignStatus.Pending.toString(),
-                  categoryId,
-                  pendingExpiryBlock: "0",
-                  terminationBlock: "0",
-                };
-                newCampaignIds.push(cid);
-              }
+              if (!(ev as any).args) continue;
+              const cid = addFromCreatedEvent((ev as any).args);
+              if (cid) newCampaignIds.push(cid);
             }
           } catch (err) {
-            console.warn("[DATUM] Event query failed, falling back to nextCampaignId scan:", err);
-            // Fallback: enumerate IDs via nextCampaignId and bootstrap stub entries.
-            // Without bootstrapping index, Phase 2 would never refresh the new IDs.
+            console.warn("[DATUM] Forward event query failed, falling back to nextCampaignId scan:", err);
             try {
               const nextId = Number(await contract.nextCampaignId());
               for (let id = 1; id < nextId; id++) {
@@ -195,35 +216,64 @@ export const campaignPoller = {
               }
             } catch { /* give up on discovery this cycle */ }
           }
-        }
-      }
 
-      // ── Phase 1b: Metadata events for new campaigns ────────────────────
-      // Skipped when using Pine — smoldot does not support eth_getLogs.
-      // Metadata hashes will remain absent; IPFS previews won't show in Pine mode.
-      if (!pineChain && fromBlock <= currentBlock) {
-        try {
-          const metaFilter = contract.filters.CampaignMetadataSet();
-          const allMetaEvents: any[] = [];
-          for (let chunkFrom = fromBlock; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
-            const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
-            const chunk = await contract.queryFilter(metaFilter, chunkFrom, chunkTo);
-            allMetaEvents.push(...chunk);
-            if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
-              await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+          // ── Phase 1b: Metadata events for the forward window ─────────────
+          try {
+            const metaFilter = contract.filters.CampaignMetadataSet();
+            const allMetaEvents: any[] = [];
+            for (let chunkFrom = forwardFrom; chunkFrom <= currentBlock; chunkFrom += EVENT_CHUNK_SIZE) {
+              const chunkTo = Math.min(chunkFrom + EVENT_CHUNK_SIZE - 1, currentBlock);
+              const chunk = await contract.queryFilter(metaFilter, chunkFrom, chunkTo);
+              allMetaEvents.push(...chunk);
+              if (chunkFrom + EVENT_CHUNK_SIZE <= currentBlock) {
+                await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+              }
+            }
+            for (const ev of allMetaEvents) {
+              if ((ev as any).args) applyMetadataEvent((ev as any).args);
+            }
+          } catch (err) {
+            console.warn("[DATUM] Forward metadata event query failed:", err);
+          }
+
+          // After the first poll, anchor the backward scan start just before the forward window.
+          if (isFirstPoll) {
+            nextScanBackBlock = forwardFrom > 0 ? forwardFrom - 1 : 0;
+          }
+
+          // ── Phase 1c: Backward scan — one historical chunk per poll cycle ──
+          // Each poll extends the scanned history by one chunk going further into the past.
+          // Skipped on the first poll (nextScanBackBlock was just initialised above, not loaded).
+          if (!isFirstPoll && nextScanBackBlock !== undefined && nextScanBackBlock > 0) {
+            const backTo   = nextScanBackBlock - 1;
+            const backFrom = Math.max(0, backTo - EVENT_CHUNK_SIZE + 1);
+            try {
+              const backNewIds: string[] = [];
+
+              const filter = contract.filters.CampaignCreated();
+              const backEvents = await contract.queryFilter(filter, backFrom, backTo);
+              for (const ev of backEvents) {
+                if (!(ev as any).args) continue;
+                const cid = addFromCreatedEvent((ev as any).args);
+                if (cid) { newCampaignIds.push(cid); backNewIds.push(cid); }
+              }
+
+              const metaFilter = contract.filters.CampaignMetadataSet();
+              const backMetaEvents = await contract.queryFilter(metaFilter, backFrom, backTo);
+              for (const ev of backMetaEvents) {
+                if ((ev as any).args) applyMetadataEvent((ev as any).args);
+              }
+
+              nextScanBackBlock = backFrom > 0 ? backFrom : 0;
+              const progress = nextScanBackBlock > 0
+                ? `next from block ${nextScanBackBlock}`
+                : "history complete";
+              console.log(`[DATUM] Backward scan ${backFrom}→${backTo}: ${backNewIds.length} new campaigns (${progress})`);
+            } catch (err) {
+              console.warn("[DATUM] Backward scan chunk failed (will retry next poll):", err);
+              // Do not advance nextScanBackBlock — same chunk retried next poll.
             }
           }
-          for (const ev of allMetaEvents) {
-            const args = (ev as any).args;
-            if (!args) continue;
-            const cid = (args[0] ?? args.campaignId)?.toString();
-            const hash: string = args[1] ?? args.metadataHash ?? "";
-            if (cid && hash && index[cid]) {
-              index[cid].metadataHash = hash;
-            }
-          }
-        } catch (err) {
-          console.warn("[DATUM] Metadata event query failed:", err);
         }
       }
 
@@ -340,12 +390,18 @@ export const campaignPoller = {
       // Build flat array for backward compat with content script / auction
       const activeCampaigns = Object.values(index);
 
-      await chrome.storage.local.set({
+      const persistData: Record<string, any> = {
         [INDEX_KEY]: index,
         [LAST_BLOCK_KEY]: currentBlock,
         [STORAGE_KEY]: activeCampaigns,
-      });
-      console.log(`[DATUM] Polled ${activeCampaigns.length} campaigns (${newCampaignIds.length} new, block ${fromBlock}→${currentBlock})`);
+      };
+      if (nextScanBackBlock !== undefined) persistData[SCAN_BACK_KEY] = nextScanBackBlock;
+      await chrome.storage.local.set(persistData);
+
+      const scanProgress = nextScanBackBlock === undefined ? "first poll"
+        : nextScanBackBlock === 0 ? "history complete"
+        : `back to block ${nextScanBackBlock}`;
+      console.log(`[DATUM] Polled ${activeCampaigns.length} campaigns (${newCampaignIds.length} new, fwd ${forwardFrom}→${currentBlock}, ${scanProgress})`);
 
       // ── Phase 4: Metadata cleanup ──────────────────────────────────────
       const activeIdSet = new Set(activeCampaigns.map(c => c.id));
@@ -521,6 +577,6 @@ export const campaignPoller = {
 
   /** Reset poller state (forces full re-scan on next poll). */
   async reset(): Promise<void> {
-    await chrome.storage.local.remove([STORAGE_KEY, INDEX_KEY, LAST_BLOCK_KEY]);
+    await chrome.storage.local.remove([STORAGE_KEY, INDEX_KEY, LAST_BLOCK_KEY, SCAN_BACK_KEY]);
   },
 };
