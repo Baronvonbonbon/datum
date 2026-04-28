@@ -929,6 +929,13 @@ export function App() {
             </div>
           )}
 
+          <button
+            onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("history.html") })}
+            title="View impression history"
+            style={btnStyle("var(--bg-raised)", "var(--text-muted)")}
+          >
+            History ↗
+          </button>
           <button onClick={handleLock} style={btnStyle("var(--bg-raised)", "var(--text-muted)")}>
             Lock
           </button>

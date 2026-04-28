@@ -338,9 +338,22 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
             <button
               onClick={() => { setImageViewerStart(0); setImageViewerOpen(true); }}
               className="nano-btn"
-              style={{ fontSize: 11, padding: "3px 10px", flexShrink: 0, whiteSpace: "nowrap" }}
+              style={{
+                fontSize: 11,
+                padding: "3px 10px",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
+                background: "rgba(99,179,237,0.10)",
+                borderColor: "rgba(99,179,237,0.25)",
+                color: "rgba(99,179,237,0.95)",
+              }}
             >
-              {imageList.length === 1 ? "View Image" : `View Images (${imageList.length})`}
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }} aria-hidden="true">
+                <rect x="1" y="3" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+                <circle cx="5.5" cy="6.5" r="1.2" fill="currentColor"/>
+                <path d="M1 11l4-3.5 3 2.5 2.5-2 4.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+              </svg>
+              {imageList.length === 1 ? "View Media" : `View Media (${imageList.length})`}
             </button>
           )}
         </div>

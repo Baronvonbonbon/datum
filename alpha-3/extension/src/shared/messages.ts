@@ -57,7 +57,9 @@ export type PopupToBackground =
   | { type: "DISCARD_REJECTED_CLAIMS"; userAddress: string; campaignIds: string[] }
   | { type: "GET_AD_RATE" }
   | { type: "REPORT_PAGE"; campaignId: string; reason: number }
-  | { type: "REPORT_AD"; campaignId: string; reason: number };
+  | { type: "REPORT_AD"; campaignId: string; reason: number }
+  | { type: "GET_IMPRESSION_LOG" }
+  | { type: "CLEAR_IMPRESSION_LOG" };
 
 // Messages sent FROM background TO offscreen document (sign + submit)
 export type BackgroundToOffscreen = {

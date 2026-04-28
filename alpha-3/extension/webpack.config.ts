@@ -19,6 +19,7 @@ const config = (
       provider: "./src/content/provider.ts",
       popup: "./src/popup/index.tsx",
       offscreen: "./src/offscreen/offscreen.ts",
+      history: "./src/history/index.tsx",
     },
 
     output: {
@@ -87,6 +88,12 @@ const config = (
         filename: "offscreen.html",
         chunks: ["offscreen"],
         inject: false,  // offscreen.html has its own <script src="offscreen.js">
+      }),
+
+      new HtmlWebpackPlugin({
+        template: "./src/history/index.html",
+        filename: "history.html",
+        chunks: ["history"],
       }),
 
       new CopyWebpackPlugin({

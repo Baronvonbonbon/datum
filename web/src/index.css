@@ -24,6 +24,28 @@
   --accent:     rgba(255,255,255,0.85);
   --accent-dim: rgba(255,255,255,0.25);
 
+  /* Tints — hover / active surface fills (white-based in dark, black-based in light) */
+  --tint-subtle:    rgba(255,255,255,0.03);
+  --tint-hover:     rgba(255,255,255,0.04);
+  --tint-active:    rgba(255,255,255,0.05);
+  --tint-mid:       rgba(255,255,255,0.06);
+  --tint-row:       rgba(255,255,255,0.04);   /* table row separator */
+  --tint-row-hover: rgba(255,255,255,0.02);   /* table row hover */
+  /* Active nav indicator + accent tint button */
+  --indicator:      rgba(255,255,255,0.50);
+  --indicator-dim:  rgba(255,255,255,0.30);
+  --accent-tint:    rgba(255,255,255,0.06);
+  --accent-tint-border: rgba(255,255,255,0.18);
+  --accent-tint-hover:  rgba(255,255,255,0.10);
+  --accent-tint-hover-border: rgba(255,255,255,0.30);
+  /* Primary button — inverts between themes */
+  --btn-primary-bg:    #ffffff;
+  --btn-primary-text:  #0a0a0a;
+  --btn-primary-hover: rgba(255,255,255,0.88);
+  /* Scrollbar */
+  --scrollbar-thumb:       rgba(255,255,255,0.08);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.15);
+
   /* Traffic light — muted, same visual weight */
   --ok:    #4ade80;   /* green-400  */
   --warn:  #fbbf24;   /* amber-400  */
@@ -56,24 +78,60 @@
 [data-theme="light"] {
   --bg:          #f5f5f5;
   --bg-surface:  #ffffff;
+  --bg-raised:   #ffffff;
   --bg-header:   rgba(245,245,245,0.92);
-  --text:        rgba(0,0,0,0.65);
+  --text:        rgba(0,0,0,0.70);
   --text-strong: #0a0a0a;
-  --text-muted:  rgba(0,0,0,0.35);
-  --border:       rgba(0,0,0,0.1);
-  --border-hover: rgba(0,0,0,0.2);
-  --border-focus: rgba(0,0,0,0.4);
-  --accent:     rgba(0,0,0,0.8);
-  --accent-dim: rgba(0,0,0,0.2);
-  --ok:    #16a34a;
-  --warn:  #d97706;
-  --error: #dc2626;
+  --text-muted:  rgba(0,0,0,0.45);
+  --border:       rgba(0,0,0,0.12);
+  --border-hover: rgba(0,0,0,0.22);
+  --border-focus: rgba(0,0,0,0.45);
+  --accent:     rgba(0,0,0,0.85);
+  --accent-dim: rgba(0,0,0,0.25);
+  --ok:    #15803d;
+  --warn:  #b45309;
+  --error: #b91c1c;
+
+  /* Role colors — deeper for light-bg contrast */
+  --role-user:            #15803d;
+  --role-user-dim:        rgba(21,128,61,0.10);
+  --role-user-border:     rgba(21,128,61,0.30);
+  --role-publisher:       #b45309;
+  --role-publisher-dim:   rgba(180,83,9,0.10);
+  --role-publisher-border: rgba(180,83,9,0.30);
+  --role-advertiser:      #7c3aed;
+  --role-advertiser-dim:  rgba(124,58,237,0.10);
+  --role-advertiser-border: rgba(124,58,237,0.30);
+  --role-voter:           #b91c1c;
+  --role-voter-dim:       rgba(185,28,28,0.10);
+  --role-voter-border:    rgba(185,28,28,0.30);
+
+  /* Tints — flip to black-based */
+  --tint-subtle:    rgba(0,0,0,0.03);
+  --tint-hover:     rgba(0,0,0,0.05);
+  --tint-active:    rgba(0,0,0,0.07);
+  --tint-mid:       rgba(0,0,0,0.06);
+  --tint-row:       rgba(0,0,0,0.06);
+  --tint-row-hover: rgba(0,0,0,0.04);
+  --indicator:      rgba(0,0,0,0.55);
+  --indicator-dim:  rgba(0,0,0,0.35);
+  --accent-tint:    rgba(0,0,0,0.06);
+  --accent-tint-border: rgba(0,0,0,0.20);
+  --accent-tint-hover:  rgba(0,0,0,0.10);
+  --accent-tint-hover-border: rgba(0,0,0,0.35);
+  /* Primary button inverts */
+  --btn-primary-bg:    #111111;
+  --btn-primary-text:  #ffffff;
+  --btn-primary-hover: #2a2a2a;
+  /* Scrollbar */
+  --scrollbar-thumb:       rgba(0,0,0,0.15);
+  --scrollbar-thumb-hover: rgba(0,0,0,0.28);
 }
 [data-theme="light"] { color-scheme: light; }
 [data-theme="light"] .nano-select option { background: #ffffff; }
 [data-theme="light"] .nano-card { background: #ffffff; }
 [data-theme="light"] .nano-skeleton {
-  background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.07) 50%, rgba(0,0,0,0.04) 75%);
+  background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 75%);
   background-size: 800px 100%;
 }
 
@@ -119,8 +177,8 @@ pre {
 /* ─── Scrollbar ─────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 /* ─── Nano fade-in animation ─────────────────────────────────────────────── */
 .nano-fade {
@@ -173,13 +231,13 @@ pre {
 }
 .nano-navlink:hover {
   color: var(--text);
-  background: rgba(255,255,255,0.03);
+  background: var(--tint-subtle);
   text-decoration: none;
 }
 .nano-navlink.active {
   color: var(--text-strong);
-  background: rgba(255,255,255,0.04);
-  border-left-color: rgba(255,255,255,0.5);
+  background: var(--tint-hover);
+  border-left-color: var(--indicator);
 }
 
 /* ─── Sidebar nav sections ───────────────────────────────────────────────── */
@@ -210,13 +268,13 @@ pre {
 }
 .nano-nav-section-header:hover {
   color: var(--text);
-  background: rgba(255,255,255,0.03);
+  background: var(--tint-subtle);
   text-decoration: none;
 }
 .nano-nav-section-header.active {
   color: var(--text-strong);
-  border-left-color: rgba(255,255,255,0.5);
-  background: rgba(255,255,255,0.04);
+  border-left-color: var(--indicator);
+  background: var(--tint-hover);
 }
 .nano-nav-section-arrow {
   font-size: 9px;
@@ -244,13 +302,13 @@ pre {
 }
 .nano-navlink--child:hover {
   color: var(--text);
-  background: rgba(255,255,255,0.03);
+  background: var(--tint-subtle);
   text-decoration: none;
 }
 .nano-navlink--child.active {
   color: var(--text-strong);
-  background: rgba(255,255,255,0.04);
-  border-left-color: rgba(255,255,255,0.3);
+  background: var(--tint-hover);
+  border-left-color: var(--indicator-dim);
 }
 
 /* ─── Card — border only, no fill ───────────────────────────────────────── */
@@ -283,32 +341,32 @@ pre {
 .nano-btn:hover {
   color: var(--text-strong);
   border-color: var(--border-hover);
-  background: rgba(255,255,255,0.04);
+  background: var(--tint-hover);
 }
 
-/* Primary — high contrast white fill */
+/* Primary — high contrast fill (inverted in light mode) */
 .nano-btn-primary {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #0a0a0a;
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
   font-weight: 600;
 }
 .nano-btn-primary:hover {
-  background: rgba(255,255,255,0.88);
-  border-color: rgba(255,255,255,0.88);
-  color: #0a0a0a;
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+  color: var(--btn-primary-text);
 }
 
-/* Accent — same as primary (white-led) */
+/* Accent */
 .nano-btn-accent {
-  background: rgba(255,255,255,0.06);
-  border-color: rgba(255,255,255,0.18);
+  background: var(--accent-tint);
+  border-color: var(--accent-tint-border);
   color: var(--text-strong);
 }
 .nano-btn-accent:hover {
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.3);
-  color: #ffffff;
+  background: var(--accent-tint-hover);
+  border-color: var(--accent-tint-hover-border);
+  color: var(--text-strong);
 }
 
 /* Traffic light variants */
@@ -390,12 +448,12 @@ pre {
 .nano-table td {
   padding: 9px 12px;
   vertical-align: middle;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--tint-row);
   font-size: 13px;
   color: var(--text);
 }
 .nano-table tbody tr { transition: background 150ms; }
-.nano-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+.nano-table tbody tr:hover { background: var(--tint-row-hover); }
 .nano-table tbody tr:last-child td { border-bottom: none; }
 
 /* ─── Badges ─────────────────────────────────────────────────────────────── */
@@ -418,7 +476,7 @@ pre {
 .nano-badge--error { background: rgba(248,113,113,0.08);  border-color: rgba(248,113,113,0.25);  color: var(--error); }
 
 /* Role badges */
-.nano-badge--accent       { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.15); color: var(--text-strong); }
+.nano-badge--accent       { background: var(--accent-tint); border-color: var(--accent-tint-border); color: var(--text-strong); }
 .nano-badge--user         { background: var(--role-user-dim);       border-color: var(--role-user-border);       color: var(--role-user); }
 .nano-badge--advertiser   { background: var(--role-advertiser-dim); border-color: var(--role-advertiser-border); color: var(--role-advertiser); }
 .nano-badge--publisher    { background: var(--role-publisher-dim);  border-color: var(--role-publisher-border);  color: var(--role-publisher); }
@@ -431,9 +489,9 @@ pre {
 }
 .nano-skeleton {
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.03) 25%,
-    rgba(255,255,255,0.06) 50%,
-    rgba(255,255,255,0.03) 75%
+    var(--tint-subtle) 25%,
+    var(--tint-mid) 50%,
+    var(--tint-subtle) 75%
   );
   background-size: 800px 100%;
   animation: shimmer 1.6s infinite;

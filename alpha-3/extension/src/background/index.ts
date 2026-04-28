@@ -23,6 +23,7 @@ import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/ph
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
 import { metadataUrl } from "@shared/ipfs";
 import { tagStringFromHash } from "@shared/tagDictionary";
+import { impressionLog } from "./impressionLog";
 
 // -------------------------------------------------------------------------
 // Alarm names
@@ -367,6 +368,14 @@ async function handleMessage(
       // Contextual mode: ad shown, but no claim built (no rewards) and no profile update
       if (prefs.contextualMode) {
         console.log(`[DATUM] Contextual mode — impression shown for campaign ${msg.campaignId}, no claim built`);
+        await impressionLog.add({
+          campaignId: msg.campaignId,
+          publisherAddress: msg.publisherAddress,
+          ratePlanck: msg.clearingCpmPlanck ?? "0",
+          actionType: 0,
+          timestamp: Date.now(),
+          url: msg.url,
+        });
         return { ok: true, impressionNonce: null };
       }
 
@@ -378,6 +387,16 @@ async function handleMessage(
         console.error("[DATUM] claimBuilder.onImpression failed:", err);
         return { ok: false, reason: "claim_build_error" };
       }
+
+      // Log impression to history
+      await impressionLog.add({
+        campaignId: msg.campaignId,
+        publisherAddress: msg.publisherAddress,
+        ratePlanck: msg.clearingCpmPlanck ?? "0",
+        actionType: 0,
+        timestamp: Date.now(),
+        url: msg.url,
+      });
 
       // Record ad-exposure tags into interest profile (weighted by viewing)
       const campaignTags: string[] = (msg as any).campaignTags ?? [];
@@ -1132,6 +1151,16 @@ async function handleMessage(
       } else {
         pending.reject(new Error("User rejected the signing request."));
       }
+      return { ok: true };
+    }
+
+    case "GET_IMPRESSION_LOG": {
+      const log = await impressionLog.getAll();
+      return { log };
+    }
+
+    case "CLEAR_IMPRESSION_LOG": {
+      await impressionLog.clear();
       return { ok: true };
     }
 
