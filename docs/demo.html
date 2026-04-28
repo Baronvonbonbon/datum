@@ -203,7 +203,7 @@
       padding: 24px 16px 48px;
     }
 
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 960px; margin: 0 auto; }
 
     header {
       display: flex; align-items: center; gap: 12px;
@@ -247,7 +247,7 @@
     .controls {
       display: flex;
       gap: 10px;
-      margin-bottom: 28px;
+      margin-bottom: 20px;
       flex-wrap: wrap;
     }
 
@@ -278,9 +278,9 @@
 
     .topic-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
       gap: 8px;
-      margin-bottom: 32px;
+      margin-bottom: 28px;
     }
 
     .topic-btn {
@@ -308,7 +308,7 @@
       font-weight: 600;
     }
 
-    .visit-log-section { margin-bottom: 32px; }
+    .visit-log-section { margin-bottom: 28px; }
 
     .visit-log {
       display: flex;
@@ -325,7 +325,7 @@
       color: #999;
     }
 
-    .profile-bar-section { margin-bottom: 32px; }
+    .profile-bar-section { margin-bottom: 28px; }
 
     .bar-row {
       display: flex;
@@ -338,23 +338,6 @@
     .bar-track { flex: 1; background: #1a1a1a; border-radius: 4px; height: 8px; overflow: hidden; }
     .bar-fill  { background: #e6007a; height: 100%; border-radius: 4px; transition: width 0.3s; }
     .bar-count { width: 28px; text-align: right; color: #666; flex-shrink: 0; }
-
-    .ad-area {
-      background: #111;
-      border: 1px dashed #2a2a2a;
-      border-radius: 8px;
-      padding: 20px;
-      min-height: 120px;
-      margin-bottom: 24px;
-      text-align: center;
-    }
-    .ad-area-label {
-      font-size: 11px;
-      color: #555;
-      margin-bottom: 10px;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
 
     #auto-countdown {
       font-size: 12px;
@@ -462,6 +445,346 @@
       display: inline-block; background: #0d1f0d; border: 1px solid #1a4a1a;
       border-radius: 10px; padding: 1px 7px; font-size: 10px; color: #5cb85c;
     }
+
+    /* ═══════════════════════════════════════════════════
+       Multi-slot layout
+    ═══════════════════════════════════════════════════ */
+
+    /* Leaderboard strip — centered, overflow-x scroll on small screens */
+    .leaderboard-strip {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 16px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    /* Mobile banner strip — centered, at bottom of page */
+    .mobile-banner-strip {
+      display: flex;
+      justify-content: center;
+      margin-top: 24px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    /* Two-column body: main content + right rail */
+    .page-body {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .main-col { flex: 1; min-width: 0; }
+    .right-rail {
+      width: 300px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Slot wrappers: hold the datum-slot div + aura + badge */
+    .slot-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+    .slot-wrapper.block { display: block; }
+
+    /* Aura ring around active slot */
+    .slot-aura {
+      position: absolute;
+      inset: -3px;
+      border-radius: 8px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.35s;
+      box-shadow: 0 0 0 2px #e6007a88, 0 0 18px #e6007a40;
+    }
+    .slot-wrapper.auctioning .slot-aura {
+      opacity: 1;
+      animation: aura-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes aura-pulse {
+      0%, 100% { box-shadow: 0 0 0 2px #e6007a88, 0 0 12px #e6007a30; }
+      50%       { box-shadow: 0 0 0 2px #e6007aff, 0 0 28px #e6007a70; }
+    }
+
+    /* Badge shown above active slot */
+    .slot-badge {
+      position: absolute;
+      top: -13px;
+      left: 10px;
+      z-index: 10;
+      background: #e6007a;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px 2px 6px;
+      border-radius: 8px;
+      letter-spacing: 0.03em;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .slot-wrapper.auctioning .slot-badge { opacity: 1; }
+
+    /* Slot label below each slot (format name + size) */
+    .slot-label {
+      font-size: 10px;
+      color: #444;
+      text-align: center;
+      margin-top: 4px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      letter-spacing: 0.03em;
+    }
+    .slot-wrapper.auctioning .slot-label { color: #e6007a88; }
+
+    /* ── Slot config panel ── */
+    .slot-config-section { margin-bottom: 20px; }
+    .slot-config-panel {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .slot-config-card {
+      flex: 1;
+      min-width: 120px;
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 6px;
+      padding: 8px 10px;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .slot-config-card.auctioning {
+      border-color: #e6007a60;
+      background: #1a0811;
+    }
+    .slot-config-card .sc-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #ccc;
+      margin-bottom: 2px;
+    }
+    .slot-config-card.auctioning .sc-name { color: #e6007a; }
+    .slot-config-card .sc-size {
+      font-size: 10px;
+      color: #444;
+      margin-bottom: 6px;
+      font-family: monospace;
+    }
+    .tag-format {
+      display: inline-block;
+      background: #1a0811;
+      border: 1px solid #e6007a44;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+      color: #e6007a;
+      margin: 1px 2px 1px 0;
+    }
+    .tag-page {
+      display: inline-block;
+      background: #0d1a2a;
+      border: 1px solid #1a3a5a;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+      color: #5a9fd4;
+      margin: 1px 2px 1px 0;
+    }
+
+    /* ── Fallback creative base ── */
+    .fc-link {
+      display: block;
+      width: 100%;
+      height: 100%;
+      text-decoration: none;
+      overflow: hidden;
+      border-radius: 3px;
+    }
+    .fc-link:focus { outline: 2px solid #e6007a; outline-offset: 2px; }
+    .fc-link:hover { filter: brightness(1.08); }
+
+    /* Leaderboard fallback (728×90) — pink/dark, horizontal */
+    .fc-leaderboard {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(120deg, #1a0014 0%, #2d0025 55%, #110020 100%);
+      border: 1px solid #e6007a22;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+    }
+    .fc-leaderboard .fc-brand {
+      font-size: 19px;
+      font-weight: 900;
+      color: #e6007a;
+      letter-spacing: -0.5px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .fc-leaderboard .fc-divider {
+      width: 1px; height: 38px;
+      background: #e6007a33;
+      flex-shrink: 0;
+    }
+    .fc-leaderboard .fc-text {
+      font-size: 12px;
+      color: #bbb;
+      flex: 1;
+      line-height: 1.35;
+    }
+    .fc-leaderboard .fc-cta {
+      background: #e6007a;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 7px 14px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    /* Medium-rectangle fallback (300×250) — blue, vertical card */
+    .fc-medium-rect {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(160deg, #001624 0%, #002040 60%, #000d22 100%);
+      border: 1px solid #1a4a7a22;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 16px;
+      text-align: center;
+    }
+    .fc-medium-rect .fc-logo {
+      font-size: 24px;
+      font-weight: 900;
+      color: #4a9fd4;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+    .fc-medium-rect .fc-eyebrow {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #4a9fd444;
+      margin-bottom: 8px;
+    }
+    .fc-medium-rect .fc-headline {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }
+    .fc-medium-rect .fc-body {
+      font-size: 11px;
+      color: #778;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .fc-medium-rect .fc-cta {
+      background: #4a9fd4;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 20px;
+      border-radius: 4px;
+    }
+
+    /* Half-page fallback (300×600) — purple, tall vertical */
+    .fc-half-page {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, #0c0018 0%, #180030 45%, #25004a 100%);
+      border: 1px solid #7a1aaa22;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 28px 22px;
+      text-align: center;
+    }
+    .fc-half-page .fc-glyph {
+      font-size: 44px;
+      margin-bottom: 14px;
+      line-height: 1;
+    }
+    .fc-half-page .fc-logo {
+      font-size: 20px;
+      font-weight: 900;
+      color: #b040dd;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+    }
+    .fc-half-page .fc-headline {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+      line-height: 1.35;
+    }
+    .fc-half-page .fc-body {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 22px;
+      line-height: 1.65;
+    }
+    .fc-half-page .fc-cta {
+      background: #b040dd;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 11px 26px;
+      border-radius: 5px;
+    }
+    .fc-half-page .fc-sub {
+      font-size: 10px;
+      color: #444;
+      margin-top: 14px;
+      line-height: 1.5;
+    }
+
+    /* Mobile banner fallback (320×50) — teal, ultra-thin horizontal */
+    .fc-mobile-banner {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #001616 0%, #002828 100%);
+      border: 1px solid #1a6a6a22;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+    }
+    .fc-mobile-banner .fc-brand {
+      font-size: 13px;
+      font-weight: 900;
+      color: #1ac8c8;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .fc-mobile-banner .fc-text {
+      font-size: 11px;
+      color: #999;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .fc-mobile-banner .fc-cta {
+      background: #1ac8c8;
+      color: #000;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 5px 11px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -470,7 +793,7 @@
   <header>
     <div>
       <div class="logo">DATUM</div>
-      <div class="sub">Browse Simulator — Interest Profile Builder</div>
+      <div class="sub">Browse Simulator — Multi-Slot Ad Auction Demo</div>
     </div>
   </header>
 
@@ -491,112 +814,244 @@
     <button class="btn" onclick="clearLog()" style="margin-left:auto;">Clear session log</button>
   </div>
 
-  <!-- Ad slot: extension injects here -->
-  <div class="ad-area">
-    <div class="ad-area-label">Ad slot — Datum extension injects here</div>
-    <div id="datum-ad-slot" style="min-height:90px;display:flex;align-items:center;justify-content:center;">
-      <span style="color:#333;font-size:12px;">Install the Datum extension to see live auction results</span>
-    </div>
-  </div>
-
-  <!-- Topic picker -->
-  <div class="section-label">Simulate a page visit by topic</div>
-  <div class="topic-grid" id="topic-grid"></div>
-
-  <!-- Visit log / profile bars -->
-  <div class="visit-log-section">
-    <div class="section-label">Session visit log <span id="total-count" style="font-weight:400;color:#555;text-transform:none;letter-spacing:0"></span></div>
-    <div class="visit-log" id="visit-log-chips"></div>
-    <div class="hint" id="log-hint"></div>
-  </div>
-
-  <div class="profile-bar-section" id="profile-section" style="display:none">
-    <div class="section-label">Interest profile (this session)</div>
-    <div id="profile-bars"></div>
-    <div class="hint">This mirrors what the Datum extension stores in your browser. Open the extension popup to see the live weighted profile and watch auction bids change.</div>
-  </div>
-
-  <!-- Competing Campaigns (seeded on Paseo testnet) -->
-  <div class="campaigns-section">
-    <div class="section-label">Competing Campaigns — Paseo Testnet</div>
-    <div class="campaigns-panel">
-      <p class="campaigns-intro">
-        100 campaigns are seeded on Paseo testnet with CPM bids ranging from <strong>0.300–0.700 PAS</strong>.
-        Each campaign targets a random subset of the 30-topic taxonomy (including Polkadot-native topics like DeFi, NFTs, Polkadot Ecosystem, and DAOs), with ~20% carrying a
-        <span class="sidecar-badge" style="display:inline">USDT</span> native asset sidecar reward per impression.
-        The Datum extension runs a Vickrey (second-price) auction on every page visit —
-        <strong>effectiveBid = CPM × interestWeight</strong>, so a lower-CPM campaign with a matching topic tag
-        routinely beats a higher raw bid from an unmatched advertiser.
-      </p>
-      <table class="campaigns-table">
-        <thead>
-          <tr>
-            <th>Tier</th>
-            <th>CPM range (PAS)</th>
-            <th>Tag strategy</th>
-            <th>Best on</th>
-            <th>Sidecar</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="camp-row leader">
-            <td>High</td>
-            <td><span class="cpm">0.55 – 0.70</span></td>
-            <td>
-              Single-topic precision<br>
-              <span class="camp-tag match">e.g. topic:crypto-web3</span>
-            </td>
-            <td>Pages matching their one tag (highest effective bid)</td>
-            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
-          </tr>
-          <tr class="camp-row">
-            <td>Mid</td>
-            <td><span class="cpm">0.40 – 0.54</span></td>
-            <td>Single- or dual-topic<br>
-              <span class="camp-tag match">e.g. topic:finance</span>
-              <span class="camp-tag">topic:science</span>
-            </td>
-            <td>Niche interest matches; lose on broad pages to high-tier</td>
-            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
-          </tr>
-          <tr class="camp-row">
-            <td>Low</td>
-            <td><span class="cpm">0.30 – 0.39</span></td>
-            <td>Untagged (open) — no targeting<br>
-              <span style="color:#555;font-size:11px">falls back to page-tag weight</span>
-            </td>
-            <td>Pages with no higher-interest competitor; floor bid wins</td>
-            <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="hint" style="margin-top:10px">
-        All 100 campaigns are active and competing simultaneously. Interest weight from your browse history is
-        multiplied into each effective bid — a 0.30 PAS campaign with a strong topic match can beat a 0.70 PAS
-        untagged campaign when your profile aligns. Sidecar USDT rewards are credited to user wallets via
-        DatumTokenRewardVault regardless of auction outcome — they do not affect CPM ordering.
-        Use the auto-tour to cycle all 30 topics and watch the winning campaign change in real time.
+  <!-- ══════════════════════════════════════════════════════════
+       LEADERBOARD slot — top of page, full width (728×90)
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="leaderboard-strip">
+    <div class="slot-wrapper" data-slot-name="leaderboard">
+      <div class="slot-aura"></div>
+      <div class="slot-badge">⚡ Auctioning leaderboard</div>
+      <div data-datum-slot="leaderboard"
+           aria-label="Datum ad slot: leaderboard 728×90"
+           style="width:728px;height:90px;">
+        <!-- Fallback creative: Polkadot brand — shown when extension is absent -->
+        <a class="fc-link"
+           href="https://polkadot.network"
+           target="_blank"
+           rel="noopener noreferrer"
+           aria-label="Polkadot Network — Uniting the world's blockchains. Click to visit polkadot.network.">
+          <div class="fc-leaderboard" role="img" aria-hidden="true">
+            <span class="fc-brand">POLKADOT</span>
+            <span class="fc-divider"></span>
+            <span class="fc-text">Unite blockchains. Power dApps at scale. On-chain governance, cross-chain composability, and ZK-native infrastructure — all in one ecosystem.</span>
+            <span class="fc-cta">Explore Now</span>
+          </div>
+        </a>
       </div>
+      <div class="slot-label">leaderboard &nbsp;·&nbsp; 728×90</div>
     </div>
   </div>
 
-  <!-- Auction Debug Monitor -->
-  <div class="auction-debug-section" id="auction-debug-section">
-    <div class="section-label">Auction Debug Monitor</div>
-    <div id="auction-debug-content" class="auction-debug-panel">
-      <span style="color:#555;font-size:12px">Waiting for auction event from extension...</span>
+  <!-- ══════════════════════════════════════════════════════════
+       Slot config panel — shows tags per slot, highlights active
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="slot-config-section">
+    <div class="section-label">Ad slots — per-slot auction tags</div>
+    <div class="slot-config-panel" id="slot-config-panel">
+      <!-- Populated by JS -->
     </div>
-    <div id="auction-debug-log" class="auction-debug-log"></div>
-    <div class="hint">Live data from the extension's Vickrey auction. Updates each time a page visit triggers ad selection.</div>
+    <div class="hint">Each slot runs an independent Vickrey auction. The extension injects <span style="color:#e6007a">format:&lt;name&gt;</span> as a page tag for each slot so advertisers can target specific IAB formats. Shared page tags apply to all slots. Glowing slot = currently auctioning.</div>
   </div>
 
-</div>
+  <!-- ══════════════════════════════════════════════════════════
+       Two-column body: main content left + right rail slots
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="page-body">
 
-<!-- Publisher SDK — tells the extension a publisher is present -->
+    <!-- Left: topic grid, visit log, profile bars, campaigns, auction debug -->
+    <div class="main-col">
+
+      <!-- Topic picker -->
+      <div class="section-label">Simulate a page visit by topic</div>
+      <div class="topic-grid" id="topic-grid"></div>
+
+      <!-- Visit log -->
+      <div class="visit-log-section">
+        <div class="section-label">Session visit log <span id="total-count" style="font-weight:400;color:#555;text-transform:none;letter-spacing:0"></span></div>
+        <div class="visit-log" id="visit-log-chips"></div>
+        <div class="hint" id="log-hint"></div>
+      </div>
+
+      <!-- Interest profile bars -->
+      <div class="profile-bar-section" id="profile-section" style="display:none">
+        <div class="section-label">Interest profile (this session)</div>
+        <div id="profile-bars"></div>
+        <div class="hint">This mirrors what the Datum extension stores in your browser. Open the extension popup to see the live weighted profile and watch auction bids change.</div>
+      </div>
+
+      <!-- Competing Campaigns -->
+      <div class="campaigns-section">
+        <div class="section-label">Competing Campaigns — Paseo Testnet</div>
+        <div class="campaigns-panel">
+          <p class="campaigns-intro">
+            100 campaigns are seeded on Paseo testnet with CPM bids ranging from <strong>0.300–0.700 PAS</strong>.
+            Each campaign targets a random subset of the 30-topic taxonomy (including Polkadot-native topics like DeFi, NFTs, Polkadot Ecosystem, and DAOs), with ~20% carrying a
+            <span class="sidecar-badge" style="display:inline">USDT</span> native asset sidecar reward per impression.
+            The Datum extension runs a Vickrey (second-price) auction on every page visit —
+            <strong>effectiveBid = CPM × interestWeight</strong>, so a lower-CPM campaign with a matching topic tag
+            routinely beats a higher raw bid from an unmatched advertiser.
+          </p>
+          <table class="campaigns-table">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>CPM range (PAS)</th>
+                <th>Tag strategy</th>
+                <th>Best on</th>
+                <th>Sidecar</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="camp-row leader">
+                <td>High</td>
+                <td><span class="cpm">0.55 – 0.70</span></td>
+                <td>
+                  Single-topic precision<br>
+                  <span class="camp-tag match">e.g. topic:crypto-web3</span>
+                </td>
+                <td>Pages matching their one tag (highest effective bid)</td>
+                <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
+              </tr>
+              <tr class="camp-row">
+                <td>Mid</td>
+                <td><span class="cpm">0.40 – 0.54</span></td>
+                <td>Single- or dual-topic<br>
+                  <span class="camp-tag match">e.g. topic:finance</span>
+                  <span class="camp-tag">topic:science</span>
+                </td>
+                <td>Niche interest matches; lose on broad pages to high-tier</td>
+                <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
+              </tr>
+              <tr class="camp-row">
+                <td>Low</td>
+                <td><span class="cpm">0.30 – 0.39</span></td>
+                <td>Untagged (open) — no targeting<br>
+                  <span style="color:#555;font-size:11px">falls back to page-tag weight</span>
+                </td>
+                <td>Pages with no higher-interest competitor; floor bid wins</td>
+                <td>~20% carry <span class="sidecar-badge">0.001 USDT/imp</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="hint" style="margin-top:10px">
+            All 100 campaigns are active and competing simultaneously. Interest weight from your browse history is
+            multiplied into each effective bid — a 0.30 PAS campaign with a strong topic match can beat a 0.70 PAS
+            untagged campaign when your profile aligns. Sidecar USDT rewards are credited to user wallets via
+            DatumTokenRewardVault regardless of auction outcome — they do not affect CPM ordering.
+            Use the auto-tour to cycle all 30 topics and watch the winning campaign change in real time.
+          </div>
+        </div>
+      </div>
+
+      <!-- Auction Debug Monitor -->
+      <div class="auction-debug-section" id="auction-debug-section">
+        <div class="section-label">Auction Debug Monitor</div>
+        <div id="auction-debug-content" class="auction-debug-panel">
+          <span style="color:#555;font-size:12px">Waiting for auction event from extension...</span>
+        </div>
+        <div id="auction-debug-log" class="auction-debug-log"></div>
+        <div class="hint">Live data from the extension's Vickrey auction. Updates each time a page visit triggers ad selection.</div>
+      </div>
+
+    </div><!-- /main-col -->
+
+    <!-- Right rail: medium-rectangle + half-page -->
+    <div class="right-rail">
+
+      <!-- MEDIUM-RECTANGLE slot (300×250) -->
+      <div class="slot-wrapper block" data-slot-name="medium-rectangle">
+        <div class="slot-aura"></div>
+        <div class="slot-badge">⚡ Auctioning medium-rectangle</div>
+        <div data-datum-slot="medium-rectangle"
+             aria-label="Datum ad slot: medium-rectangle 300×250"
+             style="width:300px;height:250px;">
+          <!-- Fallback creative: DeFi / Moonbeam-style — blue -->
+          <a class="fc-link"
+             href="https://polkadot.network"
+             target="_blank"
+             rel="noopener noreferrer"
+             aria-label="Acala Network — DeFi hub for Polkadot. Earn yield on DOT and stablecoins. Click to visit polkadot.network.">
+            <div class="fc-medium-rect" role="img" aria-hidden="true">
+              <div class="fc-eyebrow">DeFi on Polkadot</div>
+              <div class="fc-logo">ACALA</div>
+              <div class="fc-headline">Earn yield on DOT &amp; stablecoins</div>
+              <div class="fc-body">The DeFi hub of Polkadot. Liquid staking, aUSD stablecoin, and cross-chain swaps — all with no gas fees.</div>
+              <div class="fc-cta">Start Earning</div>
+            </div>
+          </a>
+        </div>
+        <div class="slot-label">medium-rectangle &nbsp;·&nbsp; 300×250</div>
+      </div>
+
+      <!-- HALF-PAGE slot (300×600) -->
+      <div class="slot-wrapper block" data-slot-name="half-page">
+        <div class="slot-aura"></div>
+        <div class="slot-badge">⚡ Auctioning half-page</div>
+        <div data-datum-slot="half-page"
+             aria-label="Datum ad slot: half-page 300×600"
+             style="width:300px;height:600px;">
+          <!-- Fallback creative: Web3 Foundation / parachain — purple -->
+          <a class="fc-link"
+             href="https://polkadot.network"
+             target="_blank"
+             rel="noopener noreferrer"
+             aria-label="Web3 Foundation — funding research and development for the decentralized web. Click to visit polkadot.network.">
+            <div class="fc-half-page" role="img" aria-hidden="true">
+              <div class="fc-glyph">🔗</div>
+              <div class="fc-logo">WEB3 FOUNDATION</div>
+              <div class="fc-headline">Build the Decentralized Web</div>
+              <div class="fc-body">
+                Grants, research, and infrastructure for the next generation of internet protocols.
+                From Polkadot parachains to zero-knowledge proofs — we fund what matters.
+              </div>
+              <div class="fc-cta">Apply for a Grant</div>
+              <div class="fc-sub">
+                Open to teams worldwide &nbsp;·&nbsp; Milestone-based funding<br>
+                polkadot.network
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="slot-label">half-page &nbsp;·&nbsp; 300×600</div>
+      </div>
+
+    </div><!-- /right-rail -->
+  </div><!-- /page-body -->
+
+  <!-- ══════════════════════════════════════════════════════════
+       MOBILE-BANNER slot — bottom of page, centered (320×50)
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="mobile-banner-strip">
+    <div class="slot-wrapper" data-slot-name="mobile-banner">
+      <div class="slot-aura"></div>
+      <div class="slot-badge">⚡ Auctioning mobile-banner</div>
+      <div data-datum-slot="mobile-banner"
+           aria-label="Datum ad slot: mobile-banner 320×50"
+           style="width:320px;height:50px;">
+        <!-- Fallback creative: Kusama / experimental — teal -->
+        <a class="fc-link"
+           href="https://polkadot.network"
+           target="_blank"
+           rel="noopener noreferrer"
+           aria-label="Kusama Network — Polkadot's canary network for cutting-edge experimentation. Click to visit polkadot.network.">
+          <div class="fc-mobile-banner" role="img" aria-hidden="true">
+            <span class="fc-brand">KUSAMA</span>
+            <span class="fc-text">Polkadot's canary network — experimental, fast, unstoppable</span>
+            <span class="fc-cta">Learn More</span>
+          </div>
+        </a>
+      </div>
+      <div class="slot-label">mobile-banner &nbsp;·&nbsp; 320×50</div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- Publisher SDK — multi-slot mode; data-datum-slot divs above are auto-detected -->
 <script id="datum-sdk-tag"
   src="datum-sdk.js"
   data-publisher="0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
-  data-tags="crypto-web3,defi,polkadot,computers-electronics,finance,en"
+  data-tags="topic:crypto-web3,topic:defi,topic:polkadot,topic:computers-electronics,topic:finance,locale:en"
   data-relay="http://localhost:3400">
 </script>
 
@@ -814,6 +1269,69 @@ if (isAuto) {
   var nextAutoStep = autoStep + 1;
   runAutoStep(nextAutoStep);
 }
+
+// ── Slot cycling animation ────────────────────────────────────────────────
+
+var SLOTS = [
+  { name: "leaderboard",      label: "Leaderboard",      w: 728, h: 90  },
+  { name: "medium-rectangle", label: "Medium Rectangle", w: 300, h: 250 },
+  { name: "half-page",        label: "Half Page",        w: 300, h: 600 },
+  { name: "mobile-banner",    label: "Mobile Banner",    w: 320, h: 50  },
+];
+
+// Page tags shared across all slots (injected by SDK from data-tags attribute)
+var PAGE_TAGS = [
+  "topic:crypto-web3", "topic:defi", "topic:polkadot",
+  "topic:computers-electronics", "topic:finance", "locale:en",
+];
+
+var currentSlotIdx = 0;
+var CYCLE_MS = 2500;
+
+function setActiveSlot(idx) {
+  // Remove auctioning from all wrappers
+  document.querySelectorAll(".slot-wrapper").forEach(function(el) {
+    el.classList.remove("auctioning");
+  });
+  // Mark active wrapper
+  var name = SLOTS[idx].name;
+  var wrapper = document.querySelector(".slot-wrapper[data-slot-name='" + name + "']");
+  if (wrapper) wrapper.classList.add("auctioning");
+  // Update config panel
+  renderSlotConfig(idx);
+}
+
+function renderSlotConfig(activeIdx) {
+  var panel = document.getElementById("slot-config-panel");
+  if (!panel) return;
+  panel.innerHTML = "";
+  SLOTS.forEach(function(slot, i) {
+    var card = document.createElement("div");
+    var isActive = (i === activeIdx);
+    card.className = "slot-config-card" + (isActive ? " auctioning" : "");
+
+    var tagsHtml = '<span class="tag-format">format:' + slot.name + '</span>';
+    PAGE_TAGS.forEach(function(tag) {
+      tagsHtml += '<span class="tag-page">' + tag + '</span>';
+    });
+
+    card.innerHTML =
+      '<div class="sc-name">' + slot.label + (isActive ? ' ⚡' : '') + '</div>' +
+      '<div class="sc-size">' + slot.w + '×' + slot.h + 'px</div>' +
+      '<div style="margin-top:4px">' + tagsHtml + '</div>';
+
+    panel.appendChild(card);
+  });
+}
+
+function advanceSlot() {
+  currentSlotIdx = (currentSlotIdx + 1) % SLOTS.length;
+  setActiveSlot(currentSlotIdx);
+}
+
+// Init: activate first slot immediately, then cycle
+setActiveSlot(0);
+setInterval(advanceSlot, CYCLE_MS);
 
 // ── Auction Debug Monitor ─────────────────────────────────────────────────
 
