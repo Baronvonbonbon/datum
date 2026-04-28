@@ -363,6 +363,13 @@ async function handleMessage(
       }
 
       await recordImpressionTime();
+
+      // Contextual mode: ad shown, but no claim built (no rewards) and no profile update
+      if (prefs.contextualMode) {
+        console.log(`[DATUM] Contextual mode — impression shown for campaign ${msg.campaignId}, no claim built`);
+        return { ok: true, impressionNonce: null };
+      }
+
       let impressionNonce: string | null = null;
       try {
         impressionNonce = await claimBuilder.onImpression(msg);
@@ -743,10 +750,14 @@ async function handleMessage(
     }
 
     case "UPDATE_INTEREST": {
-      if ((msg.delta ?? 1) < 0) {
-        await interestProfile.removeRecentVisits(msg.tags ?? []);
-      } else {
-        await interestProfile.updateProfile(msg.tags ?? []);
+      const interestPrefs = await getPreferences();
+      // Contextual mode: do not record page visits or ad exposure into the interest profile
+      if (!interestPrefs.contextualMode) {
+        if ((msg.delta ?? 1) < 0) {
+          await interestProfile.removeRecentVisits(msg.tags ?? []);
+        } else {
+          await interestProfile.updateProfile(msg.tags ?? []);
+        }
       }
       return { ok: true };
     }
@@ -791,6 +802,7 @@ async function handleMessage(
         {},
         profile,
         pageTags,
+        prefs.contextualMode,
       );
 
       if (auctionResult) {

@@ -52,8 +52,58 @@ export function FiltersTab() {
   const headingStyle: React.CSSProperties = { color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 };
   const mutedStyle: React.CSSProperties = { color: "var(--text-muted)", fontSize: 11, marginBottom: 8 };
 
+  const contextual = !!prefs.contextualMode;
+
   return (
     <div style={containerStyle}>
+
+      {/* Contextual / Targeted mode toggle */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={headingStyle}>Ad Mode</div>
+        <div style={{ display: "flex", borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
+          <button
+            onClick={() => update({ contextualMode: false })}
+            style={{
+              flex: 1,
+              padding: "7px 10px",
+              fontSize: 12,
+              fontFamily: "inherit",
+              cursor: contextual ? "pointer" : "default",
+              background: !contextual ? "var(--accent)" : "var(--bg-raised)",
+              color: !contextual ? "#fff" : "var(--text-muted)",
+              border: "none",
+              fontWeight: !contextual ? 600 : 400,
+              transition: "background 0.15s",
+            }}
+          >
+            Targeted
+          </button>
+          <button
+            onClick={() => update({ contextualMode: true })}
+            style={{
+              flex: 1,
+              padding: "7px 10px",
+              fontSize: 12,
+              fontFamily: "inherit",
+              cursor: contextual ? "default" : "pointer",
+              background: contextual ? "rgba(160,160,255,0.18)" : "var(--bg-raised)",
+              color: contextual ? "var(--accent)" : "var(--text-muted)",
+              border: "none",
+              borderLeft: "1px solid var(--border)",
+              fontWeight: contextual ? 600 : 400,
+              transition: "background 0.15s",
+            }}
+          >
+            Contextual
+          </button>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          {!contextual
+            ? "Targeted: ads matched to your interest profile. Impressions earn rewards."
+            : "Contextual: ads matched to page topics only. No profile data collected, no rewards earned."}
+        </div>
+      </div>
+
       <div style={{ marginBottom: 14 }}>
         <div style={headingStyle}>Ad Topics</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>

@@ -42,18 +42,20 @@ export interface AuctionResult {
  *
  * @param pageTags - tag strings for the current page (e.g., ["topic:finance", "locale:en"]).
  *   Used as fallback interest signal for campaigns without requiredTags.
+ * @param contextualMode - if true, weight campaigns by page-tag overlap only (no profile weights).
  */
 export function auctionForPage(
   campaigns: CampaignCandidate[],
   pageCategories: Record<string, number>,
   profile: UserInterestProfile,
   pageTags?: string[],
+  contextualMode?: boolean,
 ): AuctionResult | null {
   if (campaigns.length === 0) return null;
 
   // Compute effective bids
   const scored = campaigns.map((c) => {
-    const interestWeight = Math.max(getTagWeight(profile, c, pageTags), 0.1);
+    const interestWeight = Math.max(getTagWeight(profile, c, pageTags, contextualMode), 0.1);
     const bidCpm = BigInt(c.viewBid);
     // effectiveBid in micro-planck (multiply by 1000 for precision)
     const effectiveBid = bidCpm * BigInt(Math.round(interestWeight * 1000));
@@ -130,13 +132,36 @@ export function auctionForPage(
  * Fallback for tagless campaigns: uses page tags from the content script
  * (the page's classified topics) to look up the user's profile weight.
  * This ensures generic/open campaigns still benefit from interest-based pricing.
+ *
+ * In contextual mode: weight by page-tag overlap only — no profile weights used.
+ * Campaigns whose requiredTags overlap with the current page's tags score higher;
+ * tagless campaigns get a neutral participation weight of 0.5.
  */
 function getTagWeight(
   profile: UserInterestProfile,
   c: CampaignCandidate,
   pageTags?: string[],
+  contextualMode?: boolean,
 ): number {
-  // Campaign has explicit required tags — use those
+  if (contextualMode) {
+    // Contextual mode: match campaign requiredTags against current page tags only.
+    // No user profile weights — the page content is the only signal.
+    if (c.requiredTags && c.requiredTags.length > 0) {
+      if (!pageTags || pageTags.length === 0) return 0.1; // can't assess relevance — low floor
+      const pageTagSet = new Set(pageTags);
+      let matches = 0;
+      for (const hash of c.requiredTags) {
+        const tagStr = tagStringFromHash(hash);
+        if (tagStr && pageTagSet.has(tagStr)) matches++;
+      }
+      // Proportion of required tags present on this page (at least floor 0.1 to participate)
+      return matches > 0 ? matches / c.requiredTags.length : 0.1;
+    }
+    // Tagless campaigns always eligible — neutral weight so bid price decides
+    return 0.5;
+  }
+
+  // Campaign has explicit required tags — use profile weights
   if (c.requiredTags && c.requiredTags.length > 0) {
     let totalWeight = 0;
     let matchCount = 0;

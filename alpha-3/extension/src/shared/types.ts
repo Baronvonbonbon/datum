@@ -436,6 +436,8 @@ export interface UserPreferences {
   allowedTopics: string[];        // used when filterMode === "selected"
   sweepAddress: string;           // cold wallet address to sweep earnings to (empty = disabled)
   sweepThresholdPlanck: string;   // auto-sweep when balance exceeds this (in planck, as string; "0" = manual only)
+  /** Contextual mode: ads matched to current page only. No profile data collected, no rewards earned. */
+  contextualMode?: boolean;
 }
 
 // Engagement tracking (Phase 6 / P16)

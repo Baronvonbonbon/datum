@@ -14,6 +14,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   allowedTopics: [],
   sweepAddress: "",
   sweepThresholdPlanck: "0",
+  contextualMode: false,
 };
 
 export async function getPreferences(): Promise<UserPreferences> {
