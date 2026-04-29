@@ -211,7 +211,10 @@ describe("DatumCampaignLifecycle", function () {
       lifecycle.connect(governance).terminateCampaign(cid)
     ).to.be.revertedWith("P");
 
-    await pauseReg.unpause();
+    // C-4: unpause via guardian 2-of-3
+    const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
+    await pauseReg.connect(advertiser).propose(2);
+    await pauseReg.connect(publisher).approve(pid);
   });
 
   // LC9: expire non-Pending reverts

@@ -19,8 +19,13 @@ import "./interfaces/IDatumPublisherReputation.sol";
 ///         - Optional integration: ClaimValidator or off-chain tooling can query
 ///           getScore() / isAnomaly() to weight decisions. No hard enforcement in alpha-3.
 contract DatumPublisherReputation is IDatumPublisherReputation, Ownable2Step {
-    /// @notice The Settlement contract — only caller allowed to record stats (FP-16).
+    /// @notice The Settlement contract — primary reporter (FP-16).
     address public settlement;
+
+    /// @notice L-5: Additional authorized reporters (relay bots, other contracts).
+    mapping(address => bool) public authorizedReporters;
+
+    event ReporterAuthorized(address indexed reporter, bool authorized);
 
     // -------------------------------------------------------------------------
     // Global per-publisher counters
@@ -65,6 +70,13 @@ contract DatumPublisherReputation is IDatumPublisherReputation, Ownable2Step {
         settlement = addr;
     }
 
+    /// @notice L-5: Add or remove an authorized reporter.
+    function setReporterAuthorized(address reporter, bool authorized) external onlyOwner {
+        require(reporter != address(0), "E00");
+        authorizedReporters[reporter] = authorized;
+        emit ReporterAuthorized(reporter, authorized);
+    }
+
     function _checkOwner() internal view override {
         require(owner() == msg.sender, "E18");
     }
@@ -94,7 +106,7 @@ contract DatumPublisherReputation is IDatumPublisherReputation, Ownable2Step {
         uint256 settled,
         uint256 rejected
     ) external override {
-        require(msg.sender == settlement, "E18");
+        require(msg.sender == settlement || authorizedReporters[msg.sender], "E18");
         require(publisher != address(0), "E00");
         if (settled == 0 && rejected == 0) return;
 

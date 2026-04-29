@@ -35,6 +35,7 @@ contract DatumCouncil is ReentrancyGuard {
         uint256 voteCount;
         bool executed;
         bool vetoed;
+        bool cancelled;  // M-7: separate from vetoed
     }
 
     uint256 public nextProposalId;
@@ -51,7 +52,8 @@ contract DatumCouncil is ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     mapping(address => bool) public isMember;
-    address[] private _memberList;  // for off-chain enumeration (append-only index)
+    address[] private _memberList;
+    mapping(address => uint256) private _memberIndex;  // M-8: O(1) lookup for swap-and-pop
     uint256 public memberCount;
     address public guardian;
 
@@ -70,6 +72,7 @@ contract DatumCouncil is ReentrancyGuard {
     event ThresholdReached(uint256 indexed proposalId, uint256 executableAfterBlock);
     event Executed(uint256 indexed proposalId);
     event Vetoed(uint256 indexed proposalId, address indexed guardian);
+    event Cancelled(uint256 indexed proposalId, address indexed proposer);
     event MemberAdded(address indexed member);
     event MemberRemoved(address indexed member);
     event GuardianSet(address indexed guardian);
@@ -116,6 +119,7 @@ contract DatumCouncil is ReentrancyGuard {
             require(initialMembers[i] != address(0), "E00");
             require(!isMember[initialMembers[i]], "E00");
             isMember[initialMembers[i]] = true;
+            _memberIndex[initialMembers[i]] = _memberList.length;
             _memberList.push(initialMembers[i]);
         }
         memberCount = initialMembers.length;
@@ -151,7 +155,8 @@ contract DatumCouncil is ReentrancyGuard {
             executionExpiresBlock: 0,
             voteCount: 0,
             executed: false,
-            vetoed: false
+            vetoed: false,
+            cancelled: false
         });
         _targets[proposalId] = targets;
         _values[proposalId] = values;
@@ -166,7 +171,7 @@ contract DatumCouncil is ReentrancyGuard {
     function vote(uint256 proposalId) external onlyMember {
         Proposal storage p = proposals[proposalId];
         require(p.proposedBlock > 0, "E01");      // proposal exists
-        require(!p.executed && !p.vetoed, "E50");
+        require(!p.executed && !p.vetoed && !p.cancelled, "E50");
         require(block.number <= p.votingEndsBlock, "E51");
         require(!hasVoted[proposalId][msg.sender], "E42");
 
@@ -187,7 +192,7 @@ contract DatumCouncil is ReentrancyGuard {
         Proposal storage p = proposals[proposalId];
         require(p.proposedBlock > 0, "E01");
         require(!p.executed, "E52");
-        require(!p.vetoed, "E53");
+        require(!p.vetoed && !p.cancelled, "E53");
         require(p.executableAfterBlock > 0, "E54");  // threshold not yet reached
         require(block.number >= p.executableAfterBlock, "E55");
         require(block.number <= p.executionExpiresBlock, "E56");
@@ -226,10 +231,10 @@ contract DatumCouncil is ReentrancyGuard {
         require(p.proposedBlock > 0, "E01");
         require(msg.sender == p.proposer, "E18");
         require(!p.executed, "E52");
-        require(!p.vetoed, "E53");
+        require(!p.vetoed && !p.cancelled, "E53");
 
-        p.vetoed = true;  // reuse vetoed flag to mark cancelled
-        emit Vetoed(proposalId, msg.sender);
+        p.cancelled = true;
+        emit Cancelled(proposalId, msg.sender);
     }
 
     // -------------------------------------------------------------------------
@@ -240,6 +245,7 @@ contract DatumCouncil is ReentrancyGuard {
         require(member != address(0), "E00");
         require(!isMember[member], "E00");
         isMember[member] = true;
+        _memberIndex[member] = _memberList.length;
         _memberList.push(member);
         memberCount++;
         emit MemberAdded(member);
@@ -249,6 +255,18 @@ contract DatumCouncil is ReentrancyGuard {
         require(isMember[member], "E01");
         require(memberCount > threshold, "E00");  // prevent locking council
         isMember[member] = false;
+
+        // M-8: swap-and-pop to keep _memberList compact
+        uint256 idx = _memberIndex[member];
+        uint256 lastIdx = _memberList.length - 1;
+        if (idx != lastIdx) {
+            address lastMember = _memberList[lastIdx];
+            _memberList[idx] = lastMember;
+            _memberIndex[lastMember] = idx;
+        }
+        _memberList.pop();
+        delete _memberIndex[member];
+
         memberCount--;
         emit MemberRemoved(member);
     }
@@ -304,12 +322,13 @@ contract DatumCouncil is ReentrancyGuard {
     }
 
     /// @notice Proposal state summary.
-    /// @return state 0=Active, 1=Passed(pending exec), 2=Executed, 3=Vetoed/Cancelled, 4=Expired
+    /// @return state 0=Active, 1=Passed(pending exec), 2=Executed, 3=Vetoed, 4=Expired, 5=Cancelled
     function proposalState(uint256 proposalId) external view returns (uint8 state) {
         Proposal storage p = proposals[proposalId];
         if (p.proposedBlock == 0) return 4; // not found
         if (p.executed) return 2;
         if (p.vetoed) return 3;
+        if (p.cancelled) return 5;
         if (p.executableAfterBlock > 0) {
             if (block.number > p.executionExpiresBlock) return 4; // expired
             return 1; // passed, waiting for execution

@@ -168,7 +168,10 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
       targeting.connect(publisher).setTags([TAG_DEFI])
     ).to.be.revertedWith("P");
 
-    await pauseReg.unpause();
+    // C-4: unpause via guardian 2-of-3
+    const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
+    await pauseReg.connect(advertiser).propose(2);
+    await pauseReg.connect(publisher).approve(pid);
   });
 
   it("TG6b: hasAllTags rejects more than 8 required tags (E66)", async function () {

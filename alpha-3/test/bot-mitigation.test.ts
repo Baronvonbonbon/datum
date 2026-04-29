@@ -161,7 +161,10 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     await expect(
       publishers.connect(publisher).registerSdkVersion(hash)
     ).to.be.revertedWith("P");
-    await pauseReg.unpause();
+    // C-4: unpause via guardian 2-of-3
+    const pid = await pauseReg.connect(user).propose.staticCall(2);
+    await pauseReg.connect(user).propose(2);
+    await pauseReg.connect(publisher).approve(pid);
   });
 
   it("BM7-5: getSdkVersion returns zero for unregistered publisher", async function () {

@@ -5,60 +5,90 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 /// @title DatumTimelock
-/// @notice Standalone 48-hour timelock for admin changes on DATUM contracts.
-///         Owner proposes a call (target + calldata), waits 48h, then anyone can execute.
-///         Contracts whose ownership is transferred to this timelock gain 48h delay protection.
+/// @notice 48-hour timelock for admin changes on DATUM contracts.
+///         C-6: Supports multiple concurrent proposals keyed by proposalId.
+///         proposalId = keccak256(target, data, salt).
+///         Max MAX_CONCURRENT proposals pending at once.
 contract DatumTimelock is ReentrancyGuard, Ownable2Step {
     uint256 public constant TIMELOCK_DELAY = 172800;    // 48 hours in seconds
     /// @notice AUDIT-029: Proposals expire after 7 days post-delay to prevent stale execution.
     uint256 public constant PROPOSAL_TIMEOUT = 604800;  // 7 days in seconds
+    /// @notice C-6: Cap concurrent proposals to bound storage growth.
+    uint256 public constant MAX_CONCURRENT = 10;
 
-    address public pendingTarget;
-    bytes public pendingData;
-    uint256 public pendingTimestamp;
+    struct Proposal {
+        address target;
+        bytes data;
+        uint256 timestamp;
+        bool executed;
+        bool cancelled;
+    }
 
-    event ChangeProposed(address indexed target, bytes data, uint256 effectiveTime);
-    event ChangeExecuted(address indexed target, bytes data);
-    event ChangeCancelled(address indexed target);
+    mapping(bytes32 => Proposal) public proposals;
+    uint256 public pendingCount;
+
+    event ChangeProposed(bytes32 indexed proposalId, address indexed target, bytes data, uint256 effectiveTime);
+    event ChangeExecuted(bytes32 indexed proposalId, address indexed target, bytes data);
+    event ChangeCancelled(bytes32 indexed proposalId, address indexed target);
 
     constructor() Ownable(msg.sender) {}
 
-    function propose(address target, bytes calldata data) external onlyOwner {
+    /// @notice Compute the proposal ID from its parameters.
+    function hashProposal(address target, bytes calldata data, bytes32 salt) public pure returns (bytes32) {
+        return keccak256(abi.encode(target, data, salt));
+    }
+
+    /// @notice Propose a timelocked call. salt allows multiple proposals with same target+data.
+    function propose(address target, bytes calldata data, bytes32 salt) external onlyOwner returns (bytes32 proposalId) {
         require(target != address(0), "E00");
         require(data.length >= 4, "E36");
-        require(pendingTarget == address(0), "E35");
-        pendingTarget = target;
-        pendingData = data;
-        pendingTimestamp = block.timestamp;
-        emit ChangeProposed(target, data, block.timestamp + TIMELOCK_DELAY);
+        require(pendingCount < MAX_CONCURRENT, "E35");
+
+        proposalId = hashProposal(target, data, salt);
+        require(proposals[proposalId].timestamp == 0, "E35");
+
+        proposals[proposalId] = Proposal({
+            target: target,
+            data: data,
+            timestamp: block.timestamp,
+            executed: false,
+            cancelled: false
+        });
+        pendingCount++;
+
+        emit ChangeProposed(proposalId, target, data, block.timestamp + TIMELOCK_DELAY);
     }
 
-    function execute() external nonReentrant {
-        require(pendingTarget != address(0), "E36");
-        require(block.timestamp >= pendingTimestamp + TIMELOCK_DELAY, "E37");
-        // AUDIT-029: Reject stale proposals — must execute within PROPOSAL_TIMEOUT after delay
-        require(block.timestamp <= pendingTimestamp + TIMELOCK_DELAY + PROPOSAL_TIMEOUT, "E37");
+    /// @notice Execute a matured proposal.
+    function execute(bytes32 proposalId) external nonReentrant {
+        Proposal storage p = proposals[proposalId];
+        require(p.timestamp != 0, "E36");
+        require(!p.executed, "E36");
+        require(!p.cancelled, "E36");
+        require(block.timestamp >= p.timestamp + TIMELOCK_DELAY, "E37");
+        // AUDIT-029: Reject stale proposals
+        require(block.timestamp <= p.timestamp + TIMELOCK_DELAY + PROPOSAL_TIMEOUT, "E37");
 
-        address target = pendingTarget;
-        bytes memory data = pendingData;
+        p.executed = true;
+        pendingCount--;
 
-        pendingTarget = address(0);
-        pendingData = "";
-        pendingTimestamp = 0;
-
-        (bool ok,) = target.call(data);
+        (bool ok,) = p.target.call(p.data);
         require(ok, "E02");
 
-        emit ChangeExecuted(target, data);
+        emit ChangeExecuted(proposalId, p.target, p.data);
     }
 
-    function cancel() external onlyOwner {
-        require(pendingTarget != address(0), "E35");
-        address target = pendingTarget;
-        pendingTarget = address(0);
-        pendingData = "";
-        pendingTimestamp = 0;
-        emit ChangeCancelled(target);
+    /// @notice Cancel a pending proposal.
+    function cancel(bytes32 proposalId) external onlyOwner {
+        Proposal storage p = proposals[proposalId];
+        require(p.timestamp != 0, "E36");
+        require(!p.executed, "E36");
+        require(!p.cancelled, "E36");
+
+        p.cancelled = true;
+        pendingCount--;
+
+        emit ChangeCancelled(proposalId, p.target);
     }
 
     function _checkOwner() internal view override {

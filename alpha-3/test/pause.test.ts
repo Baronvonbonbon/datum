@@ -131,22 +131,43 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
   });
 
+  /** Helper: unpause via guardian 2-of-3 approval (C-4) */
+  async function guardianUnpause() {
+    // advertiser=g1, publisher=g2
+    const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
+    await pauseReg.connect(advertiser).propose(2);
+    await pauseReg.connect(publisher).approve(pid);
+  }
+
   afterEach(async function () {
     if (await pauseReg.paused()) {
-      await pauseReg.unpause();
+      await guardianUnpause();
     }
   });
 
-  // P1: Only owner can pause/unpause
-  it("P1: only owner can pause/unpause registry", async function () {
+  // P1: Only owner can pause; unpause requires 2-of-3 guardian approval (C-4)
+  it("P1: only owner can pause; unpause requires guardian approval", async function () {
     await expect(pauseReg.connect(other).pause()).to.be.revertedWith("E18");
-    await expect(pauseReg.connect(other).unpause()).to.be.revertedWith("E18");
 
     await pauseReg.pause();
     expect(await pauseReg.paused()).to.be.true;
 
-    await pauseReg.unpause();
+    // C-4: unpause via guardian 2-of-3
+    await guardianUnpause();
     expect(await pauseReg.paused()).to.be.false;
+  });
+
+  it("P1b: non-guardian cannot propose unpause", async function () {
+    await pauseReg.pause();
+    await expect(pauseReg.connect(other).propose(2)).to.be.revertedWith("E18");
+  });
+
+  it("P1c: single guardian cannot unpause alone", async function () {
+    await pauseReg.pause();
+    const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
+    await pauseReg.connect(advertiser).propose(2);
+    // Same guardian can't approve their own proposal
+    await expect(pauseReg.connect(advertiser).approve(pid)).to.be.revertedWith("E11");
   });
 
   // P2: createCampaign reverts when paused
@@ -238,10 +259,9 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     expect(await pauseReg.paused()).to.be.true;
   });
 
-  it("T5-2: unpause() when already unpaused is idempotent", async function () {
+  it("T5-2: propose unpause when already unpaused reverts", async function () {
     expect(await pauseReg.paused()).to.be.false;
-
-    await pauseReg.unpause();
-    expect(await pauseReg.paused()).to.be.false;
+    // C-4: proposing unpause when not paused should revert
+    await expect(pauseReg.connect(advertiser).propose(2)).to.be.revertedWith("E11");
   });
 });

@@ -285,9 +285,11 @@ describe("DatumCouncil", function () {
     await council.connect(alice).propose([owner.address], [0], ["0x00"], "Cancel");
     const pid = (await council.nextProposalId()) - 1n;
     await expect(council.connect(alice).cancel(pid))
-      .to.emit(council, "Vetoed")
+      .to.emit(council, "Cancelled")
       .withArgs(pid, alice.address);
-    expect((await council.proposals(pid)).vetoed).to.be.true;
+    // M-7: cancel sets cancelled (not vetoed)
+    expect((await council.proposals(pid)).cancelled).to.be.true;
+    expect((await council.proposals(pid)).vetoed).to.be.false;
   });
 
   // ── C18: cancel — non-proposer reverts ────────────────────────────────────

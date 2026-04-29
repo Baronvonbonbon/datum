@@ -130,15 +130,11 @@ contract DatumPauseRegistry is Ownable2Step {
         }
     }
 
-    /// @notice Emergency override: owner can pause/unpause directly (escape hatch for mainnet).
-    ///         On mainnet, owner should be a Gnosis Safe — so this is still multisig-gated.
+    /// @notice Emergency owner pause — protective action only (C-4: unpause removed).
+    ///         Owner can pause the system instantly, but unpause always requires 2-of-3 guardians.
+    ///         On mainnet, owner should be a Gnosis Safe multisig.
     function pause() external onlyOwner {
         paused = true;
         emit Paused(msg.sender);
-    }
-
-    function unpause() external onlyOwner {
-        paused = false;
-        emit Unpaused(msg.sender);
     }
 }

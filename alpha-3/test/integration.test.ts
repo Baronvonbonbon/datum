@@ -18,7 +18,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { mineBlocks, isSubstrate, fundSigners } from "./helpers/mine";
+import { mineBlocks, isSubstrate, fundSigners, advanceTime } from "./helpers/mine";
 
 // Integration tests for alpha-2 (12-contract architecture):
 // A: Happy path (create → vote → activate → settle → complete → resolve → withdraw)
@@ -489,8 +489,10 @@ describe("Integration", function () {
       settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }])
     ).to.emit(settlement, "ClaimRejected").withArgs(campaignId, user.address, 1n, 11);
 
-    // Unblock for subsequent tests
-    await publishers.unblockAddress(publisher.address);
+    // C-5: Unblock via propose/execute pattern
+    await publishers.proposeUnblock(publisher.address);
+    await advanceTime(172800);
+    await publishers.executeUnblock(publisher.address);
   });
 
   // Scenario G2: Settlement allows claims for unblocked publisher

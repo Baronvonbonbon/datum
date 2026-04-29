@@ -22,8 +22,15 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
 
     mapping(address => Publisher) private _publishers;
 
-    // S12: Global address blocklist (owner-managed, timelock-gated pre-mainnet)
+    // S12: Global address blocklist (owner-managed)
     mapping(address => bool) public blocked;
+
+    // C-5: Timelock-gated unblock — unblock requires 48h delay, block is instant (protective)
+    mapping(address => uint256) public pendingUnblockTime;  // 0 = no pending unblock
+    uint256 public constant UNBLOCK_DELAY = 172800;  // 48 hours in seconds
+
+    event UnblockProposed(address indexed addr, uint256 effectiveTime);
+    event UnblockCancelled(address indexed addr);
 
     // S12: Per-publisher advertiser allowlist
     mapping(address => bool) public allowlistEnabled;
@@ -160,16 +167,41 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, Ownable2Step {
     // S12: Global blocklist (owner-managed)
     // -------------------------------------------------------------------------
 
+    /// @notice Instantly block an address (protective action — no delay needed).
     function blockAddress(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         blocked[addr] = true;
+        // Cancel any pending unblock for this address
+        if (pendingUnblockTime[addr] != 0) {
+            pendingUnblockTime[addr] = 0;
+            emit UnblockCancelled(addr);
+        }
         emit AddressBlocked(addr);
     }
 
-    function unblockAddress(address addr) external onlyOwner {
+    /// @notice C-5: Propose unblocking an address. Takes effect after UNBLOCK_DELAY.
+    function proposeUnblock(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(blocked[addr], "E01");
+        pendingUnblockTime[addr] = block.timestamp + UNBLOCK_DELAY;
+        emit UnblockProposed(addr, pendingUnblockTime[addr]);
+    }
+
+    /// @notice C-5: Execute a pending unblock after the delay has elapsed.
+    function executeUnblock(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(pendingUnblockTime[addr] != 0, "E01");
+        require(block.timestamp >= pendingUnblockTime[addr], "E37");
+        pendingUnblockTime[addr] = 0;
         blocked[addr] = false;
         emit AddressUnblocked(addr);
+    }
+
+    /// @notice Cancel a pending unblock.
+    function cancelUnblock(address addr) external onlyOwner {
+        require(pendingUnblockTime[addr] != 0, "E01");
+        pendingUnblockTime[addr] = 0;
+        emit UnblockCancelled(addr);
     }
 
     function isBlocked(address addr) external view returns (bool) {

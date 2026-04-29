@@ -68,9 +68,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
     mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public userCampaignSettled;
     uint256 public constant MAX_USER_EVENTS = 100000;
 
+    // M-1: Revenue split — user gets 75% of remainder after publisher take rate
+    uint256 private constant USER_SHARE_BPS = 7500;
+    uint256 private constant BPS_DENOMINATOR = 10000;
+
     // BM-10: Minimum blocks between settlement batches per user per campaign (0 = disabled)
     uint16 public minClaimInterval;
     mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public lastSettlementBlock;
+
+    // L-7: Global per-block settlement circuit breaker (0 = disabled)
+    uint256 public maxSettlementPerBlock;
+    uint256 private _cbBlock;
+    uint256 private _cbTotal;
 
     constructor(address _pauseRegistry) Ownable(msg.sender) {
         require(_pauseRegistry != address(0), "E00");
@@ -149,6 +158,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
         clickRegistry = addr;
     }
 
+    /// @notice L-7: Set global per-block settlement cap in planck. 0 = disabled.
+    function setMaxSettlementPerBlock(uint256 cap) external onlyOwner {
+        maxSettlementPerBlock = cap;
+    }
+
     function _checkOwner() internal view override {
         require(owner() == msg.sender, "E18");
     }
@@ -168,6 +182,26 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
     }
 
     receive() external payable { revert("E03"); }
+
+    // -------------------------------------------------------------------------
+    // H-7: Configuration validation
+    // -------------------------------------------------------------------------
+
+    /// @notice Check that all required references are configured. Returns (valid, missingField).
+    ///         Call after deploy/wiring as a smoke test.
+    function validateConfiguration() external view returns (bool valid, string memory missingField) {
+        if (budgetLedger == address(0)) return (false, "budgetLedger");
+        if (paymentVault == address(0)) return (false, "paymentVault");
+        if (lifecycle == address(0)) return (false, "lifecycle");
+        if (relayContract == address(0)) return (false, "relayContract");
+        if (address(pauseRegistry) == address(0)) return (false, "pauseRegistry");
+        if (claimValidator == address(0)) return (false, "claimValidator");
+        if (campaigns == address(0)) return (false, "campaigns");
+        // Optional references (address(0) = disabled feature, not misconfigured):
+        // rateLimiter, publishers, tokenRewardVault, publisherStake,
+        // nullifierRegistry, publisherReputation, clickRegistry, attestationVerifier
+        return (true, "");
+    }
 
     // -------------------------------------------------------------------------
     // Settlement
@@ -438,9 +472,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
                 totalPayment = claim.ratePlanck * claim.eventCount;
             }
 
-            uint256 publisherPayment = (totalPayment * cTakeRate) / 10000;
+            uint256 publisherPayment = (totalPayment * cTakeRate) / BPS_DENOMINATOR;
             uint256 rem = totalPayment - publisherPayment;
-            uint256 userPayment = (rem * 7500) / 10000;
+            uint256 userPayment = (rem * USER_SHARE_BPS) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;
 
             // deductAndTransfer(uint256 campaignId, uint8 actionType, uint256 amount, address vault)
@@ -486,6 +520,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
                 userPayment,
                 protocolFee
             );
+        }
+
+        // L-7: Global per-block circuit breaker
+        if (agg.total > 0 && maxSettlementPerBlock > 0) {
+            if (_cbBlock != block.number) {
+                _cbBlock = block.number;
+                _cbTotal = 0;
+            }
+            _cbTotal += agg.total;
+            require(_cbTotal <= maxSettlementPerBlock, "E80");
         }
 
         // Aggregate paymentVault credit

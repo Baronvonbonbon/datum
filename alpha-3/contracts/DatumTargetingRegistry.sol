@@ -23,6 +23,17 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry, Ownable2Step {
     // Publisher address → tag hash → bool (for O(1) lookup in hasAllTags)
     mapping(address => mapping(bytes32 => bool)) private _publisherTagSet;
 
+    // M-2: Approved tag registry (owner-managed). If enforceTagRegistry=true,
+    // setTags() rejects tags not in _approvedTags.
+    bool public enforceTagRegistry;
+    mapping(bytes32 => bool) public approvedTags;
+    bytes32[] private _approvedTagList;
+    mapping(bytes32 => uint256) private _approvedTagIndex; // 1-based index for swap-and-pop
+
+    event TagRegistryEnforced(bool enforced);
+    event TagApproved(bytes32 indexed tag);
+    event TagRemoved(bytes32 indexed tag);
+
     constructor(address _publishers, address _pauseRegistry) Ownable(msg.sender) {
         require(_publishers != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
@@ -42,6 +53,57 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry, Ownable2Step {
     function setPublishers(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         publishers = IDatumPublishers(addr);
+    }
+
+    /// @notice M-2: Enable or disable tag registry enforcement.
+    function setEnforceTagRegistry(bool enforced) external onlyOwner {
+        enforceTagRegistry = enforced;
+        emit TagRegistryEnforced(enforced);
+    }
+
+    /// @notice M-2: Add a tag to the approved registry.
+    function approveTag(bytes32 tag) external onlyOwner {
+        require(tag != bytes32(0), "E00");
+        require(!approvedTags[tag], "E15");
+        approvedTags[tag] = true;
+        _approvedTagList.push(tag);
+        _approvedTagIndex[tag] = _approvedTagList.length; // 1-based
+        emit TagApproved(tag);
+    }
+
+    /// @notice M-2: Remove a tag from the approved registry (swap-and-pop).
+    function removeTag(bytes32 tag) external onlyOwner {
+        require(approvedTags[tag], "E01");
+        approvedTags[tag] = false;
+
+        uint256 idx = _approvedTagIndex[tag] - 1; // convert to 0-based
+        uint256 lastIdx = _approvedTagList.length - 1;
+        if (idx != lastIdx) {
+            bytes32 lastTag = _approvedTagList[lastIdx];
+            _approvedTagList[idx] = lastTag;
+            _approvedTagIndex[lastTag] = idx + 1;
+        }
+        _approvedTagList.pop();
+        delete _approvedTagIndex[tag];
+        emit TagRemoved(tag);
+    }
+
+    /// @notice M-2: Batch approve tags.
+    function approveTags(bytes32[] calldata tags) external onlyOwner {
+        for (uint256 i = 0; i < tags.length; i++) {
+            require(tags[i] != bytes32(0), "E00");
+            if (!approvedTags[tags[i]]) {
+                approvedTags[tags[i]] = true;
+                _approvedTagList.push(tags[i]);
+                _approvedTagIndex[tags[i]] = _approvedTagList.length;
+                emit TagApproved(tags[i]);
+            }
+        }
+    }
+
+    /// @notice M-2: List all approved tags.
+    function listApprovedTags() external view returns (bytes32[] memory) {
+        return _approvedTagList;
     }
 
     function _checkOwner() internal view override {
@@ -80,8 +142,11 @@ contract DatumTargetingRegistry is IDatumTargetingRegistry, Ownable2Step {
 
         // Set new tags
         delete _publisherTags[msg.sender];
+        bool enforce = enforceTagRegistry;
         for (uint256 i = 0; i < tagHashes.length; i++) {
             require(tagHashes[i] != bytes32(0), "E00");
+            // M-2: Validate tag is in approved registry when enforcement is on
+            if (enforce) require(approvedTags[tagHashes[i]], "E81");
             _publisherTags[msg.sender].push(tagHashes[i]);
             _publisherTagSet[msg.sender][tagHashes[i]] = true;
         }

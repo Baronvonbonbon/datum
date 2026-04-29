@@ -8,11 +8,12 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { fundSigners } from "./helpers/mine";
+import { advanceTime, fundSigners } from "./helpers/mine";
 
 // S12: On-chain address blocklist + per-publisher allowlist tests
-// BK1-BK6: Global blocklist (add, remove, isBlocked, registerPublisher, createCampaign)
-// AL1-AL6: Per-publisher advertiser allowlist
+// C-5: unblock requires 48h delay (proposeUnblock → executeUnblock)
+
+const UNBLOCK_DELAY = 172800; // 48 hours in seconds
 
 describe("S12: Blocklist & Allowlist", function () {
   let campaigns: DatumCampaigns;
@@ -31,6 +32,13 @@ describe("S12: Blocklist & Allowlist", function () {
   const DAILY_CAP = parseDOT("1");
   const BID_CPM = parseDOT("0.01");
   const TAKE_RATE_BPS = 5000;
+
+  /** Helper: unblock an address via the C-5 propose/execute pattern */
+  async function unblockAddress(addr: string) {
+    await publishers.proposeUnblock(addr);
+    await advanceTime(UNBLOCK_DELAY);
+    await publishers.executeUnblock(addr);
+  }
 
   before(async function () {
     await fundSigners();
@@ -84,18 +92,47 @@ describe("S12: Blocklist & Allowlist", function () {
       .withArgs(other.address);
   });
 
-  it("BK2: unblockAddress removes address from blocklist", async function () {
+  it("BK2: proposeUnblock + executeUnblock removes address from blocklist (C-5)", async function () {
     expect(await publishers.isBlocked(other.address)).to.be.true;
-    await publishers.unblockAddress(other.address);
+    await unblockAddress(other.address);
     expect(await publishers.isBlocked(other.address)).to.be.false;
   });
 
-  it("BK2b: unblockAddress emits AddressUnblocked event", async function () {
-    await expect(publishers.unblockAddress(scammer.address))
+  it("BK2b: executeUnblock emits AddressUnblocked event", async function () {
+    // Block scammer, then unblock via propose/execute
+    await publishers.proposeUnblock(scammer.address);
+    await advanceTime(UNBLOCK_DELAY);
+    await expect(publishers.executeUnblock(scammer.address))
       .to.emit(publishers, "AddressUnblocked")
       .withArgs(scammer.address);
     // Re-block for later tests
     await publishers.blockAddress(scammer.address);
+  });
+
+  it("BK2c: executeUnblock reverts before delay (E37)", async function () {
+    await publishers.blockAddress(other.address);
+    await publishers.proposeUnblock(other.address);
+    await expect(publishers.executeUnblock(other.address)).to.be.revertedWith("E37");
+    // Cleanup: advance and execute
+    await advanceTime(UNBLOCK_DELAY);
+    await publishers.executeUnblock(other.address);
+  });
+
+  it("BK2d: proposeUnblock on non-blocked address reverts (E01)", async function () {
+    await expect(publishers.proposeUnblock(other.address)).to.be.revertedWith("E01");
+  });
+
+  it("BK2e: blockAddress cancels pending unblock", async function () {
+    await publishers.blockAddress(other.address);
+    await publishers.proposeUnblock(other.address);
+    // Re-block cancels the pending unblock
+    await expect(publishers.blockAddress(other.address))
+      .to.emit(publishers, "UnblockCancelled")
+      .withArgs(other.address);
+    // executeUnblock should now fail (no pending)
+    await expect(publishers.executeUnblock(other.address)).to.be.revertedWith("E01");
+    // Cleanup
+    await unblockAddress(other.address);
   });
 
   it("BK3: only owner can blockAddress (E18)", async function () {
@@ -104,9 +141,9 @@ describe("S12: Blocklist & Allowlist", function () {
     ).to.be.revertedWithCustomError(publishers, "OwnableUnauthorizedAccount");
   });
 
-  it("BK3b: only owner can unblockAddress (E18)", async function () {
+  it("BK3b: only owner can proposeUnblock (E18)", async function () {
     await expect(
-      publishers.connect(other).unblockAddress(scammer.address)
+      publishers.connect(other).proposeUnblock(scammer.address)
     ).to.be.revertedWithCustomError(publishers, "OwnableUnauthorizedAccount");
   });
 
@@ -116,9 +153,9 @@ describe("S12: Blocklist & Allowlist", function () {
     ).to.be.revertedWith("E00");
   });
 
-  it("BK3d: unblockAddress rejects zero address (E00)", async function () {
+  it("BK3d: proposeUnblock rejects zero address (E00)", async function () {
     await expect(
-      publishers.unblockAddress(ethers.ZeroAddress)
+      publishers.proposeUnblock(ethers.ZeroAddress)
     ).to.be.revertedWith("E00");
   });
 
@@ -141,7 +178,7 @@ describe("S12: Blocklist & Allowlist", function () {
     ).to.be.revertedWith("E62");
 
     // Unblock for later tests
-    await publishers.unblockAddress(advertiser.address);
+    await unblockAddress(advertiser.address);
   });
 
   it("BK5b: createCampaign targeting blocked publisher reverts (E62)", async function () {
@@ -160,7 +197,7 @@ describe("S12: Blocklist & Allowlist", function () {
   });
 
   it("BK6: unblocked address can registerPublisher and createCampaign", async function () {
-    // Verify advertiser (unblocked above) can create campaigns
+    // advertiser was unblocked above
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
       [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
@@ -180,7 +217,7 @@ describe("S12: Blocklist & Allowlist", function () {
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWith("E62");
-    await publishers.unblockAddress(advertiser.address);
+    await unblockAddress(advertiser.address);
   });
 
   // =========================================================================
@@ -294,6 +331,9 @@ describe("S12: Blocklist & Allowlist", function () {
       publishers.connect(publisher).setAllowedAdvertiser(advertiser.address, true)
     ).to.be.revertedWith("P");
 
-    await pauseReg.unpause();
+    // Unpause via guardian approval (C-4: owner can only pause, not unpause)
+    const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
+    await pauseReg.connect(advertiser).propose(2);
+    await pauseReg.connect(publisher).approve(pid);
   });
 });
