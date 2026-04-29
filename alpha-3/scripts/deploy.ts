@@ -640,6 +640,20 @@ async function main() {
     console.log("  SET: Settlement.configure(budgetLedger, paymentVault, lifecycle, relay)");
   }
 
+  // ── Relay: setSettlement, setCampaigns (mutable; update when they're redeployed) ──
+  await wireIfNeeded(
+    "Relay.settlement",
+    "DatumRelay", addresses.relay,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Relay.campaigns",
+    "DatumRelay", addresses.relay,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+
   // ── Settlement.setClaimValidator(claimValidator) ──
   await wireIfNeeded(
     "Settlement.claimValidator",
@@ -784,12 +798,32 @@ async function main() {
     addresses.settlement,
   );
 
-  // ── ClaimValidator: setCampaigns (needed when Campaigns is redeployed) ──
+  // ── CampaignValidator: setPublishers, setTargetingRegistry (needed when they're redeployed) ──
+  await wireIfNeeded(
+    "CampaignValidator.publishers",
+    "DatumCampaignValidator", addresses.campaignValidator,
+    "publishers", "setPublishers",
+    addresses.publishers,
+  );
+  await wireIfNeeded(
+    "CampaignValidator.targetingRegistry",
+    "DatumCampaignValidator", addresses.campaignValidator,
+    "targetingRegistry", "setTargetingRegistry",
+    addresses.targetingRegistry,
+  );
+
+  // ── ClaimValidator: setCampaigns, setPublishers (needed when they're redeployed) ──
   await wireIfNeeded(
     "ClaimValidator.campaigns",
     "DatumClaimValidator", addresses.claimValidator,
     "campaigns", "setCampaigns",
     addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "ClaimValidator.publishers",
+    "DatumClaimValidator", addresses.claimValidator,
+    "publishers", "setPublishers",
+    addresses.publishers,
   );
 
   // ── ClaimValidator: setZKVerifier(zkVerifier) ──
@@ -807,7 +841,7 @@ async function main() {
     const vkCalldataPath = path.join(__dirname, "..", "circuits", "setVK-calldata.json");
     const zkIface = new ethers.Interface([
       "function vkSet() view returns (bool)",
-      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2)",
+      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2, uint256[2] IC3)",
     ]);
 
     const vkSetData = zkIface.encodeFunctionData("vkSet");
@@ -821,16 +855,16 @@ async function main() {
       console.warn("        Run `node scripts/setup-zk.mjs` to generate it, then re-run deploy.ts.");
     } else {
       const vkCalldata = JSON.parse(fs.readFileSync(vkCalldataPath, "utf-8"));
-      if (!vkCalldata.IC2) {
-        console.warn("  SKIP: ZKVerifier.setVerifyingKey — calldata missing IC2 (re-run setup-zk.mjs after circuit update)");
+      if (!vkCalldata.IC3) {
+        console.warn("  SKIP: ZKVerifier.setVerifyingKey — calldata missing IC3 (re-run setup-zk.mjs after circuit update)");
       } else {
         await sendCall(
           addresses.zkVerifier,
-          ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2)"],
+          ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2, uint256[2] IC3)"],
           "setVerifyingKey",
-          [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1, vkCalldata.IC2],
+          [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1, vkCalldata.IC2, vkCalldata.IC3],
         );
-        console.log("  SET: ZKVerifier.vk (Groth16 verifying key, 2 public inputs)");
+        console.log("  SET: ZKVerifier.vk (Groth16 verifying key, 3 public inputs: claimHash, nullifier, impressions)");
       }
     }
   }
