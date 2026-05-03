@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumParameterGovernance.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 
@@ -24,7 +22,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
  *              E11 bad value, E18 not owner, E40 proposal state/condition error,
  *              E57 reentrancy.
  */
-contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard, Ownable2Step {
+contract DatumParameterGovernance is IDatumParameterGovernance {
 
     // ── Conviction table ────────────────────────────────────────────────────────
     uint8 public constant MAX_CONVICTION = 8;
@@ -55,6 +53,10 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
     }
 
     // ── Storage ─────────────────────────────────────────────────────────────────
+    address public owner;
+    address public pendingOwner;
+    uint256 private _locked;
+
     IDatumPauseRegistry public pauseRegistry;
 
     // AUDIT-004: Whitelist — only permitted targets and selectors can be executed
@@ -71,6 +73,18 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
     mapping(uint256 => mapping(address => Vote)) private _votes;
 
     // ── Modifiers ───────────────────────────────────────────────────────────────
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(_locked == 0, "E57");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
+
     modifier whenNotPaused() { require(!pauseRegistry.paused(), "P"); _; }
 
     // ── Constructor ─────────────────────────────────────────────────────────────
@@ -80,7 +94,8 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
         uint256 _timelockBlocks,
         uint256 _quorum,
         uint256 _proposeBond
-    ) Ownable(msg.sender) {
+    ) {
+        owner = msg.sender;
         require(_pauseRegistry != address(0), "E00");
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         votingPeriodBlocks = _votingPeriodBlocks;
@@ -175,7 +190,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
             // Slash bond to owner
             uint256 bond = p.bond;
             p.bond = 0;
-            (bool ok,) = owner().call{value: bond}("");
+            (bool ok,) = owner.call{value: bond}("");
             require(ok, "E02");
         }
         emit Resolved(proposalId, uint8(p.state));
@@ -217,7 +232,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
 
         uint256 bond = p.bond;
         p.bond = 0;
-        (bool ok,) = owner().call{value: bond}("");
+        (bool ok,) = owner.call{value: bond}("");
         require(ok, "E02");
 
         emit Cancelled(proposalId);
@@ -249,22 +264,15 @@ contract DatumParameterGovernance is IDatumParameterGovernance, ReentrancyGuard,
         emit ParamsUpdated(_votingPeriodBlocks, _timelockBlocks, _quorum, _proposeBond);
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // ── Views ────────────────────────────────────────────────────────────────────

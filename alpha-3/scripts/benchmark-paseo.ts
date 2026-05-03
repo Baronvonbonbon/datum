@@ -1,7 +1,7 @@
 /**
  * benchmark-paseo.ts — Live Paseo Testnet Benchmark
  * ===================================================
- * Exercises all major alpha-3 contract functions against the live deployed
+ * Exercises all major alpha-3 v8 contract functions against the live deployed
  * Paseo contracts.  Uses the same raw JsonRpcProvider + nonce-polling pattern
  * as deploy.ts / setup-testnet.ts to work around the Paseo eth-rpc receipt bug.
  *
@@ -10,33 +10,26 @@
  *
  * Prerequisites:
  *   - Contracts deployed (deployed-addresses.json present)
- *   - setup-testnet.ts has run at least once (Diana + Eve registered,
- *     Diana is a reporter on DatumPublisherReputation)
+ *   - setup-testnet.ts has run at least once (Diana registered, is authorizedReporter)
  *   - Bob, Charlie, Frank all have ≥ 30 PAS
- *
- * DOT price scenarios — $1 CPM baseline
- * ----------------------------------------
- *   DOT @ $2  → $1 CPM = 0.5  DOT / 1000 imps
- *   DOT @ $5  → $1 CPM = 0.2  DOT / 1000 imps
- *   DOT @ $10 → $1 CPM = 0.1  DOT / 1000 imps
- *
- * Revenue split (50% takeRate)
- * ----------------------------
- *   totalPayment     = clearingCpm × impressions / 1000
- *   publisherPayment = totalPayment × 50%   (5000 bps)
- *   userPayment      = remainder   × 75%   (7500 bps)
- *   protocolFee      = remainder   × 25%
  *
  * Benchmark groups
  * ----------------
- *   SETUP  — publisher read verification
- *   ECO    — settlement + payment split at $2 / $5 / $10 DOT
- *   ZK     — ZK-proof-required campaign (real Groth16 / BN254 ecPairing precompile)
- *   OPEN   — open campaign (publisher = address(0))
- *   SCALE  — 1-claim vs 5-claim batch, 100 vs 1000 impressions per claim
- *   RL     — rate limiter window usage before/after settlement
- *   REP    — reputation recordSettlement + getScore
- *   RPT    — community reports (reportPage / reportAd)
+ *   SETUP     — publisher + reporter state verification
+ *   ECO       — settlement + payment split at $2 / $5 / $10 DOT
+ *   ZK        — ZK-proof-required campaign (real Groth16 / BN254 ecPairing)
+ *   OPEN      — open campaign (publisher = address(0))
+ *   SCALE     — 1-claim vs 4-claim batch, 10 vs 1000 impressions
+ *   RL        — rate limiter window usage before/after settlement
+ *   REP       — reputation recordSettlement + score + anomaly
+ *   RPT       — community reports (reportPage / reportAd)
+ *   PAUSE     — 2-of-3 guardian pause → unpause flow (C-4)
+ *   STAKE     — PublisherStake bonding curve reads (FP-1)
+ *   NULLIFIER — NullifierRegistry isUsed reads (FP-5)
+ *   VAULT     — TokenRewardVault balance reads
+ *   GOVROUTER — AdminGovernance + GovernanceRouter phase-0 reads
+ *   PARAMGOV  — ParameterGovernance parameter reads
+ *   MULTI     — settleClaimsMulti 2-user × 1-campaign batch
  */
 
 import { ethers, network } from "hardhat";
@@ -73,6 +66,14 @@ const TX_OPTS = {
   gasPrice: 1000000000000n,
 };
 
+// Paseo eth_call also requires explicit gas + type:0 (legacy); without it the node
+// uses EIP-1559 format and rejects the call with "missing revert data".
+const CALL_OPTS = {
+  gasLimit: 500_000_000n,
+  type: 0,
+  gasPrice: 1_000_000_000_000n,
+};
+
 // ── DOT price scenarios ($1 CPM baseline) ────────────────────────────────────
 const SCENARIOS = [
   { label: "$2/DOT",  cpm: parseDOT("0.5"),  budget: parseDOT("2"), daily: parseDOT("2") },
@@ -96,7 +97,7 @@ const SYS_ADDR = "0x0000000000000000000000000000000000000900";
 
 async function blake256(provider: JsonRpcProvider, packed: Uint8Array): Promise<string> {
   const data = sysIface.encodeFunctionData("hashBlake256", [packed]);
-  const raw = await provider.call({ to: SYS_ADDR, data });
+  const raw = await provider.call({ to: SYS_ADDR, data, ...CALL_OPTS });
   return sysIface.decodeFunctionResult("hashBlake256", raw)[0] as string;
 }
 
@@ -115,8 +116,8 @@ if (!ZK_AVAILABLE) {
 // pi_b G2 point must be in EIP-197 order: [x_imag, x_real, y_imag, y_real]
 function encodeProof(proof: {
   pi_a: string[]; pi_b: string[][]; pi_c: string[];
-}): string {
-  return AbiCoder.defaultAbiCoder().encode(
+}): string[] {
+  const encoded = AbiCoder.defaultAbiCoder().encode(
     ["uint256[2]", "uint256[4]", "uint256[2]"],
     [
       [proof.pi_a[0], proof.pi_a[1]],
@@ -127,55 +128,103 @@ function encodeProof(proof: {
       [proof.pi_c[0], proof.pi_c[1]],
     ],
   );
+  // Split 256-byte encoded proof into 8 × bytes32
+  const hex = encoded.startsWith("0x") ? encoded.slice(2) : encoded;
+  return Array.from({ length: 8 }, (_, i) => "0x" + hex.slice(i * 64, (i + 1) * 64));
 }
 
 // Generate a real Groth16 proof for a claim.
-// Returns encoded 256-byte proof string, or null if zkey is not available.
+// Returns { proofBytes, nullifierHex } or null if zkey is not available.
+// Circuit public inputs: claimHash, nullifier, impressions
+// Circuit private witnesses: nonce, secret, campaignId, windowId
+// The circuit constraint: Poseidon(secret, campaignId, windowId) === nullifier
+// We must pre-compute the actual Poseidon hash and pass it as the nullifier public input.
 async function generateZKProof(
   claimHash: string,   // bytes32 hex
   impressions: bigint,
   nonce: bigint,
-): Promise<string | null> {
+  campaignId = 1n,
+  secret = 12345n,
+  windowId = 0n,
+): Promise<{ proofArray: string[]; nullifierHex: string } | null> {
   if (!ZK_AVAILABLE) return null;
   const snarkjs = await import("snarkjs");
+  // Pre-compute Poseidon(secret, campaignId, windowId) to satisfy circuit constraint
+  // Circuit line 63: h.out === nullifier — passes only if provided nullifier equals computed hash
+  const { buildPoseidon } = await import("circomlibjs");
+  const poseidon = await buildPoseidon();
+  const poseidonF = poseidon.F;
+  const nullifierFe = poseidonF.toObject(poseidon([secret, campaignId, windowId]));
+  const nullifierStr = nullifierFe.toString();
+  const nullifierHex = "0x" + nullifierFe.toString(16).padStart(64, "0");
+
   const claimHashFe = (BigInt(claimHash) % SCALAR_ORDER).toString();
   const { proof } = await snarkjs.groth16.fullProve(
-    { claimHash: claimHashFe, impressions: impressions.toString(), nonce: nonce.toString() },
+    {
+      claimHash: claimHashFe,
+      nullifier: nullifierStr,
+      impressions: impressions.toString(),
+      nonce: nonce.toString(),
+      secret: secret.toString(),
+      campaignId: campaignId.toString(),
+      windowId: windowId.toString(),
+    },
     WASM_PATH,
     ZKEY_PATH,
   );
-  return encodeProof(proof);
+  return { proofArray: encodeProof(proof), nullifierHex };
 }
 
-// ── Claim chain builder (Blake2-256 via Paseo system precompile) ──────────────
+// ── Claim chain builder (Blake2-256 on PVM, keccak256 on EVM) ────────────────
+// Alpha-3 multi-pricing: 9-field preimage adds actionType + clickSessionHash.
+// Hash: Blake2-256(campaignId | publisher | user | eventCount | ratePlanck |
+//                  actionType | clickSessionHash | nonce | previousClaimHash)
+// On EVM-compiled contracts, keccak256 is used (no system precompile at 0x900).
+let _useKeccak: boolean | null = null;
+async function shouldUseKeccak(provider: JsonRpcProvider): Promise<boolean> {
+  if (_useKeccak !== null) return _useKeccak;
+  if (process.env.DATUM_EVM === "1") { _useKeccak = true; return true; }
+  const code = await provider.getCode(SYS_ADDR);
+  _useKeccak = (!code || code === "0x");
+  return _useKeccak;
+}
+
 async function buildClaims(
   provider: JsonRpcProvider,
   campaignId: bigint,
   publisherAddr: string,
   userAddr: string,
   count: number,
-  cpm: bigint,
-  impressions: bigint,
-  zkProof = "0x",
+  rate: bigint,         // ratePlanck (CPM for view claims)
+  eventCount: bigint,   // events per claim
+  zkProof: string[] = new Array(8).fill(ZeroHash),
+  actionType: number = 0,
+  startNonce = 0n,        // on-chain lastNonce (claims start at startNonce+1)
+  startPrevHash = ZeroHash, // on-chain lastClaimHash
 ) {
+  const useKeccak = await shouldUseKeccak(provider);
   const claims = [];
-  let prevHash = ZeroHash;
+  let prevHash = startPrevHash;
   for (let i = 1; i <= count; i++) {
-    const nonce = BigInt(i);
+    const nonce = startNonce + BigInt(i);
     const packed = getBytes(solidityPacked(
-      ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [campaignId, publisherAddr, userAddr, impressions, cpm, nonce, prevHash],
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+      [campaignId, publisherAddr, userAddr, eventCount, rate, actionType, ZeroHash, nonce, prevHash],
     ));
-    const hash = await blake256(provider, packed);
+    const hash = useKeccak ? keccak256(packed) : await blake256(provider, packed);
     claims.push({
       campaignId,
       publisher: publisherAddr,
-      impressionCount: impressions,
-      clearingCpmPlanck: cpm,
+      eventCount,
+      ratePlanck: rate,
+      actionType,
+      clickSessionHash: ZeroHash,
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
       zkProof,
+      nullifier: ZeroHash,  // bytes32(0) = skip nullifier check
+      actionSig: [ZeroHash, ZeroHash, ZeroHash],
     });
     prevHash = hash;
   }
@@ -219,10 +268,10 @@ async function readCall(
   iface: Interface,
   method: string,
   args: any[],
-): Promise<any[]> {
+): Promise<any> {
   const data = iface.encodeFunctionData(method, args);
   const raw = await provider.call({ to, data });
-  return iface.decodeFunctionResult(method, raw) as unknown as any[];
+  return iface.decodeFunctionResult(method, raw);
 }
 
 // ── Result tracking ───────────────────────────────────────────────────────────
@@ -252,34 +301,67 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ result: T; ms: number }
   return { result, ms: Date.now() - t0 };
 }
 
+// ── ABI helper — inline claim tuple string ────────────────────────────────────
+// Alpha-3 Claim struct (9-field hash, multi-action-type support)
+const CLAIM_T = [
+  "uint256 campaignId",
+  "address publisher",
+  "uint256 eventCount",
+  "uint256 ratePlanck",
+  "uint8 actionType",
+  "bytes32 clickSessionHash",
+  "uint256 nonce",
+  "bytes32 previousClaimHash",
+  "bytes32 claimHash",
+  "bytes32[8] zkProof",
+  "bytes32 nullifier",
+  "bytes32[3] actionSig",
+].join(", ");
+
 // ── Minimal ABIs ──────────────────────────────────────────────────────────────
 
 const publishersAbi = [
   "function getPublisher(address) view returns (bool registered, uint16 takeRateBps)",
   "function isPublisher(address) view returns (bool)",
+  "function isBlocked(address) view returns (bool)",
+  "function allowlistEnabled(address) view returns (bool)",
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  `function createCampaign(address publisher, (uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)`,
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
-  "function getCampaign(uint256 campaignId) view returns (address advertiser, address publisher, uint256 bidCpmPlanck, uint16 takeRateBps, uint8 status)",
+  "function getCampaign(uint256 campaignId) view returns (address advertiser, address publisher, uint256 pendingExpiryBlock, uint256 terminationBlock, uint16 snapshotTakeRateBps, uint8 status)",
+  "function togglePause(uint256 campaignId, bool pause) external",
 ];
 
-const govV2Abi = [
-  "function quorumWeighted() view returns (uint256)",
-  "function vote(uint256 campaignId, bool aye, uint8 conviction) payable",
-  "function evaluateCampaign(uint256 campaignId)",
+const adminGovAbi = [
+  "function activateCampaign(uint256 campaignId)",
+  "function terminateCampaign(uint256 campaignId)",
+  "function router() view returns (address)",
+];
+
+const govRouterAbi = [
+  "function governor() view returns (address)",
+  "function phase() view returns (uint8)",
 ];
 
 const settlementAbi = [
-  "function settleClaims((address user, uint256 campaignId, (uint256 campaignId, address publisher, uint256 impressionCount, uint256 clearingCpmPlanck, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes zkProof)[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount)",
+  `function settleClaims((address user, uint256 campaignId, (${CLAIM_T})[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
+  `function settleClaimsMulti((address user, (uint256 campaignId, (${CLAIM_T})[] claims)[] campaigns)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
+  "function lastNonce(address user, uint256 campaignId, uint8 actionType) view returns (uint256)",
+  "function lastClaimHash(address user, uint256 campaignId, uint8 actionType) view returns (bytes32)",
 ];
 
 const vaultAbi = [
   "function publisherBalance(address) view returns (uint256)",
   "function userBalance(address) view returns (uint256)",
   "function protocolBalance() view returns (uint256)",
+];
+
+const tokenVaultAbi = [
+  "function userTokenBalance(address token, address user) view returns (uint256)",
+  "function campaignTokenBudget(address token, uint256 campaignId) view returns (uint256)",
 ];
 
 const reportsAbi = [
@@ -291,22 +373,55 @@ const reportsAbi = [
 
 const reputationAbi = [
   "function recordSettlement(address publisher, uint256 campaignId, uint256 settled, uint256 rejected)",
-  "function getScore(address publisher) view returns (uint256)",
-  "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint256 score)",
+  "function getScore(address publisher) view returns (uint16)",
+  "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
+  "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
   "function totalSettled(address) view returns (uint256)",
   "function totalRejected(address) view returns (uint256)",
-  "function reporters(address) view returns (bool)",
-  "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
+  "function authorizedReporters(address) view returns (bool)",
+  "function settlement() view returns (address)",
 ];
 
 const rateLimiterAbi = [
-  "function currentWindowUsage(address publisher) view returns (uint256 windowId, uint256 impressions, uint256 limit)",
+  "function currentWindowUsage(address publisher) view returns (uint256 windowId, uint256 events, uint256 limit)",
   "function windowBlocks() view returns (uint256)",
-  "function maxPublisherImpressionsPerWindow() view returns (uint256)",
+  "function maxPublisherEventsPerWindow() view returns (uint256)",
 ];
 
 const zkVerifierAbi = [
-  "function verify(bytes calldata proof, bytes32 claimHash) view returns (bool)",
+  // Alpha-3: 4-arg verify — proof, publicInputsHash (claimHash), nullifier, impressionCount
+  "function verify(bytes proof, bytes32 publicInputsHash, bytes32 nullifier, uint256 impressionCount) view returns (bool)",
+];
+
+const pauseRegistryAbi = [
+  "function paused() view returns (bool)",
+  "function guardians(uint256) view returns (address)",
+  "function propose(uint8 action) returns (uint256 proposalId)",
+  "function approve(uint256 proposalId)",
+  "function pause()",
+];
+
+const publisherStakeAbi = [
+  "function staked(address publisher) view returns (uint256)",
+  "function requiredStake(address publisher) view returns (uint256)",
+  "function isAdequatelyStaked(address publisher) view returns (bool)",
+  "function baseStakePlanck() view returns (uint256)",
+  "function planckPerImpression() view returns (uint256)",
+  "function unstakeDelayBlocks() view returns (uint256)",
+  "function cumulativeImpressions(address publisher) view returns (uint256)",
+];
+
+const nullifierAbi = [
+  "function isUsed(uint256 campaignId, bytes32 nullifier) view returns (bool)",
+  "function windowBlocks() view returns (uint256)",
+];
+
+const paramGovAbi = [
+  "function quorum() view returns (uint256)",
+  "function votingPeriodBlocks() view returns (uint256)",
+  "function timelockBlocks() view returns (uint256)",
+  "function proposeBond() view returns (uint256)",
+  "function nextProposalId() view returns (uint256)",
 ];
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
@@ -326,17 +441,20 @@ async function main() {
   const grace   = new Wallet(ACCOUNTS.grace,   rawProvider);
 
   // Load deployed addresses
-  const addrFile = __dirname + "/../deployed-addresses.json";
+  const isEvm = process.env.DATUM_EVM === "1";
+  const addrFile = __dirname + "/../" + (isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json");
   if (!fs.existsSync(addrFile)) {
-    console.error("deployed-addresses.json not found — run deploy.ts first");
+    console.error((isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json") + " not found — run deploy.ts first");
     process.exitCode = 1;
     return;
   }
   const A = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
 
   const requiredKeys = [
-    "campaigns", "publishers", "governanceV2", "settlement", "paymentVault",
-    "reports", "reputation", "rateLimiter", "zkVerifier",
+    "campaigns", "publishers", "adminGovernance", "governanceRouter",
+    "settlement", "paymentVault", "reports", "reputation",
+    "rateLimiter", "zkVerifier", "pauseRegistry", "publisherStake",
+    "nullifierRegistry", "tokenRewardVault", "parameterGovernance",
   ];
   const missing = requiredKeys.filter(k => !A[k]);
   if (missing.length > 0) {
@@ -346,22 +464,23 @@ async function main() {
   }
 
   // Interfaces
-  const pubIface      = new Interface(publishersAbi);
-  const campIface     = new Interface(campaignsAbi);
-  const govIface      = new Interface(govV2Abi);
-  const settleIface   = new Interface(settlementAbi);
-  const vaultIface    = new Interface(vaultAbi);
-  const reportsIface  = new Interface(reportsAbi);
-  const repIface      = new Interface(reputationAbi);
-  const rlIface       = new Interface(rateLimiterAbi);
-  const zkIface       = new Interface(zkVerifierAbi);
+  const pubIface       = new Interface(publishersAbi);
+  const campIface      = new Interface(campaignsAbi);
+  const adminGovIface  = new Interface(adminGovAbi);
+  const govRouterIface = new Interface(govRouterAbi);
+  const settleIface    = new Interface(settlementAbi);
+  const vaultIface     = new Interface(vaultAbi);
+  const tvaultIface    = new Interface(tokenVaultAbi);
+  const reportsIface   = new Interface(reportsAbi);
+  const repIface       = new Interface(reputationAbi);
+  const rlIface        = new Interface(rateLimiterAbi);
+  const zkIface        = new Interface(zkVerifierAbi);
+  const pauseIface     = new Interface(pauseRegistryAbi);
+  const stakeIface     = new Interface(publisherStakeAbi);
+  const nullIface      = new Interface(nullifierAbi);
+  const paramIface     = new Interface(paramGovAbi);
 
-  // ── Read quorum once ───────────────────────────────────────────────────────
-  const quorumRaw = await readCall(rawProvider, A.governanceV2, govIface, "quorumWeighted", []);
-  const QUORUM = BigInt(quorumRaw[0]);
-  const VOTE_STAKE = QUORUM > parseDOT("10") ? QUORUM : parseDOT("10");
-
-  // ── Helper: create campaign, vote, activate ────────────────────────────────
+  // ── Helper: create campaign, activate via AdminGovernance ─────────────────
   async function deployBenchmarkCampaign(
     advertiser: Wallet,
     publisher: string,
@@ -373,48 +492,64 @@ async function main() {
   ): Promise<bigint> {
     const nextRaw = await readCall(rawProvider, A.campaigns, campIface, "nextCampaignId", []);
     const cid = BigInt(nextRaw[0]);
-    await sendCall(advertiser, rawProvider, A.campaigns, campIface, "createCampaign",
-      [publisher, daily, cpm, requiredTags, requireZk, ZeroAddress, 0, 0], budget);
-    await sendCall(alice, rawProvider, A.governanceV2, govIface, "vote",
-      [cid, true, 0], VOTE_STAKE);
-    await sendCall(bob, rawProvider, A.governanceV2, govIface, "evaluateCampaign", [cid]);
+    const pot = {
+      actionType: 0,
+      budgetPlanck: budget,
+      dailyCapPlanck: daily,
+      ratePlanck: cpm,
+      actionVerifier: ZeroAddress,
+    };
+    await sendCall(
+      advertiser, rawProvider, A.campaigns, campIface, "createCampaign",
+      [publisher, [pot], requiredTags, requireZk, ZeroAddress, 0, 0],
+      budget,
+    );
+    // Activate via AdminGovernance (Phase 0) — same pattern as setup-testnet.ts Phase 4b
+    await sendCall(alice, rawProvider, A.adminGovernance, adminGovIface, "activateCampaign", [cid]);
     const statusRaw = await readCall(rawProvider, A.campaigns, campIface, "getCampaignStatus", [cid]);
     const status = Number(BigInt(statusRaw[0]));
     if (status !== 1) throw new Error(`Campaign ${cid} failed to activate: status=${STATUS_NAMES[status]}`);
     return cid;
   }
 
-  // ── Settle helper: static call + live call, returns settledCount ───────────
+  // ── Settle helper: real TX + nonce-delta to measure settled count ─────────
+  // Paseo's eth_call forbids SSTORE (nonReentrant hits it first), so we can't
+  // use staticCall on settleClaims. Instead: read lastNonce before/after real TX.
   async function doSettle(
     user: Wallet,
     cid: bigint,
     publisher: string,
     count: number,
-    cpm: bigint,
-    impressions: bigint,
-    zkProof = "0x",
-  ): Promise<{ settledCount: bigint; rejectedCount: bigint }> {
-    const claims = await buildClaims(rawProvider, cid, publisher, user.address, count, cpm, impressions, zkProof);
+    rate: bigint,
+    eventCount: bigint,
+    zkProof: string[] = new Array(8).fill(ZeroHash),
+    actionType: number = 0,
+  ): Promise<{ settledCount: bigint; rejectedCount: bigint; totalPaid: bigint }> {
+    const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [user.address, cid, actionType]))[0]);
+    const prevHash = nonceBefore === 0n
+      ? ZeroHash
+      : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [user.address, cid, actionType]))[0] as string;
+    const claims = await buildClaims(rawProvider, cid, publisher, user.address, count, rate, eventCount, zkProof, actionType, nonceBefore, prevHash);
     const batch = { user: user.address, campaignId: cid, claims };
-    const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-    const staticRaw = await rawProvider.call({ to: A.settlement, data, from: user.address });
-    const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-    const settledCount = BigInt(decoded[0]);
-    const rejectedCount = BigInt(decoded[1]);
-    // Execute for real
     await sendCall(user, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
-    return { settledCount, rejectedCount };
+    const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [user.address, cid, actionType]))[0]);
+    const settledCount  = nonceAfter - nonceBefore;
+    const rejectedCount = BigInt(count) - settledCount;
+    return { settledCount, rejectedCount, totalPaid: 0n };
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  const useKeccak = await shouldUseKeccak(rawProvider);
   console.log("\n══════════════════════════════════════════════════════════════");
   console.log("  Datum Alpha-3 — Paseo Live Benchmark");
+  console.log("  Target:", useKeccak ? "EVM (solc 0.8.24)" : "PVM (resolc 1.1.0)");
   console.log("  Network:", rpcUrl);
   console.log("  Contracts:", A.campaigns);
   console.log("══════════════════════════════════════════════════════════════\n");
 
-  // ── SETUP: verify publishers registered ───────────────────────────────────
-  console.log("── SETUP: Publisher verification ──────────────────────────");
+  // ── SETUP: verify publishers registered ──────────────────────────────────
+  console.log("── SETUP: Publisher + reporter state ───────────────────────");
+
   {
     const t0 = Date.now();
     try {
@@ -431,27 +566,48 @@ async function main() {
       if (!graceReg) {
         pass("SETUP-2", "Grace not a registered publisher (expected)", ms);
       } else {
-        pass("SETUP-2", "Grace not a registered publisher (expected)", ms, "WARNING: grace is registered");
+        pass("SETUP-2", "Grace is also registered (non-fatal)", ms, "WARN: grace is registered");
       }
     } catch (err: any) {
       fail("SETUP-1", "Publisher read", Date.now() - t0, String(err).slice(0, 100));
     }
   }
 
-  // ── SETUP-3: Diana is reporter on reputation contract ─────────────────────
+  // SETUP-3: Settlement is set as primary reporter on reputation
   {
     const t0 = Date.now();
     try {
-      const res = await readCall(rawProvider, A.reputation, repIface, "reporters", [diana.address]);
-      const isReporter = Boolean(res[0]);
+      const settlementAddr = (await readCall(rawProvider, A.reputation, repIface, "settlement", []))[0];
       const ms = Date.now() - t0;
-      if (isReporter) {
-        pass("SETUP-3", "Diana is reputation reporter", ms);
+      const isWired = settlementAddr.toLowerCase() === A.settlement.toLowerCase();
+      if (isWired) {
+        pass("SETUP-3", "Reputation.settlement wired to Settlement contract", ms);
       } else {
-        fail("SETUP-3", "Diana is reputation reporter", ms, "NOT reporter — run setup-testnet.ts step 5.7");
+        fail("SETUP-3", "Reputation.settlement wiring", ms,
+          `got ${settlementAddr} expected ${A.settlement}`);
       }
     } catch (err: any) {
-      fail("SETUP-3", "Reputation reporter check", Date.now() - t0, String(err).slice(0, 100));
+      fail("SETUP-3", "Reputation.settlement read", Date.now() - t0, String(err).slice(0, 100));
+    }
+  }
+
+  // SETUP-4: AdminGovernance is wired to GovernanceRouter
+  {
+    const t0 = Date.now();
+    try {
+      const routerInAdmin = (await readCall(rawProvider, A.adminGovernance, adminGovIface, "router", []))[0];
+      const govInRouter   = (await readCall(rawProvider, A.governanceRouter, govRouterIface, "governor", []))[0];
+      const ms = Date.now() - t0;
+      const routerOk = routerInAdmin.toLowerCase() === A.governanceRouter.toLowerCase();
+      const govOk    = govInRouter.toLowerCase() === A.adminGovernance.toLowerCase();
+      if (routerOk && govOk) {
+        pass("SETUP-4", "AdminGovernance ↔ GovernanceRouter wired correctly", ms);
+      } else {
+        fail("SETUP-4", "AdminGovernance/Router wiring", ms,
+          `routerOk=${routerOk} govOk=${govOk}`);
+      }
+    } catch (err: any) {
+      fail("SETUP-4", "Governance router wiring check", Date.now() - t0, String(err).slice(0, 100));
     }
   }
 
@@ -467,22 +623,21 @@ async function main() {
       );
       console.log(`  [INFO] ${id}: campaign ${cid} active`);
 
-      const pubBefore = (await readCall(rawProvider, A.paymentVault, vaultIface, "publisherBalance", [diana.address]))[0];
-      const userBefore = (await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [grace.address]))[0];
+      const pubBefore = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "publisherBalance", [diana.address]))[0]);
+      const userBefore = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [grace.address]))[0]);
 
       const IMPS = 100n;
-      const { settledCount, rejectedCount } = await doSettle(
+      const { settledCount, rejectedCount, totalPaid } = await doSettle(
         grace, cid, diana.address, 1, sc.cpm, IMPS,
       );
 
-      const pubAfter = (await readCall(rawProvider, A.paymentVault, vaultIface, "publisherBalance", [diana.address]))[0];
-      const userAfter = (await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [grace.address]))[0];
+      const pubAfter  = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "publisherBalance", [diana.address]))[0]);
+      const userAfter = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [grace.address]))[0]);
 
-      const pubDelta = BigInt(pubAfter) - BigInt(pubBefore);
-      const userDelta = BigInt(userAfter) - BigInt(userBefore);
-
+      const pubDelta  = pubAfter  - pubBefore;
+      const userDelta = userAfter - userBefore;
       const exp = expectedPayments(sc.cpm, IMPS, 1);
-      const ms = Date.now() - t0;
+      const ms  = Date.now() - t0;
 
       if (settledCount !== 1n) {
         fail(id, `Settlement at ${sc.label} (100 imps)`, ms,
@@ -510,23 +665,25 @@ async function main() {
   console.log("\n── ZK: ZK-proof-required campaign ──────────────────────────");
 
   {
-    const CPM = parseDOT("0.2");
+    const CPM    = parseDOT("0.2");
     const BUDGET = parseDOT("2");
 
-    // ZK-1: zkVerifier.verify(): empty→false, real proof→true
-    // Real proof requires circuits/impression.zkey (run scripts/setup-zk.mjs first).
-    // If zkey absent, tests that empty and malformed proofs both return false.
+    // ZK-1: zkVerifier.verify(proof, publicInputsHash, nullifier, impressionCount)
+    // verify(bytes, bytes32, bytes32, uint256) — empty → false, real proof → true
     {
       const t0 = Date.now();
       try {
         const dummyHash = keccak256(toUtf8Bytes("dummy"));
-        const resEmpty  = await readCall(rawProvider, A.zkVerifier, zkIface, "verify", ["0x", dummyHash]);
+        // Empty proof (len != 256) → verify returns false (vkSet check passes but length check fails)
+        const resEmpty  = await readCall(rawProvider, A.zkVerifier, zkIface, "verify",
+          ["0x", dummyHash, ZeroHash, 1n]);
         const emptyOk   = !Boolean(resEmpty[0]);
 
         if (ZK_AVAILABLE) {
-          // Generate real Groth16 proof for the dummy hash with impressions=1, nonce=1
-          const realProof = await generateZKProof(dummyHash, 1n, 1n);
-          const resReal   = await readCall(rawProvider, A.zkVerifier, zkIface, "verify", [realProof!, dummyHash]);
+          const zkResult = await generateZKProof(dummyHash, 1n, 1n, 1n);
+          const proofBytes = "0x" + zkResult!.proofArray.map(h => h.slice(2)).join("");
+          const resReal   = await readCall(rawProvider, A.zkVerifier, zkIface, "verify",
+            [proofBytes, dummyHash, zkResult!.nullifierHex, 1n]);
           const realOk    = Boolean(resReal[0]);
           const ms = Date.now() - t0;
           if (emptyOk && realOk) {
@@ -536,8 +693,8 @@ async function main() {
               `empty=${!emptyOk} realProof=${realOk} (vkSet?)`);
           }
         } else {
-          // Without zkey: confirm empty and malformed proofs are both rejected
-          const resBad = await readCall(rawProvider, A.zkVerifier, zkIface, "verify", ["0xdeadbeef", dummyHash]);
+          const resBad = await readCall(rawProvider, A.zkVerifier, zkIface, "verify",
+            ["0xdeadbeef", dummyHash, ZeroHash, 1n]);
           const badOk  = !Boolean(resBad[0]);
           const ms = Date.now() - t0;
           if (emptyOk && badOk) {
@@ -554,8 +711,7 @@ async function main() {
 
     let zkCid: bigint | null = null;
 
-    // ZK-2: Create ZK campaign + settle with valid Groth16 proof (BN254 precompiles)
-    // Requires circuits/impression.zkey — skip if not available.
+    // ZK-2: Create ZK campaign + settle with valid Groth16 proof
     {
       const t0 = Date.now();
       try {
@@ -567,19 +723,20 @@ async function main() {
         if (!ZK_AVAILABLE) {
           fail("ZK-2", "Settle with real Groth16 proof — SKIP (run setup-zk.mjs first)", Date.now() - t0, "no zkey");
         } else {
-          // Build claim to get the claimHash, then generate proof for it
-          const claims = await buildClaims(rawProvider, zkCid, diana.address, grace.address, 1, CPM, 100n);
+          const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, zkCid, 0]))[0]);
+          const zkPrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [grace.address, zkCid, 0]))[0] as string;
+          const claims = await buildClaims(rawProvider, zkCid, diana.address, grace.address, 1, CPM, 100n, new Array(8).fill(ZeroHash), 0, nonceBefore, zkPrevHash);
           const claimHash = claims[0].claimHash as string;
           const nonce     = claims[0].nonce as bigint;
-          const zkProof   = await generateZKProof(claimHash, 100n, nonce);
-          // Re-build with the real proof attached
-          const claimsWithProof = claims.map((c: any) => ({ ...c, zkProof }));
+          const zkResult  = await generateZKProof(claimHash, 100n, nonce, zkCid);
+          const claimsWithProof = claims.map((c: any) => ({
+            ...c, zkProof: zkResult!.proofArray, nullifier: zkResult!.nullifierHex,
+          }));
           const batch = { user: grace.address, campaignId: zkCid, claims: claimsWithProof };
-          const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-          const staticRaw = await rawProvider.call({ to: A.settlement, data, from: grace.address });
-          const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-          const settled  = BigInt(decoded[0]);
-          const rejected = BigInt(decoded[1]);
+          await sendCall(grace, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+          const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, zkCid, 0]))[0]);
+          const settled  = nonceAfter - nonceBefore;
+          const rejected = 1n - settled;
           const ms = Date.now() - t0;
           if (settled === 1n && rejected === 0n) {
             pass("ZK-2", "Settle with real Groth16 proof accepted (BN254 ecPairing)", ms);
@@ -587,31 +744,31 @@ async function main() {
             fail("ZK-2", "Settle with real Groth16 proof", ms,
               `settled=${settled} rejected=${rejected}`);
           }
-          // Actually submit it on-chain
-          await doSettle(grace, zkCid, diana.address, 1, CPM, 100n, zkProof!);
         }
       } catch (err: any) {
         fail("ZK-2", "ZK campaign settle", Date.now() - t0, String(err).slice(0, 150));
       }
     }
 
-    // ZK-3: Reject empty proof (reason 16)
+    // ZK-3: Reject empty proof on ZK-required campaign (charlie as user)
     if (zkCid !== null) {
       const t0 = Date.now();
       try {
-        // Build fresh claim chain (nonce=1 from new state — different user: charlie)
-        const claims = await buildClaims(rawProvider, zkCid, diana.address, charlie.address, 1, CPM, 50n, "0x");
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, zkCid, 0]))[0]);
+        const zk3PrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [charlie.address, zkCid, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, zkCid, diana.address, charlie.address, 1, CPM, 50n, new Array(8).fill(ZeroHash), 0, nonceBefore, zk3PrevHash);
         const batch = { user: charlie.address, campaignId: zkCid, claims };
-        const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-        const staticRaw = await rawProvider.call({ to: A.settlement, data, from: charlie.address });
-        const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-        const rejected = BigInt(decoded[1]);
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta (rejected → nonce stays at 0)
+        await sendCall(charlie, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, zkCid, 0]))[0]);
+        const settled  = nonceAfter - nonceBefore;
+        const rejected = 1n - settled;
         const ms = Date.now() - t0;
         if (rejected === 1n) {
           pass("ZK-3", "Settle with empty ZK proof rejected (reason 16)", ms);
         } else {
           fail("ZK-3", "Settle with empty ZK proof rejected", ms,
-            `expected rejected=1 got settled=${decoded[0]} rejected=${decoded[1]}`);
+            `expected rejected=1 got settled=${settled} rejected=${rejected}`);
         }
       } catch (err: any) {
         fail("ZK-3", "ZK empty proof rejection", Date.now() - t0, String(err).slice(0, 150));
@@ -625,25 +782,21 @@ async function main() {
   {
     const CPM    = parseDOT("0.2");
     const BUDGET = parseDOT("2");
-
     let openCid: bigint | null = null;
 
     // OPEN-1: Create open campaign
     {
       const t0 = Date.now();
       try {
-        openCid = await deployBenchmarkCampaign(
-          charlie, ZeroAddress, CPM, BUDGET, BUDGET,
-        );
-        const ms = Date.now() - t0;
+        openCid = await deployBenchmarkCampaign(charlie, ZeroAddress, CPM, BUDGET, BUDGET);
         console.log(`  [INFO] OPEN-1: campaign ${openCid} active (publisher=0x0)`);
-        pass("OPEN-1", `Open campaign created and activated (cid=${openCid})`, ms);
+        pass("OPEN-1", `Open campaign created and activated (cid=${openCid})`, Date.now() - t0);
       } catch (err: any) {
         fail("OPEN-1", "Create open campaign", Date.now() - t0, String(err).slice(0, 150));
       }
     }
 
-    // OPEN-2: Diana settles (registered publisher) — grace as user
+    // OPEN-2: Diana settles (registered publisher)
     if (openCid !== null) {
       const t0 = Date.now();
       try {
@@ -662,23 +815,24 @@ async function main() {
       }
     }
 
-    // OPEN-3: Eve settles same open campaign (different user: frank as user)
+    // OPEN-3: Second user (alice) settles same open campaign
     if (openCid !== null) {
       const t0 = Date.now();
       try {
-        // alice as user (fresh chain state — different from grace who settled in OPEN-2)
-        const claimsAlice = await buildClaims(rawProvider, openCid!, diana.address, alice.address, 1, CPM, 50n);
-        const batchAlice = { user: alice.address, campaignId: openCid!, claims: claimsAlice };
-        const data = settleIface.encodeFunctionData("settleClaims", [[batchAlice]]);
-        const staticRaw = await rawProvider.call({ to: A.settlement, data, from: alice.address });
-        const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-        const settledCount = BigInt(decoded[0]);
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [alice.address, openCid!, 0]))[0]);
+        const o3PrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [alice.address, openCid!, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, openCid!, diana.address, alice.address, 1, CPM, 50n, new Array(8).fill(ZeroHash), 0, nonceBefore, o3PrevHash);
+        const batch  = { user: alice.address, campaignId: openCid!, claims };
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta
+        await sendCall(alice, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [alice.address, openCid!, 0]))[0]);
+        const settled3 = nonceAfter - nonceBefore;
         const ms = Date.now() - t0;
-        if (settledCount === 1n) {
-          pass("OPEN-3", "Second user settles open campaign (alice as user)", ms);
+        if (settled3 === 1n) {
+          pass("OPEN-3", "Second user (alice) settles open campaign", ms);
         } else {
           fail("OPEN-3", "Second user settles open campaign", ms,
-            `settled=${decoded[0]} rejected=${decoded[1]}`);
+            `settled=${settled3}`);
         }
       } catch (err: any) {
         fail("OPEN-3", "Open campaign second user settle", Date.now() - t0, String(err).slice(0, 150));
@@ -690,10 +844,8 @@ async function main() {
   console.log("\n── SCALE: Batch size + impression scaling ──────────────────");
 
   {
-    // Use $5/DOT scenario for scale tests
     const CPM    = parseDOT("0.2");
     const BUDGET = parseDOT("5");
-
     let scaleCid: bigint | null = null;
 
     {
@@ -707,74 +859,105 @@ async function main() {
       }
     }
 
-    // SCALE-1: 4-claim batch, 100 impressions each
-    // NOTE: Paseo eth_call silently returns null (data=null) for ≥5 claims with the v6
-    // Settlement due to extra per-claim staticcalls (S12 blocklist via publishers.isBlocked).
-    // 4 claims (1508 bytes calldata) is the confirmed safe upper bound on Paseo eth_call.
+    // SCALE-1: 3-claim batch, 100 impressions each (frank as user)
+    // Note: PVM weight limit on Paseo caps batch size at 3 claims per TX
+    // (4 claims exceeds per-TX gas cap due to cumulative cross-contract calls)
     if (scaleCid !== null) {
       const t0 = Date.now();
       try {
-        // Use frank as user for fresh chain state
-        const claims = await buildClaims(rawProvider, scaleCid, diana.address, frank.address, 4, CPM, 100n);
-        const batch = { user: frank.address, campaignId: scaleCid, claims };
-        const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-        const staticRaw = await rawProvider.call({ to: A.settlement, data, from: frank.address });
-        const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-        const settledCount = BigInt(decoded[0]);
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [frank.address, scaleCid, 0]))[0]);
+        const s1PrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [frank.address, scaleCid, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, scaleCid, diana.address, frank.address, 3, CPM, 100n, new Array(8).fill(ZeroHash), 0, nonceBefore, s1PrevHash);
+        const batch  = { user: frank.address, campaignId: scaleCid, claims };
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta
+        await sendCall(frank, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [frank.address, scaleCid, 0]))[0]);
+        const settled = nonceAfter - nonceBefore;
+        const rej1    = 3n - settled;
         const ms = Date.now() - t0;
-        const exp = expectedPayments(CPM, 100n, 4);
-        if (settledCount === 4n) {
-          pass("SCALE-1", "4-claim batch (100 imps each) — all settled", ms,
+        const exp = expectedPayments(CPM, 100n, 3);
+        if (settled === 3n) {
+          pass("SCALE-1", "3-claim batch (100 imps each) — all settled", ms,
             `total=${formatDOT(exp.total)} PAS`);
         } else {
-          fail("SCALE-1", "4-claim batch", ms, `settled=${settledCount} rejected=${decoded[1]}`);
+          fail("SCALE-1", "3-claim batch", ms, `settled=${settled} rejected=${rej1}`);
         }
       } catch (err: any) {
-        fail("SCALE-1", "4-claim batch", Date.now() - t0, String(err).slice(0, 150));
+        fail("SCALE-1", "3-claim batch", Date.now() - t0, String(err).slice(0, 150));
       }
     }
 
-    // SCALE-2: 1 claim, 1000 impressions
+    // SCALE-1b: 4-claim batch (EVM only — PVM per-TX weight limit caps at 3)
+    // Tests whether EVM bytecode allows larger batches than PVM
+    if (scaleCid !== null && useKeccak) {
+      const t0 = Date.now();
+      try {
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, scaleCid, 0]))[0]);
+        const s1bPrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [grace.address, scaleCid, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, scaleCid, diana.address, grace.address, 4, CPM, 100n, new Array(8).fill(ZeroHash), 0, nonceBefore, s1bPrevHash);
+        const batch  = { user: grace.address, campaignId: scaleCid, claims };
+        await sendCall(grace, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, scaleCid, 0]))[0]);
+        const settled = nonceAfter - nonceBefore;
+        const rej    = 4n - settled;
+        const ms = Date.now() - t0;
+        if (settled === 4n) {
+          pass("SCALE-1b", "4-claim batch (EVM) — all settled", ms,
+            `total=${formatDOT(expectedPayments(CPM, 100n, 4).total)} PAS`);
+        } else {
+          fail("SCALE-1b", "4-claim batch (EVM)", ms, `settled=${settled} rejected=${rej}`);
+        }
+      } catch (err: any) {
+        fail("SCALE-1b", "4-claim batch (EVM)", Date.now() - t0, String(err).slice(0, 150));
+      }
+    }
+
+    // SCALE-2: 1 claim, 1000 impressions (charlie)
     if (scaleCid !== null) {
       const t0 = Date.now();
       try {
-        // Use charlie as user for fresh chain state
-        const claims = await buildClaims(rawProvider, scaleCid, diana.address, charlie.address, 1, CPM, 1000n);
-        const batch = { user: charlie.address, campaignId: scaleCid, claims };
-        const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-        const staticRaw = await rawProvider.call({ to: A.settlement, data, from: charlie.address });
-        const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-        const settledCount = BigInt(decoded[0]);
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, scaleCid, 0]))[0]);
+        const s2PrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [charlie.address, scaleCid, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, scaleCid, diana.address, charlie.address, 1, CPM, 1000n, new Array(8).fill(ZeroHash), 0, nonceBefore, s2PrevHash);
+        const batch  = { user: charlie.address, campaignId: scaleCid, claims };
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta
+        await sendCall(charlie, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, scaleCid, 0]))[0]);
+        const settled2 = nonceAfter - nonceBefore;
+        const rej2     = 1n - settled2;
         const ms = Date.now() - t0;
         const exp = expectedPayments(CPM, 1000n, 1);
-        if (settledCount === 1n) {
+        if (settled2 === 1n) {
           pass("SCALE-2", "1 claim × 1000 impressions — settled", ms,
             `total=${formatDOT(exp.total)} PAS`);
         } else {
           fail("SCALE-2", "1 claim × 1000 impressions", ms,
-            `settled=${settledCount} rejected=${decoded[1]}`);
+            `settled=${settled2} rejected=${rej2}`);
         }
       } catch (err: any) {
         fail("SCALE-2", "1000-impression single claim", Date.now() - t0, String(err).slice(0, 150));
       }
     }
 
-    // SCALE-3: 1 claim, 10 impressions (minimum meaningful)
+    // SCALE-3: 1 claim, 10 impressions (eve)
     if (scaleCid !== null) {
       const t0 = Date.now();
       try {
-        const claims = await buildClaims(rawProvider, scaleCid, diana.address, eve.address, 1, CPM, 10n);
-        const batch = { user: eve.address, campaignId: scaleCid, claims };
-        const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
-        const staticRaw = await rawProvider.call({ to: A.settlement, data, from: eve.address });
-        const decoded = settleIface.decodeFunctionResult("settleClaims", staticRaw);
-        const settledCount = BigInt(decoded[0]);
+        const nonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [eve.address, scaleCid, 0]))[0]);
+        const s3PrevHash = nonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [eve.address, scaleCid, 0]))[0] as string;
+        const claims = await buildClaims(rawProvider, scaleCid, diana.address, eve.address, 1, CPM, 10n, new Array(8).fill(ZeroHash), 0, nonceBefore, s3PrevHash);
+        const batch  = { user: eve.address, campaignId: scaleCid, claims };
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta
+        await sendCall(eve, rawProvider, A.settlement, settleIface, "settleClaims", [[batch]]);
+        const nonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [eve.address, scaleCid, 0]))[0]);
+        const settled3s = nonceAfter - nonceBefore;
+        const rej3      = 1n - settled3s;
         const ms = Date.now() - t0;
-        if (settledCount === 1n) {
+        if (settled3s === 1n) {
           pass("SCALE-3", "1 claim × 10 impressions — settled", ms);
         } else {
           fail("SCALE-3", "1 claim × 10 impressions", ms,
-            `settled=${settledCount} rejected=${decoded[1]}`);
+            `settled=${settled3s} rejected=${rej3}`);
         }
       } catch (err: any) {
         fail("SCALE-3", "10-impression single claim", Date.now() - t0, String(err).slice(0, 150));
@@ -782,7 +965,7 @@ async function main() {
     }
   }
 
-  // ── RL: Rate limiter ─────────────────────────────────────────────────────
+  // ── RL: Rate limiter (BM-5) ───────────────────────────────────────────────
   console.log("\n── RL: Rate limiter (BM-5) ─────────────────────────────────");
 
   {
@@ -790,13 +973,13 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const wb   = (await readCall(rawProvider, A.rateLimiter, rlIface, "windowBlocks", []))[0];
-        const maxI = (await readCall(rawProvider, A.rateLimiter, rlIface, "maxPublisherImpressionsPerWindow", []))[0];
-        const [windowId, impressions, limit] = await readCall(
-          rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
+        const wb   = BigInt((await readCall(rawProvider, A.rateLimiter, rlIface, "windowBlocks", []))[0]);
+        const maxI = BigInt((await readCall(rawProvider, A.rateLimiter, rlIface, "maxPublisherEventsPerWindow", []))[0]);
+        const res  = await readCall(rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
+        const [windowId, events, limit] = [BigInt(res[0]), BigInt(res[1]), BigInt(res[2])];
         const ms = Date.now() - t0;
         pass("RL-1", "Rate limiter settings readable", ms,
-          `windowBlocks=${wb} maxPerWindow=${maxI} dianaUsage=${impressions}/${limit} (window ${windowId})`);
+          `windowBlocks=${wb} maxPerWindow=${maxI} dianaUsage=${events}/${limit} (window ${windowId})`);
       } catch (err: any) {
         fail("RL-1", "Rate limiter read", Date.now() - t0, String(err).slice(0, 100));
       }
@@ -806,37 +989,29 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const [wBefore, impBefore, limitBefore] = await readCall(
-          rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
-        const impBeforeN = BigInt(impBefore);
-        const limitN     = BigInt(limitBefore);
+        const resBefore = await readCall(rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
+        const impBefore = BigInt(resBefore[1]);
+        const limitN    = BigInt(resBefore[2]);
+        const IMPS_RL   = 50n;
 
-        // Only attempt if there's room in the window
-        const CPM_RL    = parseDOT("0.1");  // above minimumCpmFloor
-        const IMPS_RL   = 50n;              // 50 impressions — well within any window cap
-
-        if (impBeforeN + IMPS_RL > limitN) {
+        if (impBefore + IMPS_RL > limitN) {
           pass("RL-2", "Rate limiter window usage tracking (skipped — window full)", Date.now() - t0,
-            `current ${impBeforeN}/${limitN} — would exceed cap`);
+            `current ${impBefore}/${limitN} — would exceed cap`);
         } else {
-          // Create a fresh RL campaign
           const rlCid = await deployBenchmarkCampaign(
-            bob, diana.address, CPM_RL, parseDOT("1"), parseDOT("1"),
+            bob, diana.address, parseDOT("0.1"), parseDOT("1"), parseDOT("1"),
           );
           console.log(`  [INFO] RL-2: campaign ${rlCid} active`);
-
-          await doSettle(grace, rlCid, diana.address, 1, CPM_RL, IMPS_RL);
-
-          const [, impAfter] = await readCall(
-            rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
-          const impAfterN = BigInt(impAfter);
+          await doSettle(grace, rlCid, diana.address, 1, parseDOT("0.1"), IMPS_RL);
+          const resAfter  = await readCall(rawProvider, A.rateLimiter, rlIface, "currentWindowUsage", [diana.address]);
+          const impAfter  = BigInt(resAfter[1]);
           const ms = Date.now() - t0;
-          if (impAfterN >= impBeforeN + IMPS_RL) {
+          if (impAfter >= impBefore + IMPS_RL) {
             pass("RL-2", "Window usage increases after settlement", ms,
-              `${impBeforeN} → ${impAfterN} impressions`);
+              `${impBefore} → ${impAfter} events`);
           } else {
             fail("RL-2", "Window usage tracking", ms,
-              `expected ≥${impBeforeN + IMPS_RL} got ${impAfterN}`);
+              `expected ≥${impBefore + IMPS_RL} got ${impAfter}`);
           }
         }
       } catch (err: any) {
@@ -849,12 +1024,12 @@ async function main() {
   console.log("\n── REP: Publisher reputation (BM-8/9) ─────────────────────");
 
   {
-    // REP-1: Read current score
+    // REP-1: Read current score via getPublisherStats
     {
       const t0 = Date.now();
       try {
-        const [settled, rejected, score] = await readCall(
-          rawProvider, A.reputation, repIface, "getPublisherStats", [diana.address]);
+        const res  = await readCall(rawProvider, A.reputation, repIface, "getPublisherStats", [diana.address]);
+        const [settled, rejected, score] = [BigInt(res[0]), BigInt(res[1]), BigInt(res[2])];
         const ms = Date.now() - t0;
         pass("REP-1", "getPublisherStats readable", ms,
           `settled=${settled} rejected=${rejected} score=${score}bps`);
@@ -863,50 +1038,65 @@ async function main() {
       }
     }
 
-    // REP-2: Diana (reporter) calls recordSettlement
+    // REP-2: L-5 — authorizedReporters check (not just reporters mapping)
+    {
+      const t0 = Date.now();
+      try {
+        // Diana should be an authorized reporter if setup-testnet.ts ran step 5.7
+        const isAuth = Boolean((await readCall(rawProvider, A.reputation, repIface, "authorizedReporters", [diana.address]))[0]);
+        const ms = Date.now() - t0;
+        if (isAuth) {
+          pass("REP-2", "Diana is an authorized reporter (L-5)", ms);
+        } else {
+          // Settlement is the primary reporter; relay-bot diana is optional
+          pass("REP-2", "Diana not in authorizedReporters (settlement is primary reporter)", ms,
+            "WARN: run setup-testnet.ts step 5.7 to add Diana as supplemental reporter");
+        }
+      } catch (err: any) {
+        fail("REP-2", "authorizedReporters check", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+
+    // REP-3: Post-settlement reputation auto-update (settlement is primary reporter)
+    // Create a small campaign and settle — reputation should update automatically
     {
       const t0 = Date.now();
       try {
         const settledBefore = BigInt((await readCall(rawProvider, A.reputation, repIface, "totalSettled", [diana.address]))[0]);
 
-        // Diana is a reporter — she records her own settlement data (relay-bot pattern)
-        const BM_CAMPAIGN_ID = 9999n; // arbitrary benchmark campaign ID (reputation is additive)
-        await sendCall(diana, rawProvider, A.reputation, repIface, "recordSettlement",
-          [diana.address, BM_CAMPAIGN_ID, 800n, 200n]);
+        // Small campaign + 1 claim → settlement emits reputation record automatically
+        const repCid = await deployBenchmarkCampaign(
+          bob, diana.address, parseDOT("0.1"), parseDOT("1"), parseDOT("1"),
+        );
+        await doSettle(eve, repCid, diana.address, 1, parseDOT("0.1"), 20n);
 
         const settledAfter = BigInt((await readCall(rawProvider, A.reputation, repIface, "totalSettled", [diana.address]))[0]);
         const score = BigInt((await readCall(rawProvider, A.reputation, repIface, "getScore", [diana.address]))[0]);
         const ms = Date.now() - t0;
 
-        if (settledAfter === settledBefore + 800n) {
-          pass("REP-2", "recordSettlement increments counters", ms,
-            `totalSettled +800, score=${score}bps`);
+        if (settledAfter > settledBefore) {
+          pass("REP-3", "Reputation auto-updates on settlement (FP-16)", ms,
+            `totalSettled +${settledAfter - settledBefore}, score=${score}bps`);
         } else {
-          fail("REP-2", "recordSettlement counter accumulation", ms,
-            `expected +800 settled, got ${settledAfter - settledBefore}`);
+          fail("REP-3", "Reputation auto-update via settlement", ms,
+            `totalSettled unchanged (${settledBefore} → ${settledAfter})`);
         }
       } catch (err: any) {
-        fail("REP-2", "recordSettlement", Date.now() - t0, String(err).slice(0, 150));
+        fail("REP-3", "Reputation auto-update", Date.now() - t0, String(err).slice(0, 150));
       }
     }
 
-    // REP-3: isAnomaly detection
+    // REP-4: isAnomaly call (BM-9)
     {
       const t0 = Date.now();
       try {
-        // Record a campaign with high rejection rate vs global — anomaly
-        const BM_ANOMALY_ID = 9998n;
-        await sendCall(diana, rawProvider, A.reputation, repIface, "recordSettlement",
-          [diana.address, BM_ANOMALY_ID, 4n, 6n]); // 60% rejection
+        // Use dummy campaign ID — checks if call succeeds
         const anomaly = Boolean((await readCall(rawProvider, A.reputation, repIface, "isAnomaly",
-          [diana.address, BM_ANOMALY_ID]))[0]);
+          [diana.address, 9998n]))[0]);
         const ms = Date.now() - t0;
-        // Note: isAnomaly requires MIN_SAMPLE=10 for campaign total.
-        // 4+6=10 which equals MIN_SAMPLE — behavior depends on contract (>= or >).
-        // We just check the call succeeds and returns a boolean.
-        pass("REP-3", "isAnomaly call succeeds", ms, `isAnomaly(campaignId=${BM_ANOMALY_ID})=${anomaly}`);
+        pass("REP-4", "isAnomaly call succeeds (BM-9)", ms, `isAnomaly(diana, 9998)=${anomaly}`);
       } catch (err: any) {
-        fail("REP-3", "isAnomaly call", Date.now() - t0, String(err).slice(0, 150));
+        fail("REP-4", "isAnomaly call", Date.now() - t0, String(err).slice(0, 150));
       }
     }
   }
@@ -914,54 +1104,35 @@ async function main() {
   // ── RPT: Community reports ────────────────────────────────────────────────
   console.log("\n── RPT: Community reports (DatumReports) ───────────────────");
 
-  // Use a known active campaign ID — the first ECO campaign is cid=nextBefore at script start.
-  // For reports we can use any valid campaignId, so use campaign 2 (created by setup-testnet.ts).
-  // If that doesn't exist, we'll create a fresh one.
   {
-    // Determine a report target campaign ID — check existing campaigns
     let reportCid: bigint | null = null;
 
     {
+      // Always create a fresh campaign — per-address dedup (AUDIT-023) prevents
+      // the same address from reporting the same campaign twice across runs.
       const t0 = Date.now();
       try {
-        // Try campaign ID 2 (standard setup-testnet campaign)
-        const statusRaw = await readCall(rawProvider, A.campaigns, campIface, "getCampaignStatus", [2n]);
-        const status = Number(BigInt(statusRaw[0]));
-        if (status === 1) {
-          reportCid = 2n;
-          pass("RPT-SETUP", "Using campaign 2 for report tests", Date.now() - t0,
-            `status=${STATUS_NAMES[status]}`);
-        } else {
-          // Create a fresh one
-          reportCid = await deployBenchmarkCampaign(
-            bob, diana.address, parseDOT("0.2"), parseDOT("1"), parseDOT("1"),
-          );
-          pass("RPT-SETUP", `Created fresh report campaign (cid=${reportCid})`, Date.now() - t0);
-        }
+        reportCid = await deployBenchmarkCampaign(
+          bob, diana.address, parseDOT("0.2"), parseDOT("1"), parseDOT("1"),
+        );
+        pass("RPT-SETUP", `Created fresh report campaign (cid=${reportCid})`, Date.now() - t0);
       } catch (err: any) {
-        try {
-          reportCid = await deployBenchmarkCampaign(
-            bob, diana.address, parseDOT("0.2"), parseDOT("1"), parseDOT("1"),
-          );
-          pass("RPT-SETUP", `Created fresh report campaign (cid=${reportCid})`, Date.now() - t0);
-        } catch (err2: any) {
-          fail("RPT-SETUP", "Report target campaign", Date.now() - t0, String(err2).slice(0, 100));
-        }
+        fail("RPT-SETUP", "Report target campaign", Date.now() - t0, String(err).slice(0, 100));
       }
     }
 
     if (reportCid !== null) {
-      // RPT-1: reportPage
+      // RPT-1: reportPage increments counter (use frank — fresh campaign so no dedup issue)
       {
         const t0 = Date.now();
         try {
           const before = BigInt((await readCall(rawProvider, A.reports, reportsIface, "pageReports", [reportCid]))[0]);
-          await sendCall(grace, rawProvider, A.reports, reportsIface, "reportPage", [reportCid, 1]);
-          const after = BigInt((await readCall(rawProvider, A.reports, reportsIface, "pageReports", [reportCid]))[0]);
+          await sendCall(frank, rawProvider, A.reports, reportsIface, "reportPage", [reportCid, 1]);
+          const after  = BigInt((await readCall(rawProvider, A.reports, reportsIface, "pageReports", [reportCid]))[0]);
           const ms = Date.now() - t0;
           if (after === before + 1n) {
             pass("RPT-1", "reportPage increments pageReports counter", ms,
-              `cid=${reportCid} counter: ${before}→${after}`);
+              `cid=${reportCid} ${before}→${after}`);
           } else {
             fail("RPT-1", "reportPage counter", ms, `expected +1 got ${after - before}`);
           }
@@ -970,17 +1141,17 @@ async function main() {
         }
       }
 
-      // RPT-2: reportAd
+      // RPT-2: reportAd increments counter (use grace — fresh campaign so no dedup issue)
       {
         const t0 = Date.now();
         try {
           const before = BigInt((await readCall(rawProvider, A.reports, reportsIface, "adReports", [reportCid]))[0]);
           await sendCall(grace, rawProvider, A.reports, reportsIface, "reportAd", [reportCid, 3]);
-          const after = BigInt((await readCall(rawProvider, A.reports, reportsIface, "adReports", [reportCid]))[0]);
+          const after  = BigInt((await readCall(rawProvider, A.reports, reportsIface, "adReports", [reportCid]))[0]);
           const ms = Date.now() - t0;
           if (after === before + 1n) {
             pass("RPT-2", "reportAd increments adReports counter", ms,
-              `cid=${reportCid} counter: ${before}→${after}`);
+              `cid=${reportCid} ${before}→${after}`);
           } else {
             fail("RPT-2", "reportAd counter", ms, `expected +1 got ${after - before}`);
           }
@@ -989,11 +1160,10 @@ async function main() {
         }
       }
 
-      // RPT-3: All valid reason codes (1-5) accepted — view only
+      // RPT-3: Reasons 1-5 accepted (static call)
       {
         const t0 = Date.now();
         try {
-          // Static-call reportPage with reasons 1-5 to verify no revert
           let allPassed = true;
           for (let r = 1; r <= 5; r++) {
             const data = reportsIface.encodeFunctionData("reportPage", [reportCid, r]);
@@ -1015,7 +1185,7 @@ async function main() {
         }
       }
 
-      // RPT-4: Invalid reason (0) reverts
+      // RPT-4: Reason 0 reverts
       {
         const t0 = Date.now();
         try {
@@ -1039,12 +1209,394 @@ async function main() {
     }
   }
 
+  // ── STAKE: PublisherStake bonding curve (FP-1) ────────────────────────────
+  console.log("\n── STAKE: PublisherStake bonding curve (FP-1) ──────────────");
+
+  {
+    // STAKE-1: Read contract parameters
+    {
+      const t0 = Date.now();
+      try {
+        const base    = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "baseStakePlanck", []))[0]);
+        const perImp  = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "planckPerImpression", []))[0]);
+        const delay   = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "unstakeDelayBlocks", []))[0]);
+        const ms = Date.now() - t0;
+        pass("STAKE-1", "PublisherStake parameters readable", ms,
+          `base=${formatDOT(base)} perImp=${perImp} planck delay=${delay} blocks`);
+      } catch (err: any) {
+        fail("STAKE-1", "PublisherStake params read", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+
+    // STAKE-2: Diana's staked balance and required stake
+    {
+      const t0 = Date.now();
+      try {
+        const staked    = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "staked", [diana.address]))[0]);
+        const required  = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "requiredStake", [diana.address]))[0]);
+        const adequate  = Boolean((await readCall(rawProvider, A.publisherStake, stakeIface, "isAdequatelyStaked", [diana.address]))[0]);
+        const cumImps   = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "cumulativeImpressions", [diana.address]))[0]);
+        const ms = Date.now() - t0;
+        pass("STAKE-2", "Diana stake/required/adequate reads", ms,
+          `staked=${formatDOT(staked)} required=${formatDOT(required)} adequate=${adequate} cumImps=${cumImps}`);
+      } catch (err: any) {
+        fail("STAKE-2", "Diana stake reads", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+  }
+
+  // ── NULLIFIER: NullifierRegistry replay prevention (FP-5) ─────────────────
+  console.log("\n── NULLIFIER: NullifierRegistry (FP-5) ─────────────────────");
+
+  {
+    // NULLIFIER-1: isUsed() for a never-submitted nullifier → false
+    {
+      const t0 = Date.now();
+      try {
+        const fakeNullifier = keccak256(toUtf8Bytes("benchmark-nullifier-test"));
+        const used = Boolean((await readCall(rawProvider, A.nullifierRegistry, nullIface, "isUsed",
+          [999n, fakeNullifier]))[0]);
+        const ms = Date.now() - t0;
+        if (!used) {
+          pass("NULLIFIER-1", "isUsed() returns false for fresh nullifier", ms);
+        } else {
+          fail("NULLIFIER-1", "isUsed() should return false for fresh nullifier", ms, "returned true unexpectedly");
+        }
+      } catch (err: any) {
+        fail("NULLIFIER-1", "isUsed() read", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+
+    // NULLIFIER-2: windowBlocks readable
+    {
+      const t0 = Date.now();
+      try {
+        const wb = BigInt((await readCall(rawProvider, A.nullifierRegistry, nullIface, "windowBlocks", []))[0]);
+        const ms = Date.now() - t0;
+        pass("NULLIFIER-2", "windowBlocks readable", ms, `windowBlocks=${wb}`);
+      } catch (err: any) {
+        fail("NULLIFIER-2", "windowBlocks read", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+  }
+
+  // ── VAULT: TokenRewardVault (ERC-20 sidecar) ──────────────────────────────
+  console.log("\n── VAULT: TokenRewardVault (ERC-20 sidecar) ─────────────────");
+
+  {
+    // VAULT-1: Read balances for a dummy token address (returns 0 — contract exists + no revert)
+    {
+      const t0 = Date.now();
+      try {
+        const fakeToken = "0x0000000000000000000000000000000000000001";
+        const userBal = BigInt((await readCall(rawProvider, A.tokenRewardVault, tvaultIface,
+          "userTokenBalance", [fakeToken, grace.address]))[0]);
+        const campBal = BigInt((await readCall(rawProvider, A.tokenRewardVault, tvaultIface,
+          "campaignTokenBudget", [fakeToken, 1n]))[0]);
+        const ms = Date.now() - t0;
+        pass("VAULT-1", "TokenRewardVault balance reads succeed", ms,
+          `userBal=${userBal} campBudget=${campBal} (dummy token)`);
+      } catch (err: any) {
+        fail("VAULT-1", "TokenRewardVault read", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+  }
+
+  // ── GOVROUTER: AdminGovernance + GovernanceRouter (Phase 0) ───────────────
+  console.log("\n── GOVROUTER: AdminGovernance + GovernanceRouter ───────────");
+
+  {
+    // GOVROUTER-1: GovernanceRouter phase and governor
+    {
+      const t0 = Date.now();
+      try {
+        const gov   = (await readCall(rawProvider, A.governanceRouter, govRouterIface, "governor", []))[0];
+        const phase = BigInt((await readCall(rawProvider, A.governanceRouter, govRouterIface, "phase", []))[0]);
+        const ms = Date.now() - t0;
+        const phaseNames = ["Admin", "Council", "FullDAO"];
+        const phaseName  = phaseNames[Number(phase)] ?? `unknown(${phase})`;
+        if (gov.toLowerCase() === A.adminGovernance.toLowerCase()) {
+          pass("GOVROUTER-1", `Router.governor=AdminGovernance, phase=${phaseName}`, ms);
+        } else {
+          fail("GOVROUTER-1", "Router.governor mismatch", ms,
+            `got ${gov} expected ${A.adminGovernance}`);
+        }
+      } catch (err: any) {
+        fail("GOVROUTER-1", "GovernanceRouter reads", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+
+    // GOVROUTER-2: AdminGovernance can activate a test campaign (end-to-end)
+    {
+      const t0 = Date.now();
+      try {
+        const cid = await deployBenchmarkCampaign(
+          bob, diana.address, parseDOT("0.1"), parseDOT("1"), parseDOT("1"),
+        );
+        const ms = Date.now() - t0;
+        pass("GOVROUTER-2", `AdminGovernance activated campaign ${cid} via router`, ms);
+      } catch (err: any) {
+        fail("GOVROUTER-2", "AdminGovernance activation via router", Date.now() - t0, String(err).slice(0, 150));
+      }
+    }
+  }
+
+  // ── PARAMGOV: ParameterGovernance reads ───────────────────────────────────
+  console.log("\n── PARAMGOV: ParameterGovernance ───────────────────────────");
+
+  {
+    // PARAMGOV-1: Read all governance parameters
+    {
+      const t0 = Date.now();
+      try {
+        const quorum      = BigInt((await readCall(rawProvider, A.parameterGovernance, paramIface, "quorum", []))[0]);
+        const votingBlks  = BigInt((await readCall(rawProvider, A.parameterGovernance, paramIface, "votingPeriodBlocks", []))[0]);
+        const timelockBlks= BigInt((await readCall(rawProvider, A.parameterGovernance, paramIface, "timelockBlocks", []))[0]);
+        const bond        = BigInt((await readCall(rawProvider, A.parameterGovernance, paramIface, "proposeBond", []))[0]);
+        const nextId      = BigInt((await readCall(rawProvider, A.parameterGovernance, paramIface, "nextProposalId", []))[0]);
+        const ms = Date.now() - t0;
+        pass("PARAMGOV-1", "ParameterGovernance parameters readable", ms,
+          `quorum=${formatDOT(quorum)} votingBlks=${votingBlks} timelockBlks=${timelockBlks} bond=${formatDOT(bond)} nextId=${nextId}`);
+      } catch (err: any) {
+        fail("PARAMGOV-1", "ParameterGovernance reads", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+  }
+
+  // ── MULTI: settleClaimsMulti — 2-user × 1-campaign batch ─────────────────
+  console.log("\n── MULTI: settleClaimsMulti (2 users × 1 campaign) ─────────");
+
+  {
+    const CPM    = parseDOT("0.2");
+    const BUDGET = parseDOT("3");
+
+    // MULTI-1: Create shared campaign, settle for frank + charlie in one TX
+    {
+      const t0 = Date.now();
+      try {
+        const multiCid = await deployBenchmarkCampaign(
+          bob, diana.address, CPM, BUDGET, BUDGET,
+        );
+        console.log(`  [INFO] MULTI: campaign ${multiCid} active`);
+
+        // Read on-chain nonce/prevHash before building claims (idempotent on re-run)
+        const frankNonceBefore   = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [frank.address,   multiCid, 0]))[0]);
+        const charlieNonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, multiCid, 0]))[0]);
+        const frankPrevHash   = frankNonceBefore   === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [frank.address,   multiCid, 0]))[0] as string;
+        const charliePrevHash = charlieNonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [charlie.address, multiCid, 0]))[0] as string;
+
+        // Build claims for two different users (frank, charlie)
+        const claimsFrank   = await buildClaims(rawProvider, multiCid, diana.address, frank.address,   1, CPM, 50n, new Array(8).fill(ZeroHash), 0, frankNonceBefore,   frankPrevHash);
+        const claimsCharlie = await buildClaims(rawProvider, multiCid, diana.address, charlie.address, 1, CPM, 75n, new Array(8).fill(ZeroHash), 0, charlieNonceBefore, charliePrevHash);
+
+        // settleClaimsMulti: each entry has a user + array of CampaignClaims
+        const frankBatch   = { user: frank.address,   campaigns: [{ campaignId: multiCid, claims: claimsFrank }] };
+        const charlieBatch = { user: charlie.address, campaigns: [{ campaignId: multiCid, claims: claimsCharlie }] };
+
+        // Paseo eth_call forbids SSTORE → use real TX + nonce-delta.
+        // diana is the publisher's relaySigner → passes E32 auth check for both user batches.
+
+        await sendCall(diana, rawProvider, A.settlement, settleIface, "settleClaimsMulti",
+          [[frankBatch, charlieBatch]]);
+
+        const frankNonceAfter   = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [frank.address,   multiCid, 0]))[0]);
+        const charlieNonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [charlie.address, multiCid, 0]))[0]);
+
+        const settled  = (frankNonceAfter - frankNonceBefore) + (charlieNonceAfter - charlieNonceBefore);
+        const rejected = 2n - settled;
+        const ms = Date.now() - t0;
+
+        if (settled === 2n && rejected === 0n) {
+          pass("MULTI-1", "settleClaimsMulti 2-user × 1-campaign: both settled", ms);
+        } else {
+          fail("MULTI-1", "settleClaimsMulti 2-user batch", ms,
+            `settled=${settled} rejected=${rejected} (frank: ${frankNonceAfter - frankNonceBefore}, charlie: ${charlieNonceAfter - charlieNonceBefore})`);
+        }
+      } catch (err: any) {
+        fail("MULTI-1", "settleClaimsMulti", Date.now() - t0, String(err).slice(0, 200));
+      }
+    }
+  }
+
+  // ── PAUSE: 2-of-3 guardian pause/unpause flow (C-4) ─────────────────────
+  // Run last — pauses the whole system, then unpauses. Any mid-test failure
+  // leaves the system paused; re-run or manually unpause via guardian approve().
+  console.log("\n── PAUSE: 2-of-3 guardian pause/unpause (C-4) ──────────────");
+
+  {
+    // PAUSE-1: Read current paused state and guardians
+    {
+      const t0 = Date.now();
+      try {
+        const isPaused = Boolean((await readCall(rawProvider, A.pauseRegistry, pauseIface, "paused", []))[0]);
+        const g0 = (await readCall(rawProvider, A.pauseRegistry, pauseIface, "guardians", [0]))[0];
+        const g1 = (await readCall(rawProvider, A.pauseRegistry, pauseIface, "guardians", [1]))[0];
+        const g2 = (await readCall(rawProvider, A.pauseRegistry, pauseIface, "guardians", [2]))[0];
+        const ms = Date.now() - t0;
+        pass("PAUSE-1", "PauseRegistry state readable", ms,
+          `paused=${isPaused} g0=${g0.slice(0,10)}... g1=${g1.slice(0,10)}... g2=${g2.slice(0,10)}...`);
+        if (isPaused) {
+          console.log("  [WARN] System is already paused — skipping PAUSE-2/3/4/5/6");
+        }
+      } catch (err: any) {
+        fail("PAUSE-1", "PauseRegistry reads", Date.now() - t0, String(err).slice(0, 100));
+      }
+    }
+
+    // PAUSE-2/3: Alice proposes pause, Bob approves → system pauses
+    // PAUSE-4: Verify paused state
+    // PAUSE-5/6: Alice proposes unpause, Bob approves → system unpauses
+    {
+      // Check if currently unpaused before running pause flow
+      let skipPauseFlow = false;
+      try {
+        const isPaused = Boolean((await readCall(rawProvider, A.pauseRegistry, pauseIface, "paused", []))[0]);
+        if (isPaused) skipPauseFlow = true;
+      } catch { skipPauseFlow = true; }
+
+      if (skipPauseFlow) {
+        console.log("  [SKIP] PAUSE-2/3/4/5/6 — system already paused");
+      } else {
+        // PAUSE-2: Alice (guardian 0) proposes a pause
+        let proposalId: bigint | null = null;
+        {
+          const t0 = Date.now();
+          try {
+            // Get Alice's nonce before the tx
+            const nonceBefore = await rawProvider.getTransactionCount(alice.address);
+            const data = pauseIface.encodeFunctionData("propose", [1]);  // action=1 → pause
+            await alice.sendTransaction({ to: A.pauseRegistry, data, ...TX_OPTS });
+            await waitForNonce(rawProvider, alice.address, nonceBefore);
+
+            // Read proposalId from event logs or estimate as nonce+1 (no easy view fn)
+            // We'll assume it's 1 + the previous proposal nonce.
+            // Since we can't easily read _proposalNonce (private), use a workaround:
+            // re-call propose staticCall to check that a second call from same guardian reverts (state proof)
+            // Instead: just use 1n for the first benchmark run; increment if needed.
+            // For idempotency, we try proposalId=1 then 2 up to 10.
+            const ms = Date.now() - t0;
+            pass("PAUSE-2", "Guardian 0 (Alice) proposed pause", ms, "proposalId TBD");
+          } catch (err: any) {
+            fail("PAUSE-2", "Guardian propose pause", Date.now() - t0, String(err).slice(0, 150));
+            skipPauseFlow = true;
+          }
+        }
+
+        if (!skipPauseFlow) {
+          // Try to find which proposalId was created by checking approvability
+          // Binary-search proposalIds 1..20 to find the one Bob can approve
+          {
+            const t0 = Date.now();
+            try {
+              // Try each proposalId; find the one that Bob hasn't voted on yet
+              let approvedId: bigint | null = null;
+              for (let pid = 1n; pid <= 20n; pid++) {
+                try {
+                  const data = pauseIface.encodeFunctionData("approve", [pid]);
+                  // static call — only succeeds if proposal exists, not executed, Bob hasn't voted
+                  await rawProvider.call({ to: A.pauseRegistry, data, from: bob.address });
+                  approvedId = pid;
+                  break;
+                } catch { /* try next */ }
+              }
+
+              if (approvedId === null) {
+                fail("PAUSE-3", "Find approvable proposalId", Date.now() - t0, "no valid proposal found (guardian not set up?)");
+                skipPauseFlow = true;
+              } else {
+                // PAUSE-3: Bob (guardian 1) approves → system pauses
+                await sendCall(bob, rawProvider, A.pauseRegistry, pauseIface, "approve", [approvedId]);
+                const isPaused = Boolean((await readCall(rawProvider, A.pauseRegistry, pauseIface, "paused", []))[0]);
+                const ms = Date.now() - t0;
+                if (isPaused) {
+                  pass("PAUSE-3", `Guardian 1 (Bob) approved proposalId=${approvedId} → system PAUSED`, ms);
+                } else {
+                  fail("PAUSE-3", "System should be paused after 2nd guardian approve", ms, "paused=false");
+                  skipPauseFlow = true;
+                }
+              }
+            } catch (err: any) {
+              fail("PAUSE-3", "Guardian approve", Date.now() - t0, String(err).slice(0, 150));
+              skipPauseFlow = true;
+            }
+          }
+
+          // PAUSE-4: Verify settlement rejects with "P" while paused
+          // Paseo eth_call forbids SSTORE (nonReentrant) → use real TX + settlement nonce-delta.
+          // The pause check fires and the TX reverts; the settlement lastNonce stays unchanged.
+          if (!skipPauseFlow) {
+            const t0 = Date.now();
+            try {
+              const settlNonceBefore = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, 1n, 0]))[0]);
+              const p4PrevHash = settlNonceBefore === 0n ? ZeroHash : (await readCall(rawProvider, A.settlement, settleIface, "lastClaimHash", [grace.address, 1n, 0]))[0] as string;
+              const fakeClaims = await buildClaims(rawProvider, 1n, diana.address, grace.address, 1, parseDOT("0.1"), 1n, new Array(8).fill(ZeroHash), 0, settlNonceBefore, p4PrevHash);
+              const batch = { user: grace.address, campaignId: 1n, claims: fakeClaims };
+              // Send real TX — expect it to be included but reverted due to pause
+              const ethNonceBefore = await rawProvider.getTransactionCount(grace.address);
+              const data = settleIface.encodeFunctionData("settleClaims", [[batch]]);
+              await grace.sendTransaction({ to: A.settlement, data, ...TX_OPTS });
+              await waitForNonce(rawProvider, grace.address, ethNonceBefore);
+              const settlNonceAfter = BigInt((await readCall(rawProvider, A.settlement, settleIface, "lastNonce", [grace.address, 1n, 0]))[0]);
+              const ms = Date.now() - t0;
+              if (settlNonceAfter === settlNonceBefore) {
+                pass("PAUSE-4", "Settlement reverts with 'P' while system paused (nonce unchanged)", ms);
+              } else {
+                fail("PAUSE-4", "Settlement should revert while paused", ms,
+                  `settlNonce advanced from ${settlNonceBefore} to ${settlNonceAfter}`);
+              }
+            } catch (err: any) {
+              fail("PAUSE-4", "Pause enforcement check", Date.now() - t0, String(err).slice(0, 150));
+            }
+          }
+
+          // PAUSE-5: Alice proposes unpause
+          if (!skipPauseFlow) {
+            const t0 = Date.now();
+            try {
+              await sendCall(alice, rawProvider, A.pauseRegistry, pauseIface, "propose", [2]);  // action=2 → unpause
+              pass("PAUSE-5", "Guardian 0 (Alice) proposed unpause", Date.now() - t0);
+            } catch (err: any) {
+              fail("PAUSE-5", "Guardian propose unpause", Date.now() - t0, String(err).slice(0, 150));
+              skipPauseFlow = true;
+            }
+          }
+
+          // PAUSE-6: Bob approves unpause → system unpauses
+          if (!skipPauseFlow) {
+            const t0 = Date.now();
+            try {
+              let unpaused = false;
+              for (let pid = 1n; pid <= 30n; pid++) {
+                try {
+                  const data = pauseIface.encodeFunctionData("approve", [pid]);
+                  await rawProvider.call({ to: A.pauseRegistry, data, from: bob.address });
+                  await sendCall(bob, rawProvider, A.pauseRegistry, pauseIface, "approve", [pid]);
+                  const isPaused = Boolean((await readCall(rawProvider, A.pauseRegistry, pauseIface, "paused", []))[0]);
+                  if (!isPaused) { unpaused = true; break; }
+                } catch { /* try next */ }
+              }
+              const ms = Date.now() - t0;
+              if (unpaused) {
+                pass("PAUSE-6", "Guardian 1 (Bob) approved unpause → system UNPAUSED", ms);
+              } else {
+                fail("PAUSE-6", "System should be unpaused after guardian approve", ms, "paused still true");
+              }
+            } catch (err: any) {
+              fail("PAUSE-6", "Guardian approve unpause", Date.now() - t0, String(err).slice(0, 150));
+              console.log("\n  *** CRITICAL: system may still be paused! Run guardian approve() to unpause. ***\n");
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // Summary
   // ══════════════════════════════════════════════════════════════════════════
   const passed = results.filter(r => r.passed).length;
   const total  = results.length;
-  const avgMs  = results.reduce((s, r) => s + r.durationMs, 0) / total;
+  const avgMs  = total > 0 ? results.reduce((s, r) => s + r.durationMs, 0) / total : 0;
 
   console.log("\n══════════════════════════════════════════════════════════════");
   console.log("  BENCHMARK SUMMARY");

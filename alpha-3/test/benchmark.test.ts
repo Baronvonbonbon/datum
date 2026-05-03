@@ -90,6 +90,10 @@ function expectedPayments(cpm: bigint, impressions: bigint, claimCount: number) 
 }
 
 // Build a linked claim chain (keccak256 — EVM-compatible on Hardhat)
+const ZK_EMPTY = new Array(8).fill(ethers.ZeroHash) as string[];
+const ZK_STUB  = ["0x0000000000000000000000000000000000000000000000000000000000000001", ...new Array(7).fill(ethers.ZeroHash)] as string[];
+const NO_SIG   = [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] as string[];
+
 function buildClaims(
   campaignId: bigint,
   publisherAddr: string,
@@ -97,7 +101,7 @@ function buildClaims(
   count: number,
   cpm: bigint,
   impressions: bigint,
-  zkProof: string = "0x",
+  zkProof: string[] = ZK_EMPTY,
 ) {
   const claims = [];
   let prevHash = ethers.ZeroHash;
@@ -119,7 +123,7 @@ function buildClaims(
       claimHash: hash,
       zkProof,
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: NO_SIG,
     });
     prevHash = hash;
   }
@@ -433,7 +437,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-ZK-1: ZK campaign rejects claim with empty proof (reason 16)", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM, publisher, [], true);
-      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, "0x");
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, ZK_EMPTY);
       const batch  = { user: user.address, campaignId: cid, claims };
       const result = await settlement.connect(user).settleClaims.staticCall([batch]);
       expect(result.rejectedCount).to.equal(1n);
@@ -444,10 +448,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-ZK-2: ZK campaign settles with non-empty stub proof", async function () {
-      // Non-empty proof — stub verifier (length > 0 → valid)
-      const ZK_STUB_PROOF = "0xdeadbeef01020304"; // 8 bytes — any non-empty value
+      // Non-zero bytes32[8] — stub verifier (any non-zero element → valid)
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM, publisher, [], true);
-      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, ZK_STUB_PROOF);
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, ZK_STUB);
       const batch  = { user: user.address, campaignId: cid, claims };
       const result = await settlement.connect(user).settleClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
@@ -455,9 +458,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await settlement.connect(user).settleClaims([batch]);
     });
 
-    it("BM-ZK-3: Non-ZK campaign settles without proof (zkProof=0x)", async function () {
+    it("BM-ZK-3: Non-ZK campaign settles without proof (zkProof=empty)", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM, publisher, [], false);
-      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, "0x");
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, ZK_EMPTY);
       const batch  = { user: user.address, campaignId: cid, claims };
       const result = await settlement.connect(user).settleClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
@@ -467,9 +470,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     it("BM-ZK-4: Mixed ZK/non-ZK batch across all price points", async function () {
       // Each scenario: 1 ZK-required campaign + stub proof → settles
       for (const s of DOT_PRICE_SCENARIOS) {
-        const ZK_PROOF = "0xabcdef";
         const cid = await newActiveCampaign(s.budget, s.dailyCap, s.cpm, publisher, [], true);
-        const claims = buildClaims(cid, publisher.address, user.address, 1, s.cpm, 100n, ZK_PROOF);
+        const claims = buildClaims(cid, publisher.address, user.address, 1, s.cpm, 100n, ZK_STUB);
         const batch  = { user: user.address, campaignId: cid, claims };
         const r = await settlement.connect(user).settleClaims.staticCall([batch]);
         expect(r.settledCount).to.equal(1n, `${s.label}: ZK campaign should settle`);
@@ -575,9 +577,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         nonce: 1n,
         previousClaimHash: ethers.ZeroHash,
         claimHash: hash,
-        zkProof: "0x",
+        zkProof: ZK_EMPTY,
         nullifier: ethers.ZeroHash,
-        actionSig: "0x",
+        actionSig: NO_SIG,
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }
@@ -871,7 +873,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-GAS-6: settleClaims gas — ZK claim × 100 imps", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM, publisher, [], true);
-      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, "0xdeadbeef");
+      const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n, ZK_STUB);
       await gasFor("settleClaims (1 ZK claim × 100 imps)", () =>
         settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }])
       );

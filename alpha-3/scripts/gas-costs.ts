@@ -30,8 +30,9 @@ import * as fs from "fs";
 import * as path from "path";
 
 // ── Deployed addresses ────────────────────────────────────────────────────────
+const addrFileName = process.env.DATUM_EVM === "1" ? "deployed-addresses-evm.json" : "deployed-addresses.json";
 const ADDR = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "deployed-addresses.json"), "utf-8")
+  fs.readFileSync(path.join(__dirname, "..", addrFileName), "utf-8")
 );
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
@@ -377,8 +378,8 @@ async function main() {
     "wire settlement — idempotent");
   await est("Reputation", ADDR.reputation,
     "recordSettlement(address publisher, uint256 campaignId, uint256 settled, uint256 rejected)",
-    [diana.address, 1n, 100n, 10n], PK.settlement,
-    "called by settlement contract");
+    [diana.address, 1n, 100n, 10n], PK.alice,
+    "only callable by Settlement contract — will revert");
 
   view("Reputation", "getScore(address) → uint16");
   view("Reputation", "isAnomaly(address, uint256) → bool");

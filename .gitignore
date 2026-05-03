@@ -25,3 +25,4 @@ alpha-3/circuits/ptau12.ptau
 alpha-3/circuits/impression_0000.zkey
 alpha-3/circuits/impression.r1cs
 alpha-3/circuits/impression.sym
+.env

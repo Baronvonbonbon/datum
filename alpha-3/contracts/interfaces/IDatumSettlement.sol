@@ -19,9 +19,9 @@ interface IDatumSettlement {
         uint256 nonce;
         bytes32 previousClaimHash;
         bytes32 claimHash;
-        bytes   zkProof;             // Groth16 proof bytes; empty if not required
+        bytes32[8] zkProof;          // Groth16/BN254: 8 × uint256 (256 bytes); all-zero = no proof
         bytes32 nullifier;           // FP-5: Poseidon(userSecret, campaignId, windowId); bytes32(0) = skip
-        bytes   actionSig;           // type-2 only: ECDSA sig from actionVerifier EOA over claimHash
+        bytes32[3] actionSig;        // type-2 only: ECDSA [r, s, v-as-bytes32]; all-zero = no sig
     }
 
     struct ClaimBatch {

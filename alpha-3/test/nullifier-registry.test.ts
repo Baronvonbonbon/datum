@@ -292,9 +292,9 @@ describe("DatumNullifierRegistry — Settlement integration", function () {
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     };
   }
 
@@ -348,9 +348,9 @@ describe("DatumNullifierRegistry — Settlement integration", function () {
       nonce: 1n,
       previousClaimHash: ethers.ZeroHash,
       claimHash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,  // skip registry
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([

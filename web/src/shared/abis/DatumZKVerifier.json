@@ -124,6 +124,11 @@
             "internalType": "uint256[2]",
             "name": "IC2",
             "type": "uint256[2]"
+          },
+          {
+            "internalType": "uint256[2]",
+            "name": "IC3",
+            "type": "uint256[2]"
           }
         ],
         "internalType": "struct DatumZKVerifier.VerifyingKey",
@@ -203,6 +208,11 @@
         "internalType": "uint256[2]",
         "name": "IC2",
         "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "IC3",
+        "type": "uint256[2]"
       }
     ],
     "name": "setVerifyingKey",
@@ -239,6 +249,11 @@
         "internalType": "bytes32",
         "name": "nullifier",
         "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "impressionCount",
+        "type": "uint256"
       }
     ],
     "name": "verify",

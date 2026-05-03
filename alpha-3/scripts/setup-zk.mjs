@@ -123,7 +123,8 @@ const calldata = {
   delta2: g2eip197(vk.vk_delta_2),
   IC0:    g1(vk.IC[0]),
   IC1:    g1(vk.IC[1]),
-  IC2:    g1(vk.IC[2]),  // FP-5: second public input (nullifier)
+  IC2:    g1(vk.IC[2]),  // second public input (nullifier)
+  IC3:    g1(vk.IC[3]),  // third public input (impressions) — publisher cannot inflate eventCount
 };
 writeFileSync(
   path.join(CIRCUITS, "setVK-calldata.json"),
@@ -160,7 +161,7 @@ try {
   const sampleInput = {
     claimHash:   "0",
     nullifier:   nullifierValue,
-    impressions: "100",
+    impressions: "100",   // now public: publicSignals[2] == "100"
     nonce:       "1",
     secret:      "42",
     campaignId:  "1",

@@ -72,9 +72,9 @@ describe("DatumSettlement.settleClaimsMulti", function () {
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
-        zkProof: "0x",
+        zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
-        actionSig: "0x",
+        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
       });
       prevHash = hash;
     }

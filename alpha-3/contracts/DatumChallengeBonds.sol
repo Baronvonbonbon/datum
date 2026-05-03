@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 
 /// @title DatumChallengeBonds
@@ -23,7 +20,16 @@ import "./interfaces/IDatumChallengeBonds.sol";
 ///         returnBond — called by DatumCampaignLifecycle on complete/expire
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution
 ///         claimBonus — called by advertiser directly
-contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard, Ownable2Step {
+contract DatumChallengeBonds is IDatumChallengeBonds {
+    /// @notice Owner of the contract.
+    address public owner;
+
+    /// @notice Pending owner for 2-step ownership transfer.
+    address public pendingOwner;
+
+    /// @notice Reentrancy guard lock.
+    uint256 private _locked;
+
     /// @notice Campaigns contract — authorised to call lockBond.
     address public campaignsContract;
 
@@ -43,9 +49,25 @@ contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard, Ownable2S
     mapping(address => uint256) private _bonusPool;
     mapping(uint256 => bool)    private _bonusClaimed;
 
+    // ── Modifiers ──────────────────────────────────────────────────────────────
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(_locked == 0, "E57");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
+
     // ── Constructor ────────────────────────────────────────────────────────────
 
-    constructor() Ownable(msg.sender) {}
+    constructor() {
+        owner = msg.sender;
+    }
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
@@ -64,22 +86,15 @@ contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard, Ownable2S
         governanceContract = addr;
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     receive() external payable { revert("E03"); }
@@ -145,8 +160,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, ReentrancyGuard, Ownable2S
         uint256 pool  = _bonusPool[publisher];
         require(pool > 0, "E03"); // no bonus pool yet
 
-        // AUDIT-013: Use Math.mulDiv for overflow-safe proportional share; cap to pool balance
-        uint256 share = Math.mulDiv(bondAmt, pool, total);
+        // AUDIT-013: Use proportional share calculation; cap to pool balance
+        uint256 share = (bondAmt * pool) / total;
         if (share > pool) share = pool;
 
         // Mark claimed and burn the bond (bond is NOT returned)

@@ -10,6 +10,20 @@ import { getUserSecret, computeWindowId } from "./poseidon";
 
 const WINDOW_BLOCKS = 14400; // 24h at 6s/block
 const LAST_BLOCK_KEY = "pollLastBlock";
+const ZK_EMPTY: string[] = new Array(8).fill(ZeroHash);
+const SIG_EMPTY: string[] = [ZeroHash, ZeroHash, ZeroHash];
+
+/** Parse a 65-byte ECDSA signature hex into bytes32[3] = [r, s, v_as_bytes32]. */
+function parseSigToArray(sig: string): string[] {
+  if (Array.isArray(sig)) return sig as string[];
+  if (!sig || sig === "0x" || sig.length < 132) return SIG_EMPTY;
+  const hex = sig.startsWith("0x") ? sig.slice(2) : sig;
+  if (hex.length < 130) return SIG_EMPTY;
+  const r = "0x" + hex.slice(0, 64);
+  const s = "0x" + hex.slice(64, 128);
+  const v = parseInt(hex.slice(128, 130), 16);
+  return [r, s, "0x" + v.toString(16).padStart(64, "0")];
+}
 
 /** Blake2-256 hash of ABI-packed values. Matches ISystem(0x900).hashBlake256() on PolkaVM. */
 function blake2Hash(types: string[], values: unknown[]): string {
@@ -134,7 +148,7 @@ export const claimBuilder = {
       );
 
       // Generate real Groth16 proof + nullifier if campaign requires it (FP-5)
-      let zkProof = "0x";
+      let zkProof: string[] = ZK_EMPTY;
       let nullifier = ZeroHash; // bytes32(0) → NullifierRegistry skips check for non-ZK
       if (campaign.requiresZkProof) {
         const userSecret = await getUserSecret();
@@ -142,7 +156,7 @@ export const claimBuilder = {
         const lastBlock: number = blockStored[LAST_BLOCK_KEY] ?? 0;
         const windowId = computeWindowId(lastBlock, WINDOW_BLOCKS);
         const zk = await generateZKProof(claimHash, eventCount, nonce, userSecret, campaignId, windowId);
-        zkProof = zk.proofBytes;
+        zkProof = zk.proofArray;
         nullifier = zk.nullifier;
       }
 
@@ -158,7 +172,7 @@ export const claimBuilder = {
         claimHash,
         zkProof,
         nullifier,
-        actionSig: "0x",
+        actionSig: SIG_EMPTY,
       };
 
       // Persist updated chain state
@@ -226,9 +240,9 @@ export const claimBuilder = {
         nonce,
         previousClaimHash,
         claimHash,
-        zkProof: "0x",
+        zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
-        actionSig: "0x",
+        actionSig: SIG_EMPTY,
       };
 
       await setChainState(userAddress, msg.campaignId, 1, {
@@ -288,9 +302,9 @@ export const claimBuilder = {
         nonce,
         previousClaimHash,
         claimHash,
-        zkProof: "0x",
+        zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
-        actionSig: msg.actionSig,
+        actionSig: parseSigToArray(msg.actionSig),
       };
 
       await setChainState(userAddress, msg.campaignId, 2, {
@@ -360,9 +374,9 @@ interface SerializedClaim {
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
-  zkProof: string;
+  zkProof: string[];
   nullifier: string;
-  actionSig: string;
+  actionSig: string[];
   userAddress: string;
 }
 

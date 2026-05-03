@@ -19,9 +19,9 @@ export interface Claim {
   nonce: bigint;
   previousClaimHash: string;  // bytes32 hex
   claimHash: string;          // bytes32 hex
-  zkProof: string;            // bytes hex, "0x" for non-ZK campaigns
+  zkProof: string[];          // bytes32[8] — 8 BN254 scalars; all ZeroHash for non-ZK campaigns
   nullifier: string;          // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
-  actionSig: string;          // bytes hex, "0x" for type-0/1; 65-byte sig for type-2
+  actionSig: string[];        // bytes32[3] — [r, s, v_as_bytes32]; all ZeroHash for type-0/1
 }
 
 export interface ClaimBatch {
@@ -365,9 +365,9 @@ export interface SerializedClaim {
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
-  zkProof: string;
+  zkProof: string[];           // bytes32[8] — serialized as JSON array of hex strings
   nullifier: string;           // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
-  actionSig: string;           // bytes hex; "0x" for type-0/1
+  actionSig: string[];         // bytes32[3] — [r, s, v_as_bytes32]
 }
 
 export interface SerializedClaimBatch {

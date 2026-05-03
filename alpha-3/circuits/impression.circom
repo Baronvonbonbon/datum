@@ -8,15 +8,18 @@ include "../node_modules/circomlib/circuits/poseidon.circom";
 ///         commits to a per-user per-campaign per-window nullifier (FP-5).
 ///
 /// Public inputs:
-///   claimHash  — blake256/keccak256(campaignId, publisher, user, impressions, cpm, nonce, prevHash)
-///                truncated to BN254 scalar field: uint256(hash) % r
-///                (DatumZKVerifier performs this truncation before verify)
-///   nullifier  — Poseidon(secret, campaignId, windowId)
-///                deterministic per user/campaign/window; submitted to DatumNullifierRegistry
-///                to prevent replay across batches in the same window.
+///   claimHash   — blake256/keccak256(campaignId, publisher, user, eventCount, ratePlanck, actionType,
+///                 clickSessionHash, nonce, prevHash)
+///                 truncated to BN254 scalar field: uint256(hash) % r
+///                 (DatumZKVerifier performs this truncation before verify)
+///   nullifier   — Poseidon(secret, campaignId, windowId)
+///                 deterministic per user/campaign/window; submitted to DatumNullifierRegistry
+///                 to prevent replay across batches in the same window.
+///   impressions — impression count in this batch (must be ≥ 1)
+///                 PUBLIC so DatumZKVerifier.verify() can enforce claim.eventCount == proof.impressions.
+///                 A publisher cannot inflate eventCount without invalidating the Groth16 pairing check.
 ///
 /// Private witnesses:
-///   impressions — impression count in this batch (must be ≥ 1)
 ///   nonce       — claim nonce from the claim struct
 ///   secret      — user's private secret (never revealed; kept client-side)
 ///   campaignId  — campaign ID (committed through nullifier; prevents cross-campaign reuse)
@@ -31,11 +34,11 @@ include "../node_modules/circomlib/circuits/poseidon.circom";
 ///
 /// Trusted setup:
 ///   Re-run `node scripts/setup-zk.mjs` after modifying this file to regenerate
-///   impression.zkey, vk.json, and setVK-calldata.json (now with IC0, IC1, IC2).
+///   impression.zkey, vk.json, and setVK-calldata.json (now with IC0, IC1, IC2, IC3).
 template ImpressionClaim() {
     signal input claimHash;    // public: claim hash (ties proof to on-chain claim)
     signal input nullifier;    // public: Poseidon(secret, campaignId, windowId)
-    signal input impressions;  // private: impression count
+    signal input impressions;  // public: impression count — publisher cannot change eventCount without invalidating proof
     signal input nonce;        // private: claim nonce
     signal input secret;       // private: user's secret (never revealed)
     signal input campaignId;   // private: campaign ID (committed through nullifier)
@@ -60,4 +63,4 @@ template ImpressionClaim() {
     h.out === nullifier;
 }
 
-component main {public [claimHash, nullifier]} = ImpressionClaim();
+component main {public [claimHash, nullifier, impressions]} = ImpressionClaim();

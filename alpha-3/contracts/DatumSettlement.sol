@@ -72,6 +72,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
     uint256 private constant USER_SHARE_BPS = 7500;
     uint256 private constant BPS_DENOMINATOR = 10000;
 
+    // Compile-time selectors — avoid resolc runtime keccak256 TRAP
+    bytes4 private constant SEL_RELAY_SIGNER   = bytes4(keccak256("relaySigner(address)"));
+    bytes4 private constant SEL_GET_SCORE      = bytes4(keccak256("getScore(address)"));
+    bytes4 private constant SEL_RECORD_SETTLE  = bytes4(keccak256("recordSettlement(address,uint256,uint256,uint256)"));
+
     // BM-10: Minimum blocks between settlement batches per user per campaign (0 = disabled)
     uint16 public minClaimInterval;
     mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public lastSettlementBlock;
@@ -225,7 +230,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
             bool isPublisherRelay = false;
             if (publishers != address(0) && batch.claims.length > 0) {
                 (bool rsOk, bytes memory rsRet) = publishers.staticcall(
-                    abi.encodeWithSelector(bytes4(keccak256("relaySigner(address)")), batch.claims[0].publisher)
+                    abi.encodeWithSelector(SEL_RELAY_SIGNER, batch.claims[0].publisher)
                 );
                 if (rsOk && rsRet.length >= 32) {
                     address pubRelay = abi.decode(rsRet, (address));
@@ -264,7 +269,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
                 bool isPublisherRelay = false;
                 if (publishers != address(0) && cc.claims.length > 0) {
                     (bool rsOk, bytes memory rsRet) = publishers.staticcall(
-                        abi.encodeWithSelector(bytes4(keccak256("relaySigner(address)")), cc.claims[0].publisher)
+                        abi.encodeWithSelector(SEL_RELAY_SIGNER, cc.claims[0].publisher)
                     );
                     if (rsOk && rsRet.length >= 32) {
                         address pubRelay = abi.decode(rsRet, (address));
@@ -307,7 +312,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
 
         // All claims in a batch must share the same actionType (validated by chain state key)
         // We read actionType from the first claim for batch-level checks
-        uint8 batchActionType = claims.length > 0 ? claims[0].actionType : 0;
+        uint8 batchActionType = 0;
+        if (claims.length > 0) {
+            batchActionType = claims[0].actionType;
+        }
 
         // BM-10: Min claim interval
         uint16 interval = minClaimInterval;
@@ -326,7 +334,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
         uint16 minRepScore = minReputationScore;
         if (publisherReputation != address(0) && minRepScore > 0 && claims.length > 0) {
             (bool repOk, bytes memory repRet) = publisherReputation.staticcall(
-                abi.encodeWithSelector(bytes4(keccak256("getScore(address)")), claims[0].publisher)
+                abi.encodeWithSelector(SEL_GET_SCORE, claims[0].publisher)
             );
             if (repOk && repRet.length >= 32 && abi.decode(repRet, (uint16)) < minRepScore) {
                 for (uint256 j = 0; j < claims.length; j++) {
@@ -344,7 +352,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
         BatchAggregate memory agg;
 
         // Cache token reward config once per batch (view claims only)
-        if (tokenRewardVault != address(0) && campaigns != address(0) && batchActionType == 0) {
+        if (claims.length > 0 && tokenRewardVault != address(0) && campaigns != address(0) && batchActionType == 0) {
             (bool rtOk, bytes memory rtRet) = campaigns.staticcall(
                 abi.encodeWithSelector(bytes4(0xf00b29a9), campaignId)
             );
@@ -562,7 +570,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, Ownable2Step {
             if (batchSettled > 0 || batchRejected > 0) {
                 publisherReputation.call(
                     abi.encodeWithSelector(
-                        bytes4(keccak256("recordSettlement(address,uint256,uint256,uint256)")),
+                        SEL_RECORD_SETTLE,
                         agg.publisher, campaignId, batchSettled, batchRejected
                     )
                 );

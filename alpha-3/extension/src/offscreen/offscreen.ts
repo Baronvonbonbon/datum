@@ -67,9 +67,9 @@ async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBack
       nonce: BigInt(c.nonce),
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
-      zkProof: c.zkProof,
+      zkProof: Array.isArray(c.zkProof) ? c.zkProof : new Array(8).fill("0x" + "00".repeat(32)),
       nullifier: c.nullifier,
-      actionSig: c.actionSig ?? "0x",
+      actionSig: Array.isArray(c.actionSig) ? c.actionSig : ["0x" + "00".repeat(32), "0x" + "00".repeat(32), "0x" + "00".repeat(32)],
     })),
   }));
 

@@ -72,8 +72,9 @@ const PAUSE_GUARDIAN_2 = "0x09ce34740bCE52FB3cAa4A2D50cC2fbAD6F32C5b"; // Charli
 
 // ── File paths ───────────────────────────────────────────────────────────────
 
-const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
-const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
+const isEvm = process.env.DATUM_EVM === "1";
+const ADDR_FILE = path.join(__dirname, "..", isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json");
+const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json");
 
 // ── Required address keys (25 contracts) ─────────────────────────────────────
 
@@ -149,7 +150,7 @@ async function waitForNonce(
   throw new Error(`Timeout waiting for nonce > ${targetNonce}`);
 }
 
-async function verifyCode(provider: any, addr: string, maxWait = 30): Promise<boolean> {
+async function verifyCode(provider: any, addr: string, maxWait = 60): Promise<boolean> {
   for (let i = 0; i < maxWait; i++) {
     const code = await provider.getCode(addr);
     if (code && code !== "0x" && code.length > 2) return true;
@@ -887,6 +888,20 @@ async function main() {
     "DatumGovernanceV2", addresses.governanceV2,
     "helper", "setHelper",
     addresses.governanceHelper,
+  );
+
+  // ── GovernanceRouter: update campaigns + lifecycle when redeployed ──
+  await wireIfNeeded(
+    "GovernanceRouter.campaigns",
+    "DatumGovernanceRouter", addresses.governanceRouter,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "GovernanceRouter.lifecycle",
+    "DatumGovernanceRouter", addresses.governanceRouter,
+    "lifecycle", "setLifecycle",
+    addresses.campaignLifecycle,
   );
 
   // ── Governance ladder: Router.setGovernor(Admin=0, adminGovernance) ──

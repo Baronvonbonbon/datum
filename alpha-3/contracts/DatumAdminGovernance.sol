@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "./interfaces/IGovernanceRouter.sol";
 
 /// @title DatumAdminGovernance
 /// @notice Phase 0 governance: team multisig (owner) directly approves or
@@ -14,16 +14,24 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 ///         Transition to Phase 1 (Council):
 ///           owner → calls router.setGovernor(Council, councilAddr)
 ///           (The owner of the Router is the Timelock, so this goes through a 48h queue.)
-contract DatumAdminGovernance is Ownable2Step {
-    address public router;
+contract DatumAdminGovernance {
+    address public owner;
+    address public pendingOwner;
+    IGovernanceRouter public router;
 
     event CampaignActivated(uint256 indexed campaignId);
     event CampaignTerminated(uint256 indexed campaignId);
     event CampaignDemoted(uint256 indexed campaignId);
 
-    constructor(address _router) Ownable(msg.sender) {
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    constructor(address _router) {
         require(_router != address(0), "E00");
-        router = _router;
+        owner = msg.sender;
+        router = IGovernanceRouter(_router);
     }
 
     // -------------------------------------------------------------------------
@@ -32,28 +40,19 @@ contract DatumAdminGovernance is Ownable2Step {
 
     /// @notice Approve a Pending campaign for activation.
     function activateCampaign(uint256 campaignId) external onlyOwner {
-        (bool ok,) = router.call(
-            abi.encodeWithSelector(bytes4(keccak256("activateCampaign(uint256)")), campaignId)
-        );
-        require(ok, "E02");
+        router.activateCampaign(campaignId);
         emit CampaignActivated(campaignId);
     }
 
     /// @notice Terminate a campaign (10% slash to Router, 90% refund to advertiser).
     function terminateCampaign(uint256 campaignId) external onlyOwner {
-        (bool ok,) = router.call(
-            abi.encodeWithSelector(bytes4(keccak256("terminateCampaign(uint256)")), campaignId)
-        );
-        require(ok, "E02");
+        router.terminateCampaign(campaignId);
         emit CampaignTerminated(campaignId);
     }
 
     /// @notice Demote an Active/Paused campaign back to Pending for re-evaluation.
     function demoteCampaign(uint256 campaignId) external onlyOwner {
-        (bool ok,) = router.call(
-            abi.encodeWithSelector(bytes4(keccak256("demoteCampaign(uint256)")), campaignId)
-        );
-        require(ok, "E02");
+        router.demoteCampaign(campaignId);
         emit CampaignDemoted(campaignId);
     }
 
@@ -63,24 +62,17 @@ contract DatumAdminGovernance is Ownable2Step {
 
     function setRouter(address _router) external onlyOwner {
         require(_router != address(0), "E00");
-        router = _router;
+        router = IGovernanceRouter(_router);
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 }

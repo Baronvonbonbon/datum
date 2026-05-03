@@ -28,12 +28,16 @@ async function loadCircuit(): Promise<{ wasm: Uint8Array; zkey: Uint8Array }> {
 }
 
 /**
- * Generate a real Groth16 proof for an impression claim (FP-5 — 2-public-input circuit).
- * Public inputs:  claimHash (publicSignals[0]), nullifier (publicSignals[1])
- * Private inputs: impressions, nonce, userSecret, campaignId, windowId
+ * Generate a real Groth16 proof for an impression claim (3-public-input circuit).
+ * Public inputs:  claimHash (publicSignals[0]), nullifier (publicSignals[1]), impressions (publicSignals[2])
+ * Private inputs: nonce, userSecret, campaignId, windowId
  *
- * Returns proofBytes (256-byte ABI-encoded proof) and nullifier (bytes32 hex).
- * proofBytes matches the encoding expected by DatumZKVerifier.verify().
+ * impressions is now public so DatumZKVerifier.verify(proof, claimHash, nullifier, eventCount) can
+ * enforce that claim.eventCount matches the proof's impressions value at the pairing level.
+ * A publisher cannot inflate eventCount without invalidating the Groth16 pairing check.
+ *
+ * Returns proofArray (bytes32[8] — 8 BN254 scalars as hex strings) and nullifier (bytes32 hex).
+ * proofArray matches the bytes32[8] zkProof field in the Claim struct.
  */
 export async function generateZKProof(
   claimHash: string,
@@ -42,7 +46,7 @@ export async function generateZKProof(
   userSecret: Uint8Array,
   campaignId: bigint,
   windowId: bigint,
-): Promise<{ proofBytes: string; nullifier: string }> {
+): Promise<{ proofArray: string[]; nullifier: string }> {
   const { wasm, zkey } = await loadCircuit();
   // Dynamic import keeps snarkjs out of non-ZK code paths
   const snarkjs = await import("snarkjs");
@@ -62,9 +66,9 @@ export async function generateZKProof(
 
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasm, zkey);
 
-  // ABI-encode proof as 256 bytes.
+  // ABI-encode proof as 256 bytes, then split into 8 × bytes32 hex strings.
   // pi_b G2 point must be in EIP-197 order: [x_imag, x_real, y_imag, y_real]
-  const proofBytes = AbiCoder.defaultAbiCoder().encode(
+  const encoded = AbiCoder.defaultAbiCoder().encode(
     ["uint256[2]", "uint256[4]", "uint256[2]"],
     [
       [proof.pi_a[0], proof.pi_a[1]],
@@ -72,9 +76,11 @@ export async function generateZKProof(
       [proof.pi_c[0], proof.pi_c[1]],
     ],
   );
+  const hex = encoded.startsWith("0x") ? encoded.slice(2) : encoded;
+  const proofArray = Array.from({ length: 8 }, (_, i) => "0x" + hex.slice(i * 64, (i + 1) * 64));
 
   // publicSignals[1] is the nullifier (bytes32 as decimal string)
   const nullifier = "0x" + BigInt(publicSignals[1]).toString(16).padStart(64, "0");
 
-  return { proofBytes, nullifier };
+  return { proofArray, nullifier };
 }

@@ -453,9 +453,10 @@ async function main() {
   log("INIT", `Alice (deployer): ${alice.address}`);
 
   // Load deployed addresses
-  const addrFile = __dirname + "/../deployed-addresses.json";
+  const isEvm = process.env.DATUM_EVM === "1";
+  const addrFile = __dirname + "/../" + (isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json");
   if (!fs.existsSync(addrFile)) {
-    console.error("No deployed-addresses.json found. Run deploy script first:");
+    console.error("No " + (isEvm ? "deployed-addresses-evm.json" : "deployed-addresses.json") + " found. Run deploy script first:");
     console.error("  npx hardhat run scripts/deploy.ts --network polkadotTestnet");
     process.exitCode = 1;
     return;

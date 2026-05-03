@@ -63,9 +63,9 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
-        zkProof: "0x",
+        zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
-        actionSig: "0x",
+        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
       });
       prevHash = hash;
     }
@@ -223,9 +223,9 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       nonce,
       previousClaimHash: prevHash,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([

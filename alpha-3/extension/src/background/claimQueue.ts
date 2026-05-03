@@ -22,9 +22,9 @@ interface SerializedClaim {
   nonce: string;
   previousClaimHash: string;
   claimHash: string;
-  zkProof: string;
+  zkProof: string[];
   nullifier: string;
-  actionSig: string;
+  actionSig: string[];
   userAddress: string;
 }
 
@@ -192,8 +192,8 @@ function deserializeClaim(c: SerializedClaim): Claim {
     nonce: BigInt(c.nonce),
     previousClaimHash: c.previousClaimHash,
     claimHash: c.claimHash,
-    zkProof: c.zkProof,
+    zkProof: Array.isArray(c.zkProof) ? c.zkProof : new Array(8).fill("0x" + "00".repeat(32)),
     nullifier: c.nullifier ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
-    actionSig: c.actionSig ?? "0x",
+    actionSig: Array.isArray(c.actionSig) ? c.actionSig : ["0x" + "00".repeat(32), "0x" + "00".repeat(32), "0x" + "00".repeat(32)],
   };
 }

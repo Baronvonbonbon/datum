@@ -34,6 +34,9 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Own
     ///      30 days at 6s blocks = 432,000 blocks.
     uint256 public immutable inactivityTimeoutBlocks;
 
+    // Compile-time selectors — avoid resolc runtime keccak256 TRAP
+    bytes4 private constant SEL_RETURN_BOND = bytes4(keccak256("returnBond(uint256)"));
+
     modifier whenNotPaused() {
         require(!pauseRegistry.paused(), "P");
         _;
@@ -135,7 +138,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Own
         // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
             (bool cbOk,) = challengeBonds.call(
-                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+                abi.encodeWithSelector(SEL_RETURN_BOND, campaignId)
             );
             require(cbOk, "E02");
         }
@@ -195,7 +198,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Own
         // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
             (bool cbOk,) = challengeBonds.call(
-                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+                abi.encodeWithSelector(SEL_RETURN_BOND, campaignId)
             );
             require(cbOk, "E02");
         }
@@ -253,7 +256,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Own
         // FP-2: Return bond if set — fail-fast to protect advertiser's bond (AUDIT-003)
         if (challengeBonds != address(0)) {
             (bool cbOk,) = challengeBonds.call(
-                abi.encodeWithSelector(bytes4(keccak256("returnBond(uint256)")), campaignId)
+                abi.encodeWithSelector(SEL_RETURN_BOND, campaignId)
             );
             require(cbOk, "E02");
         }

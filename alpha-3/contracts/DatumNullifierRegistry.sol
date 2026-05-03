@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumNullifierRegistry.sol";
 
 /// @title DatumNullifierRegistry
@@ -20,7 +19,19 @@ import "./interfaces/IDatumNullifierRegistry.sol";
 ///         through the Poseidon hash inside the circuit).
 ///
 ///         25th contract in the Alpha-3 deployment.
-contract DatumNullifierRegistry is IDatumNullifierRegistry, Ownable2Step {
+contract DatumNullifierRegistry is IDatumNullifierRegistry {
+
+    // -------------------------------------------------------------------------
+    // Manual owner (OZ removed to reduce PVM bytecode)
+    // -------------------------------------------------------------------------
+
+    address public owner;
+    address public pendingOwner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
 
     // -------------------------------------------------------------------------
     // State
@@ -45,8 +56,9 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry, Ownable2Step {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(uint256 _windowBlocks) Ownable(msg.sender) {
+    constructor(uint256 _windowBlocks) {
         require(_windowBlocks > 0, "E11");
+        owner = msg.sender;
         windowBlocks = _windowBlocks;
     }
 
@@ -74,22 +86,15 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry, Ownable2Step {
         windowBlocks = _windowBlocks;
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

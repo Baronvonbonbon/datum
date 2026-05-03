@@ -142,6 +142,50 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, Ownable2Step 
     }
 
     // -------------------------------------------------------------------------
+    // L-2: Dust sweep — recover sub-ED balances locked in mappings
+    // -------------------------------------------------------------------------
+
+    /// @notice Sweep sub-threshold publisher balances to treasury. Clears dust that is
+    ///         unwithdrawable due to existential deposit requirements.
+    /// @param accounts Publisher addresses to sweep
+    /// @param threshold Minimum balance to keep (sweep amounts below this)
+    /// @param treasury Recipient for swept dust
+    function sweepPublisherDust(
+        address[] calldata accounts,
+        uint256 threshold,
+        address treasury
+    ) external onlyOwner nonReentrant {
+        require(treasury != address(0), "E00");
+        uint256 total;
+        for (uint256 i = 0; i < accounts.length; i++) {
+            uint256 bal = publisherBalance[accounts[i]];
+            if (bal > 0 && bal < threshold) {
+                total += bal;
+                publisherBalance[accounts[i]] = 0;
+            }
+        }
+        if (total > 0) _send(treasury, total);
+    }
+
+    /// @notice Sweep sub-threshold user balances to treasury.
+    function sweepUserDust(
+        address[] calldata accounts,
+        uint256 threshold,
+        address treasury
+    ) external onlyOwner nonReentrant {
+        require(treasury != address(0), "E00");
+        uint256 total;
+        for (uint256 i = 0; i < accounts.length; i++) {
+            uint256 bal = userBalance[accounts[i]];
+            if (bal > 0 && bal < threshold) {
+                total += bal;
+                userBalance[accounts[i]] = 0;
+            }
+        }
+        if (total > 0) _send(treasury, total);
+    }
+
+    // -------------------------------------------------------------------------
     // Internal
     // -------------------------------------------------------------------------
 

@@ -10,7 +10,7 @@
   "campaigns": "0x223E87164BED8802dC9Ea11fC7de660996Ecc7D1",
   "campaignLifecycle": "0x5CBA5043bA6c81d1b6885681E23c9e7f660f1E6F",
   "settlement": "0x7FC1e4faf2f665db2eEBBC04f42c92f84DD17679",
-  "claimValidator": "0xE08c3CEeeFd3D6637a62205666718001Fc7573bF",
+  "claimValidator": "0x19A6971956fBd5AEc6Ba881A799BEcaCdFA92ADF",
   "governanceV2": "0x7994Ef91E34A82f89caBa45F97d40519F15FF8c9",
   "governanceHelper": "0x78C434Fc75DaDD3082Ee2156C66afD0eca079aB4",
   "governanceSlash": "0xa22026e227DA501Bb885507D0831FBE22305c806",
@@ -29,5 +29,5 @@
   "adminGovernance": "0x9248F60219845F452F4105573B7861Cbf2848f1d",
   "council": "0x201D5D34A515ed3B319b1EDB4833cDaaCC6bc57a",
   "network": "paseoEvm",
-  "deployedAt": "2026-05-03T12:37:52.550Z"
+  "deployedAt": "2026-05-03T03:01:32.378Z"
 }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IDatumPublisherGovernance.sol";
 import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
@@ -29,8 +27,26 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (unlike GovernanceV2 campaign slash) —
 ///         they simply can't withdraw until lockup expires.
-contract DatumPublisherGovernance is IDatumPublisherGovernance, ReentrancyGuard, Ownable2Step {
+contract DatumPublisherGovernance is IDatumPublisherGovernance {
     uint8 public constant MAX_CONVICTION = 8;
+
+    // ── Ownership & Reentrancy ─────────────────────────────────────────────────
+
+    address public owner;
+    address public pendingOwner;
+    uint256 private _locked;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(_locked == 0, "E57");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
 
     // ── Conviction table (same as GovernanceV2, hardcoded for PVM size) ────────
 
@@ -91,7 +107,8 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, ReentrancyGuard,
         uint256 _slashBps,
         uint256 _bondBonusBps,
         uint256 _minGraceBlocks
-    ) Ownable(msg.sender) {
+    ) {
+        owner = msg.sender;
         require(_publisherStake != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         require(_slashBps <= 10000, "E00");
@@ -131,22 +148,15 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, ReentrancyGuard,
         minGraceBlocks = _minGrace;
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // ── Publisher governance actions ───────────────────────────────────────────

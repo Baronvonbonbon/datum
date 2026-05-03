@@ -74,9 +74,9 @@ describe("DatumSettlement", function () {
         nonce,
         previousClaimHash: prevHash,
         claimHash: hash,
-        zkProof: "0x",
+        zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
-        actionSig: "0x",
+        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
       });
       prevHash = hash;
     }
@@ -280,9 +280,9 @@ describe("DatumSettlement", function () {
       nonce,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -318,9 +318,9 @@ describe("DatumSettlement", function () {
       nonce: 1n,
       previousClaimHash: nonZeroPrev,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -376,9 +376,9 @@ describe("DatumSettlement", function () {
       nonce,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -836,7 +836,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] }],
       };
 
       const tx = await settlement.connect(user).settleClaims([batch2]);
@@ -869,7 +869,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -893,7 +893,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);

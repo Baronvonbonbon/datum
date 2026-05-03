@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 
@@ -24,7 +22,27 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 ///           Set govV2.lifecycle = router  (Router implements terminateCampaign + demoteCampaign)
 ///           → govV2 calls router.activateCampaign/terminateCampaign/demoteCampaign
 ///           → Router checks msg.sender == governor, then forwards to the real contracts.
-contract DatumGovernanceRouter is ReentrancyGuard, Ownable2Step {
+contract DatumGovernanceRouter {
+    // -------------------------------------------------------------------------
+    // Manual owner + reentrancy (OZ removed to reduce PVM bytecode)
+    // -------------------------------------------------------------------------
+
+    address public owner;
+    address public pendingOwner;
+    uint256 private _locked;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(_locked == 0, "E57");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
+
     // -------------------------------------------------------------------------
     // Phase enum
     // -------------------------------------------------------------------------
@@ -65,10 +83,11 @@ contract DatumGovernanceRouter is ReentrancyGuard, Ownable2Step {
         address _campaigns,
         address _lifecycle,
         address _governor
-    ) Ownable(msg.sender) {
+    ) {
         require(_campaigns != address(0), "E00");
         require(_lifecycle != address(0), "E00");
         require(_governor != address(0), "E00");
+        owner = msg.sender;
         campaigns = IDatumCampaignsMinimal(_campaigns);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
         governor = _governor;
@@ -113,22 +132,15 @@ contract DatumGovernanceRouter is ReentrancyGuard, Ownable2Step {
         }
     }
 
-    function _checkOwner() internal view override {
-        require(owner() == msg.sender, "E18");
-    }
-
-    function transferOwnership(address newOwner) public override onlyOwner {
+    function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "E00");
-        super.transferOwnership(newOwner);
+        pendingOwner = newOwner;
     }
 
-    function acceptOwnership() public override {
-        require(msg.sender == pendingOwner(), "E18");
-        _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // -------------------------------------------------------------------------

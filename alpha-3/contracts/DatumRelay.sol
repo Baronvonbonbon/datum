@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 
 /// @title DatumRelay
 /// @notice Publisher relay for claim settlement via EIP-712 user signatures.
-///         Alpha-2: getCampaignForSettlement returns 4 values (no remainingBudget).
-contract DatumRelay {
+///         H-4: Optional authorized relayer list with liveness fallback.
+///         H-6: Settlement and campaigns references are now mutable (Ownable2Step).
+contract DatumRelay is Ownable2Step {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -22,11 +24,11 @@ contract DatumRelay {
     );
 
     // -------------------------------------------------------------------------
-    // Immutables
+    // State (H-6: mutable references instead of immutable)
     // -------------------------------------------------------------------------
 
-    IDatumSettlement public immutable settlement;
-    IDatumCampaignsSettlement public immutable campaigns;
+    IDatumSettlement public settlement;
+    IDatumCampaignsSettlement public campaigns;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
@@ -36,10 +38,26 @@ contract DatumRelay {
     IDatumPauseRegistry public pauseRegistry;
 
     // -------------------------------------------------------------------------
+    // H-4: Authorized relayers
+    // -------------------------------------------------------------------------
+
+    mapping(address => bool) public authorizedRelayers;
+    uint256 public authorizedRelayerCount;
+    /// @notice If relay is down for > livenessThresholdBlocks, anyone can submit (liveness guarantee).
+    ///         0 = permissionless (no relayer restriction).
+    uint256 public livenessThresholdBlocks;
+    /// @notice Last block at which an authorized relayer submitted a batch.
+    uint256 public lastRelayBlock;
+
+    event RelayerAuthorized(address indexed relayer, bool authorized);
+    event SettlementUpdated(address indexed newSettlement);
+    event CampaignsUpdated(address indexed newCampaigns);
+
+    // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _settlement, address _campaigns, address _pauseRegistry) {
+    constructor(address _settlement, address _campaigns, address _pauseRegistry) Ownable(msg.sender) {
         require(_settlement != address(0), "E00");
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
@@ -56,6 +74,59 @@ contract DatumRelay {
     }
 
     // -------------------------------------------------------------------------
+    // Admin (H-6)
+    // -------------------------------------------------------------------------
+
+    function setSettlement(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        settlement = IDatumSettlement(addr);
+        emit SettlementUpdated(addr);
+    }
+
+    function setCampaigns(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        campaigns = IDatumCampaignsSettlement(addr);
+        emit CampaignsUpdated(addr);
+    }
+
+    /// @notice Add or remove an authorized relayer (H-4).
+    function setRelayerAuthorized(address relayer, bool authorized) external onlyOwner {
+        require(relayer != address(0), "E00");
+        if (authorized && !authorizedRelayers[relayer]) {
+            authorizedRelayers[relayer] = true;
+            authorizedRelayerCount++;
+        } else if (!authorized && authorizedRelayers[relayer]) {
+            authorizedRelayers[relayer] = false;
+            authorizedRelayerCount--;
+        }
+        emit RelayerAuthorized(relayer, authorized);
+    }
+
+    /// @notice Set the liveness fallback threshold. If no authorized relayer submits
+    ///         within this many blocks, anyone can submit. 0 = always permissionless.
+    function setLivenessThreshold(uint256 blocks) external onlyOwner {
+        livenessThresholdBlocks = blocks;
+    }
+
+    function _checkOwner() internal view override {
+        require(owner() == msg.sender, "E18");
+    }
+
+    function transferOwnership(address newOwner) public override onlyOwner {
+        require(newOwner != address(0), "E00");
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        require(msg.sender == pendingOwner(), "E18");
+        _transferOwnership(msg.sender);
+    }
+
+    function renounceOwnership() public override onlyOwner {
+        revert("E18");
+    }
+
+    // -------------------------------------------------------------------------
     // Relay settlement
     // -------------------------------------------------------------------------
 
@@ -64,6 +135,21 @@ contract DatumRelay {
         returns (IDatumSettlement.SettlementResult memory result)
     {
         require(!pauseRegistry.paused(), "P");
+
+        // H-4: Relayer authorization check with liveness fallback
+        if (authorizedRelayerCount > 0) {
+            if (authorizedRelayers[msg.sender]) {
+                lastRelayBlock = block.number;
+            } else {
+                // Liveness fallback: if no authorized relayer submitted recently, allow anyone
+                require(
+                    livenessThresholdBlocks > 0 &&
+                    block.number > lastRelayBlock + livenessThresholdBlocks,
+                    "E18"
+                );
+            }
+        }
+
         require(batches.length <= 10, "E28");
         IDatumSettlement.ClaimBatch[] memory forwardBatches = new IDatumSettlement.ClaimBatch[](batches.length);
 
@@ -104,8 +190,6 @@ contract DatumRelay {
             require(signer != address(0) && signer == sb.user, "E31");
 
             // Publisher co-signature (3-value return)
-            // Required for all campaigns when provided. Open campaigns verify
-            // against claims[0].publisher and enforce all claims use same publisher (SM-1).
             if (sb.publisherSig.length > 0) {
                 (, address cPublisher,) = campaigns.getCampaignForSettlement(sb.campaignId);
                 address expectedPub = cPublisher;

@@ -24,8 +24,6 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
 
     // BM-2: Matches Settlement.MAX_USER_EVENTS — prevents overflow in payment calc
     uint256 private constant MAX_CLAIM_EVENTS = 100000;
-    // ZK-2: Groth16/BN254 proof is exactly 256 bytes; 1024-byte cap guards against oversized calldata abuse.
-    uint256 private constant MAX_ZK_PROOF_SIZE = 1024;
 
     address public campaigns;
     address public publishers;
@@ -35,6 +33,8 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
     address public campaignValidator;
     // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
     address public clickRegistry;
+    // EVM mode: force keccak256 hashing (0x900 precompile stub exists but doesn't work with EVM bytecode)
+    bool public forceKeccak;
 
     constructor(address _campaigns, address _publishers, address _pauseRegistry) Ownable(msg.sender) {
         require(_campaigns != address(0), "E00");
@@ -69,6 +69,10 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
 
     function setClickRegistry(address addr) external onlyOwner {
         clickRegistry = addr;
+    }
+
+    function setForceKeccak(bool _forceKeccak) external onlyOwner {
+        forceKeccak = _forceKeccak;
     }
 
     function _checkOwner() internal view override {
@@ -191,7 +195,7 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
             claim.previousClaimHash
         );
         bytes32 computedHash;
-        if (SYSTEM_ADDR.code.length > 0) {
+        if (!forceKeccak && SYSTEM_ADDR.code.length > 0) {
             computedHash = SYSTEM.hashBlake256(packed);
         } else {
             computedHash = keccak256(packed);
@@ -204,9 +208,12 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
                 abi.encodeWithSignature("getCampaignRequiresZkProof(uint256)", claim.campaignId)
             );
             if (zkReqOk && zkReqRet.length >= 32 && abi.decode(zkReqRet, (bool))) {
-                if (claim.zkProof.length == 0 || claim.zkProof.length > MAX_ZK_PROOF_SIZE) return (false, 16, 0, bytes32(0));
+                // all-zero = no proof supplied; bytes32[8] is always 256 bytes when non-zero
+                bool proofPresent = false;
+                for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
+                if (!proofPresent) return (false, 16, 0, bytes32(0));
                 (bool zvOk, bytes memory zvRet) = zkVerifier.staticcall(
-                    abi.encodeWithSignature("verify(bytes,bytes32,bytes32)", claim.zkProof, computedHash, claim.nullifier)
+                    abi.encodeWithSignature("verify(bytes,bytes32,bytes32,uint256)", abi.encodePacked(claim.zkProof), computedHash, claim.nullifier, claim.eventCount)
                 );
                 if (!zvOk || zvRet.length < 32 || !abi.decode(zvRet, (bool))) {
                     return (false, 16, 0, bytes32(0));
@@ -229,7 +236,7 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
         // Check 11 (type-2 only): verify actionSig from the pot's actionVerifier EOA
         if (claim.actionType == 2) {
             if (potActionVerifier == address(0)) return (false, 23, 0, bytes32(0)); // E94 → reason 23
-            if (claim.actionSig.length != 65) return (false, 23, 0, bytes32(0));
+            // bytes32[3]: [r, s, v-as-bytes32]; all-zero = no sig provided
             // sig is over computedHash (the full claim hash)
             bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", computedHash));
             (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.actionSig);
@@ -246,9 +253,9 @@ contract DatumClaimValidator is IDatumClaimValidator, Ownable2Step {
     // Internal
     // -------------------------------------------------------------------------
 
-    function _splitSig(bytes calldata sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
-        r = bytes32(sig[:32]);
-        s = bytes32(sig[32:64]);
-        v = uint8(sig[64]);
+    function _splitSig(bytes32[3] calldata sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+        r = sig[0];
+        s = sig[1];
+        v = uint8(uint256(sig[2]));
     }
 }

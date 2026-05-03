@@ -28,6 +28,9 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable2Step {
     /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
     uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
 
+    // Compile-time selectors — avoid resolc runtime keccak256 TRAP
+    bytes4 private constant SEL_LOCK_BOND = bytes4(keccak256("lockBond(uint256,address,address)"));
+
     // Safe rollout: max campaign budget cap (0 = disabled)
     uint256 public maxCampaignBudget;
 
@@ -262,7 +265,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, Ownable2Step {
         // FP-2: Lock optional bond in ChallengeBonds
         if (bondAmount > 0 && challengeBonds != address(0)) {
             (bool cbOk,) = challengeBonds.call{value: bondAmount}(
-                abi.encodeWithSelector(bytes4(keccak256("lockBond(uint256,address,address)")),
+                abi.encodeWithSelector(SEL_LOCK_BOND,
                     campaignId, msg.sender, publisher)
             );
             require(cbOk, "E02");

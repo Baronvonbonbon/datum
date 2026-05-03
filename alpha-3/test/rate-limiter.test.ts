@@ -208,7 +208,7 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, pub, usr, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
-      claims.push({ campaignId, publisher: pub, eventCount: impressions, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x", nullifier: ethers.ZeroHash, actionSig: "0x" });
+      claims.push({ campaignId, publisher: pub, eventCount: impressions, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] });
       prevHash = hash;
     }
     return claims;
@@ -312,9 +312,9 @@ describe("DatumSettlementRateLimiter — Settlement integration", function () {
       nonce: 1n,
       previousClaimHash: ethers.ZeroHash,
       claimHash: hash,
-      zkProof: "0x",
+      zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
-      actionSig: "0x",
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
     }];
     const batch2 = { user: user.address, campaignId: cid2, claims: claims2 };
     const r2 = await settlement.connect(user).settleClaims.staticCall([batch2]);

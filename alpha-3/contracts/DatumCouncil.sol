@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-
 /// @title DatumCouncil
 /// @notice Phase 1 governance: N-of-M trusted member council.
 ///
@@ -21,7 +19,15 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///           router.setGovernor(Council, address(this))   // via Timelock
 ///           → proposals target the Router directly, e.g.:
 ///               targets = [router],  calldatas = [activateCampaign(id)]
-contract DatumCouncil is ReentrancyGuard {
+contract DatumCouncil {
+    // -------------------------------------------------------------------------
+    // Ownership
+    // -------------------------------------------------------------------------
+
+    address public owner;
+    address public pendingOwner;
+    uint256 private _locked;
+
     // -------------------------------------------------------------------------
     // Proposal state
     // -------------------------------------------------------------------------
@@ -81,6 +87,18 @@ contract DatumCouncil is ReentrancyGuard {
     // Modifiers
     // -------------------------------------------------------------------------
 
+    modifier onlyOwner() {
+        require(msg.sender == owner, "E18");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(_locked == 0, "E57");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
+
     modifier onlyMember() {
         require(isMember[msg.sender], "E18");
         _;
@@ -111,6 +129,7 @@ contract DatumCouncil is ReentrancyGuard {
         uint256 _vetoWindowBlocks,
         uint256 _maxExecutionWindowBlocks
     ) {
+        owner = msg.sender;
         require(initialMembers.length > 0, "E00");
         require(_threshold > 0 && _threshold <= initialMembers.length, "E00");
         require(_votingPeriodBlocks > 0, "E00");
@@ -335,6 +354,19 @@ contract DatumCouncil is ReentrancyGuard {
         }
         if (block.number > p.votingEndsBlock) return 4; // voting ended, threshold not reached
         return 0; // active voting
+    }
+
+    /// @notice Transfer ownership to a new owner (2-step process).
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "E00");
+        pendingOwner = newOwner;
+    }
+
+    /// @notice New owner accepts ownership.
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "E18");
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     /// @notice Accept ETH so proposals with value can be funded and executed.

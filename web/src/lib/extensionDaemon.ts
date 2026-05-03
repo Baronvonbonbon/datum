@@ -231,12 +231,16 @@ function serializeClaimBatches(batches: any[]): any[] {
     claims: b.claims.map((c: any) => ({
       campaignId: c.campaignId.toString(),
       publisher: c.publisher,
-      impressionCount: c.impressionCount.toString(),
-      clearingCpmPlanck: c.clearingCpmPlanck.toString(),
+      eventCount: c.eventCount.toString(),
+      ratePlanck: c.ratePlanck.toString(),
+      actionType: c.actionType ?? 0,
+      clickSessionHash: c.clickSessionHash ?? ZeroHash,
       nonce: c.nonce.toString(),
       previousClaimHash: c.previousClaimHash,
       claimHash: c.claimHash,
       zkProof: c.zkProof,
+      nullifier: c.nullifier ?? ZeroHash,
+      actionSig: c.actionSig ?? "0x",
     })),
   }));
 }
@@ -574,11 +578,12 @@ async function handleMessage(msg: any): Promise<unknown> {
         const nonce = BigInt(chain.lastNonce + 1);
         const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
 
-        // Blake2-256 matching Settlement._validateClaim() field order:
-        // (campaignId, publisher, user, impressionCount, clearingCpm, nonce, previousHash)
+        // Blake2-256 matching DatumClaimValidator 9-field preimage:
+        // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
+        // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
         const packed = solidityPacked(
-          ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, nonce, prevHash]
+          ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, 0, ZeroHash, nonce, prevHash]
         );
         const packedBytes = getBytes(packed);
         const hashBytes = blake2b(packedBytes, { dkLen: 32 });
@@ -592,12 +597,16 @@ async function handleMessage(msg: any): Promise<unknown> {
         queue.push({
           campaignId: msg.campaignId,
           publisher: msg.publisherAddress,
-          impressionCount: "1",
-          clearingCpmPlanck: clearingCpm.toString(),
+          eventCount: "1",
+          ratePlanck: clearingCpm.toString(),
+          actionType: "0",
+          clickSessionHash: ZeroHash,
           nonce: nonce.toString(),
           previousClaimHash: prevHash,
           claimHash,
           zkProof: "0x",
+          nullifier: ZeroHash,
+          actionSig: "0x",
           userAddress,
         });
         await chrome.storage.local.set({ claimQueue: queue });
@@ -701,16 +710,19 @@ async function handleMessage(msg: any): Promise<unknown> {
             const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
             const campaignIdBig = BigInt(cid);
             const clearingCpm = BigInt(cpm);
+            // 9-field preimage: actionType=0 (CPM view), clickSessionHash=ZeroHash
             const packed = solidityPacked(
-              ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, nonce, prevHash]
+              ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
             );
             const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
             const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
             existingQueue.push({
-              campaignId: cid, publisher, impressionCount: impressionCount.toString(),
-              clearingCpmPlanck: cpm, nonce: nonce.toString(), previousClaimHash: prevHash,
-              claimHash, zkProof: "0x", userAddress: ua,
+              campaignId: cid, publisher,
+              eventCount: impressionCount.toString(), ratePlanck: cpm,
+              actionType: "0", clickSessionHash: ZeroHash,
+              nonce: nonce.toString(), previousClaimHash: prevHash,
+              claimHash, zkProof: "0x", nullifier: ZeroHash, actionSig: "0x", userAddress: ua,
             });
             chain = { lastNonce: Number(nonce), lastClaimHash: claimHash };
           }
@@ -771,9 +783,12 @@ async function handleMessage(msg: any): Promise<unknown> {
                 const campaignIdBig = BigInt(cid);
                 const clearingCpm = BigInt(cpm);
 
+                // 9-field preimage must match DatumClaimValidator.sol check 8:
+                // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
+                // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
                 const packed = solidityPacked(
-                  ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, nonce, prevHash]
+                  ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
                 );
                 const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
                 const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
@@ -781,12 +796,16 @@ async function handleMessage(msg: any): Promise<unknown> {
                 existingQueue.push({
                   campaignId: cid,
                   publisher,
-                  impressionCount: impressionCount.toString(),
-                  clearingCpmPlanck: cpm,
+                  eventCount: impressionCount.toString(),
+                  ratePlanck: cpm,
+                  actionType: "0",
+                  clickSessionHash: ZeroHash,
                   nonce: nonce.toString(),
                   previousClaimHash: prevHash,
                   claimHash,
                   zkProof: "0x",
+                  nullifier: ZeroHash,
+                  actionSig: "0x",
                   userAddress: ua,
                 });
                 console.log(`[datum-daemon] built aggregated claim: campaign=${cid} nonce=${nonce} impressionCount=${impressionCount}`);
@@ -805,7 +824,7 @@ async function handleMessage(msg: any): Promise<unknown> {
               .join(", ");
             await chrome.storage.local.set({ claimQueue: existingQueue, rawImpressionQueue: [] });
             console.log(`[datum-daemon] Aggregated ${rawQueue.length} raw impressions → ${newClaimCount} new claims (${breakdown})`);
-            console.log(`[datum-daemon] Each claim carries impressionCount>1 — settlement pays impressionCount×cpm per claim`);
+            console.log(`[datum-daemon] Each claim carries eventCount>1 — settlement pays eventCount×ratePlanck per claim`);
           }
         }
 
@@ -930,12 +949,16 @@ async function handleMessage(msg: any): Promise<unknown> {
               const claimStruct = {
                 campaignId: firstClaim.campaignId,
                 publisher: firstClaim.publisher,
-                impressionCount: firstClaim.impressionCount,
-                clearingCpmPlanck: firstClaim.clearingCpmPlanck,
+                eventCount: firstClaim.eventCount,
+                ratePlanck: firstClaim.ratePlanck,
+                actionType: firstClaim.actionType ?? 0,
+                clickSessionHash: firstClaim.clickSessionHash ?? ZeroHash,
                 nonce: firstClaim.nonce,
                 previousClaimHash: firstClaim.previousClaimHash,
                 claimHash: firstClaim.claimHash,
                 zkProof: firstClaim.zkProof,
+                nullifier: firstClaim.nullifier ?? ZeroHash,
+                actionSig: firstClaim.actionSig ?? "0x",
               };
               const [ok, reasonCode]: [boolean, number] = await claimValidator.validateClaim(
                 claimStruct, b.user, expectedNonce, expectedPrevHash,
@@ -1082,7 +1105,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                       : "0x0000000000000000000000000000000000000000000000000000000000000000";
                     const fc = b.claims[0];
                     const [vOk, vCode]: [boolean, number] = await cv.validateClaim(
-                      { campaignId: fc.campaignId, publisher: fc.publisher, impressionCount: fc.impressionCount, clearingCpmPlanck: fc.clearingCpmPlanck, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof },
+                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, actionSig: fc.actionSig ?? "0x" },
                       b.user, expectedNonce2, expectedPrevHash2,
                     );
                     if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;
