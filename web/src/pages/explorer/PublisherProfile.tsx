@@ -63,31 +63,31 @@ export function PublisherProfile() {
 
       let tags: string[] = [];
       try {
-        if (contracts.targetingRegistry) {
-          const hashes: string[] = await contracts.targetingRegistry.getTags(addr);
+        if (contracts.campaigns) {
+          const hashes: string[] = await contracts.campaigns.getPublisherTags2(addr);
           tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean);
         }
-      } catch { /* no targeting registry */ }
+      } catch { /* no campaigns contract */ }
 
       let repScore: number | null = null;
       let repSettled = 0;
       let repRejected = 0;
       try {
-        if (contracts.reputation) {
-          const stats = await contracts.reputation.getPublisherStats(addr);
+        if (contracts.settlement) {
+          const stats = await contracts.settlement.getPublisherStats(addr);
           repSettled = Number(stats[0]);
           repRejected = Number(stats[1]);
           const total = repSettled + repRejected;
           if (total > 0) repScore = Number(stats[2]);
         }
-      } catch { /* no reputation contract */ }
+      } catch { /* no settlement contract */ }
 
       let reportCount = 0;
       try {
-        if (contracts.reports) {
-          reportCount = Number(await contracts.reports.publisherReports(addr));
+        if (contracts.campaigns) {
+          reportCount = Number(await contracts.campaigns.publisherReports(addr));
         }
-      } catch { /* no reports contract */ }
+      } catch { /* no campaigns contract */ }
 
       // Count campaigns where this address is publisher
       let campaignCount = 0;

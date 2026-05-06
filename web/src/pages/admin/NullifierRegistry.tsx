@@ -14,7 +14,7 @@ export function NullifierRegistryAdmin() {
   const { push } = useToast();
 
   // Config display
-  const [config, setConfig] = useState<{ windowBlocks: bigint; settlement: string } | null>(null);
+  const [config, setConfig] = useState<{ windowBlocks: bigint } | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
 
   // Nullifier lookup
@@ -23,25 +23,17 @@ export function NullifierRegistryAdmin() {
   const [isUsed, setIsUsed] = useState<boolean | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
 
-  // setWindowBlocks
+  // setNullifierWindowBlocks
   const [newWindow, setNewWindow] = useState("");
   const [windowTxState, setWindowTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [windowTxMsg, setWindowTxMsg] = useState("");
 
-  // setSettlement
-  const [newSettlement, setNewSettlement] = useState("");
-  const [settleTxState, setSettleTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
-  const [settleTxMsg, setSettleTxMsg] = useState("");
-
   async function loadConfig() {
-    if (!contracts.nullifierRegistry) return;
+    if (!contracts.settlement) return;
     setConfigLoading(true);
     try {
-      const [windowBlocks, settlement] = await Promise.all([
-        contracts.nullifierRegistry.windowBlocks(),
-        contracts.nullifierRegistry.settlement(),
-      ]);
-      setConfig({ windowBlocks, settlement });
+      const windowBlocks = await contracts.settlement.nullifierWindowBlocks();
+      setConfig({ windowBlocks });
     } catch (err) {
       push({ message: humanizeError(err), type: "error" });
     } finally {
@@ -50,11 +42,11 @@ export function NullifierRegistryAdmin() {
   }
 
   async function handleLookup() {
-    if (!contracts.nullifierRegistry) return;
+    if (!contracts.settlement) return;
     setLookupLoading(true);
     setIsUsed(null);
     try {
-      const used = await contracts.nullifierRegistry.isUsed(BigInt(lookupCampaign), lookupNullifier as `0x${string}`);
+      const used = await contracts.settlement.isNullifierUsed(BigInt(lookupCampaign), lookupNullifier as `0x${string}`);
       setIsUsed(used);
     } catch (err) {
       push({ message: humanizeError(err), type: "error" });
@@ -64,12 +56,12 @@ export function NullifierRegistryAdmin() {
   }
 
   async function handleSetWindowBlocks() {
-    if (!contracts.nullifierRegistry || !signer) return;
+    if (!contracts.settlement || !signer) return;
     setWindowTxState("pending");
     setWindowTxMsg("Updating window…");
     try {
-      const reg = contracts.nullifierRegistry.connect(signer);
-      const tx = await confirmTx(() => reg.setWindowBlocks(BigInt(newWindow)));
+      const s = contracts.settlement.connect(signer);
+      const tx = await confirmTx(() => s.setNullifierWindowBlocks(BigInt(newWindow)));
       if (!tx) { setWindowTxState("idle"); return; }
       await tx.wait();
       setWindowTxState("success");
@@ -77,23 +69,6 @@ export function NullifierRegistryAdmin() {
     } catch (err) {
       setWindowTxState("error");
       setWindowTxMsg(humanizeError(err));
-    }
-  }
-
-  async function handleSetSettlement() {
-    if (!contracts.nullifierRegistry || !signer) return;
-    setSettleTxState("pending");
-    setSettleTxMsg("Wiring settlement…");
-    try {
-      const reg = contracts.nullifierRegistry.connect(signer);
-      const tx = await confirmTx(() => reg.setSettlement(newSettlement));
-      if (!tx) { setSettleTxState("idle"); return; }
-      await tx.wait();
-      setSettleTxState("success");
-      setSettleTxMsg("Settlement address set.");
-    } catch (err) {
-      setSettleTxState("error");
-      setSettleTxMsg(humanizeError(err));
     }
   }
 
@@ -115,7 +90,6 @@ export function NullifierRegistryAdmin() {
         {config && (
           <div style={{ background: "var(--surface)", padding: "1rem", borderRadius: 8, fontSize: "0.85rem" }}>
             <div><b>Window blocks:</b> {config.windowBlocks.toString()} (~{(Number(config.windowBlocks) * 6 / 86400).toFixed(1)}d at 6s/block)</div>
-            <div><b>Settlement:</b> {config.settlement}</div>
           </div>
         )}
       </section>
@@ -141,7 +115,7 @@ export function NullifierRegistryAdmin() {
         )}
       </section>
 
-      {/* setWindowBlocks */}
+      {/* setNullifierWindowBlocks */}
       <section style={{ marginBottom: "2rem" }}>
         <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Set Window Blocks (owner only)</h2>
         <p style={{ color: "#888", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
@@ -150,25 +124,10 @@ export function NullifierRegistryAdmin() {
         <div style={{ display: "flex", gap: "0.5rem" }}>
           <input placeholder="Window blocks" value={newWindow} onChange={e => setNewWindow(e.target.value)} style={{ width: 180 }} />
           <button onClick={handleSetWindowBlocks} disabled={windowTxState === "pending" || !newWindow}>
-            {windowTxState === "pending" ? "Updating…" : "setWindowBlocks"}
+            {windowTxState === "pending" ? "Updating…" : "setNullifierWindowBlocks"}
           </button>
         </div>
         <TransactionStatus state={windowTxState} message={windowTxMsg} />
-      </section>
-
-      {/* setSettlement */}
-      <section style={{ marginBottom: "2rem" }}>
-        <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Wire Settlement (owner only)</h2>
-        <p style={{ color: "#888", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
-          Only the wired settlement address may call submitNullifier(). Set once at deploy.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input placeholder="Settlement address (0x…)" value={newSettlement} onChange={e => setNewSettlement(e.target.value)} style={{ flex: 1 }} />
-          <button onClick={handleSetSettlement} disabled={settleTxState === "pending" || !newSettlement}>
-            {settleTxState === "pending" ? "Setting…" : "setSettlement"}
-          </button>
-        </div>
-        <TransactionStatus state={settleTxState} message={settleTxMsg} />
       </section>
     </div>
   );

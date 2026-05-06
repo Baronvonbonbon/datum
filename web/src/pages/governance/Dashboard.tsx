@@ -84,13 +84,13 @@ export function GovernanceDashboard() {
 
       let pageReports = 0, adReports = 0;
       try {
-        if (contracts.reports) {
+        if (contracts.campaigns) {
           [pageReports, adReports] = await Promise.all([
-            contracts.reports.pageReports(BigInt(id)).then(Number),
-            contracts.reports.adReports(BigInt(id)).then(Number),
+            contracts.campaigns.pageReports(BigInt(id)).then(Number),
+            contracts.campaigns.adReports(BigInt(id)).then(Number),
           ]);
         }
-      } catch { /* no reports contract */ }
+      } catch { /* no campaigns contract */ }
 
       let rewardToken: string | undefined;
       let rewardPerImpression: bigint | undefined;

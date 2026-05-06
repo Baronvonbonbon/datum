@@ -28,29 +28,21 @@ export function ReputationAdmin() {
   } | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
 
-  // Settlement wiring
-  const [settlementInput, setSettlementInput] = useState("");
-  const [settlementTxState, setSettlementTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
-  const [settlementTxMsg, setSettlementTxMsg] = useState("");
-
-  // Current settlement check
-  const [currentSettlement, setCurrentSettlement] = useState<string | null>(null);
-
   async function handleLookup() {
-    if (!contracts.reputation) return;
+    if (!contracts.settlement) return;
     if (!lookupAddr) return;
     setLookupLoading(true);
     setLookupResult(null);
     try {
-      const [settled, rejected, score] = await contracts.reputation.getPublisherStats(lookupAddr);
+      const [settled, rejected, score] = await contracts.settlement.getPublisherStats(lookupAddr);
       const result: typeof lookupResult = {
         settled: settled.toString(),
         rejected: rejected.toString(),
         score: Number(score),
       };
       if (lookupCampaign) {
-        const [cs, cr] = await contracts.reputation.getCampaignStats(lookupAddr, BigInt(lookupCampaign));
-        const anomaly = await contracts.reputation.isAnomaly(lookupAddr, BigInt(lookupCampaign));
+        const [cs, cr] = await contracts.settlement.getCampaignRepStats(lookupAddr, BigInt(lookupCampaign));
+        const anomaly = await contracts.settlement.isAnomaly(lookupAddr, BigInt(lookupCampaign));
         result.cs = cs.toString();
         result.cr = cr.toString();
         result.anomaly = anomaly;
@@ -63,35 +55,7 @@ export function ReputationAdmin() {
     }
   }
 
-  async function handleSetSettlement() {
-    if (!signer || !contracts.reputation) return;
-    if (!settlementInput) { setSettlementTxMsg("Enter settlement address."); setSettlementTxState("error"); return; }
-    setSettlementTxState("pending"); setSettlementTxMsg("");
-    try {
-      const c = contracts.reputation.connect(signer);
-      const tx = await c.setSettlement(settlementInput.trim());
-      await confirmTx(tx);
-      setSettlementTxState("success");
-      setSettlementTxMsg("Settlement address wired.");
-      setCurrentSettlement(settlementInput.trim());
-    } catch (err) {
-      push(humanizeError(err), "error");
-      setSettlementTxMsg(humanizeError(err));
-      setSettlementTxState("error");
-    }
-  }
-
-  async function handleCheckSettlement() {
-    if (!contracts.reputation) return;
-    try {
-      const addr = await contracts.reputation.settlement();
-      setCurrentSettlement(addr);
-    } catch {
-      setCurrentSettlement(null);
-    }
-  }
-
-  const notDeployed = !contracts.reputation;
+  const notDeployed = !contracts.settlement;
 
   return (
     <div className="nano-fade" style={{ maxWidth: 580 }}>
@@ -108,7 +72,7 @@ export function ReputationAdmin() {
 
       {notDeployed && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
-          Reputation contract address not configured — deploy DatumPublisherReputation and update networks.ts.
+          Settlement contract address not configured — check networks.ts.
         </div>
       )}
 
@@ -177,60 +141,6 @@ export function ReputationAdmin() {
         )}
       </div>
 
-      {/* Settlement Wiring */}
-      {signer && (
-        <div className="nano-card" style={{ padding: 14, marginBottom: 16 }}>
-          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-            Settlement Wiring (FP-16)
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-            Only the wired Settlement contract can call <code>recordSettlement()</code>.
-            This is set once during deploy and should match the active DatumSettlement address.
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
-            <input
-              type="text"
-              value={settlementInput}
-              onChange={(e) => setSettlementInput(e.target.value)}
-              placeholder="Settlement address (0x...)"
-              style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
-            />
-            <button
-              onClick={handleSetSettlement}
-              disabled={settlementTxState === "pending" || notDeployed}
-              className="nano-btn nano-btn--ok"
-              style={{ padding: "6px 12px", fontSize: 12 }}
-            >
-              {settlementTxState === "pending" ? "..." : "Set"}
-            </button>
-          </div>
-          <TransactionStatus state={settlementTxState} message={settlementTxMsg} />
-        </div>
-      )}
-
-      {/* Current Settlement */}
-      <div className="nano-card" style={{ padding: 14 }}>
-        <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-          Current Settlement Address
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={handleCheckSettlement}
-            disabled={notDeployed}
-            className="nano-btn"
-            style={{ padding: "6px 14px", fontSize: 12 }}
-          >
-            Read
-          </button>
-        </div>
-        {currentSettlement !== null && (
-          <div style={{ marginTop: 8, fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text)" }}>
-            {currentSettlement === "0x0000000000000000000000000000000000000000"
-              ? <span style={{ color: "var(--warn)" }}>Not set (address(0))</span>
-              : currentSettlement}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

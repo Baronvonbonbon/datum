@@ -274,38 +274,31 @@ export function buildCategoryHierarchy(): CategoryGroup[] {
 export type NetworkName = "local" | "polkadotTestnet" | "paseoEvm" | "westend" | "kusama" | "polkadotHub";
 
 export interface ContractAddresses {
-  // Original 9
+  // Core
   campaigns: string;
   publishers: string;
   governanceV2: string;
-  governanceSlash: string;
   settlement: string;
   relay: string;
   pauseRegistry: string;
   timelock: string;
   zkVerifier: string;
-  // Alpha-2 satellites
+  // Satellites
   budgetLedger: string;
   paymentVault: string;
   lifecycle: string;
   attestationVerifier: string;
-  // Alpha-3 satellites
-  targetingRegistry: string;
-  campaignValidator: string;
   claimValidator: string;
-  governanceHelper: string;
-  reports: string;
-  rateLimiter: string;
-  reputation: string;          // BM-8/BM-9: publisher reputation + anomaly detection
-  tokenRewardVault: string;    // multi-token reward vault for per-campaign rewards
-  publisherStake: string;      // FP-1+FP-4: publisher staking + bonding curve
-  challengeBonds: string;      // FP-2: advertiser challenge bonds
-  publisherGovernance: string; // FP-3: conviction-weighted publisher fraud governance
-  nullifierRegistry: string;   // FP-5: per-user per-campaign ZK nullifier replay prevention
-  parameterGovernance: string; // T1-B: conviction-vote governance for FP system parameters
-  adminGovernance: string;     // Phase 0: team admin direct approval
-  governanceRouter: string;    // Stable-address proxy for governance ladder transitions
-  council: string;             // Phase 1: N-of-M trusted council voting
+  tokenRewardVault: string;
+  // Fraud prevention
+  publisherStake: string;
+  challengeBonds: string;
+  publisherGovernance: string;
+  parameterGovernance: string;
+  clickRegistry: string;
+  // Governance ladder
+  governanceRouter: string;
+  council: string;
 }
 
 export type IpfsProvider =

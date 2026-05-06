@@ -52,26 +52,26 @@ export function Publishers() {
           const relayRaw = await contracts.publishers.relaySigner(addr).catch(() => ZERO);
           let tags: string[] = [];
           try {
-            if (contracts.targetingRegistry) {
-              const hashes: string[] = await contracts.targetingRegistry.getTags(addr);
+            if (contracts.campaigns) {
+              const hashes: string[] = await contracts.campaigns.getPublisherTags2(addr);
               tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean);
             }
-          } catch { /* no targeting registry */ }
+          } catch { /* no campaigns contract */ }
           let repScore: number | null = null;
           try {
-            if (contracts.reputation) {
-              const stats = await contracts.reputation.getPublisherStats(addr);
+            if (contracts.settlement) {
+              const stats = await contracts.settlement.getPublisherStats(addr);
               const total = Number(stats[0]) + Number(stats[1]);
               if (total > 0) repScore = Number(stats[2]);
             }
-          } catch { /* no reputation contract */ }
+          } catch { /* no settlement contract */ }
 
           let reportCount = 0;
           try {
-            if (contracts.reports) {
-              reportCount = Number(await contracts.reports.publisherReports(addr));
+            if (contracts.campaigns) {
+              reportCount = Number(await contracts.campaigns.publisherReports(addr));
             }
-          } catch { /* no reports contract */ }
+          } catch { /* no campaigns contract */ }
 
           return {
             address: addr,

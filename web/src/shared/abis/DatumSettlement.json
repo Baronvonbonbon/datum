@@ -140,6 +140,44 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "nullifier",
+        "type": "bytes32"
+      }
+    ],
+    "name": "NullifierSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldValue",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newValue",
+        "type": "uint256"
+      }
+    ],
+    "name": "NullifierWindowBlocksUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "previousOwner",
         "type": "address"
@@ -178,6 +216,44 @@
     "inputs": [
       {
         "indexed": false,
+        "internalType": "uint256",
+        "name": "windowBlocks",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maxEventsPerWindow",
+        "type": "uint256"
+      }
+    ],
+    "name": "RateLimitsUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "reporter",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "authorized",
+        "type": "bool"
+      }
+    ],
+    "name": "ReporterAuthorized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
         "internalType": "address",
         "name": "budgetLedger",
         "type": "address"
@@ -205,8 +281,78 @@
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "settled",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rejected",
+        "type": "uint256"
+      }
+    ],
+    "name": "SettlementRecorded",
+    "type": "event"
+  },
+  {
     "inputs": [],
     "name": "MAX_USER_EVENTS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_RL_WINDOW_SIZE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "REP_ANOMALY_FACTOR",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "REP_MIN_SAMPLE",
     "outputs": [
       {
         "internalType": "uint256",
@@ -238,11 +384,30 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "authorizedReporters",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "budgetLedger",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumBudgetLedger",
         "name": "",
         "type": "address"
       }
@@ -255,7 +420,7 @@
     "name": "campaigns",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumCampaigns",
         "name": "",
         "type": "address"
       }
@@ -268,7 +433,7 @@
     "name": "claimValidator",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumClaimValidator",
         "name": "",
         "type": "address"
       }
@@ -281,7 +446,7 @@
     "name": "clickRegistry",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumClickRegistry",
         "name": "",
         "type": "address"
       }
@@ -315,6 +480,160 @@
     "name": "configure",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      }
+    ],
+    "name": "currentWindowUsage",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "windowId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "events",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "limit",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getCampaignRepStats",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "settled",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rejected",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      }
+    ],
+    "name": "getPublisherStats",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "settled",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rejected",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "score",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      }
+    ],
+    "name": "getReputationScore",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isAnomaly",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "nullifier",
+        "type": "bytes32"
+      }
+    ],
+    "name": "isNullifierUsed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -409,7 +728,7 @@
     "name": "lifecycle",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumCampaignLifecycle",
         "name": "",
         "type": "address"
       }
@@ -458,12 +777,12 @@
   },
   {
     "inputs": [],
-    "name": "nullifierRegistry",
+    "name": "nullifierWindowBlocks",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -500,7 +819,7 @@
     "name": "paymentVault",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumPaymentVault",
         "name": "",
         "type": "address"
       }
@@ -523,10 +842,10 @@
   },
   {
     "inputs": [],
-    "name": "publisherReputation",
+    "name": "publisherStake",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumPublisherStake",
         "name": "",
         "type": "address"
       }
@@ -535,13 +854,24 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "publisherStake",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "address",
         "name": "",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "publisherWindowEvents",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -552,7 +882,7 @@
     "name": "publishers",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumPublishers",
         "name": "",
         "type": "address"
       }
@@ -561,16 +891,31 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "rateLimiter",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "publisher",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "settled",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rejected",
+        "type": "uint256"
       }
     ],
-    "stateMutability": "view",
+    "name": "recordSettlement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -591,6 +936,118 @@
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "repCampaignRejected",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "repCampaignSettled",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "repTotalRejected",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "repTotalSettled",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "rlMaxEventsPerWindow",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "rlWindowBlocks",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -687,25 +1144,12 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "_windowBlocks",
+        "type": "uint256"
       }
     ],
-    "name": "setNullifierRegistry",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
-      }
-    ],
-    "name": "setPublisherReputation",
+    "name": "setNullifierWindowBlocks",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -739,12 +1183,35 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "_windowBlocks",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxEventsPerWindow",
+        "type": "uint256"
       }
     ],
-    "name": "setRateLimiter",
+    "name": "setRateLimits",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "reporter",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "authorized",
+        "type": "bool"
+      }
+    ],
+    "name": "setReporterAuthorized",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -824,9 +1291,9 @@
                 "type": "bytes32"
               },
               {
-                "internalType": "bytes",
+                "internalType": "bytes32[8]",
                 "name": "zkProof",
-                "type": "bytes"
+                "type": "bytes32[8]"
               },
               {
                 "internalType": "bytes32",
@@ -834,9 +1301,9 @@
                 "type": "bytes32"
               },
               {
-                "internalType": "bytes",
+                "internalType": "bytes32[3]",
                 "name": "actionSig",
-                "type": "bytes"
+                "type": "bytes32[3]"
               }
             ],
             "internalType": "struct IDatumSettlement.Claim[]",
@@ -941,9 +1408,9 @@
                     "type": "bytes32"
                   },
                   {
-                    "internalType": "bytes",
+                    "internalType": "bytes32[8]",
                     "name": "zkProof",
-                    "type": "bytes"
+                    "type": "bytes32[8]"
                   },
                   {
                     "internalType": "bytes32",
@@ -951,9 +1418,9 @@
                     "type": "bytes32"
                   },
                   {
-                    "internalType": "bytes",
+                    "internalType": "bytes32[3]",
                     "name": "actionSig",
-                    "type": "bytes"
+                    "type": "bytes32[3]"
                   }
                 ],
                 "internalType": "struct IDatumSettlement.Claim[]",
@@ -1004,7 +1471,7 @@
     "name": "tokenRewardVault",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IDatumTokenRewardVault",
         "name": "",
         "type": "address"
       }

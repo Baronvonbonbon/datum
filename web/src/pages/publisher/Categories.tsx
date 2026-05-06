@@ -28,8 +28,8 @@ export function Categories() {
     if (!address) return;
     setLoading(true);
     try {
-      if (contracts.targetingRegistry) {
-        const hashes: string[] = await contracts.targetingRegistry.getTags(address);
+      if (contracts.campaigns) {
+        const hashes: string[] = await contracts.campaigns.getPublisherTags2(address);
         const tags = new Set<string>();
         for (const h of hashes) {
           let found = false;
@@ -64,12 +64,12 @@ export function Categories() {
   }
 
   async function handleSave() {
-    if (!signer || !contracts.targetingRegistry) return;
+    if (!signer || !contracts.campaigns) return;
     setTxState("pending");
     try {
       const hashes = [...selected].map((t) => tagHash(t));
-      const registry = contracts.targetingRegistry.connect(signer);
-      const tx = await registry.setTags(hashes);
+      const c = contracts.campaigns.connect(signer);
+      const tx = await c.setPublisherTags(hashes);
       await confirmTx(tx);
       setTxState("success");
       setTxMsg(`Tags updated (${selected.size} selected).`);
@@ -95,9 +95,9 @@ export function Categories() {
         attribute to filter unwanted content.
       </p>
 
-      {!contracts.targetingRegistry && (
+      {!contracts.campaigns && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
-          TargetingRegistry contract not configured. Check Settings.
+          Campaigns contract not configured. Check Settings.
         </div>
       )}
 
@@ -195,7 +195,7 @@ export function Categories() {
 
           <div style={{ marginTop: 16 }}>
             <TransactionStatus state={txState} message={txMsg} />
-            <button onClick={handleSave} disabled={txState === "pending" || !signer || !contracts.targetingRegistry} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>
+            <button onClick={handleSave} disabled={txState === "pending" || !signer || !contracts.campaigns} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>
               {txState === "pending" ? "Saving..." : "Save Tags"}
             </button>
           </div>

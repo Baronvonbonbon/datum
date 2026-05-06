@@ -4,7 +4,6 @@ import type { JsonRpcPayload, JsonRpcResult, JsonRpcError } from "ethers";
 import DatumCampaignsAbi from "./abis/DatumCampaigns.json";
 import DatumPublishersAbi from "./abis/DatumPublishers.json";
 import DatumGovernanceV2Abi from "./abis/DatumGovernanceV2.json";
-import DatumGovernanceSlashAbi from "./abis/DatumGovernanceSlash.json";
 import DatumSettlementAbi from "./abis/DatumSettlement.json";
 import DatumRelayAbi from "./abis/DatumRelay.json";
 import DatumPauseRegistryAbi from "./abis/DatumPauseRegistry.json";
@@ -13,20 +12,13 @@ import DatumBudgetLedgerAbi from "./abis/DatumBudgetLedger.json";
 import DatumPaymentVaultAbi from "./abis/DatumPaymentVault.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
-import DatumTargetingRegistryAbi from "./abis/DatumTargetingRegistry.json";
-import DatumCampaignValidatorAbi from "./abis/DatumCampaignValidator.json";
 import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
-import DatumGovernanceHelperAbi from "./abis/DatumGovernanceHelper.json";
-import DatumReportsAbi from "./abis/DatumReports.json";
-import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
-import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
 import DatumPublisherStakeAbi from "./abis/DatumPublisherStake.json";
 import DatumChallengeBondsAbi from "./abis/DatumChallengeBonds.json";
 import DatumPublisherGovernanceAbi from "./abis/DatumPublisherGovernance.json";
-import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
 import DatumParameterGovernanceAbi from "./abis/DatumParameterGovernance.json";
-import DatumAdminGovernanceAbi from "./abis/DatumAdminGovernance.json";
+import DatumClickRegistryAbi from "./abis/DatumClickRegistry.json";
 import DatumGovernanceRouterAbi from "./abis/DatumGovernanceRouter.json";
 import DatumCouncilAbi from "./abis/DatumCouncil.json";
 import DatumZKVerifierAbi from "./abis/DatumZKVerifier.json";
@@ -208,6 +200,10 @@ export async function getPineProvider(pineChain: string): Promise<JsonRpcApiProv
   }
 }
 
+// Alpha-4: TargetingRegistry, CampaignValidator, Reports, GovernanceHelper merged into Campaigns.
+// RateLimiter, Reputation, NullifierRegistry merged into Settlement.
+// GovernanceSlash merged into GovernanceV2. AdminGovernance merged into GovernanceRouter.
+
 export function getCampaignsContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.campaigns, abi(DatumCampaignsAbi), provider);
 }
@@ -218,10 +214,6 @@ export function getPublishersContract(addresses: ContractAddresses, provider: Pr
 
 export function getGovernanceV2Contract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.governanceV2, abi(DatumGovernanceV2Abi), provider);
-}
-
-export function getGovernanceSlashContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.governanceSlash, abi(DatumGovernanceSlashAbi), provider);
 }
 
 export function getSettlementContract(addresses: ContractAddresses, provider: Provider | Signer) {
@@ -256,32 +248,8 @@ export function getAttestationVerifierContract(addresses: ContractAddresses, pro
   return make(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
 }
 
-export function getTargetingRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.targetingRegistry, abi(DatumTargetingRegistryAbi), provider);
-}
-
-export function getCampaignValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.campaignValidator, abi(DatumCampaignValidatorAbi), provider);
-}
-
 export function getClaimValidatorContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.claimValidator, abi(DatumClaimValidatorAbi), provider);
-}
-
-export function getGovernanceHelperContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.governanceHelper, abi(DatumGovernanceHelperAbi), provider);
-}
-
-export function getReportsContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.reports, abi(DatumReportsAbi), provider);
-}
-
-export function getRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.rateLimiter, abi(DatumSettlementRateLimiterAbi), provider);
-}
-
-export function getReputationContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.reputation, abi(DatumPublisherReputationAbi), provider);
 }
 
 export function getTokenRewardVaultContract(addresses: ContractAddresses, provider: Provider | Signer) {
@@ -300,16 +268,12 @@ export function getPublisherGovernanceContract(addresses: ContractAddresses, pro
   return make(addresses.publisherGovernance, abi(DatumPublisherGovernanceAbi), provider);
 }
 
-export function getNullifierRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.nullifierRegistry, abi(DatumNullifierRegistryAbi), provider);
-}
-
 export function getParameterGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.parameterGovernance, abi(DatumParameterGovernanceAbi), provider);
 }
 
-export function getAdminGovernanceContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  return make(addresses.adminGovernance, abi(DatumAdminGovernanceAbi), provider);
+export function getClickRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return make(addresses.clickRegistry, abi(DatumClickRegistryAbi), provider);
 }
 
 export function getGovernanceRouterContract(addresses: ContractAddresses, provider: Provider | Signer) {

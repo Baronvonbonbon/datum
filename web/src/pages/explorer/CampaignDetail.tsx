@@ -193,15 +193,15 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         setRequiresZkProof(Boolean(zkReq));
       } catch { /* not deployed */ }
 
-      // Report counts
+      // Report counts (merged into Campaigns in alpha-4)
       try {
         const [pr, ar] = await Promise.all([
-          contracts.reports.pageReports(BigInt(campaignId)).catch(() => 0n),
-          contracts.reports.adReports(BigInt(campaignId)).catch(() => 0n),
+          contracts.campaigns.pageReports(BigInt(campaignId)).catch(() => 0n),
+          contracts.campaigns.adReports(BigInt(campaignId)).catch(() => 0n),
         ]);
         setPageReportCount(BigInt(pr));
         setAdReportCount(BigInt(ar));
-      } catch { /* no reports contract */ }
+      } catch { /* no campaigns contract */ }
 
       // Metadata hash from events
       try {
@@ -292,8 +292,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     setReportState("pending");
     setReportMsg(null);
     try {
-      const rep = contracts.reports.connect(signer);
-      const tx = await rep.reportPage(BigInt(campaign.id), reportReason);
+      const c = contracts.campaigns.connect(signer);
+      const tx = await c.reportPage(BigInt(campaign.id), reportReason);
       await confirmTx(tx);
       setPageReportCount((c) => c + 1n);
       setReportState("success");
@@ -313,8 +313,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     setReportState("pending");
     setReportMsg(null);
     try {
-      const rep = contracts.reports.connect(signer);
-      const tx = await rep.reportAd(BigInt(campaign.id), reportReason);
+      const c = contracts.campaigns.connect(signer);
+      const tx = await c.reportAd(BigInt(campaign.id), reportReason);
       await confirmTx(tx);
       setAdReportCount((c) => c + 1n);
       setReportState("success");

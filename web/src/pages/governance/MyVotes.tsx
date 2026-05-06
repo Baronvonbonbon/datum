@@ -75,11 +75,11 @@ export function MyVotes() {
             let claimable = 0n;
             if (Boolean(resolved)) {
               try {
-                slashFinalized = Boolean(await contracts.governanceSlash.finalized(BigInt(cid)));
-              } catch { /* no slash contract */ }
+                slashFinalized = Boolean(await contracts.governanceV2.slashFinalized(BigInt(cid)));
+              } catch { /* no slash data */ }
               if (slashFinalized) {
                 try {
-                  claimable = BigInt(await contracts.governanceSlash.getClaimable(BigInt(cid), address));
+                  claimable = BigInt(await contracts.governanceV2.getClaimable(BigInt(cid), address));
                 } catch { /* no claimable */ }
               }
             }
@@ -132,7 +132,7 @@ export function MyVotes() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const c = contracts.governanceSlash.connect(signer);
+      const c = contracts.governanceV2.connect(signer);
       const tx = await c.finalizeSlash(BigInt(campaignId));
       await confirmTx(tx);
       setTxState("success");
@@ -153,7 +153,7 @@ export function MyVotes() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const c = contracts.governanceSlash.connect(signer);
+      const c = contracts.governanceV2.connect(signer);
       const tx = await c.claimSlashReward(BigInt(campaignId));
       await confirmTx(tx);
       setTxState("success");

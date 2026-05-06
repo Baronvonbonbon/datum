@@ -14,13 +14,8 @@ export function RateLimiterAdmin() {
   const { push } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [rateLimiterAddr, setRateLimiterAddr] = useState<string | null>(null);
   const [windowBlocks, setWindowBlocks] = useState<string | null>(null);
   const [maxPerWindow, setMaxPerWindow] = useState<string | null>(null);
-
-  const [wireInput, setWireInput] = useState("");
-  const [wireTxState, setWireTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
-  const [wireTxMsg, setWireTxMsg] = useState("");
 
   const [windowInput, setWindowInput] = useState("");
   const [maxInput, setMaxInput] = useState("");
@@ -32,51 +27,25 @@ export function RateLimiterAdmin() {
   async function load() {
     setLoading(true);
     try {
-      const addr = await contracts.settlement.rateLimiter().catch(() => null);
-      setRateLimiterAddr(addr ?? null);
-
-      const ZERO = "0x0000000000000000000000000000000000000000";
-      if (addr && addr !== ZERO && contracts.rateLimiter) {
-        const [wb, mp] = await Promise.all([
-          contracts.rateLimiter.windowBlocks().catch(() => null),
-          contracts.rateLimiter.maxPublisherImpressionsPerWindow().catch(() => null),
-        ]);
-        setWindowBlocks(wb !== null ? wb.toString() : null);
-        setMaxPerWindow(mp !== null ? mp.toString() : null);
-      } else {
-        setWindowBlocks(null);
-        setMaxPerWindow(null);
-      }
+      const [wb, mp] = await Promise.all([
+        contracts.settlement.rlWindowBlocks().catch(() => null),
+        contracts.settlement.rlMaxEventsPerWindow().catch(() => null),
+      ]);
+      setWindowBlocks(wb !== null ? wb.toString() : null);
+      setMaxPerWindow(mp !== null ? mp.toString() : null);
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleWire() {
-    if (!signer) return;
-    setWireTxState("pending");
-    setWireTxMsg("");
-    try {
-      const c = contracts.settlement.connect(signer);
-      const tx = await c.setRateLimiter(wireInput.trim() || "0x0000000000000000000000000000000000000000");
-      await confirmTx(tx);
-      setWireTxState("success");
-      setWireTxMsg("Rate limiter wired.");
-      load();
-    } catch (err) {
-      push(humanizeError(err), "error");
-      setWireTxState("error");
-    }
-  }
-
   async function handleAdjust() {
-    if (!signer || !contracts.rateLimiter) return;
+    if (!signer) return;
     if (!windowInput || !maxInput) { setAdjustTxMsg("Enter both values."); setAdjustTxState("error"); return; }
     setAdjustTxState("pending");
     setAdjustTxMsg("");
     try {
-      const c = contracts.rateLimiter.connect(signer);
-      const tx = await c.setLimits(BigInt(windowInput), BigInt(maxInput));
+      const c = contracts.settlement.connect(signer);
+      const tx = await c.setRateLimits(BigInt(windowInput), BigInt(maxInput));
       await confirmTx(tx);
       setAdjustTxState("success");
       setAdjustTxMsg("Limits updated.");
@@ -87,16 +56,13 @@ export function RateLimiterAdmin() {
     }
   }
 
-  const ZERO = "0x0000000000000000000000000000000000000000";
-  const isEnabled = rateLimiterAddr && rateLimiterAddr !== ZERO;
-
   return (
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Rate Limiter (BM-5)</h1>
 
       <div className="nano-info nano-info--muted" style={{ marginBottom: 16, fontSize: 12 }}>
-        Optional per-publisher impression cap. Settlement checks this contract before processing claims. Set to <code>address(0)</code> to disable.
+        Per-publisher impression cap built into Settlement. Limits are checked before processing claims.
       </div>
 
       {loading ? (
@@ -105,60 +71,23 @@ export function RateLimiterAdmin() {
         <>
           {/* Status */}
           <div className="nano-card" style={{ padding: 14, marginBottom: 16 }}>
-            <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Status</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Current Limits</div>
             <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
               <div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Wired Address</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: isEnabled ? "var(--ok)" : "var(--text-muted)" }}>
-                  {isEnabled ? rateLimiterAddr : "Disabled (address(0))"}
-                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Window (blocks)</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{windowBlocks ?? "—"}</div>
               </div>
-              {isEnabled && (
-                <>
-                  <div>
-                    <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Window (blocks)</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{windowBlocks ?? "—"}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Max per Window</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{maxPerWindow ?? "—"}</div>
-                  </div>
-                </>
-              )}
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Max per Window</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{maxPerWindow ?? "—"}</div>
+              </div>
             </div>
           </div>
 
-          {/* Wire / Unwire */}
-          {signer && (
-            <div className="nano-card" style={{ padding: 14, marginBottom: 16 }}>
-              <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
-                {isEnabled ? "Unwire / Change" : "Wire Rate Limiter"}
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="text"
-                  value={wireInput}
-                  onChange={(e) => setWireInput(e.target.value)}
-                  placeholder="0x... (blank = address(0) to disable)"
-                  style={{ flex: 1, background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)" }}
-                />
-                <button
-                  onClick={handleWire}
-                  disabled={wireTxState === "pending"}
-                  className="nano-btn"
-                  style={{ padding: "6px 14px", fontSize: 12 }}
-                >
-                  {wireTxState === "pending" ? "..." : "Set"}
-                </button>
-              </div>
-              <TransactionStatus state={wireTxState} message={wireTxMsg} />
-            </div>
-          )}
-
           {/* Adjust limits */}
-          {signer && isEnabled && (
+          {signer && (
             <div className="nano-card" style={{ padding: 14 }}>
-              <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Adjust Limits</div>
+              <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Adjust Limits (owner only)</div>
               <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 120 }}>
                   <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Window Size (blocks)</div>

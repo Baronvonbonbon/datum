@@ -66,7 +66,7 @@ export function ProtocolFeesAdmin() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const c = contracts.governanceSlash.connect(signer);
+      const c = contracts.governanceV2.connect(signer);
       const tx = await c.sweepSlashPool(BigInt(sweepCampaignId));
       await confirmTx(tx);
       setTxState("success");

@@ -42,25 +42,25 @@ export function PublisherDashboard() {
       setBalance(BigInt(bal));
       setBlocked(Boolean(blk));
 
-      // Fetch tags from TargetingRegistry
+      // Fetch tags (merged into Campaigns in alpha-4)
       try {
-        if (contracts.targetingRegistry) {
-          const hashes: string[] = await contracts.targetingRegistry.getTags(address);
+        if (contracts.campaigns) {
+          const hashes: string[] = await contracts.campaigns.getPublisherTags2(address);
           setTags(hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean));
         }
-      } catch { /* no targeting registry */ }
+      } catch { /* no campaigns contract */ }
 
-      // Fetch reputation stats
+      // Fetch reputation stats (merged into Settlement in alpha-4)
       try {
-        if (contracts.reputation) {
-          const stats = await contracts.reputation.getPublisherStats(address);
+        if (contracts.settlement) {
+          const stats = await contracts.settlement.getPublisherStats(address);
           setReputation({
             settled: BigInt(stats[0] ?? stats.totalSettled ?? 0),
             rejected: BigInt(stats[1] ?? stats.totalRejected ?? 0),
             scoreBps: BigInt(stats[2] ?? stats.scoreBps ?? 0),
           });
         }
-      } catch { /* no reputation contract */ }
+      } catch { /* no settlement contract */ }
     } finally {
       setLoading(false);
     }

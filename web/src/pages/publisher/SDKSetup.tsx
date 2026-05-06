@@ -12,8 +12,8 @@ export function SDKSetup() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!address || !contracts.targetingRegistry) return;
-    contracts.targetingRegistry.getTags(address)
+    if (!address || !contracts.campaigns) return;
+    contracts.campaigns.getPublisherTags2(address)
       .then((hashes: string[]) => {
         setTags(hashes.map((h: string) => tagLabel(h) ?? "").filter(Boolean));
       })

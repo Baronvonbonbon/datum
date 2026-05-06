@@ -11,7 +11,6 @@ const CONTRACT_LABELS: Record<string, string> = {
   campaigns: "Campaigns",
   publishers: "Publishers",
   governanceV2: "GovernanceV2",
-  governanceSlash: "GovernanceSlash",
   settlement: "Settlement",
   relay: "Relay",
   pauseRegistry: "PauseRegistry",
@@ -21,11 +20,14 @@ const CONTRACT_LABELS: Record<string, string> = {
   paymentVault: "PaymentVault",
   lifecycle: "CampaignLifecycle",
   attestationVerifier: "AttestationVerifier",
-  targetingRegistry: "TargetingRegistry",
-  campaignValidator: "CampaignValidator",
   claimValidator: "ClaimValidator",
-  governanceHelper: "GovernanceHelper",
-  reports: "Reports",
+  tokenRewardVault: "TokenRewardVault",
+  publisherStake: "PublisherStake",
+  challengeBonds: "ChallengeBonds",
+  publisherGovernance: "PublisherGovernance",
+  governanceRouter: "GovernanceRouter",
+  council: "Council",
+  clickRegistry: "ClickRegistry",
 };
 
 export function Settings() {
