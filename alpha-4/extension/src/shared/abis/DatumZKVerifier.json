@@ -1,0 +1,278 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "vkHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "VerifyingKeySet",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "acceptOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getVK",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256[2]",
+            "name": "alpha1",
+            "type": "uint256[2]"
+          },
+          {
+            "internalType": "uint256[4]",
+            "name": "beta2",
+            "type": "uint256[4]"
+          },
+          {
+            "internalType": "uint256[4]",
+            "name": "gamma2",
+            "type": "uint256[4]"
+          },
+          {
+            "internalType": "uint256[4]",
+            "name": "delta2",
+            "type": "uint256[4]"
+          },
+          {
+            "internalType": "uint256[2]",
+            "name": "IC0",
+            "type": "uint256[2]"
+          },
+          {
+            "internalType": "uint256[2]",
+            "name": "IC1",
+            "type": "uint256[2]"
+          },
+          {
+            "internalType": "uint256[2]",
+            "name": "IC2",
+            "type": "uint256[2]"
+          },
+          {
+            "internalType": "uint256[2]",
+            "name": "IC3",
+            "type": "uint256[2]"
+          }
+        ],
+        "internalType": "struct DatumZKVerifier.VerifyingKey",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pendingOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[2]",
+        "name": "alpha1",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[4]",
+        "name": "beta2",
+        "type": "uint256[4]"
+      },
+      {
+        "internalType": "uint256[4]",
+        "name": "gamma2",
+        "type": "uint256[4]"
+      },
+      {
+        "internalType": "uint256[4]",
+        "name": "delta2",
+        "type": "uint256[4]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "IC0",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "IC1",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "IC2",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "IC3",
+        "type": "uint256[2]"
+      }
+    ],
+    "name": "setVerifyingKey",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "proof",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "publicInputsHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "nullifier",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "impressionCount",
+        "type": "uint256"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "valid",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "vkSet",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

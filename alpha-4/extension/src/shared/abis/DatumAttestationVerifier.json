@@ -1,0 +1,195 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_settlement",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_campaigns",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_pauseRegistry",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "campaigns",
+    "outputs": [
+      {
+        "internalType": "contract IDatumCampaignsSettlement",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pauseRegistry",
+    "outputs": [
+      {
+        "internalType": "contract IDatumPauseRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "campaignId",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "campaignId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "publisher",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "eventCount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "ratePlanck",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint8",
+                "name": "actionType",
+                "type": "uint8"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "clickSessionHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "previousClaimHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "claimHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32[8]",
+                "name": "zkProof",
+                "type": "bytes32[8]"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32[3]",
+                "name": "actionSig",
+                "type": "bytes32[3]"
+              }
+            ],
+            "internalType": "struct IDatumSettlement.Claim[]",
+            "name": "claims",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "bytes",
+            "name": "publisherSig",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct DatumAttestationVerifier.AttestedBatch[]",
+        "name": "batches",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "settleClaimsAttested",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "settledCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rejectedCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalPaid",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IDatumSettlement.SettlementResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlement",
+    "outputs": [
+      {
+        "internalType": "contract IDatumSettlement",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
