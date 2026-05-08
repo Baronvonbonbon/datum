@@ -452,28 +452,32 @@
 
     var inner;
     if (layout === "tiny") {
-      // Compact strip: brand-block (subtitle stacked above [reticle] datum)
+      // Compact strip: brand-block ([reticle] datum  /  // on-chain ad)
       //                · {hook wraps to 2 lines}
-      //                · cta
-      // Hook uses -webkit-line-clamp so long copy wraps onto two lines
-      // instead of getting truncated with a single ellipsis.
+      //                · cta pill (matches wide/vertical aesthetic)
+      // Brand block keeps the wordmark on top with the subtitle below it,
+      // matching the visual flow used by the wide and vertical layouts.
+      var ctaPillTiny =
+        'display:inline-block;background:' + THEME.accent + ';' +
+        'color:#fff;font-family:' + THEME.mono + ';font-size:10px;font-weight:600;' +
+        'letter-spacing:0.4px;padding:5px 10px;border-radius:4px;white-space:nowrap;' +
+        'line-height:1;' +
+        'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08),0 2px 8px rgba(230,0,122,0.32);';
       inner =
         '<div style="display:flex;flex-direction:column;align-items:flex-start;flex:none;margin-right:10px;line-height:1;">' +
-          '<div style="font-family:' + THEME.mono + ';font-size:8px;color:' + THEME.fgFaint + ';' +
-            'text-transform:uppercase;letter-spacing:1.4px;line-height:1;margin-bottom:3px;">// on-chain ad</div>' +
           '<div style="display:flex;align-items:center;gap:5px;">' +
             brandSvg(11) +
             '<span style="' + wordmark + 'font-size:11px;line-height:1;">datum</span>' +
           '</div>' +
+          '<div style="font-family:' + THEME.mono + ';font-size:8px;color:' + THEME.fgFaint + ';' +
+            'text-transform:uppercase;letter-spacing:1.4px;line-height:1;margin-top:4px;">// on-chain ad</div>' +
         '</div>' +
         '<span style="' +
           'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
           'font-size:10px;color:' + THEME.fgDim + ';line-height:1.2;' +
           'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;' +
           'word-break:break-word;overflow-wrap:break-word;">' + hook + '</span>' +
-        '<span style="font-family:' + THEME.mono + ';font-size:10px;font-weight:600;' +
-          'color:' + THEME.accent + ';margin-left:8px;flex:none;white-space:nowrap;' +
-          'letter-spacing:0.3px;">' + cta + '</span>';
+        '<span style="' + ctaPillTiny + 'flex:none;margin-left:10px;">' + cta + '</span>';
     } else if (layout === "wide") {
       // [reticle] datum / // ON-CHAIN AD   ·   hook + body   ·   cta pill
       inner =
