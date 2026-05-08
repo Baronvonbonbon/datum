@@ -1,8 +1,8 @@
 # DATUM Project Status
 
 **Last Updated:** 2026-05-08
-**Current Phase:** Alpha-4 v0.4.0 — EVM-optimized refactor; webapp migrated; dual-target deploys live on Paseo
-**Testnet:** Paseo (PVM, Chain ID 420420417) + Paseo EVM (dual-target)
+**Current Phase:** Alpha-4 v0.4.0 — EVM-only refactor (9 satellites merged, 29 → 21 contracts); webapp migrated; deployed on Paseo Hub via pallet-revive EVM
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-4 (EVM, solc) + alpha-3 (PVM, resolc 1.1.0) reference
 **Web App:** https://datum.javcon.io
 
 ---
@@ -11,58 +11,59 @@
 
 DATUM is a decentralized ad exchange on Polkadot Hub. Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
 
-**Alpha-4** is the active line. 21 production contracts (8 alpha-3 satellites merged into core contracts), webapp migrated to 21-contract addressing, deployed to Paseo PVM 2026-05-06 (resolc 1.1.0). A parallel **dual-target EVM build** of the 29-contract alpha-3 layout is also deployed to Paseo EVM (2026-05-03) for benchmarking and EVM-parachain readiness. **Alpha-3** remains in-tree as the canonical 29-contract reference and last v9 PVM deploy (2026-05-02).
+**Alpha-4** is the active line. **EVM-only build** (Solidity 0.8.24, solc, evmVersion `cancun`) — pallet-revive on Polkadot Hub executes EVM bytecode directly, so dropping the PVM resolc bytecode-size constraint enabled merging 9 alpha-3 satellites into core contracts (29 → 21). That makes Settlement and other complex contracts materially cheaper to deploy and call. Deployed to Paseo Hub on 2026-05-06; webapp migrated to 21-contract addressing.
 
-Newest unreleased work (uncommitted): **hybrid dual-sig settlement** — `DatumSettlement.settleSignedClaims()` adds a permissionless path requiring publisher + advertiser EIP-712 co-sigs over the same `ClaimBatch` envelope, alongside the existing relay (`userSig + optional publisherSig`) path. Either party can refute by withholding their signature. 8 new tests (D1–D8) green; full alpha-4 suite 532/532.
+**Alpha-3** remains in-tree as the canonical 29-contract reference. It is dual-target: a PVM build via resolc 1.1.0 (`alpha-3/hardhat.config.ts`, deployed v9 2026-05-02) and an EVM dual-target build via stock solc (`alpha-3/hardhat.config.evm.ts`, deployed 2026-05-03). The EVM addresses are mirrored into `alpha-4/deployed-addresses-evm.json` so the webapp can switch between layouts.
+
+Newest unreleased work (committed `b85fcf7`): **hybrid dual-sig settlement** — `DatumSettlement.settleSignedClaims()` adds a permissionless path requiring publisher + advertiser EIP-712 co-sigs over the same `ClaimBatch` envelope, alongside the existing relay (`userSig + optional publisherSig`) path. Either party can refute by withholding their signature. 8 new tests (D1–D8) green; full alpha-4 suite 532/532.
 
 ---
 
 ## Components
 
-### Smart Contracts — `alpha-4/contracts/` (canonical)
+### Smart Contracts — `alpha-4/contracts/` (canonical, EVM)
 
-**21 production contracts** (PVM build) / **29-contract dual-target EVM build**. **532/532 alpha-4 contract tests passing.**
+**21 production contracts**, EVM bytecode (solc 0.8.24, evmVersion `cancun`, viaIR, optimizer 200 runs). Executed on Paseo Hub via pallet-revive's EVM compatibility path. **532/532 alpha-4 contract tests passing.**
 
-| Contract | Group | Role | PVM | EVM |
-|----------|-------|------|-----|-----|
-| ZKVerifier | Infrastructure | Real Groth16/BN254 verifier; verifying key set | ✅ | ✅ |
-| PauseRegistry | Infrastructure | Global emergency pause; 2-of-3 guardian unpause | ✅ | ✅ |
-| Timelock | Infrastructure | 48h admin delay for sensitive config | ✅ | ✅ |
-| PaymentVault | Infrastructure | Pull-payment vault (publisher/user/protocol DOT) | ✅ | ✅ |
-| TokenRewardVault | Infrastructure | Pull-payment vault for ERC-20 sidecar token rewards | ✅ | ✅ |
-| BudgetLedger | Campaign | Campaign escrow + daily caps | ✅ | ✅ |
-| Campaigns | Campaign | Creation, metadata, status, snapshots, token reward config | ✅ | ✅ |
-| CampaignLifecycle | Campaign | complete / terminate / expire + 30d inactivity timeout | ✅ | ✅ |
-| ClaimValidator | Settlement | Chain continuity, blocklist, rate-limit, ZK, publisher stake | ✅ | ✅ |
-| Settlement | Settlement | Hash-chain + Blake2 + 3-way DOT split + dual-sig path; absorbs RateLimiter, NullifierRegistry, Reputation | ✅ | ✅ |
-| AttestationVerifier | Settlement | EIP-712 mandatory publisher co-signature | ✅ | ✅ |
-| Publishers | Publisher | Registration, take rates, relay signer, profile, S12 blocklist | ✅ | ✅ |
-| Relay | Publisher | Gasless relay path with `userSig` + optional `publisherSig` | ✅ | ✅ |
-| GovernanceV2 | Governance | Conviction voting (9 levels), symmetric slash; absorbs Helper + Slash | ✅ | ✅ |
-| AdminGovernance | Governance | Phase 0: team direct approval (current active governor) | (merged) | ✅ |
-| GovernanceRouter | Governance | Stable-address proxy; Phase 0 → 1 → 2+ via Timelock | ✅ | ✅ |
-| Council | Governance | Phase 1: N-of-M trusted council voting | ✅ | ✅ |
-| PublisherStake | FP | FP-1+FP-4: publisher DOT bonding curve; settlement enforces | ✅ | ✅ |
-| ChallengeBonds | FP | FP-2: advertiser bonds at creation; bonus on fraud upheld | ✅ | ✅ |
-| PublisherGovernance | FP | FP-3: conviction-weighted fraud governance targeting publishers | ✅ | ✅ |
-| ParameterGovernance | FP | FP-15: conviction-vote DAO for protocol parameters | ✅ | ✅ |
-| ClickRegistry | FP | FP-6: click-fraud detection (deployed in alpha-4 PVM) | ✅ | — |
-| TargetingRegistry | Campaign | Tag-based targeting (alpha-3 satellite, EVM-only in alpha-4) | (merged) | ✅ |
-| CampaignValidator | Campaign | Creation-time validation satellite (EVM-only) | (merged) | ✅ |
-| GovernanceHelper | Governance | Read-helper aggregation (EVM-only) | (merged) | ✅ |
-| GovernanceSlash | Governance | Slash pool finalization (EVM-only) | (merged) | ✅ |
-| Reports | Satellite | Community reporting (EVM-only) | (merged) | ✅ |
-| SettlementRateLimiter | Settlement | BM-5: per-publisher window cap (EVM-only) | (merged) | ✅ |
-| PublisherReputation | Satellite | BM-8/9 settlement reputation (EVM-only) | (merged) | ✅ |
-| NullifierRegistry | FP | FP-5: ZK nullifier replay prevention (EVM-only) | (merged) | ✅ |
+The merge from 29 → 21 is what makes alpha-4 cost-optimized: dropping resolc PVM bytecode-size pressure lets nine alpha-3 satellites fold into their parents, eliminating cross-contract staticcalls in the hot settlement path.
 
-**Alpha-4 merger plan:** 8 alpha-3 satellites collapsed into core contracts to fit PVM bytecode constraints under resolc 1.1.0. The EVM dual-target build keeps satellites separate so behavior is benchmarked and audit-ready against the canonical 29-contract layout.
+| Contract | Group | Role | Absorbs (alpha-3 satellite) |
+|----------|-------|------|------------------------------|
+| ZKVerifier | Infrastructure | Real Groth16/BN254 verifier; verifying key set | — |
+| PauseRegistry | Infrastructure | Global emergency pause; 2-of-3 guardian unpause | — |
+| Timelock | Infrastructure | 48h admin delay for sensitive config | — |
+| PaymentVault | Infrastructure | Pull-payment vault (publisher/user/protocol DOT) | — |
+| TokenRewardVault | Infrastructure | Pull-payment vault for ERC-20 sidecar token rewards | — |
+| BudgetLedger | Campaign | Campaign escrow + daily caps | — |
+| Campaigns | Campaign | Creation, metadata, status, snapshots, token reward config | **TargetingRegistry**, **CampaignValidator**, **Reports** |
+| CampaignLifecycle | Campaign | complete / terminate / expire + 30d inactivity timeout | — |
+| ClaimValidator | Settlement | Chain continuity, blocklist, rate-limit, ZK, publisher stake | — |
+| Settlement | Settlement | Hash-chain + Blake2 + 3-way DOT split + dual-sig path | **SettlementRateLimiter**, **NullifierRegistry**, **PublisherReputation** |
+| AttestationVerifier | Settlement | EIP-712 mandatory publisher co-signature | — |
+| Publishers | Publisher | Registration, take rates, relay signer, profile, S12 blocklist | — |
+| Relay | Publisher | Gasless relay path with `userSig` + optional `publisherSig` | — |
+| GovernanceV2 | Governance | Conviction voting (9 levels), symmetric slash | **GovernanceHelper**, **GovernanceSlash** |
+| GovernanceRouter | Governance | Stable-address proxy; Phase 0 → 1 → 2+ via Timelock | **AdminGovernance** |
+| Council | Governance | Phase 1: N-of-M trusted council voting | — |
+| PublisherStake | FP | FP-1+FP-4: publisher DOT bonding curve; settlement enforces | — |
+| ChallengeBonds | FP | FP-2: advertiser bonds at creation; bonus on fraud upheld | — |
+| PublisherGovernance | FP | FP-3: conviction-weighted fraud governance targeting publishers | — |
+| ParameterGovernance | FP | FP-15: conviction-vote DAO for protocol parameters | — |
+| ClickRegistry | FP | FP-6: click-fraud detection (impression → click session tracking) | — |
 
-**Hybrid settlement (uncommitted, today):**
+Nine alpha-3 satellites merged into 4 parents: TargetingRegistry / CampaignValidator / Reports → Campaigns; SettlementRateLimiter / NullifierRegistry / PublisherReputation → Settlement; GovernanceHelper / GovernanceSlash → GovernanceV2; AdminGovernance → GovernanceRouter.
+
+**Hybrid settlement (committed `b85fcf7`):**
 - `Settlement.settleSignedClaims(SignedClaimBatch[])` — permissionless dual-sig path. Both parties sign EIP-712 `ClaimBatch(user, campaignId, claimsHash, deadline)` on the **DatumSettlement** domain. Publisher sig accepts EOA *or* its registered `relaySigner`; advertiser sig must match `campaigns.getCampaignAdvertiser`. Errors: `E81` deadline, `E82` publisher sig, `E83` advertiser sig.
 - `SignedClaimBatch` struct gains `userSig` (renamed from `signature`) and new `advertiserSig`. Existing relay path uses `userSig + publisherSig`.
 
-**Toolchain:** Solidity 0.8.24, resolc 1.1.0 (PVM) / solc cancun (EVM), Hardhat 2.22, OZ 5.0, optimizer mode `z`.
+**Toolchain:** Solidity 0.8.24, solc only (`@nomicfoundation/hardhat-toolbox`), Hardhat 2.22, OZ 5.0, viaIR + optimizer 200 runs, evmVersion `cancun`.
+
+### Alpha-3 Reference (PVM + EVM dual-target)
+
+`alpha-3/contracts/` keeps the canonical 29-contract layout. It builds two ways:
+- **PVM** via `alpha-3/hardhat.config.ts` (`@parity/hardhat-polkadot-resolc`, resolc 1.1.0, `target: "pvm"`) — deployed v9 2026-05-02. **546/546 tests** under the EVM Hardhat runner.
+- **EVM dual-target** via `alpha-3/hardhat.config.evm.ts` (stock solc) — deployed 2026-05-03 for the PVM-vs-EVM cost benchmark that motivated the alpha-4 merge.
 
 ---
 
@@ -136,7 +137,7 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations and forw
 
 ## Testnet Deployments
 
-### Alpha-4 PVM (Paseo) — 2026-05-06
+### Alpha-4 EVM (Paseo Hub via pallet-revive) — 2026-05-06
 
 | Contract | Address |
 |----------|---------|
@@ -162,21 +163,21 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations and forw
 | Council | `0x90fe17488e1c17C1226F1c384a2Ef826dBFaa241` |
 | ClickRegistry | `0x2fe26529a4F3594Bcbccd36e200721e80349A5f4` |
 
-Source: `alpha-4/deployed-addresses.json` (authoritative).
+Source: `alpha-4/deployed-addresses.json` (authoritative for alpha-4).
 
-### Alpha-4 EVM dual-target (Paseo EVM) — 2026-05-03
+### Alpha-3 PVM (Paseo Hub) — 2026-05-02 (v9, resolc 1.1.0)
 
-29-contract benchmark deploy mirroring the alpha-3 layout. Source: `alpha-4/deployed-addresses-evm.json`.
+29-contract reference deploy. Source: `alpha-3/deployed-addresses.json`. Used as the canonical comparison target for alpha-4 functional parity and the source of the PVM half of the cost benchmark.
 
-### Alpha-3 PVM (Paseo) — 2026-05-02 (v9, resolc 1.1.0)
+### Alpha-3 EVM dual-target (Paseo Hub) — 2026-05-03
 
-29-contract reference deploy. Source: `alpha-3/deployed-addresses.json`. Used as the canonical comparison target for alpha-4 functional parity.
+29-contract solc/EVM compile of the alpha-3 layout. Source: `alpha-3/deployed-addresses-evm.json`. Mirrored into `alpha-4/deployed-addresses-evm.json` so the webapp can switch between the alpha-3 layout and the alpha-4 21-contract layout. This is the EVM half of the PVM-vs-EVM benchmark that motivated the alpha-4 merge.
 
 ### Common parameters
 
 | Item | Value |
 |------|-------|
-| RPC (PVM) | `https://eth-rpc-testnet.polkadot.io/` |
+| RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | `https://blockscout-testnet.polkadot.io/` |
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
 | Chain ID | 420420417 |
@@ -203,8 +204,8 @@ Source: `alpha-4/deployed-addresses.json` (authoritative).
 ### ✅ 1. Blake2 Claim Hash — DONE
 Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Extension + relay use `@noble/hashes/blake2.js`.
 
-### ✅ 2. Alpha-4 Refactor + Deploy — DONE
-21-contract PVM build deployed 2026-05-06. 8 satellites merged into core. 29-contract dual-target EVM build deployed 2026-05-03 for parity benchmarking.
+### ✅ 2. Alpha-4 EVM Refactor + Deploy — DONE
+EVM-only 21-contract build (solc, evmVersion `cancun`) deployed 2026-05-06 to Paseo Hub via pallet-revive. 9 alpha-3 satellites merged into 4 parents; eliminating PVM bytecode-size pressure was the unlock. Alpha-3 PVM v9 (resolc 1.1.0) and alpha-3 EVM dual-target benchmarks remain as cost references.
 
 ### ✅ 3. Webapp Migration to Alpha-4 — DONE
 41 pages, 0 TS errors, 21-contract addressing. ABIs synced.
@@ -231,7 +232,7 @@ AdminGovernance (Phase 0, active), GovernanceRouter (stable proxy), Council (Pha
 `Settlement.settleSignedClaims` permissionless path with publisher + advertiser EIP-712 co-sigs. 8 new tests (D1–D8). Extension/web/relay-bot all updated to the new struct layout.
 
 ### 11. E2E Browser Validation
-Full flow on Paseo against alpha-4 PVM addresses: load extension, create impression, settle on-chain, confirm earnings.
+Full flow on Paseo against alpha-4 EVM addresses: load extension, create impression, settle on-chain, confirm earnings.
 
 ### 12. Open Testing
 Publish addresses, document external tester flow, monitor events.
@@ -264,7 +265,7 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 |----------|-------|--------|
 | Targeting redesign (TX-*) | 7 | ✅ Core done (TX-1–TX-4, TX-7) |
 | Bot mitigation (BM-*) | 9 | ✅ BM-2, BM-3, BM-5, BM-7, BM-8, BM-9 done; BM-6 deferred |
-| Fraud prevention (FP-*) | 5 deployed | ✅ FP-1–FP-5, FP-15 deployed; FP-6 ClickRegistry deployed in alpha-4; FP-8 partial; others deferred |
+| Fraud prevention (FP-*) | 5 deployed | ✅ FP-1–FP-5, FP-15 deployed; FP-6 ClickRegistry now standalone in alpha-4; FP-8 partial; others deferred |
 | Internal security audit | 30 | ✅ All implemented |
 | Governance ladder | 3 | ✅ AdminGovernance + Router + Council deployed |
 | IAB ad format system | 1 | ✅ Done |
@@ -281,12 +282,16 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 
 ```
 datum/
-├── alpha-4/         # Active line — 21 contracts (PVM) + 29-contract EVM dual-target build
+├── alpha-4/         # Active line — EVM-only, 21 contracts (9 satellites merged)
 │   ├── contracts/   # 21 deployable + 5 mocks
 │   ├── test/        # 532 tests
 │   ├── extension/   # 212 tests, 21-contract ABIs
+│   ├── deployed-addresses.json      # Alpha-4 EVM deploy (2026-05-06)
+│   ├── deployed-addresses-evm.json  # Mirror of alpha-3 EVM dual-target (29 contracts) for webapp routing
 │   └── ECONOMICS.md
-├── alpha-3/         # 29-contract canonical reference; v9 PVM deploy 2026-05-02
+├── alpha-3/         # 29-contract canonical reference; PVM via resolc 1.1.0 + solc EVM dual-target
+│   ├── hardhat.config.ts        # PVM (resolc) — v9 deploy 2026-05-02
+│   └── hardhat.config.evm.ts    # EVM dual-target (solc) — deploy 2026-05-03
 ├── web/             # React + Vite, 41 pages, alpha-4 21-contract addressing
 ├── sdk/             # Publisher SDK (datum-sdk.js, ~3 KB)
 ├── pine/            # Pine RPC: smoldot light-client eth JSON-RPC bridge

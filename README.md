@@ -2,9 +2,9 @@
 
 **Decentralized Ad Targeting Utility Marketplace**
 
-A privacy-preserving ad exchange on Polkadot Hub (PolkaVM). Advertisers create DOT-denominated campaigns on-chain; publishers embed a lightweight SDK; users earn DOT and optional ERC-20 sidecar tokens for verified impressions — settled entirely on-chain with no intermediary, no surveillance, and no personal data leaving the browser.
+A privacy-preserving ad exchange on Polkadot Hub. Advertisers create DOT-denominated campaigns on-chain; publishers embed a lightweight SDK; users earn DOT and optional ERC-20 sidecar tokens for verified impressions — settled entirely on-chain with no intermediary, no surveillance, and no personal data leaving the browser.
 
-The active line is **Alpha-4** (v0.4.0, 21 production contracts, deployed to Paseo PVM 2026-05-06). A 29-contract EVM dual-target build is also deployed to Paseo EVM for benchmarking and EVM-parachain readiness.
+The active line is **Alpha-4** (v0.4.0, 21 production contracts) — an **EVM-only** refactor of the alpha-3 layout. Compiled with stock solc (evmVersion `cancun`) and deployed to Paseo Hub on 2026-05-06 via pallet-revive's EVM execution path. Dropping the PVM resolc bytecode-size constraint let nine alpha-3 satellites fold into their parents (29 → 21 contracts), eliminating cross-contract staticcalls in the settlement hot path. The alpha-3 line stays in-tree as the canonical 29-contract reference, dual-targeted at PVM (resolc 1.1.0) and EVM (solc) for cost benchmarking.
 
 ---
 
@@ -129,9 +129,9 @@ DATUM supports **three settlement entry points**:
 
 ## Architecture
 
-### Smart Contracts — `alpha-4/contracts/`
+### Smart Contracts — `alpha-4/contracts/` (EVM)
 
-**21 deployable production contracts** (PVM build) + a 29-contract dual-target EVM build that keeps alpha-3 satellites separate for benchmarking. **532/532 alpha-4 tests passing.**
+**21 deployable production contracts**, compiled to EVM bytecode with solc 0.8.24 (evmVersion `cancun`, viaIR, optimizer 200 runs). Executed on Paseo Hub via pallet-revive's EVM compatibility path — no resolc, no PolkaVM target. **532/532 alpha-4 tests passing.**
 
 | Group | Contract | Role |
 |-------|----------|------|
@@ -155,11 +155,9 @@ DATUM supports **three settlement entry points**:
 | Fraud Prevention | `DatumChallengeBonds` | FP-2: advertiser bonds at creation; bonus on fraud upheld |
 | Fraud Prevention | `DatumPublisherGovernance` | FP-3: conviction-weighted fraud governance targeting publishers |
 | Fraud Prevention | `DatumParameterGovernance` | FP-15: conviction-vote DAO for protocol parameters |
-| Fraud Prevention | `DatumClickRegistry` | FP-6: click-fraud detection (deployed in alpha-4 PVM) |
+| Fraud Prevention | `DatumClickRegistry` | FP-6: click-fraud detection (impression → click session tracking) |
 
-The EVM dual-target build additionally exposes `DatumTargetingRegistry`, `DatumCampaignValidator`, `DatumGovernanceHelper`, `DatumGovernanceSlash`, `DatumReports`, `DatumSettlementRateLimiter`, `DatumPublisherReputation`, `DatumNullifierRegistry`, and `DatumAdminGovernance` as separate contracts (alpha-3 layout) for parity benchmarking. In the PVM build their behavior is folded into the closest core contract to fit resolc 1.1.0 bytecode constraints.
-
-Compiled to PolkaVM (RISC-V) via resolc 1.1.0 (PVM) or solc cancun (EVM dual-target). Optimizer mode `z`.
+Nine alpha-3 satellites are folded into their parents in alpha-4: TargetingRegistry / CampaignValidator / Reports → `DatumCampaigns`; SettlementRateLimiter / NullifierRegistry / PublisherReputation → `DatumSettlement`; GovernanceHelper / GovernanceSlash → `DatumGovernanceV2`; AdminGovernance → `DatumGovernanceRouter`. The standalone alpha-3 contracts remain available in `alpha-3/contracts/` (dual-target PVM via resolc 1.1.0 + EVM via solc) as the canonical 29-contract reference and the source of the PVM-vs-EVM cost benchmark that motivated the merge.
 
 ### Browser Extension — `alpha-4/extension/`
 
@@ -271,11 +269,11 @@ cd alpha-4/extension && npm install && npm run build
 cd web && npm install && npm run dev
 ```
 
-### Paseo Testnet (live — alpha-4 PVM, 2026-05-06)
+### Paseo Testnet (live — alpha-4 EVM, 2026-05-06)
 
 | Resource | Value |
 |----------|-------|
-| RPC (PVM) | `https://eth-rpc-testnet.polkadot.io/` |
+| RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | `https://blockscout-testnet.polkadot.io/` |
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
 | Web App | https://datum.javcon.io |
@@ -291,36 +289,37 @@ Contract addresses: `alpha-4/deployed-addresses.json`. Full status, dual-target 
 
 ---
 
-## Why PolkaVM
+## Why Polkadot Hub
 
 - **Native DOT settlement** — escrow, stakes, and payments in DOT; no bridges or wrapped tokens
 - **Shared security** — contracts execute on Polkadot Hub, inheriting relay chain validator security
 - **XCM interoperability** — cross-chain fee routing and governance tooling are native XCM calls
 - **Asset Hub tokens** — ERC-20 sidecar rewards work with any Asset Hub token (precompile address derivation built in)
+- **Two execution paths in one runtime** — pallet-revive runs both PolkaVM bytecode (resolc) and EVM bytecode (solc). Alpha-4 picks the EVM path because dropping resolc's bytecode-size constraint lets us merge satellites and shrink settlement gas. Alpha-3 keeps both compile targets so we can benchmark the trade-off honestly.
 
-The Solidity source is portable — alpha-4 ships a parallel EVM build that targets standard EVM parachains with no contract changes beyond satellite separation.
+The Solidity source is fully portable to standard EVM parachains.
 
 ---
 
 ## Status
 
-- [x] **Alpha-4 — 21 contracts deployed on Paseo PVM** (2026-05-06)
-- [x] **EVM dual-target build — 29 contracts deployed on Paseo EVM** (2026-05-03)
+- [x] **Alpha-4 EVM — 21 contracts deployed on Paseo Hub** (2026-05-06, solc/cancun via pallet-revive EVM)
+- [x] **Alpha-3 dual-target benchmark deploys** — PVM (resolc 1.1.0) 2026-05-02, EVM (solc) 2026-05-03
 - [x] **Webapp migrated to alpha-4** — 41 pages, 0 TS errors, 21-contract addressing
 - [x] **Hybrid dual-sig settlement** — `settleSignedClaims` permissionless path; D1–D8 tests; extension/web/relay updated
 - [x] **532 alpha-4 contract tests** + **212 extension tests** — all passing
 - [x] **Governance ladder** — AdminGovernance (Phase 0) + GovernanceRouter (stable proxy) + Council (Phase 1) live
 - [x] **Real Groth16 ZK verifier** — BN254, verifying key set, 2-public-input circuit
-- [x] **Fraud prevention (FP-1–FP-5, FP-15)** — publisher stake, challenge bonds, fraud governance, ZK nullifiers, parameter DAO; FP-6 ClickRegistry deployed in alpha-4 PVM
+- [x] **Fraud prevention (FP-1–FP-5, FP-15)** — publisher stake, challenge bonds, fraud governance, ZK nullifiers, parameter DAO; FP-6 ClickRegistry standalone in alpha-4
 - [x] **ERC-20 token reward vault** — per-campaign sidecar token rewards, pull-payment
 - [x] **IAB ad format system** — 7 standard sizes, per-format creative images, format-aware ad injection
 - [x] **Internal security audit (30 items)** — all implemented
 - [x] **Pine RPC** — smoldot light-client bridge, eliminates centralized RPC dependency
-- [ ] **E2E browser validation** — full flow on Paseo against alpha-4 PVM addresses
+- [ ] **E2E browser validation** — full flow on Paseo against alpha-4 EVM addresses
 - [ ] **External security audit**
 - [ ] **Mainnet** — Kusama → Polkadot Hub
 
-See [STATUS.md](STATUS.md) for detailed component status, test totals, and deployed addresses across alpha-3, alpha-4 PVM, and alpha-4 EVM dual-target.
+See [STATUS.md](STATUS.md) for detailed component status, test totals, and deployed addresses across alpha-4 (EVM), alpha-3 PVM, and alpha-3 EVM dual-target.
 
 ---
 
