@@ -452,14 +452,19 @@
 
     var inner;
     if (layout === "tiny") {
-      // Compact single line: [reticle] datum · {hook} · cta
+      // Compact strip: [reticle] datum  ·  {hook wraps to 2 lines}  ·  cta
+      // Hook uses -webkit-line-clamp so long copy wraps onto two lines
+      // instead of getting truncated with a single ellipsis.
       inner =
         brandSvg(12) +
-        '<span style="' + wordmark + 'font-size:12px;margin:0 8px 0 8px;flex:none;">datum</span>' +
-        '<span style="font-size:11px;color:' + THEME.fgDim + ';flex:1;min-width:0;' +
-          'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</span>' +
+        '<span style="' + wordmark + 'font-size:11px;margin:0 7px 0 6px;flex:none;">datum</span>' +
+        '<span style="' +
+          'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
+          'font-size:10px;color:' + THEME.fgDim + ';line-height:1.2;' +
+          'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;' +
+          'word-break:break-word;overflow-wrap:break-word;">' + hook + '</span>' +
         '<span style="font-family:' + THEME.mono + ';font-size:10px;font-weight:600;' +
-          'color:' + THEME.accent + ';margin-left:10px;flex:none;white-space:nowrap;' +
+          'color:' + THEME.accent + ';margin-left:8px;flex:none;white-space:nowrap;' +
           'letter-spacing:0.3px;">' + cta + '</span>';
     } else if (layout === "wide") {
       // [reticle] datum / // ON-CHAIN AD   ·   hook + body   ·   cta pill
