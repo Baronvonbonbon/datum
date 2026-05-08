@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DATUM SDK — house-ad preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    padding: 32px;
+    background: #15151B;
+    color: #E6E6EC;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: 0.2px;
+  }
+  p.lede {
+    margin: 0 0 32px;
+    font-size: 13px;
+    color: #9A9AA8;
+    max-width: 640px;
+    line-height: 1.5;
+  }
+  h2 {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    margin: 28px 0 10px;
+    color: #6B6B7A;
+    text-transform: uppercase;
+    letter-spacing: 1.6px;
+  }
+  button.reload {
+    margin-bottom: 16px;
+    background: #E6007A;
+    color: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+    letter-spacing: 0.4px;
+  }
+  button.reload:hover { background: #FF1A8C; }
+  .row { display: flex; flex-wrap: wrap; gap: 24px; }
+</style>
+</head>
+<body>
+  <h1>DATUM SDK — no-extension fallback preview</h1>
+  <p class="lede">
+    These slots show the house ad rendered by <code>datum-sdk.js</code> when no
+    DATUM browser extension is installed. Each render picks a random
+    category, hook, body, and CTA. Click <strong>shuffle</strong> to re-roll.
+  </p>
+  <button class="reload" onclick="reroll()">↻ shuffle creatives</button>
+
+  <h2>tiny — mobile-banner (320×50)</h2>
+  <div data-datum-slot="mobile-banner"></div>
+
+  <h2>wide — leaderboard (728×90)</h2>
+  <div data-datum-slot="leaderboard"></div>
+
+  <h2>vertical formats</h2>
+  <div class="row">
+    <div data-datum-slot="medium-rectangle"></div>
+    <div data-datum-slot="square"></div>
+    <div data-datum-slot="large-rectangle"></div>
+    <div data-datum-slot="wide-skyscraper"></div>
+    <div data-datum-slot="half-page"></div>
+  </div>
+
+  <script>
+    function reroll() {
+      // Wipe all rendered house ads and reload the SDK so the fallback timer fires again.
+      document.querySelectorAll("[data-datum-house-ad]").forEach(function (el) { el.remove(); });
+      var existing = document.querySelector('script[data-datum-preview]');
+      if (existing) existing.remove();
+      var s = document.createElement("script");
+      s.src = "datum-sdk.js?cache=" + Date.now();
+      s.setAttribute("data-publisher", "0xPREVIEW");
+      s.setAttribute("data-datum-preview", "1");
+      document.body.appendChild(s);
+    }
+  </script>
+  <script src="datum-sdk.js" data-publisher="0xPREVIEW" data-datum-preview="1"></script>
+</body>
+</html>

@@ -191,6 +191,41 @@
     };
   }
 
+  // ── House-ad theme tokens ─────────────────────────────────────────────────
+
+  var THEME = {
+    bg: "linear-gradient(180deg,#0F0F1C 0%,#08080F 100%)",
+    fg: "#F5F5F8",
+    fgDim: "rgba(245,245,248,0.72)",
+    fgFaint: "rgba(245,245,248,0.45)",
+    accent: "#E6007A",
+    accentSoft: "rgba(230,0,122,0.18)",
+    border: "rgba(230,0,122,0.32)",
+    glow: "0 8px 28px -16px rgba(230,0,122,0.5), inset 0 0 0 1px rgba(230,0,122,0.06)",
+    sans:
+      "-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+    mono:
+      "ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace"
+  };
+
+  /**
+   * Inline SVG brand mark — a reticle (corner brackets framing a dot).
+   * Communicates "data point captured / node in a network" without needing
+   * an external asset. `px` controls the rendered size.
+   */
+  function brandSvg(px) {
+    px = px || 16;
+    return (
+      '<svg width="' + px + '" height="' + px + '" viewBox="0 0 16 16" ' +
+      'style="display:block;flex:none;" aria-hidden="true">' +
+        '<path d="M2 5 L2 2 L5 2 M11 2 L14 2 L14 5 M14 11 L14 14 L11 14 M5 14 L2 14 L2 11" ' +
+          'fill="none" stroke="rgba(245,245,248,0.55)" stroke-width="1.4" ' +
+          'stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<circle cx="8" cy="8" r="2.6" fill="' + THEME.accent + '"/>' +
+      '</svg>'
+    );
+  }
+
   // HTML-escape user-controlled creative copy. Defensive — copy is hard-coded
   // above today, but escaping keeps that contract for future edits.
   function esc(s) {
@@ -402,53 +437,82 @@
     var body = esc(c.body);
     var cta = esc(c.cta);
 
+    // Reusable style fragments
+    var wordmark =
+      'font-weight:700;letter-spacing:0.2px;color:' + THEME.fg + ';';
+    var subtitle =
+      'font-family:' + THEME.mono + ';' +
+      'font-size:9px;color:' + THEME.fgFaint + ';' +
+      'text-transform:uppercase;letter-spacing:1.4px;line-height:1.2;';
+    var ctaPill =
+      'display:inline-block;background:' + THEME.accent + ';' +
+      'color:#fff;font-family:' + THEME.mono + ';font-size:11px;font-weight:600;' +
+      'letter-spacing:0.4px;padding:7px 12px;border-radius:5px;white-space:nowrap;' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08),0 2px 10px rgba(230,0,122,0.32);';
+
     var inner;
     if (layout === "tiny") {
-      // Single line: ● datum · {hook truncated} · {cta}
+      // Compact single line: [reticle] datum · {hook} · cta
       inner =
-        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#E6007A;margin-right:8px;flex:none;"></span>' +
-        '<span style="font-weight:700;font-size:13px;letter-spacing:0.2px;margin-right:10px;flex:none;">datum</span>' +
-        '<span style="font-size:11px;opacity:0.92;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</span>' +
-        '<span style="font-size:11px;font-weight:600;color:#E6007A;margin-left:10px;flex:none;white-space:nowrap;">' + cta + '</span>';
+        brandSvg(12) +
+        '<span style="' + wordmark + 'font-size:12px;margin:0 8px 0 8px;flex:none;">datum</span>' +
+        '<span style="font-size:11px;color:' + THEME.fgDim + ';flex:1;min-width:0;' +
+          'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</span>' +
+        '<span style="font-family:' + THEME.mono + ';font-size:10px;font-weight:600;' +
+          'color:' + THEME.accent + ';margin-left:10px;flex:none;white-space:nowrap;' +
+          'letter-spacing:0.3px;">' + cta + '</span>';
     } else if (layout === "wide") {
-      // ● datum  ·  hook (bold) + body (smaller, dimmer)  ·  cta pill
+      // [reticle] datum / // ON-CHAIN AD   ·   hook + body   ·   cta pill
       inner =
-        '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#E6007A;margin-right:14px;flex:none;"></span>' +
-        '<div style="flex:none;margin-right:18px;">' +
-          '<div style="font-weight:700;font-size:17px;letter-spacing:0.3px;line-height:1.1;">datum</div>' +
-          '<div style="font-size:9px;opacity:0.6;text-transform:uppercase;letter-spacing:1.2px;line-height:1.2;margin-top:2px;">on-chain ads</div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex:none;margin-right:18px;">' +
+          brandSvg(18) +
+          '<div>' +
+            '<div style="' + wordmark + 'font-size:17px;line-height:1.05;">datum</div>' +
+            '<div style="' + subtitle + 'margin-top:3px;">// on-chain ad</div>' +
+          '</div>' +
         '</div>' +
         '<div style="flex:1;min-width:0;line-height:1.25;">' +
-          '<div style="font-size:15px;font-weight:600;letter-spacing:0.1px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</div>' +
-          '<div style="font-size:12px;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + body + '</div>' +
+          '<div style="font-size:15px;font-weight:600;color:' + THEME.fg + ';' +
+            'letter-spacing:0.1px;margin-bottom:3px;overflow:hidden;' +
+            'text-overflow:ellipsis;white-space:nowrap;">' + hook + '</div>' +
+          '<div style="font-size:12px;color:' + THEME.fgDim + ';' +
+            'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + body + '</div>' +
         '</div>' +
-        '<span style="flex:none;margin-left:18px;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 14px;border-radius:4px;white-space:nowrap;">' + cta + '</span>';
+        '<span style="' + ctaPill + 'flex:none;margin-left:18px;">' + cta + '</span>';
     } else {
-      // Vertical block: ● datum / HOOK / body / cta pill
+      // Vertical block: [reticle] datum / // ON-CHAIN AD / hook / body / cta pill
       inner =
-        '<div style="text-align:center;width:100%;">' +
-          '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;">' +
-            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E6007A;"></span>' +
-            '<span style="font-weight:700;font-size:17px;letter-spacing:0.3px;">datum</span>' +
+        '<div style="text-align:center;width:100%;display:flex;flex-direction:column;align-items:center;gap:0;">' +
+          '<div style="display:inline-flex;align-items:center;gap:8px;">' +
+            brandSvg(16) +
+            '<span style="' + wordmark + 'font-size:17px;">datum</span>' +
           '</div>' +
-          '<div style="font-size:15px;font-weight:600;line-height:1.25;letter-spacing:0.1px;margin-bottom:10px;padding:0 6px;">' + hook + '</div>' +
-          '<div style="font-size:12px;opacity:0.82;line-height:1.4;margin-bottom:14px;padding:0 8px;">' + body + '</div>' +
-          '<div style="display:inline-block;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 16px;border-radius:4px;">' + cta + '</div>' +
+          '<div style="' + subtitle + 'margin-top:6px;margin-bottom:14px;">// on-chain ad</div>' +
+          '<div style="font-size:15px;font-weight:600;color:' + THEME.fg + ';' +
+            'line-height:1.3;letter-spacing:0.1px;margin-bottom:10px;padding:0 6px;">' + hook + '</div>' +
+          '<div style="font-size:12px;color:' + THEME.fgDim + ';' +
+            'line-height:1.45;margin-bottom:16px;padding:0 8px;">' + body + '</div>' +
+          '<span style="' + ctaPill + '">' + cta + '</span>' +
         '</div>';
     }
 
-    var pad = layout === "tiny" ? "0 10px" : layout === "wide" ? "0 16px" : "16px 12px";
+    var pad = layout === "tiny" ? "0 12px" : layout === "wide" ? "0 18px" : "18px 14px";
     var a = document.createElement("a");
     a.href = FALLBACK_URL;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.setAttribute("data-datum-house-ad", "1");
     a.style.cssText =
-      "display:flex;align-items:center;justify-content:center;width:100%;height:100%;" +
-      "text-decoration:none;color:#ffffff;background:#0E0E1F;" +
-      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;" +
-      "border:1px solid rgba(230,0,122,0.3);border-radius:6px;" +
-      "overflow:hidden;cursor:pointer;box-sizing:border-box;padding:" + pad + ";";
+      "display:flex;align-items:center;justify-content:" +
+      (layout === "vertical" ? "center" : "flex-start") + ";" +
+      "width:100%;height:100%;" +
+      "text-decoration:none;color:" + THEME.fg + ";" +
+      "background:" + THEME.bg + ";" +
+      "font-family:" + THEME.sans + ";" +
+      "border:1px solid " + THEME.border + ";border-radius:8px;" +
+      "box-shadow:" + THEME.glow + ";" +
+      "overflow:hidden;cursor:pointer;box-sizing:border-box;" +
+      "padding:" + pad + ";";
     a.innerHTML = inner;
     slotEl.appendChild(a);
   }
