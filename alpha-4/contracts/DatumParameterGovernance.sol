@@ -55,6 +55,14 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
     mapping(uint256 => Proposal) private _proposals;
     mapping(uint256 => mapping(address => Vote)) private _votes;
 
+    /// @dev G-M3: pull-pattern queue for bond refunds (proposer) and slashed
+    ///      bonds (owner). Resolve / execute / cancel queue here instead of
+    ///      pushing directly so a contract recipient with a hostile fallback
+    ///      cannot DoS the lifecycle.
+    mapping(address => uint256) public pendingBondPayout;
+    event BondPayoutQueued(address indexed recipient, uint256 amount);
+    event BondPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
+
     // ── Modifiers ───────────────────────────────────────────────────────────────
     modifier whenNotPaused() { require(!pauseRegistry.paused(), "P"); _; }
 
@@ -157,11 +165,13 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
             p.executeAfter = block.number + timelockBlocks;
         } else {
             p.state = State.Rejected;
-            // Slash bond to owner
+            // G-M3: queue slashed bond for owner pull instead of pushing.
             uint256 bond = p.bond;
             p.bond = 0;
-            (bool ok,) = owner().call{value: bond}("");
-            require(ok, "E02");
+            if (bond > 0) {
+                pendingBondPayout[owner()] += bond;
+                emit BondPayoutQueued(owner(), bond);
+            }
         }
         emit Resolved(proposalId, uint8(p.state));
     }
@@ -184,12 +194,13 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
         (bool ok,) = p.target.call(p.payload);
         require(ok, "E02");
 
-        // Return bond to proposer
+        // G-M3: queue bond refund for proposer pull.
         uint256 bond = p.bond;
         p.bond = 0;
-        address proposer = p.proposer;
-        (bool refund,) = proposer.call{value: bond}("");
-        require(refund, "E02");
+        if (bond > 0) {
+            pendingBondPayout[p.proposer] += bond;
+            emit BondPayoutQueued(p.proposer, bond);
+        }
 
         emit Executed(proposalId, p.target);
     }
@@ -200,12 +211,35 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
 
         p.state = State.Cancelled;
 
+        // G-M3: queue cancelled-bond payout for owner pull.
         uint256 bond = p.bond;
         p.bond = 0;
-        (bool ok,) = owner().call{value: bond}("");
-        require(ok, "E02");
+        if (bond > 0) {
+            pendingBondPayout[owner()] += bond;
+            emit BondPayoutQueued(owner(), bond);
+        }
 
         emit Cancelled(proposalId);
+    }
+
+    /// @notice G-M3: Pull a queued bond payout to msg.sender.
+    function claimBondPayout() external nonReentrant {
+        _claimBondPayout(msg.sender);
+    }
+
+    /// @notice G-M3: Pull a queued bond payout to a chosen recipient (cold wallet).
+    function claimBondPayoutTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimBondPayout(recipient);
+    }
+
+    function _claimBondPayout(address recipient) internal {
+        uint256 amount = pendingBondPayout[msg.sender];
+        require(amount > 0, "E03");
+        pendingBondPayout[msg.sender] = 0;
+        emit BondPayoutClaimed(msg.sender, recipient, amount);
+        (bool ok,) = recipient.call{value: amount}("");
+        require(ok, "E02");
     }
 
     // ── Admin ────────────────────────────────────────────────────────────────────

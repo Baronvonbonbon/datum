@@ -15,6 +15,8 @@ interface IDatumPublisherGovernance {
         uint256 ayeWeighted;
         uint256 nayWeighted;
         uint256 firstNayBlock;   // used for grace period measurement
+        address proposer;        // G-M5: bond owner
+        uint256 bond;             // G-M5: locked at propose, refunded if quorum reached
     }
 
     struct Vote {
@@ -25,6 +27,9 @@ interface IDatumPublisherGovernance {
     }
 
     event ProposalCreated(uint256 indexed proposalId, address indexed publisher, bytes32 evidenceHash);
+    /// @notice G-M5: bond locked at propose / refunded on quorum / slashed otherwise.
+    event ProposeBondLocked(uint256 indexed proposalId, address indexed proposer, uint256 amount);
+    event ProposeBondQueued(address indexed recipient, uint256 amount, bool refunded);
     event VoteCast(uint256 indexed proposalId, address indexed voter, bool aye, uint256 amount, uint8 conviction);
     event VoteWithdrawn(uint256 indexed proposalId, address indexed voter, uint256 amount);
     /// @notice AUDIT-007: Emitted when a prior vote deposit is refunded during re-vote.
@@ -33,10 +38,10 @@ interface IDatumPublisherGovernance {
 
     // ── Actions ────────────────────────────────────────────────────────────────
 
-    /// @notice Submit a fraud proposal for a publisher.
+    /// @notice Submit a fraud proposal for a publisher. Payable — must equal proposeBond (G-M5).
     /// @param publisher     Publisher address to accuse.
     /// @param evidenceHash  Off-chain evidence hash (IPFS CID or similar).
-    function propose(address publisher, bytes32 evidenceHash) external;
+    function propose(address publisher, bytes32 evidenceHash) external payable;
 
     /// @notice Cast or update a vote on a proposal. Payable — DOT is locked.
     /// @param proposalId  Proposal to vote on.
@@ -62,4 +67,5 @@ interface IDatumPublisherGovernance {
     function slashBps() external view returns (uint256);         // portion of publisher stake to slash (bps)
     function bondBonusBps() external view returns (uint256);     // portion of slash that goes to challenge bonds pool (bps)
     function minGraceBlocks() external view returns (uint256);   // min blocks after nay appears before resolution
+    function proposeBond() external view returns (uint256);      // G-M5: required bond per proposal
 }

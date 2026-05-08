@@ -54,6 +54,22 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
     uint256 public slashBps;
     uint256 public bondBonusBps;
     uint256 public minGraceBlocks;
+    /// @notice G-M5: required propose bond. Forfeited to treasury when a proposal
+    ///         fails to reach quorum; refunded otherwise. 0 = no bond required.
+    uint256 public proposeBond;
+
+    /// @notice G-M3 / G-M5 / G-M6: pull-pattern queue. Any DOT the contract
+    ///         needs to send out (refunded bonds, swept treasury) lands here;
+    ///         recipient pulls via claimGovPayout[To].
+    mapping(address => uint256) public pendingGovPayout;
+
+    /// @notice Slashed remainder accumulated for the treasury (G-M6). Owner
+    ///         calls sweepTreasury() to move it into pendingGovPayout[owner()].
+    uint256 public treasuryBalance;
+
+    event GovPayoutQueued(address indexed recipient, uint256 amount, string reason);
+    event GovPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
+    event TreasurySwept(address indexed owner, uint256 amount);
 
     modifier whenNotPaused() {
         require(!pauseRegistry.paused(), "P");
@@ -76,7 +92,8 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         uint256 _quorum,
         uint256 _slashBps,
         uint256 _bondBonusBps,
-        uint256 _minGraceBlocks
+        uint256 _minGraceBlocks,
+        uint256 _proposeBond
     ) DatumOwnable() {
         require(_publisherStake != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
@@ -89,6 +106,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         slashBps = _slashBps;
         bondBonusBps = _bondBonusBps;
         minGraceBlocks = _minGraceBlocks;
+        proposeBond = _proposeBond;
         nextProposalId = 1;
     }
 
@@ -117,12 +135,20 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         minGraceBlocks = _minGrace;
     }
 
+    /// @notice G-M5: Set the bond required to file a fraud proposal. 0 disables.
+    function setProposeBond(uint256 _proposeBond) external onlyOwner {
+        proposeBond = _proposeBond;
+    }
+
     // ── Publisher governance actions ───────────────────────────────────────────
 
     /// @inheritdoc IDatumPublisherGovernance
-    function propose(address publisher, bytes32 evidenceHash) external whenNotPaused {
+    /// @dev G-M5: requires `proposeBond` to be sent. Refunded on quorum reached;
+    ///      forfeited to the treasury (owner-claimable via sweepTreasury) otherwise.
+    function propose(address publisher, bytes32 evidenceHash) external payable whenNotPaused {
         require(publisher != address(0), "E00");
         require(evidenceHash != bytes32(0), "E00");
+        require(msg.value == proposeBond, "E11");
 
         uint256 proposalId = nextProposalId++;
         _proposals[proposalId] = Proposal({
@@ -132,10 +158,13 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
             resolved: false,
             ayeWeighted: 0,
             nayWeighted: 0,
-            firstNayBlock: 0
+            firstNayBlock: 0,
+            proposer: msg.sender,
+            bond: msg.value
         });
 
         emit ProposalCreated(proposalId, publisher, evidenceHash);
+        if (msg.value > 0) emit ProposeBondLocked(proposalId, msg.sender, msg.value);
     }
 
     /// @inheritdoc IDatumPublisherGovernance
@@ -192,13 +221,12 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         require(v.direction != 0, "E01");
         require(block.number >= v.lockedUntilBlock, "E42");
 
+        // G-L4: rely on Solidity 0.8 checked arithmetic — silently capping at zero
+        //       hides invariant violations. If weight tracking ever desyncs, revert.
         Proposal storage p = _proposals[proposalId];
         uint256 weight = v.lockAmount * _weight(v.conviction);
-        if (v.direction == 1) {
-            if (p.ayeWeighted >= weight) p.ayeWeighted -= weight;
-        } else {
-            if (p.nayWeighted >= weight) p.nayWeighted -= weight;
-        }
+        if (v.direction == 1) p.ayeWeighted -= weight;
+        else                   p.nayWeighted -= weight;
 
         uint256 amount = v.lockAmount;
         v.direction = 0;
@@ -224,10 +252,10 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
 
         p.resolved = true;
 
-        bool fraudUpfield = p.ayeWeighted > p.nayWeighted && p.ayeWeighted >= quorum;
+        bool fraudUpheld = p.ayeWeighted > p.nayWeighted && p.ayeWeighted >= quorum;
         uint256 slashAmount = 0;
 
-        if (fraudUpfield) {
+        if (fraudUpheld) {
             // Slash publisher stake
             uint256 publisherStakeAmt = publisherStake.staked(p.publisher);
             slashAmount = (publisherStakeAmt * slashBps) / 10000;
@@ -236,18 +264,65 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
                 // Slash to this contract first, then distribute
                 publisherStake.slash(p.publisher, slashAmount, address(this));
 
+                uint256 forwarded = 0;
                 // Forward bondBonusBps share to challenge bonds pool
                 if (address(challengeBonds) != address(0) && bondBonusBps > 0) {
                     uint256 bonusShare = (slashAmount * bondBonusBps) / 10000;
                     if (bonusShare > 0 && bonusShare <= address(this).balance) {
                         challengeBonds.addToPool{value: bonusShare}(p.publisher);
+                        forwarded = bonusShare;
                     }
                 }
-                // Remainder stays in this contract (protocol treasury)
+                // G-M6: track remainder explicitly so sweepTreasury doesn't need to
+                //       reason about balance deltas vs pending queues.
+                treasuryBalance += (slashAmount - forwarded);
             }
         }
 
-        emit ProposalResolved(proposalId, p.publisher, fraudUpfield, slashAmount);
+        // G-M5: bond accounting.
+        //   - Quorum reached (aye OR nay weight ≥ quorum) → proposer gets bond back.
+        //   - Otherwise → bond forfeited to treasury (owner pull via sweepTreasury).
+        bool quorumReached = p.ayeWeighted >= quorum || p.nayWeighted >= quorum;
+        uint256 bond = p.bond;
+        p.bond = 0;
+        if (bond > 0) {
+            address recipient = quorumReached ? p.proposer : owner();
+            pendingGovPayout[recipient] += bond;
+            emit ProposeBondQueued(recipient, bond, quorumReached);
+        }
+
+        emit ProposalResolved(proposalId, p.publisher, fraudUpheld, slashAmount);
+    }
+
+    /// @notice G-M6: Move accumulated slashed remainder into the owner's
+    ///         pull-payout queue. Permissionless trigger; only owner can claim.
+    function sweepTreasury() external nonReentrant {
+        uint256 amount = treasuryBalance;
+        require(amount > 0, "E03");
+        treasuryBalance = 0;
+        pendingGovPayout[owner()] += amount;
+        emit TreasurySwept(owner(), amount);
+        emit GovPayoutQueued(owner(), amount, "treasury sweep");
+    }
+
+    /// @notice G-M3/G-M5/G-M6: Pull a queued payout to msg.sender.
+    function claimGovPayout() external nonReentrant {
+        _claimGovPayout(msg.sender);
+    }
+
+    /// @notice G-M3/G-M5/G-M6: Pull a queued payout to a chosen recipient.
+    function claimGovPayoutTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimGovPayout(recipient);
+    }
+
+    function _claimGovPayout(address recipient) internal {
+        uint256 amount = pendingGovPayout[msg.sender];
+        require(amount > 0, "E03");
+        pendingGovPayout[msg.sender] = 0;
+        emit GovPayoutClaimed(msg.sender, recipient, amount);
+        (bool ok,) = recipient.call{value: amount}("");
+        require(ok, "E02");
     }
 
     // ── Views ──────────────────────────────────────────────────────────────────

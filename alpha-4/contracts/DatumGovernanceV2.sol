@@ -98,6 +98,13 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
     mapping(uint256 => mapping(address => bool)) public slashClaimed;
     mapping(uint256 => uint256) public totalSlashClaimed;
 
+    /// @dev G-M3: pending sweep amount queued for owner pull. sweepSlashPool no
+    ///      longer pushes to owner — a misconfigured owner would otherwise
+    ///      brick the sweep and strand the unclaimed slash.
+    uint256 public pendingOwnerSweep;
+    event OwnerSweepQueued(uint256 indexed campaignId, uint256 amount);
+    event OwnerSweepClaimed(address indexed recipient, uint256 amount);
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -124,6 +131,9 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         require(_maxGrace >= _baseGrace, "E00");
+        // G-M2: cap slashBps below 100% so losing voters can always retrieve a
+        // non-zero refund — `withdraw()` reverts with E58 when refund == 0.
+        require(_slashBps < 10000, "E11");
         campaigns = _campaigns;
         quorumWeighted = _quorum;
         slashBps = _slashBps;
@@ -167,8 +177,10 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         require(msg.value > 0, "E41");
 
         Vote storage v = _votes[campaignId][msg.sender];
-        // AUDIT-001: conviction floor — cannot downgrade conviction on an active vote
-        require(conviction >= v.conviction, "E74");
+        // G-L1: AUDIT-001 conviction floor was dead code — withdraw() resets
+        //       v.conviction to 0, and re-vote is gated on v.direction == 0,
+        //       so v.conviction is always 0 on this path. The direction-zero
+        //       check below subsumes the floor protection.
         require(v.direction == 0, "E42");
 
         (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
@@ -265,14 +277,17 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
                 IDatumCampaignsMinimal(campaigns).activateCampaign(campaignId);
                 emit CampaignEvaluated(campaignId, 1);
             } else if (nayWins) {
-                // Terminate from Pending: grace already elapsed since firstNayBlock was set
-                // either during Active/Paused voting or during this Pending period.
+                // G-M4: symmetric grace using `lastSignificantVoteBlock` (AUDIT-011),
+                // matching the aye-wins path. firstNayBlock was the prior anchor but
+                // never reset on full nay withdrawal, allowing earlier-than-intended
+                // termination after a reset+revote cycle.
                 uint256 grace = baseGraceBlocks;
                 if (quorumWeighted > 0) {
                     grace += total * gracePerQuorum / quorumWeighted;
                 }
                 if (grace > maxGraceBlocks) grace = maxGraceBlocks;
-                require(firstNayBlock[campaignId] > 0 && block.number >= firstNayBlock[campaignId] + grace, "E53");
+                uint256 lastVote = lastSignificantVoteBlock[campaignId];
+                require(lastVote == 0 || grace == 0 || block.number >= lastVote + grace, "E53");
                 lifecycle.terminateCampaign(campaignId);
                 resolved[campaignId] = true;
                 resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
@@ -350,6 +365,8 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
     }
 
     /// @notice Sweep unclaimed slash pool after deadline. Permissionless.
+    /// @dev G-M3: queues the residue for owner pull; owner calls
+    ///      claimOwnerSweep[To] to actually receive funds.
     function sweepSlashPool(uint256 campaignId) external nonReentrant {
         require(slashFinalized[campaignId], "E54");
         require(block.number >= slashFinalizedBlock[campaignId] + SWEEP_DEADLINE_BLOCKS, "E24");
@@ -359,8 +376,28 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         require(remaining > 0, "E61");
 
         totalSlashClaimed[campaignId] += remaining;
+        pendingOwnerSweep += remaining;
+        emit OwnerSweepQueued(campaignId, remaining);
+    }
 
-        (bool ok,) = owner().call{value: remaining}("");
+    /// @notice G-M3: Owner pulls accumulated swept residue to themselves.
+    function claimOwnerSweep() external nonReentrant {
+        _claimOwnerSweep(msg.sender);
+    }
+
+    /// @notice G-M3: Owner pulls accumulated swept residue to a chosen recipient.
+    function claimOwnerSweepTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimOwnerSweep(recipient);
+    }
+
+    function _claimOwnerSweep(address recipient) internal {
+        require(msg.sender == owner(), "E18");
+        uint256 amount = pendingOwnerSweep;
+        require(amount > 0, "E03");
+        pendingOwnerSweep = 0;
+        emit OwnerSweepClaimed(recipient, amount);
+        (bool ok,) = recipient.call{value: amount}("");
         require(ok, "E02");
     }
 

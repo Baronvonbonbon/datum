@@ -134,23 +134,28 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Phase 0 (Admin) convenience — owner acts as governor directly
-    // Merged from DatumAdminGovernance. In Admin phase, owner can bypass
-    // the governor contract and call these directly.
+    // Phase 0 (Admin) convenience — owner acts as governor directly.
+    // Merged from DatumAdminGovernance. Gated on `phase == Admin` so the owner
+    // (Timelock) cannot bypass the active governor in Phase 1 / Phase 2 (G-M1).
     // -------------------------------------------------------------------------
 
-    /// @notice Owner-only campaign activation (Phase 0 shortcut).
-    function adminActivateCampaign(uint256 campaignId) external onlyOwner {
+    modifier onlyAdminPhase() {
+        require(phase == GovernancePhase.Admin, "E19");
+        _;
+    }
+
+    /// @notice Owner-only campaign activation (Phase 0 only — see G-M1).
+    function adminActivateCampaign(uint256 campaignId) external onlyOwner onlyAdminPhase {
         campaigns.activateCampaign(campaignId);
     }
 
-    /// @notice Owner-only campaign termination (Phase 0 shortcut).
-    function adminTerminateCampaign(uint256 campaignId) external nonReentrant onlyOwner {
+    /// @notice Owner-only campaign termination (Phase 0 only — see G-M1).
+    function adminTerminateCampaign(uint256 campaignId) external nonReentrant onlyOwner onlyAdminPhase {
         lifecycle.terminateCampaign(campaignId);
     }
 
-    /// @notice Owner-only campaign demotion (Phase 0 shortcut).
-    function adminDemoteCampaign(uint256 campaignId) external nonReentrant onlyOwner {
+    /// @notice Owner-only campaign demotion (Phase 0 only — see G-M1).
+    function adminDemoteCampaign(uint256 campaignId) external nonReentrant onlyOwner onlyAdminPhase {
         lifecycle.demoteCampaign(campaignId);
     }
 

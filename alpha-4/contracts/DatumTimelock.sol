@@ -89,6 +89,8 @@ contract DatumTimelock is ReentrancyGuard, DatumOwnable {
         emit ChangeCancelled(proposalId, p.target);
     }
 
-    /// @notice Accept ETH so timelocked proposals can forward value.
-    receive() external payable {}
+    /// @notice Reject stray native deposits (G-I1). `execute` calls
+    ///         `target.call(data)` without forwarding value, so receive() has
+    ///         no real consumer; treat unsolicited transfers as a misconfiguration.
+    receive() external payable { revert("E03"); }
 }

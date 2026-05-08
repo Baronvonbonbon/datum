@@ -24,6 +24,16 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///               targets = [router],  calldatas = [activateCampaign(id)]
 contract DatumCouncil is DatumOwnable, ReentrancyGuard {
 
+    /// @notice G-L2: floor on threshold/member count so the council can't
+    ///         self-degrade past a 2-of-3 multisig floor (e.g. 1-of-1 dictator).
+    uint256 public constant MIN_THRESHOLD = 2;
+    uint256 public constant MIN_COUNCIL_SIZE = 3;
+
+    /// @notice G-L3: floors so self-governance can't zero out the cooldown +
+    ///         guardian veto buffer.
+    uint256 public constant MIN_EXECUTION_DELAY = 1;
+    uint256 public constant MIN_VETO_WINDOW = 1;
+
     // -------------------------------------------------------------------------
     // Proposal state
     // -------------------------------------------------------------------------
@@ -113,9 +123,11 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         uint256 _vetoWindowBlocks,
         uint256 _maxExecutionWindowBlocks
     ) DatumOwnable() {
-        require(initialMembers.length > 0, "E00");
-        require(_threshold > 0 && _threshold <= initialMembers.length, "E00");
+        require(initialMembers.length >= MIN_COUNCIL_SIZE, "E00");
+        require(_threshold >= MIN_THRESHOLD && _threshold <= initialMembers.length, "E00");
         require(_votingPeriodBlocks > 0, "E00");
+        require(_executionDelayBlocks >= MIN_EXECUTION_DELAY, "E00");
+        require(_vetoWindowBlocks >= MIN_VETO_WINDOW, "E00");
         require(_maxExecutionWindowBlocks > 0, "E00");
         for (uint256 i = 0; i < initialMembers.length; i++) {
             require(initialMembers[i] != address(0), "E00");
@@ -255,7 +267,8 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
 
     function removeMember(address member) external onlyCouncil {
         require(isMember[member], "E01");
-        require(memberCount > threshold, "E00");  // prevent locking council
+        require(memberCount > threshold, "E00");           // prevent locking council
+        require(memberCount > MIN_COUNCIL_SIZE, "E00");    // G-L2: enforce safety floor
         isMember[member] = false;
 
         // M-8: swap-and-pop to keep _memberList compact
@@ -279,7 +292,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     }
 
     function setThreshold(uint256 _threshold) external onlyCouncil {
-        require(_threshold > 0 && _threshold <= memberCount, "E00");
+        require(_threshold >= MIN_THRESHOLD && _threshold <= memberCount, "E00"); // G-L2
         threshold = _threshold;
     }
 
@@ -289,10 +302,12 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     }
 
     function setExecutionDelay(uint256 blocks) external onlyCouncil {
+        require(blocks >= MIN_EXECUTION_DELAY, "E00"); // G-L3
         executionDelayBlocks = blocks;
     }
 
     function setVetoWindow(uint256 blocks) external onlyCouncil {
+        require(blocks >= MIN_VETO_WINDOW, "E00"); // G-L3
         vetoWindowBlocks = blocks;
     }
 

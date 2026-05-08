@@ -183,17 +183,15 @@ describe("DatumParameterGovernance", function () {
 
   // ── PGV11: execute — success ──────────────────────────────────────────────────
 
-  it("PGV11 execute — calls target, returns bond to proposer", async function () {
+  it("PGV11 execute — calls target, returns bond to proposer (G-M3 pull)", async function () {
     const p = await gov.proposals(0n);
     const currentBlock = await ethers.provider.getBlockNumber();
     const blocksToMine = Number(p.executeAfter) - currentBlock + 1;
     if (blocksToMine > 0) await mineBlocks(blocksToMine);
 
-    const before = await ethers.provider.getBalance(proposer.address);
+    // G-M3: bond is queued in pendingBondPayout, not pushed.
     await gov.connect(other).execute(0n);
-    const after = await ethers.provider.getBalance(proposer.address);
-
-    expect(after - before).to.equal(PROPOSE_BOND);
+    expect(await gov.pendingBondPayout(proposer.address)).to.equal(PROPOSE_BOND);
 
     const callCount = await target.callCount();
     expect(callCount).to.equal(1n); // MockCallTarget's fallback was invoked
@@ -201,6 +199,15 @@ describe("DatumParameterGovernance", function () {
     const executed = await gov.proposals(0n);
     expect(executed.state).to.equal(2); // Executed
     expect(executed.bond).to.equal(0n);
+
+    // Proposer pulls the bond
+    const before = await ethers.provider.getBalance(proposer.address);
+    const claimTx = await gov.connect(proposer).claimBondPayout();
+    const claimReceipt = await claimTx.wait();
+    const after = await ethers.provider.getBalance(proposer.address);
+    const claimGas = claimReceipt!.gasUsed * claimReceipt!.gasPrice;
+    expect(after - before + claimGas).to.equal(PROPOSE_BOND);
+    expect(await gov.pendingBondPayout(proposer.address)).to.equal(0n);
   });
 
   // ── PGV12: execute — too early ────────────────────────────────────────────────
@@ -236,7 +243,7 @@ describe("DatumParameterGovernance", function () {
 
   // ── PGV13: rejected — bond slashed ────────────────────────────────────────────
 
-  it("PGV13 reject — bond slashed to owner when quorum not met", async function () {
+  it("PGV13 reject — bond slashed to owner when quorum not met (G-M3 pull)", async function () {
     await gov.connect(proposer).propose(
       await target.getAddress(), "0xdeadbeef", "No quorum",
       { value: PROPOSE_BOND }
@@ -249,31 +256,29 @@ describe("DatumParameterGovernance", function () {
     const blocksToMine = Number(p.endBlock) - currentBlock + 1;
     if (blocksToMine > 0) await mineBlocks(blocksToMine);
 
-    const ownerBefore = await ethers.provider.getBalance(owner.address);
+    const pendingBefore = await gov.pendingBondPayout(owner.address);
     await gov.connect(other).resolve(proposalId);
-    const ownerAfter = await ethers.provider.getBalance(owner.address);
+    const pendingAfter = await gov.pendingBondPayout(owner.address);
 
     const rejected = await gov.proposals(proposalId);
     expect(rejected.state).to.equal(3); // Rejected
-    expect(ownerAfter - ownerBefore).to.equal(PROPOSE_BOND);
+    expect(pendingAfter - pendingBefore).to.equal(PROPOSE_BOND);
   });
 
   // ── PGV14: cancel — owner cancels Active proposal ─────────────────────────────
 
-  it("PGV14 cancel — owner cancels, bond slashed", async function () {
+  it("PGV14 cancel — owner cancels, bond slashed (G-M3 pull)", async function () {
     await gov.connect(proposer).propose(
       await target.getAddress(), "0xdeadbeef", "Cancel me",
       { value: PROPOSE_BOND }
     );
     const proposalId = await gov.nextProposalId() - 1n;
 
-    const ownerBefore = await ethers.provider.getBalance(owner.address);
-    const tx = await gov.connect(owner).cancel(proposalId);
-    const receipt = await tx.wait();
-    const gasCost = receipt!.gasUsed * tx.gasPrice!;
-    const ownerAfter = await ethers.provider.getBalance(owner.address);
+    const pendingBefore = await gov.pendingBondPayout(owner.address);
+    await gov.connect(owner).cancel(proposalId);
+    const pendingAfter = await gov.pendingBondPayout(owner.address);
 
-    expect(ownerAfter + gasCost - ownerBefore).to.be.closeTo(PROPOSE_BOND, 1_000_000n);
+    expect(pendingAfter - pendingBefore).to.equal(PROPOSE_BOND);
     expect((await gov.proposals(proposalId)).state).to.equal(4); // Cancelled
   });
 

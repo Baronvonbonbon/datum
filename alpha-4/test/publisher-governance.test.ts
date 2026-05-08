@@ -56,7 +56,7 @@ describe("DatumPublisherGovernance", function () {
     const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
     pauseReg = await PauseFactory.deploy(owner.address, publisher.address, voter1.address);
 
-    // Deploy DatumPublisherGovernance
+    // Deploy DatumPublisherGovernance (G-M5: 8th arg is proposeBond; 0 = disabled here)
     const GovFactory = await ethers.getContractFactory("DatumPublisherGovernance");
     gov = await GovFactory.deploy(
       stakeContract.target,
@@ -65,7 +65,8 @@ describe("DatumPublisherGovernance", function () {
       QUORUM,
       SLASH_BPS,
       BOND_BONUS_BPS,
-      GRACE_BLOCKS
+      GRACE_BLOCKS,
+      0n
     );
 
     // Wire: stake slash contract = gov

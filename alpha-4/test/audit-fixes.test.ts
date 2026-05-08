@@ -1,11 +1,18 @@
 // Coverage tests for the audit fixes from
-// archive/docs/SECURITY-AUDIT-alpha4-hotpath-2026-05-08.md.
+// archive/docs/SECURITY-AUDIT-alpha4-hotpath-2026-05-08.md
+// archive/docs/SECURITY-AUDIT-alpha4-governance-2026-05-08.md
 //
-// M-1: pull-pattern advertiser refund + bond return is DoS-proof against a
-//      contract advertiser whose fallback reverts.
-// M-2: PaymentVault.sweep* refuses thresholds above MAX_DUST_THRESHOLD.
-// M-3: settleSignedClaims rejects batches whose claims target multiple publishers.
-// requiresDualSig: per-campaign toggle forces the dual-sig path.
+// Hot-path:
+//   M-1: pull-pattern advertiser refund + bond return is DoS-proof.
+//   M-2: PaymentVault.sweep* refuses thresholds above MAX_DUST_THRESHOLD.
+//   M-3: settleSignedClaims rejects batches whose claims target multiple publishers.
+//   requiresDualSig: per-campaign toggle forces the dual-sig path.
+//
+// Governance:
+//   G-M1: Router admin* shortcuts revert outside Phase 0.
+//   G-M2: GovernanceV2 constructor bounds slashBps < 10000.
+//   G-M5: PublisherGovernance.propose() requires the configured bond.
+//   G-M6: sweepTreasury moves slashed remainder into the owner's pull queue.
 
 import { expect } from "chai";
 import { ethers } from "hardhat";
@@ -390,6 +397,176 @@ describe("Audit fixes", function () {
       const batch = await makeBatch(cid, [c1], publisher, owner);
       const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
+    });
+  });
+
+  // ── G-M1 Router admin shortcuts gated on Phase 0 ────────────────────────
+
+  describe("G-M1: Router admin* shortcuts gated on Admin phase", function () {
+    it("rejects adminActivateCampaign when phase != Admin", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const owner = signers[0];
+      const otherSigner = signers[4];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[1].address, signers[2].address);
+      const MockFactory = await ethers.getContractFactory("MockCampaigns");
+      const mock = await MockFactory.deploy();
+      const LifeFactory = await ethers.getContractFactory("MockCampaignLifecycle");
+      const life = await LifeFactory.deploy(await mock.getAddress());
+
+      const RouterFactory = await ethers.getContractFactory("DatumGovernanceRouter");
+      const router = await RouterFactory.deploy(
+        await mock.getAddress(),
+        await life.getAddress(),
+        owner.address // initial governor = owner (Phase 0 = Admin)
+      );
+
+      // In Admin phase, the shortcut works (Phase 0).
+      // We can't easily wire a real campaign here, but the gate is "phase == Admin"
+      // not the underlying call — flip phase to Council and confirm we revert before
+      // even reaching the delegate call.
+      await router.setGovernor(1, otherSigner.address); // Council phase
+      await expect(
+        router.connect(owner).adminActivateCampaign(1n)
+      ).to.be.revertedWith("E19");
+      await expect(
+        router.connect(owner).adminTerminateCampaign(1n)
+      ).to.be.revertedWith("E19");
+      await expect(
+        router.connect(owner).adminDemoteCampaign(1n)
+      ).to.be.revertedWith("E19");
+    });
+  });
+
+  // ── G-M2 GovernanceV2 slashBps bound ────────────────────────────────────
+
+  describe("G-M2: GovernanceV2 rejects slashBps >= 10000", function () {
+    it("constructor reverts when slashBps == 10000", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[1].address, signers[2].address);
+      const MockFactory = await ethers.getContractFactory("MockCampaigns");
+      const mock = await MockFactory.deploy();
+      const V2Factory = await ethers.getContractFactory("DatumGovernanceV2");
+      await expect(
+        V2Factory.deploy(
+          await mock.getAddress(),
+          1n, // quorum
+          10000n, // slashBps == 10000 → revert E11
+          1n, // terminationQuorum
+          0n, 0n, 1n,
+          await pause.getAddress()
+        )
+      ).to.be.revertedWith("E11");
+    });
+  });
+
+  // ── G-M5 + G-M6 PublisherGovernance bond + treasury ─────────────────────
+
+  describe("G-M5/G-M6: PublisherGovernance propose bond + treasury sweep", function () {
+    let pgov: any;
+    let stakeContract: any;
+    let bonds: any;
+    let pause: any;
+    let owner: HardhatEthersSigner;
+    let publisher: HardhatEthersSigner;
+    let proposer: HardhatEthersSigner;
+    let voter: HardhatEthersSigner;
+    let coldWallet: HardhatEthersSigner;
+
+    const BOND = 2_000_000_000n;
+    const QUORUM = 1n;
+    const SLASH_BPS = 5000n;
+    const BOND_BONUS_BPS = 0n;
+    const GRACE = 0n;
+    const PUB_STAKE = 100_000_000_000n;
+
+    before(async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      owner = signers[0];
+      publisher = signers[1];
+      proposer = signers[2];
+      voter = signers[3];
+      coldWallet = signers[4];
+
+      const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+      stakeContract = await StakeFactory.deploy(1_000_000_000n, 1_000n, 10n);
+
+      const BondsFactory = await ethers.getContractFactory("DatumChallengeBonds");
+      bonds = await BondsFactory.deploy();
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      pause = await PauseFactory.deploy(owner.address, publisher.address, voter.address);
+
+      const PgFactory = await ethers.getContractFactory("DatumPublisherGovernance");
+      pgov = await PgFactory.deploy(
+        await stakeContract.getAddress(),
+        await bonds.getAddress(),
+        await pause.getAddress(),
+        QUORUM, SLASH_BPS, BOND_BONUS_BPS, GRACE, BOND
+      );
+
+      await stakeContract.connect(owner).setSlashContract(await pgov.getAddress());
+      await stakeContract.connect(publisher).stake({ value: PUB_STAKE });
+    });
+
+    it("G-M5: propose without the required bond reverts E11", async function () {
+      const evidence = ethers.keccak256(ethers.toUtf8Bytes("ev"));
+      await expect(
+        pgov.connect(proposer).propose(publisher.address, evidence, { value: BOND - 1n })
+      ).to.be.revertedWith("E11");
+    });
+
+    it("G-M5: propose with the required bond locks the bond + emits", async function () {
+      const evidence = ethers.keccak256(ethers.toUtf8Bytes("ev2"));
+      await expect(
+        pgov.connect(proposer).propose(publisher.address, evidence, { value: BOND })
+      ).to.emit(pgov, "ProposeBondLocked");
+    });
+
+    it("G-M5 + G-M6: fraud upheld → proposer pulls bond, slashed remainder goes to treasury", async function () {
+      const evidence = ethers.keccak256(ethers.toUtf8Bytes("ev3"));
+      await pgov.connect(proposer).propose(publisher.address, evidence, { value: BOND });
+      const proposalId = (await pgov.nextProposalId()) - 1n;
+
+      // Aye votes reach quorum → fraud upheld
+      await pgov.connect(voter).vote(proposalId, true, 0, { value: 10n });
+      await pgov.connect(other()).vote(proposalId, true, 0, { value: 10n });
+      await pgov.resolve(proposalId);
+
+      // Proposer's bond was queued for refund (quorum reached on aye side)
+      expect(await pgov.pendingGovPayout(proposer.address)).to.equal(BOND);
+
+      // Treasury holds the slashed remainder (50% of stake; bondBonus = 0, all to treasury)
+      const expectedSlash = (PUB_STAKE * SLASH_BPS) / 10000n;
+      expect(await pgov.treasuryBalance()).to.equal(expectedSlash);
+
+      // Owner sweeps treasury → adds to owner's pending payout
+      await pgov.sweepTreasury();
+      expect(await pgov.pendingGovPayout(owner.address)).to.equal(expectedSlash);
+      expect(await pgov.treasuryBalance()).to.equal(0n);
+
+      // Proposer pulls bond
+      const before = await ethers.provider.getBalance(proposer.address);
+      const tx = await pgov.connect(proposer).claimGovPayout();
+      const r = await tx.wait();
+      const after = await ethers.provider.getBalance(proposer.address);
+      expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(BOND);
+    });
+
+    function other(): HardhatEthersSigner {
+      // Spare signer for tests that need an additional voter.
+      // (We don't have a clean handle from `before`, so look one up.)
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      return (global as any)._spareSigner!;
+    }
+    before(async function () {
+      const signers = await ethers.getSigners();
+      (global as any)._spareSigner = signers[5];
     });
   });
 });
