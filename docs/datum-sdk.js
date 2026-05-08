@@ -44,6 +44,39 @@
   var FALLBACK_DELAY_MS = 1500;
   var FALLBACK_URL = "https://datum.javcon.io/?utm_source=sdk&utm_medium=house-ad&utm_campaign=no-extension";
 
+  // House-ad creative pool. One is picked at random per render. Tone is
+  // sassy, anti-surveillance, pro-user-control. Keep hooks ≤ ~32 chars
+  // so they don't truncate awkwardly in the tiny mobile-banner layout.
+  var CREATIVES = [
+    { hook: "Stop being the product.",            body: "No tracking. No cookies. No data leaves your browser.",        cta: "How? →" },
+    { hook: "Cookies were always for them.",      body: "DATUM pays you in DOT for every verified impression.",         cta: "Show me →" },
+    { hook: "This ad knows nothing about you.",   body: "Cryptographic proof — not creepy profiles.",                cta: "Learn more →" },
+    { hook: "An ad that doesn't snitch.",         body: "Your interests stay on your device. Always.",                  cta: "Tell me more →" },
+    { hook: "Your data should pay you back.",     body: "Watch ads. Get DOT. Walk away.",                                cta: "I'm in →" },
+    { hook: "Surveillance is so 2010s.",          body: "Decentralized, on-chain, opt-in by default.",                  cta: "How? →" },
+    { hook: "An ad that respects your no.",       body: "No pixels. No popups. No nonsense.",                            cta: "Show me →" },
+    { hook: "Ads that pay rent.",                 body: "Advertisers pay you. Not the middlemen.",                       cta: "What's the catch? →" },
+    { hook: "Imagine ads that don't suck.",       body: "Built on Polkadot. Owned by no one.",                           cta: "Learn more →" },
+    { hook: "We didn't follow you here.",         body: "DATUM ads are on-chain, opt-in, and pay you in DOT.",           cta: "Show me →" },
+    { hook: "Your data is yours. Wild concept.",  body: "Earn DOT for every verified impression — no profile required.", cta: "How? →" },
+    { hook: "Your attention has a price tag.",    body: "Pay-per-attention, the way it should've been.",                 cta: "I'm intrigued →" }
+  ];
+
+  function pickCreative() {
+    return CREATIVES[Math.floor(Math.random() * CREATIVES.length)];
+  }
+
+  // HTML-escape user-controlled creative copy. Defensive — copy is hard-coded
+  // above today, but escaping keeps that contract for future edits.
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // Known short-form → dimension:value mappings for convenience
   var SHORT_FORM_MAP = {
     "arts-entertainment": "topic:arts-entertainment",
@@ -239,32 +272,43 @@
     else if (ratio >= 3) layout = "wide";
     else layout = "vertical";
 
+    var c = pickCreative();
+    var hook = esc(c.hook);
+    var body = esc(c.body);
+    var cta = esc(c.cta);
+
     var inner;
     if (layout === "tiny") {
+      // Single line: ● datum · {hook truncated} · {cta}
       inner =
         '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#E6007A;margin-right:8px;flex:none;"></span>' +
-        '<span style="font-weight:700;font-size:13px;letter-spacing:0.2px;margin-right:8px;flex:none;">datum</span>' +
-        '<span style="font-size:11px;opacity:0.85;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Privacy-first ads. Earn DOT.</span>' +
-        '<span style="font-size:11px;font-weight:600;color:#E6007A;margin-left:8px;flex:none;">Install →</span>';
+        '<span style="font-weight:700;font-size:13px;letter-spacing:0.2px;margin-right:10px;flex:none;">datum</span>' +
+        '<span style="font-size:11px;opacity:0.92;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</span>' +
+        '<span style="font-size:11px;font-weight:600;color:#E6007A;margin-left:10px;flex:none;white-space:nowrap;">' + cta + '</span>';
     } else if (layout === "wide") {
+      // ● datum  ·  hook (bold) + body (smaller, dimmer)  ·  cta pill
       inner =
         '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#E6007A;margin-right:14px;flex:none;"></span>' +
         '<div style="flex:none;margin-right:18px;">' +
-          '<div style="font-weight:700;font-size:18px;letter-spacing:0.3px;line-height:1.1;">datum</div>' +
-          '<div style="font-size:10px;opacity:0.7;text-transform:uppercase;letter-spacing:1.2px;line-height:1.2;">privacy-first ads</div>' +
+          '<div style="font-weight:700;font-size:17px;letter-spacing:0.3px;line-height:1.1;">datum</div>' +
+          '<div style="font-size:9px;opacity:0.6;text-transform:uppercase;letter-spacing:1.2px;line-height:1.2;margin-top:2px;">on-chain ads</div>' +
         '</div>' +
-        '<div style="flex:1;font-size:14px;opacity:0.9;line-height:1.3;">No tracking. No cookies. Earn DOT for every ad you see.</div>' +
-        '<span style="flex:none;margin-left:18px;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 14px;border-radius:4px;white-space:nowrap;">Install DATUM →</span>';
+        '<div style="flex:1;min-width:0;line-height:1.25;">' +
+          '<div style="font-size:15px;font-weight:600;letter-spacing:0.1px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + hook + '</div>' +
+          '<div style="font-size:12px;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + body + '</div>' +
+        '</div>' +
+        '<span style="flex:none;margin-left:18px;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 14px;border-radius:4px;white-space:nowrap;">' + cta + '</span>';
     } else {
+      // Vertical block: ● datum / HOOK / body / cta pill
       inner =
         '<div style="text-align:center;width:100%;">' +
-          '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;">' +
+          '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;">' +
             '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E6007A;"></span>' +
-            '<span style="font-weight:700;font-size:18px;letter-spacing:0.3px;">datum</span>' +
+            '<span style="font-weight:700;font-size:17px;letter-spacing:0.3px;">datum</span>' +
           '</div>' +
-          '<div style="font-size:10px;opacity:0.7;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">privacy-first ads</div>' +
-          '<div style="font-size:13px;opacity:0.92;line-height:1.4;margin-bottom:14px;padding:0 8px;">No tracking. No cookies.<br/>Earn DOT for every ad you see.</div>' +
-          '<div style="display:inline-block;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 16px;border-radius:4px;">Install DATUM →</div>' +
+          '<div style="font-size:15px;font-weight:600;line-height:1.25;letter-spacing:0.1px;margin-bottom:10px;padding:0 6px;">' + hook + '</div>' +
+          '<div style="font-size:12px;opacity:0.82;line-height:1.4;margin-bottom:14px;padding:0 8px;">' + body + '</div>' +
+          '<div style="display:inline-block;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 16px;border-radius:4px;">' + cta + '</div>' +
         '</div>';
     }
 
