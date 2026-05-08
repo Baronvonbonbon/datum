@@ -44,47 +44,151 @@
   var FALLBACK_DELAY_MS = 1500;
   var FALLBACK_URL = "https://datum.javcon.io/?utm_source=sdk&utm_medium=house-ad&utm_campaign=no-extension";
 
-  // House-ad creative pool. One is picked at random per render.
+  // House-ad creative pools. Each render: pick a random category, then a
+  // random hook + body + CTA from within it. Bodies are written to stand
+  // alone (they don't reference the hook), so any pairing reads cleanly.
   // Voice: cypherpunk, anti-surveillance, anti-middleman, pro-self-custody.
   // No project names, no token tickers — just "crypto" and "blockchain".
-  // Hooks longer than ~32 chars truncate cleanly via ellipsis in the tiny
-  // mobile-banner layout; full text always shows in wide / vertical.
-  var CREATIVES = [
-    // — Cypherpunk / what crypto was supposed to be —
-    { hook: "Blockchain was meant to set you free.", body: "Not rug you. Not surveil you. Not sell your data.",            cta: "Show me →" },
-    { hook: "Crypto isn't all monkey JPEGs.",        body: "Some of us are still building the open web.",                   cta: "Prove it →" },
-    { hook: "Cypherpunks promised this.",            body: "Peer-to-peer payments. Permissionless. Yours.",                 cta: "Tell me more →" },
-    { hook: "Web3 with the actual web.",             body: "On-chain settlement. Off-chain privacy. Open protocol.",        cta: "Learn more →" },
-    { hook: "Real utility. Imagine that.",           body: "Crypto rails for honest advertising — no rugs, no casinos.",    cta: "How? →" },
-    { hook: "Useful crypto. Rare, we know.",         body: "Open protocol. Direct payments. No middlemen.",                 cta: "Show me →" },
-    { hook: "Not a rug. Not a memecoin.",            body: "An actual product. Crypto used to be about freedom — we remembered.", cta: "Sounds fake →" },
+  var CREATIVE_POOLS = {
+    // — What crypto was supposed to be —
+    cypherpunk: {
+      hooks: [
+        "Blockchain was meant to set you free.",
+        "Crypto isn't all monkey JPEGs.",
+        "Cypherpunks promised this.",
+        "Web3 with the actual web.",
+        "Real utility. Imagine that.",
+        "Useful crypto. Rare, we know.",
+        "Not a rug. Not a memecoin."
+      ],
+      bodies: [
+        "Crypto rails for honest advertising — no rugs, no casinos.",
+        "Open protocol. Direct payments. No middlemen.",
+        "On-chain settlement. Off-chain privacy. Open protocol.",
+        "Peer-to-peer payments. Permissionless. Yours.",
+        "Some of us are still building the open web.",
+        "Not rug you. Not surveil you. Not sell your data.",
+        "Crypto used to be about freedom. We remembered.",
+        "Open-source. On-chain. On your side."
+      ],
+      ctas: [
+        "Prove it →",
+        "Receipts? →",
+        "Convince me →",
+        "Show your work →",
+        "Pull up →",
+        "Try me →",
+        "Big talk →"
+      ]
+    },
 
-    // — P2P / you could be earning —
-    { hook: "You could be earning from this ad.",    body: "P2P payments straight to your wallet. No ad-tech tax.",         cta: "I'm in →" },
-    { hook: "This ad slot pays the viewer.",         body: "Direct on-chain settlement. No middlemen taking a cut.",        cta: "How? →" },
-    { hook: "Cut out the ad-tech middlemen.",        body: "Smart-contract budgets. Direct deposits. Just you and the advertiser.", cta: "Show me →" },
-    { hook: "Ads that pay rent.",                    body: "Advertisers pay you. Not the middlemen.",                       cta: "What's the catch? →" },
-    { hook: "Your attention has a price tag.",       body: "Pay-per-attention, settled on-chain.",                          cta: "I'm intrigued →" },
-    { hook: "Direct deposit. From this ad.",         body: "Peer-to-peer ad payments. The middlemen aren't invited.",       cta: "Tell me more →" },
+    // — P2P / "you could be earning" —
+    p2p: {
+      hooks: [
+        "You could be earning from this ad.",
+        "This ad slot pays the viewer.",
+        "Cut out the ad-tech middlemen.",
+        "Ads that pay rent.",
+        "Your attention has a price tag.",
+        "Direct deposit. From this ad."
+      ],
+      bodies: [
+        "P2P payments straight to your wallet. No ad-tech tax.",
+        "Direct on-chain settlement. No middlemen taking a cut.",
+        "Smart-contract budgets. Direct deposits. No intermediaries.",
+        "Peer-to-peer ad payments. The middlemen aren't invited.",
+        "Pay-per-attention, settled on-chain.",
+        "Advertisers pay you. Not the ad-tech industrial complex.",
+        "Your attention. Your wallet. Your call.",
+        "Crypto rails for honest pay-per-view advertising."
+      ],
+      ctas: [
+        "I'm in →",
+        "Sign me up →",
+        "Pay up →",
+        "Where's mine →",
+        "Cut me in →",
+        "Onboard me →",
+        "Take my attention →",
+        "Show me the money →"
+      ]
+    },
 
     // — Privacy / anti-tracking —
-    { hook: "Stop being the product.",               body: "No tracking. No cookies. No data leaves your browser.",         cta: "How? →" },
-    { hook: "This ad knows nothing about you.",      body: "Cryptographic proof — not creepy profiles.",                    cta: "Learn more →" },
-    { hook: "An ad that doesn't snitch.",            body: "Your interests stay on your device. Always.",                   cta: "Tell me more →" },
-    { hook: "We didn't follow you here.",            body: "Open-source. On-chain. On your side.",                          cta: "Show me →" },
-    { hook: "Surveillance is so 2010s.",             body: "Crypto-native ads. No fingerprinting. No middlemen.",           cta: "How? →" },
-    { hook: "Cookies were always for them.",         body: "Ours pay you in crypto for every verified view.",               cta: "Show me →" },
+    privacy: {
+      hooks: [
+        "Stop being the product.",
+        "This ad knows nothing about you.",
+        "An ad that doesn't snitch.",
+        "We didn't follow you here.",
+        "Surveillance is so 2010s.",
+        "Cookies were always for them."
+      ],
+      bodies: [
+        "No tracking. No cookies. No data leaves your browser.",
+        "Cryptographic proof — not creepy profiles.",
+        "Your interests stay on your device. Always.",
+        "Open-source. On-chain. On your side.",
+        "Crypto-native ads. No fingerprinting. No middlemen.",
+        "Zero pixels. Zero retargeting. Zero data exfil.",
+        "Local-first interest matching. Your profile never leaves your machine.",
+        "The ad is on-chain. Your data isn't."
+      ],
+      ctas: [
+        "How? →",
+        "No tracking? →",
+        "What's the trick →",
+        "Source? →",
+        "Inspect →",
+        "Spill →",
+        "Catch? →",
+        "Show me →"
+      ]
+    },
 
-    // — Sass / pro-user-sovereignty —
-    { hook: "Imagine ads that don't suck.",          body: "Open protocol. Owned by no one. Useful to everyone.",           cta: "Learn more →" },
-    { hook: "Your data is yours. Wild concept.",     body: "Earn crypto for every verified ad — no profile required.",      cta: "How? →" },
-    { hook: "An ad that respects your no.",          body: "No pixels. No popups. No nonsense.",                            cta: "Show me →" },
-    { hook: "Ads with consent. Revolutionary.",      body: "Opt-in by default. Open by design. Yours by right.",            cta: "Tell me more →" },
-    { hook: "Self-custody, but make it ads.",        body: "Your keys. Your data. Your earnings.",                          cta: "I'm in →" }
-  ];
+    // — Sass / sovereignty —
+    sass: {
+      hooks: [
+        "Imagine ads that don't suck.",
+        "Your data is yours. Wild concept.",
+        "An ad that respects your no.",
+        "Ads with consent. Revolutionary.",
+        "Self-custody, but make it ads."
+      ],
+      bodies: [
+        "Open protocol. Owned by no one. Useful to everyone.",
+        "Earn crypto for every verified ad — no profile required.",
+        "Opt-in by default. Open by design. Yours by right.",
+        "No pixels. No popups. No nonsense.",
+        "Your keys. Your data. Your earnings.",
+        "Permissionless ad slots. Permissioned attention.",
+        "Built for users, not against them."
+      ],
+      ctas: [
+        "Tell me more →",
+        "Go on →",
+        "I'm listening →",
+        "Talk to me →",
+        "Refreshing →",
+        "About time →",
+        "Wait, what →",
+        "Sounds nice →"
+      ]
+    }
+  };
+
+  function randPick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
 
   function pickCreative() {
-    return CREATIVES[Math.floor(Math.random() * CREATIVES.length)];
+    var keys = Object.keys(CREATIVE_POOLS);
+    var pool = CREATIVE_POOLS[keys[Math.floor(Math.random() * keys.length)]];
+    return {
+      hook: randPick(pool.hooks),
+      body: randPick(pool.bodies),
+      cta: randPick(pool.ctas)
+    };
   }
 
   // HTML-escape user-controlled creative copy. Defensive — copy is hard-coded
