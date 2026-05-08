@@ -12,7 +12,7 @@ Earn DOT for verified ad impressions. Place DATUM ad slots via shortcode, block,
 
 == Description ==
 
-**DATUM Publisher** embeds the [DATUM Publisher SDK](https://datum.network) on your WordPress site so you can earn DOT (Polkadot's native token) for every verified impression served to your visitors.
+**DATUM Publisher** embeds the [DATUM Publisher SDK](https://datum.javcon.io) on your WordPress site so you can earn DOT (Polkadot's native token) for every verified impression served to your visitors.
 
 DATUM is a decentralised advertising protocol built on Polkadot Asset Hub. Advertisers lock DOT budgets on-chain and pay per verified impression. Publishers receive payment directly to their wallet — no intermediary takes a cut, no user tracking beyond on-device interest profiling.
 
@@ -53,7 +53,7 @@ DATUM is a decentralised advertising protocol built on Polkadot Asset Hub. Adver
 **Prerequisites**
 
 * A wallet address registered on the DATUM Publishers contract on Polkadot Asset Hub.
-* Visitors must have the [DATUM browser extension](https://datum.network) installed for ads to appear.
+* Visitors must have the [DATUM browser extension](https://datum.javcon.io) installed for ads to appear.
 
 == Usage ==
 
@@ -80,7 +80,7 @@ Go to **Appearance → Widgets**, find **DATUM Ad Slot**, and drag it into any w
 
 = Do visitors need to do anything? =
 
-Yes — visitors need the [DATUM browser extension](https://datum.network) installed. Without it, the slot element is present on the page but no ad is injected.
+Yes — visitors need the [DATUM browser extension](https://datum.javcon.io) installed. Without it, the slot element is present on the page but no ad is injected.
 
 = Do I need to install any other software? =
 
@@ -88,7 +88,7 @@ No. The plugin self-hosts the DATUM SDK (`datum-sdk.js`). There are no external 
 
 = How do I get a publisher wallet address? =
 
-You need a wallet registered on the DATUM Publishers smart contract on Polkadot Asset Hub. Visit [datum.network](https://datum.network) for instructions.
+You need a wallet registered on the DATUM Publishers smart contract on Polkadot Asset Hub. Visit [datum.javcon.io](https://datum.javcon.io) for instructions.
 
 = Can I place multiple slots per page? =
 

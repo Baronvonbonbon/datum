@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name:       DATUM Publisher
- * Plugin URI:        https://datum.network
+ * Plugin URI:        https://github.com/Baronvonbonbon/datum
  * Description:       Embed the DATUM Publisher SDK on your WordPress site. Place ad slots via shortcode, block, or widget and earn DOT for verified impressions.
  * Version:           1.0.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            DATUM Network
- * Author URI:        https://datum.network
+ * Author URI:        https://datum.javcon.io
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       datum-publisher

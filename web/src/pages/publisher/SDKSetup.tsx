@@ -24,7 +24,7 @@ export function SDKSetup() {
   const tagStr = tags.length > 0 ? tags.join(",") : "crypto-web3,en";
 
   const snippet = `<!-- DATUM Publisher SDK -->
-<script src="https://datum.network/sdk/datum-sdk.js"
+<script src="https://datum.javcon.io/datum-sdk.js"
         data-publisher="${pubAddr}"
         data-tags="${tagStr}">
 </script>
