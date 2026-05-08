@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "./DatumOwnable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
@@ -10,7 +11,9 @@ import "./interfaces/IDatumPauseRegistry.sol";
 /// @notice Publisher relay for claim settlement via EIP-712 user signatures.
 ///         H-4: Optional authorized relayer list with liveness fallback.
 ///         H-6: Settlement and campaigns references are now mutable (Ownable2Step).
-contract DatumRelay is DatumOwnable {
+///         L-1: Inherits OZ EIP712 so the domain separator rebuilds on chainid
+///              mismatch (chain-fork safe).
+contract DatumRelay is DatumOwnable, EIP712 {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -29,7 +32,6 @@ contract DatumRelay is DatumOwnable {
 
     IDatumSettlement public settlement;
     IDatumCampaignsSettlement public campaigns;
-    bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
     // Global pause registry
@@ -57,20 +59,21 @@ contract DatumRelay is DatumOwnable {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _settlement, address _campaigns, address _pauseRegistry) {
+    constructor(address _settlement, address _campaigns, address _pauseRegistry)
+        EIP712("DatumRelay", "1")
+    {
         require(_settlement != address(0), "E00");
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         settlement = IDatumSettlement(_settlement);
         campaigns = IDatumCampaignsSettlement(_campaigns);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-            keccak256("DatumRelay"),
-            keccak256("1"),
-            block.chainid,
-            address(this)
-        ));
+    }
+
+    /// @notice Returns the current EIP-712 domain separator. Rebuilds automatically
+    ///         on chainid mismatch via OZ EIP712 (L-1).
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     // -------------------------------------------------------------------------
@@ -140,7 +143,11 @@ contract DatumRelay is DatumOwnable {
             require(block.number <= sb.deadline, "E29");
             require(sb.claims.length > 0, "E28");
 
-            // EIP-712 user signature verification
+            // EIP-712 user signature verification.
+            // L-1: digest built via OZ EIP712 base (`_hashTypedDataV4`) so the
+            // domain separator rebuilds on chainid mismatch (chain-fork safe).
+            // Recovery uses manual ecrecover to preserve E30/E31 error codes
+            // that off-chain clients depend on.
             bytes32 structHash = keccak256(abi.encode(
                 BATCH_TYPEHASH,
                 sb.user,
@@ -150,11 +157,7 @@ contract DatumRelay is DatumOwnable {
                 sb.claims.length,
                 sb.deadline
             ));
-            bytes32 digest = keccak256(abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR,
-                structHash
-            ));
+            bytes32 digest = _hashTypedDataV4(structHash);
 
             bytes calldata sig = sb.userSig;
             require(sig.length == 65, "E30");
@@ -191,11 +194,7 @@ contract DatumRelay is DatumOwnable {
                         sb.claims[sb.claims.length - 1].nonce,
                         sb.claims.length
                     ));
-                    bytes32 pubDigest = keccak256(abi.encodePacked(
-                        "\x19\x01",
-                        DOMAIN_SEPARATOR,
-                        pubStructHash
-                    ));
+                    bytes32 pubDigest = _hashTypedDataV4(pubStructHash);
 
                     bytes calldata pubSig = sb.publisherSig;
                     require(pubSig.length == 65, "E33");

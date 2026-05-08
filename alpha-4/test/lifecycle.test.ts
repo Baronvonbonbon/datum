@@ -98,27 +98,32 @@ describe("DatumCampaignLifecycle", function () {
     return (await campaigns.nextCampaignId()) - 1n;
   }
 
-  // LC1: completeCampaign by advertiser
+  // LC1: completeCampaign by advertiser (M-1: pull pattern)
   it("LC1: advertiser can complete Active campaign; budget refunded", async function () {
     const cid = await createAndActivate();
 
+    await lifecycle.connect(advertiser).completeCampaign(cid);
+
+    expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
+    // M-1: refund is queued, not pushed
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(BUDGET);
+
+    // Advertiser pulls — should receive BUDGET minus gas
     const advBalBefore = await ethers.provider.getBalance(advertiser.address);
-    const tx = await lifecycle.connect(advertiser).completeCampaign(cid);
+    const tx = await ledger.connect(advertiser).claimAdvertiserRefund();
     const receipt = await tx.wait();
     const advBalAfter = await ethers.provider.getBalance(advertiser.address);
     const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
 
-    expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
-    // Advertiser should receive budget minus gas
     expect(advBalAfter - advBalBefore + gasUsed).to.equal(BUDGET);
     expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(0n);
   });
 
-  // LC2: terminateCampaign by governance (10% slash, 90% refund)
+  // LC2: terminateCampaign by governance (10% slash, 90% refund queued)
   it("LC2: governance can terminate Active campaign; 10% slash, 90% refund", async function () {
     const cid = await createAndActivate();
 
-    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
     const govBalBefore = await ethers.provider.getBalance(governance.address);
 
     const tx = await lifecycle.connect(governance).terminateCampaign(cid);
@@ -127,32 +132,43 @@ describe("DatumCampaignLifecycle", function () {
 
     expect(await campaigns.getCampaignStatus(cid)).to.equal(4); // Terminated
 
-    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
     const govBalAfter = await ethers.provider.getBalance(governance.address);
 
-    // 10% to governance, 90% to advertiser
+    // 10% to governance (push, governance is trusted), 90% queued for advertiser pull (M-1)
     const slashAmount = BUDGET * 1000n / 10000n; // 10%
     const refundAmount = BUDGET - slashAmount;
 
-    expect(advBalAfter - advBalBefore).to.equal(refundAmount);
-    // Governance receives slash minus gas for calling
     expect(govBalAfter - govBalBefore + gasUsed).to.equal(slashAmount);
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(refundAmount);
 
+    // Advertiser pulls remaining refund
+    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    const claimTx = await ledger.connect(advertiser).claimAdvertiserRefund();
+    const claimReceipt = await claimTx.wait();
+    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    const claimGas = claimReceipt!.gasUsed * claimReceipt!.gasPrice;
+
+    expect(advBalAfter - advBalBefore + claimGas).to.equal(refundAmount);
     expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
   });
 
-  // LC3: expirePendingCampaign after timeout
+  // LC3: expirePendingCampaign after timeout (M-1: pull)
   it("LC3: anyone can expire Pending campaign after timeout; full refund", async function () {
     const cid = await createPending();
 
     await mineBlocks(PENDING_TIMEOUT + 2n);
 
-    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
     await lifecycle.connect(other).expirePendingCampaign(cid);
-    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
 
     expect(await campaigns.getCampaignStatus(cid)).to.equal(5); // Expired
-    expect(advBalAfter - advBalBefore).to.equal(BUDGET);
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(BUDGET);
+
+    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    const tx = await ledger.connect(advertiser).claimAdvertiserRefund();
+    const receipt = await tx.wait();
+    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+    expect(advBalAfter - advBalBefore + gasUsed).to.equal(BUDGET);
   });
 
   // LC4: only advertiser/settlement can complete
@@ -227,19 +243,20 @@ describe("DatumCampaignLifecycle", function () {
   // P20: Campaign inactivity timeout
   // =========================================================================
 
-  // LC10: expireInactiveCampaign succeeds after timeout
+  // LC10: expireInactiveCampaign succeeds after timeout (M-1: pull pattern)
   it("LC10: anyone can expire inactive Active campaign after timeout", async function () {
     const cid = await createAndActivate();
 
     // Mine past inactivity timeout (100 blocks in test)
     await mineBlocks(102n);
 
-    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    // Use delta-based assertion since earlier tests may have left pending residue
+    const pendingBefore = await ledger.pendingAdvertiserRefund(advertiser.address);
     await lifecycle.connect(other).expireInactiveCampaign(cid);
-    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    const pendingAfter = await ledger.pendingAdvertiserRefund(advertiser.address);
 
     expect(await campaigns.getCampaignStatus(cid)).to.equal(3); // Completed
-    expect(advBalAfter - advBalBefore).to.equal(BUDGET);
+    expect(pendingAfter - pendingBefore).to.equal(BUDGET);
     expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
   });
 

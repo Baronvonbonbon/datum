@@ -120,10 +120,16 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable 
     // L-2: Dust sweep — recover sub-ED balances locked in mappings
     // -------------------------------------------------------------------------
 
+    /// @notice Hard cap on the sweep `threshold` parameter. Prevents the owner
+    ///         from disguising a balance-drain as a "dust sweep" by passing a
+    ///         large threshold. 1e16 planck = 0.001 DOT, comfortably below any
+    ///         reasonable existential deposit on Polkadot Hub. (M-2)
+    uint256 public constant MAX_DUST_THRESHOLD = 1e16;
+
     /// @notice Sweep sub-threshold publisher balances to treasury. Clears dust that is
     ///         unwithdrawable due to existential deposit requirements.
     /// @param accounts Publisher addresses to sweep
-    /// @param threshold Minimum balance to keep (sweep amounts below this)
+    /// @param threshold Minimum balance to keep (sweep amounts below this); capped at MAX_DUST_THRESHOLD
     /// @param treasury Recipient for swept dust
     function sweepPublisherDust(
         address[] calldata accounts,
@@ -131,6 +137,7 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable 
         address treasury
     ) external onlyOwner nonReentrant {
         require(treasury != address(0), "E00");
+        require(threshold <= MAX_DUST_THRESHOLD, "E16"); // M-2: prevent drain disguised as sweep
         uint256 total;
         for (uint256 i = 0; i < accounts.length; i++) {
             uint256 bal = publisherBalance[accounts[i]];
@@ -149,6 +156,7 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable 
         address treasury
     ) external onlyOwner nonReentrant {
         require(treasury != address(0), "E00");
+        require(threshold <= MAX_DUST_THRESHOLD, "E16"); // M-2: prevent drain disguised as sweep
         uint256 total;
         for (uint256 i = 0; i < accounts.length; i++) {
             uint256 bal = userBalance[accounts[i]];

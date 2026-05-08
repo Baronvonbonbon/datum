@@ -236,18 +236,24 @@ describe("Integration", function () {
     expect(await vault.userBalance(user.address)).to.equal(userPmt);
     expect(await vault.protocolBalance()).to.equal(protFee);
 
-    // Complete campaign via Lifecycle — refund remaining budget to advertiser
-    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    // Complete campaign via Lifecycle — refund queued for advertiser pull (M-1)
     const remaining = await ledger.getRemainingBudget(campaignId, 0);
-    const completeTx = await lifecycle.connect(advertiser).completeCampaign(campaignId);
-    const completeReceipt = await completeTx.wait();
-    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    const pendingBefore = await ledger.pendingAdvertiserRefund(advertiser.address);
+    await lifecycle.connect(advertiser).completeCampaign(campaignId);
+    const pendingAfter = await ledger.pendingAdvertiserRefund(advertiser.address);
 
-    if (!(await isSubstrate())) {
-      const gasUsed = completeReceipt!.gasUsed * completeReceipt!.gasPrice;
-      expect(advBalAfter - advBalBefore + gasUsed).to.equal(remaining);
-    }
+    expect(pendingAfter - pendingBefore).to.equal(remaining);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(3); // Completed
+
+    // Advertiser pulls refund
+    if (!(await isSubstrate())) {
+      const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+      const claimTx = await ledger.connect(advertiser).claimAdvertiserRefund();
+      const claimReceipt = await claimTx.wait();
+      const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+      const claimGas = claimReceipt!.gasUsed * claimReceipt!.gasPrice;
+      expect(advBalAfter - advBalBefore + claimGas).to.equal(pendingAfter);
+    }
 
     // Evaluate to mark resolved
     await v2.evaluateCampaign(campaignId);
@@ -308,18 +314,18 @@ describe("Integration", function () {
     expect(await v2.getClaimable(campaignId, voter2.address)).to.equal(0n);
   });
 
-  // Scenario C: Pending expiry
+  // Scenario C: Pending expiry (M-1: pull pattern)
   it("C: Pending expiry — budget returned via Lifecycle", async function () {
     const campaignId = await createTestCampaign();
 
     await mineBlocks(PENDING_TIMEOUT + 1n);
 
-    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    const pendingBefore = await ledger.pendingAdvertiserRefund(advertiser.address);
     await lifecycle.connect(user).expirePendingCampaign(campaignId);
-    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    const pendingAfter = await ledger.pendingAdvertiserRefund(advertiser.address);
 
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(5); // Expired
-    expect(advBalAfter - advBalBefore).to.equal(BUDGET);
+    expect(pendingAfter - pendingBefore).to.equal(BUDGET);
   });
 
   // Scenario D: Nonce gap

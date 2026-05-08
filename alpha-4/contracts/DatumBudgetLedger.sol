@@ -46,11 +46,17 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
     /// @dev P20: Tracks the last block where a deduction occurred for each campaign (any pot).
     mapping(uint256 => uint256) public lastSettlementBlock;
 
+    /// @dev M-1: Pending advertiser refund balances. drainToAdvertiser records here
+    ///      instead of pushing native DOT, so a contract advertiser with a reverting
+    ///      fallback cannot DoS Lifecycle / Settlement auto-complete.
+    mapping(address => uint256) public pendingAdvertiserRefund;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
 
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+    // M-1: AdvertiserRefundQueued / AdvertiserRefundClaimed declared on IDatumBudgetLedger.
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -153,6 +159,8 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumBudgetLedger
+    /// @dev M-1: Records the refund into `pendingAdvertiserRefund` instead of
+    ///      pushing native DOT. Advertiser pulls via claimAdvertiserRefund[To].
     function drainToAdvertiser(
         uint256 campaignId,
         address advertiser
@@ -170,8 +178,29 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
         emit BudgetDrained(campaignId, advertiser, drained);
 
         if (drained > 0) {
-            _send(advertiser, drained);
+            pendingAdvertiserRefund[advertiser] += drained;
+            emit AdvertiserRefundQueued(campaignId, advertiser, drained);
         }
+    }
+
+    /// @notice M-1: Pull a queued advertiser refund to the advertiser's own address.
+    function claimAdvertiserRefund() external nonReentrant {
+        _claimAdvertiserRefund(msg.sender);
+    }
+
+    /// @notice M-1: Pull a queued advertiser refund to a different recipient
+    ///         (e.g. cold wallet). Only the advertiser who owns the refund can call.
+    function claimAdvertiserRefundTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimAdvertiserRefund(recipient);
+    }
+
+    function _claimAdvertiserRefund(address recipient) internal {
+        uint256 amount = pendingAdvertiserRefund[msg.sender];
+        require(amount > 0, "E03");
+        pendingAdvertiserRefund[msg.sender] = 0;
+        emit AdvertiserRefundClaimed(msg.sender, recipient, amount);
+        _send(recipient, amount);
     }
 
     /// @inheritdoc IDatumBudgetLedger
@@ -186,10 +215,8 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
         for (uint8 t = 0; t <= 2; t++) {
             uint256 remaining = _budgets[campaignId][t].remaining;
             if (remaining == 0) continue;
-            // AUDIT-009: Use Math.mulDiv for overflow-safe precision; ceiling via +1 if remainder > 0
-            uint256 floor = Math.mulDiv(remaining, bps, 10000);
-            uint256 rem = (remaining * bps) % 10000;
-            uint256 potAmount = rem > 0 ? floor + 1 : floor;
+            // L-3 / AUDIT-009: ceiling-rounded mulDiv in a single overflow-safe call.
+            uint256 potAmount = Math.mulDiv(remaining, bps, 10000, Math.Rounding.Ceil);
             _budgets[campaignId][t].remaining = remaining - potAmount;
             amount += potAmount;
         }
@@ -257,5 +284,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
         require(ok, "E02");
     }
 
-    receive() external payable {}
+    /// @notice Reject stray native deposits — there is no internal path that
+    ///         requires open `receive()` here. (I-1)
+    receive() external payable { revert("E03"); }
 }

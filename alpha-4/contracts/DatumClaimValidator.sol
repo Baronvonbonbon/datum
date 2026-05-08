@@ -165,7 +165,11 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
                         return (false, 16, 0, bytes32(0));
                     }
                 }
-            } catch {}
+            } catch {
+                // M-4: fail closed — if we can't determine whether a ZK proof is required,
+                // refuse the claim rather than silently treating it as not-required.
+                return (false, 16, 0, bytes32(0));
+            }
         }
 
         // Check 10 (type-1 only): verify click session exists and is unclaimed

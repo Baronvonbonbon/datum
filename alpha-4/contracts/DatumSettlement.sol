@@ -85,6 +85,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     event NullifierWindowBlocksUpdated(uint256 oldValue, uint256 newValue);
     event SettlementRecorded(address indexed publisher, uint256 indexed campaignId, uint256 settled, uint256 rejected);
     event ReporterAuthorized(address indexed reporter, bool authorized);
+    /// @notice L-4: Emitted when the non-critical token-reward credit reverts so off-chain
+    ///         monitors can flag mis-wired or under-funded reward configs.
+    event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
 
     // Triple-keyed chain state: (user, campaignId, actionType)
     mapping(address => mapping(uint256 => mapping(uint8 => uint256)))  public lastNonce;
@@ -302,6 +305,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         for (uint256 b = 0; b < batches.length; b++) {
             SignedClaimBatch calldata batch = batches[b];
 
+            // I-3: reject empty batches — sigs over no claims do nothing and just burn gas
+            require(batch.claims.length > 0, "E28");
+
             // Deadline check
             require(block.timestamp <= batch.deadline, "E81");
 
@@ -320,6 +326,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             address pubSigner = ECDSA.recover(digest, batch.publisherSig);
             address expectedPublisher = _batchPublisher(batch.claims);
             require(expectedPublisher != address(0), "E00");
+            // M-3 (SM-1): every claim must target the same publisher as claims[0]
+            // so the dual-sig path's authorization model matches DatumRelay.
+            for (uint256 i = 1; i < batch.claims.length; i++) {
+                require(batch.claims[i].publisher == expectedPublisher, "E34");
+            }
             // Accept either the publisher themselves or their designated relay signer
             address pubRelay = address(0);
             if (address(publishers) != address(0)) {
@@ -620,7 +631,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
         // Aggregate token reward credit (view claims only, non-critical)
         if (agg.tokenReward > 0) {
-            try tokenRewardVault.creditReward(campaignId, agg.rewardToken, user, agg.tokenReward) {} catch {}
+            try tokenRewardVault.creditReward(campaignId, agg.rewardToken, user, agg.tokenReward) {}
+            catch {
+                // L-4: surface a failure so the credit doesn't disappear silently.
+                emit RewardCreditFailed(campaignId, user, agg.rewardToken, agg.tokenReward);
+            }
         }
 
         // FP-1: Record settled events on publisher stake bonding curve

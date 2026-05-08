@@ -97,16 +97,25 @@ describe("DatumChallengeBonds", function () {
     await expect(bonds.connect(lifecycle).returnBond(999n)).to.not.be.reverted;
   });
 
-  // CB8: returnBond transfers bond back to advertiser, clears state
-  it("CB8: returnBond returns bond to advertiser", async function () {
-    const balBefore = await ethers.provider.getBalance(advertiser2.address);
+  // CB8: returnBond queues bond for advertiser pull, clears state (M-1)
+  it("CB8: returnBond queues bond for advertiser pull", async function () {
+    const pendingBefore = await bonds.pendingBondReturn(advertiser2.address);
     // Return bond for campaign 2 (advertiser2, BOND * 2n)
-    const tx = await bonds.connect(lifecycle).returnBond(2n);
-    await tx.wait();
-    const balAfter = await ethers.provider.getBalance(advertiser2.address);
-    expect(balAfter - balBefore).to.equal(BOND * 2n);
+    await bonds.connect(lifecycle).returnBond(2n);
+
+    // M-1: bond is queued, not pushed
+    const pendingAfter = await bonds.pendingBondReturn(advertiser2.address);
+    expect(pendingAfter - pendingBefore).to.equal(BOND * 2n);
     expect(await bonds.bond(2n)).to.equal(0n);
     expect(await bonds.totalBonds(publisher.address)).to.equal(BOND); // only campaign 1 remains
+
+    // Advertiser pulls the bond
+    const balBefore = await ethers.provider.getBalance(advertiser2.address);
+    const tx = await bonds.connect(advertiser2).claimBondReturn();
+    const receipt = await tx.wait();
+    const balAfter = await ethers.provider.getBalance(advertiser2.address);
+    const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+    expect(balAfter - balBefore + gasUsed).to.equal(BOND * 2n);
   });
 
   // CB9: returnBond emits BondReturned

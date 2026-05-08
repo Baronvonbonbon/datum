@@ -8,7 +8,10 @@ pragma solidity ^0.8.24;
 ///         pool from which bonded advertisers can claim proportional compensation.
 interface IDatumChallengeBonds {
     event BondLocked(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 amount);
+    /// @notice Bond cleared from state and queued for advertiser pull. (M-1)
     event BondReturned(uint256 indexed campaignId, address indexed advertiser, uint256 amount);
+    /// @notice Advertiser pulled their queued bond return. (M-1)
+    event BondReturnClaimed(address indexed advertiser, address indexed recipient, uint256 amount);
     event BonusAdded(address indexed publisher, uint256 amount, uint256 poolTotal);
     event BonusClaimed(uint256 indexed campaignId, address indexed advertiser, uint256 amount);
 
@@ -34,6 +37,18 @@ interface IDatumChallengeBonds {
     ///         (capped to actual pool balance). Bond is burned (not returned).
     /// @param campaignId Campaign ID with a locked bond.
     function claimBonus(uint256 campaignId) external;
+
+    /// @notice M-1 cold-wallet variant: claim bonus to a chosen recipient.
+    function claimBonusTo(uint256 campaignId, address recipient) external;
+
+    /// @notice M-1: Pull a queued bond return to msg.sender.
+    function claimBondReturn() external;
+
+    /// @notice M-1: Pull a queued bond return to a chosen recipient.
+    function claimBondReturnTo(address recipient) external;
+
+    /// @notice M-1: Pending bond-return amount for an advertiser.
+    function pendingBondReturn(address advertiser) external view returns (uint256);
 
     // ── Views ──────────────────────────────────────────────────────────────────
 

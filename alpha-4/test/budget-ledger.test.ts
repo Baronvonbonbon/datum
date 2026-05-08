@@ -94,17 +94,26 @@ describe("DatumBudgetLedger", function () {
     ).to.be.revertedWith("E16");
   });
 
-  // BL3: drainToAdvertiser
-  it("BL3: drainToAdvertiser sends remaining budget and zeros balance", async function () {
+  // BL3: drainToAdvertiser (M-1: pull pattern — queues refund, advertiser claims)
+  it("BL3: drainToAdvertiser queues budget for advertiser pull", async function () {
     const cid = 20n;
     await ledger.connect(campaignsMock).initializeBudget(cid, 0, BUDGET, DAILY_CAP, { value: BUDGET });
 
-    const advBalBefore = await ethers.provider.getBalance(recipient.address);
+    const pendingBefore = await ledger.pendingAdvertiserRefund(recipient.address);
     await ledger.connect(lifecycleMock).drainToAdvertiser(cid, recipient.address);
-    const advBalAfter = await ethers.provider.getBalance(recipient.address);
+    const pendingAfter = await ledger.pendingAdvertiserRefund(recipient.address);
 
-    expect(advBalAfter - advBalBefore).to.equal(BUDGET);
+    // M-1: refund is queued, not pushed
+    expect(pendingAfter - pendingBefore).to.equal(BUDGET);
     expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
+
+    // Recipient pulls — should receive BUDGET minus gas
+    const advBalBefore = await ethers.provider.getBalance(recipient.address);
+    const tx = await ledger.connect(recipient).claimAdvertiserRefund();
+    const receipt = await tx.wait();
+    const advBalAfter = await ethers.provider.getBalance(recipient.address);
+    const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+    expect(advBalAfter - advBalBefore + gasUsed).to.equal(BUDGET);
   });
 
   // BL4: Access control

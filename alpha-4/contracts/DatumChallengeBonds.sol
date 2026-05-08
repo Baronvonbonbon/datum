@@ -43,6 +43,10 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
     mapping(address => uint256) private _bonusPool;
     mapping(uint256 => bool)    private _bonusClaimed;
 
+    /// @dev M-1: Pull-pattern queue for bond returns. returnBond records here
+    ///      so a contract advertiser with a reverting fallback cannot DoS Lifecycle.
+    mapping(address => uint256) public pendingBondReturn;
+
     // ── Constructor ────────────────────────────────────────────────────────────
 
     constructor() DatumOwnable() {}
@@ -83,6 +87,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
     }
 
     /// @inheritdoc IDatumChallengeBonds
+    /// @dev M-1: Records return into `pendingBondReturn[advertiser]` instead of
+    ///      pushing native DOT. Advertiser pulls via claimBondReturn[To].
     function returnBond(uint256 campaignId) external nonReentrant {
         require(msg.sender == lifecycleContract, "E18");
         uint256 amount = _bond[campaignId];
@@ -91,7 +97,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
         address advertiser = _bondOwner[campaignId];
         address publisher  = _bondPublisher[campaignId];
 
-        // Clear before transfer
+        // Clear bond state before queueing the refund
         _bond[campaignId] = 0;
         _bondOwner[campaignId] = address(0);
         _bondPublisher[campaignId] = address(0);
@@ -101,9 +107,28 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
             _totalBonds[publisher] = 0;
         }
 
-        (bool ok,) = advertiser.call{value: amount}("");
-        require(ok, "E02");
+        pendingBondReturn[advertiser] += amount;
         emit BondReturned(campaignId, advertiser, amount);
+    }
+
+    /// @notice M-1: Pull a queued bond return to msg.sender.
+    function claimBondReturn() external nonReentrant {
+        _claimBondReturn(msg.sender);
+    }
+
+    /// @notice M-1: Pull a queued bond return to a chosen recipient (cold wallet).
+    function claimBondReturnTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimBondReturn(recipient);
+    }
+
+    function _claimBondReturn(address recipient) internal {
+        uint256 amount = pendingBondReturn[msg.sender];
+        require(amount > 0, "E03");
+        pendingBondReturn[msg.sender] = 0;
+        (bool ok,) = payable(recipient).call{value: amount}("");
+        require(ok, "E02");
+        emit BondReturnClaimed(msg.sender, recipient, amount);
     }
 
     /// @inheritdoc IDatumChallengeBonds
@@ -116,6 +141,17 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
 
     /// @inheritdoc IDatumChallengeBonds
     function claimBonus(uint256 campaignId) external nonReentrant {
+        _claimBonus(campaignId, msg.sender);
+    }
+
+    /// @notice M-1 cold-wallet variant: claim bonus to a chosen recipient.
+    ///         Only the bond owner (msg.sender) can call.
+    function claimBonusTo(uint256 campaignId, address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claimBonus(campaignId, recipient);
+    }
+
+    function _claimBonus(uint256 campaignId, address recipient) internal {
         require(!_bonusClaimed[campaignId], "E72"); // already claimed
         uint256 bondAmt = _bond[campaignId];
         require(bondAmt > 0, "E01"); // no bond
@@ -144,7 +180,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
 
         _bonusPool[publisher] -= share;
 
-        (bool ok,) = advertiser.call{value: share}("");
+        (bool ok,) = payable(recipient).call{value: share}("");
         require(ok, "E02");
         emit BonusClaimed(campaignId, advertiser, share);
     }
