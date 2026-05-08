@@ -1,5 +1,5 @@
 === DATUM Publisher ===
-Contributors: datumnetwork
+Contributors: baronvonbonbon
 Tags: advertising, web3, crypto, polkadot, dot, monetization, ads
 Requires at least: 6.0
 Tested up to: 6.7
