@@ -452,12 +452,20 @@
 
     var inner;
     if (layout === "tiny") {
-      // Compact strip: [reticle] datum  ·  {hook wraps to 2 lines}  ·  cta
+      // Compact strip: brand-block (subtitle stacked above [reticle] datum)
+      //                · {hook wraps to 2 lines}
+      //                · cta
       // Hook uses -webkit-line-clamp so long copy wraps onto two lines
       // instead of getting truncated with a single ellipsis.
       inner =
-        brandSvg(12) +
-        '<span style="' + wordmark + 'font-size:11px;margin:0 7px 0 6px;flex:none;">datum</span>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-start;flex:none;margin-right:10px;line-height:1;">' +
+          '<div style="font-family:' + THEME.mono + ';font-size:8px;color:' + THEME.fgFaint + ';' +
+            'text-transform:uppercase;letter-spacing:1.4px;line-height:1;margin-bottom:3px;">// on-chain ad</div>' +
+          '<div style="display:flex;align-items:center;gap:5px;">' +
+            brandSvg(11) +
+            '<span style="' + wordmark + 'font-size:11px;line-height:1;">datum</span>' +
+          '</div>' +
+        '</div>' +
         '<span style="' +
           'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
           'font-size:10px;color:' + THEME.fgDim + ';line-height:1.2;' +
