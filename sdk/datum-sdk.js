@@ -1,9 +1,13 @@
 /**
- * DATUM Publisher SDK v3.2
+ * DATUM Publisher SDK v3.3
  *
- * Lightweight JS tag (~3 KB) for publishers to embed on their site.
+ * Lightweight JS tag (~5 KB) for publishers to embed on their site.
  * Provides two-party attestation via challenge-response handshake
  * with the DATUM browser extension.
+ *
+ * No-extension fallback: if no extension responds within 1.5s, each empty
+ * slot is filled with an inline DATUM house ad pointing to datum.javcon.io,
+ * sized to the IAB format. Publisher does not need to configure anything.
  *
  * Multi-slot usage (recommended):
  *   <script src="datum-sdk.js" data-tags="topic:crypto-web3,locale:en" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
@@ -33,7 +37,12 @@
 (function () {
   "use strict";
 
-  var VERSION = "3.2.0";
+  var VERSION = "3.3.0";
+
+  // No-extension fallback: how long to wait for the extension to fill a slot
+  // before rendering an inline house ad that promotes DATUM.
+  var FALLBACK_DELAY_MS = 1500;
+  var FALLBACK_URL = "https://datum.javcon.io/?utm_source=sdk&utm_medium=house-ad&utm_campaign=no-extension";
 
   // Known short-form → dimension:value mappings for convenience
   var SHORT_FORM_MAP = {
@@ -200,6 +209,98 @@
     slot.setAttribute("data-slot-format", legacySlotFormat);
   }
 
+  // ─── No-extension fallback house ad ─────────────────────────────────────────
+
+  var fallbackTimerId = null;
+  var extensionDetected = false;
+
+  /**
+   * Render the DATUM house ad inline inside an empty slot. Sized to the slot's
+   * IAB format. Self-contained: inline styles only, no external assets, opens
+   * in a new tab. Skipped if the slot already has light- or shadow-DOM content.
+   */
+  function renderHouseAd(slotEl) {
+    if (!slotEl) return;
+    if (slotEl.querySelector("[data-datum-house-ad]")) return; // already rendered
+    if (slotEl.children.length > 0) return; // extension or other content present
+    if (slotEl.shadowRoot && slotEl.shadowRoot.childNodes.length > 0) return; // shadow DOM ad
+
+    var format =
+      slotEl.getAttribute("data-datum-slot") ||
+      slotEl.getAttribute("data-slot-format") ||
+      legacySlotFormat ||
+      "medium-rectangle";
+    var size = SLOT_SIZES[format] || SLOT_SIZES["medium-rectangle"];
+    var ratio = size.w / size.h;
+
+    // Layout: tiny strip (mobile-banner), wide strip (leaderboard), or vertical block
+    var layout;
+    if (ratio >= 3 && size.h < 80) layout = "tiny";
+    else if (ratio >= 3) layout = "wide";
+    else layout = "vertical";
+
+    var inner;
+    if (layout === "tiny") {
+      inner =
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#E6007A;margin-right:8px;flex:none;"></span>' +
+        '<span style="font-weight:700;font-size:13px;letter-spacing:0.2px;margin-right:8px;flex:none;">datum</span>' +
+        '<span style="font-size:11px;opacity:0.85;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Privacy-first ads. Earn DOT.</span>' +
+        '<span style="font-size:11px;font-weight:600;color:#E6007A;margin-left:8px;flex:none;">Install →</span>';
+    } else if (layout === "wide") {
+      inner =
+        '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#E6007A;margin-right:14px;flex:none;"></span>' +
+        '<div style="flex:none;margin-right:18px;">' +
+          '<div style="font-weight:700;font-size:18px;letter-spacing:0.3px;line-height:1.1;">datum</div>' +
+          '<div style="font-size:10px;opacity:0.7;text-transform:uppercase;letter-spacing:1.2px;line-height:1.2;">privacy-first ads</div>' +
+        '</div>' +
+        '<div style="flex:1;font-size:14px;opacity:0.9;line-height:1.3;">No tracking. No cookies. Earn DOT for every ad you see.</div>' +
+        '<span style="flex:none;margin-left:18px;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 14px;border-radius:4px;white-space:nowrap;">Install DATUM →</span>';
+    } else {
+      inner =
+        '<div style="text-align:center;width:100%;">' +
+          '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;">' +
+            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E6007A;"></span>' +
+            '<span style="font-weight:700;font-size:18px;letter-spacing:0.3px;">datum</span>' +
+          '</div>' +
+          '<div style="font-size:10px;opacity:0.7;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">privacy-first ads</div>' +
+          '<div style="font-size:13px;opacity:0.92;line-height:1.4;margin-bottom:14px;padding:0 8px;">No tracking. No cookies.<br/>Earn DOT for every ad you see.</div>' +
+          '<div style="display:inline-block;background:#E6007A;color:#fff;font-size:12px;font-weight:600;padding:8px 16px;border-radius:4px;">Install DATUM →</div>' +
+        '</div>';
+    }
+
+    var pad = layout === "tiny" ? "0 10px" : layout === "wide" ? "0 16px" : "16px 12px";
+    var a = document.createElement("a");
+    a.href = FALLBACK_URL;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.setAttribute("data-datum-house-ad", "1");
+    a.style.cssText =
+      "display:flex;align-items:center;justify-content:center;width:100%;height:100%;" +
+      "text-decoration:none;color:#ffffff;background:#0E0E1F;" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;" +
+      "border:1px solid rgba(230,0,122,0.3);border-radius:6px;" +
+      "overflow:hidden;cursor:pointer;box-sizing:border-box;padding:" + pad + ";";
+    a.innerHTML = inner;
+    slotEl.appendChild(a);
+  }
+
+  /**
+   * Schedule the fallback check. If no `datum:challenge` event arrives within
+   * FALLBACK_DELAY_MS, the extension is assumed absent and every empty slot
+   * gets a house ad. The first challenge cancels the timer.
+   */
+  function scheduleFallback() {
+    if (fallbackTimerId) return;
+    fallbackTimerId = setTimeout(function () {
+      fallbackTimerId = null;
+      if (extensionDetected) return;
+      var slots = document.querySelectorAll("[data-datum-slot], #datum-ad-slot");
+      for (var i = 0; i < slots.length; i++) {
+        renderHouseAd(slots[i]);
+      }
+    }, FALLBACK_DELAY_MS);
+  }
+
   // Dispatch SDK ready event
   function signalReady() {
     // Try multi-slot mode first
@@ -237,10 +338,24 @@
         })
       );
     }
+    // Start the no-extension fallback timer. Cancelled on first datum:challenge.
+    scheduleFallback();
   }
 
   // Listen for challenge events from the DATUM extension content script
   document.addEventListener("datum:challenge", function (e) {
+    // Extension is present — cancel the no-extension fallback timer and
+    // tear down any house ads that may have already rendered (slow boot).
+    extensionDetected = true;
+    if (fallbackTimerId) {
+      clearTimeout(fallbackTimerId);
+      fallbackTimerId = null;
+    }
+    var existing = document.querySelectorAll("[data-datum-house-ad]");
+    for (var k = 0; k < existing.length; k++) {
+      if (existing[k].parentNode) existing[k].parentNode.removeChild(existing[k]);
+    }
+
     var detail = e.detail || {};
     var challenge = detail.challenge || "";
     var nonce = detail.nonce || "";
