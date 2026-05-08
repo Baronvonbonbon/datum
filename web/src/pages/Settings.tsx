@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useSettings } from "../context/SettingsContext";
 import { useWallet } from "../context/WalletContext";
 import { useContracts, type PineStatus, type SyncStep, type PineRpcTest } from "../hooks/useContracts";
@@ -256,6 +257,22 @@ export function Settings() {
             >
               Light
             </button>
+          </div>
+        </div>
+      </Section>
+
+      {/* SDK preview */}
+      <Section title="Publisher SDK">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Link
+            to="/settings/house-ads"
+            style={{ color: "var(--accent)", fontSize: 13, textDecoration: "none", fontWeight: 600 }}
+          >
+            House Ad Preview →
+          </Link>
+          <div style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.5 }}>
+            See every creative the SDK shows publishers when no DATUM extension is installed —
+            all 7 IAB sizes, with a shuffle button to re-roll the random hook / body / CTA.
           </div>
         </div>
       </Section>

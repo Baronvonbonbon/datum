@@ -56,6 +56,7 @@ import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
 
 // Settings
 import { Settings } from "./pages/Settings";
+import { HouseAdPreview } from "./pages/settings/HouseAdPreview";
 
 // Demo
 import { Demo } from "./pages/Demo";
@@ -120,6 +121,7 @@ export function App() {
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
+              <Route path="/settings/house-ads" element={<HouseAdPreview />} />
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />

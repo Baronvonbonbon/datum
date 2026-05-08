@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DATUM house-ad preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body { background: transparent; margin: 0; padding: 0; }
+  body {
+    color: #E6E6EC;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 0 24px;
+  }
+  h2 {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+    color: #6B6B7A;
+    text-transform: uppercase;
+    letter-spacing: 1.6px;
+  }
+  h2:first-of-type { margin-top: 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .empty {
+    padding: 12px 14px;
+    border: 1px dashed rgba(230,0,122,0.35);
+    border-radius: 6px;
+    color: rgba(245,245,248,0.55);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+</style>
+</head>
+<body>
+  <div id="status" class="empty">Waiting on SDK fallback timer (1.5s)…</div>
+
+  <h2>tiny — mobile-banner (320×50)</h2>
+  <div data-datum-slot="mobile-banner"></div>
+
+  <h2>wide — leaderboard (728×90)</h2>
+  <div data-datum-slot="leaderboard"></div>
+
+  <h2>vertical formats</h2>
+  <div class="row">
+    <div data-datum-slot="medium-rectangle"></div>
+    <div data-datum-slot="square"></div>
+    <div data-datum-slot="large-rectangle"></div>
+    <div data-datum-slot="wide-skyscraper"></div>
+    <div data-datum-slot="half-page"></div>
+  </div>
+
+  <script>
+    // Once a house ad renders in any slot, hide the "waiting" message.
+    var status = document.getElementById("status");
+    var observer = new MutationObserver(function () {
+      if (document.querySelector("[data-datum-house-ad]") && status) {
+        status.style.display = "none";
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  </script>
+  <!-- Cache-bust on every load so each iframe refresh re-rolls the random pool. -->
+  <script>
+    document.write(
+      '<script src="/datum-sdk.js?t=' + Date.now() + '" data-publisher="0xPREVIEW"><' + '/script>'
+    );
+  </script>
+</body>
+</html>
