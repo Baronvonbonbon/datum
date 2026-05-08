@@ -779,8 +779,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
           campaignId: b.campaignId,
           claims: b.claims,
           deadline,
-          signature,
+          userSig: signature,
           publisherSig,
+          advertiserSig: "0x",
         });
       }
 

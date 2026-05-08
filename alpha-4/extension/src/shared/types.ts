@@ -31,9 +31,10 @@ export interface ClaimBatch {
 }
 
 export interface SignedClaimBatch extends ClaimBatch {
-  deadline: number;    // block number
-  signature: string;   // 65-byte EIP-712 signature hex
-  publisherSig: string; // publisher EIP-712 attestation hex (empty "0x" = degraded trust)
+  deadline: number;    // block number (relay path) OR unix timestamp (dual-sig path)
+  userSig: string;     // 65-byte EIP-712 user signature hex (relay path; "0x" for dual-sig)
+  publisherSig: string; // publisher EIP-712 attestation/co-sig hex (empty "0x" if absent)
+  advertiserSig: string; // advertiser EIP-712 co-sig hex (dual-sig path; "0x" if absent)
 }
 
 export interface SettlementResult {

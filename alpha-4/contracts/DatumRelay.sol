@@ -156,7 +156,7 @@ contract DatumRelay is DatumOwnable {
                 structHash
             ));
 
-            bytes calldata sig = sb.signature;
+            bytes calldata sig = sb.userSig;
             require(sig.length == 65, "E30");
             bytes32 r;
             bytes32 s;

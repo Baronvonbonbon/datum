@@ -4,6 +4,8 @@
 
 A privacy-preserving ad exchange on Polkadot Hub (PolkaVM). Advertisers create DOT-denominated campaigns on-chain; publishers embed a lightweight SDK; users earn DOT and optional ERC-20 sidecar tokens for verified impressions — settled entirely on-chain with no intermediary, no surveillance, and no personal data leaving the browser.
 
+The active line is **Alpha-4** (v0.4.0, 21 production contracts, deployed to Paseo PVM 2026-05-06). A 29-contract EVM dual-target build is also deployed to Paseo EVM for benchmarking and EVM-parachain readiness.
+
 ---
 
 ## Roles and Revenue
@@ -16,13 +18,14 @@ Deposit DOT into escrow when creating a campaign. Define a bid CPM, daily cap, t
 - **Reclaim:** Unspent escrow returned via `CampaignLifecycle.completeCampaign()`.
 - **ERC-20 sidecar:** Pair any campaign with a token reward (`rewardToken` + `rewardPerImpression`). Seed `DatumTokenRewardVault` with tokens; settlement credits them non-critically on every impression alongside DOT.
 - **Challenge bond:** A bond is locked at campaign creation and returned on clean completion, or distributes a bonus to the bond pool if publisher fraud is upheld via `DatumPublisherGovernance`.
+- **Direct dual-sig settlement:** Co-sign claim batches with a publisher off-chain; anyone can submit on-chain (see *Settlement Pipeline* below).
 
 ### Publishers
 
 Register on-chain, set their take rate (30–80%), configure targeting tags, and embed the SDK. A relay signer EOA co-signs attestations so users settle at zero gas cost.
 
-- **Take rate:** A snapshot-locked share of every clearing payment flows to the publisher's `DatumPaymentVault` balance. The rate is frozen at campaign creation — mid-campaign changes don't affect live campaigns.
-- **Stake requirement:** Publishers must maintain a DOT stake in `DatumPublisherStake` (`base + cumulativeImpressions × perImp`). Settlement rejects under-staked publishers (error code 15).
+- **Take rate:** A snapshot-locked share of every clearing payment flows to the publisher's `DatumPaymentVault` balance. Frozen at campaign creation — mid-campaign changes don't affect live campaigns.
+- **Stake requirement:** Publishers maintain a DOT stake in `DatumPublisherStake` (`base + cumulativeImpressions × perImp`). Settlement rejects under-staked publishers (error code 15).
 - **Withdrawal:** `PaymentVault.withdrawPublisher()` at any time; `withdrawTo(recipient)` for cold-wallet sweeps.
 
 ### Users
@@ -30,7 +33,7 @@ Register on-chain, set their take rate (30–80%), configure targeting tags, and
 Browse with the DATUM Chrome extension. It detects publisher SDK embeds, classifies pages against campaign tags, runs a Vickrey second-price auction, and builds Blake2-256 hash-chain claims entirely on-device. No browsing data leaves the browser.
 
 - **DOT earnings:** After the publisher take rate, 75% of the remainder goes to the user and 25% to the protocol. At a 40% publisher take and 0.05 DOT/1000 CPM, a user earns 0.0225 DOT per 1000 verified impressions.
-- **ERC-20 sidecar:** Users earn `impressionCount × rewardPerImpression` of the campaign token per settlement, claimed via `TokenRewardVault.withdraw(token)`.
+- **ERC-20 sidecar:** Users earn `eventCount × rewardPerImpression` of the campaign token per settlement, claimed via `TokenRewardVault.withdraw(token)`.
 - **Zero-gas path:** Co-sign claims with the publisher relay; the relay submits on-chain and pays gas.
 - **Self-submit path:** `Settlement.settleClaims()` — user pays gas directly.
 
@@ -38,7 +41,7 @@ Browse with the DATUM Chrome extension. It detects publisher SDK embeds, classif
 
 Any DOT holder can review pending campaigns. Stake DOT with a conviction multiplier (0–8, nine levels; 0× to 21× weight; 0-day to 365-day lockup).
 
-- **Slash rewards:** The losing side (nay voters on activated campaigns, aye on terminated ones) forfeits 10% of stake, redistributed to winners via `DatumGovernanceSlash`.
+- **Slash rewards:** The losing side (nay voters on activated campaigns, aye on terminated ones) forfeits 10% of stake, redistributed to winners via the slash pool inside `DatumGovernanceV2`.
 - **Stake return:** Winners recover 100% after lockup; losers recover 90%.
 
 ### Publisher Fraud Governance
@@ -67,41 +70,58 @@ Three-phase governance with a stable-address router:
 
 ## Settlement Pipeline
 
+DATUM supports **three settlement entry points**:
+
 ```
-[User Extension]
-  Blake2-256 hash-chain claim (campaignId, publisher, user, impressions, CPM, nonce, prevHash)
-      ↓
-[AttestationVerifier.settleClaimsAttested(batch, publisherSig)]  ← relay path (zero gas for user)
-      or
-[Settlement.settleClaims(batch)]                                  ← direct path
-      ↓
-[DatumClaimValidator]
-  ├─ chain continuity (nonces, prevHash)
-  ├─ campaign active + publisher match
-  ├─ clearing CPM ≤ bid CPM
-  ├─ impression count ≤ 100,000
-  ├─ S12 blocklist check (Publishers staticcall)
-  ├─ BM-2 per-user impression cap
-  ├─ BM-5 rate limiter (SettlementRateLimiter staticcall)
-  ├─ BM-7 advertiser allowlist
-  ├─ FP-1 publisher stake check (PublisherStake staticcall)
-  └─ ZK nullifier check if requireZkProof=true (real Groth16/BN254)
-      ↓
-[DatumBudgetLedger.deductSettlement(campaignId, amount)]
-  ├─ daily cap check
-  └─ deduct from escrow
-      ↓
-[DatumPaymentVault.credit(publisher, user, protocol)]
-  ├─ publisher += takeRate%
-  ├─ user     += 75% of remainder
-  └─ protocol += 25% of remainder
-      ↓ (non-critical — does not block DOT settlement)
-[DatumTokenRewardVault.creditReward(campaignId, token, user, amount)]
-  └─ user token balance += impressions × rewardPerImpression
-      ↓
-[Publisher relay: parse ClaimSettled / ClaimRejected events]
-[DatumPublisherReputation.recordSettlement(publisher, campaignId, settled, rejected)]
+                ┌──────────────────────────────────────────────────────┐
+[User Extension]│  Blake2-256 hash-chain claim                          │
+                │  (campaignId, publisher, user, eventCount,           │
+                │   ratePlanck, actionType, nonce, prevHash)            │
+                └──────────────────────────────────────────────────────┘
+                          │
+       ┌──────────────────┼─────────────────────┬──────────────────────┐
+       ▼                  ▼                     ▼                      ▼
+[Settlement.settle  [Relay.settleClaimsFor   [AttestationVerifier.   [Settlement.settleSigned
+  Claims]            (userSig + opt.          settleClaimsAttested]   Claims]
+  user pays gas      publisherSig)]          publisher EIP-712       publisher + advertiser
+  direct             user EIP-712 +           co-sig only             dual EIP-712 sigs;
+                     optional pub co-sig                              anyone can submit
+                                                                      (refute by withholding)
+                          │
+                          ▼
+                  [DatumClaimValidator]
+                    ├─ chain continuity (nonces, prevHash)
+                    ├─ campaign active + publisher match
+                    ├─ clearing rate ≤ bid rate
+                    ├─ event count ≤ 100,000
+                    ├─ S12 blocklist (Publishers staticcall)
+                    ├─ BM-2 per-user event cap
+                    ├─ BM-5 rate limiter (per-publisher window)
+                    ├─ BM-7 advertiser allowlist
+                    ├─ FP-1 publisher stake check
+                    └─ FP-5 ZK nullifier (real Groth16/BN254)
+                          │
+                          ▼
+                  [DatumBudgetLedger.deductSettlement]
+                    ├─ daily cap check
+                    └─ deduct from escrow
+                          │
+                          ▼
+                  [DatumPaymentVault.credit]
+                    ├─ publisher += takeRate%
+                    ├─ user     += 75% of remainder
+                    └─ protocol += 25% of remainder
+                          │
+                          ▼ (non-critical — does not block DOT settlement)
+                  [DatumTokenRewardVault.creditReward]
+                    └─ user token balance += eventCount × rewardPerImpression
+                          │
+                          ▼
+                  [Publisher relay parses ClaimSettled / ClaimRejected events
+                   → records (publisher, campaignId) reputation in Settlement]
 ```
+
+**Hybrid dual-sig path** (`settleSignedClaims`, alpha-4): both publisher and advertiser sign EIP-712 over `ClaimBatch(user, campaignId, claimsHash, deadline)` on the DatumSettlement domain. Publisher sig accepts the publisher EOA *or* its registered `relaySigner`; advertiser sig must match `campaigns.getCampaignAdvertiser`. Either party can refute by withholding their signature. Errors: `E81` (deadline), `E82` (publisher sig), `E83` (advertiser sig).
 
 `settleClaimsMulti(UserClaimBatch[])` batches up to 10 users × 10 campaigns per transaction.
 
@@ -109,64 +129,60 @@ Three-phase governance with a stable-address router:
 
 ## Architecture
 
-### Smart Contracts — 29 deployed, Solidity on PolkaVM
+### Smart Contracts — `alpha-4/contracts/`
+
+**21 deployable production contracts** (PVM build) + a 29-contract dual-target EVM build that keeps alpha-3 satellites separate for benchmarking. **532/532 alpha-4 tests passing.**
 
 | Group | Contract | Role |
 |-------|----------|------|
-| Infrastructure | `DatumPauseRegistry` | Global emergency pause |
+| Infrastructure | `DatumPauseRegistry` | Global emergency pause; 2-of-3 guardian unpause |
 | Infrastructure | `DatumTimelock` | 48h admin delay for sensitive config |
 | Infrastructure | `DatumZKVerifier` | Groth16/BN254 verifier; verifying key set post-deploy |
 | Infrastructure | `DatumPaymentVault` | Pull-payment: publisher/user/protocol DOT balances |
-| Infrastructure | `DatumTokenRewardVault` | Pull-payment: ERC-20 sidecar token rewards, per-campaign budgets |
+| Infrastructure | `DatumTokenRewardVault` | Pull-payment: ERC-20 sidecar token rewards |
 | Infrastructure | `DatumGovernanceRouter` | Stable-address proxy for governance phase transitions |
 | Campaign | `DatumBudgetLedger` | Campaign escrow + daily caps |
-| Campaign | `DatumTargetingRegistry` | bytes32 tag registry (AND-logic, 32 tags/publisher, 8/campaign) |
-| Campaign | `DatumCampaignValidator` | Creation-time validation: registration, tags, take rate |
-| Campaign | `DatumCampaigns` | Campaign creation, metadata, status, relay signer/tag snapshots, token reward config |
-| Campaign | `DatumCampaignLifecycle` | complete / terminate / expire + P20 30-day inactivity timeout |
-| Settlement | `DatumClaimValidator` | Chain continuity, budget, blocklist, rate-limit, stake, ZK proof |
-| Settlement | `DatumSettlement` | Main entry: hash-chain, 3-way DOT split, non-critical token credit, multi-user batching |
-| Settlement | `DatumSettlementRateLimiter` | BM-5: window-based per-publisher impression cap |
-| Settlement | `DatumAttestationVerifier` | P1: mandatory EIP-712 publisher co-signature |
-| Publisher | `DatumPublishers` | Registration, take rates, relay signer, profile, S12 blocklist, allowlists |
-| Publisher | `DatumRelay` | EIP-712 gasless relay: publisher submits batches for users |
-| Publisher | `DatumPublisherReputation` | BM-8 settlement acceptance rate + BM-9 cross-campaign anomaly detection |
-| Governance | `DatumAdminGovernance` | Phase 0: team direct approval (current active governor) |
+| Campaign | `DatumCampaigns` | Creation, metadata, status, snapshots, token reward config |
+| Campaign | `DatumCampaignLifecycle` | complete / terminate / expire + 30d inactivity timeout |
+| Settlement | `DatumClaimValidator` | Chain continuity, budget, blocklist, rate-limit, stake, ZK |
+| Settlement | `DatumSettlement` | Three settlement entry points (direct / dual-sig); 3-way DOT split; non-critical token credit; rate-limit + nullifier + reputation merged in |
+| Settlement | `DatumAttestationVerifier` | Mandatory EIP-712 publisher co-signature path |
+| Publisher | `DatumPublishers` | Registration, take rates, relay signer, profile, S12 blocklist |
+| Publisher | `DatumRelay` | Gasless relay path: `userSig + optional publisherSig` |
 | Governance | `DatumCouncil` | Phase 1: N-of-M trusted council voting |
-| Governance | `DatumGovernanceV2` | Phase 2+: conviction voting (9 levels, 0–8), symmetric slash |
-| Governance | `DatumGovernanceHelper` | Slash computation, dust guard, read helpers |
-| Governance | `DatumGovernanceSlash` | Per-campaign slash pool finalization, winner rewards, 365d sweep |
+| Governance | `DatumGovernanceV2` | Phase 2+: conviction voting (9 levels, 0–8); slash + helper merged in |
 | Fraud Prevention | `DatumPublisherStake` | FP-1+FP-4: publisher DOT bonding curve; settlement enforces (code 15) |
 | Fraud Prevention | `DatumChallengeBonds` | FP-2: advertiser bonds at creation; bonus on fraud upheld |
 | Fraud Prevention | `DatumPublisherGovernance` | FP-3: conviction-weighted fraud governance targeting publishers |
-| Fraud Prevention | `DatumNullifierRegistry` | FP-5: per-user per-campaign ZK nullifier replay prevention |
 | Fraud Prevention | `DatumParameterGovernance` | FP-15: conviction-vote DAO for protocol parameters |
-| Satellite | `DatumReports` | Community reporting: `reportPage()` / `reportAd()`, reasons 1–5 |
+| Fraud Prevention | `DatumClickRegistry` | FP-6: click-fraud detection (deployed in alpha-4 PVM) |
 
-Compiled to PolkaVM (RISC-V) via resolc v1.0.0, optimizer mode `z`. **539/539 Hardhat EVM tests passing.** All 29 deployed on Paseo v7 (2026-04-26).
+The EVM dual-target build additionally exposes `DatumTargetingRegistry`, `DatumCampaignValidator`, `DatumGovernanceHelper`, `DatumGovernanceSlash`, `DatumReports`, `DatumSettlementRateLimiter`, `DatumPublisherReputation`, `DatumNullifierRegistry`, and `DatumAdminGovernance` as separate contracts (alpha-3 layout) for parity benchmarking. In the PVM build their behavior is folded into the closest core contract to fit resolc 1.1.0 bytecode constraints.
 
-### Browser Extension — `alpha-3/extension/`
+Compiled to PolkaVM (RISC-V) via resolc 1.1.0 (PVM) or solc cancun (EVM dual-target). Optimizer mode `z`.
 
-Manifest V3, Chrome/Chromium. 4-tab popup: Claims, Earnings, Settings, Filters. **222/222 Jest tests passing.** 30 ABIs synced.
+### Browser Extension — `alpha-4/extension/`
 
-Key capabilities: Blake2-256 claim hashing (matches PolkaVM Settlement), Vickrey second-price auction (interest-weighted), P1 two-party attestation (challenge-response + EIP-712 co-signature), tag-based campaign filtering, IAB format-aware ad injection (7 standard sizes), Shadow DOM isolation, per-format creative image selection from IPFS metadata, AES-256-GCM multi-account embedded wallet, auto-submit, claim export, engagement tracking, phishing list, content safety pipeline.
+Manifest V3, Chrome/Chromium. 4-tab popup: Claims, Earnings, Settings, Filters. **212 Jest tests passing.** ABIs synced for 21-contract alpha-4 layout.
+
+Key capabilities: Blake2-256 claim hashing, Vickrey second-price auction (interest-weighted), P1 two-party attestation, dual-sig-aware `SignedClaimBatch` payload (`userSig` + `publisherSig` + `advertiserSig`), tag-based campaign filtering, IAB format-aware ad injection (7 standard sizes), Shadow DOM isolation, per-format creative image selection from IPFS metadata, AES-256-GCM multi-account embedded wallet, auto-submit, claim export, engagement tracking, phishing list, content safety pipeline.
 
 ### Web App — `web/`
 
-React 18 + Vite 6 + TypeScript + ethers v6. **41 pages across 6 sections.** 29-contract support. 0 TS errors.
+React 18 + Vite 6 + TypeScript + ethers v6. **41 pages.** Migrated to alpha-4 21-contract addressing. 0 TS errors.
 
 | Section | Pages |
 |---------|-------|
-| Explorer (8) | Overview, HowItWorks, Philosophy, Campaigns, CampaignDetail, Publishers, PublisherProfile, AdvertiserProfile |
-| Advertiser (5) | Dashboard, CreateCampaign, CampaignDetail, SetMetadata, Analytics |
-| Publisher (9) | Dashboard, Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile, Stake |
-| Governance (6) | Dashboard, Vote, MyVotes, Parameters, ProtocolParams, PublisherFraud |
-| Admin (11) | Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation, PublisherStake, PublisherGovernance, ChallengeBonds, NullifierRegistry, ParameterGovernance |
-| Root (2) | Demo, Settings |
+| Explorer | Overview, HowItWorks, Philosophy, Campaigns, CampaignDetail, Publishers, PublisherProfile, AdvertiserProfile |
+| Advertiser | Dashboard, CreateCampaign, CampaignDetail, SetMetadata, Analytics |
+| Publisher | Dashboard, Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile, Stake |
+| Governance | Dashboard, Vote, MyVotes, Parameters, ProtocolParams, PublisherFraud |
+| Admin | Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation, PublisherStake, PublisherGovernance, ChallengeBonds, NullifierRegistry, ParameterGovernance |
+| Root | Demo, Settings |
 
 ### Publisher SDK — `sdk/`
 
-Lightweight JS tag (~3 KB). Declare slot format via `data-slot` attribute (7 IAB sizes: leaderboard 728×90, medium-rectangle 300×250, wide-skyscraper 160×600, half-page 300×600, mobile-banner 320×50, square 250×250, large-rectangle 336×280). Challenge-response HMAC handshake with the extension for two-party attestation.
+Lightweight JS tag (~3 KB). Declare slot format via `data-slot` (7 IAB sizes: leaderboard 728×90, medium-rectangle 300×250, wide-skyscraper 160×600, half-page 300×600, mobile-banner 320×50, square 250×250, large-rectangle 336×280). Challenge-response HMAC handshake with the extension for two-party attestation.
 
 ```html
 <script src="datum-sdk.js"
@@ -184,7 +200,7 @@ smoldot light-client bridge. Translates Ethereum JSON-RPC into Substrate `Revive
 
 ### Publisher Relay — `relay-bot/` (gitignored)
 
-Reference relay: HTTP challenge/submit endpoints, EIP-712 co-signature, Blake2-256, SHA-256 PoW anti-spam (BM-3). After each batch: parses `ClaimSettled`/`ClaimRejected` events and calls `DatumPublisherReputation.recordSettlement()` per `(publisher, campaignId)` pair.
+Reference relay: HTTP challenge/submit endpoints, EIP-712 co-signature, Blake2-256, SHA-256 PoW anti-spam (BM-3). Uses the `userSig + publisherSig` envelope when forwarding to `DatumRelay.settleClaimsFor()`. After each batch: parses `ClaimSettled` / `ClaimRejected` events and records per `(publisher, campaignId)` reputation in Settlement. Accepts legacy `signature` field names transparently.
 
 ---
 
@@ -210,7 +226,7 @@ ERC20(carolToken).approve(tokenRewardVault, 100_000e18)
 tokenRewardVault.depositCampaignBudget(campaignId, carolToken, 100_000e18)
 ```
 
-She uploads creative images for each IAB slot size to IPFS and sets metadata via `DatumCampaigns.setMetadata(campaignId, bytes32CID)`. The IPFS JSON includes `creative.images[]` with per-format URLs — the on-chain CID hash makes the full creative payload verifiable for governance and fraud detection.
+She uploads creative images for each IAB slot size to IPFS and sets metadata via `DatumCampaigns.setMetadata(campaignId, bytes32CID)`. The IPFS JSON includes `creative.images[]` with per-format URLs — the on-chain CID hash makes the full creative payload verifiable.
 
 ### Dave votes to activate
 
@@ -231,6 +247,10 @@ Protocol (25% × 60%):   0.0075 DOT / 1000 imp  → PaymentVault protocol
 Alice (token):          1000 carolTokens        → TokenRewardVault user
 ```
 
+### Direct deal: Carol and Bob settle off-protocol
+
+When Bob and Carol have an out-of-band agreement and want to settle without involving Alice's wallet flow, both co-sign a `ClaimBatch` envelope (EIP-712, DatumSettlement domain). Anyone — Bob, Carol, or a third party — submits via `Settlement.settleSignedClaims`. Either party can refute by withholding their signature.
+
 ---
 
 ## Getting Started
@@ -238,36 +258,36 @@ Alice (token):          1000 carolTokens        → TokenRewardVault user
 ```bash
 # Prerequisites: Node 18+, Chrome
 
-# Contracts
-cd alpha-3
+# Contracts (alpha-4)
+cd alpha-4
 npm install
-npx hardhat test                          # 539 pass
+npx hardhat test                          # 532 pass
 
 # Extension
-cd alpha-3/extension && npm install && npm run build
+cd alpha-4/extension && npm install && npm run build
 # Load dist/ as unpacked extension in chrome://extensions
 
 # Web App
 cd web && npm install && npm run dev
 ```
 
-### Paseo Testnet (live — v7, 2026-04-26)
+### Paseo Testnet (live — alpha-4 PVM, 2026-05-06)
 
 | Resource | Value |
 |----------|-------|
-| RPC | `https://eth-rpc-testnet.polkadot.io/` |
+| RPC (PVM) | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | `https://blockscout-testnet.polkadot.io/` |
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
 | Web App | https://datum.javcon.io |
 
 ```bash
-cd alpha-3
+cd alpha-4
 export DEPLOYER_PRIVATE_KEY="0x..."
 npx hardhat run scripts/deploy.ts --network polkadotTestnet
 npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet
 ```
 
-Contract addresses: `alpha-3/deployed-addresses.json`. Full status: `STATUS.md`.
+Contract addresses: `alpha-4/deployed-addresses.json`. Full status, dual-target EVM addresses, and alpha-3 reference: `STATUS.md`.
 
 ---
 
@@ -278,27 +298,29 @@ Contract addresses: `alpha-3/deployed-addresses.json`. Full status: `STATUS.md`.
 - **XCM interoperability** — cross-chain fee routing and governance tooling are native XCM calls
 - **Asset Hub tokens** — ERC-20 sidecar rewards work with any Asset Hub token (precompile address derivation built in)
 
-The Solidity source is portable — EVM parachain deployment requires no contract changes.
+The Solidity source is portable — alpha-4 ships a parallel EVM build that targets standard EVM parachains with no contract changes beyond satellite separation.
 
 ---
 
 ## Status
 
-- [x] **29 contracts** — all deployed on Paseo v7 (2026-04-26), including governance ladder and full FP suite
-- [x] **539 contract tests** + **222 extension tests** — all passing
+- [x] **Alpha-4 — 21 contracts deployed on Paseo PVM** (2026-05-06)
+- [x] **EVM dual-target build — 29 contracts deployed on Paseo EVM** (2026-05-03)
+- [x] **Webapp migrated to alpha-4** — 41 pages, 0 TS errors, 21-contract addressing
+- [x] **Hybrid dual-sig settlement** — `settleSignedClaims` permissionless path; D1–D8 tests; extension/web/relay updated
+- [x] **532 alpha-4 contract tests** + **212 extension tests** — all passing
 - [x] **Governance ladder** — AdminGovernance (Phase 0) + GovernanceRouter (stable proxy) + Council (Phase 1) live
-- [x] **Real Groth16 ZK verifier** — BN254 ecPairing, verifying key set, 2-public-input circuit
-- [x] **Fraud prevention (FP-1–FP-5, FP-15)** — publisher stake, challenge bonds, fraud governance, ZK nullifiers, parameter DAO
+- [x] **Real Groth16 ZK verifier** — BN254, verifying key set, 2-public-input circuit
+- [x] **Fraud prevention (FP-1–FP-5, FP-15)** — publisher stake, challenge bonds, fraud governance, ZK nullifiers, parameter DAO; FP-6 ClickRegistry deployed in alpha-4 PVM
 - [x] **ERC-20 token reward vault** — per-campaign sidecar token rewards, pull-payment
-- [x] **IAB ad format system** — 7 standard sizes, per-format creative images in IPFS metadata, format-aware ad injection
-- [x] **Publisher reputation** — BM-8/BM-9, relay bot wired, anomaly detection
-- [x] **Security audit (internal)** — all 30 items implemented
+- [x] **IAB ad format system** — 7 standard sizes, per-format creative images, format-aware ad injection
+- [x] **Internal security audit (30 items)** — all implemented
 - [x] **Pine RPC** — smoldot light-client bridge, eliminates centralized RPC dependency
-- [ ] **E2E browser validation** — full flow on Paseo with live extension + relay + web app
+- [ ] **E2E browser validation** — full flow on Paseo against alpha-4 PVM addresses
 - [ ] **External security audit**
 - [ ] **Mainnet** — Kusama → Polkadot Hub
 
-See [STATUS.md](STATUS.md) for detailed component status and deployed addresses.
+See [STATUS.md](STATUS.md) for detailed component status, test totals, and deployed addresses across alpha-3, alpha-4 PVM, and alpha-4 EVM dual-target.
 
 ---
 

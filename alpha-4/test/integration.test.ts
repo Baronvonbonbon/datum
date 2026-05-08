@@ -422,8 +422,9 @@ describe("Integration", function () {
       campaignId,
       claims,
       deadline,
-      signature,
+      userSig: signature,
       publisherSig: "0x",
+      advertiserSig: "0x",
     };
 
     const pubBalBefore = await vault.publisherBalance(publisher.address);

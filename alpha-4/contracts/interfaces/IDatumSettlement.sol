@@ -40,13 +40,20 @@ interface IDatumSettlement {
         CampaignClaims[] campaigns;
     }
 
+    /// @notice Multi-signed claim batch supporting two settlement paths:
+    ///         1. Relay path (settleClaimsFor): userSig + optional publisherSig.
+    ///            Relay verifies user EIP-712 sig, forwards to settleClaims.
+    ///         2. Dual-sig path (settleSignedClaims): publisherSig + advertiserSig.
+    ///            Both parties sign; anyone can submit (permissionless relay).
+    ///            Either party can refute by withholding their signature.
     struct SignedClaimBatch {
         address user;
         uint256 campaignId;
         Claim[] claims;
-        uint256 deadline;
-        bytes signature;
-        bytes publisherSig;
+        uint256 deadline;        // block.number (relay) or block.timestamp (dual-sig) expiry
+        bytes userSig;           // EIP-712 ECDSA from the user (relay path)
+        bytes publisherSig;      // EIP-712 ECDSA from the campaign's publisher
+        bytes advertiserSig;     // EIP-712 ECDSA from the campaign's advertiser
     }
 
     struct SettlementResult {
@@ -87,6 +94,12 @@ interface IDatumSettlement {
     /// @notice Settle claims for multiple users across multiple campaigns in one TX.
     ///         Max 10 users, 10 campaigns per user, 50 claims per campaign.
     function settleClaimsMulti(UserClaimBatch[] calldata batches) external returns (SettlementResult memory result);
+
+    /// @notice Settle claims with dual EIP-712 signatures from both publisher and advertiser.
+    ///         Anyone can submit (permissionless relay). Both signatures must cover the
+    ///         same (user, campaignId, claimsHash, deadline) typed data. Either party
+    ///         can refute claims by withholding their signature.
+    function settleSignedClaims(SignedClaimBatch[] calldata batches) external returns (SettlementResult memory result);
 
     // -------------------------------------------------------------------------
     // Views — triple-keyed by (user, campaignId, actionType)

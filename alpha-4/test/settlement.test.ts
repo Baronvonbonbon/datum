@@ -156,6 +156,8 @@ describe("DatumSettlement", function () {
 
     // Wire publishers for per-publisher relay auth (relaySigner lookup)
     await settlement.setPublishers(await mock.getAddress());
+    // Wire campaigns for advertiser lookup (settleSignedClaims dual-sig path)
+    await settlement.setCampaigns(await mock.getAddress());
   });
 
   // S1: Single claim — correct payment split
@@ -505,8 +507,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig: "0x",
+        advertiserSig: "0x",
       };
 
       const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
@@ -527,8 +530,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig: "0x",
+        advertiserSig: "0x",
       };
 
       await expect(
@@ -552,8 +556,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature: tamperedSig,
+        userSig: tamperedSig,
         publisherSig: "0x",
+        advertiserSig: "0x",
       };
 
       await expect(
@@ -572,8 +577,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig: "0x",
+        advertiserSig: "0x",
       };
 
       await expect(
@@ -592,8 +598,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig: "0x",
+        advertiserSig: "0x",
       };
 
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
@@ -658,8 +665,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig,
+        advertiserSig: "0x",
       };
 
       const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
@@ -681,8 +689,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig,
+        advertiserSig: "0x",
       };
 
       await expect(
@@ -703,8 +712,9 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig,
+        advertiserSig: "0x",
       };
 
       await expect(
@@ -730,13 +740,187 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadline,
-        signature,
+        userSig: signature,
         publisherSig: tamperedPubSig,
+        advertiserSig: "0x",
       };
 
       await expect(
         relay.connect(publisher).settleClaimsFor([signedBatch])
       ).to.be.revertedWith("E34");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Dual-Sig Settlement (settleSignedClaims) — D1-D8
+  // Permissionless path: anyone can submit if both publisher AND advertiser sign.
+  // -----------------------------------------------------------------------
+
+  describe("Dual-Sig Settlement (settleSignedClaims)", function () {
+    async function getDualSigDomain() {
+      return {
+        name: "DatumSettlement",
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await settlement.getAddress(),
+      };
+    }
+
+    const dualSigTypes = {
+      ClaimBatch: [
+        { name: "user", type: "address" },
+        { name: "campaignId", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+
+    function hashClaims(claims: any[]): string {
+      return ethers.solidityPackedKeccak256(
+        new Array(claims.length).fill("bytes32"),
+        claims.map((c) => c.claimHash)
+      );
+    }
+
+    async function signDualBatch(
+      signer: HardhatEthersSigner,
+      userAddr: string,
+      campaignId: bigint,
+      claims: any[],
+      deadline: number
+    ) {
+      const domain = await getDualSigDomain();
+      const value = {
+        user: userAddr,
+        campaignId,
+        claimsHash: hashClaims(claims),
+        deadline,
+      };
+      return signer.signTypedData(domain, dualSigTypes, value);
+    }
+
+    async function makeDualSignedBatch(
+      cid: bigint,
+      claims: any[],
+      pubSigner: HardhatEthersSigner,
+      advSigner: HardhatEthersSigner,
+      deadline?: number
+    ) {
+      const dl = deadline ?? Number((await ethers.provider.getBlock("latest"))!.timestamp) + 3600;
+      const publisherSig = await signDualBatch(pubSigner, user.address, cid, claims, dl);
+      const advertiserSig = await signDualBatch(advSigner, user.address, cid, claims, dl);
+      return {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline: dl,
+        userSig: "0x",
+        publisherSig,
+        advertiserSig,
+      };
+    }
+
+    it("D1: dual-signed batch settles when submitted by a third party", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
+
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      await settlement.connect(other).settleSignedClaims([batch]);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
+    });
+
+    it("D2: publisher's relaySigner is accepted in place of publisher EOA", async function () {
+      const cid = await createTestCampaign();
+      // Designate `protocol` as publisher's relaySigner
+      await mock.setRelaySigner(publisher.address, protocol.address);
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, protocol, owner);
+
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+
+      // Cleanup so other tests are unaffected
+      await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
+    });
+
+    it("D3: bad publisher signature reverts E82", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // Sign with `other` instead of publisher
+      const batch = await makeDualSignedBatch(cid, claims, other, owner);
+
+      await expect(
+        settlement.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWith("E82");
+    });
+
+    it("D4: bad advertiser signature reverts E83", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // Sign advertiser part with `other` instead of owner (the campaign advertiser)
+      const batch = await makeDualSignedBatch(cid, claims, publisher, other);
+
+      await expect(
+        settlement.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWith("E83");
+    });
+
+    it("D5: expired deadline reverts E81", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const expired = Number((await ethers.provider.getBlock("latest"))!.timestamp) - 1;
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner, expired);
+
+      await expect(
+        settlement.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWith("E81");
+    });
+
+    it("D6: tampered claim list invalidates publisher sig (E82)", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
+      // Mutate claim's eventCount AFTER signing → claimsHash mismatch → bad sig
+      const tamperedClaims = claims.map((c) => ({ ...c }));
+      tamperedClaims[0].claimHash = ethers.keccak256("0xdeadbeef");
+      const tamperedBatch = { ...batch, claims: tamperedClaims };
+
+      await expect(
+        settlement.connect(other).settleSignedClaims([tamperedBatch])
+      ).to.be.revertedWith("E82");
+    });
+
+    it("D7: paused settlement reverts P", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
+
+      await pauseReg.pause();
+      try {
+        await expect(
+          settlement.connect(other).settleSignedClaims([batch])
+        ).to.be.revertedWith("P");
+      } finally {
+        // Unpause via 2-of-3 guardian (owner=g0, user=g1, publisher=g2 per `before`)
+        const pid = await pauseReg.connect(user).propose.staticCall(2);
+        await pauseReg.connect(user).propose(2);
+        await pauseReg.connect(publisher).approve(pid);
+      }
+    });
+
+    it("D8: batch length > 10 reverts E28", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
+      const tooMany = new Array(11).fill(batch);
+
+      await expect(
+        settlement.connect(other).settleSignedClaims(tooMany)
+      ).to.be.revertedWith("E28");
     });
   });
 

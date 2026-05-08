@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./DatumOwnable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -35,7 +37,7 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is IDatumSettlement, ReentrancyGuard, DatumOwnable {
+contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwnable {
     IDatumBudgetLedger public budgetLedger;
     IDatumPaymentVault public paymentVault;
     IDatumCampaignLifecycle public lifecycle;
@@ -102,10 +104,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, DatumOwnable {
 
     // L-7: Global per-block settlement circuit breaker (0 = disabled)
     uint256 public maxSettlementPerBlock;
+
+    // EIP-712 type hash for dual-signed claim batches
+    bytes32 private constant CLAIM_BATCH_TYPEHASH = keccak256(
+        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadline)"
+    );
     uint256 private _cbBlock;
     uint256 private _cbTotal;
 
-    constructor(address _pauseRegistry) {
+    constructor(address _pauseRegistry) EIP712("DatumSettlement", "1") {
         require(_pauseRegistry != address(0), "E00");
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
     }
@@ -280,6 +287,75 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, DatumOwnable {
                 _processBatch(ub.user, cc.campaignId, cc.claims, result);
             }
         }
+    }
+
+    /// @inheritdoc IDatumSettlement
+    function settleSignedClaims(SignedClaimBatch[] calldata batches)
+        external
+        nonReentrant
+        returns (SettlementResult memory result)
+    {
+        require(address(claimValidator) != address(0), "E00");
+        require(!pauseRegistry.paused(), "P");
+        require(batches.length <= 10, "E28");
+
+        for (uint256 b = 0; b < batches.length; b++) {
+            SignedClaimBatch calldata batch = batches[b];
+
+            // Deadline check
+            require(block.timestamp <= batch.deadline, "E81");
+
+            // Build the EIP-712 struct hash over the batch envelope
+            bytes32 claimsHash = _hashClaims(batch.claims);
+            bytes32 structHash = keccak256(abi.encode(
+                CLAIM_BATCH_TYPEHASH,
+                batch.user,
+                batch.campaignId,
+                claimsHash,
+                batch.deadline
+            ));
+            bytes32 digest = _hashTypedDataV4(structHash);
+
+            // Recover and verify publisher signature
+            address pubSigner = ECDSA.recover(digest, batch.publisherSig);
+            address expectedPublisher = _batchPublisher(batch.claims);
+            require(expectedPublisher != address(0), "E00");
+            // Accept either the publisher themselves or their designated relay signer
+            address pubRelay = address(0);
+            if (address(publishers) != address(0)) {
+                try publishers.relaySigner(expectedPublisher) returns (address r) {
+                    pubRelay = r;
+                } catch {}
+            }
+            require(
+                pubSigner == expectedPublisher || (pubRelay != address(0) && pubSigner == pubRelay),
+                "E82"
+            );
+
+            // Recover and verify advertiser signature
+            address advSigner = ECDSA.recover(digest, batch.advertiserSig);
+            address expectedAdvertiser = campaigns.getCampaignAdvertiser(batch.campaignId);
+            require(expectedAdvertiser != address(0), "E00");
+            require(advSigner == expectedAdvertiser, "E83");
+
+            _processBatch(batch.user, batch.campaignId, batch.claims, result);
+        }
+    }
+
+    /// @dev Compute a deterministic hash over all claims in a batch for EIP-712 signing.
+    ///      Each claim is hashed individually, then all hashes are combined.
+    function _hashClaims(Claim[] calldata claims) internal pure returns (bytes32) {
+        bytes32[] memory hashes = new bytes32[](claims.length);
+        for (uint256 i = 0; i < claims.length; i++) {
+            hashes[i] = claims[i].claimHash;
+        }
+        return keccak256(abi.encodePacked(hashes));
+    }
+
+    /// @dev Extract the publisher address from the first claim in a batch.
+    function _batchPublisher(Claim[] calldata claims) internal pure returns (address) {
+        if (claims.length == 0) return address(0);
+        return claims[0].publisher;
     }
 
     function _isPublisherRelay(Claim[] calldata claims) internal view returns (bool) {
