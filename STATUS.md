@@ -211,7 +211,7 @@ EVM-only 21-contract build (solc, evmVersion `cancun`) deployed 2026-05-06 to Pa
 41 pages, 0 TS errors, 21-contract addressing. ABIs synced.
 
 ### ✅ 4. Internal Security Audit (30 items) — DONE
-SECURITY-AUDIT-2026-04-20.md fully implemented in alpha-3; carried forward to alpha-4. External audit pending.
+All 30 items in `archive/docs/SECURITY-AUDIT-2026-04-20.md` were implemented in alpha-3 and carried forward to alpha-4. External audit pending.
 
 ### ✅ 5. Real ZK Verifier — DONE
 Groth16/BN254 verifier live on Paseo. 2-public-input circuit (claimHash, nullifier).
@@ -297,10 +297,10 @@ datum/
 ├── pine/            # Pine RPC: smoldot light-client eth JSON-RPC bridge
 ├── docs/            # Demo page + relay template
 ├── relay-bot/       # Publisher relay (gitignored) — userSig/publisherSig EIP-712
-├── archive/         # PoC, alpha (9), alpha-2 (13), old extensions
-├── BENCHMARKS.md
-├── SECURITY-AUDIT-2026-04-20.md
-├── BACKLOG.md
+├── archive/         # PoC, alpha (9), alpha-2 (13), old extensions, scripts
+│   └── docs/        # Snapshot/superseded docs (alpha-3 backlog, benchmarks,
+│                    # multi-pricing & vickrey reviews, 2026-04-20 audit, etc.)
+├── PRIVACY-POLICY.md
 ├── STATUS.md        # This file
 └── README.md
 ```
