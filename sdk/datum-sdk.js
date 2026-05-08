@@ -44,22 +44,43 @@
   var FALLBACK_DELAY_MS = 1500;
   var FALLBACK_URL = "https://datum.javcon.io/?utm_source=sdk&utm_medium=house-ad&utm_campaign=no-extension";
 
-  // House-ad creative pool. One is picked at random per render. Tone is
-  // sassy, anti-surveillance, pro-user-control. Keep hooks ≤ ~32 chars
-  // so they don't truncate awkwardly in the tiny mobile-banner layout.
+  // House-ad creative pool. One is picked at random per render.
+  // Voice: cypherpunk, anti-surveillance, anti-middleman, pro-self-custody.
+  // No project names, no token tickers — just "crypto" and "blockchain".
+  // Hooks longer than ~32 chars truncate cleanly via ellipsis in the tiny
+  // mobile-banner layout; full text always shows in wide / vertical.
   var CREATIVES = [
-    { hook: "Stop being the product.",            body: "No tracking. No cookies. No data leaves your browser.",        cta: "How? →" },
-    { hook: "Cookies were always for them.",      body: "DATUM pays you in DOT for every verified impression.",         cta: "Show me →" },
-    { hook: "This ad knows nothing about you.",   body: "Cryptographic proof — not creepy profiles.",                cta: "Learn more →" },
-    { hook: "An ad that doesn't snitch.",         body: "Your interests stay on your device. Always.",                  cta: "Tell me more →" },
-    { hook: "Your data should pay you back.",     body: "Watch ads. Get DOT. Walk away.",                                cta: "I'm in →" },
-    { hook: "Surveillance is so 2010s.",          body: "Decentralized, on-chain, opt-in by default.",                  cta: "How? →" },
-    { hook: "An ad that respects your no.",       body: "No pixels. No popups. No nonsense.",                            cta: "Show me →" },
-    { hook: "Ads that pay rent.",                 body: "Advertisers pay you. Not the middlemen.",                       cta: "What's the catch? →" },
-    { hook: "Imagine ads that don't suck.",       body: "Built on Polkadot. Owned by no one.",                           cta: "Learn more →" },
-    { hook: "We didn't follow you here.",         body: "DATUM ads are on-chain, opt-in, and pay you in DOT.",           cta: "Show me →" },
-    { hook: "Your data is yours. Wild concept.",  body: "Earn DOT for every verified impression — no profile required.", cta: "How? →" },
-    { hook: "Your attention has a price tag.",    body: "Pay-per-attention, the way it should've been.",                 cta: "I'm intrigued →" }
+    // — Cypherpunk / what crypto was supposed to be —
+    { hook: "Blockchain was meant to set you free.", body: "Not rug you. Not surveil you. Not sell your data.",            cta: "Show me →" },
+    { hook: "Crypto isn't all monkey JPEGs.",        body: "Some of us are still building the open web.",                   cta: "Prove it →" },
+    { hook: "Cypherpunks promised this.",            body: "Peer-to-peer payments. Permissionless. Yours.",                 cta: "Tell me more →" },
+    { hook: "Web3 with the actual web.",             body: "On-chain settlement. Off-chain privacy. Open protocol.",        cta: "Learn more →" },
+    { hook: "Real utility. Imagine that.",           body: "Crypto rails for honest advertising — no rugs, no casinos.",    cta: "How? →" },
+    { hook: "Useful crypto. Rare, we know.",         body: "Open protocol. Direct payments. No middlemen.",                 cta: "Show me →" },
+    { hook: "Not a rug. Not a memecoin.",            body: "An actual product. Crypto used to be about freedom — we remembered.", cta: "Sounds fake →" },
+
+    // — P2P / you could be earning —
+    { hook: "You could be earning from this ad.",    body: "P2P payments straight to your wallet. No ad-tech tax.",         cta: "I'm in →" },
+    { hook: "This ad slot pays the viewer.",         body: "Direct on-chain settlement. No middlemen taking a cut.",        cta: "How? →" },
+    { hook: "Cut out the ad-tech middlemen.",        body: "Smart-contract budgets. Direct deposits. Just you and the advertiser.", cta: "Show me →" },
+    { hook: "Ads that pay rent.",                    body: "Advertisers pay you. Not the middlemen.",                       cta: "What's the catch? →" },
+    { hook: "Your attention has a price tag.",       body: "Pay-per-attention, settled on-chain.",                          cta: "I'm intrigued →" },
+    { hook: "Direct deposit. From this ad.",         body: "Peer-to-peer ad payments. The middlemen aren't invited.",       cta: "Tell me more →" },
+
+    // — Privacy / anti-tracking —
+    { hook: "Stop being the product.",               body: "No tracking. No cookies. No data leaves your browser.",         cta: "How? →" },
+    { hook: "This ad knows nothing about you.",      body: "Cryptographic proof — not creepy profiles.",                    cta: "Learn more →" },
+    { hook: "An ad that doesn't snitch.",            body: "Your interests stay on your device. Always.",                   cta: "Tell me more →" },
+    { hook: "We didn't follow you here.",            body: "Open-source. On-chain. On your side.",                          cta: "Show me →" },
+    { hook: "Surveillance is so 2010s.",             body: "Crypto-native ads. No fingerprinting. No middlemen.",           cta: "How? →" },
+    { hook: "Cookies were always for them.",         body: "Ours pay you in crypto for every verified view.",               cta: "Show me →" },
+
+    // — Sass / pro-user-sovereignty —
+    { hook: "Imagine ads that don't suck.",          body: "Open protocol. Owned by no one. Useful to everyone.",           cta: "Learn more →" },
+    { hook: "Your data is yours. Wild concept.",     body: "Earn crypto for every verified ad — no profile required.",      cta: "How? →" },
+    { hook: "An ad that respects your no.",          body: "No pixels. No popups. No nonsense.",                            cta: "Show me →" },
+    { hook: "Ads with consent. Revolutionary.",      body: "Opt-in by default. Open by design. Yours by right.",            cta: "Tell me more →" },
+    { hook: "Self-custody, but make it ads.",        body: "Your keys. Your data. Your earnings.",                          cta: "I'm in →" }
   ];
 
   function pickCreative() {
