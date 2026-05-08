@@ -11,6 +11,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, isSubstrate, mineBlocks } from "./helpers/mine";
 
 // Settlement tests for alpha-2:
@@ -60,7 +61,7 @@ describe("DatumSettlement", function () {
 
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
       );
@@ -268,7 +269,7 @@ describe("DatumSettlement", function () {
     const cid = await createTestCampaign();
     const highCpm = BID_CPM + 1n;
     const nonce = 1n;
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [cid, publisher.address, user.address, 1000n, highCpm, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
     );
@@ -306,7 +307,7 @@ describe("DatumSettlement", function () {
   it("S6: genesis claim with non-zero previousClaimHash is rejected", async function () {
     const cid = await createTestCampaign();
     const nonZeroPrev = ethers.keccak256(ethers.toUtf8Bytes("not-zero"));
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, 1n, nonZeroPrev]
     );
@@ -364,7 +365,7 @@ describe("DatumSettlement", function () {
   it("A2: zero-impression claim is rejected", async function () {
     const cid = await createTestCampaign();
     const nonce = 1n;
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [cid, publisher.address, user.address, 0n, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
     );
@@ -776,7 +777,7 @@ describe("DatumSettlement", function () {
     };
 
     function hashClaims(claims: any[]): string {
-      return ethers.solidityPackedKeccak256(
+      return ethersKeccakAbi(
         new Array(claims.length).fill("bytes32"),
         claims.map((c) => c.claimHash)
       );
@@ -1013,7 +1014,7 @@ describe("DatumSettlement", function () {
       // claims2 starts at nonce 1 — hack nonce to 2 by rebuilding off settled state
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
@@ -1046,7 +1047,7 @@ describe("DatumSettlement", function () {
 
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );
@@ -1070,7 +1071,7 @@ describe("DatumSettlement", function () {
 
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );

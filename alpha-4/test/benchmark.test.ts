@@ -58,6 +58,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT, formatDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks, isSubstrate } from "./helpers/mine";
 
 // ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ function buildClaims(
   let prevHash = ethers.ZeroHash;
   for (let i = 1; i <= count; i++) {
     const nonce = BigInt(i);
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash]
     );
@@ -526,7 +527,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid1, claims: c1 }]);
 
       // Next claim: 200 more → 50100 total > 50000 cap → rejected
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [cid2, publisher.address, user.address, 200n, RL_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash]
       );

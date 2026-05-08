@@ -13,6 +13,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks } from "./helpers/mine";
 
 // Settlement inline rate limiter tests (BM-5, alpha-4 consolidation)
@@ -171,10 +172,10 @@ describe("Settlement Rate Limiter (inline)", function () {
     const eventCount = 100n;
     const nonce = 1n;
     const prevHash = ethers.ZeroHash;
-    const claimHash = ethers.keccak256(ethers.solidityPacked(
+    const claimHash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [campaignId, publisher.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
-    ));
+    );
 
     const claim = {
       campaignId,
@@ -215,10 +216,10 @@ describe("Settlement Rate Limiter (inline)", function () {
     const eventCount = 100n;
     const nonce = 1n;
     const prevHash = ethers.ZeroHash;
-    const claimHash = ethers.keccak256(ethers.solidityPacked(
+    const claimHash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [campaignId, publisher2.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
-    ));
+    );
 
     const claim = {
       campaignId,

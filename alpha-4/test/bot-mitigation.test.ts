@@ -11,6 +11,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
 
 // BM-7: Publisher SDK version registry
@@ -49,7 +50,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     let prevHash = ethers.ZeroHash;
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
       );
@@ -209,7 +210,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     let prevHash = await settlement.lastClaimHash(user.address, campaignId, 0);
     const nonce = 10n;
     const impressions = 10001n;
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [campaignId, publisher.address, user.address, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
     );

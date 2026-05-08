@@ -138,8 +138,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0, bytes32(0));
         }
 
-        // Check 8: claim hash (9-field preimage: adds actionType + clickSessionHash)
-        bytes32 computedHash = keccak256(abi.encodePacked(
+        // Check 8: claim hash (9-field preimage: campaignId, publisher, user,
+        // eventCount, ratePlanck, actionType, clickSessionHash, nonce, prevHash).
+        // L-2: Uses abi.encode (32-byte aligned) rather than abi.encodePacked so the
+        // schema is unambiguous if fields are added later. Off-chain mirrors must use
+        // ethers AbiCoder.defaultAbiCoder().encode(...) — not solidityPacked.
+        bytes32 computedHash = keccak256(abi.encode(
             claim.campaignId,
             claim.publisher,
             user,

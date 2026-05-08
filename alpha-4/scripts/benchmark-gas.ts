@@ -20,6 +20,7 @@
 import { ethers } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
 import { fundSigners } from "../test/helpers/mine";
+import { ethersKeccakAbi } from "../test/helpers/hash";
 
 // ---------------------------------------------------------------------------
 // Claim hash builder (keccak256)
@@ -38,7 +39,7 @@ function computeClaimHash(
 ): string {
   const types = ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"];
   const values = [campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash];
-  return ethers.solidityPackedKeccak256(types, values);
+  return ethersKeccakAbi(types, values);
 }
 
 function buildClaimChain(

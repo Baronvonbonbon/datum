@@ -81,6 +81,14 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     mapping(uint256 => bool) public campaignAllowlistEnabled;
     mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
 
+    /// @notice Per-campaign toggle: when true, settlement requires the dual-sig path
+    ///         (publisher + advertiser EIP-712 cosigs via DatumSettlement.settleSignedClaims).
+    ///         When false (default), the relay path / direct settlement is allowed.
+    ///         Advertiser-controlled — lets a campaign owner demand explicit batch-level
+    ///         co-sign before any settle, catching fraud at the bookkeeping layer.
+    mapping(uint256 => bool) public campaignRequiresDualSig;
+    event CampaignRequiresDualSigUpdated(uint256 indexed campaignId, bool required);
+
     // ---- Community reports (merged from DatumReports) ----
     mapping(uint256 => uint256) public pageReports;
     mapping(uint256 => uint256) public adReports;
@@ -429,6 +437,22 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         require(msg.sender == c.advertiser, "E21");
         c.metadata = metadataHash;
         emit CampaignMetadataSet(campaignId, metadataHash);
+    }
+
+    /// @notice Toggle whether this campaign requires the dual-sig settlement path.
+    ///         When true, single-sig (relay) settlement attempts will reject all
+    ///         claims with reason code 24. Only the advertiser can flip this.
+    function setCampaignRequiresDualSig(uint256 campaignId, bool required) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        campaignRequiresDualSig[campaignId] = required;
+        emit CampaignRequiresDualSigUpdated(campaignId, required);
+    }
+
+    /// @notice Read the dual-sig requirement for a campaign. Settlement consults this.
+    function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool) {
+        return campaignRequiresDualSig[campaignId];
     }
 
     // -------------------------------------------------------------------------

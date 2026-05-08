@@ -1,0 +1,395 @@
+// Coverage tests for the audit fixes from
+// archive/docs/SECURITY-AUDIT-alpha4-hotpath-2026-05-08.md.
+//
+// M-1: pull-pattern advertiser refund + bond return is DoS-proof against a
+//      contract advertiser whose fallback reverts.
+// M-2: PaymentVault.sweep* refuses thresholds above MAX_DUST_THRESHOLD.
+// M-3: settleSignedClaims rejects batches whose claims target multiple publishers.
+// requiresDualSig: per-campaign toggle forces the dual-sig path.
+
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import {
+  DatumBudgetLedger,
+  DatumChallengeBonds,
+  DatumPaymentVault,
+  DatumSettlement,
+  DatumClaimValidator,
+  DatumPauseRegistry,
+  MockCampaigns,
+  MockRejectingReceiver,
+} from "../typechain-types";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { parseDOT } from "./helpers/dot";
+import { fundSigners } from "./helpers/mine";
+import { ethersKeccakAbi } from "./helpers/hash";
+
+describe("Audit fixes", function () {
+  // ── M-1 fixtures ────────────────────────────────────────────────────────
+
+  describe("M-1: contract advertiser DoS via reverting fallback", function () {
+    let ledger: DatumBudgetLedger;
+    let rejecting: MockRejectingReceiver;
+    let owner: HardhatEthersSigner;
+    let campaignsMock: HardhatEthersSigner;
+    let lifecycleMock: HardhatEthersSigner;
+    let coldWallet: HardhatEthersSigner;
+
+    const BUDGET = parseDOT("2");
+    const DAILY_CAP = parseDOT("1");
+
+    before(async function () {
+      await fundSigners();
+      [owner, campaignsMock, lifecycleMock, coldWallet] = await ethers.getSigners();
+
+      const RejFactory = await ethers.getContractFactory("MockRejectingReceiver");
+      rejecting = await RejFactory.deploy();
+
+      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+      ledger = await LedgerFactory.deploy();
+      await ledger.setCampaigns(campaignsMock.address);
+      await ledger.setSettlement(owner.address); // unused here
+      await ledger.setLifecycle(lifecycleMock.address);
+    });
+
+    it("M-1.1: drainToAdvertiser queues funds — no push to a hostile advertiser", async function () {
+      const cid = 1n;
+      // The rejecting contract acts as advertiser by initializing the budget.
+      // It can't directly receive funds from drainToAdvertiser before M-1.
+      await ledger.connect(campaignsMock).initializeBudget(cid, 0, BUDGET, DAILY_CAP, { value: BUDGET });
+
+      const before = await ledger.pendingAdvertiserRefund(await rejecting.getAddress());
+      // Drain — this would have reverted under push-pattern because rejecting.receive() reverts.
+      await ledger.connect(lifecycleMock).drainToAdvertiser(cid, await rejecting.getAddress());
+      const after = await ledger.pendingAdvertiserRefund(await rejecting.getAddress());
+
+      expect(after - before).to.equal(BUDGET);
+      expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
+    });
+
+    it("M-1.2: claimAdvertiserRefund reverts when sending to the rejecting contract itself", async function () {
+      // The rejecting contract owns BUDGET in pendingAdvertiserRefund. claimAdvertiserRefund()
+      // would attempt to send DOT back to msg.sender (rejecting) → its receive() reverts → call fails.
+      const claimData = ledger.interface.encodeFunctionData("claimAdvertiserRefund", []);
+      await expect(
+        rejecting.call(await ledger.getAddress(), 0, claimData)
+      ).to.be.revertedWith("MockRejectingReceiver: inner call failed");
+    });
+
+    it("M-1.3: claimAdvertiserRefundTo unblocks the contract advertiser via cold wallet", async function () {
+      // Same hostile contract can still pull its refund by directing it to a different recipient.
+      const balBefore = await ethers.provider.getBalance(coldWallet.address);
+      const claimToData = ledger.interface.encodeFunctionData(
+        "claimAdvertiserRefundTo",
+        [coldWallet.address]
+      );
+      await rejecting.call(await ledger.getAddress(), 0, claimToData);
+      const balAfter = await ethers.provider.getBalance(coldWallet.address);
+
+      expect(balAfter - balBefore).to.equal(BUDGET);
+      expect(await ledger.pendingAdvertiserRefund(await rejecting.getAddress())).to.equal(0n);
+    });
+  });
+
+  describe("M-1: ChallengeBonds.returnBond DoS-proof for contract advertiser", function () {
+    let bonds: DatumChallengeBonds;
+    let rejecting: MockRejectingReceiver;
+    let campaignsMock: HardhatEthersSigner;
+    let lifecycleMock: HardhatEthersSigner;
+    let publisher: HardhatEthersSigner;
+    let coldWallet: HardhatEthersSigner;
+
+    const BOND = parseDOT("1");
+
+    before(async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      campaignsMock = signers[0];
+      lifecycleMock = signers[1];
+      publisher = signers[2];
+      coldWallet = signers[3];
+
+      const RejFactory = await ethers.getContractFactory("MockRejectingReceiver");
+      rejecting = await RejFactory.deploy();
+
+      const BondsFactory = await ethers.getContractFactory("DatumChallengeBonds");
+      bonds = await BondsFactory.deploy();
+      await bonds.setCampaignsContract(campaignsMock.address);
+      await bonds.setLifecycleContract(lifecycleMock.address);
+    });
+
+    it("M-1.4: returnBond queues bond for hostile advertiser without pushing", async function () {
+      const cid = 1n;
+      await bonds
+        .connect(campaignsMock)
+        .lockBond(cid, await rejecting.getAddress(), publisher.address, { value: BOND });
+
+      await bonds.connect(lifecycleMock).returnBond(cid);
+
+      expect(await bonds.pendingBondReturn(await rejecting.getAddress())).to.equal(BOND);
+      expect(await bonds.bond(cid)).to.equal(0n);
+    });
+
+    it("M-1.5: claimBondReturnTo unblocks via cold wallet", async function () {
+      const balBefore = await ethers.provider.getBalance(coldWallet.address);
+      const data = bonds.interface.encodeFunctionData("claimBondReturnTo", [coldWallet.address]);
+      await rejecting.call(await bonds.getAddress(), 0, data);
+      const balAfter = await ethers.provider.getBalance(coldWallet.address);
+
+      expect(balAfter - balBefore).to.equal(BOND);
+      expect(await bonds.pendingBondReturn(await rejecting.getAddress())).to.equal(0n);
+    });
+  });
+
+  // ── M-2 dust-threshold cap ──────────────────────────────────────────────
+
+  describe("M-2: PaymentVault sweep refuses thresholds above MAX_DUST_THRESHOLD", function () {
+    let vault: DatumPaymentVault;
+    let owner: HardhatEthersSigner;
+    let treasury: HardhatEthersSigner;
+
+    before(async function () {
+      await fundSigners();
+      [owner, treasury] = await ethers.getSigners();
+      const VaultFactory = await ethers.getContractFactory("DatumPaymentVault");
+      vault = await VaultFactory.deploy();
+    });
+
+    it("M-2.1: sweepPublisherDust reverts E16 when threshold exceeds the cap", async function () {
+      const cap = await vault.MAX_DUST_THRESHOLD();
+      await expect(
+        vault.sweepPublisherDust([owner.address], cap + 1n, treasury.address)
+      ).to.be.revertedWith("E16");
+    });
+
+    it("M-2.2: sweepUserDust reverts E16 when threshold exceeds the cap", async function () {
+      const cap = await vault.MAX_DUST_THRESHOLD();
+      await expect(
+        vault.sweepUserDust([owner.address], cap + 1n, treasury.address)
+      ).to.be.revertedWith("E16");
+    });
+
+    it("M-2.3: sweep at cap is accepted (no balances → no transfer, but call returns OK)", async function () {
+      const cap = await vault.MAX_DUST_THRESHOLD();
+      // Empty balances mean nothing is swept; the absence of revert is what we're proving.
+      await vault.sweepPublisherDust([], cap, treasury.address);
+      await vault.sweepUserDust([], cap, treasury.address);
+    });
+  });
+
+  // ── M-3 same-publisher SM-1 in dual-sig path + per-campaign requiresDualSig ──
+
+  describe("M-3 + dual-sig toggle", function () {
+    let settlement: DatumSettlement;
+    let validator: DatumClaimValidator;
+    let pauseReg: DatumPauseRegistry;
+    let ledger: DatumBudgetLedger;
+    let vault: DatumPaymentVault;
+    let mock: MockCampaigns;
+    let owner: HardhatEthersSigner;
+    let user: HardhatEthersSigner;
+    let publisher: HardhatEthersSigner;
+    let publisher2: HardhatEthersSigner;
+    let other: HardhatEthersSigner;
+
+    const TAKE = 5000;
+    const CPM = parseDOT("0.016");
+    const BUDGET = parseDOT("4");
+    const DAILY_CAP = parseDOT("2");
+
+    function buildClaim(
+      campaignId: bigint,
+      pubAddr: string,
+      userAddr: string,
+      nonce: bigint,
+      prevHash: string
+    ) {
+      const eventCount = 1000n;
+      const hash = ethersKeccakAbi(
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        [campaignId, pubAddr, userAddr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prevHash]
+      );
+      return {
+        campaignId,
+        publisher: pubAddr,
+        eventCount,
+        ratePlanck: CPM,
+        actionType: 0,
+        clickSessionHash: ethers.ZeroHash,
+        nonce,
+        previousClaimHash: prevHash,
+        claimHash: hash,
+        zkProof: new Array(8).fill(ethers.ZeroHash),
+        nullifier: ethers.ZeroHash,
+        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+      };
+    }
+
+    let nextCid = 1n;
+
+    async function getDomain() {
+      return {
+        name: "DatumSettlement",
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await settlement.getAddress(),
+      };
+    }
+
+    const types = {
+      ClaimBatch: [
+        { name: "user", type: "address" },
+        { name: "campaignId", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+
+    function hashClaimsArr(claims: { claimHash: string }[]) {
+      return ethers.solidityPackedKeccak256(
+        new Array(claims.length).fill("bytes32"),
+        claims.map((c) => c.claimHash)
+      );
+    }
+
+    async function makeBatch(
+      cid: bigint,
+      claims: ReturnType<typeof buildClaim>[],
+      pubSigner: HardhatEthersSigner,
+      advSigner: HardhatEthersSigner
+    ) {
+      const dl = Number((await ethers.provider.getBlock("latest"))!.timestamp) + 3600;
+      const value = {
+        user: user.address,
+        campaignId: cid,
+        claimsHash: hashClaimsArr(claims),
+        deadline: dl,
+      };
+      const domain = await getDomain();
+      const publisherSig = await pubSigner.signTypedData(domain, types, value);
+      const advertiserSig = await advSigner.signTypedData(domain, types, value);
+      return {
+        user: user.address,
+        campaignId: cid,
+        claims,
+        deadline: dl,
+        userSig: "0x",
+        publisherSig,
+        advertiserSig,
+      };
+    }
+
+    before(async function () {
+      await fundSigners();
+      [owner, user, publisher, publisher2, other] = await ethers.getSigners();
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      pauseReg = await PauseFactory.deploy(owner.address, user.address, publisher.address);
+
+      const MockFactory = await ethers.getContractFactory("MockCampaigns");
+      mock = await MockFactory.deploy();
+
+      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+      ledger = await LedgerFactory.deploy();
+
+      const VaultFactory = await ethers.getContractFactory("DatumPaymentVault");
+      vault = await VaultFactory.deploy();
+
+      const ValidatorFactory = await ethers.getContractFactory("DatumClaimValidator");
+      validator = await ValidatorFactory.deploy(
+        await mock.getAddress(),
+        await mock.getAddress(),
+        await pauseReg.getAddress()
+      );
+
+      const SettleFactory = await ethers.getContractFactory("DatumSettlement");
+      settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+
+      const RelayFactory = await ethers.getContractFactory("DatumRelay");
+      const relay = await RelayFactory.deploy(
+        await settlement.getAddress(),
+        await mock.getAddress(),
+        await pauseReg.getAddress()
+      );
+
+      await settlement.configure(
+        await ledger.getAddress(),
+        await vault.getAddress(),
+        await mock.getAddress(),
+        await relay.getAddress()
+      );
+      await settlement.setClaimValidator(await validator.getAddress());
+      await ledger.setCampaigns(await mock.getAddress());
+      await ledger.setSettlement(await settlement.getAddress());
+      await ledger.setLifecycle(await mock.getAddress());
+      await mock.setBudgetLedger(await ledger.getAddress());
+      await vault.setSettlement(await settlement.getAddress());
+      await settlement.setPublishers(await mock.getAddress());
+      await settlement.setCampaigns(await mock.getAddress());
+    });
+
+    async function createOpenCampaign(): Promise<bigint> {
+      const id = nextCid++;
+      // Open campaign: publisher = address(0), so claims may target any non-zero publisher.
+      await mock.setCampaign(id, owner.address, ethers.ZeroAddress, CPM, TAKE, 1);
+      await mock.initBudget(id, 0, BUDGET, DAILY_CAP, { value: BUDGET });
+      return id;
+    }
+
+    async function createPublisherLockedCampaign(): Promise<bigint> {
+      const id = nextCid++;
+      await mock.setCampaign(id, owner.address, publisher.address, CPM, TAKE, 1);
+      await mock.initBudget(id, 0, BUDGET, DAILY_CAP, { value: BUDGET });
+      return id;
+    }
+
+    it("M-3: rejects dual-sig batch with mixed publishers across claims (E34)", async function () {
+      const cid = await createOpenCampaign();
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const c2 = buildClaim(cid, publisher2.address, user.address, 2n, c1.claimHash); // different publisher
+      const batch = await makeBatch(cid, [c1, c2], publisher, owner);
+
+      await expect(
+        settlement.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWith("E34");
+    });
+
+    it("M-3: accepts dual-sig batch when all claims share the signing publisher", async function () {
+      const cid = await createOpenCampaign();
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const c2 = buildClaim(cid, publisher.address, user.address, 2n, c1.claimHash);
+      const batch = await makeBatch(cid, [c1, c2], publisher, owner);
+
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(2n);
+    });
+
+    it("dual-sig toggle: relay/direct path is rejected (reason 24) when requiresDualSig=true", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignRequiresDualSig(cid, true);
+
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const tx = await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cid, claims: [c1] },
+      ]);
+      const receipt = await tx.wait();
+      const iface = settlement.interface;
+      const rejected = receipt!.logs.filter((l) => {
+        try { return iface.parseLog(l)?.name === "ClaimRejected"; } catch { return false; }
+      });
+      expect(rejected.length).to.equal(1);
+      const parsed = iface.parseLog(rejected[0])!;
+      expect(parsed.args.reasonCode).to.equal(24n);
+    });
+
+    it("dual-sig toggle: dual-sig path still settles when requiresDualSig=true", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignRequiresDualSig(cid, true);
+
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const batch = await makeBatch(cid, [c1], publisher, owner);
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+    });
+  });
+});

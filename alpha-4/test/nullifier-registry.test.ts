@@ -11,6 +11,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
 
 // Nullifier tests (FP-5, alpha-4 consolidation — merged into Settlement):
@@ -102,7 +103,7 @@ describe("Settlement Nullifier (inline)", function () {
   });
 
   function buildClaim(cid: bigint, nonce: bigint, prevHash: string, nullifier: string): any {
-    const hash = ethers.solidityPackedKeccak256(
+    const hash = ethersKeccakAbi(
       ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
       [cid, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
     );

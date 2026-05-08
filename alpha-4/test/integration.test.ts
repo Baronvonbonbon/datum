@@ -17,6 +17,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { mineBlocks, isSubstrate, fundSigners, advanceTime } from "./helpers/mine";
 
 // Integration tests for alpha-2 (12-contract architecture):
@@ -76,7 +77,7 @@ describe("Integration", function () {
     let prevHash = ethers.ZeroHash;
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash]
       );

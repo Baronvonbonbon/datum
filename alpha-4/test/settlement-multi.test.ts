@@ -11,6 +11,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
+import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
 
 // settleClaimsMulti tests (cross-campaign claim batching)
@@ -58,7 +59,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
     let prevHash = ethers.ZeroHash;
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
-      const hash = ethers.solidityPackedKeccak256(
+      const hash = ethersKeccakAbi(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, publisherAddr, userAddr, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
       );

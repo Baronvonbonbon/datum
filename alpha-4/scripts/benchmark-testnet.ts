@@ -20,6 +20,7 @@
 import { ethers, network } from "hardhat";
 import { JsonRpcProvider, Wallet, Interface } from "ethers";
 import { parseDOT } from "../test/helpers/dot";
+import { ethersKeccakAbi } from "../test/helpers/hash";
 import * as fs from "fs";
 
 // ---------------------------------------------------------------------------
@@ -30,7 +31,7 @@ function computeClaimHash(
   impressionCount: bigint, clearingCpmPlanck: bigint,
   nonce: bigint, previousClaimHash: string
 ): string {
-  return ethers.solidityPackedKeccak256(
+  return ethersKeccakAbi(
     ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
     [campaignId, publisher, user, impressionCount, clearingCpmPlanck, nonce, previousClaimHash],
   );

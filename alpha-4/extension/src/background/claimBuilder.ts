@@ -1,8 +1,9 @@
 // Builds claims from impressions/clicks/actions, maintaining per-(user, campaign, actionType) hash chains.
 // Alpha-4 EVM: uses keccak256 (9-field preimage).
 // Hash preimage: (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
+// L-2: claim hash uses abi.encode (32-byte aligned) — must match DatumClaimValidator on-chain.
 
-import { solidityPacked, keccak256 as ethersKeccak256, ZeroHash, zeroPadValue, toBeHex } from "ethers";
+import { AbiCoder, keccak256 as ethersKeccak256, ZeroHash, zeroPadValue, toBeHex } from "ethers";
 import { Claim, ClaimChainState } from "@shared/types";
 import { generateZKProof } from "./zkProof";
 import { getUserSecret, computeWindowId } from "./poseidon";
@@ -24,9 +25,11 @@ function parseSigToArray(sig: string): string[] {
   return [r, s, "0x" + v.toString(16).padStart(64, "0")];
 }
 
-/** keccak256 hash of ABI-packed values. Matches DatumClaimValidator.validateClaim() on EVM. */
-function claimHash(types: string[], values: unknown[]): string {
-  return ethersKeccak256(solidityPacked(types, values));
+/** keccak256 hash of ABI-encoded values (32-byte aligned).
+ *  L-2: must match DatumClaimValidator.validateClaim() on EVM, which uses abi.encode. */
+const _abiCoder = AbiCoder.defaultAbiCoder();
+function computeClaimHash(types: string[], values: unknown[]): string {
+  return ethersKeccak256(_abiCoder.encode(types, values));
 }
 
 const CHAIN_STATE_PREFIX = "chainState:";
@@ -115,7 +118,7 @@ export const claimBuilder = {
 
       // keccak256; 9-field preimage matches DatumClaimValidator.validateClaim():
       // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
-      const claimHash = claimHash(
+      const claimHash = computeClaimHash(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [
           campaignId,
@@ -208,7 +211,7 @@ export const claimBuilder = {
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
       const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
 
-      const claimHash = claimHash(
+      const claimHash = computeClaimHash(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash]
       );
@@ -270,7 +273,7 @@ export const claimBuilder = {
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
-      const claimHash = claimHash(
+      const claimHash = computeClaimHash(
         ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
         [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash]
       );

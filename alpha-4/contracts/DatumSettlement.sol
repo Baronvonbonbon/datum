@@ -256,7 +256,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                 msg.sender == attestationVerifier || isPublisherRelay,
                 "E32"
             );
-            _processBatch(batch.user, batch.campaignId, batch.claims, result);
+            _processBatch(batch.user, batch.campaignId, batch.claims, result, false);
         }
     }
 
@@ -287,7 +287,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                     "E32"
                 );
 
-                _processBatch(ub.user, cc.campaignId, cc.claims, result);
+                _processBatch(ub.user, cc.campaignId, cc.claims, result, false);
             }
         }
     }
@@ -349,7 +349,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             require(expectedAdvertiser != address(0), "E00");
             require(advSigner == expectedAdvertiser, "E83");
 
-            _processBatch(batch.user, batch.campaignId, batch.claims, result);
+            _processBatch(batch.user, batch.campaignId, batch.claims, result, true);
         }
     }
 
@@ -396,9 +396,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         address user,
         uint256 campaignId,
         Claim[] calldata claims,
-        SettlementResult memory result
+        SettlementResult memory result,
+        bool advertiserConsented
     ) internal {
         require(claims.length <= 10, "E28");
+
+        // Per-campaign dual-sig requirement: if the campaign has opted in, only
+        // the settleSignedClaims path satisfies it. Reject every claim otherwise.
+        if (!advertiserConsented && address(campaigns) != address(0)) {
+            try campaigns.getCampaignRequiresDualSig(campaignId) returns (bool needsDual) {
+                if (needsDual) {
+                    for (uint256 j = 0; j < claims.length; j++) {
+                        result.rejectedCount++;
+                        emit ClaimRejected(campaignId, user, claims[j].nonce, 24);
+                    }
+                    return;
+                }
+            } catch {}
+        }
 
         // All claims in a batch must share the same actionType (validated by chain state key)
         // We read actionType from the first claim for batch-level checks

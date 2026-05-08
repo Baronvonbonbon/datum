@@ -208,5 +208,14 @@ contract MockCampaigns {
         return campaignRequiresZkProof[campaignId];
     }
 
+    // ── Per-campaign dual-sig toggle (mirrors DatumCampaigns) ────────────────
+    mapping(uint256 => bool) public campaignRequiresDualSig;
+    function setCampaignRequiresDualSig(uint256 campaignId, bool required) external {
+        campaignRequiresDualSig[campaignId] = required;
+    }
+    function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool) {
+        return campaignRequiresDualSig[campaignId];
+    }
+
     receive() external payable {}
 }

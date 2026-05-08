@@ -14,11 +14,17 @@ const config: HardhatUserConfig = {
         runs: 200,
       },
       viaIR: true,
+      evmVersion: "cancun",
     },
   },
   networks: {
     hardhat: {
-      // Local EVM for unit testing
+      // Local EVM for unit testing.
+      // DatumSettlement has grown past 24KB after the audit fixes + dual-sig
+      // toggle. pallet-revive on Polkadot Hub doesn't enforce the EIP-170
+      // 24KB cap, so we relax it locally; production deploys still measure
+      // bytecode size via the gas benchmark in scripts/benchmark-gas.ts.
+      allowUnlimitedContractSize: true,
     },
     polkadotTestnet: {
       // Paseo testnet — EVM bytecode on pallet-revive

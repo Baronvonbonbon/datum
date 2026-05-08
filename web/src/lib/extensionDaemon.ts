@@ -10,8 +10,15 @@
  * up on the demo page.
  */
 
-import { Wallet, JsonRpcProvider, solidityPacked, ZeroHash, getBytes } from "ethers";
-import { blake2b } from "@noble/hashes/blake2b";
+import { Wallet, JsonRpcProvider, AbiCoder, keccak256 as ethersKeccak256, ZeroHash } from "ethers";
+
+// L-2: alpha-4 EVM ClaimValidator hashes the 9-field preimage with abi.encode + keccak256.
+// (Switched from Blake2 + solidityPacked which was the alpha-3 PVM behaviour.)
+const _abiCoder = AbiCoder.defaultAbiCoder();
+function computeClaimHash(types: string[], values: unknown[]): string {
+  return ethersKeccak256(_abiCoder.encode(types, values));
+}
+// blake2b was used pre-L-2 (alpha-3 PVM hash). Alpha-4 EVM uses keccak256 — see computeClaimHash above.
 import { installChromeShim } from "./chromeShim";
 import { getSettlementContract, getClaimValidatorContract } from "@shared/contracts";
 
@@ -578,16 +585,13 @@ async function handleMessage(msg: any): Promise<unknown> {
         const nonce = BigInt(chain.lastNonce + 1);
         const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
 
-        // Blake2-256 matching DatumClaimValidator 9-field preimage:
+        // L-2: keccak256(abi.encode(...)) matches alpha-4 DatumClaimValidator 9-field preimage:
         // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
         // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
-        const packed = solidityPacked(
+        const claimHash = computeClaimHash(
           ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
           [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, 0, ZeroHash, nonce, prevHash]
         );
-        const packedBytes = getBytes(packed);
-        const hashBytes = blake2b(packedBytes, { dkLen: 32 });
-        const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
         await chrome.storage.local.set({
           [CHAIN_KEY]: { userAddress, campaignId: msg.campaignId, lastNonce: Number(nonce), lastClaimHash: claimHash },
@@ -710,13 +714,11 @@ async function handleMessage(msg: any): Promise<unknown> {
             const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
             const campaignIdBig = BigInt(cid);
             const clearingCpm = BigInt(cpm);
-            // 9-field preimage: actionType=0 (CPM view), clickSessionHash=ZeroHash
-            const packed = solidityPacked(
+            // L-2: keccak256(abi.encode(...)) — 9-field preimage, actionType=0, clickSessionHash=ZeroHash
+            const claimHash = computeClaimHash(
               ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
               [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
             );
-            const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
-            const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
             existingQueue.push({
               campaignId: cid, publisher,
               eventCount: impressionCount.toString(), ratePlanck: cpm,
@@ -783,15 +785,13 @@ async function handleMessage(msg: any): Promise<unknown> {
                 const campaignIdBig = BigInt(cid);
                 const clearingCpm = BigInt(cpm);
 
-                // 9-field preimage must match DatumClaimValidator.sol check 8:
-                // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
+                // L-2: 9-field preimage hashed with keccak256(abi.encode(...)) to match
+                // DatumClaimValidator.sol check 8 on alpha-4 EVM.
                 // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
-                const packed = solidityPacked(
+                const claimHash = computeClaimHash(
                   ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
                   [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
                 );
-                const hashBytes = blake2b(getBytes(packed), { dkLen: 32 });
-                const claimHash = "0x" + Array.from(hashBytes).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
                 existingQueue.push({
                   campaignId: cid,
