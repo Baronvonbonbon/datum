@@ -15,6 +15,8 @@ interface IDatumPublishers {
     event PublisherRegistered(address indexed publisher, uint16 takeRateBps);
     event PublisherTakeRateQueued(address indexed publisher, uint16 newTakeRateBps, uint256 effectiveBlock);
     event PublisherTakeRateApplied(address indexed publisher, uint16 newTakeRateBps);
+    /// @notice R-L2: Emitted when a publisher cancels a queued take-rate update.
+    event PublisherTakeRateCancelled(address indexed publisher, uint16 cancelledTakeRateBps);
     event RelaySignerUpdated(address indexed publisher, address indexed signer);
     event ProfileUpdated(address indexed publisher, bytes32 hash);
 

@@ -51,6 +51,10 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     // bypasses the whitelist check. address(0) = stake gate disabled.
     IDatumPublisherStake public publisherStake;
     uint256 public stakeGate;
+    /// @notice R-L1: One-way switch. Once flipped via lockStakeGate(), the owner
+    ///         can no longer swap publisherStake or stakeGate to a malicious
+    ///         contract that returns inflated `staked()` for any caller.
+    bool public stakeGateLocked;
 
     event AddressBlocked(address indexed addr);
     event AddressUnblocked(address indexed addr);
@@ -60,6 +64,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     event WhitelistModeSet(bool enabled);
     event PublisherApprovalSet(address indexed publisher, bool isApproved);
     event StakeGateSet(address indexed stakeContract, uint256 threshold);
+    event StakeGateLocked();
 
     constructor(uint256 _takeRateUpdateDelayBlocks, address _pauseRegistry) {
         require(_pauseRegistry != address(0), "E00");
@@ -92,10 +97,21 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     /// @notice Set the stake contract and minimum stake threshold for registration bypass.
     ///         stakeContract == address(0) disables stake-gated bypass entirely.
     ///         threshold == 0 with a non-zero contract also disables (effectively open).
+    /// @dev R-L1: Reverts after lockStakeGate() has been called.
     function setStakeGate(address stakeContract, uint256 threshold) external onlyOwner {
+        require(!stakeGateLocked, "E01");
         publisherStake = IDatumPublisherStake(stakeContract);
         stakeGate = threshold;
         emit StakeGateSet(stakeContract, threshold);
+    }
+
+    /// @notice R-L1: Freeze the stake-gate configuration permanently. After this
+    ///         call, setStakeGate reverts. Owner should invoke once governance
+    ///         has confirmed the wiring.
+    function lockStakeGate() external onlyOwner {
+        require(!stakeGateLocked, "E01");
+        stakeGateLocked = true;
+        emit StakeGateLocked();
     }
 
     /// @inheritdoc IDatumPublishers
@@ -152,6 +168,19 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         pub.takeRateEffectiveBlock = 0;
 
         emit PublisherTakeRateApplied(msg.sender, pub.takeRateBps);
+    }
+
+    /// @notice R-L2: Cancel a pending take rate update before the delay elapses.
+    ///         Lets a publisher who queued the wrong rate drop it without
+    ///         waiting out the delay window.
+    function cancelPendingTakeRate() external whenNotPaused {
+        Publisher storage pub = _publishers[msg.sender];
+        require(pub.registered, "Not registered");
+        require(pub.pendingTakeRateBps != 0, "No pending update");
+        uint16 cancelled = pub.pendingTakeRateBps;
+        pub.pendingTakeRateBps = 0;
+        pub.takeRateEffectiveBlock = 0;
+        emit PublisherTakeRateCancelled(msg.sender, cancelled);
     }
 
     function getPublisher(address publisher) external view returns (Publisher memory) {

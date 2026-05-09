@@ -23,6 +23,28 @@
     },
     {
       "inputs": [],
+      "name": "InvalidShortString",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "str",
+          "type": "string"
+        }
+      ],
+      "name": "StringTooLong",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [],
+      "name": "EIP712DomainChanged",
+      "type": "event"
+    },
+    {
+      "inputs": [],
       "name": "DOMAIN_SEPARATOR",
       "outputs": [
         {
@@ -49,10 +71,53 @@
     },
     {
       "inputs": [],
+      "name": "eip712Domain",
+      "outputs": [
+        {
+          "internalType": "bytes1",
+          "name": "fields",
+          "type": "bytes1"
+        },
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "chainId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "verifyingContract",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "salt",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256[]",
+          "name": "extensions",
+          "type": "uint256[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "pauseRegistry",
       "outputs": [
         {
-          "internalType": "address",
+          "internalType": "contract IDatumPauseRegistry",
           "name": "",
           "type": "address"
         }
@@ -88,13 +153,23 @@
                 },
                 {
                   "internalType": "uint256",
-                  "name": "impressionCount",
+                  "name": "eventCount",
                   "type": "uint256"
                 },
                 {
                   "internalType": "uint256",
-                  "name": "clearingCpmPlanck",
+                  "name": "ratePlanck",
                   "type": "uint256"
+                },
+                {
+                  "internalType": "uint8",
+                  "name": "actionType",
+                  "type": "uint8"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "clickSessionHash",
+                  "type": "bytes32"
                 },
                 {
                   "internalType": "uint256",
@@ -112,9 +187,19 @@
                   "type": "bytes32"
                 },
                 {
-                  "internalType": "bytes",
+                  "internalType": "bytes32[8]",
                   "name": "zkProof",
-                  "type": "bytes"
+                  "type": "bytes32[8]"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "nullifier",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "bytes32[3]",
+                  "name": "actionSig",
+                  "type": "bytes32[3]"
                 }
               ],
               "internalType": "struct IDatumSettlement.Claim[]",

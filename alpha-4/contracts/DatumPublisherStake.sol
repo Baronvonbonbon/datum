@@ -134,13 +134,38 @@ contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, DatumOwna
     // ── Governance slash ───────────────────────────────────────────────────────
 
     /// @inheritdoc IDatumPublisherStake
+    /// @dev R-H1: Slash consumes from `pendingUnstake` first, then `_staked`.
+    ///      Without this, a publisher anticipating a fraud governance proposal
+    ///      could call requestUnstake to move funds out of `_staked` (still
+    ///      held in the contract for the unstake delay) and shield them from
+    ///      slash. Combining the two makes the slash mechanism honest.
     function slash(address publisher, uint256 amount, address recipient) external nonReentrant {
         require(msg.sender == slashContract, "E18");
         require(recipient != address(0), "E00");
-        uint256 available = _staked[publisher];
-        if (amount > available) amount = available;
+
+        uint256 active = _staked[publisher];
+        UnstakeRequest storage pending = _pendingUnstake[publisher];
+        uint256 pendingAmt = pending.amount;
+        uint256 totalSlashable = active + pendingAmt;
+
+        if (amount > totalSlashable) amount = totalSlashable;
         if (amount == 0) return;
-        _staked[publisher] = available - amount;
+
+        // Take from pending first (so a recent requestUnstake can't dodge slash).
+        uint256 fromPending = amount < pendingAmt ? amount : pendingAmt;
+        if (fromPending > 0) {
+            uint256 newPending = pendingAmt - fromPending;
+            if (newPending == 0) {
+                delete _pendingUnstake[publisher];
+            } else {
+                pending.amount = newPending;
+            }
+        }
+        uint256 fromActive = amount - fromPending;
+        if (fromActive > 0) {
+            _staked[publisher] = active - fromActive;
+        }
+
         (bool ok,) = recipient.call{value: amount}("");
         require(ok, "E02");
         emit Slashed(publisher, amount, recipient);

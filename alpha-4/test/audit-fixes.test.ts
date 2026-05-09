@@ -1,6 +1,7 @@
 // Coverage tests for the audit fixes from
 // archive/docs/SECURITY-AUDIT-alpha4-hotpath-2026-05-08.md
 // archive/docs/SECURITY-AUDIT-alpha4-governance-2026-05-08.md
+// archive/docs/SECURITY-AUDIT-alpha4-rest-2026-05-08.md
 //
 // Hot-path:
 //   M-1: pull-pattern advertiser refund + bond return is DoS-proof.
@@ -13,6 +14,13 @@
 //   G-M2: GovernanceV2 constructor bounds slashBps < 10000.
 //   G-M5: PublisherGovernance.propose() requires the configured bond.
 //   G-M6: sweepTreasury moves slashed remainder into the owner's pull queue.
+//
+// Remaining:
+//   R-H1: PublisherStake.slash consumes pendingUnstake too — no stake-evasion.
+//   R-M1: ZKVerifier.setVerifyingKey is once-only.
+//   R-M2: AttestationVerifier rejects mixed-publisher open-campaign batches.
+//   R-L1: Publishers.lockStakeGate freezes setStakeGate permanently.
+//   R-L2: Publishers.cancelPendingTakeRate drops a queued update.
 
 import { expect } from "chai";
 import { ethers } from "hardhat";
@@ -567,6 +575,157 @@ describe("Audit fixes", function () {
     before(async function () {
       const signers = await ethers.getSigners();
       (global as any)._spareSigner = signers[5];
+    });
+  });
+
+  // ── R-H1 PublisherStake slash consumes pendingUnstake ───────────────────
+
+  describe("R-H1: PublisherStake slash hits pendingUnstake first", function () {
+    it("requestUnstake then slash drains pending before active", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const owner = signers[0];
+      const publisher = signers[1];
+      const slashContract = signers[2];
+      const recipient = signers[3];
+
+      const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+      const stake = await StakeFactory.deploy(
+        1_000_000_000n,   // base
+        0n,               // perImpression — keep requiredStake low so we can request a large unstake
+        100n              // unstakeDelay (blocks)
+      );
+      await stake.connect(owner).setSlashContract(slashContract.address);
+
+      const STAKE = parseDOT("10");           // 10 DOT
+      const REQUEST = parseDOT("9");          // request to unstake 9 → pending = 9, active = 1
+      const SLASH = parseDOT("5");            // try to slash 5
+
+      await stake.connect(publisher).stake({ value: STAKE });
+      await stake.connect(publisher).requestUnstake(REQUEST);
+
+      // Pre-condition: active = 1, pending = 9, total slashable = 10
+      expect(await stake.staked(publisher.address)).to.equal(STAKE - REQUEST);
+      const pendingBefore = await stake.pendingUnstake(publisher.address);
+      expect(pendingBefore.amount).to.equal(REQUEST);
+
+      // Slash 5 → take 5 from pending first; active untouched
+      const recipBalBefore = await ethers.provider.getBalance(recipient.address);
+      await stake.connect(slashContract).slash(publisher.address, SLASH, recipient.address);
+      const recipBalAfter = await ethers.provider.getBalance(recipient.address);
+
+      expect(recipBalAfter - recipBalBefore).to.equal(SLASH);
+
+      // Pending should now be 9 - 5 = 4, active unchanged at 1
+      const pendingAfter = await stake.pendingUnstake(publisher.address);
+      expect(pendingAfter.amount).to.equal(REQUEST - SLASH);
+      expect(await stake.staked(publisher.address)).to.equal(STAKE - REQUEST);
+    });
+
+    it("slash overflowing pending also takes from active", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const owner = signers[0];
+      const publisher = signers[6];
+      const slashContract = signers[7];
+      const recipient = signers[8];
+
+      const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+      const stake = await StakeFactory.deploy(1_000_000_000n, 0n, 100n);
+      await stake.connect(owner).setSlashContract(slashContract.address);
+
+      const STAKE = parseDOT("10");
+      const REQUEST = parseDOT("4");          // pending = 4
+      const SLASH = parseDOT("7");            // > pending, < total
+
+      await stake.connect(publisher).stake({ value: STAKE });
+      await stake.connect(publisher).requestUnstake(REQUEST);
+
+      await stake.connect(slashContract).slash(publisher.address, SLASH, recipient.address);
+
+      // pending fully drained, active reduced
+      const pending = await stake.pendingUnstake(publisher.address);
+      expect(pending.amount).to.equal(0n);
+      expect(await stake.staked(publisher.address)).to.equal((STAKE - REQUEST) - (SLASH - REQUEST));
+    });
+  });
+
+  // ── R-M1 ZKVerifier set-once ────────────────────────────────────────────
+
+  describe("R-M1: DatumZKVerifier.setVerifyingKey is once-only", function () {
+    it("second setVerifyingKey reverts E01", async function () {
+      const Factory = await ethers.getContractFactory("DatumZKVerifier");
+      const v = await Factory.deploy();
+
+      const ZERO2 = [0n, 0n] as [bigint, bigint];
+      const ZERO4 = [0n, 0n, 0n, 0n] as [bigint, bigint, bigint, bigint];
+
+      await v.setVerifyingKey(ZERO2, ZERO4, ZERO4, ZERO4, ZERO2, ZERO2, ZERO2, ZERO2);
+      expect(await v.vkSet()).to.equal(true);
+      await expect(
+        v.setVerifyingKey(ZERO2, ZERO4, ZERO4, ZERO4, ZERO2, ZERO2, ZERO2, ZERO2)
+      ).to.be.revertedWith("E01");
+    });
+  });
+
+  // ── R-L1 Publishers.lockStakeGate ───────────────────────────────────────
+
+  describe("R-L1: Publishers stakeGate freeze", function () {
+    it("setStakeGate reverts after lockStakeGate", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[1].address, signers[2].address);
+      const PubFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubFactory.deploy(50n, await pause.getAddress());
+
+      // Initial config OK
+      await pubs.setStakeGate(ethers.ZeroAddress, 0n);
+      expect(await pubs.stakeGateLocked()).to.equal(false);
+
+      // Freeze
+      await pubs.lockStakeGate();
+      expect(await pubs.stakeGateLocked()).to.equal(true);
+
+      // Subsequent attempts revert
+      await expect(
+        pubs.setStakeGate(signers[5].address, 1n)
+      ).to.be.revertedWith("E01");
+      await expect(pubs.lockStakeGate()).to.be.revertedWith("E01");
+    });
+  });
+
+  // ── R-L2 Publishers.cancelPendingTakeRate ───────────────────────────────
+
+  describe("R-L2: Publishers cancelPendingTakeRate", function () {
+    it("publisher can cancel a queued take rate update", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const owner = signers[0];
+      const publisher = signers[9];
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[1].address, signers[2].address);
+      const PubFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubFactory.deploy(50n, await pause.getAddress());
+
+      await pubs.connect(publisher).registerPublisher(5000);
+      await pubs.connect(publisher).updateTakeRate(6000);
+
+      let pub = await pubs.getPublisher(publisher.address);
+      expect(pub.pendingTakeRateBps).to.equal(6000);
+
+      await expect(pubs.connect(publisher).cancelPendingTakeRate())
+        .to.emit(pubs, "PublisherTakeRateCancelled")
+        .withArgs(publisher.address, 6000);
+
+      pub = await pubs.getPublisher(publisher.address);
+      expect(pub.pendingTakeRateBps).to.equal(0);
+      expect(pub.takeRateEffectiveBlock).to.equal(0n);
+
+      // No pending → cancel reverts
+      await expect(
+        pubs.connect(publisher).cancelPendingTakeRate()
+      ).to.be.revertedWith("No pending update");
     });
   });
 });

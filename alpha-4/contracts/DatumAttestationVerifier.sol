@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -16,7 +17,10 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///         directly. This contract verifies publisher attestation then forwards
 ///         to Settlement. Relay also enforces attestation when a co-sig is
 ///         provided; this contract makes it mandatory.
-contract DatumAttestationVerifier {
+///
+///         R-M3: Inherits OZ EIP712 so the domain separator rebuilds on chainid
+///               mismatch (chain-fork safe).
+contract DatumAttestationVerifier is EIP712 {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -32,26 +36,26 @@ contract DatumAttestationVerifier {
     IDatumSettlement public immutable settlement;
     IDatumCampaignsSettlement public immutable campaigns;
     IDatumPauseRegistry public immutable pauseRegistry;
-    bytes32 public immutable DOMAIN_SEPARATOR;
 
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _settlement, address _campaigns, address _pauseRegistry) {
+    constructor(address _settlement, address _campaigns, address _pauseRegistry)
+        EIP712("DatumAttestationVerifier", "1")
+    {
         require(_settlement != address(0), "E00");
         require(_campaigns != address(0), "E00");
         require(_pauseRegistry != address(0), "E00");
         settlement = IDatumSettlement(_settlement);
         campaigns = IDatumCampaignsSettlement(_campaigns);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-            keccak256("DatumAttestationVerifier"),
-            keccak256("1"),
-            block.chainid,
-            address(this)
-        ));
+    }
+
+    /// @notice Returns the current EIP-712 domain separator. Rebuilds automatically
+    ///         on chainid mismatch via OZ EIP712 (R-M3).
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     // -------------------------------------------------------------------------
@@ -93,10 +97,20 @@ contract DatumAttestationVerifier {
                 // provided by DatumClaimValidator downstream, which checks publisher
                 // registration in DatumPublishers before accepting settlement.
                 expectedPublisher = ab.claims[0].publisher;
+                // R-M2 (SM-1): every claim must target the same publisher as
+                //              claims[0], matching DatumRelay's open-campaign
+                //              guard. Without this, the signing publisher
+                //              implicitly attests to claims attributed to other
+                //              publishers in the same batch.
+                for (uint256 i = 1; i < ab.claims.length; i++) {
+                    require(ab.claims[i].publisher == expectedPublisher, "E34");
+                }
             }
             require(expectedPublisher != address(0), "E00");
 
-            // Mandatory: verify publisher co-signature
+            // Mandatory: verify publisher co-signature.
+            // R-M3: digest built via OZ _hashTypedDataV4 so the domain separator
+            //       rebuilds on chainid mismatch (chain-fork safe).
             bytes32 structHash = keccak256(abi.encode(
                 PUBLISHER_ATTESTATION_TYPEHASH,
                 ab.campaignId,
@@ -105,11 +119,7 @@ contract DatumAttestationVerifier {
                 ab.claims[ab.claims.length - 1].nonce,
                 ab.claims.length
             ));
-            bytes32 digest = keccak256(abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR,
-                structHash
-            ));
+            bytes32 digest = _hashTypedDataV4(structHash);
 
             bytes calldata sig = ab.publisherSig;
             require(sig.length == 65, "E33");

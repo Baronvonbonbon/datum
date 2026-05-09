@@ -82,6 +82,10 @@ contract DatumZKVerifier is DatumOwnable {
         uint256[2] calldata IC2,
         uint256[2] calldata IC3
     ) external onlyOwner {
+        // R-M1: Lock once. To rotate the VK, deploy a new verifier and re-wire
+        //       ClaimValidator.setZKVerifier — preventing silent replacement of
+        //       a trusted-setup VK with one accepting arbitrary proofs.
+        require(!vkSet, "E01");
         _vk.alpha1 = alpha1;
         _vk.beta2   = beta2;
         _vk.gamma2  = gamma2;
