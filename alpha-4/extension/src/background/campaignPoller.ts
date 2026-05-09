@@ -206,6 +206,8 @@ export const campaignPoller = {
                     publisher: "",
                     remainingBudget: "0",
                     viewBid: "0",
+                    clickBid: "0",
+                    actionBid: "0",
                     snapshotTakeRateBps: "0",
                     status: CampaignStatus.Pending.toString(),
                     categoryId: "0",

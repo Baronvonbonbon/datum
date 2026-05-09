@@ -6,6 +6,19 @@ import { FiltersTab } from "./FiltersTab";
 import { HistoryTab } from "./HistoryTab";
 import { ReportsTab } from "./ReportsTab";
 import { Settings } from "./Settings";
+import { BrandMark } from "./BrandMark";
+
+/** Wordmark + brand mark — used in popup headers. Mirrors the SDK house-ad mark. */
+function DatumWordmark({ size = 16 }: { size?: number }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--accent)", fontWeight: 700, fontSize: size, letterSpacing: "0.06em" }}>
+      <span style={{ color: "rgba(245,245,248,0.55)" }}>
+        <BrandMark size={size} />
+      </span>
+      DATUM
+    </span>
+  );
+}
 import {
   isConfigured,
   importKey,
@@ -391,7 +404,7 @@ export function App() {
     return (
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ textAlign: "center" }}>
-          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
+          <DatumWordmark size={16} />
           <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>Privacy &amp; Data Use</div>
         </div>
 
@@ -461,7 +474,7 @@ export function App() {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
+          <DatumWordmark size={16} />
           <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
             {accounts.length > 0 ? "Add another account" : "Set up your wallet"}
           </div>
@@ -648,7 +661,7 @@ export function App() {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 16, letterSpacing: "0.06em" }}>DATUM</span>
+          <DatumWordmark size={16} />
           {/* MA-2: Show active account name + address */}
           {activeAccount && (
             <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 4, fontWeight: 600 }}>
@@ -756,7 +769,7 @@ export function App() {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg)" }}>
         <div style={{ padding: "12px 14px", background: "rgba(28,25,23,0.9)", borderBottom: "1px solid var(--border)" }}>
-          <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 14, letterSpacing: "0.06em" }}>DATUM</span>
+          <DatumWordmark size={14} />
           <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: 8 }}>Signing Request</span>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
@@ -811,7 +824,7 @@ export function App() {
         justifyContent: "space-between",
         backdropFilter: "blur(8px)",
       }}>
-        <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 14, letterSpacing: "0.06em" }}>DATUM</span>
+        <DatumWordmark size={14} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
           {/* MA-2: Account name + address with dropdown */}
           <button

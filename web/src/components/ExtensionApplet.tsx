@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { startDaemon } from "../lib/extensionDaemon";
-// @ext resolves to alpha-3/extension/src — no code duplication.
+// @ext resolves to alpha-4/extension/src — no code duplication.
 // The extSharedResolver Vite plugin redirects @shared inside extension
 // files to extension/src/shared instead of web/src/shared.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment

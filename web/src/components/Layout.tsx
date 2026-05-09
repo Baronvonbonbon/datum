@@ -11,6 +11,7 @@ import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { PrivacyBanner } from "./PrivacyBanner";
 import { Footer } from "./Footer";
+import { BrandMark } from "./BrandMark";
 import { useContracts } from "../hooks/useContracts";
 import type { JsonRpcApiProvider } from "ethers";
 
@@ -256,7 +257,10 @@ export function Layout() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="nano-header" style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
-          <Link to="/" style={{ fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0, textDecoration: "none" }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0, textDecoration: "none" }}>
+            <span style={{ color: "rgba(245,245,248,0.55)" }}>
+              <BrandMark size={16} />
+            </span>
             DATUM
           </Link>
           <div className="nano-header-status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

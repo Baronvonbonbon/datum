@@ -34,7 +34,7 @@ interface DemoSite {
   description: string;
 }
 
-/** Five seeded demo publishers — addresses match alpha-3/scripts/setup-demo.ts */
+/** Five seeded demo publishers — addresses match alpha-4/scripts/setup-demo.ts */
 const DEMO_SITES: DemoSite[] = [
   {
     id: "cryptohub",

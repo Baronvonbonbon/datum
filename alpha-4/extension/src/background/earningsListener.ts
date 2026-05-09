@@ -1,22 +1,23 @@
-// Earnings listener — chrome.storage adapter around the pure earningsIndex
-// module. Subscribes to ClaimSettled live, runs an initial Pine-friendly
-// backfill (~3.5 days at 6s blocks), and incrementally catches up after
-// extension restarts or wallet switches.
+// Earnings listener — chrome.alarms-driven incremental scanner.
+//
+// MV3 service workers idle after ~30s, so live `provider.on()` subscriptions
+// die silently. Instead we run a chunked eth_getLogs scan every minute via
+// chrome.alarms, picking up where the last scan left off. The pure indexer
+// in shared/earningsIndex.ts handles dedup and aggregation.
 
-import { Contract, JsonRpcProvider, Provider } from "ethers";
+import { Provider } from "ethers";
 import {
-  applyEvent,
-  decodeClaimSettled,
   earningsKey,
   emptyIndex,
   EarningsIndex,
   scanRange,
   DEFAULT_BACKFILL_BLOCKS,
 } from "../shared/earningsIndex";
-import { getSettlementContract, getProvider } from "../shared/contracts";
+import { getProvider } from "../shared/contracts";
 import { ContractAddresses } from "../shared/types";
 
-const liveSubscriptions = new Map<string, () => void>();
+export const EARNINGS_ALARM = "earnings:scan";
+export const EARNINGS_PERIOD_MIN = 1; // chrome.alarms minimum is 1 minute
 
 async function loadIndex(key: string): Promise<EarningsIndex> {
   const stored = await chrome.storage.local.get(key);
@@ -28,8 +29,11 @@ async function saveIndex(key: string, index: EarningsIndex): Promise<void> {
 }
 
 /**
- * Start (or refresh) the live ClaimSettled subscription for `userAddress`.
- * Idempotent on (chainId, userAddress); replaces any prior subscription.
+ * Start (or refresh) the earnings indexer for `userAddress`.
+ * Runs an immediate catch-up scan, then schedules a chrome.alarms-driven
+ * periodic incremental scan that survives MV3 service-worker idle.
+ *
+ * Idempotent: re-calling replaces any prior alarm.
  */
 export async function startEarningsListener(opts: {
   rpcUrl: string;
@@ -38,62 +42,51 @@ export async function startEarningsListener(opts: {
   userAddress: string;
 }): Promise<void> {
   const { rpcUrl, chainId, contractAddresses, userAddress } = opts;
-  const key = earningsKey(chainId, userAddress);
-
-  // Tear down any existing subscription for this account
-  liveSubscriptions.get(key)?.();
-  liveSubscriptions.delete(key);
 
   const provider = getProvider(rpcUrl);
-
-  // Initial backfill (or incremental catch-up) before wiring the live listener.
+  // Initial catch-up — incremental from lastScannedBlock or default window
   await catchUpEarnings({ provider, chainId, contractAddresses, userAddress });
 
-  // Wire the live listener
-  const settlement = getSettlementContract(contractAddresses, provider);
-  const userTopic = "0x" + userAddress.slice(2).toLowerCase().padStart(64, "0");
-  const claimSettledTopic = settlement.getEvent("ClaimSettled").fragment.topicHash;
-
-  const filter = {
-    address: settlement.target as string,
-    topics: [claimSettledTopic, null, userTopic],
-  };
-
-  const handler = async (log: any) => {
-    try {
-      const decoded = decodeClaimSettled(log, settlement.interface);
-      if (!decoded) return;
-      let blockTimestamp: number | undefined = undefined;
-      try {
-        const block = await provider.getBlock(decoded.blockNumber);
-        if (block?.timestamp) blockTimestamp = Number(block.timestamp);
-      } catch { /* timestamp best-effort */ }
-      const index = await loadIndex(key);
-      const { applied } = applyEvent(index, { ...decoded, blockTimestamp });
-      if (applied) await saveIndex(key, index);
-    } catch (err) {
-      console.warn("[earnings] live handler error:", err);
-    }
-  };
-
-  await provider.on(filter, handler);
-
-  // Save the unsubscribe handle
-  liveSubscriptions.set(key, () => {
-    provider.off(filter, handler).catch(() => { /* shutdown */ });
-    if (provider instanceof JsonRpcProvider) {
-      try { provider.destroy(); } catch { /* shutdown */ }
-    }
+  // Schedule the periodic alarm (will fire ~every minute and survive SW idle).
+  await chrome.alarms.clear(EARNINGS_ALARM);
+  await chrome.alarms.create(EARNINGS_ALARM, {
+    delayInMinutes: EARNINGS_PERIOD_MIN,
+    periodInMinutes: EARNINGS_PERIOD_MIN,
   });
 }
 
 /**
- * Stop the live listener for an account (e.g., on wallet switch).
+ * Stop the periodic scanner (e.g., on wallet disconnect).
  */
-export function stopEarningsListener(chainId: number, userAddress: string): void {
-  const key = earningsKey(chainId, userAddress);
-  liveSubscriptions.get(key)?.();
-  liveSubscriptions.delete(key);
+export async function stopEarningsListener(): Promise<void> {
+  await chrome.alarms.clear(EARNINGS_ALARM);
+}
+
+/**
+ * Alarm handler. Looks up the currently connected wallet from storage,
+ * resolves the chainId from the active network, and runs an incremental
+ * catch-up scan. No-op if the wallet was disconnected.
+ */
+export async function handleEarningsAlarm(opts: {
+  rpcUrl: string;
+  chainId: number;
+  contractAddresses: ContractAddresses;
+}): Promise<void> {
+  const stored = await chrome.storage.local.get("connectedAddress");
+  const userAddress: string | undefined = stored.connectedAddress;
+  if (!userAddress) return;
+  if (!opts.contractAddresses.settlement) return;
+  try {
+    const provider = getProvider(opts.rpcUrl);
+    await catchUpEarnings({
+      provider,
+      chainId: opts.chainId,
+      contractAddresses: opts.contractAddresses,
+      userAddress,
+    });
+  } catch (err) {
+    console.warn("[earnings] periodic scan failed:", err);
+  }
 }
 
 /**

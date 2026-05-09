@@ -50,7 +50,7 @@ export const NETWORK_CONFIGS: Record<
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
     pineChain: "paseo-asset-hub",
     addresses: {
-      // Alpha-4 — 20 contracts (not yet deployed; addresses below are alpha-3 stubs, redeploy needed)
+      // Alpha-4 — 20 contracts; addresses populated by deploy script writing deployed-addresses.json into the bundle.
       campaigns:           "",
       publishers:          "",
       governanceV2:        "",

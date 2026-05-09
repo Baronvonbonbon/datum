@@ -9,7 +9,7 @@
  *  - Returns a status object so the UI can show what happened
  */
 
-// @ts-ignore — @ext resolves via Vite alias to alpha-3/extension/src
+// @ts-ignore — @ext resolves via Vite alias to alpha-4/extension/src
 import { classifyPageToTags, classifyPage } from "@ext/content/taxonomy";
 // @ts-ignore
 import { detectSDK } from "@ext/content/sdkDetector";

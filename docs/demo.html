@@ -191,6 +191,7 @@
   </script>
 
   <title>Datum Browse Simulator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5 L2 2 L5 2 M11 2 L14 2 L14 5 M14 11 L14 14 L11 14 M5 14 L2 14 L2 11' fill='none' stroke='%239097a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='8' r='2.6' fill='%23E6007A'/%3E%3C/svg%3E">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -792,7 +793,15 @@
 
   <header>
     <div>
-      <div class="logo">DATUM</div>
+      <div class="logo" style="display:inline-flex;align-items:center;gap:8px;">
+        <svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true" style="display:block;flex:none;">
+          <path d="M2 5 L2 2 L5 2 M11 2 L14 2 L14 5 M14 11 L14 14 L11 14 M5 14 L2 14 L2 11"
+                fill="none" stroke="rgba(245,245,248,0.55)" stroke-width="1.4"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="8" cy="8" r="2.6" fill="#e6007a"/>
+        </svg>
+        DATUM
+      </div>
       <div class="sub">Browse Simulator — Multi-Slot Ad Auction Demo</div>
     </div>
   </header>

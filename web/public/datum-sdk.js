@@ -463,8 +463,12 @@
         'letter-spacing:0.4px;padding:5px 10px;border-radius:4px;white-space:nowrap;' +
         'line-height:1;' +
         'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08),0 2px 8px rgba(230,0,122,0.32);';
+      // Hook lives in its own flex-item wrapper so the -webkit-box line-clamp
+      // doesn't fight the flex algorithm. Without this wrapper the inner span
+      // expands to its single-line natural width, pushing the CTA pill over
+      // the body text on narrow screens.
       inner =
-        '<div style="display:flex;flex-direction:column;align-items:flex-start;flex:none;margin-right:10px;line-height:1;">' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-start;flex:none;margin-right:8px;line-height:1;">' +
           '<div style="display:flex;align-items:center;gap:5px;">' +
             brandSvg(11) +
             '<span style="' + wordmark + 'font-size:11px;line-height:1;">datum</span>' +
@@ -472,12 +476,13 @@
           '<div style="font-family:' + THEME.mono + ';font-size:8px;color:' + THEME.fgFaint + ';' +
             'text-transform:uppercase;letter-spacing:1.4px;line-height:1;margin-top:4px;">// on-chain ad</div>' +
         '</div>' +
-        '<span style="' +
-          'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
-          'font-size:10px;color:' + THEME.fgDim + ';line-height:1.2;' +
-          'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;' +
-          'word-break:break-word;overflow-wrap:break-word;">' + hook + '</span>' +
-        '<span style="' + ctaPillTiny + 'flex:none;margin-left:10px;">' + cta + '</span>';
+        '<div style="flex:1 1 0;min-width:0;overflow:hidden;margin-right:8px;">' +
+          '<div style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
+            'font-size:10px;color:' + THEME.fgDim + ';line-height:1.2;' +
+            'overflow:hidden;text-overflow:ellipsis;' +
+            'word-break:break-word;overflow-wrap:break-word;">' + hook + '</div>' +
+        '</div>' +
+        '<span style="' + ctaPillTiny + 'flex:none;">' + cta + '</span>';
     } else if (layout === "wide") {
       // [reticle] datum / // ON-CHAIN AD   ·   hook + body   ·   cta pill
       inner =

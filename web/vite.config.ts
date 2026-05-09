@@ -2,11 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const EXT_SRC = path.resolve(__dirname, "../alpha-3/extension/src");
+const EXT_SRC = path.resolve(__dirname, "../alpha-4/extension/src");
 const WEB_SRC = path.resolve(__dirname, "src");
 
 // Marker string used to detect whether an importer lives inside the extension's src tree.
-const EXT_MARKER = `${path.sep}alpha-3${path.sep}extension${path.sep}src${path.sep}`;
+const EXT_MARKER = `${path.sep}alpha-4${path.sep}extension${path.sep}src${path.sep}`;
 
 export default defineConfig({
   plugins: [react()],

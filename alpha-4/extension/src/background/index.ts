@@ -3,7 +3,7 @@
 
 import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes, ZeroHash } from "ethers";
 import { campaignPoller } from "./campaignPoller";
-import { startEarningsListener, stopEarningsListener } from "./earningsListener";
+import { startEarningsListener, stopEarningsListener, handleEarningsAlarm, EARNINGS_ALARM } from "./earningsListener";
 
 // Chain-id lookup for the History-tab earnings indexer. NETWORK_CONFIGS
 // doesn't currently expose chainId, so keep a small mapping here.
@@ -27,7 +27,7 @@ import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
-import { ClaimBatch, SerializedClaimBatch } from "@shared/types";
+import { ClaimBatch, SerializedClaimBatch, StoredSettings } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
 import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider, getCampaignsContract } from "@shared/contracts";
@@ -265,6 +265,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
     await autoFlushDirect();
   }
+  if (alarm.name === EARNINGS_ALARM) {
+    const settings = await getSettings();
+    if (settings.contractAddresses.settlement) {
+      await handleEarningsAlarm({
+        rpcUrl: settings.rpcUrl,
+        chainId: chainIdForNetwork(settings.network),
+        contractAddresses: settings.contractAddresses,
+      });
+    }
+  }
 });
 
 // -------------------------------------------------------------------------
@@ -465,12 +475,11 @@ async function handleMessage(
       // Fetch the actionVerifier address from the contract (type-2 pot)
       let actionVerifier: string = "";
       try {
-        const s = await chrome.storage.local.get("settings");
-        const settings = s.settings ?? {};
-        const addrs = settings.contractAddresses ?? {};
+        const settings = await getSettings();
+        const addrs = settings.contractAddresses;
         if (addrs.campaigns) {
           const provider = await getReadProvider(
-            settings.rpcUrl ?? "",
+            settings.rpcUrl,
             settings.usePine ?? false,
             NETWORK_CONFIGS[settings.network]?.pineChain
           );
@@ -677,8 +686,7 @@ async function handleMessage(
       await chrome.storage.local.remove("connectedAddress");
       if (prevAddress) {
         try {
-          const s = await getSettings();
-          stopEarningsListener(chainIdForNetwork(s.network), prevAddress);
+          await stopEarningsListener();
         } catch { /* shutdown — non-fatal */ }
       }
       return { ok: true };
@@ -1214,9 +1222,9 @@ async function handleMessage(
 // Helpers
 // -------------------------------------------------------------------------
 
-async function getSettings() {
+async function getSettings(): Promise<StoredSettings> {
   const stored = await chrome.storage.local.get("settings");
-  return stored.settings ?? DEFAULT_SETTINGS;
+  return (stored.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
 }
 
 // -------------------------------------------------------------------------

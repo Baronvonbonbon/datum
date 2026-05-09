@@ -9,10 +9,17 @@ import { humanizeError } from "@shared/errorCodes";
 
 /**
  * Paseo receipt workaround: getTransactionReceipt always returns null on Paseo.
- * Poll transaction count instead. Returns null (callers treat null as "confirmed,
- * no log data" and fall back to optimistic accounting).
+ * Poll transaction count instead. Today's implementation always returns null
+ * — callers treat null as "confirmed, no log data" and fall back to optimistic
+ * accounting. The return type leaves room for a real receipt once Paseo's
+ * eth-rpc bug is fixed; the receipt-decoding branches at the call sites
+ * become live again at that point.
  */
-async function waitForTxPaseo(provider: any, signerAddress: string, nonceBefore: number): Promise<null> {
+async function waitForTxPaseo(
+  provider: any,
+  signerAddress: string,
+  nonceBefore: number,
+): Promise<{ logs: Array<{ topics: ReadonlyArray<string>; data: string }> } | null> {
   for (let i = 0; i < 60; i++) {
     const current = await provider.getTransactionCount(signerAddress);
     if (current > nonceBefore) return null;
@@ -212,7 +219,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
 
   /** Truncate claims in each batch so total payment ≤ on-chain remaining budget.
    *  Drops batches that have zero affordable claims.
-   *  Payment per claim: impressionCount * clearingCpmPlanck / 1000 (planck). */
+   *  Payment per claim:
+   *    - actionType 0 (view/CPM): eventCount * ratePlanck / 1000
+   *    - actionType 1/2 (click/action): eventCount * ratePlanck */
   function applyBudgetFilter(
     batches: SerializedClaimBatch[],
     budgetMap: Record<string, bigint>,
@@ -224,7 +233,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
       let budget = budget0;
       const affordable: typeof b.claims = [];
       for (const c of b.claims) {
-        const payment = (BigInt(c.impressionCount) * BigInt(c.clearingCpmPlanck)) / 1000n;
+        const events = BigInt(c.eventCount);
+        const rate = BigInt(c.ratePlanck);
+        const payment = Number(c.actionType) === 0 ? (events * rate) / 1000n : events * rate;
         if (payment > budget) break; // chain must stay sequential — stop here
         affordable.push(c);
         budget -= payment;
@@ -360,12 +371,16 @@ export function ClaimQueue({ address, onSettled }: Props) {
           claims: b.claims.map((c) => ({
             campaignId: BigInt(c.campaignId),
             publisher: c.publisher,
-            impressionCount: BigInt(c.impressionCount),
-            clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+            eventCount: BigInt(c.eventCount),
+            ratePlanck: BigInt(c.ratePlanck),
+            actionType: Number(c.actionType),
+            clickSessionHash: c.clickSessionHash,
             nonce: BigInt(c.nonce),
             previousClaimHash: c.previousClaimHash,
             claimHash: c.claimHash,
             zkProof: c.zkProof,
+            nullifier: c.nullifier,
+            actionSig: c.actionSig,
           })),
           publisherSig,
         };
@@ -469,12 +484,16 @@ export function ClaimQueue({ address, onSettled }: Props) {
             claims: b.claims.map((c) => ({
               campaignId: BigInt(c.campaignId),
               publisher: c.publisher,
-              impressionCount: BigInt(c.impressionCount),
-              clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+              eventCount: BigInt(c.eventCount),
+              ratePlanck: BigInt(c.ratePlanck),
+              actionType: Number(c.actionType),
+              clickSessionHash: c.clickSessionHash,
               nonce: BigInt(c.nonce),
               previousClaimHash: c.previousClaimHash,
               claimHash: c.claimHash,
               zkProof: c.zkProof,
+              nullifier: c.nullifier,
+              actionSig: c.actionSig,
             })),
           }));
           await resyncFromChain(address, settings, contractBatches);
@@ -596,12 +615,16 @@ export function ClaimQueue({ address, onSettled }: Props) {
         claims: trimmedBatch.claims.map((c) => ({
           campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
-          impressionCount: BigInt(c.impressionCount),
-          clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
+          eventCount: BigInt(c.eventCount),
+          ratePlanck: BigInt(c.ratePlanck),
+          actionType: Number(c.actionType),
+          clickSessionHash: c.clickSessionHash,
           nonce: BigInt(c.nonce),
           previousClaimHash: c.previousClaimHash,
           claimHash: c.claimHash,
           zkProof: c.zkProof,
+          nullifier: c.nullifier,
+          actionSig: c.actionSig,
         })),
         publisherSig,
       };

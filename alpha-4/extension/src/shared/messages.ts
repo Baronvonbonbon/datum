@@ -6,7 +6,7 @@ export type ContentToBackground =
   | { type: "AD_CLICK"; campaignId: string; publisherAddress: string; impressionNonce: string }
   | { type: "REMOTE_ACTION"; campaignId: string; publisherAddress: string }
   | { type: "GET_ACTIVE_CAMPAIGNS" }
-  | { type: "UPDATE_INTEREST"; tags: string[]; category?: string }
+  | { type: "UPDATE_INTEREST"; tags: string[]; category?: string; delta?: number }
   | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string; pageTags?: string[]; slotFormat?: string; excludedCampaignIds?: string[] }
   | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
@@ -36,6 +36,7 @@ export type PopupToBackground =
   | { type: "SETTINGS_UPDATED"; settings: import("./types").StoredSettings }
   | { type: "RESET_CHAIN_STATE" }
   | { type: "REMOVE_SETTLED_CLAIMS"; userAddress: string; settledNonces: Record<string, string[]> }
+  | { type: "PRUNE_SETTLED_UP_TO_NONCE"; userAddress: string; campaignId: string; upToNonce: string }
   | { type: "SYNC_CHAIN_STATE"; userAddress: string; campaignId: string; onChainNonce: number; onChainHash: string }
   | { type: "ACQUIRE_MUTEX" }
   | { type: "RELEASE_MUTEX" }
