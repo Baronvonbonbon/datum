@@ -237,6 +237,7 @@ export function GovernanceDashboard() {
 
   const hasPublisherGov = !!settings.contractAddresses.publisherGovernance;
   const hasParameterGov = !!settings.contractAddresses.parameterGovernance;
+  const hasCouncil = !!settings.contractAddresses.council;
 
   return (
     <div className="nano-fade">
@@ -250,6 +251,9 @@ export function GovernanceDashboard() {
           )}
           {hasParameterGov && (
             <Link to="/governance/protocol" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Protocol Changes</Link>
+          )}
+          {hasCouncil && (
+            <Link to="/governance/council" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none", color: "var(--warn)" }}>Council</Link>
           )}
         </div>
       </div>

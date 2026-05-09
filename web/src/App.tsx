@@ -10,7 +10,7 @@ import { Overview } from "./pages/explorer/Overview";
 import { Campaigns } from "./pages/explorer/Campaigns";
 import { CampaignDetail } from "./pages/explorer/CampaignDetail";
 import { Publishers } from "./pages/explorer/Publishers";
-import { PublisherProfile } from "./pages/explorer/PublisherProfile";
+import { PublisherProfile as PublisherProfileExplorer } from "./pages/explorer/PublisherProfile";
 import { AdvertiserProfile } from "./pages/explorer/AdvertiserProfile";
 import { HowItWorks } from "./pages/explorer/HowItWorks";
 import { Philosophy } from "./pages/explorer/Philosophy";
@@ -40,6 +40,7 @@ import { MyVotes } from "./pages/governance/MyVotes";
 import { GovernanceParameters } from "./pages/governance/Parameters";
 import { PublisherFraud } from "./pages/governance/PublisherFraud";
 import { ProtocolParams } from "./pages/governance/ProtocolParams";
+import { Council } from "./pages/governance/Council";
 
 // Admin
 import { TimelockAdmin } from "./pages/admin/Timelock";
@@ -77,7 +78,7 @@ export function App() {
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
               <Route path="/publishers" element={<Publishers />} />
-              <Route path="/publishers/:address" element={<PublisherProfile />} />
+              <Route path="/publishers/:address" element={<PublisherProfileExplorer />} />
               <Route path="/advertisers/:address" element={<AdvertiserProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
               <Route path="/philosophy" element={<Philosophy />} />
@@ -107,6 +108,7 @@ export function App() {
               <Route path="/governance/parameters" element={<GovernanceParameters />} />
               <Route path="/governance/publisher-fraud" element={<PublisherFraud />} />
               <Route path="/governance/protocol" element={<ProtocolParams />} />
+              <Route path="/governance/council" element={<Council />} />
 
               {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
