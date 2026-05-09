@@ -361,11 +361,8 @@ async function main() {
   view("Settlement", "currentWindowUsage(address) → (uint256,uint256,uint256)");
 
   // ── Settlement: Inline Reputation (was DatumPublisherReputation) ──────────
-  await est("Settlement", ADDR.settlement,
-    "recordSettlement(address publisher, uint256 campaignId, uint256 settled, uint256 rejected)",
-    [diana.address, 1n, 100n, 10n], PK.alice,
-    "only callable by authorized reporters");
-
+  // External recordSettlement() removed in the threat-model #4 fix; reputation
+  // updates inline via _processBatch on every settle.
   view("Settlement", "getReputationScore(address) → uint16");
   view("Settlement", "isAnomaly(address, uint256) → bool");
   view("Settlement", "getPublisherStats(address) → (uint256,uint256)");

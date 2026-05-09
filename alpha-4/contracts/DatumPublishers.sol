@@ -43,6 +43,15 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     mapping(address => address) public relaySigner;
     mapping(address => bytes32) public profileHash;
 
+    /// @notice Block at which the publisher last rotated their relay signer.
+    ///         Used by the rotation cooldown so an attacker briefly holding the
+    ///         old key cannot keep pace with quick rotations.
+    mapping(address => uint256) public relaySignerRotatedBlock;
+    /// @notice Minimum blocks between consecutive setRelaySigner calls per
+    ///         publisher (~1 hour at 6 s blocks). Prevents rotation oscillation
+    ///         that could mask a key compromise.
+    uint256 public constant RELAY_SIGNER_ROTATION_COOLDOWN = 600;
+
     // Safe rollout: admission whitelist (owner-managed; whitelistMode=false = open registration)
     bool public whitelistMode;
     mapping(address => bool) public approved;
@@ -279,9 +288,17 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     /// @notice Set (or clear) the relay signing key for this publisher.
     ///         signer == address(0) clears the relay signer (falls back to publisher wallet).
+    /// @dev Enforces a cooldown between rotations so an attacker briefly
+    ///      controlling the old key can't sandwich a rotation event.
     function setRelaySigner(address signer) external whenNotPaused {
         require(_publishers[msg.sender].registered, "Not registered");
+        uint256 lastRotated = relaySignerRotatedBlock[msg.sender];
+        require(
+            lastRotated == 0 || block.number >= lastRotated + RELAY_SIGNER_ROTATION_COOLDOWN,
+            "E22"
+        );
         relaySigner[msg.sender] = signer;
+        relaySignerRotatedBlock[msg.sender] = block.number;
         emit RelaySignerUpdated(msg.sender, signer);
     }
 

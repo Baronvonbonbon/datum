@@ -132,6 +132,8 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         for (uint256 i = 0; i < initialMembers.length; i++) {
             require(initialMembers[i] != address(0), "E00");
             require(!isMember[initialMembers[i]], "E00");
+            // Guardian veto must be independent of the member set.
+            require(_guardian == address(0) || initialMembers[i] != _guardian, "E11");
             isMember[initialMembers[i]] = true;
             _memberIndex[initialMembers[i]] = _memberList.length;
             _memberList.push(initialMembers[i]);
@@ -258,6 +260,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     function addMember(address member) external onlyCouncil {
         require(member != address(0), "E00");
         require(!isMember[member], "E00");
+        require(member != guardian, "E11"); // guardian must be independent of the member set
         isMember[member] = true;
         _memberIndex[member] = _memberList.length;
         _memberList.push(member);
@@ -287,6 +290,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     }
 
     function setGuardian(address _guardian) external onlyCouncil {
+        require(_guardian == address(0) || !isMember[_guardian], "E11"); // guardian ≠ member
         guardian = _guardian;
         emit GuardianSet(_guardian);
     }

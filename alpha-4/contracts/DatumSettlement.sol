@@ -69,13 +69,17 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     mapping(uint256 => mapping(bytes32 => bool)) private _nullifierUsed;
 
     // ── BM-8/BM-9: Publisher reputation (merged from DatumPublisherReputation) ──
+    // Threat-model #4: counters are updated **only** by the inline _processBatch
+    // path. The previous external `recordSettlement(reporter)` entry point was
+    // removed so a single compromised reporter EOA can no longer poison every
+    // publisher's reputation arbitrarily. All settlement paths flow through
+    // _processBatch, so reputation tracking remains complete.
     uint256 public constant REP_MIN_SAMPLE = 10;
     uint256 public constant REP_ANOMALY_FACTOR = 2;
     mapping(address => uint256) public repTotalSettled;
     mapping(address => uint256) public repTotalRejected;
     mapping(address => mapping(uint256 => uint256)) public repCampaignSettled;
     mapping(address => mapping(uint256 => uint256)) public repCampaignRejected;
-    mapping(address => bool) public authorizedReporters;
     // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
     uint16 public minReputationScore;
 
@@ -84,7 +88,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     event NullifierSubmitted(uint256 indexed campaignId, bytes32 indexed nullifier);
     event NullifierWindowBlocksUpdated(uint256 oldValue, uint256 newValue);
     event SettlementRecorded(address indexed publisher, uint256 indexed campaignId, uint256 settled, uint256 rejected);
-    event ReporterAuthorized(address indexed reporter, bool authorized);
     /// @notice L-4: Emitted when the non-critical token-reward credit reverts so off-chain
     ///         monitors can flag mis-wired or under-funded reward configs.
     event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
@@ -190,13 +193,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
     function setMinReputationScore(uint16 score) external onlyOwner {
         minReputationScore = score;
-    }
-
-    /// @notice L-5: Add or remove an authorized reputation reporter.
-    function setReporterAuthorized(address reporter, bool authorized) external onlyOwner {
-        require(reporter != address(0), "E00");
-        authorizedReporters[reporter] = authorized;
-        emit ReporterAuthorized(reporter, authorized);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
@@ -680,29 +676,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         if (interval > 0 && result.settledCount > prevSettledCount) {
             lastSettlementBlock[user][campaignId][batchActionType] = block.number;
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Reputation: external reporter (L-5)
-    // -------------------------------------------------------------------------
-
-    /// @notice Record settled/rejected counts from an authorized reporter (relay bot).
-    function recordSettlement(
-        address publisher,
-        uint256 campaignId,
-        uint256 settled,
-        uint256 rejected
-    ) external {
-        require(authorizedReporters[msg.sender], "E18");
-        require(publisher != address(0), "E00");
-        if (settled == 0 && rejected == 0) return;
-
-        repTotalSettled[publisher] += settled;
-        repTotalRejected[publisher] += rejected;
-        repCampaignSettled[publisher][campaignId] += settled;
-        repCampaignRejected[publisher][campaignId] += rejected;
-
-        emit SettlementRecorded(publisher, campaignId, settled, rejected);
     }
 
     // -------------------------------------------------------------------------

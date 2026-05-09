@@ -728,4 +728,149 @@ describe("Audit fixes", function () {
       ).to.be.revertedWith("No pending update");
     });
   });
+
+  // ── Threat-model follow-ups ─────────────────────────────────────────────
+
+  describe("TM-1: requiresDualSig locked once Active", function () {
+    it("rejects setCampaignRequiresDualSig on an Active campaign", async function () {
+      // Replay the M-3 setup minimally: deploy MockCampaigns and try the toggle
+      // on a campaign that has been activated. The mock uses status=1 directly.
+      const Mock = await ethers.getContractFactory("MockCampaigns");
+      const mock = await Mock.deploy();
+      // MockCampaigns doesn't enforce the same status guard since it's a mock,
+      // so we use the real DatumCampaigns flow via a separate fixture below.
+      // This test instead targets the live DatumCampaigns contract:
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const advertiser = signers[1];
+      const publisherSig = signers[2];
+      const otherSig = signers[3];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[4].address, signers[5].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+      const ledger = await LedgerFactory.deploy();
+      const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
+      const campaigns = await CampaignsFactory.deploy(0n, 1000n, await pubs.getAddress(), await pause.getAddress());
+
+      // Wire ledger
+      await ledger.setCampaigns(await campaigns.getAddress());
+      await ledger.setSettlement(signers[0].address);   // unused here
+      await ledger.setLifecycle(signers[0].address);
+      await campaigns.setBudgetLedger(await ledger.getAddress());
+      await campaigns.setGovernanceContract(signers[0].address); // owner acts as governor for this test
+      await campaigns.setLifecycleContract(signers[0].address);
+      await campaigns.setSettlementContract(signers[0].address);
+
+      // Register a publisher
+      await pubs.connect(publisherSig).registerPublisher(5000);
+
+      // Create a Pending campaign
+      const POT = {
+        actionType: 0,
+        budgetPlanck: 1_000_000_000n,
+        dailyCapPlanck: 1_000_000_000n,
+        ratePlanck: 1n,
+        actionVerifier: ethers.ZeroAddress,
+      };
+      await campaigns.connect(advertiser).createCampaign(
+        publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
+        { value: 1_000_000_000n }
+      );
+      const cid = (await campaigns.nextCampaignId()) - 1n;
+
+      // Pending → toggle works
+      await campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, true);
+      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(true);
+
+      // Activate (governance == owner in this test)
+      await campaigns.activateCampaign(cid);
+
+      // Active → toggle reverts E22
+      await expect(
+        campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, false)
+      ).to.be.revertedWith("E22");
+    });
+  });
+
+  describe("TM-2: setRelaySigner cooldown", function () {
+    it("rejects rotation before RELAY_SIGNER_ROTATION_COOLDOWN elapses", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const publisher = signers[1];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[2].address, signers[3].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+
+      await pubs.connect(publisher).registerPublisher(5000);
+
+      // First rotation OK
+      await pubs.connect(publisher).setRelaySigner(signers[4].address);
+
+      // Immediate second rotation reverts E22
+      await expect(
+        pubs.connect(publisher).setRelaySigner(signers[5].address)
+      ).to.be.revertedWith("E22");
+    });
+  });
+
+  describe("TM-3: Council guardian/member mutual exclusivity", function () {
+    it("rejects member added when they are already guardian", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const m0 = signers[1];
+      const m1 = signers[2];
+      const m2 = signers[3];
+      const guardian = signers[4];
+
+      const Factory = await ethers.getContractFactory("DatumCouncil");
+      const council = await Factory.deploy(
+        [m0.address, m1.address, m2.address],
+        2,                         // threshold
+        guardian.address,
+        20, 5, 50, 100             // votingPeriod, execDelay, vetoWindow, maxExec
+      );
+
+      // Council proposes addMember(guardian) — should revert in execute via E11.
+      // Build a council proposal that adds the guardian as a member.
+      const calldata = council.interface.encodeFunctionData("addMember", [guardian.address]);
+      await council.connect(m0).propose([await council.getAddress()], [0], [calldata], "add guardian as member");
+      const pid = (await council.nextProposalId()) - 1n;
+      await council.connect(m0).vote(pid);
+      await council.connect(m1).vote(pid);
+      // Mine past execution delay
+      for (let i = 0; i < 6; i++) await ethers.provider.send("evm_mine", []);
+      await expect(council.execute(pid)).to.be.revertedWith("E02"); // inner addMember reverts E11, wrapper bubbles E02
+    });
+
+    it("rejects guardian set to a current member", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const m0 = signers[1];
+      const m1 = signers[2];
+      const m2 = signers[3];
+      const guardian = signers[5];
+
+      const Factory = await ethers.getContractFactory("DatumCouncil");
+      const council = await Factory.deploy(
+        [m0.address, m1.address, m2.address],
+        2,
+        guardian.address,
+        20, 5, 50, 100
+      );
+
+      // Council proposes setGuardian(m0) — m0 is a member → revert
+      const calldata = council.interface.encodeFunctionData("setGuardian", [m0.address]);
+      await council.connect(m0).propose([await council.getAddress()], [0], [calldata], "set member as guardian");
+      const pid = (await council.nextProposalId()) - 1n;
+      await council.connect(m0).vote(pid);
+      await council.connect(m1).vote(pid);
+      for (let i = 0; i < 6; i++) await ethers.provider.send("evm_mine", []);
+      await expect(council.execute(pid)).to.be.revertedWith("E02"); // inner setGuardian reverts E11, wrapper bubbles E02
+    });
+  });
 });

@@ -338,8 +338,9 @@ const settlementAbi = [
   `function settleClaimsMulti((address user, (uint256 campaignId, (${CLAIM_T})[] claims)[] campaigns)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
   "function lastNonce(address user, uint256 campaignId, uint8 actionType) view returns (uint256)",
   "function lastClaimHash(address user, uint256 campaignId, uint8 actionType) view returns (bytes32)",
-  // Inline reputation (merged from DatumPublisherReputation)
-  "function recordSettlement(address publisher, uint256 campaignId, uint256 settled, uint256 rejected)",
+  // Inline reputation (merged from DatumPublisherReputation; external
+  // recordSettlement removed in threat-model #4 — reputation updates only
+  // inline via _processBatch).
   "function getReputationScore(address publisher) view returns (uint16)",
   "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
   "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",

@@ -441,11 +441,15 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
 
     /// @notice Toggle whether this campaign requires the dual-sig settlement path.
     ///         When true, single-sig (relay) settlement attempts will reject all
-    ///         claims with reason code 24. Only the advertiser can flip this.
+    ///         claims with reason code 24. Only the advertiser can flip this,
+    ///         and only **before activation**. Once Active, the toggle is locked
+    ///         to prevent the advertiser from freezing user earnings mid-flight
+    ///         by demanding co-sigs they then refuse to provide.
     function setCampaignRequiresDualSig(uint256 campaignId, bool required) external {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Pending, "E22");
         campaignRequiresDualSig[campaignId] = required;
         emit CampaignRequiresDualSigUpdated(campaignId, required);
     }

@@ -950,7 +950,7 @@ async function main() {
 
   console.log("\nPublisher setup:");
   console.log("  diana relaySigner  :", diana.address, "(set to self — relay bot uses Diana key)");
-  console.log("  diana isReporter   : true (BM-8/BM-9 recordSettlement authorized)");
+  console.log("  reputation         : updated inline by Settlement._processBatch (no external reporter)");
   console.log("  diana tags         : topic:crypto-web3, topic:defi, topic:polkadot, topic:computers-electronics, topic:finance, locale:en");
   console.log("  eve tags           : topic:crypto-web3, topic:nfts, topic:daos-governance, locale:en");
 

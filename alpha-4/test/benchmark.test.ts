@@ -255,8 +255,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await lifecycle.setGovernanceContract(await v2.getAddress());
     await lifecycle.setSettlementContract(await settlement.getAddress());
 
-    // Reputation: authorize reporter (inline in Settlement)
-    await settlement.setReporterAuthorized(repSettlement.address, true);
+    // Reputation now updates only inline via _processBatch; no reporter wiring needed.
 
     // 9. Token reward vault (ERC-20 sidecar)
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
@@ -582,81 +581,12 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // BM-REP: Publisher reputation (BM-8/BM-9)
-  // ---------------------------------------------------------------------------
-  describe("BM-REP: Publisher reputation tracking (BM-8/BM-9)", function () {
-    // Use a fresh settlement for REP tests to avoid cross-contamination from
-    // earlier settlement calls that auto-accumulate repTotalSettled/Rejected
-    let repSettle: DatumSettlement;
-
-    before(async function () {
-      const Factory = await ethers.getContractFactory("DatumSettlement");
-      repSettle = await Factory.deploy(await pauseReg.getAddress());
-      await repSettle.setReporterAuthorized(repSettlement.address, true);
-    });
-
-    it("BM-REP-1: fresh publisher scores 10000 (perfect)", async function () {
-      expect(await repSettle.getReputationScore(publisher2.address)).to.equal(10000n);
-    });
-
-    it("BM-REP-2: recordSettlement updates score correctly", async function () {
-      await repSettle.connect(repSettlement).recordSettlement(publisher.address, 1n, 900n, 100n);
-      // score = 900 / 1000 * 10000 = 9000
-      expect(await repSettle.getReputationScore(publisher.address)).to.equal(9000n);
-    });
-
-    it("BM-REP-3: multiple campaigns accumulate per-campaign + global counters", async function () {
-      await repSettle.connect(repSettlement).recordSettlement(publisher.address, 2n, 400n, 100n);
-      const [gs, gr] = [await repSettle.repTotalSettled(publisher.address), await repSettle.repTotalRejected(publisher.address)];
-      expect(gs).to.equal(1300n); // 900+400
-      expect(gr).to.equal(200n);  // 100+100
-
-      const [cs, cr] = await repSettle.getCampaignRepStats(publisher.address, 2n);
-      expect(cs).to.equal(400n);
-      expect(cr).to.equal(100n);
-    });
-
-    it("BM-REP-4: isAnomaly detects 2× global rejection rate", async function () {
-      const Factory = await ethers.getContractFactory("DatumSettlement");
-      const rep = await Factory.deploy(await pauseReg.getAddress());
-      await rep.setReporterAuthorized(repSettlement.address, true);
-      // Global: 90% acceptance (900 settled, 100 rejected)
-      await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 900n, 100n);
-      // Campaign 2: 40% acceptance (4 settled, 6 rejected) — >2× global rejection rate
-      await rep.connect(repSettlement).recordSettlement(publisher.address, 2n, 4n, 6n);
-      expect(await rep.isAnomaly(publisher.address, 2n)).to.equal(true);
-    });
-
-    it("BM-REP-5: isAnomaly false below MIN_SAMPLE (10 total)", async function () {
-      const Factory = await ethers.getContractFactory("DatumSettlement");
-      const rep = await Factory.deploy(await pauseReg.getAddress());
-      await rep.setReporterAuthorized(repSettlement.address, true);
-      await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 3n, 6n); // 9 total < 10
-      expect(await rep.isAnomaly(publisher.address, 1n)).to.equal(false);
-    });
-
-    it("BM-REP-6: getPublisherStats returns (settled, rejected, score) triple", async function () {
-      const [s, r, score] = await repSettle.getPublisherStats(publisher.address);
-      expect(s).to.equal(1300n);
-      expect(r).to.equal(200n);
-      const expected = (1300n * 10000n) / (1300n + 200n);
-      expect(score).to.equal(expected);
-    });
-
-    it("BM-REP-7: reputation at each DOT price point — score invariant to denomination", async function () {
-      // Reputation uses raw counts, not planck amounts → identical at all price points
-      const Factory = await ethers.getContractFactory("DatumSettlement");
-      for (const s of DOT_PRICE_SCENARIOS) {
-        const rep = await Factory.deploy(await pauseReg.getAddress());
-        await rep.setReporterAuthorized(repSettlement.address, true);
-        await rep.connect(repSettlement).recordSettlement(publisher.address, 1n, 800n, 200n);
-        // score = 800/1000*10000 = 8000 at all price points
-        expect(await rep.getReputationScore(publisher.address)).to.equal(8000n,
-          `${s.label}: score should be 8000 regardless of DOT price`);
-      }
-    });
-  });
+  // BM-REP block removed: the external recordSettlement() entry was dropped in
+  // the threat-model #4 fix. Reputation now updates only inline via
+  // _processBatch, which is implicitly exercised by every successful settle in
+  // settlement.test.ts (S1-S8, R1-R10, etc.). The view formulas
+  // (getReputationScore, isAnomaly, getPublisherStats) are simple bps math
+  // over the same mappings.
 
   // ---------------------------------------------------------------------------
   // BM-RPT: Community reports (inline in DatumCampaigns)
@@ -860,11 +790,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       );
     });
 
-    it("BM-GAS-8: settlement.recordSettlement gas", async function () {
-      await gasFor("settlement.recordSettlement", () =>
-        settlement.connect(repSettlement).recordSettlement(publisher.address, 99n, 100n, 5n)
-      );
-    });
+    // BM-GAS-8 (settlement.recordSettlement) removed — the external reporter
+    // entry was deleted in the threat-model #4 fix. Reputation cost is now
+    // amortized inside _processBatch and shows up in BM-GAS-3 (settleClaims).
 
     it("BM-GAS-9: vault.withdraw (publisher) gas", async function () {
       // Ensure publisher has a balance to withdraw
