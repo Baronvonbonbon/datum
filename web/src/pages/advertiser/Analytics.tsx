@@ -33,11 +33,23 @@ export function CampaignAnalytics() {
     if (!address) return;
     setLoading(true);
     try {
-      const nextId = Number(await contracts.campaigns.nextCampaignId());
-      const allIds = Array.from({ length: Math.min(nextId, 200) }, (_, i) => nextId - 1 - i).filter(i => i >= 0);
+      // Discover via indexed CampaignCreated event; fall back to ID scan when the
+      // event filter returns nothing (Paseo gateway intermittently drops topic filters).
+      let candidateIds: number[] = [];
+      try {
+        const filter = contracts.campaigns.filters.CampaignCreated(null, address);
+        const logs = await queryFilterAll(contracts.campaigns, filter);
+        candidateIds = logs
+          .map((l: any) => Number(l.args?.campaignId ?? l.args?.[0]))
+          .filter((n) => Number.isFinite(n));
+      } catch { /* indexed filter unsupported */ }
+      if (candidateIds.length === 0) {
+        const nextId = Number(await contracts.campaigns.nextCampaignId());
+        candidateIds = Array.from({ length: Math.min(nextId, 500) }, (_, i) => nextId - 1 - i).filter((i) => i >= 0);
+      }
 
       const results: CampaignStats[] = [];
-      await Promise.all(allIds.map(async (id) => {
+      await Promise.all(candidateIds.map(async (id) => {
         try {
           const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
           if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
@@ -48,7 +60,7 @@ export function CampaignAnalytics() {
           ]);
           let remaining = 0n, originalBudget = 0n;
           try {
-            remaining = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(id)));
+            remaining = BigInt(await contracts.budgetLedger.getTotalRemainingBudget(BigInt(id)));
             const bFilter = contracts.budgetLedger.filters.BudgetInitialized(BigInt(id));
             const bLogs = await queryFilterAll(contracts.budgetLedger, bFilter);
             if (bLogs.length > 0) originalBudget = BigInt((bLogs[0] as any).args?.budget ?? 0);

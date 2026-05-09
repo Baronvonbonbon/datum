@@ -15,7 +15,7 @@ import { CampaignStatus } from "@shared/types";
 import { formatBlockDelta } from "@shared/conviction";
 import { getExplorerUrl } from "@shared/networks";
 import { tagLabel } from "@shared/tagDictionary";
-import { ethers } from "ethers";
+import { ethers, Contract } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
@@ -89,6 +89,26 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [tokenBudgetMsg, setTokenBudgetMsg] = useState<string | null>(null);
   const [bondAmount, setBondAmount] = useState<bigint | null>(null);
 
+  // Advertiser pull-payment state — pendingAdvertiserRefund (DOT) + bondOwner (challenge bond)
+  const [pendingDotRefund, setPendingDotRefund] = useState<bigint>(0n);
+  const [bondOwnerAddr, setBondOwnerAddr] = useState<string | null>(null);
+  const [claimingDotRefund, setClaimingDotRefund] = useState(false);
+  const [claimingBond, setClaimingBond] = useState(false);
+  const [refundMsg, setRefundMsg] = useState<string | null>(null);
+
+  // Dual-sig flag (set per-campaign by the advertiser, pre-activation only)
+  const [requiresDualSig, setRequiresDualSig] = useState(false);
+  const [dualSigBusy, setDualSigBusy] = useState(false);
+
+  // Per-pot configuration (CPM/CPC/CPA) — drives the Bid Configuration section
+  interface PotInfo { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string; remaining: bigint; }
+  const [pots, setPots] = useState<PotInfo[]>([]);
+
+  // Token-reward deposit (top-up) state — for wizard-recovery and ongoing top-ups
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositing, setDepositing] = useState(false);
+  const [depositMsg, setDepositMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (id !== undefined) load(Number(id));
   }, [id]);
@@ -99,6 +119,20 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       loadSettlements(Number(id));
     }
   }, [blockNumber]);
+
+  // Refresh the connected wallet's pending DOT refund (BudgetLedger pull-payment).
+  // Reads on initial mount, on connect/disconnect, and after each new block.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!address) { if (!cancelled) setPendingDotRefund(0n); return; }
+      try {
+        const v = await contracts.budgetLedger.pendingAdvertiserRefund(address);
+        if (!cancelled) setPendingDotRefund(BigInt(v));
+      } catch { if (!cancelled) setPendingDotRefund(0n); }
+    })();
+    return () => { cancelled = true; };
+  }, [address, blockNumber, contracts]);
 
   async function loadSettlements(campaignId: number) {
     try {
@@ -138,13 +172,15 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         advertiser: adv as string,
       });
 
-      // Budget info (individual view functions, no aggregate getter)
+      // Budget info — sum across pots; per-pot dailyCap is shown in the
+      // Bid Configuration section, this aggregate is just for the headline.
       try {
-        const [remaining, dailyCap, lastBlock] = await Promise.all([
-          contracts.budgetLedger.getRemainingBudget(BigInt(campaignId)).catch(() => 0n),
-          contracts.budgetLedger.getDailyCap(BigInt(campaignId)).catch(() => 0n),
+        const [remaining, viewDailyCap, lastBlock] = await Promise.all([
+          contracts.budgetLedger.getTotalRemainingBudget(BigInt(campaignId)).catch(() => 0n),
+          contracts.budgetLedger.getDailyCap(BigInt(campaignId), 0).catch(() => 0n),
           contracts.budgetLedger.lastSettlementBlock(BigInt(campaignId)).catch(() => 0),
         ]);
+        const dailyCap = viewDailyCap;
         let originalBudget = 0n;
         try {
           const bFilter = contracts.budgetLedger.filters.BudgetInitialized(BigInt(campaignId));
@@ -251,11 +287,42 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         }
       } catch { /* no token reward */ }
 
-      // Challenge bond
+      // Challenge bond — amount + bondOwner (pull-claim recipient)
       try {
-        const b = await contracts.challengeBonds.bond(BigInt(campaignId)).catch(() => null);
+        const [b, owner] = await Promise.all([
+          contracts.challengeBonds.bond(BigInt(campaignId)).catch(() => null),
+          contracts.challengeBonds.bondOwner(BigInt(campaignId)).catch(() => null),
+        ]);
         setBondAmount(b !== null ? BigInt(b) : null);
-      } catch { setBondAmount(null); }
+        setBondOwnerAddr(owner !== null ? (owner as string) : null);
+      } catch { setBondAmount(null); setBondOwnerAddr(null); }
+
+      // Per-campaign dual-sig flag (post-b85fcf7 settlement opt-in)
+      try {
+        const ds = await contracts.campaigns.getCampaignRequiresDualSig(BigInt(campaignId));
+        setRequiresDualSig(Boolean(ds));
+      } catch { setRequiresDualSig(false); }
+
+      // Per-pot configuration — fetch all pots + remaining per pot
+      try {
+        const rawPots: any[] = await contracts.campaigns.getCampaignPots(BigInt(campaignId));
+        const enriched: PotInfo[] = await Promise.all(rawPots.map(async (p: any) => {
+          const at = Number(p.actionType ?? p[0] ?? 0);
+          let rem = 0n;
+          try {
+            rem = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(campaignId), at));
+          } catch { /* missing pot */ }
+          return {
+            actionType: at,
+            budgetPlanck: BigInt(p.budgetPlanck ?? p[1] ?? 0),
+            dailyCapPlanck: BigInt(p.dailyCapPlanck ?? p[2] ?? 0),
+            ratePlanck: BigInt(p.ratePlanck ?? p[3] ?? 0),
+            actionVerifier: (p.actionVerifier ?? p[4] ?? ethers.ZeroAddress) as string,
+            remaining: rem,
+          };
+        }));
+        setPots(enriched);
+      } catch { setPots([]); }
 
       // Initial settlement load
       await loadSettlements(campaignId);
@@ -267,6 +334,97 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     }
   }
 
+
+  async function handleDepositTokenBudget() {
+    if (!signer || !campaign || !tokenReward) return;
+    const raw = depositAmount.trim();
+    if (!raw) return;
+    let amt: bigint;
+    try {
+      // Accept human decimal input — scale by token decimals
+      const parts = raw.split(".");
+      const whole = BigInt(parts[0] || "0");
+      const fracRaw = (parts[1] ?? "").slice(0, tokenReward.meta?.decimals ?? 18);
+      const fracPad = (fracRaw + "0".repeat((tokenReward.meta?.decimals ?? 18) - fracRaw.length)) || "0";
+      amt = whole * (10n ** BigInt(tokenReward.meta?.decimals ?? 18)) + BigInt(fracPad || "0");
+    } catch {
+      setDepositMsg("Invalid amount.");
+      return;
+    }
+    if (amt === 0n) { setDepositMsg("Enter a non-zero amount."); return; }
+    setDepositing(true);
+    setDepositMsg(null);
+    try {
+      const erc20 = new Contract(tokenReward.token, [
+        "function approve(address,uint256) returns (bool)",
+      ], signer);
+      const vaultAddr = settings.contractAddresses.tokenRewardVault;
+      const approveTx = await erc20.approve(vaultAddr, amt);
+      await confirmTx(approveTx);
+      const vault = contracts.tokenRewardVault.connect(signer) as typeof contracts.tokenRewardVault;
+      const depositTx = await vault.depositCampaignBudget(BigInt(campaign.id), tokenReward.token, amt);
+      await confirmTx(depositTx);
+      setDepositMsg(`Deposited ${raw} ${tokenReward.meta?.symbol ?? ""}.`);
+      setTokenReward((prev) => prev ? { ...prev, remainingBudget: prev.remainingBudget + amt } : prev);
+      setDepositAmount("");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setDepositMsg(humanizeError(err));
+    } finally {
+      setDepositing(false);
+    }
+  }
+
+  async function handleClaimDotRefund() {
+    if (!signer || pendingDotRefund === 0n) return;
+    setClaimingDotRefund(true);
+    setRefundMsg(null);
+    try {
+      const bl = contracts.budgetLedger.connect(signer) as typeof contracts.budgetLedger;
+      const tx = await bl.claimAdvertiserRefund();
+      await confirmTx(tx);
+      setRefundMsg("DOT refund claimed.");
+      setPendingDotRefund(0n);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setRefundMsg(humanizeError(err));
+    } finally {
+      setClaimingDotRefund(false);
+    }
+  }
+
+  async function handleClaimBond() {
+    if (!signer || !campaign) return;
+    setClaimingBond(true);
+    setRefundMsg(null);
+    try {
+      const cb = contracts.challengeBonds.connect(signer) as typeof contracts.challengeBonds;
+      const tx = await cb.claimBondReturn();
+      await confirmTx(tx);
+      setRefundMsg("Bond return claimed.");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setRefundMsg(humanizeError(err));
+    } finally {
+      setClaimingBond(false);
+    }
+  }
+
+  async function handleToggleDualSig() {
+    if (!signer || !campaign) return;
+    if (campaign.status !== 0) return; // contract requires Pending
+    setDualSigBusy(true);
+    try {
+      const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
+      const tx = await c.setCampaignRequiresDualSig(BigInt(campaign.id), !requiresDualSig);
+      await confirmTx(tx);
+      setRequiresDualSig(!requiresDualSig);
+    } catch (err) {
+      push(humanizeError(err), "error");
+    } finally {
+      setDualSigBusy(false);
+    }
+  }
 
   async function handleReclaimBudget() {
     if (!signer || !campaign || !tokenReward) return;
@@ -638,6 +796,40 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               )}
             </div>
           </div>
+          {/* Advertiser top-up — pre/active campaigns; supports wizard recovery */}
+          {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && campaign.status < 3 && (
+            <div id="token-deposit" style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 10 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 6 }}>
+                {tokenReward.remainingBudget === 0n ? "Vault is empty — deposit budget so users can earn token rewards." : "Top up the vault budget."}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="nano-input"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  placeholder={`Amount in ${tokenReward.meta?.symbol ?? "tokens"}`}
+                  style={{ fontSize: 12, width: 220 }}
+                  disabled={depositing || !signer}
+                />
+                <button
+                  className="nano-btn nano-btn-accent"
+                  onClick={handleDepositTokenBudget}
+                  disabled={depositing || !signer || !depositAmount.trim()}
+                  style={{ fontSize: 12, padding: "5px 12px" }}
+                >
+                  {depositing ? "Depositing..." : "Approve & Deposit"}
+                </button>
+              </div>
+              {depositMsg && (
+                <div style={{ fontSize: 12, color: depositMsg.startsWith("Deposited") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+                  {depositMsg}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Advertiser reclaim (only when campaign ended) */}
           {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && tokenReward.remainingBudget > 0n && (
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 10 }}>
@@ -678,6 +870,136 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8 }}>
             Returned to advertiser on clean campaign end; distributed to challengers if fraud is upheld by governance.
           </div>
+          {/* Pull-claim: only the bondOwner can claim the queued bond return after campaign end */}
+          {signer && address && bondOwnerAddr && bondOwnerAddr.toLowerCase() === address.toLowerCase() && campaign.status >= 3 && (
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 12 }}>
+              <button
+                className="nano-btn nano-btn-ok"
+                onClick={handleClaimBond}
+                disabled={claimingBond}
+                style={{ fontSize: 12, padding: "5px 12px" }}
+              >
+                {claimingBond ? "Claiming..." : "Claim Bond Return"}
+              </button>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
+                Bond return is pull-payment — claim transfers the queued amount to your wallet. Resolves to zero if already claimed or if a fraud verdict redirected it to the bonus pool.
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Pending DOT Refund — pull-payment from BudgetLedger after complete/terminate/expire */}
+      {address && pendingDotRefund > 0n && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16, borderColor: "var(--ok)" }}>
+          <h2 style={{ color: "var(--ok)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Pending Refund</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Available to Claim</div>
+              <div style={{ color: "var(--ok)", fontWeight: 700, fontSize: 18, fontFamily: "var(--font-mono)" }}>
+                <DOTAmount planck={pendingDotRefund} />
+              </div>
+            </div>
+            {signer && (
+              <button
+                className="nano-btn nano-btn-ok"
+                onClick={handleClaimDotRefund}
+                disabled={claimingDotRefund}
+                style={{ fontSize: 13, padding: "8px 16px" }}
+              >
+                {claimingDotRefund ? "Claiming..." : "Claim Refund"}
+              </button>
+            )}
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8 }}>
+            Unspent budget from completed, terminated, or expired campaigns is queued in the ledger. Claim transfers it to your wallet.
+          </div>
+          {refundMsg && (
+            <div style={{ fontSize: 12, color: refundMsg.toLowerCase().includes("claim") && !refundMsg.toLowerCase().includes("fail") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+              {refundMsg}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Bid Configuration — per-pot CPM/CPC/CPA breakdown */}
+      {pots.length > 0 && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Bid Configuration</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            {pots.map((p) => {
+              const label = p.actionType === 0 ? "CPM (View)" : p.actionType === 1 ? "CPC (Click)" : "CPA (Action)";
+              const rateLabel = p.actionType === 0 ? "Rate per 1k views" : p.actionType === 1 ? "Per click" : "Per action";
+              const remainingPct = p.budgetPlanck > 0n ? Number((p.remaining * 100n) / p.budgetPlanck) : 0;
+              return (
+                <div key={p.actionType} className="nano-card" style={{ padding: 12 }}>
+                  <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: "0.04em" }}>{label}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>{rateLabel}</div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.ratePlanck} /></div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Daily Cap</div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.dailyCapPlanck} /></div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Budget</div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.budgetPlanck} /></div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Remaining</div>
+                      <div style={{ color: remainingPct > 20 ? "var(--ok)" : "var(--warn)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.remaining} /></div>
+                    </div>
+                  </div>
+                  {p.budgetPlanck > 0n && (
+                    <div style={{ marginTop: 8, height: 3, borderRadius: 2, background: "var(--bg-raised)", overflow: "hidden" }}>
+                      <div style={{ width: `${remainingPct}%`, height: "100%", background: remainingPct > 20 ? "var(--ok)" : "var(--warn)" }} />
+                    </div>
+                  )}
+                  {p.actionType === 2 && p.actionVerifier !== ethers.ZeroAddress && (
+                    <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>
+                      Verifier: {p.actionVerifier}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Settlement Path (dual-sig flag) */}
+      {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Settlement Path</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
+                {requiresDualSig ? "Dual-sig (publisher + advertiser cosign)" : "Single-sig (relay only)"}
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, maxWidth: 520 }}>
+                {requiresDualSig
+                  ? "Each settlement batch requires the publisher's and your own EIP-712 cosignature. Either party can refuse to sign suspicious batches. Fraud-resistant but adds a coordination step."
+                  : "Relay submits batches signed by user + publisher. Faster path; relies on the publisher's relay being honest."}
+              </div>
+            </div>
+            {signer && campaign.status === 0 && (
+              <button
+                className="nano-btn"
+                onClick={handleToggleDualSig}
+                disabled={dualSigBusy}
+                style={{ fontSize: 12, padding: "6px 14px" }}
+              >
+                {dualSigBusy ? "Saving..." : requiresDualSig ? "Switch to Single-Sig" : "Switch to Dual-Sig"}
+              </button>
+            )}
+          </div>
+          {campaign.status !== 0 && (
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8, fontStyle: "italic" }}>
+              Settlement path is locked once the campaign activates.
+            </div>
+          )}
         </section>
       )}
 

@@ -88,7 +88,7 @@ export function SetMetadata() {
       }
 
       setPinStatus(`Pinned: ${pinResult.cid}${pinResult.warning ? " ⚠ local-only" : ""}`);
-      if (pinResult.warning) push(pinResult.warning, "warning");
+      if (pinResult.warning) push(pinResult.warning, "warn");
 
       const metadataHash = cidToBytes32(pinResult.cid);
       const c = contracts.campaigns.connect(signer);

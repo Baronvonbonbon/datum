@@ -24,7 +24,14 @@ interface MyCampaign {
   originalBudget: bigint;
   metadataHash: string;
   tags: string[];
+  // Wizard-recovery flags
+  needsMetadata: boolean;
+  needsTokenDeposit: boolean;
+  rewardToken: string;
+  pots: { actionType: number; ratePlanck: bigint }[];
 }
+
+const ZERO_HASH = "0x" + "0".repeat(64);
 
 export function AdvertiserDashboard() {
   const contracts = useContracts();
@@ -43,33 +50,46 @@ export function AdvertiserDashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Scan all campaigns by ID and filter by advertiser (Paseo indexed event filters are unreliable)
-      const nextId = Number(await contracts.campaigns.nextCampaignId());
-      const allIds = Array.from({ length: Math.min(nextId, 200) }, (_, i) => nextId - 1 - i).filter(i => i >= 0);
+      // Discover advertiser's campaigns via the indexed CampaignCreated event.
+      // Falls back to a bounded ID scan if the event filter returns nothing
+      // (some Paseo gateways drop indexed-topic filters silently).
+      let candidateIds: number[] = [];
+      try {
+        const filter = contracts.campaigns.filters.CampaignCreated(null, address);
+        const logs = await queryFilterAll(contracts.campaigns, filter);
+        candidateIds = logs
+          .map((l: any) => Number(l.args?.campaignId ?? l.args?.[0]))
+          .filter((n) => Number.isFinite(n));
+      } catch { /* indexed filter unsupported */ }
+      if (candidateIds.length === 0) {
+        const nextId = Number(await contracts.campaigns.nextCampaignId());
+        candidateIds = Array.from({ length: Math.min(nextId, 500) }, (_, i) => nextId - 1 - i).filter((i) => i >= 0);
+      }
 
       const mine: MyCampaign[] = [];
       await Promise.all(
-        allIds.map(async (id) => {
+        candidateIds.map(async (id) => {
           try {
-            const [c, viewBid] = await Promise.all([
-              contracts.campaigns.getCampaignForSettlement(BigInt(id)),
-              contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
-            ]);
-            // Check if this campaign belongs to the connected wallet
             const adv = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
             if ((adv as string).toLowerCase() !== address.toLowerCase()) return;
+
+            const [c, viewBid, rewardToken, rawPots] = await Promise.all([
+              contracts.campaigns.getCampaignForSettlement(BigInt(id)),
+              contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
+              contracts.campaigns.getCampaignRewardToken(BigInt(id)).catch(() => "0x0000000000000000000000000000000000000000"),
+              contracts.campaigns.getCampaignPots(BigInt(id)).catch(() => [] as any[]),
+            ]);
+
             let remaining = 0n;
             let originalBudget = 0n;
             try {
-              remaining = BigInt(await contracts.budgetLedger.getRemainingBudget(BigInt(id)));
-              // Try to get original budget from BudgetInitialized event
+              remaining = BigInt(await contracts.budgetLedger.getTotalRemainingBudget(BigInt(id)));
               const bFilter = contracts.budgetLedger.filters.BudgetInitialized(BigInt(id));
               const bLogs = await queryFilterAll(contracts.budgetLedger, bFilter);
-              if (bLogs.length > 0) {
-                originalBudget = BigInt((bLogs[0] as any).args?.budget ?? 0);
-              }
+              for (const l of bLogs) originalBudget += BigInt((l as any).args?.budget ?? 0);
             } catch { /* no budgetLedger */ }
-            let metadataHash = "0x" + "0".repeat(64);
+
+            let metadataHash = ZERO_HASH;
             try {
               const mFilter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
               const mLogs = await queryFilterAll(contracts.campaigns, mFilter);
@@ -77,15 +97,35 @@ export function AdvertiserDashboard() {
                 metadataHash = (mLogs[mLogs.length - 1] as any).args?.metadataHash ?? metadataHash;
               }
             } catch { /* no events */ }
+
             let tags: string[] = [];
             try {
               const rawTags: string[] = await contracts.campaigns.getCampaignTags(BigInt(id));
               tags = rawTags.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...");
             } catch { /* getCampaignTags may not exist */ }
+
+            // Wizard recovery: campaign exists but metadata never set, or token reward
+            // configured but vault budget never funded.
+            const needsMetadata = metadataHash === ZERO_HASH;
+            let needsTokenDeposit = false;
+            const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+            if (rewardToken && (rewardToken as string).toLowerCase() !== ZERO_ADDR) {
+              try {
+                const bal = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(rewardToken as string, BigInt(id)));
+                needsTokenDeposit = bal === 0n;
+              } catch { /* vault not available */ }
+            }
+
+            const pots = (rawPots as any[]).map((p: any) => ({
+              actionType: Number(p.actionType ?? p[0] ?? 0),
+              ratePlanck: BigInt(p.ratePlanck ?? p[3] ?? 0),
+            }));
+
             mine.push({
               id, status: Number(c[0]), publisher: c[1] as string,
               bidCpmPlanck: BigInt(viewBid), snapshotTakeRateBps: Number(c[2]),
               remaining, originalBudget, metadataHash, tags,
+              needsMetadata, needsTokenDeposit, rewardToken: (rewardToken as string) ?? ZERO_ADDR, pots,
             });
           } catch { /* skip */ }
         })
@@ -182,9 +222,19 @@ export function AdvertiserDashboard() {
       {campaigns.map((c) => (
         <div key={c.id} className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: 16 }}>Campaign #{c.id}</span>
-              <StatusBadge status={c.status} style={{ marginLeft: 10 }} />
+              <StatusBadge status={c.status} />
+              {c.needsMetadata && (
+                <Link to={`/advertiser/campaign/${c.id}/metadata`} className="nano-badge" style={{ fontSize: 11, color: "var(--warn)", borderColor: "var(--warn)", textDecoration: "none" }}>
+                  ⚠ Needs metadata
+                </Link>
+              )}
+              {c.needsTokenDeposit && (
+                <Link to={`/advertiser/campaign/${c.id}#token-deposit`} className="nano-badge" style={{ fontSize: 11, color: "var(--warn)", borderColor: "var(--warn)", textDecoration: "none" }}>
+                  ⚠ Needs token deposit
+                </Link>
+              )}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {c.status === 0 && (
@@ -217,8 +267,22 @@ export function AdvertiserDashboard() {
               )}
             </div>
             <div className="nano-card" style={{ padding: "8px 10px" }}>
-              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Bid CPM</div>
-              <DOTAmount planck={c.bidCpmPlanck} />
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Rates</div>
+              {c.pots.length === 0 ? (
+                <DOTAmount planck={c.bidCpmPlanck} />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {c.pots.map((p) => {
+                    const lbl = p.actionType === 0 ? "CPM" : p.actionType === 1 ? "CPC" : "CPA";
+                    return (
+                      <div key={p.actionType} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                        <span style={{ color: "var(--text-muted)", minWidth: 28 }}>{lbl}</span>
+                        <DOTAmount planck={p.ratePlanck} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="nano-card" style={{ padding: "8px 10px" }}>
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Take Rate</div>

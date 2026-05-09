@@ -93,6 +93,20 @@ export function CreateCampaign() {
   const [depositTxState, setDepositTxState] = useState<"idle" | "approving" | "depositing" | "success" | "error">("idle");
   const [depositTxMsg, setDepositTxMsg] = useState("");
 
+  /**
+   * Parse a human decimal string to raw token units, given the token's decimals.
+   * Returns 0n on empty / invalid input.
+   */
+  function humanToRaw(input: string, decimals: number): bigint {
+    const s = input.trim();
+    if (!s) return 0n;
+    const [whole, frac = ""] = s.split(".");
+    if (!/^\d+$/.test(whole) || (frac && !/^\d*$/.test(frac))) return 0n;
+    const truncated = frac.slice(0, decimals);
+    const padded = truncated + "0".repeat(decimals - truncated.length);
+    return BigInt(whole || "0") * (10n ** BigInt(decimals)) + BigInt(padded || "0");
+  }
+
   // Publisher picker list
   interface PubOption { address: string; takeRateBps: number; tags: string[]; repScore: number | null; reportCount: number; }
   const [pubOptions, setPubOptions] = useState<PubOption[]>([]);
@@ -144,6 +158,27 @@ export function CreateCampaign() {
   const [pubCheck, setPubCheck] = useState<string | null>(null);
   const [pubChecking, setPubChecking] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch reward-token decimals + symbol so the rewardPerImpression and step-3
+  // deposit inputs can accept human decimal amounts instead of raw smallest units.
+  useEffect(() => {
+    const t = rewardToken.trim();
+    if (!t || !ethers.isAddress(t)) return;
+    const known = getAssetMetadata(t);
+    if (known) { setTokenSymbol(known.symbol); setTokenDecimals(known.decimals); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const erc20 = new Contract(t, ERC20_MINIMAL_ABI, contracts.readProvider);
+        const [s, d] = await Promise.all([
+          erc20.symbol().catch(() => "TOKEN"),
+          erc20.decimals().catch(() => 18),
+        ]);
+        if (!cancelled) { setTokenSymbol(String(s)); setTokenDecimals(Number(d)); }
+      } catch { /* keep defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rewardToken, contracts.readProvider]);
 
   const checkPublisher = useCallback((addr: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -200,7 +235,9 @@ export function CreateCampaign() {
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
-      const rPerImp = rToken !== ethers.ZeroAddress && rewardPerImpression.trim() ? BigInt(rewardPerImpression.trim()) : 0n;
+      const rPerImp = rToken !== ethers.ZeroAddress && rewardPerImpression.trim()
+        ? humanToRaw(rewardPerImpression, tokenDecimals)
+        : 0n;
       const c = contracts.campaigns.connect(signer);
       const tx = await c.createCampaign(pubAddr, pots, tagHashes, requireZkProof, rToken, rPerImp, bondPlanck, {
         value: totalValue,
@@ -272,7 +309,7 @@ export function CreateCampaign() {
       const pinResult = await pinToIPFS({ provider: settings.ipfsProvider ?? "pinata", apiKey, endpoint: settings.ipfsApiEndpoint }, validated);
       if (!pinResult.ok || !pinResult.cid) throw new Error(pinResult.error ?? "IPFS pin failed");
       setPinStatus(`Pinned: ${pinResult.cid}${pinResult.warning ? " ⚠ local-only" : ""}`);
-      if (pinResult.warning) push(pinResult.warning, "warning");
+      if (pinResult.warning) push(pinResult.warning, "warn");
 
       const metadataHash = cidToBytes32(pinResult.cid);
       const c = contracts.campaigns.connect(signer);
@@ -319,7 +356,7 @@ export function CreateCampaign() {
     const vaultAddr = settings.contractAddresses.tokenRewardVault;
     if (!ethers.isAddress(rToken) || !vaultAddr) return;
 
-    const rawAmount = BigInt(tokenDepositAmount.trim() || "0");
+    const rawAmount = humanToRaw(tokenDepositAmount, tokenDecimals);
     if (rawAmount === 0n) { setDepositTxMsg("Enter a deposit amount."); setDepositTxState("error"); return; }
 
     setDepositTxState("approving");
@@ -483,24 +520,25 @@ export function CreateCampaign() {
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>Token</div>
                 <div style={{ color: "var(--text-strong)", fontSize: 13, fontFamily: "var(--font-mono)" }}>{rewardToken.trim()}</div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
-                  {tokenSymbol} · {tokenDecimals} decimals · {Number(rewardPerImpression || 0).toLocaleString()} raw units per impression
+                  {tokenSymbol} · {tokenDecimals} decimals · {rewardPerImpression || "0"} {tokenSymbol} per impression
                 </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>
-                  Deposit Amount (raw {tokenSymbol} units)
+                  Deposit Amount ({tokenSymbol})
                 </label>
                 <input
                   type="text"
+                  inputMode="decimal"
                   value={tokenDepositAmount}
                   onChange={(e) => setTokenDepositAmount(e.target.value)}
-                  placeholder={`e.g. ${(1000 * Math.pow(10, tokenDecimals)).toLocaleString()}`}
+                  placeholder={`e.g. 1000`}
                   className="nano-input"
                   required
                 />
                 <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                  Enter the amount in smallest token units (multiply by 10^{tokenDecimals} for whole tokens).
+                  Enter as a {tokenSymbol} amount (raw: {humanToRaw(tokenDepositAmount, tokenDecimals).toString()}).
                   This flow will first approve the vault to spend your tokens, then deposit.
                 </div>
               </div>
@@ -985,14 +1023,19 @@ export function CreateCampaign() {
             )}
 
             {rewardToken.trim() && ethers.isAddress(rewardToken.trim()) && (
-              <input
-                type="text"
-                value={rewardPerImpression}
-                onChange={(e) => setRewardPerImpression(e.target.value)}
-                placeholder={`Token amount per impression (smallest unit${selectedNativeAsset ? ` — ${selectedNativeAsset.decimals} decimals for ${selectedNativeAsset.symbol}` : ""})`}
-                className="nano-input"
-                style={{ marginTop: 4 }}
-              />
+              <div style={{ marginTop: 4 }}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rewardPerImpression}
+                  onChange={(e) => setRewardPerImpression(e.target.value)}
+                  placeholder={`Reward per impression in ${tokenSymbol}`}
+                  className="nano-input"
+                />
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                  {tokenSymbol} · {tokenDecimals} decimals · raw: {humanToRaw(rewardPerImpression, tokenDecimals).toString()}
+                </div>
+              </div>
             )}
           </div>
 
