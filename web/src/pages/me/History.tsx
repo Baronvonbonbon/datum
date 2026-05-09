@@ -4,10 +4,16 @@
 // last N days" input with a warning that wide scans take longer.
 
 import { useEffect, useMemo, useState } from "react";
-import { JsonRpcProvider } from "ethers";
+import { JsonRpcProvider, ethers } from "ethers";
 import { useSettings } from "../../context/SettingsContext";
 import { useWallet } from "../../context/WalletContext";
+import { useContracts } from "../../hooks/useContracts";
+import { useTx } from "../../hooks/useTx";
+import { useToast } from "../../context/ToastContext";
+import { humanizeError } from "@shared/errorCodes";
 import { formatDOT } from "@shared/dot";
+import { DOTAmount } from "../../components/DOTAmount";
+import { TokenRewards } from "../../components/TokenRewards";
 // @ts-ignore — @ext resolves to alpha-4/extension/src
 import {
   emptyIndex,
@@ -30,10 +36,50 @@ const BLOCKS_PER_DAY = 14_400;
 
 export function History() {
   const { settings } = useSettings();
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
+  const contracts = useContracts();
+  const { confirmTx } = useTx();
+  const { push } = useToast();
 
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
   const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
+
+  // PaymentVault DOT balance + withdraw state
+  const [dotBalance, setDotBalance] = useState<bigint>(0n);
+  const [withdrawTo, setWithdrawTo] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawMsg, setWithdrawMsg] = useState<string | null>(null);
+
+  async function loadDotBalance() {
+    if (!address) return;
+    try {
+      const v = await contracts.paymentVault.userBalance(address);
+      setDotBalance(BigInt(v));
+    } catch { /* contract not configured */ }
+  }
+
+  useEffect(() => { loadDotBalance(); }, [address, contracts]);
+
+  async function handleWithdrawDot() {
+    if (!signer || dotBalance === 0n) return;
+    setWithdrawing(true);
+    setWithdrawMsg(null);
+    try {
+      const vault = contracts.paymentVault.connect(signer);
+      const dest = withdrawTo.trim();
+      const tx = dest && ethers.isAddress(dest)
+        ? await vault.withdrawUserTo(dest)
+        : await vault.withdrawUser();
+      await confirmTx(tx);
+      setWithdrawMsg(dest && ethers.isAddress(dest) ? `Sent to ${dest.slice(0, 8)}…${dest.slice(-6)}.` : "Withdrawn to wallet.");
+      setDotBalance(0n);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setWithdrawMsg(humanizeError(err));
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   // Scan controls
   const [days, setDays] = useState<number>(Math.round(DEFAULT_BACKFILL_BLOCKS / BLOCKS_PER_DAY));
@@ -111,6 +157,71 @@ export function History() {
       <div style={{ color: "var(--text-dim)", fontSize: 12, marginBottom: 16 }}>
         Wallet: <code style={{ fontSize: 11 }}>{address}</code>
       </div>
+
+      {/* DOT earnings withdraw */}
+      <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
+        <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+          DOT earnings
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ color: "var(--text-dim)", fontSize: 11, marginBottom: 2 }}>Available to withdraw</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 22, fontWeight: 700 }}>
+              <DOTAmount planck={dotBalance} />
+            </div>
+          </div>
+          <button onClick={() => loadDotBalance()} className="nano-btn" style={{ fontSize: 12, padding: "5px 12px" }}>Refresh</button>
+        </div>
+        {dotBalance > 0n && signer && (
+          <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              value={withdrawTo}
+              onChange={(e) => setWithdrawTo(e.target.value.trim())}
+              placeholder="Withdraw to (optional — leave empty for this wallet)"
+              className="nano-input"
+              style={{ flex: 1, minWidth: 240, fontSize: 12 }}
+            />
+            <button
+              className="nano-btn nano-btn-accent"
+              onClick={handleWithdrawDot}
+              disabled={withdrawing || (!!withdrawTo && !ethers.isAddress(withdrawTo))}
+              style={{ padding: "6px 14px", fontSize: 12 }}
+            >
+              {withdrawing
+                ? "Withdrawing…"
+                : withdrawTo && ethers.isAddress(withdrawTo)
+                  ? `Send to ${withdrawTo.slice(0, 8)}…`
+                  : "Withdraw"}
+            </button>
+          </div>
+        )}
+        {dotBalance === 0n && (
+          <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 6 }}>
+            Settled DOT earnings appear here once a relay submits a claim batch on your behalf.
+          </div>
+        )}
+        {withdrawMsg && (
+          <div style={{ fontSize: 12, color: withdrawMsg.toLowerCase().includes("withdrawn") || withdrawMsg.toLowerCase().includes("sent to") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+            {withdrawMsg}
+          </div>
+        )}
+      </div>
+
+      {/* ERC-20 token rewards (auto-discovered + manual add) */}
+      {settings.contractAddresses.tokenRewardVault && address && (
+        <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+            Token rewards
+          </div>
+          <TokenRewards
+            userAddress={address}
+            vault={contracts.tokenRewardVault as any}
+            readProvider={contracts.readProvider as any}
+            signer={signer ?? null}
+          />
+        </div>
+      )}
 
       {/* Scan controls */}
       <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>

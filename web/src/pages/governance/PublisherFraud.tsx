@@ -67,7 +67,43 @@ export function PublisherFraud() {
   // Action state
   const [actionBusy, setActionBusy] = useState<number | null>(null);
 
+  // Pull-payment claim — voters who voted on the winning side accrue payouts.
+  const [pendingPayout, setPendingPayout] = useState<bigint>(0n);
+  const [claimingPayout, setClaimingPayout] = useState(false);
+  const [payoutMsg, setPayoutMsg] = useState<string | null>(null);
+
   useEffect(() => { load(); }, [address, settings.contractAddresses.publisherGovernance]);
+
+  // Read pending governance payout — refresh on connect, after each block, and on resolve.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!address || !contracts.publisherGovernance) { if (!cancelled) setPendingPayout(0n); return; }
+      try {
+        const v = await contracts.publisherGovernance.pendingGovPayout(address);
+        if (!cancelled) setPendingPayout(BigInt(v));
+      } catch { if (!cancelled) setPendingPayout(0n); }
+    })();
+    return () => { cancelled = true; };
+  }, [address, blockNumber, contracts.publisherGovernance]);
+
+  async function handleClaimPayout() {
+    if (!signer || pendingPayout === 0n) return;
+    setClaimingPayout(true);
+    setPayoutMsg(null);
+    try {
+      const c = contracts.publisherGovernance.connect(signer);
+      const tx = await c.claimGovPayout();
+      await confirmTx(tx);
+      setPayoutMsg("Governance payout claimed.");
+      setPendingPayout(0n);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setPayoutMsg(humanizeError(err));
+    } finally {
+      setClaimingPayout(false);
+    }
+  }
 
   async function load() {
     if (!contracts.publisherGovernance) return;
@@ -194,7 +230,7 @@ export function PublisherFraud() {
       const c = contracts.publisherGovernance.connect(signer);
       const tx = await c.withdrawVote(BigInt(proposalId));
       await confirmTx(tx);
-      push("Vote withdrawn.", "success");
+      push("Vote withdrawn.", "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -210,7 +246,7 @@ export function PublisherFraud() {
       const c = contracts.publisherGovernance.connect(signer);
       const tx = await c.resolve(BigInt(proposalId));
       await confirmTx(tx);
-      push(`Proposal #${proposalId} resolved.`, "success");
+      push(`Proposal #${proposalId} resolved.`, "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -226,7 +262,7 @@ export function PublisherFraud() {
       const c = contracts.publisherGovernance.connect(signer);
       const tx = await c.cancel(BigInt(proposalId));
       await confirmTx(tx);
-      push(`Proposal #${proposalId} cancelled.`, "success");
+      push(`Proposal #${proposalId} cancelled.`, "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -264,6 +300,39 @@ export function PublisherFraud() {
           <span>Quorum: <strong style={{ color: "var(--text)" }}><DOTAmount planck={params.quorum} /></strong></span>
           <span>Slash: <strong style={{ color: "var(--text)" }}>{(Number(params.slashBps) / 100).toFixed(0)}%</strong></span>
           <span>Bond bonus: <strong style={{ color: "var(--text)" }}>{(Number(params.bondBonusBps) / 100).toFixed(0)}%</strong></span>
+        </div>
+      )}
+
+      {/* Pending governance payout — pull-claim from prior winning-side votes */}
+      {address && pendingPayout > 0n && (
+        <div className="nano-card" style={{ padding: 16, marginBottom: 16, borderColor: "var(--ok)" }}>
+          <div style={{ color: "var(--ok)", fontWeight: 600, marginBottom: 8 }}>Pending governance payout</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Available to claim</div>
+              <div style={{ color: "var(--ok)", fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                <DOTAmount planck={pendingPayout} />
+              </div>
+            </div>
+            {signer && (
+              <button
+                onClick={handleClaimPayout}
+                disabled={claimingPayout}
+                className="nano-btn nano-btn-ok"
+                style={{ padding: "8px 16px", fontSize: 13 }}
+              >
+                {claimingPayout ? "Claiming…" : "Claim Payout"}
+              </button>
+            )}
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8 }}>
+            Payouts accrue when you voted on the winning side of a resolved fraud proposal. Pull-claim transfers the queued amount to your wallet.
+          </div>
+          {payoutMsg && (
+            <div style={{ fontSize: 12, color: payoutMsg.toLowerCase().includes("claimed") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+              {payoutMsg}
+            </div>
+          )}
         </div>
       )}
 

@@ -73,7 +73,43 @@ export function ProtocolParams() {
 
   const [actionBusy, setActionBusy] = useState<number | null>(null);
 
+  // Pull-payment claim — proposers' bonds queue up here after resolution
+  // (returned on pass, slashed on reject).
+  const [pendingBond, setPendingBond] = useState<bigint>(0n);
+  const [claimingBond, setClaimingBond] = useState(false);
+  const [bondMsg, setBondMsg] = useState<string | null>(null);
+
   useEffect(() => { load(); }, [address, settings.contractAddresses.parameterGovernance]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!address || !contracts.parameterGovernance) { if (!cancelled) setPendingBond(0n); return; }
+      try {
+        const v = await contracts.parameterGovernance.pendingBondPayout(address);
+        if (!cancelled) setPendingBond(BigInt(v));
+      } catch { if (!cancelled) setPendingBond(0n); }
+    })();
+    return () => { cancelled = true; };
+  }, [address, blockNumber, contracts.parameterGovernance]);
+
+  async function handleClaimBondPayout() {
+    if (!signer || pendingBond === 0n) return;
+    setClaimingBond(true);
+    setBondMsg(null);
+    try {
+      const c = contracts.parameterGovernance.connect(signer);
+      const tx = await c.claimBondPayout();
+      await confirmTx(tx);
+      setBondMsg("Bond payout claimed.");
+      setPendingBond(0n);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setBondMsg(humanizeError(err));
+    } finally {
+      setClaimingBond(false);
+    }
+  }
 
   async function load() {
     if (!contracts.parameterGovernance) return;
@@ -205,7 +241,7 @@ export function ProtocolParams() {
       const c = contracts.parameterGovernance.connect(signer);
       const tx = await c.withdrawVote(BigInt(proposalId));
       await confirmTx(tx);
-      push("Vote withdrawn.", "success");
+      push("Vote withdrawn.", "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -221,7 +257,7 @@ export function ProtocolParams() {
       const c = contracts.parameterGovernance.connect(signer);
       const tx = await c.resolve(BigInt(proposalId));
       await confirmTx(tx);
-      push(`Proposal #${proposalId} resolved.`, "success");
+      push(`Proposal #${proposalId} resolved.`, "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -237,7 +273,7 @@ export function ProtocolParams() {
       const c = contracts.parameterGovernance.connect(signer);
       const tx = await c.execute(BigInt(proposalId));
       await confirmTx(tx);
-      push(`Proposal #${proposalId} executed.`, "success");
+      push(`Proposal #${proposalId} executed.`, "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -253,7 +289,7 @@ export function ProtocolParams() {
       const c = contracts.parameterGovernance.connect(signer);
       const tx = await c.cancel(BigInt(proposalId));
       await confirmTx(tx);
-      push(`Proposal #${proposalId} cancelled.`, "success");
+      push(`Proposal #${proposalId} cancelled.`, "ok");
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -292,6 +328,39 @@ export function ProtocolParams() {
           <span>Quorum: <strong style={{ color: "var(--text)" }}><DOTAmount planck={govParams.quorum} /></strong></span>
           <span>Voting period: <strong style={{ color: "var(--text)" }}>{formatBlockDelta(Number(govParams.votingPeriodBlocks))}</strong></span>
           <span>Timelock: <strong style={{ color: "var(--text)" }}>{formatBlockDelta(Number(govParams.timelockBlocks))}</strong></span>
+        </div>
+      )}
+
+      {/* Pending bond payout — pull-claim after own proposals resolve */}
+      {address && pendingBond > 0n && (
+        <div className="nano-card" style={{ padding: 16, marginBottom: 16, borderColor: "var(--ok)" }}>
+          <div style={{ color: "var(--ok)", fontWeight: 600, marginBottom: 8 }}>Pending bond payout</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Available to claim</div>
+              <div style={{ color: "var(--ok)", fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                <DOTAmount planck={pendingBond} />
+              </div>
+            </div>
+            {signer && (
+              <button
+                onClick={handleClaimBondPayout}
+                disabled={claimingBond}
+                className="nano-btn nano-btn-ok"
+                style={{ padding: "8px 16px", fontSize: 13 }}
+              >
+                {claimingBond ? "Claiming…" : "Claim Bond"}
+              </button>
+            )}
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 8 }}>
+            Proposal bonds are returned when a proposal passes and slashed when it's rejected. Claim transfers any queued returns to your wallet.
+          </div>
+          {bondMsg && (
+            <div style={{ fontSize: 12, color: bondMsg.toLowerCase().includes("claimed") ? "var(--ok)" : "var(--error)", marginTop: 6 }}>
+              {bondMsg}
+            </div>
+          )}
         </div>
       )}
 
