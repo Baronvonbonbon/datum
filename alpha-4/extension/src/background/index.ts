@@ -3,6 +3,18 @@
 
 import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes, ZeroHash } from "ethers";
 import { campaignPoller } from "./campaignPoller";
+import { startEarningsListener, stopEarningsListener } from "./earningsListener";
+
+// Chain-id lookup for the History-tab earnings indexer. NETWORK_CONFIGS
+// doesn't currently expose chainId, so keep a small mapping here.
+const NETWORK_CHAIN_IDS: Record<string, number> = {
+  polkadotTestnet: 420420417,
+  paseoEvm: 420420422,
+  local: 31337,
+};
+function chainIdForNetwork(network: string): number {
+  return NETWORK_CHAIN_IDS[network] ?? 0;
+}
 import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
 import { interestProfile } from "./interestProfile";
@@ -75,6 +87,22 @@ async function immediateInitialPoll() {
       await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
     } else {
       console.log("[DATUM] Skipping initial poll — no campaigns contract address configured");
+    }
+
+    // History tab earnings indexer — kick off live subscription + backfill if a wallet is connected.
+    try {
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const userAddress: string | undefined = stored.connectedAddress;
+      if (userAddress && settings.contractAddresses.settlement) {
+        await startEarningsListener({
+          rpcUrl: settings.rpcUrl,
+          chainId: chainIdForNetwork(settings.network),
+          contractAddresses: settings.contractAddresses,
+          userAddress,
+        });
+      }
+    } catch (err) {
+      console.warn("[DATUM] Earnings listener startup failed (non-fatal):", err);
     }
   } catch (err) {
     console.error("[DATUM] Initial poll failed:", err);
@@ -626,11 +654,33 @@ async function handleMessage(
 
     case "WALLET_CONNECTED": {
       await chrome.storage.local.set({ connectedAddress: msg.address });
+      // History tab — start the earnings indexer for the new wallet
+      try {
+        const s = await getSettings();
+        if (s.contractAddresses.settlement) {
+          await startEarningsListener({
+            rpcUrl: s.rpcUrl,
+            chainId: chainIdForNetwork(s.network),
+            contractAddresses: s.contractAddresses,
+            userAddress: msg.address,
+          });
+        }
+      } catch (err) {
+        console.warn("[DATUM] Earnings listener (WALLET_CONNECTED) failed:", err);
+      }
       return { ok: true };
     }
 
     case "WALLET_DISCONNECTED": {
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const prevAddress: string | undefined = stored.connectedAddress;
       await chrome.storage.local.remove("connectedAddress");
+      if (prevAddress) {
+        try {
+          const s = await getSettings();
+          stopEarningsListener(chainIdForNetwork(s.network), prevAddress);
+        } catch { /* shutdown — non-fatal */ }
+      }
       return { ok: true };
     }
 

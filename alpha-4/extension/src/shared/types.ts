@@ -453,3 +453,40 @@ export interface BehaviorChainState {
   cumulativeViewableMs: number;
   iabViewableCount: number;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Earnings index (History tab) — populated from ClaimSettled events.
+// Storage keys are scoped per-(chainId, userAddress) so account / network
+// switches don't mix data. The index is a pure local cache; on-chain truth
+// is the events themselves.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface EarningsCampaignTotals {
+  totalUserPlanck: string;     // bigint serialised to decimal string
+  totalEvents: string;         // bigint serialised
+  claimCount: number;
+  lastBlock: number;
+  lastPaymentPlanck: string;   // most recent userPayment, bigint string
+  firstSeenBlock: number;
+}
+
+export interface EarningsRecentEntry {
+  campaignId: string;          // bigint as string
+  blockNumber: number;
+  blockTimestamp: number;      // unix seconds; 0 if unknown
+  userPaymentPlanck: string;   // bigint as string
+  publisher: string;
+  actionType: 0 | 1 | 2;
+  txHash: string;
+  logIndex: number;
+}
+
+export interface CampaignMetaCacheEntry {
+  campaignId: string;
+  advertiser: string;
+  metadataHash: string;        // bytes32 (IPFS CID-as-hash)
+  title?: string;              // resolved off-chain (IPFS); optional
+  description?: string;
+  imageUrl?: string;
+  fetchedAt: number;           // unix seconds
+}

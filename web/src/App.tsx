@@ -58,6 +58,9 @@ import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
 import { Settings } from "./pages/Settings";
 import { HouseAdPreview } from "./pages/settings/HouseAdPreview";
 
+// Me
+import { History } from "./pages/me/History";
+
 // Demo
 import { Demo } from "./pages/Demo";
 
@@ -122,6 +125,9 @@ export function App() {
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
               <Route path="/settings/house-ads" element={<HouseAdPreview />} />
+
+              {/* Me — wallet-scoped views */}
+              <Route path="/me/history" element={<History />} />
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />
