@@ -243,16 +243,30 @@ export function PublisherStake() {
                 <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
                   Amount ({sym})
                 </label>
-                <input
-                  type="number"
-                  value={stakeAmount}
-                  onChange={(e) => setStakeAmount(e.target.value)}
-                  min="0.0001"
-                  step="0.0001"
-                  className="nano-input"
-                  required
-                  placeholder="e.g. 10"
-                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="number"
+                    value={stakeAmount}
+                    onChange={(e) => setStakeAmount(e.target.value)}
+                    min="0.0001"
+                    step="0.0001"
+                    className="nano-input"
+                    required
+                    placeholder="e.g. 10"
+                    style={{ flex: 1 }}
+                  />
+                  {required !== null && staked !== null && adequate === false && required > staked && (
+                    <button
+                      type="button"
+                      onClick={() => setStakeAmount(ethers.formatEther(required - staked))}
+                      className="nano-btn"
+                      style={{ padding: "6px 12px", fontSize: 12, whiteSpace: "nowrap" }}
+                      title="Fill the exact amount needed to reach the required stake"
+                    >
+                      Fill deficit
+                    </button>
+                  )}
+                </div>
                 {required !== null && staked !== null && adequate === false && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
                     Minimum to become eligible: <DOTAmount planck={required - staked} />

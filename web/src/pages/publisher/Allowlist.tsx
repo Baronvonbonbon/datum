@@ -101,7 +101,12 @@ export function Allowlist() {
     <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Advertiser Allowlist</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Advertiser Allowlist</h1>
+        <button onClick={() => load()} disabled={loading} className="nano-btn" style={{ fontSize: 12, padding: "5px 12px" }}>
+          {loading ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         When enabled, only listed advertisers can create campaigns targeting your publisher address.
         Open campaigns (publisher=0x0) always bypass the allowlist.

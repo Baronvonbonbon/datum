@@ -75,6 +75,23 @@ export function TakeRate() {
     }
   }
 
+  async function handleCancel() {
+    if (!signer) return;
+    setTxState("pending");
+    try {
+      const c = contracts.publishers.connect(signer);
+      const tx = await c.cancelPendingTakeRate();
+      await confirmTx(tx);
+      setTxState("success");
+      setTxMsg("Pending update cancelled.");
+      load();
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setTxMsg(humanizeError(err));
+      setTxState("error");
+    }
+  }
+
   const canApply = pending && blockNumber && blockNumber >= pending.effectiveBlock;
   const blocksRemaining = pending && blockNumber ? Math.max(0, pending.effectiveBlock - blockNumber) : null;
 
@@ -100,11 +117,18 @@ export function TakeRate() {
               <span> · {formatBlockDelta(blocksRemaining)} remaining</span>
             )}
           </div>
-          {canApply && (
-            <button onClick={handleApply} disabled={txState === "pending"} className="nano-btn" style={{ marginTop: 10, padding: "6px 14px", fontSize: 13, color: "var(--ok)", border: "1px solid rgba(74,222,128,0.3)" }}>
-              Apply Update Now
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            {canApply && (
+              <button onClick={handleApply} disabled={txState === "pending"} className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, color: "var(--ok)", border: "1px solid rgba(74,222,128,0.3)" }}>
+                Apply Update Now
+              </button>
+            )}
+            {signer && (
+              <button onClick={handleCancel} disabled={txState === "pending"} className="nano-btn" style={{ padding: "6px 14px", fontSize: 13, color: "var(--error)", border: "1px solid rgba(248,113,113,0.3)" }}>
+                Cancel Pending
+              </button>
+            )}
+          </div>
         </div>
       )}
 

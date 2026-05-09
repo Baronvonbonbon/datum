@@ -22,6 +22,7 @@ export function PublisherDashboard() {
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [reputation, setReputation] = useState<{ settled: bigint; rejected: bigint; scoreBps: bigint } | null>(null);
+  const [stakeStatus, setStakeStatus] = useState<{ adequate: boolean; staked: bigint; required: bigint } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const [withdrawToAddress, setWithdrawToAddress] = useState("");
@@ -61,6 +62,22 @@ export function PublisherDashboard() {
           });
         }
       } catch { /* no settlement contract */ }
+
+      // Stake adequacy — settlement rejects under-staked publishers (E15)
+      try {
+        if (contracts.publisherStake) {
+          const [adequate, staked, required] = await Promise.all([
+            contracts.publisherStake.isAdequatelyStaked(address),
+            contracts.publisherStake.staked(address),
+            contracts.publisherStake.requiredStake(address),
+          ]);
+          setStakeStatus({
+            adequate: Boolean(adequate),
+            staked: BigInt(staked),
+            required: BigInt(required),
+          });
+        }
+      } catch { /* stake contract not configured */ }
     } finally {
       setLoading(false);
     }
@@ -100,6 +117,24 @@ export function PublisherDashboard() {
       {blocked && (
         <div className="nano-info nano-info--error" style={{ fontWeight: 600, marginBottom: 16 }}>
           This address is blocked by the protocol admin. New registrations and campaigns are restricted.
+        </div>
+      )}
+
+      {stakeStatus && !stakeStatus.adequate && stakeStatus.required > 0n && (
+        <div className="nano-info nano-info--error" style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Settlement blocked — under-staked (E15)</div>
+          <div style={{ fontSize: 12, marginBottom: 8 }}>
+            Your stake is below the required minimum. Settlement rejects claims from under-staked publishers,
+            so earnings won't accrue until you top up.
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12 }}>
+              Need <DOTAmount planck={stakeStatus.required - stakeStatus.staked} /> more
+            </span>
+            <Link to="/publisher/stake" className="nano-btn nano-btn-accent" style={{ fontSize: 12, padding: "5px 12px", textDecoration: "none" }}>
+              Stake now
+            </Link>
+          </div>
         </div>
       )}
 

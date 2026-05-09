@@ -43,12 +43,17 @@ export function Earnings() {
       const bal = await contracts.paymentVault.publisherBalance(address).catch(() => 0n);
       setBalance(BigInt(bal));
 
-      // Fetch all ClaimSettled events for this publisher
-      const filter = contracts.settlement.filters.ClaimSettled();
-      const logs = await queryFilterAll(contracts.settlement, filter).catch(() => []);
-      const mine = logs
-        .filter((l: any) => (l.args?.publisher ?? "").toLowerCase() === address.toLowerCase())
-        .reverse();
+      // Fetch ClaimSettled events filtered by indexed publisher topic.
+      // Pre-alpha-4 we fetched everything and JS-filtered, which doesn't scale.
+      const filter = contracts.settlement.filters.ClaimSettled(null, null, address);
+      let logs = await queryFilterAll(contracts.settlement, filter).catch(() => []);
+      // Fallback: some Paseo gateways drop topic filters silently — re-fetch all
+      // events and JS-filter only when the indexed query returns nothing.
+      if (logs.length === 0) {
+        const fallback = await queryFilterAll(contracts.settlement, contracts.settlement.filters.ClaimSettled()).catch(() => []);
+        logs = fallback.filter((l: any) => (l.args?.publisher ?? "").toLowerCase() === address.toLowerCase());
+      }
+      const mine = [...logs].reverse();
       setEvents(mine.slice(0, 50));
 
       // EA-2: Group by campaignId for per-campaign breakdown
