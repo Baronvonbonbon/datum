@@ -325,6 +325,93 @@ describe("DatumParameterGovernance", function () {
     expect(await gov.owner()).to.equal(owner.address);
   });
 
+  // ── PGV-BS1: bootstrapAcceptOwnership — happy path ───────────────────────────
+
+  it("PGV-BS1 bootstrapAcceptOwnership — owner accepts pending Ownable2Step transfer", async function () {
+    // Deploy a fresh PublisherStake owned by `owner`
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+
+    // Phase 1: deployer transfers ownership to ParameterGovernance
+    await ps.connect(owner).transferOwnership(await gov.getAddress());
+    expect(await ps.pendingOwner()).to.equal(await gov.getAddress());
+
+    // Phase 2: deployer (still PG owner) calls bootstrap on PG to accept
+    await gov.connect(owner).bootstrapAcceptOwnership(await ps.getAddress());
+    expect(await ps.owner()).to.equal(await gov.getAddress());
+  });
+
+  // ── PGV-BS2: bootstrapAcceptOwnership — non-owner reverts E18 ────────────────
+
+  it("PGV-BS2 bootstrapAcceptOwnership — non-owner reverts", async function () {
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+    await ps.connect(owner).transferOwnership(await gov.getAddress());
+    await expect(
+      gov.connect(other).bootstrapAcceptOwnership(await ps.getAddress())
+    ).to.be.revertedWith("E18");
+  });
+
+  // ── PGV-BS3: bootstrapAcceptOwnership — zero address reverts E00 ─────────────
+
+  it("PGV-BS3 bootstrapAcceptOwnership — zero address reverts E00", async function () {
+    await expect(
+      gov.connect(owner).bootstrapAcceptOwnership(ethers.ZeroAddress)
+    ).to.be.revertedWith("E00");
+  });
+
+  // ── PGV-BS4: bootstrapAcceptOwnership — no pending transfer reverts E02 ──────
+
+  it("PGV-BS4 bootstrapAcceptOwnership — target with no pending transfer reverts", async function () {
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+    // No transferOwnership called; pendingOwner is zero address
+    await expect(
+      gov.connect(owner).bootstrapAcceptOwnership(await ps.getAddress())
+    ).to.be.revertedWith("E02");
+  });
+
+  // ── PGV-EX1: end-to-end execute on a contract owned via bootstrap ────────────
+
+  it("PGV-EX1 end-to-end — PG owns a contract via bootstrap and executes a whitelisted setParams call", async function () {
+    // Fresh PG with low quorum so a single voter can pass it
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    const pr = await PauseFactory.deploy(owner.address, proposer.address, voter1.address);
+    const PG = await ethers.getContractFactory("DatumParameterGovernance");
+    const pg = await PG.deploy(await pr.getAddress(), 5n, 2n, 1n, 1n); // 5-block voting, 2-block timelock, 1 wei quorum, 1 wei bond
+
+    // Fresh PublisherStake to govern
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1n, 1n, 1n);
+
+    // Whitelist target + setParams selector on PG (deployer is PG owner)
+    const setParamsSelector = ps.interface.getFunction("setParams")!.selector;
+    await pg.connect(owner).setWhitelistedTarget(await ps.getAddress(), true);
+    await pg.connect(owner).setPermittedSelector(await ps.getAddress(), setParamsSelector, true);
+
+    // Migrate PS ownership: transfer + bootstrap accept
+    await ps.connect(owner).transferOwnership(await pg.getAddress());
+    await pg.connect(owner).bootstrapAcceptOwnership(await ps.getAddress());
+    expect(await ps.owner()).to.equal(await pg.getAddress());
+
+    // Propose a setParams change
+    const newPayload = ps.interface.encodeFunctionData("setParams", [42n, 7n, 99n]);
+    await pg.connect(proposer).propose(await ps.getAddress(), newPayload, "raise base", { value: 1n });
+    const id = (await pg.nextProposalId()) - 1n;
+
+    // Vote aye with conviction 0 (no lockup)
+    await pg.connect(voter1).vote(id, true, 0, { value: 100n });
+    await mineBlocks(6); // past voting period
+    await pg.connect(other).resolve(id);
+    await mineBlocks(3); // past timelock
+    await pg.connect(other).execute(id);
+
+    // The change applied
+    expect(await ps.baseStakePlanck()).to.equal(42n);
+    expect(await ps.planckPerImpression()).to.equal(7n);
+    expect(await ps.unstakeDelayBlocks()).to.equal(99n);
+  });
+
   // ── PGV18: conviction helpers ─────────────────────────────────────────────────
 
   it("PGV18 convictionWeight and convictionLockup — boundary values", async function () {

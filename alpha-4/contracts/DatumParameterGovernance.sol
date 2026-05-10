@@ -255,6 +255,24 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
         permittedSelectors[target][selector] = allowed;
     }
 
+    /// @notice Bootstrap helper — owner-only, lets this contract accept Ownable2Step
+    ///         ownership of contracts whose params it governs.
+    /// @dev    The pendingOwner of `target` must already be set to this contract
+    ///         (via the prior owner calling `target.transferOwnership(thisContract)`).
+    ///         This bypasses the propose/vote/execute lifecycle for the one-time
+    ///         ownership migration so we don't run into the chicken-and-egg of
+    ///         "the proposal to accept ownership requires the whitelist + a voting
+    ///         period that runs on a contract we don't yet own."
+    ///
+    ///         Once this contract is itself transferred to a higher governor
+    ///         (Timelock / Council), this bootstrap stops being callable, so the
+    ///         power is naturally bounded by the owner's authority at the time.
+    function bootstrapAcceptOwnership(address target) external onlyOwner {
+        require(target != address(0), "E00");
+        (bool ok,) = target.call(abi.encodeWithSignature("acceptOwnership()"));
+        require(ok, "E02");
+    }
+
     function setParams(
         uint256 _votingPeriodBlocks,
         uint256 _timelockBlocks,

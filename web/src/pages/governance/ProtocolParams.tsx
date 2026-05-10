@@ -14,6 +14,7 @@ import { CONVICTION_WEIGHTS, formatBlockDelta } from "@shared/conviction";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { useBlock } from "../../hooks/useBlock";
+import { PARAM_CATALOG, encodeParamCall, parseArg, formatArg, ParamSetter } from "@shared/parameterCatalog";
 
 const STATE_LABELS = ["Active", "Passed", "Executed", "Rejected", "Cancelled"];
 const STATE_COLORS = ["var(--accent)", "var(--ok)", "var(--ok)", "var(--error)", "var(--text-muted)"];
@@ -57,12 +58,43 @@ export function ProtocolParams() {
   const [govParams, setGovParams] = useState<{ proposeBond: bigint; quorum: bigint; votingPeriodBlocks: bigint; timelockBlocks: bigint } | null>(null);
   const [filter, setFilter] = useState<"active" | "all">("active");
 
-  // Propose form
+  // Propose form — structured catalog mode (default) plus optional raw mode for power users.
+  const [proposeMode, setProposeMode] = useState<"structured" | "raw">("structured");
+  const [selectedSetterIdx, setSelectedSetterIdx] = useState<number>(0);
+  const [argInputs, setArgInputs] = useState<string[]>([]);
+  const [currentValues, setCurrentValues] = useState<(bigint | null)[]>([]);
   const [propTarget, setPropTarget] = useState("");
   const [propPayload, setPropPayload] = useState("");
   const [propDescription, setPropDescription] = useState("");
   const [propTxState, setPropTxState] = useState<TxState>("idle");
   const [propTxMsg, setPropTxMsg] = useState("");
+
+  // Reset arg inputs when the selected setter changes
+  useEffect(() => {
+    const setter = PARAM_CATALOG[selectedSetterIdx];
+    if (!setter) return;
+    setArgInputs(new Array(setter.args.length).fill(""));
+    setCurrentValues(new Array(setter.args.length).fill(null));
+  }, [selectedSetterIdx]);
+
+  // Fetch on-chain current values for the selected setter
+  useEffect(() => {
+    const setter = PARAM_CATALOG[selectedSetterIdx];
+    if (!setter) return;
+    let cancelled = false;
+    (async () => {
+      const targetContract = (contracts as Record<string, any>)[setter.contractKey];
+      if (!targetContract) return;
+      const vals = await Promise.all(setter.currentGetters.map(async (g) => {
+        try {
+          const v = await targetContract[g]();
+          return BigInt(v);
+        } catch { return null; }
+      }));
+      if (!cancelled) setCurrentValues(vals);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedSetterIdx, contracts]);
 
   // Vote state per proposal
   const [voteIsAye, setVoteIsAye] = useState<Record<number, boolean>>({});
@@ -195,15 +227,29 @@ export function ProtocolParams() {
     setPropTxState("pending");
     setPropTxMsg("");
     try {
+      let target: string;
+      let payload: string;
+      if (proposeMode === "structured") {
+        const setter = PARAM_CATALOG[selectedSetterIdx];
+        if (!setter) throw new Error("Pick a parameter first.");
+        const targetAddr = settings.contractAddresses[setter.contractKey as keyof typeof settings.contractAddresses];
+        if (!targetAddr) throw new Error(`No address configured for ${setter.contractLabel}.`);
+        const parsed = setter.args.map((a, i) => parseArg(a.kind, argInputs[i] ?? ""));
+        payload = encodeParamCall(setter, parsed);
+        target = targetAddr as string;
+      } else {
+        target = propTarget.trim();
+        payload = propPayload.startsWith("0x") ? propPayload : "0x";
+      }
       const c = contracts.parameterGovernance.connect(signer);
-      const payload = propPayload.startsWith("0x") ? propPayload : "0x";
-      const tx = await c.propose(propTarget.trim(), payload, propDescription.trim(), { value: govParams.proposeBond });
+      const tx = await c.propose(target, payload, propDescription.trim(), { value: govParams.proposeBond });
       await confirmTx(tx);
       setPropTxState("success");
       setPropTxMsg("Proposal submitted.");
       setPropTarget("");
       setPropPayload("");
       setPropDescription("");
+      setArgInputs(new Array(PARAM_CATALOG[selectedSetterIdx]?.args.length ?? 0).fill(""));
       load();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -403,44 +449,123 @@ export function ProtocolParams() {
       {/* Propose form */}
       {signer && (
         <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Submit Parameter Proposal</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ color: "var(--accent)", fontWeight: 600 }}>Submit Parameter Proposal</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setProposeMode("structured")}
+                className={proposeMode === "structured" ? "nano-btn nano-btn-accent" : "nano-btn"}
+                style={{ padding: "4px 10px", fontSize: 11 }}
+              >
+                Catalog
+              </button>
+              <button
+                type="button"
+                onClick={() => setProposeMode("raw")}
+                className={proposeMode === "raw" ? "nano-btn nano-btn-accent" : "nano-btn"}
+                style={{ padding: "4px 10px", fontSize: 11 }}
+              >
+                Raw payload
+              </button>
+            </div>
+          </div>
           {govParams && govParams.proposeBond > 0n && (
             <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
-              Bond required: <strong style={{ color: "var(--warn)" }}><DOTAmount planck={govParams.proposeBond} /></strong> — returned if proposal passes, slashed if rejected.
+              Bond required: <strong style={{ color: "var(--warn)" }}><DOTAmount planck={govParams.proposeBond} /></strong> — returned if proposal passes and executes, slashed if rejected.
             </div>
           )}
+
           <form onSubmit={handlePropose} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>Target Contract Address</label>
-              <input
-                type="text"
-                value={propTarget}
-                onChange={(e) => setPropTarget(e.target.value)}
-                placeholder="0x..."
-                className="nano-input"
-                required
-              />
-            </div>
-            <div>
-              <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
-                Call Payload <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(hex-encoded calldata, e.g. 0x...)</span>
-              </label>
-              <input
-                type="text"
-                value={propPayload}
-                onChange={(e) => setPropPayload(e.target.value)}
-                placeholder="0x..."
-                className="nano-input"
-                required
-              />
-            </div>
+            {proposeMode === "structured" ? (
+              <>
+                <div>
+                  <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
+                    Parameter
+                  </label>
+                  <select
+                    value={selectedSetterIdx}
+                    onChange={(e) => setSelectedSetterIdx(Number(e.target.value))}
+                    className="nano-select"
+                    style={{ width: "100%", fontSize: 12, padding: "6px 8px" }}
+                  >
+                    {PARAM_CATALOG.map((s, i) => (
+                      <option key={`${s.contractKey}:${s.fnName}`} value={i}>
+                        {s.contractLabel} · {s.fnName}
+                      </option>
+                    ))}
+                  </select>
+                  {PARAM_CATALOG[selectedSetterIdx] && (
+                    <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                      {PARAM_CATALOG[selectedSetterIdx].description}
+                    </div>
+                  )}
+                </div>
+
+                {PARAM_CATALOG[selectedSetterIdx]?.args.map((arg, i) => (
+                  <div key={arg.name}>
+                    <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
+                      {arg.name} <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 11 }}>({arg.kind.replace("uint256-", "")})</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={argInputs[i] ?? ""}
+                      onChange={(e) => setArgInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
+                      placeholder={currentValues[i] !== null ? `current: ${currentValues[i]}` : "integer value"}
+                      className="nano-input"
+                      required
+                    />
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                      {arg.description}
+                      {currentValues[i] !== null && (
+                        <span style={{ marginLeft: 8 }}>
+                          · <strong style={{ color: "var(--text)" }}>Current: {formatArg(arg.kind, currentValues[i] as bigint)}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
+                <div>
+                  <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>Target contract address</label>
+                  <input
+                    type="text"
+                    value={propTarget}
+                    onChange={(e) => setPropTarget(e.target.value)}
+                    placeholder="0x..."
+                    className="nano-input"
+                    required
+                  />
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                    Must be on the ParameterGovernance whitelist. Use the Catalog tab unless you know what you're doing.
+                  </div>
+                </div>
+                <div>
+                  <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
+                    Call payload <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(hex-encoded calldata)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={propPayload}
+                    onChange={(e) => setPropPayload(e.target.value)}
+                    placeholder="0x..."
+                    className="nano-input"
+                    required
+                  />
+                </div>
+              </>
+            )}
+
             <div>
               <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>Description</label>
               <input
                 type="text"
                 value={propDescription}
                 onChange={(e) => setPropDescription(e.target.value)}
-                placeholder="Describe what this change does and why"
+                placeholder="Why this change is needed"
                 className="nano-input"
                 required
               />
@@ -448,7 +573,7 @@ export function ProtocolParams() {
             <TransactionStatus state={propTxState} message={propTxMsg} />
             <button
               type="submit"
-              disabled={propTxState === "pending" || !propTarget || !propPayload || !propDescription}
+              disabled={propTxState === "pending" || !propDescription || (proposeMode === "raw" && (!propTarget || !propPayload))}
               className="nano-btn nano-btn-accent"
               style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600 }}
             >

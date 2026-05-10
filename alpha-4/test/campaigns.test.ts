@@ -291,4 +291,42 @@ describe("DatumCampaigns", function () {
       campaigns.transferOwnership(ethers.ZeroAddress)
     ).to.be.revertedWith("E00");
   });
+
+  describe("defaultTakeRateBps governance", function () {
+    it("default is 5000 bps (50%)", async function () {
+      expect(await campaigns.defaultTakeRateBps()).to.equal(5000n);
+    });
+
+    it("setDefaultTakeRateBps — owner updates within bounds", async function () {
+      await expect(campaigns.setDefaultTakeRateBps(6500))
+        .to.emit(campaigns, "DefaultTakeRateUpdated").withArgs(5000, 6500);
+      expect(await campaigns.defaultTakeRateBps()).to.equal(6500n);
+    });
+
+    it("setDefaultTakeRateBps — at min (3000) and max (8000) bounds", async function () {
+      await campaigns.setDefaultTakeRateBps(3000);
+      expect(await campaigns.defaultTakeRateBps()).to.equal(3000n);
+      await campaigns.setDefaultTakeRateBps(8000);
+      expect(await campaigns.defaultTakeRateBps()).to.equal(8000n);
+    });
+
+    it("setDefaultTakeRateBps — below min reverts E11", async function () {
+      await expect(campaigns.setDefaultTakeRateBps(2999)).to.be.revertedWith("E11");
+    });
+
+    it("setDefaultTakeRateBps — above max reverts E11", async function () {
+      await expect(campaigns.setDefaultTakeRateBps(8001)).to.be.revertedWith("E11");
+    });
+
+    it("setDefaultTakeRateBps — non-owner reverts E18", async function () {
+      await expect(
+        campaigns.connect(other).setDefaultTakeRateBps(5000)
+      ).to.be.revertedWith("E18");
+    });
+
+    it("MIN/MAX constants match the publisher take rate range", async function () {
+      expect(await campaigns.MIN_DEFAULT_TAKE_RATE_BPS()).to.equal(3000n);
+      expect(await campaigns.MAX_DEFAULT_TAKE_RATE_BPS()).to.equal(8000n);
+    });
+  });
 });

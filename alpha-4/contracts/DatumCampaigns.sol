@@ -25,7 +25,14 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
     uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
 
-    uint16 private constant DEFAULT_TAKE_RATE_BPS = 5000;
+    /// @notice Take rate snapshotted into open campaigns (publisher = address(0))
+    ///         where there is no individual publisher rate. Governable within
+    ///         the same 30%–80% range as individual publishers via setDefaultTakeRateBps.
+    uint16 public defaultTakeRateBps = 5000;
+    /// @dev Bounds match the per-publisher take rate range enforced by DatumPublishers
+    ///      so the default can never escape the protocol's stated economics.
+    uint16 public constant MIN_DEFAULT_TAKE_RATE_BPS = 3000;
+    uint16 public constant MAX_DEFAULT_TAKE_RATE_BPS = 8000;
     uint8 public constant MAX_PUBLISHER_TAGS = 32;
     uint8 public constant MAX_CAMPAIGN_TAGS = 8;
 
@@ -157,6 +164,16 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     }
 
     /// @notice Set the maximum campaign budget. 0 disables the cap.
+    /// @notice Update the take rate applied to open campaigns (publisher = address(0)).
+    /// @dev Bounded to the same 30%–80% range as individual publisher take rates so
+    ///      governance can't push the default outside the protocol's stated economics.
+    event DefaultTakeRateUpdated(uint16 oldBps, uint16 newBps);
+    function setDefaultTakeRateBps(uint16 bps) external onlyOwner {
+        require(bps >= MIN_DEFAULT_TAKE_RATE_BPS && bps <= MAX_DEFAULT_TAKE_RATE_BPS, "E11");
+        emit DefaultTakeRateUpdated(defaultTakeRateBps, bps);
+        defaultTakeRateBps = bps;
+    }
+
     function setMaxCampaignBudget(uint256 amount) external onlyOwner {
         maxCampaignBudget = amount;
         emit MaxCampaignBudgetSet(amount);
@@ -361,7 +378,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
                 snapRelaySigner = publishers.relaySigner(publisher);
                 snapPubTags = _publisherTags[publisher];
             } else {
-                snapshot = DEFAULT_TAKE_RATE_BPS;
+                snapshot = defaultTakeRateBps;
             }
         }
 

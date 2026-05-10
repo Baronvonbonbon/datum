@@ -980,6 +980,99 @@ async function main() {
   console.log("               + govV2.setCampaigns(router) + govV2.setLifecycle(router)");
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 3b: ParameterGovernance — whitelist + ownership migration
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  logStep("Wiring ParameterGovernance whitelist + ownership for FP contracts");
+
+  // Catalog of governable parameter setters. Keep this in sync with the
+  // webapp's parameterCatalog.ts so the UI can render structured propose forms.
+  // Each entry whitelists (target, selector) on ParameterGovernance and
+  // (eventually) lets a passed proposal call it via PG.execute().
+  interface GovernableSetter { contractKey: keyof typeof addresses; sig: string; }
+  const PARAM_SETTERS: GovernableSetter[] = [
+    // PublisherStake — base/perImp/delay + max-required cap
+    { contractKey: "publisherStake",       sig: "setParams(uint256,uint256,uint256)" },
+    { contractKey: "publisherStake",       sig: "setMaxRequiredStake(uint256)" },
+    // PublisherGovernance — fraud governance tunables
+    { contractKey: "publisherGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
+    { contractKey: "publisherGovernance",  sig: "setProposeBond(uint256)" },
+    // ParameterGovernance self-governance — voting/timelock/quorum/bond
+    { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
+  ];
+
+  // Group target addresses we need to whitelist + transfer
+  const PG_TARGETS = Array.from(new Set(PARAM_SETTERS.map((s) => s.contractKey)));
+
+  function selectorOf(sig: string): string {
+    return ethers.id(sig).slice(0, 10);
+  }
+
+  // Helper: call a setter on ParameterGovernance only when the desired state differs
+  async function pgSetWhitelistTarget(targetAddr: string, allowed: boolean) {
+    const iface = new ethers.Interface(["function whitelistedTargets(address) view returns (bool)"]);
+    const data = iface.encodeFunctionData("whitelistedTargets", [targetAddr]);
+    const result = await rawProvider.call({ to: addresses.parameterGovernance, data });
+    const current = Boolean(ethers.AbiCoder.defaultAbiCoder().decode(["bool"], result)[0]);
+    if (current === allowed) {
+      console.log(`  OK (already): ParameterGovernance.whitelist[${targetAddr}] = ${allowed}`);
+      return;
+    }
+    await sendCall(addresses.parameterGovernance,
+      ["function setWhitelistedTarget(address,bool)"], "setWhitelistedTarget", [targetAddr, allowed]);
+    console.log(`  SET: ParameterGovernance.whitelist[${targetAddr}] = ${allowed}`);
+  }
+
+  async function pgSetSelector(targetAddr: string, selector: string, allowed: boolean) {
+    const iface = new ethers.Interface(["function permittedSelectors(address,bytes4) view returns (bool)"]);
+    const data = iface.encodeFunctionData("permittedSelectors", [targetAddr, selector]);
+    const result = await rawProvider.call({ to: addresses.parameterGovernance, data });
+    const current = Boolean(ethers.AbiCoder.defaultAbiCoder().decode(["bool"], result)[0]);
+    if (current === allowed) {
+      console.log(`  OK (already): selector ${selector} on ${targetAddr} = ${allowed}`);
+      return;
+    }
+    await sendCall(addresses.parameterGovernance,
+      ["function setPermittedSelector(address,bytes4,bool)"], "setPermittedSelector", [targetAddr, selector, allowed]);
+    console.log(`  SET: selector ${selector} on ${targetAddr} = ${allowed}`);
+  }
+
+  // 3b.1: Whitelist all governable (target, selector) tuples on ParameterGovernance.
+  for (const targetKey of PG_TARGETS) {
+    await pgSetWhitelistTarget(addresses[targetKey], true);
+  }
+  for (const setter of PARAM_SETTERS) {
+    await pgSetSelector(addresses[setter.contractKey], selectorOf(setter.sig), true);
+  }
+
+  // 3b.2: Transfer ownership of each governed contract (and PG itself) → PG.
+  //       Then bootstrap-accept on PG to finish the 2-step migration.
+  for (const targetKey of PG_TARGETS) {
+    const targetAddr = addresses[targetKey];
+    const owner = await readAddr(targetAddr, "owner");
+    if (owner === addresses.parameterGovernance.toLowerCase()) {
+      console.log(`  OK (already PG-owned): ${targetKey}`);
+      continue;
+    }
+    if (owner !== deployer.address.toLowerCase()) {
+      console.warn(`  WARNING: ${targetKey} owned by ${owner}, not deployer — skipping ownership migration`);
+      continue;
+    }
+    let pendingOwner = "";
+    try { pendingOwner = await readAddr(targetAddr, "pendingOwner"); } catch { /* */ }
+    if (pendingOwner !== addresses.parameterGovernance.toLowerCase()) {
+      await sendCall(targetAddr, ["function transferOwnership(address)"], "transferOwnership", [addresses.parameterGovernance]);
+      console.log(`  TRANSFERRED: ${targetKey} -> ParameterGovernance (pendingOwner set)`);
+    } else {
+      console.log(`  OK (transfer pending): ${targetKey} pendingOwner already PG`);
+    }
+    // bootstrapAcceptOwnership is owner-only on PG (deployer at this point)
+    await sendCall(addresses.parameterGovernance,
+      ["function bootstrapAcceptOwnership(address)"], "bootstrapAcceptOwnership", [targetAddr]);
+    console.log(`  ACCEPTED: ParameterGovernance now owns ${targetKey}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 4: Post-deploy validation
   // ═══════════════════════════════════════════════════════════════════════════
 

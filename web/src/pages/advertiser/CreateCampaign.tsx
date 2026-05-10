@@ -159,6 +159,19 @@ export function CreateCampaign() {
   const [pubChecking, setPubChecking] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Default take rate (used for open campaigns where publisher = address(0))
+  const [defaultTakeRateBps, setDefaultTakeRateBps] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await contracts.campaigns.defaultTakeRateBps();
+        if (!cancelled) setDefaultTakeRateBps(Number(v));
+      } catch { /* ABI may not include this on older deployments */ }
+    })();
+    return () => { cancelled = true; };
+  }, [contracts.campaigns]);
+
   // Fetch reward-token decimals + symbol so the rewardPerImpression and step-3
   // deposit inputs can accept human decimal amounts instead of raw smallest units.
   useEffect(() => {
@@ -592,6 +605,13 @@ export function CreateCampaign() {
                 Targeted (specific publisher)
               </button>
             </div>
+            {isOpen && defaultTakeRateBps !== null && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Open campaigns snapshot the protocol default take rate of{" "}
+                <strong style={{ color: "var(--text)" }}>{(defaultTakeRateBps / 100).toFixed(0)}%</strong>.
+                Governance can change this within 30%–80%.
+              </div>
+            )}
           </div>
 
           {/* Publisher picker */}
