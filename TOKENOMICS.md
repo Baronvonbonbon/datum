@@ -621,25 +621,30 @@ This is the only pre-allocation. **No private sale. No public sale. No KOL alloc
 
 **Sizing rationale.** 5% sits well below industry norms (15-25% team/insiders) and signals founders-as-runway-not-payday. At 100M cap, 5M = a meaningful but bounded founder position. Compared to: Bitcoin (0% premine), Maker (~30% founders), Compound (~22% team), Uniswap (~22% team+investors).
 
-### 3.3 Settlement-driven emissions — Path F: time-based halvings + per-epoch budgets
+### 3.3 Settlement-driven emissions — Path H: baked halvings + adaptive rate within hard limits
 
-The 95M emittable supply mints into circulation under a **time-halving** schedule with **per-epoch supply budgets** and **carry-forward** of any unminted budget.
+The 95M emittable supply mints into circulation under a **time-halving** schedule (baked, non-governable) with a **dynamically-adjusted per-DOT rate** that targets a fixed daily cap each epoch.
 
-This combines Bitcoin's predictable halving cadence with an activity-driven safety net that ensures the full 95M reaches circulation regardless of when activity arrives.
+This combines Bitcoin's two-layer model: outer halving (block reward halves every 4 years) + inner difficulty adjustment (every 2016 blocks). For DATUM:
+- **Outer**: daily emission cap halves every 7 calendar years.
+- **Inner**: per-DOT rate recalibrates each adjustment period to keep total daily emission ≈ daily cap.
 
-**Core mechanism.**
+**Core mechanism — all baked constants except adjustment cadence.**
 
 ```
-HALVING_PERIOD       = 7 years (calendar time, extend-only via governance)
-INITIAL_RATE         = 19 DATUM per DOT settled (locked at deploy)
-EPOCH_BUDGETS        = [47.5M, 23.75M, 11.875M, 5.94M, 2.97M, 1.48M, 0.74M, ...]
-                       (geometric halving sequence; sum ≈ 95M; locked at deploy)
-CARRY_FORWARD        = unused budget rolls into next epoch
-```
+HALVING_PERIOD              = 7 years     (BAKED — non-governable)
+EPOCH_BUDGETS               = [47.5M, 23.75M, 11.875M, 5.94M, 2.97M, ...]   (BAKED, geometric)
+DAILY_CAP(epoch n)          = EPOCH_BUDGETS[n] / 2555 days
+                            = [18,591, 9,295, 4,648, 2,324, 1,162, ...] DATUM/day  (BAKED)
 
-At the start of epoch `n` (calendar 7n years after launch):
-- Per-DOT rate halves: `currentRate = INITIAL_RATE / 2^n` = 19, 9.5, 4.75, …
-- Epoch budget refreshes: `currentEpochBudget = scheduledBudget(n) + carryFromPriorEpoch`
+ADJUSTMENT_PERIOD           = 1 day       (governance-tunable, BAKED bounds [1, 90])
+MAX_ADJUSTMENT_RATIO        = 2x          (BAKED — anti-volatility)
+MIN_RATE                    = 0.001       (BAKED — prevents zero-emission griefing)
+MAX_RATE                    = 200         (BAKED — prevents runaway at very low volume)
+
+INITIAL_RATE                = 19 DATUM/DOT (BAKED — bootstrap value; immediately adapts)
+CARRY_FORWARD               = unused epoch budget rolls into next epoch   (BAKED)
+```
 
 **Per-settlement logic.**
 
@@ -666,32 +671,72 @@ advertiserMint  = mint - userMint - publisherMint
 each recipient mint capped at perAddressDailyCap, excess forfeit
 
 // Update accumulators:
-remainingEpochBudget   -= actually_minted
-remainingDailyCap      -= actually_minted
-totalMinted            += actually_minted
+cumulativeDotThisAdjustmentPeriod += payoutDot
+remainingEpochBudget              -= actually_minted
+remainingDailyCap                 -= actually_minted
+totalMinted                       += actually_minted
 ```
 
-**Epoch rollover.**
+**Rate adjustment — Bitcoin-difficulty-style.**
+
+After each `ADJUSTMENT_PERIOD` elapses, anyone can call `adjustRate()`:
+
+```solidity
+function adjustRate() external {
+    require(block.timestamp >= lastAdjustmentTime + adjustmentPeriod, "too soon");
+
+    uint256 observedVolume = cumulativeDotThisAdjustmentPeriod;
+    uint256 periodBudget   = dailyCap(currentEpoch) × adjustmentPeriodInDays;
+
+    uint256 targetRate = observedVolume > 0
+        ? periodBudget × 1e18 / observedVolume
+        : currentRate × MAX_ADJUSTMENT_RATIO;     // no observation → push toward MAX
+
+    // Hard bound: rate can only move by MAX_ADJUSTMENT_RATIO per period.
+    uint256 minNext = currentRate / MAX_ADJUSTMENT_RATIO;
+    uint256 maxNext = currentRate × MAX_ADJUSTMENT_RATIO;
+    targetRate = clamp(targetRate, minNext, maxNext);
+
+    // Absolute floor and ceiling.
+    targetRate = clamp(targetRate, MIN_RATE, MAX_RATE);
+
+    currentRate = targetRate;
+    lastAdjustmentTime = block.timestamp;
+    cumulativeDotThisAdjustmentPeriod = 0;
+
+    emit RateAdjusted(currentRate, observedVolume);
+}
+```
+
+If volume is steady: rate converges so that `volume × rate ≈ daily_cap`.
+If volume spikes high: rate falls (clamped at half the previous rate per period); cap clips excess until rate catches up.
+If volume drops low: rate rises (clamped at 2x per period); converges to higher rate that maintains target emission per cap level.
+
+**Epoch rollover — halving baked in.**
+
+After each `HALVING_PERIOD` (7 years exactly) elapses, anyone can call `rollEpoch()`:
 
 ```solidity
 function rollEpoch() external {
     require(block.timestamp >= epochStartTime + HALVING_PERIOD, "too early");
-    uint256 carry = currentEpochBudget;            // whatever's unused rolls forward
+    uint256 carry = remainingEpochBudget;            // unused rolls forward
     epochNumber++;
     epochStartTime = block.timestamp;
-    currentRate     = currentRate / 2;
-    currentEpochBudget = scheduledBudget(epochNumber) + carry;
+    remainingEpochBudget = scheduledBudget(epochNumber) + carry;
+    // Rate is NOT halved here — the daily cap halves (derived from epoch budget),
+    // and the rate adapts to the new lower cap via the adjustment mechanism over the
+    // following adjustment periods.
 }
 ```
 
-Permissionless — anyone can call once the epoch boundary passes. The first call after the boundary triggers the halving and budget refresh.
+The halving manifests as a **cap halving**, not a rate halving. The rate adapts naturally during the first few adjustment periods of the new epoch.
 
 **Split per claim — 55 / 40 / 5.**
 
 ```
-REWARD_USER_BPS         = 5500   (55%)
-REWARD_PUBLISHER_BPS    = 4000   (40%)
-REWARD_ADVERTISER_BPS   =  500   (5%)
+REWARD_USER_BPS         = 5500   (55%)  — BAKED
+REWARD_PUBLISHER_BPS    = 4000   (40%)  — BAKED
+REWARD_ADVERTISER_BPS   =  500   (5%)   — BAKED
 ```
 
 Rationale:
@@ -699,90 +744,119 @@ Rationale:
 - **Publisher (40%).** Operating the surface area is the second-largest contribution.
 - **Advertiser (5%).** Small but non-zero. Aligns advertisers with protocol governance and feeds the §2.5 fee-discount loop (advertiser DOT spend → DATUM accumulation → discount tier). Capped low to avoid governance concentration among high-volume advertisers.
 
-### 3.4 Daily mint cap (spike protection)
+The split is **baked** — governance cannot redirect this distribution.
+
+### 3.4 Daily mint cap — derived, not separately tunable
+
+Under Path H, the daily cap is **derived** from the epoch budget:
 
 ```
-DAILY_MINT_CAP = 500_000 DATUM / day  (governance-tunable, both directions)
+DAILY_CAP(epoch n) = EPOCH_BUDGETS[n] / 2555 days
+
+epoch 0:  47.5M / 2555 = 18,591 DATUM/day
+epoch 1:  23.75M / 2555 = 9,295 DATUM/day
+epoch 2:  11.875M / 2555 = 4,648 DATUM/day
+epoch 3:  5.94M / 2555 = 2,324 DATUM/day
+...halves at each epoch boundary
 ```
 
-The daily cap is **spike protection only**, not a constant constraint. At INITIAL_RATE = 19 and the 500k cap, the cap binds only at >26,300 DOT/day daily volume — well above expected sustained usage.
+This is **not separately settable** by governance — it follows mechanically from the epoch budget schedule. There is no `setDailyCap()` function.
 
-When the cap is hit:
-- Additional settlements still settle DOT normally.
-- DATUM mint is paused for the remainder of the UTC day.
-- Unminted DATUM beyond the daily cap is **forfeited**, NOT carried to the next day (the carry-forward in §3.3 is on epoch budgets, not daily caps).
-- The day rolls at UTC midnight.
+When the daily cap binds (raw mint > cap):
+- Mint clips to cap; excess is forfeit.
+- DOT settlement is unaffected.
+- Tomorrow's rate will adjust based on today's observed volume (§3.3 adjustment loop).
+- The next-day reset is UTC midnight.
 
-This distinction matters: epoch-budget carry-forward ensures the **full 95M reaches circulation** over time. Daily cap forfeit ensures **spike protection is real** — you can't bank up "missed mints" from a quiet week and dump them on a spike day.
+There is no per-day carry-forward (banking unused days). Carry-forward operates at the epoch granularity only (§3.3).
 
-### 3.5 Halving criterion — time-based, governance-asymmetric
+### 3.5 Governance levers — minimum surface
 
-Halvings fire on **wall-clock time** at every `HALVING_PERIOD` (default 7 years).
+Under Path H, the emission curve is almost entirely **baked into the contract**. The governance surface is deliberately minimal to eliminate slow-walk, accelerate, and rate-manipulation attack vectors.
 
-**Asymmetric governance.** Per §1.6 (admin sunset clause) and the long-term-growth principle, governance can adjust `HALVING_PERIOD` but **only in the direction that lengthens emissions**:
+**Constants (BAKED — no governance function exists to change them):**
 
-```solidity
-function setHalvingPeriod(uint256 newPeriod) external onlyGovernance {
-    require(newPeriod >= HALVING_PERIOD, "halving period can only extend");
-    HALVING_PERIOD = newPeriod;
-}
-```
+| Constant | Value | Notes |
+|---|---|---|
+| `HARD_CAP` | 100M DATUM | §1.4 — absolute scarcity |
+| `FOUNDER_PREMINT` | 5M DATUM | §3.2 |
+| `HALVING_PERIOD` | 7 years exact | Calendar time, fixed |
+| `EPOCH_BUDGETS` | [47.5M, 23.75M, ...] geometric | Fixed sequence |
+| `DAILY_CAP(epoch)` | epoch_budget / 2555 | Derived, not settable |
+| `INITIAL_RATE` | 19 DATUM/DOT | Bootstrap value, immediately adapts |
+| `MAX_ADJUSTMENT_RATIO` | 2x per adjustment period | Anti-volatility floor + ceiling |
+| `MIN_RATE` | 0.001 DATUM/DOT | Prevents zero-emission griefing |
+| `MAX_RATE` | 200 DATUM/DOT | Prevents runaway at very low volume |
+| `ADJUSTMENT_PERIOD_MIN` | 1 day | Floor on cadence — can't recalibrate faster |
+| `ADJUSTMENT_PERIOD_MAX` | 90 days | Ceiling on cadence — can't stop adjusting |
+| `REWARD_USER_BPS` / `_PUBLISHER_BPS` / `_ADVERTISER_BPS` | 5500 / 4000 / 500 | Split shape |
+| `RAMP_DURATION` | 100,800 blocks (~7 days) | Sybil-resistance shape |
+| `RAMP_START_BPS` | 3000 (30%) | Sybil-resistance shape |
+| `TREASURY_SKIM_BPS_MAX` | 1000 (10%) | Ceiling on treasury skim |
 
-The function reverts on any attempt to shorten. Governance can choose to slow halvings (extending the emission tail), never accelerate them. This codifies the §1.4 principle (predictable scarcity) at the contract level.
+**Governance-tunable (within baked bounds):**
 
-Other parameters that are similarly extend-only:
-- `MIN_RATE` (floor on currentRate after deep tail) — can only raise.
-- `currentEpochBudget` — can only top up via carry-forward (no governance reduction).
+| Parameter | Bounds (baked) | Why tunable |
+|---|---|---|
+| `ADJUSTMENT_PERIOD` | [1, 90] days | Tune Bitcoin-difficulty cadence; can react to observed volatility |
+| `DUST_THRESHOLD` | [0, 1 DATUM] | Gas optimisation |
+| `PER_ADDRESS_DAILY_CAP` | [0, ∞] | Sybil knob — tighten if abuse surfaces |
+| `TREASURY_SKIM_BPS` | [0, 1000] | 0% at genesis, ≤ 10% if activated |
 
-Parameters that are unrestricted-governance-tunable:
-- `DAILY_CAP` (spike protection — bidirectional tuning is fine).
-- `PER_ADDRESS_DAILY_CAP` (Sybil knob).
-- `DUST_THRESHOLD` (gas optimisation knob).
-- `TREASURY_SKIM_BPS` (0% at genesis, ≤ 10% if activated).
+**What cannot happen via governance:**
+- Halving period extended or shortened → blocked.
+- Initial / current rate fundamentally changed → blocked (only `adjustRate()` permissionless can change it within ±2x bounds).
+- Daily cap raised or lowered independently → blocked (derived from epoch budget).
+- Per-epoch budget altered or reallocated → blocked.
+- Split among user / publisher / advertiser changed → blocked.
+- Adjustment ratio loosened beyond 2x per period → blocked.
 
-Parameters that are **never** governance-tunable:
-- `HARD_CAP` (§1.4).
-- `INITIAL_RATE` (locked at deploy).
-- `EPOCH_BUDGETS` (locked at deploy).
-- `FOUNDER_ALLOCATION` (locked at deploy).
+This removes the largest classes of governance-capture attacks (slow-walk emissions, accelerate inflation, redirect distribution). The only "emission knob" available is adjustment cadence, which has narrow effect (rate adaptation timing, not magnitude).
 
-### 3.6 Math sanity check
+### 3.6 Math sanity check (Path H)
 
 **Scenario A — target volume: 1,000 DOT/day average for 50 years.**
 
-- Epoch 0 (years 0-7): rate 19, daily mint at target volume = 19,000 DATUM/day.
-- 7 years at 19,000/day = 48.5M raw, but bounded by budget 47.5M.
-- Budget exhausts at ~6.85 years into epoch 0. Mints stop for the remaining ~6 weeks.
-- Year 7: epoch rolls. New rate = 9.5. Budget = 23.75M + ~0 carry = 23.75M.
-- Same shape across epochs. Each epoch's budget exhausts shortly before the calendar boundary.
-- **Total emitted by year 50: ~94M** (99% of 95M target). ✓
+- Epoch 0 daily cap = 18,591 DATUM/day.
+- Day 1: rate 19 (bootstrap). Raw mint = 1000 × 19 = 19,000 ≈ 18,591 (cap-bound, ~2% forfeit).
+- Day 2: adjustment fires. Observed 1,000 DOT, target rate = 18,591 / 1000 = 18.59. Within 2x bound (was 19), accept.
+- Days 3+: rate stable at 18.59. Daily mint hits cap exactly. **No quiet periods.**
+- 7-year epoch 0 total ≈ 47.5M (perfect fit).
+- Year 7: epoch rolls. Cap halves to 9,295. Rate adjusts down to 9.30 over 1-2 days.
+- Across 50 years: ~94M emitted (99% target). ✓
 
 **Scenario B — low volume: 100 DOT/day average.**
 
-- Epoch 0: rate 19, daily mint = 1,900 DATUM. 7 years = 4.85M. Budget = 47.5M.
-- 42.65M carries forward to epoch 1.
-- Epoch 1: rate 9.5, budget = 23.75M + 42.65M = 66.4M. 7y at 9.5 × 100 = 2.43M emitted. 64M carries.
-- Carry-forward grows faster than emissions can burn it under low volume.
-- **By year 50: ~10-15M emitted. Remaining accumulates in the tail forever** — but the 95M target is preserved; governance can lengthen halvings (extend-only) to let later epochs stretch and emit more.
+- Daily cap = 18,591. Raw mint at rate 19 = 1,900 DATUM/day (well under cap).
+- Adjustment day 2: observed 100 DOT, target rate = 18,591 / 100 = 185.9. But bounded at 2x → rate becomes 38.
+- Day 3: target stays 185.9, rate moves to 76.
+- Day 4: rate moves to 152.
+- Day 5: rate reaches MAX_RATE = 200. Capped.
+- Daily mint at MAX_RATE = 200 × 100 = 20,000. Slightly over cap → cap clips at 18,591.
+- **Every day mints at the cap level, regardless of low underlying volume.**
+- Total emitted in epoch 0: ~47.5M (cap-bound). ✓
+- Same shape across all epochs (MAX_RATE catches up to compensate for low volume).
 
 **Scenario C — high volume: 10,000 DOT/day average.**
 
-- Epoch 0: rate 19, raw daily = 190,000 DATUM/day (well under 500k cap).
-- Budget 47.5M exhausts at 47.5M / 190k ≈ 250 days (~8 months) into epoch 0.
-- Mints pause for remaining ~6.3 years of epoch 0.
-- Epoch 1: rate 9.5, budget 23.75M. Exhausts in ~8 months again. Quiet for 6.3 years.
-- Same shape across epochs.
-- **Total emitted by year 50: ~94M.** ✓
-- **No "crumbs later" problem.** Emission is bounded *per epoch*, not just by hard cap.
+- Daily cap = 18,591. Raw mint at initial rate 19 = 190,000 → cap-bound at 18,591.
+- Day 2: target rate = 18,591 / 10,000 = 1.86. Current 19. Bounded at /2x → rate becomes 9.5.
+- Day 3: target 1.86, current 9.5, → rate 4.75.
+- Day 4: → 2.375.
+- Day 5: → 1.86 (target reached, no more movement).
+- From day 5 onward: rate stable at 1.86. Daily mint = 1.86 × 10,000 = 18,600 ≈ cap. **Every impression mints proportionally.**
+- 7-year epoch 0 total = 18,591 × 2555 = ~47.5M. ✓
+- No front-loading. No quiet periods.
 
-**Scenario D — bursty / spike: 100,000 DOT/day for a single day in epoch 0.**
+**Scenario D — bursty / spike: 100,000 DOT/day for one day in epoch 0.**
 
-- Raw daily mint = 100k × 19 = 1.9M DATUM/day. Hits daily cap 500k.
-- 500k minted that day; 1.4M forfeit (no daily carry-forward).
-- Cumulative epoch budget: minimal impact (500k of 47.5M = 1%).
-- **Spike protection works without distorting long-term emission.** ✓
+- Day before spike: rate 18.59 (calibrated to 1k DOT/day).
+- Spike day: raw mint = 100,000 × 18.59 = 1.86M → cap clips at 18,591. ~99% forfeit.
+- Day after: adjustment fires. Observed 100,000 DOT, target rate = 0.186. Bounded at /2x → rate moves to 9.30.
+- Recovery: if spike subsides back to 1k DOT, rate climbs back to 18.59 over 4-5 days.
+- **Spike protection works without front-loading or quiet periods.** ✓
 
-**Sensitivity flag.** If actual average volume is much lower than 1,000 DOT/day for prolonged periods, the carry-forward tail extends well beyond year 50. Total emission still converges to 95M (it just takes longer). Governance can extend the halving period to make later epochs longer, giving more time for emissions to flow at higher rates. The 95M cap is always honored; the 50-year *target* is a goal, not a guarantee.
+**Sensitivity flag.** If actual average volume is much lower than expected for prolonged periods AND the MAX_RATE cap is hit, the daily cap is still maintained at the floor. Total emission converges to 95M because MAX_RATE × low volume can still reach cap. The 50-year horizon is approximately preserved at any volume above a few DOT/day. At truly miniscule volumes (< 1 DOT/day), even MAX_RATE doesn't fill the cap; tail emissions are lower; full 95M may not be reached. This is acceptable — the protocol either has activity or it doesn't, and DATUM ownership has no value without activity anyway.
 
 ### 3.7 Sybil resistance
 
@@ -910,64 +984,73 @@ Treasury skim is governance-tunable upward but **capped at 1000 bps (10%)** at t
 
 **Why 0% to start.** Genesis emissions are the maximally-decentralised distribution moment. Pre-baking a treasury skim sets a precedent that "some fraction goes to a committee." Better to let governance activate it explicitly when public-good funding becomes a priority, with a real proposal and real vote.
 
-### 3.9 Storage + invariants summary
+### 3.9 Storage + invariants summary (Path H)
 
-Mint authority contract storage (the EVM-side controller; calls Asset Hub precompile to mint canonical, then WDATUM wrapper):
+Mint authority contract storage. **All constants below are baked at deploy — there is no setter function for any of them.**
 
 ```solidity
-// ── Constants (locked at deploy, never settable) ──────────────────────
-uint256 public constant HARD_CAP                = 100_000_000 × 10**18;
-uint256 public constant FOUNDER_PREMINT         =   5_000_000 × 10**18;
-uint256 public constant INITIAL_RATE            =          19 × 10**18;   // DATUM per DOT
-uint256 public constant TREASURY_SKIM_BPS_MAX   = 1000;                   // 10%
-uint256 public immutable LAUNCH_TIME;                                     // unix seconds
+// ── BAKED constants (no setters exist) ────────────────────────────────
+uint256 public constant HARD_CAP                = 100_000_000e10;     // 100M (10 decimals)
+uint256 public constant FOUNDER_PREMINT         =   5_000_000e10;     // 5M
+uint256 public constant HALVING_PERIOD          = 7 * 365 days;       // 7 calendar years
+uint256 public constant INITIAL_BUDGET          =  47_500_000e10;     // epoch 0 budget
+uint256 public constant DAYS_PER_EPOCH          = HALVING_PERIOD / 1 days;  // 2555
+uint256 public constant INITIAL_RATE            = 19e10;              // bootstrap DATUM/DOT
+uint256 public constant MIN_RATE                = 1e7;                // 0.001
+uint256 public constant MAX_RATE                = 200e10;
+uint256 public constant MAX_ADJUSTMENT_RATIO    = 2;                  // numerator over denom of 1
+uint256 public constant ADJUSTMENT_PERIOD_MIN   = 1 days;
+uint256 public constant ADJUSTMENT_PERIOD_MAX   = 90 days;
+uint16  public constant REWARD_USER_BPS         = 5500;               // baked split
+uint16  public constant REWARD_PUBLISHER_BPS    = 4000;
+uint16  public constant REWARD_ADVERTISER_BPS   = 500;
+uint16  public constant TREASURY_SKIM_BPS_MAX   = 1000;               // 10% ceiling
+uint16  public constant RAMP_START_BPS          = 3000;               // 30% on first mint
+uint256 public constant RAMP_DURATION_BLOCKS    = 100_800;            // ~7 days
 
-// EPOCH_BUDGETS computed in a pure function from INITIAL_BUDGET and epochNumber:
-//   scheduledBudget(n) = INITIAL_BUDGET / 2^n   (geometric halving)
-// INITIAL_BUDGET = 47_500_000 × 10**18
-uint256 public constant INITIAL_BUDGET          = 47_500_000 × 10**18;
+uint256 public immutable LAUNCH_TIME;
 
-// ── Extend-only governance state ──────────────────────────────────────
-uint256 public halvingPeriod             = 7 years;                      // can only extend
-uint256 public minRate                   = 0.001 × 10**18;               // can only raise
+// Computed: scheduledBudget(n) = INITIAL_BUDGET / 2^n   (pure function, no storage)
+// Computed: dailyCap(n)       = scheduledBudget(n) / DAYS_PER_EPOCH
 
-// ── Bidirectional governance state ────────────────────────────────────
-uint256 public dailyMintCap              = 500_000 × 10**18;
-uint256 public perAddressDailyMintCap    = 100 × 10**18;
-uint256 public dustMintThreshold         = 0.01 × 10**18;
-uint16  public treasuryBps               = 0;                            // ≤ TREASURY_SKIM_BPS_MAX
-uint16  public rewardUserBps             = 5500;
-uint16  public rewardPublisherBps        = 4000;
-uint16  public rewardAdvertiserBps       = 500;
-uint16  public rampStartBps              = 3000;
-uint256 public rampDurationBlocks        = 100_800;                      // ~7 days
+// ── Governance-tunable within baked bounds ────────────────────────────
+uint256 public adjustmentPeriod        = 1 days;       // ∈ [MIN, MAX]
+uint256 public dustMintThreshold       = 0.01e10;      // ∈ [0, 1e10]
+uint256 public perAddressDailyMintCap  = 100e10;       // ∈ [0, ∞]
+uint16  public treasuryBps             = 0;            // ∈ [0, TREASURY_SKIM_BPS_MAX]
 
 // ── Running state ─────────────────────────────────────────────────────
-uint256 public currentRate;                                              // halves at epoch boundary
-uint256 public epochNumber;                                              // 0 at launch
-uint256 public epochStartTime;                                           // unix seconds
-uint256 public currentEpochBudget;                                       // = scheduled(n) + carry
-uint256 public totalMinted;                                              // ≤ HARD_CAP always
+uint256 public currentRate;                            // adjusts via adjustRate()
+uint256 public epochNumber;                            // 0 at launch
+uint256 public epochStartTime;
+uint256 public remainingEpochBudget;                   // = scheduled(n) + carry from previous
 
-uint256 public mintedToday;                                              // global daily counter
-uint256 public mintDayStart;                                             // UTC midnight timestamp
+uint256 public cumulativeDotThisAdjustmentPeriod;      // resets each adjustment
+uint256 public lastAdjustmentTime;
+
+uint256 public mintedToday;                            // global daily cap counter
+uint256 public mintDayStart;                           // UTC midnight timestamp
+
+uint256 public totalMinted;                            // ≤ HARD_CAP always
 
 mapping(address => uint256) public addressMintedToday;
 mapping(address => uint256) public addressMintDayStart;
-mapping(address => uint256) public firstSeen;                            // for ramp-up
+mapping(address => uint256) public firstSeen;          // for §3.7c ramp
 ```
 
 **Invariants enforced at the contract level:**
 
 - `totalMinted + FOUNDER_PREMINT ≤ HARD_CAP` always. Mint silently no-ops if it would exceed.
-- `rewardUserBps + rewardPublisherBps + rewardAdvertiserBps == 10000 - treasuryBps`. Enforced by setter.
+- `REWARD_USER_BPS + REWARD_PUBLISHER_BPS + REWARD_ADVERTISER_BPS == 10000 - treasuryBps` (governance setter for treasuryBps enforces this).
 - `treasuryBps ≤ TREASURY_SKIM_BPS_MAX` (10%). Enforced by setter.
-- `setHalvingPeriod(newPeriod)` reverts if `newPeriod < halvingPeriod` (extend-only).
-- `setMinRate(newMin)` reverts if `newMin < minRate` (raise-only).
-- Daily cap rollover is UTC-midnight based.
-- Sub-dust mints skip entirely; epoch budget and daily cap **still decrement** by 0 (no state change for skipped mints).
-- Epoch budget overflow into the next epoch is unbounded (carry-forward has no ceiling other than the global hard cap).
-- `currentRate` floors at `minRate`; mints below `minRate` are dust-skipped.
+- `setAdjustmentPeriod(p)` reverts if `p < ADJUSTMENT_PERIOD_MIN || p > ADJUSTMENT_PERIOD_MAX`.
+- `setPerAddressDailyMintCap(c)`: no upper bound check.
+- `setDustMintThreshold(t)` reverts if `t > 1e10` (1 DATUM ceiling).
+- **No setters exist for** `HALVING_PERIOD`, `INITIAL_RATE`, `EPOCH_BUDGETS`, `DAILY_CAP`, `REWARD_*_BPS`, `RAMP_*`, `MAX_ADJUSTMENT_RATIO`, `MIN_RATE`, `MAX_RATE`. These are immutable for the life of the contract.
+- `adjustRate()` is permissionless after `adjustmentPeriod` elapses. Rate moves by at most `MAX_ADJUSTMENT_RATIO` per call.
+- `rollEpoch()` is permissionless after `HALVING_PERIOD` elapses since `epochStartTime`. Carry-forward of unspent epoch budget into the new epoch.
+- UTC-midnight daily reset is timestamp-based.
+- Sub-dust mints skip entirely; no state change for skipped mints (epoch budget and daily cap unaffected).
 
 ---
 
@@ -986,21 +1069,28 @@ HARD CAP:                  100,000,000 DATUM   (non-governable)
     │                                            │
     ├── per-settlement formula:                  │
     │   mint = payoutDOT × currentRate           │
-    │   currentRate halves at each epoch         │ minted over time
-    │   epoch = 7 calendar years (extend-only)   │ via real protocol use
-    │   INITIAL_RATE = 19 DATUM/DOT              │
     │                                            │
-    ├── per-epoch budget caps:                   │
+    ├── two-layer Bitcoin-style mechanism:       │
+    │   OUTER (baked): daily cap halves every    │ minted over time
+    │     7 calendar years exactly               │ via real protocol use
+    │     E0 cap = 18,591 DATUM/day              │
+    │     E1 cap =  9,295 / E2 = 4,648 / ...     │
+    │   INNER (adaptive): per-DOT rate           │
+    │     recalibrates each adjustment period    │
+    │     to keep daily emission ≈ cap           │
+    │     bounded ±2x per period                 │
+    │                                            │
+    ├── per-epoch budgets (baked):               │
     │   E0=47.5M / E1=23.75M / E2=11.875M / ...  │
     │   unused budget carries to next epoch      │
     │   total emission converges to 95M          │
     │                                            │
     ├── split (after optional treasury skim):    │
     │   55% user / 40% publisher / 5% advertiser │
+    │   (BAKED — not governance-tunable)         │
     │                                            │
     ├── caps:                                    │
-    │   daily   ≤  500,000 DATUM / day  (spike)  │
-    │   per addr ≤    100 DATUM / day            │
+    │   per addr ≤ 100 DATUM / day               │
     │                                            │
     ├── gates:                                   │
     │   • quality score must exceed threshold    │
@@ -1013,7 +1103,8 @@ HARD CAP:                  100,000,000 DATUM   (non-governable)
 
 NO treasury allocation at genesis.
 Target emission horizon: ~50 years at sustained moderate volume.
-Halving period is extend-only via governance (slow allowed, accelerate denied).
+Halving period is BAKED at 7 years — no governance lever can change it.
+Only governance levers: adjustment cadence (1-90d), Sybil caps, treasury skim (0-10%).
 ```
 
 ### Treasury funding (at genesis)
@@ -1374,17 +1465,21 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 - ✅ **§2.6 Bonds** — selective switch: PublisherGovernance propose-bond → WDATUM (to treasury on slash). ChallengeBonds + PublisherStake stay DOT (primary-function bonds).
 - ✅ **§2.8 Relay staking** — direction approved, deferred to v0.3 spec.
 
-### Supply & emissions (§3)
+### Supply & emissions (§3) — Path H (baked halvings + adaptive rate within hard limits)
 - ✅ Hard cap **100M DATUM** (non-governable).
 - ✅ Founders' premint **5M (5%)**, 4y/1y cliff, slowable-only, single beneficiary.
-- ✅ **Path F**: time-based halvings, every 7 calendar years, **extend-only** via governance.
-- ✅ Initial rate **19 DATUM/DOT**, halves at each epoch boundary.
-- ✅ Per-epoch supply budgets `[47.5M, 23.75M, ...]` with **carry-forward** ensuring 95M total emission.
-- ✅ Split: **55% user / 40% publisher / 5% advertiser**.
-- ✅ Daily cap **500k DATUM/day** as spike protection (governance-tunable).
+- ✅ **Path H**: two-layer Bitcoin-style emission.
+  - **Outer (BAKED)**: daily cap halves every 7 calendar years. No governance function can change `HALVING_PERIOD`. Period.
+  - **Inner (adaptive within bounds)**: per-DOT rate recalibrates each `ADJUSTMENT_PERIOD` to keep daily emission ≈ daily cap. Movement bounded at ±2x per period (BAKED).
+- ✅ Epoch budgets `[47.5M, 23.75M, ...]` with **carry-forward** ensuring 95M total emission. Budgets BAKED.
+- ✅ Daily cap per epoch = epoch_budget / 2555 days. Derived, not separately settable.
+- ✅ Initial rate **19 DATUM/DOT** as bootstrap value (BAKED). Immediately starts adapting.
+- ✅ Rate bounds: MIN_RATE = 0.001, MAX_RATE = 200 DATUM/DOT (BAKED).
+- ✅ Split: **55% user / 40% publisher / 5% advertiser** (BAKED — no governance function).
 - ✅ Per-address daily cap **100 DATUM/day**, dust threshold **0.01 DATUM**.
-- ✅ Sybil resistance: per-address cap + quality gate + 7-day ramp (30% → 100%).
+- ✅ Sybil resistance: per-address cap + quality gate + 7-day ramp (30% → 100%, BAKED shape).
 - ✅ Treasury auto-skim **0% at genesis**, ≤ 10% if activated by governance.
+- ✅ **Governance attack surface minimized**: only adjustment cadence (1-90d range, BAKED bounds), Sybil knobs, and treasury skim are tunable. Halving, split, rate bounds, budgets are immutable.
 
 ### Token contract (§5)
 - ✅ Both canonical and WDATUM use **10 decimals** (substrate-native, 1:1 wrapping).
