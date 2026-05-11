@@ -257,7 +257,7 @@ Example trajectories:
 | Trigger | Mechanism | Bond fate |
 |---|---|---|
 | **(b) Inactivity** — member fails to vote on N consecutive proposals | Automatic — anyone can call `markInactive(memberAddr)` after the threshold; contract verifies missed-vote count and slashes | → treasury |
-| **(d) Manual governance** — explicit slash proposal cites the member, passes ParameterGovernance | `slashCouncilMember(addr, recipient, reason)` callable only by ParameterGovernance.execute | → treasury default; proposal can override to a named victim |
+| **(d) Manual governance** — explicit slash proposal cites the member; passes EITHER ParameterGovernance OR Council itself | `slashCouncilMember(addr, recipient, reason)` callable by `ParameterGovernance.execute` OR by `Council.execute` (a council self-vote). The dual path lets Council police itself fast for internal misconduct while preserving a broad token-weighted override against council-majority capture. | → treasury default; proposal can override to a named victim |
 | **(e) Forced removal vote** — council removes a member via internal proposal | Bond redirects on the removal-execution path | → treasury |
 
 Conditions explicitly **not** slashable (rejected to avoid weaponising the bond against good-faith disagreement):
@@ -594,15 +594,108 @@ address public protocolTreasury;     // for slashed-bond destination
 
 **Why not also switch ChallengeBonds.** Worth being explicit: the temptation to "make all bonds DATUM" was strong, but it would mean every advertiser launching a campaign needs to acquire DATUM first. That's a friction wall against the protocol's actual users. The principle (§1.1) wins over symmetry.
 
-### 2.7 Lifecycle-aligned emissions (DISTRIBUTION) — *needs deeper design, see §3*
+### 2.7 Council scope — operational authority
+
+Council is the operational arm of governance. Token-weighted bodies (ParameterGovernance, PublisherGovernance) handle structural decisions; Council handles operational decisions that need speed and human judgement. Their scopes are non-overlapping by design.
+
+The principle: **Council can act fast on operational matters; structural protocol changes always require token-weighted ratification.** This limits Council's capture-attack surface to operations only.
+
+#### What Council CAN do
+
+**(A) Campaign lifecycle** — during Phase 1 (Council as `governor` on `DatumGovernanceRouter`):
+- `router.activateCampaign(id)`
+- `router.terminateCampaign(id)`
+- `router.demoteCampaign(id)`
+
+Direct authority, no token-vote required. Phase 2+ moves this authority to GovernanceV2.
+
+**(B) Self-governance** — internal hygiene:
+- `addMember` / `removeMember` / `setGuardian` / `setThreshold`
+- `setVotingPeriod` / `setExecutionDelay` / `setVetoWindow` / `setMaxExecutionWindow`
+- `slashCouncilMember(addr, recipient, reason)` — Council votes to slash its own bonded member for documented misconduct. Note: ParameterGovernance can ALSO slash council members via token-vote override (per §2.2), preventing council-majority capture.
+
+**(C) Hard-slash on documented findings** (when relay staking ships per §6):
+- Manual 100% slash on a relay operator for documented fraud.
+- Slashed DATUM routes to treasury (per §6.2).
+
+**(D) Operational treasury grants** (NEW):
+- **Per-proposal cap**: 50,000 WDATUM (~0.05% of supply). Governance-tunable [10k, 100k].
+- **Monthly cumulative cap**: 200,000 WDATUM (~0.2% of supply). Governance-tunable.
+- Above either cap: requires ParameterGovernance ratification (broad mandate).
+- Funded from treasury (slashing inflows + voted-in treasury skim per §3.8).
+- Use cases: auditor payment, contributor stipend, infrastructure costs, ecosystem grants.
+
+**(E) Fraud proposal initiation at zero bond**:
+- Council members can file `DatumPublisherGovernance` fraud proposals without posting the usual propose-bond.
+- The vote itself remains **token-weighted** (per §2.3) — Council can only initiate, not pass.
+- Non-Council filers still post the normal bond (§2.6).
+- Removes the spam-tax friction for council-initiated escalations.
+
+**(F) Phase transition proposals** (via Timelock):
+- Council can propose `router.setGovernor(phase, newGovernor)` to advance Phase 1 → Phase 2 (OpenGov).
+- Council can propose `mintAuthority.transferIssuerTo(parachainPallet)` for the §0 parachain migration.
+- These do NOT bypass Timelock — they queue Timelock proposals that clear the 48h delay before execution.
+
+#### What Council CANNOT do
+
+- **Protocol parameters** — exclusively ParameterGovernance (token-weighted).
+- **Publisher fraud verdicts** — exclusively PublisherGovernance (token-weighted). Council can only initiate.
+- **Large treasury disbursements** — above per-proposal or monthly cap require ParameterGovernance.
+- **Per-claim mint rate, halving cadence, supply** — BAKED at deploy.
+- **Council member salaries / compensation** — explicitly excluded. See compensation philosophy below.
+- **Override token-weighted governance** — Council and ParameterGovernance/PublisherGovernance are parallel authorities; Council cannot revoke token-vote decisions.
+
+#### Compensation philosophy — NO SALARY
+
+Council members are **bonded** (skin-in-the-game) and **unpaid**. Their incentive to engage comes from:
+
+- Token appreciation if the protocol succeeds (their bond grows in value).
+- Reputation / mission alignment (cypherpunk public service).
+- Standard fee-share rewards if they participate as stakers.
+
+Per §1.5 (anti-financialisation), paying council members from protocol fees would create perverse incentives: members would optimise for keeping their seat rather than for protocol health. We accept that some members may step down due to time cost; the bond ensures only credibly committed candidates apply.
+
+**If turnout proves a problem in practice**: the lightest acceptable lever is **expense reimbursement** via the existing grant mechanism — council votes a grant to itself (or to operational vendors) for documented costs (audits, infrastructure, communication tools). The per-grant cap is bounded; broader allocations need token-vote ratification.
+
+This explicitly rules out: salary streams, per-vote micro-rewards, fee-share priority bonuses, retainer payments. Any of these would distort incentives toward seat-retention.
+
+#### Phase advancement
+
+Council remains relevant after Phase 2 (OpenGov) activates because it retains:
+- Treasury grant authority (operational disbursements, capped).
+- Member self-governance.
+- Hard-slash on relay fraud (operational judgement).
+- Phase transition proposal authority (proposing the next sunset milestones).
+
+The GovernanceRouter's `governor` changes from Council (Phase 1) to GovernanceV2 (Phase 2), but the Council itself doesn't dissolve. It becomes the operational body alongside token-weighted governance — a clear two-track structure (operational vs structural).
+
+#### Storage additions on `DatumCouncil`
+
+```solidity
+// Treasury grant tracking (per §2.7 D)
+uint256 public grantPerProposalMax  = 50_000e10;       // 50k WDATUM (tunable [10k, 100k])
+uint256 public grantMonthlyMax      = 200_000e10;      // 200k WDATUM (tunable)
+uint256 public grantMonthlyUsed;                        // resets at UTC month boundary
+uint256 public grantMonthResetAt;                       // unix seconds, UTC month start
+
+address public treasury;                                // treasury contract address
+```
+
+New proposal types layered on top of the existing council proposal mechanism:
+- Standard council proposal (existing): arbitrary `(target, value, calldata)`.
+- Grant proposal: must target `treasury` with `disburse(recipient, amount)` calldata; subject to caps.
+
+The contract verifies the caps at execution time (not at proposal time, since stale monthly counters would make pre-checks unreliable).
+
+### 2.8 Lifecycle-aligned emissions (DISTRIBUTION) — *needs deeper design, see §3*
 
 This is the primary distribution mechanism. Covered in detail in the Supply & Emissions section.
 
-### 2.8 DATUM-gated relays (TRUST COLLATERAL) — *needs deeper design, see §6*
+### 2.9 DATUM-gated relays (TRUST COLLATERAL) — *needs deeper design, see §6*
 
 Open follow-up. Sketched in §6 because the design space is large enough to warrant its own section.
 
-### 2.9 Out of scope for v0.1
+### 2.10 Out of scope for v0.1
 
 - **Per-campaign DOT staking → DATUM** (brainstorm #1) — kept on DOT. Per-campaign votes are quality control, not ownership.
 - **Veto override by token supermajority** (brainstorm #9) — deferred to OpenGov phase. Council guardian is the alpha mechanism; supermajority override is a v2 layering.
@@ -1640,7 +1733,8 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 - ✅ **§2.4 Publisher allowlist DATUM bypass** — parallel-OR path; reads `feeShare.stakedBy`; governance-tunable threshold (1k WDATUM default); grandfathered on later unstake; same whitelist-mode scope.
 - ✅ **§2.5 Advertiser fee discount** — step function 0/25/75/150/200 bps at **static absolute** tiers 0/1k/10k/100k/1M WDATUM staked (not %-of-supply; thresholds are concrete amounts). Reuses FeeShare. Lazy refresh, 24h min interval / 30d max age, anyone can call. Absolute 200 bps cap. All actionTypes.
 - ✅ **§2.6 Bonds** — selective switch: PublisherGovernance propose-bond → WDATUM (to treasury on slash). ChallengeBonds + PublisherStake stay DOT (primary-function bonds).
-- ✅ **§2.8 / §6 Relay staking** — full design locked: throughput-scaled bond (BASE_BOND=50, PER_CLAIM_MULTIPLIER=0.01 over 30-day window), two-tier slashing (5% soft at 500 bps rejection rate / 100% hard via gov vote), bond tied to operator (not signer), operator-wide cross-relay slashing, 30-day unstake delay. Contract code + escrow + integration in v0.3 spec.
+- ✅ **§2.7 Council scope** — operational authority: campaign lifecycle (Phase 1), self-governance, hard-slash on relay fraud, treasury grants up to 50k WDATUM per-proposal / 200k monthly, fraud-proposal initiation at zero bond, phase transition proposals via Timelock. Cannot do: protocol parameters, publisher fraud verdicts, large grants, salaries, supply changes. NO salary mechanism — bond + token appreciation is the alignment. Expense reimbursement available via standard grant mechanism if turnout becomes an issue.
+- ✅ **§2.9 / §6 Relay staking** — full design locked: throughput-scaled bond (BASE_BOND=50, PER_CLAIM_MULTIPLIER=0.01 over 30-day window), two-tier slashing (5% soft at 500 bps rejection rate / 100% hard via gov vote), bond tied to operator (not signer), operator-wide cross-relay slashing, 30-day unstake delay. Contract code + escrow + integration in v0.3 spec.
 
 ### Supply & emissions (§3) — Path H (baked halvings + adaptive rate within hard limits)
 - ✅ Hard cap **100M DATUM** (non-governable).
@@ -1715,4 +1809,4 @@ There are no remaining design decisions in this spec.
 
 ---
 
-*End of v0.5 spec. All design decisions locked, including the §3.9 bootstrap house ad for solving cold-start onboarding. Remaining work in §10 is pre-launch operational tasks and the v0.3-relay-staking implementation spec.*
+*End of v0.6 spec. All design decisions locked, including §2.7 Council scope (operational authority — campaign lifecycle, self-governance, hard-slash, capped treasury grants, fraud initiation, phase transitions; no parameter governance, no large grants, no salaries). Remaining work in §10 is pre-launch operational tasks and the v0.3-relay-staking implementation spec.*
