@@ -228,10 +228,29 @@ On stake / unstake / claim: settle a's pending = `userStake[a] * accDotPerShare 
 
 **Role.** Long-term commitment. Council seats require a locked, slashable WDATUM bond. Today the council has no economic gate; this adds skin-in-the-game without changing the N-of-M voting model.
 
-**Bond size.**
-- Stored as `bondAmount` on `DatumCouncil`, **governance-tunable** via ParameterGovernance.
-- Initial value at activation: deliberately low (e.g. 10,000 WDATUM) — circulating supply is small in early phase 1, and a bond that's prohibitive at that point excludes good candidates.
-- Existing bonds are **grandfathered at the rate they posted at**. Raising `bondAmount` later does not retroactively top up existing seats; it only affects newly bonded seats. This prevents weaponising bond raises against current members.
+**Bond size — hybrid formula with bounds.**
+
+```
+bondAmount = clamp(
+    circulatingSupplyAtActivation × BOND_BPS / 10000,
+    BOND_FLOOR,
+    BOND_CEILING
+)
+
+BOND_BPS      = 10       (0.1% of circulating supply)
+BOND_FLOOR    = 1,000 WDATUM
+BOND_CEILING  = 50,000 WDATUM   (during first 5 years)
+```
+
+- Self-scales with circulating supply: an early council activated at low circulating supply uses the floor; later activations at richer supply use the percentage; mature periods bound by the ceiling.
+- `BOND_BPS`, `BOND_FLOOR`, `BOND_CEILING` are governance-tunable; the formula structure itself is locked at deploy.
+- Existing bonds are **grandfathered at the rate they posted at**. Raising any of these parameters later does not retroactively top up existing seats; it only affects newly bonded seats.
+
+Example trajectories:
+- Activation at 1M circulating: bond = max(1k, 0.1% × 1M) = 1,000 WDATUM (floor)
+- Activation at 10M circulating: bond = max(1k, 0.1% × 10M) = 10,000 WDATUM
+- Activation at 50M circulating: bond = min(50k, 0.1% × 50M) = 50,000 WDATUM (ceiling)
+- Mature period at 80M circulating: still 50,000 WDATUM (ceiling caps growth)
 
 **Slashable conditions — three only (kept narrow on purpose).**
 
@@ -1438,15 +1457,39 @@ Staking requirement raises the floor for relay operators. Mitigations to maintai
 - **Earnings-backed onboarding.** A relay operator can pledge future settlement earnings to back the bond via an escrow that takes a fraction of each settlement until the BASE_BOND is met. Permits zero-capital relay launch.
 - **Open-relay fallback.** Unstaked relays may remain functional under reduced per-block settlement caps (e.g. half the staked ceiling). Maintains permissionless participation; tilts the economics toward staked operators without locking out small ones.
 
-### 6.6 What's deferred to v0.3 spec
+### 6.6 Concrete starting parameters
 
-- Concrete numerical values for `BASE_BOND`, `PER_CLAIM_MULTIPLIER`, rejection-rate thresholds, slashing windows.
+These are governance-tunable starting values; the formula structure (throughput-scaled bond, two-tier slashing, operator-bound) is locked.
+
+```
+BASE_BOND               = 50 WDATUM
+PER_CLAIM_MULTIPLIER    = 0.01 WDATUM per claim
+THROUGHPUT_WINDOW       = 30 days rolling
+SOFT_SLASH_THRESHOLD    = 500 bps (5%) rejection rate
+SOFT_SLASH_WINDOW       = 7 days rolling
+SOFT_SLASH_BPS          = 500 bps (5% of stake)
+HARD_SLASH_BPS          = 10000 bps (100% of stake)
+UNSTAKE_DELAY           = 30 days
+```
+
+Sample bond curves at these values:
+
+| Operator scale | Claims/day | Required bond |
+|---|---|---|
+| Small | 100 | 50 + (100 × 30 × 0.01) = **80 WDATUM** |
+| Mid | 10,000 | 50 + (10k × 30 × 0.01) = **3,050 WDATUM** |
+| Large | 100,000 | 50 + (100k × 30 × 0.01) = **30,050 WDATUM** |
+
+Honest relays should sustain rejection rates well under 100 bps. The 500 bps soft-slash threshold leaves ample headroom for noise while clearly catching dysfunction.
+
+### 6.7 What's deferred to v0.3 spec
+
 - `DatumRelayStake` contract source code, integration into `DatumSettlement`.
 - Auto-slash trigger machinery (oracle, on-chain reputation read).
-- Earnings-backed escrow contract.
+- Earnings-backed escrow contract for zero-capital onboarding.
 - Open-relay fallback caps and integration details.
 
-The directional decisions above are stable. The remaining work is parameterisation and implementation, blocked on real-world reputation data and audit.
+The directional decisions and starting parameters are stable. The remaining work is implementation and audit.
 
 ---
 
@@ -1511,12 +1554,12 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 
 ### Utility (§2)
 - ✅ **§2.1 FeeShare** — stake WDATUM, earn DOT. Immediate withdrawals. Periodic permissionless sweep. Zero floor. 0% treasury skim at genesis. No DEX integration.
-- ✅ **§2.2 Council bonding** — governance-tunable WDATUM bond, three slashable conditions (inactivity / manual vote / forced removal), treasury default recipient, 30-day cool-down, voluntary opt-in phase-in.
+- ✅ **§2.2 Council bonding** — hybrid bond formula `clamp(circulating × 0.1%, 1k, 50k)` WDATUM, governance-tunable parameters within bounded structure. Three slashable conditions (inactivity / manual vote / forced removal), treasury default recipient, 30-day cool-down, voluntary opt-in phase-in.
 - ✅ **§2.3 Quadratic voting** — ParameterGovernance + PublisherGovernance switch to WDATUM. Piecewise dampener (linear up to 100, sqrt above). Outer conviction multiplier. Quorum = 1% of canonical supply. Proposer bond stays separate from vote.
 - ✅ **§2.4 Publisher allowlist DATUM bypass** — parallel-OR path; reads `feeShare.stakedBy`; governance-tunable threshold (1k WDATUM default); grandfathered on later unstake; same whitelist-mode scope.
-- ✅ **§2.5 Advertiser fee discount** — step function 0/25/75/150/200 bps at tiers 0/1k/10k/100k/1M WDATUM staked. Reuses FeeShare. Lazy refresh, 24h min interval / 30d max age, anyone can call. Absolute 200 bps cap. All actionTypes.
+- ✅ **§2.5 Advertiser fee discount** — step function 0/25/75/150/200 bps at **static absolute** tiers 0/1k/10k/100k/1M WDATUM staked (not %-of-supply; thresholds are concrete amounts). Reuses FeeShare. Lazy refresh, 24h min interval / 30d max age, anyone can call. Absolute 200 bps cap. All actionTypes.
 - ✅ **§2.6 Bonds** — selective switch: PublisherGovernance propose-bond → WDATUM (to treasury on slash). ChallengeBonds + PublisherStake stay DOT (primary-function bonds).
-- ✅ **§2.8 / §6 Relay staking** — full directional design locked: throughput-scaled bond, two-tier slashing (5% soft / 100% hard), bond tied to operator (not signer), operator-wide cross-relay slashing. Concrete values + contract code in v0.3 spec.
+- ✅ **§2.8 / §6 Relay staking** — full design locked: throughput-scaled bond (BASE_BOND=50, PER_CLAIM_MULTIPLIER=0.01 over 30-day window), two-tier slashing (5% soft at 500 bps rejection rate / 100% hard via gov vote), bond tied to operator (not signer), operator-wide cross-relay slashing, 30-day unstake delay. Contract code + escrow + integration in v0.3 spec.
 
 ### Supply & emissions (§3) — Path H (baked halvings + adaptive rate within hard limits)
 - ✅ Hard cap **100M DATUM** (non-governable).
@@ -1558,32 +1601,25 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 
 ---
 
-## 10. Open questions (still to resolve)
+## 10. Pre-launch checklist (operational)
 
-Resolved items have moved into §9. Remaining open items are concrete parameter values that depend on observable real-world data and are best set near deploy:
+All design decisions are locked. The items below are pre-launch validation and coordination tasks — not design questions. They block deployment but don't require further spec work.
 
-1. **Council bond initial size at activation.** Spec says "low" (~10k WDATUM); needs a final number once circulating supply is observable.
-2. **Concrete relay-staking parameters.** Directional design is locked in §6 (throughput-scaled bond, two-tier slashing, operator-bound). Concrete values for `BASE_BOND`, `PER_CLAIM_MULTIPLIER`, rejection-rate thresholds, slashing windows — in v0.3 spec, blocked on real reputation data.
-3. **Per-tier WDATUM thresholds for advertiser fee discount** — current values 1k/10k/100k/1M are placeholders; revisit pre-launch once expected circulating supply is clear.
-4. **Founder allocation distribution** — single multisig (current spec) is fine for one founder; revisit if scope expands.
-5. **WDATUM 10-decimal compatibility check** — pre-launch validation task, not a design decision. Verify major Polkadot ecosystem wallets, DEX aggregators (Hydration, Acala), and block explorers render the wrapper correctly.
-6. **Cross-chain XCM channel setup** — for the canonical asset to be usable on other parachains (Acala, Hydration), XCM channels need to be opened. Coordinate with parachain teams pre-launch. Not blocking on v0.3.
+1. **WDATUM 10-decimal compatibility verification.** Pre-launch validation: test the wrapper renders correctly in major Polkadot ecosystem wallets (Talisman, Nova, SubWallet), block explorers (SubScan, Polkassembly views), and DEX aggregators (Hydration, Acala). Asset Hub native asset is standard; the EVM wrapper at 10 decimals is the integration risk.
 
-### Locked in v0.3 (added since v0.2)
+2. **Cross-chain XCM channel setup.** Open XCM channels from Polkadot Hub (where canonical DATUM lives) to: Acala, Hydration, and any other parachain where the asset should be tradeable. Requires coordination with each parachain's governance.
 
-The following items were on the v0.2 open list and have been resolved into the spec:
+3. **Asset Hub asset ID `31337` availability check.** Verify ID 31337 is unclaimed on Paseo Hub testnet, then on Polkadot Asset Hub mainnet pre-genesis. If taken, fall back to alternatives (`1010` or another vanity number).
 
-| Question | Decision |
-|---|---|
-| MIN_RATE floor | **0.001 DATUM/DOT**, BAKED in §3.3 (Path H) |
-| License | **GPL-3.0** for token contracts (matches the rest of the protocol). SDK stays Apache-2.0 as it already does. |
-| Audit | **At least one professional audit** required pre-mainnet; verified on the explorer from day 1. Solo / firm / community audits welcome additionally. |
-| Asset Hub asset ID | **31337** (uberleet, cypherpunk reference beside USDC=1337, USDT=1984). Verify unclaimed on Paseo Hub before genesis. |
-| `DatumWrapper` upgrade pathway | **Immutable.** No admin key, no upgradeability. Locked at deploy. |
-| `DatumMintAuthority` upgrade pathway | **Admin-tunable for sunset path only** — `transferIssuerTo(...)` is the only privileged function. No logic upgrades possible. |
-| `DatumVesting` upgrade pathway | **Immutable.** Single beneficiary, single schedule, slowable-only extension. |
-| Emergency pause | **None.** No pause switch on token contracts. Aligned with §1.6 — the cleanest sunset is to never have the function. Contracts that can't be paused can't be censored. |
-| Genesis claim window | **Immediate.** Settlement-driven minting begins with the next settled claim after token deploy. No warmup period. |
+4. **Audit firm engagement.** Schedule at least one professional audit of `DatumMintAuthority`, `DatumWrapper`, `DatumVesting`, and the changes to `DatumSettlement`, `DatumPublishers`, `DatumPublisherGovernance`, `DatumParameterGovernance`. Engagement before any mainnet contract is deployed.
+
+5. **Founder multisig setup.** Provision the founder multisig (Gnosis Safe / hardware-backed) that will be the beneficiary of `DatumVesting`. Confirm signers, threshold, recovery procedures.
+
+6. **Source verification on the explorer from day 1.** Token contracts must be source-verified on the Polkadot Hub block explorer at the same block they are deployed at. Tooling tested pre-mainnet on Paseo.
+
+7. **v0.3 spec doc.** Relay staking implementation spec — contract source, escrow mechanics, auto-slash trigger, open-relay fallback details. Concrete starting parameters are already in §6.6.
+
+There are no remaining design decisions in this spec.
 
 ---
 
@@ -1597,4 +1633,4 @@ The following items were on the v0.2 open list and have been resolved into the s
 
 ---
 
-*End of v0.3 spec. Architecture, major parameters, governance surface, license, audit policy, asset ID, pause stance, and genesis timing all locked. Concrete numbers (council bond size, relay staking params, fee discount tier thresholds) are subject to final review before any contract code touches the repo.*
+*End of v0.4 spec. All design decisions locked. Remaining work in §10 is pre-launch operational tasks (XCM channels, wallet compatibility checks, audit engagement, multisig setup, explorer verification) and the v0.3-relay-staking implementation spec (contract source + integration; directional design + concrete starting parameters already in §6).*
