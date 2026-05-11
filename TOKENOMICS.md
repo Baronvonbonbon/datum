@@ -1356,44 +1356,97 @@ Total new surface: ~400 LOC of new contract code + integration changes to ~3 exi
 
 ---
 
-## 6. Relay staking — forward-looking sketch
+## 6. Relay staking — directional design
 
-**Status:** direction approved, deferred to a follow-up spec doc. The current alpha-4 relay model stays in place for v0.2 of the token spec; staking is a v0.3+ enhancement.
+**Status:** direction locked; full parameter values + contract code deferred to a v0.3 spec doc. The current alpha-4 relay model stays in place until the v0.3 spec is shipped and audited.
 
-**Problem.** The relay model in alpha-4 is open: any address can run a relay, sign attestation responses, and submit batches. The `relaySigner` rotation cooldown helps, but doesn't require relays to commit anything economically. Bad-actor relays can spam settlement, sign for compromised publishers, or fail silently — the only cost is reputation (already tracked).
+**Problem.** The alpha-4 relay model is open: any address can run a relay, sign attestation responses, and submit batches. The `relaySigner` rotation cooldown helps, but doesn't require relays to commit anything economically. Bad-actor relays can spam settlement, sign for compromised publishers, or fail silently — the only cost is reputation (already tracked).
 
-**Proposed mechanism.** A relay must stake WDATUM into a `DatumRelayStake` contract; `DatumSettlement` reads `relayStake[batch.publisher.relaySigner]` during batch validation and rejects under-staked relays.
+**Proposed mechanism.** A relay must stake WDATUM into a `DatumRelayStake` contract; `DatumSettlement` reads the operator's stake during batch validation and rejects under-staked relays.
 
-```solidity
-contract DatumRelayStake {
-    mapping(address => uint256) public stakedBy;        // relay → WDATUM staked
-    uint256 public minStake;                            // governance-tunable
-    uint256 public unstakeDelay;                        // blocks
+### 6.1 Bond size — throughput-scaled
 
-    function stake(uint256 amount) external;            // transferFrom WDATUM
-    function requestUnstake(uint256 amount) external;
-    function claimUnstake() external;
-    function slash(address relay, uint256 amount, address recipient) external onlySlasher;
-}
+Bond requirement is **not flat** — it scales with the relay operator's recent settlement throughput:
+
+```
+requiredBond(operator) = BASE_BOND + RECENT_VOLUME(operator, window) × PER_CLAIM_MULTIPLIER
 ```
 
-**Slashing conditions (proposed, to be tuned in v0.3 spec):**
-- Auto-slash: settlement rejection rate > X bps over a rolling window (read from `DatumPublisherReputation`).
-- Manual slash: council vote on a documented fraud finding.
-- Slashed WDATUM → protocol treasury.
+- `BASE_BOND`: minimum bond for any active relay. Deliberately low (e.g. ~weeks of earned DATUM at moderate volume). Not a capital wall.
+- `RECENT_VOLUME`: cumulative claims settled by this operator's relays in a rolling window (e.g. 30 days).
+- `PER_CLAIM_MULTIPLIER`: marginal bond per additional claim. Larger operators have proportionally more stake exposed.
 
-**Grassroots compatibility.** Staking requirement raises the floor for relay operators. Mitigations to maintain accessibility:
-- **Low stake threshold.** Sized so a publisher running a relay can cover it within a few weeks of earned DATUM. Not a capital wall.
-- **Earnings-backed path.** A relay can pledge future settlement earnings to back the bond via an escrow that takes a fraction of each settlement until the threshold is met. Permits zero-capital relay operation; gates only by commitment.
-- **Open-relay fallback.** Optionally, unstaked relays remain functional but face reduced settlement caps (e.g. half the per-block ceiling). Maintains permissionless participation; tilts the economics toward staked operators without locking out small ones.
+Why throughput-scaled: an operator who settles 1M claims/month carries proportionally more "weight" against the protocol than one settling 1k/month. Aligning bond with exposure matches risk to commitment.
 
-**Open questions for the v0.3 spec:**
-- Bond scales with throughput, or flat?
-- Slashing tier system (soft failures vs hard fraud)?
-- Does the bond reset on relay-signer rotation? (If so, attackers could rotate to dodge slashing.)
-- Cross-relay reputation: should slashing a relay also slash its operator's other relay signers?
+### 6.2 Slashing tiers
 
-This section will be expanded into a full spec doc before any relay-staking contract is deployed.
+Two-level slashing distinguishes operational noise from provable malice:
+
+```
+SOFT_SLASH_BPS = 500    // 5% — rejection-rate failure
+HARD_SLASH_BPS = 10000  // 100% — proven fraud
+```
+
+**Soft slash (5%):**
+- Auto-fires when settlement rejection rate exceeds threshold (e.g. > 500 bps over 7-day rolling window).
+- Reads from `DatumPublisherReputation`.
+- Recoverable: the relay can top up stake and continue operating after the slash.
+
+**Hard slash (100%):**
+- Manual, via governance vote on a documented fraud finding.
+- Council vote (during Phase 1) or ParameterGovernance vote (Phase 2+).
+- Operator's entire bond is forfeit. They must re-stake from zero to resume operating.
+
+This two-tier model lets honest relays survive bad luck (a few flaky settlement batches won't wipe them out) while preserving real deterrence against malice.
+
+Slashed WDATUM → protocol treasury in both cases.
+
+### 6.3 Bond persistence — tied to operator, not signer
+
+The bond is associated with the **operator address** (the publisher running the relay), not the `relaySigner` address. Rotating the relay signer does not detach from prior history; the bond travels with the operator.
+
+This closes the rotation-dodge: a fraudulent relay can't escape slashing by rotating to a fresh signer key the moment a slash proposal is filed.
+
+```solidity
+mapping(address => uint256) public operatorStake;     // operator → WDATUM staked
+mapping(address => address) public signerToOperator;  // signer → operator binding
+```
+
+Settlement reads `operatorStake[signerToOperator[batch.signer]]` to gate the batch.
+
+Signer rotation updates `signerToOperator` but leaves `operatorStake` intact.
+
+### 6.4 Cross-relay slashing — operator-wide
+
+An operator may run multiple relays (each with its own signer key). Slashing reaches **all of them**:
+
+```
+operator declares their relay set at registration
+slash(operator, amount) → reduces operatorStake by amount, affecting all
+    relays bound to this operator
+```
+
+This prevents an operator from compartmentalising risk by running parallel relays where one can be sacrificed.
+
+Operators must declare their full relay set when registering a bond; adding a new relay signer post-hoc is allowed but counts against the same shared stake pool.
+
+### 6.5 Grassroots compatibility
+
+Staking requirement raises the floor for relay operators. Mitigations to maintain accessibility:
+
+- **Low BASE_BOND.** Sized at a few weeks of earned DATUM at moderate volume. Affordable to any committed publisher.
+- **Earnings-backed onboarding.** A relay operator can pledge future settlement earnings to back the bond via an escrow that takes a fraction of each settlement until the BASE_BOND is met. Permits zero-capital relay launch.
+- **Open-relay fallback.** Unstaked relays may remain functional under reduced per-block settlement caps (e.g. half the staked ceiling). Maintains permissionless participation; tilts the economics toward staked operators without locking out small ones.
+
+### 6.6 What's deferred to v0.3 spec
+
+- Concrete numerical values for `BASE_BOND`, `PER_CLAIM_MULTIPLIER`, rejection-rate thresholds, slashing windows.
+- `DatumRelayStake` contract source code, integration into `DatumSettlement`.
+- Auto-slash trigger machinery (oracle, on-chain reputation read).
+- Earnings-backed escrow contract.
+- Open-relay fallback caps and integration details.
+
+The directional decisions above are stable. The remaining work is parameterisation and implementation, blocked on real-world reputation data and audit.
 
 ---
 
@@ -1439,7 +1492,7 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 
 ---
 
-## 9. Decisions captured (v0.2)
+## 9. Decisions captured (v0.3)
 
 ### Architecture (§0)
 - ✅ **Hybrid token**: canonical Asset Hub asset + WDATUM ERC-20 wrapper on Polkadot Hub.
@@ -1463,7 +1516,7 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 - ✅ **§2.4 Publisher allowlist DATUM bypass** — parallel-OR path; reads `feeShare.stakedBy`; governance-tunable threshold (1k WDATUM default); grandfathered on later unstake; same whitelist-mode scope.
 - ✅ **§2.5 Advertiser fee discount** — step function 0/25/75/150/200 bps at tiers 0/1k/10k/100k/1M WDATUM staked. Reuses FeeShare. Lazy refresh, 24h min interval / 30d max age, anyone can call. Absolute 200 bps cap. All actionTypes.
 - ✅ **§2.6 Bonds** — selective switch: PublisherGovernance propose-bond → WDATUM (to treasury on slash). ChallengeBonds + PublisherStake stay DOT (primary-function bonds).
-- ✅ **§2.8 Relay staking** — direction approved, deferred to v0.3 spec.
+- ✅ **§2.8 / §6 Relay staking** — full directional design locked: throughput-scaled bond, two-tier slashing (5% soft / 100% hard), bond tied to operator (not signer), operator-wide cross-relay slashing. Concrete values + contract code in v0.3 spec.
 
 ### Supply & emissions (§3) — Path H (baked halvings + adaptive rate within hard limits)
 - ✅ Hard cap **100M DATUM** (non-governable).
@@ -1483,12 +1536,18 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 
 ### Token contract (§5)
 - ✅ Both canonical and WDATUM use **10 decimals** (substrate-native, 1:1 wrapping).
+- ✅ Asset Hub asset ID = **31337** (subject to availability check on Paseo Hub).
 - ✅ Asset Hub issuer = `DatumMintAuthority` contract on Polkadot Hub.
 - ✅ Metadata via Asset Hub native field.
 - ✅ **Dedicated `DatumMintAuthority`** — single bridge contract, parachain-migration-friendly.
 - ✅ Precompile bridge for canonical mint operations.
 - ✅ Vesting delivers WDATUM directly at unlock.
 - ✅ Sunset triggers: each phase advance requires explicit governance proposal + token-holder vote.
+- ✅ **License: GPL-3.0** for token contracts (matches the rest of the protocol). SDK keeps its existing Apache-2.0.
+- ✅ **Audit: at least one professional audit pre-mainnet**; explorer-verified from day 1.
+- ✅ Upgrade pathways: **DatumWrapper immutable, DatumMintAuthority sunset-only, DatumVesting immutable.**
+- ✅ **No emergency pause switch** on token contracts. Aligned with §1.6.
+- ✅ **Immediate genesis claim window** — minting begins with the next settled claim post-deploy. No warmup.
 
 ### Out of scope for v0.2
 - ❌ Per-campaign DOT staking → DATUM (GovernanceV2 stays DOT — quality control, not ownership).
@@ -1501,20 +1560,30 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 
 ## 10. Open questions (still to resolve)
 
-These remain unanswered after v0.2. Most are concrete parameter values whose defaults are reasonable starting points but should be reviewed before deploy.
+Resolved items have moved into §9. Remaining open items are concrete parameter values that depend on observable real-world data and are best set near deploy:
 
 1. **Council bond initial size at activation.** Spec says "low" (~10k WDATUM); needs a final number once circulating supply is observable.
-2. **Slashing conditions for relay staking** — full design in v0.3 spec.
-3. **Per-tier WDATUM thresholds for advertiser fee discount** — current values 1k/10k/100k/1M are placeholders.
+2. **Concrete relay-staking parameters.** Directional design is locked in §6 (throughput-scaled bond, two-tier slashing, operator-bound). Concrete values for `BASE_BOND`, `PER_CLAIM_MULTIPLIER`, rejection-rate thresholds, slashing windows — in v0.3 spec, blocked on real reputation data.
+3. **Per-tier WDATUM thresholds for advertiser fee discount** — current values 1k/10k/100k/1M are placeholders; revisit pre-launch once expected circulating supply is clear.
 4. **Founder allocation distribution** — single multisig (current spec) is fine for one founder; revisit if scope expands.
-5. **MIN_RATE floor on adaptive rate** — currently 0.001 DATUM/DOT; impacts late-tail emissions.
-6. **License + verifier identity** for the token contract — auditable + verified on the explorer from day 1.
-7. **WDATUM at 10 decimals** — confirm major Polkadot ecosystem wallets / DEX aggregators handle this correctly. Asset Hub native asset is fine; the wrapper is the integration risk.
-8. **Asset Hub asset ID assignment** — claim a specific asset ID at genesis (not first-come).
-9. **Cross-chain XCM channel setup** — for the canonical asset to be usable on other parachains (Acala, Hydration), XCM channels need to be opened. Coordinate with parachain teams pre-launch.
-10. **Token contract upgrade pathway** — explicit. Are these contracts mutable post-deploy? Stance: `DatumWrapper` immutable; `DatumMintAuthority` admin-tunable for the sunset path only (no logic upgrades); `DatumVesting` immutable.
-11. **Emergency pause** — does the token need a global pause switch? If so, who can trigger? Council? Per §1.6 sunset clause, any pause authority needs an explicit removal trigger.
-12. **Genesis claim window** — at what block does settlement-driven minting actually start? Day 1 of token deploy, or after a "warmup" period? Affects bootstrapping.
+5. **WDATUM 10-decimal compatibility check** — pre-launch validation task, not a design decision. Verify major Polkadot ecosystem wallets, DEX aggregators (Hydration, Acala), and block explorers render the wrapper correctly.
+6. **Cross-chain XCM channel setup** — for the canonical asset to be usable on other parachains (Acala, Hydration), XCM channels need to be opened. Coordinate with parachain teams pre-launch. Not blocking on v0.3.
+
+### Locked in v0.3 (added since v0.2)
+
+The following items were on the v0.2 open list and have been resolved into the spec:
+
+| Question | Decision |
+|---|---|
+| MIN_RATE floor | **0.001 DATUM/DOT**, BAKED in §3.3 (Path H) |
+| License | **GPL-3.0** for token contracts (matches the rest of the protocol). SDK stays Apache-2.0 as it already does. |
+| Audit | **At least one professional audit** required pre-mainnet; verified on the explorer from day 1. Solo / firm / community audits welcome additionally. |
+| Asset Hub asset ID | **31337** (uberleet, cypherpunk reference beside USDC=1337, USDT=1984). Verify unclaimed on Paseo Hub before genesis. |
+| `DatumWrapper` upgrade pathway | **Immutable.** No admin key, no upgradeability. Locked at deploy. |
+| `DatumMintAuthority` upgrade pathway | **Admin-tunable for sunset path only** — `transferIssuerTo(...)` is the only privileged function. No logic upgrades possible. |
+| `DatumVesting` upgrade pathway | **Immutable.** Single beneficiary, single schedule, slowable-only extension. |
+| Emergency pause | **None.** No pause switch on token contracts. Aligned with §1.6 — the cleanest sunset is to never have the function. Contracts that can't be paused can't be censored. |
+| Genesis claim window | **Immediate.** Settlement-driven minting begins with the next settled claim after token deploy. No warmup period. |
 
 ---
 
@@ -1528,4 +1597,4 @@ These remain unanswered after v0.2. Most are concrete parameter values whose def
 
 ---
 
-*End of v0.2 spec. Architecture and major parameters locked. Concrete numbers are subject to final review before any contract code touches the repo.*
+*End of v0.3 spec. Architecture, major parameters, governance surface, license, audit policy, asset ID, pause stance, and genesis timing all locked. Concrete numbers (council bond size, relay staking params, fee discount tier thresholds) are subject to final review before any contract code touches the repo.*
