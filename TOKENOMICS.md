@@ -1003,7 +1003,69 @@ Treasury skim is governance-tunable upward but **capped at 1000 bps (10%)** at t
 
 **Why 0% to start.** Genesis emissions are the maximally-decentralised distribution moment. Pre-baking a treasury skim sets a precedent that "some fraction goes to a committee." Better to let governance activate it explicitly when public-good funding becomes a priority, with a real proposal and real vote.
 
-### 3.9 Storage + invariants summary (Path H)
+### 3.9 Bootstrap house ad — onboarding allowance
+
+Solves the cold-start UX problem at token deploy: nobody has any WDATUM, but governance / staking / discount utilities all need some. A one-time bootstrap reserve distributed via the existing SDK house ad mechanism gives every new user a small starter holding when they first engage.
+
+**Allocation (carved out of the 95M settlement emission pool):**
+
+```
+BOOTSTRAP_RESERVE        = 1_000_000 DATUM    (1% of HARD_CAP)
+SETTLEMENT_EMISSIONS     = 94_000_000 DATUM   (was 95M; -1M to BOOTSTRAP_RESERVE)
+BOOTSTRAP_PER_ADDRESS    = 3 DATUM            (Variant B — modest)
+MAX_RECIPIENTS           = ~333,333 unique addresses
+```
+
+The hard cap stays 100M (5M founders + 1M bootstrap + 94M settlement emissions). Total cap is non-governable per §1.4; this is an internal reallocation only.
+
+**Mechanism — runs as a special "house ad" campaign at deploy.**
+
+At token deploy:
+1. The settlement emission pool is sized at 94M (not 95M).
+2. A separate `DatumBootstrapPool` contract is funded with 1M WDATUM minted at genesis.
+3. A reserved campaign (ID 0, or another reserved constant) is registered as the **house ad campaign**.
+4. The house ad pays DATUM only — no DOT budget needed.
+
+When a user's claim against the house ad campaign settles:
+1. Quality gate must pass (§3.7b). If not: skip.
+2. Address must not have previously received the bootstrap bonus (`hasReceivedBootstrap[addr] == false`).
+3. Bootstrap pool transfers `BOOTSTRAP_PER_ADDRESS` (3 WDATUM) to the user.
+4. `hasReceivedBootstrap[addr]` is flipped true. Permanent.
+5. The bonus is **independent of** the normal rate-based mint formula and the 7-day ramp. It's a one-shot installation reward, not an ongoing claim payout.
+
+**When pool depletes:**
+- `remainingReserve < BOOTSTRAP_PER_ADDRESS` → house ad reverts to its current non-paying fallback role.
+- The house ad creative still shows; just no DATUM mint attached.
+- House ad campaign auto-completes at this point (status → Completed).
+
+**Sybil considerations:**
+- Quality gate is the primary defense: each bonus requires a real engagement-passing impression.
+- One-time per address: a Sybil farm extracts at most `BOOTSTRAP_PER_ADDRESS × N_addresses`.
+- Bounded total damage: 1M WDATUM (1% of supply) even at maximum Sybil capture.
+- After pool exhaustion: house ad becomes non-paying. No further Sybil surface.
+
+**UX expectation:**
+
+A new user installs the DATUM extension or visits a DATUM-enabled site for the first time:
+1. SDK shows the house ad as the fallback creative (already today's behavior).
+2. User engages, quality threshold satisfied.
+3. Next claim batch settles.
+4. Settlement detects reserved campaign ID, calls `bootstrapPool.claim(user)`.
+5. User receives 3 WDATUM in their wallet, alongside any normal mint from the same batch.
+6. From the user's perspective: "I installed this thing and got paid 3 DATUM." Strong first impression; immediate governance-eligibility.
+
+The bonus is small but non-zero — enough to feel earned, small enough to keep the grassroots ethos honest.
+
+**Governance:**
+- `BOOTSTRAP_PER_ADDRESS` is **governance-tunable** (within reasonable bounds, e.g. [1, 10] WDATUM). Lets governance throttle if Sybil capture becomes pathological.
+- `BOOTSTRAP_RESERVE` (the pool size) is **baked at deploy** — cannot be topped up or extended via governance.
+- The reserved house ad campaign ID is **baked** at deploy. Cannot be changed.
+
+**Migration / sunset:**
+- Once the pool depletes (whether through normal usage or Sybil farming), the mechanism turns itself off. No governance action needed.
+- Governance can also vote to end the program early by setting `BOOTSTRAP_PER_ADDRESS = 0`. Unused reserve stays in the pool indefinitely (or is later voted into the treasury per §3.8).
+
+### 3.10 Storage + invariants summary (Path H)
 
 Mint authority contract storage. **All constants below are baked at deploy — there is no setter function for any of them.**
 
@@ -1055,6 +1117,13 @@ uint256 public totalMinted;                            // ≤ HARD_CAP always
 mapping(address => uint256) public addressMintedToday;
 mapping(address => uint256) public addressMintDayStart;
 mapping(address => uint256) public firstSeen;          // for §3.7c ramp
+
+// ── Bootstrap pool (§3.9) ─────────────────────────────────────────────
+uint256 public constant BOOTSTRAP_RESERVE       = 1_000_000e10;       // 1M DATUM
+uint256 public constant HOUSE_AD_CAMPAIGN_ID    = 0;                  // reserved
+uint256 public bootstrapPerAddress              = 3e10;               // 3 DATUM — tunable [1, 10]
+uint256 public bootstrapRemaining;                                    // depletes as bonuses paid
+mapping(address => bool) public hasReceivedBootstrap;                 // one-time gate per addr
 ```
 
 **Invariants enforced at the contract level:**
@@ -1084,7 +1153,15 @@ HARD CAP:                  100,000,000 DATUM   (non-governable)
 │   • slowable-only                              │
 │   • team multisig                              ┘
 │
-└── Settlement emissions:    95,000,000 (95%)  ─┐
+├── Bootstrap house ad:       1,000,000  (1%)   ─┐
+│   • 3 WDATUM per address                       │ minted to bootstrap
+│   • one-time per address                       │ pool at genesis
+│   • gated by quality threshold                 │
+│   • ~333,333 user onboarding capacity          │
+│   • depletes; reverts to non-paying            │
+│     fallback when empty                        ┘
+│
+└── Settlement emissions:    94,000,000 (94%)  ─┐
     │                                            │
     ├── per-settlement formula:                  │
     │   mint = payoutDOT × currentRate           │
@@ -1364,14 +1441,16 @@ This codifies §1.6 — admin roles are scaffolding, sunsetable only via explici
 - `DatumMintAuthority` (~200 LOC) — bridge logic, mint gates, sunset transfer.
 - `DatumWrapper` (~120 LOC) — ERC-20 + wrap/unwrap + invariant check.
 - `DatumVesting` (~80 LOC) — linear-with-cliff, single beneficiary, extend-only.
+- `DatumBootstrapPool` (~100 LOC) — one-time-per-address WDATUM dispenser for the house ad campaign. Funded at genesis with 1M WDATUM from the emission pool's bootstrap reserve.
 - Asset Hub setup script — register canonical DATUM asset, set decimals=10, set metadata, transfer issuer to `DatumMintAuthority`.
+- House ad campaign setup script — at genesis, register a reserved campaign ID (e.g. 0) with the house ad creative; `DatumSettlement` recognises this campaign as the bootstrap-bonus trigger.
 - Integration changes:
-  - `DatumSettlement._settleSingleClaim` — calls `DatumMintAuthority.mintForSettlement(...)` after fee + payment math; gated by §3 budget/cap/ramp/quality logic.
+  - `DatumSettlement._settleSingleClaim` — calls `DatumMintAuthority.mintForSettlement(...)` after fee + payment math; gated by §3 budget/cap/ramp/quality logic. If `campaignId == HOUSE_AD_CAMPAIGN_ID`, additionally calls `bootstrapPool.claim(user)` (gated by quality + hasReceivedBootstrap).
   - `DatumFeeShare` — reads WDATUM balances via standard `IERC20`.
   - `DatumPublishers` (allowlist bypass) — reads `feeShare.stakedBy()` (no change to this surface).
   - Other §2 utilities — read WDATUM via standard ERC-20 interfaces.
 
-Total new surface: ~400 LOC of new contract code + integration changes to ~3 existing contracts. Manageable audit scope.
+Total new surface: ~500 LOC of new contract code + integration changes to ~3 existing contracts. Manageable audit scope.
 
 ---
 
@@ -1519,6 +1598,8 @@ DATUM rolls out after alpha-4 stabilises and the protocol has demonstrated real 
    - `DatumWrapper` (WDATUM) — no admin key.
    - `DatumMintAuthority` — issuer rights transferred to it after deploy.
    - `DatumVesting` — 5M premint goes here; founder begins 12-month cliff.
+   - `DatumBootstrapPool` — 1M premint minted here for the house ad onboarding (§3.9).
+   - House ad campaign registered at reserved campaign ID (e.g. 0) with current SDK creative.
 4. **`DatumFeeShare` deployed.** Stake currency = WDATUM, reward currency = DOT. `DatumPaymentVault.withdrawProtocol` recipient pointed at FeeShare. Existing fee accrual continues seamlessly under new accounting.
 5. **`DatumPublisherGovernance` propose-bond currency switch** to WDATUM (§2.6). Force-withdraw existing DOT bonds per §1.8.
 6. **`DatumParameterGovernance` + `DatumPublisherGovernance` vote currency switch** to WDATUM with quadratic dampener (§2.3). Force-withdraw existing DOT votes per §1.8.
@@ -1576,6 +1657,7 @@ Each step is a normal governance proposal (ParameterGovernance or Council); each
 - ✅ Sybil resistance: per-address cap + quality gate + 7-day ramp (30% → 100%, BAKED shape).
 - ✅ Treasury auto-skim **0% at genesis**, ≤ 10% if activated by governance.
 - ✅ **Governance attack surface minimized**: only adjustment cadence (1-90d range, BAKED bounds), Sybil knobs, and treasury skim are tunable. Halving, split, rate bounds, budgets are immutable.
+- ✅ **Bootstrap house ad (§3.9)**: 1M WDATUM carved from emission pool into `DatumBootstrapPool`. 3 WDATUM per address, one-time, gated by quality threshold. ~333k user onboarding capacity. Reverts to non-paying fallback when depleted. Settlement emissions reduced from 95M → 94M to fund this; HARD_CAP unchanged at 100M.
 
 ### Token contract (§5)
 - ✅ Both canonical and WDATUM use **10 decimals** (substrate-native, 1:1 wrapping).
@@ -1633,4 +1715,4 @@ There are no remaining design decisions in this spec.
 
 ---
 
-*End of v0.4 spec. All design decisions locked. Remaining work in §10 is pre-launch operational tasks (XCM channels, wallet compatibility checks, audit engagement, multisig setup, explorer verification) and the v0.3-relay-staking implementation spec (contract source + integration; directional design + concrete starting parameters already in §6).*
+*End of v0.5 spec. All design decisions locked, including the §3.9 bootstrap house ad for solving cold-start onboarding. Remaining work in §10 is pre-launch operational tasks and the v0.3-relay-staking implementation spec.*
