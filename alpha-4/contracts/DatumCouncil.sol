@@ -158,13 +158,24 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         bytes[] calldata calldatas,
         string calldata description
     ) external onlyMember returns (uint256 proposalId) {
+        return _propose(msg.sender, targets, values, calldatas, description);
+    }
+
+    /// @dev Internal proposal creation, shared by propose() and proposeGrant().
+    function _propose(
+        address proposer,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        string memory description
+    ) internal returns (uint256 proposalId) {
         require(targets.length > 0, "E00");
         require(targets.length == values.length, "E00");
         require(targets.length == calldatas.length, "E00");
 
         proposalId = nextProposalId++;
         proposals[proposalId] = Proposal({
-            proposer: msg.sender,
+            proposer: proposer,
             proposedBlock: block.number,
             votingEndsBlock: block.number + votingPeriodBlocks,
             executableAfterBlock: 0,
@@ -179,7 +190,96 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         _calldatas[proposalId] = calldatas;
         _descriptions[proposalId] = description;
 
-        emit Proposed(proposalId, msg.sender, description);
+        emit Proposed(proposalId, proposer, description);
+    }
+
+    // -------------------------------------------------------------------------
+    // §2.7 D: Operational treasury grants
+    // -------------------------------------------------------------------------
+
+    /// @notice Per-proposal cap. Governance-tunable within [10k, 100k] WDATUM.
+    uint256 public grantPerProposalMax = 50_000 * 10**10;   // 50k WDATUM
+
+    /// @notice Monthly cumulative cap. Governance-tunable within [50k, 500k] WDATUM.
+    uint256 public grantMonthlyMax     = 200_000 * 10**10;  // 200k WDATUM
+
+    /// @notice Approximate-month-window cumulative tracker. Resets every 30 days.
+    uint256 public grantMonthlyUsed;
+    uint256 public grantMonthResetAt;
+
+    /// @notice Treasury token — the WDATUM contract from which grants pay out.
+    /// @dev    Settable by Council (msg.sender == this) via a self-vote.
+    address public grantToken;
+
+    event GrantProposed(uint256 indexed proposalId, address indexed recipient, uint256 amount, string description);
+    event GrantExecuted(address indexed recipient, uint256 amount, uint256 monthlyUsedAfter);
+    event GrantCapsUpdated(uint256 perProposalMax, uint256 monthlyMax);
+    event GrantTokenSet(address indexed token);
+
+    /// @notice Submit a treasury-grant proposal. Cap-checked at proposal time
+    ///         (per-proposal cap) and again at execute time (monthly cap).
+    /// @dev    Built as a wrapper that calls propose() internally with this
+    ///         contract as the target and `executeGrant()` as the action.
+    function proposeGrant(
+        address recipient,
+        uint256 amount,
+        string calldata description
+    ) external onlyMember returns (uint256 proposalId) {
+        require(recipient != address(0), "E00");
+        require(amount > 0, "E11");
+        require(amount <= grantPerProposalMax, "above per-proposal cap");
+
+        address[] memory targets = new address[](1);
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        targets[0] = address(this);
+        values[0] = 0;
+        calldatas[0] = abi.encodeWithSelector(this.executeGrant.selector, recipient, amount);
+
+        proposalId = _propose(msg.sender, targets, values, calldatas, description);
+        emit GrantProposed(proposalId, recipient, amount, description);
+    }
+
+    /// @notice Disburse a grant. Callable only via council execution
+    ///         (msg.sender == address(this) on a passed grant proposal).
+    function executeGrant(address recipient, uint256 amount) external onlyCouncil {
+        require(recipient != address(0), "E00");
+        require(amount > 0, "E11");
+        require(amount <= grantPerProposalMax, "above per-proposal cap");
+        require(grantToken != address(0), "treasury token unset");
+
+        // Monthly window reset (30-day rolling window aligned at deploy time).
+        uint256 windowStart = (block.timestamp / 30 days) * 30 days;
+        if (windowStart > grantMonthResetAt) {
+            grantMonthlyUsed = 0;
+            grantMonthResetAt = windowStart;
+        }
+        require(grantMonthlyUsed + amount <= grantMonthlyMax, "above monthly cap");
+        grantMonthlyUsed += amount;
+
+        // Transfer via ERC-20 transfer (treasury token = WDATUM).
+        (bool ok, bytes memory ret) = grantToken.call(
+            abi.encodeWithSignature("transfer(address,uint256)", recipient, amount)
+        );
+        require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "transfer failed");
+
+        emit GrantExecuted(recipient, amount, grantMonthlyUsed);
+    }
+
+    /// @notice Adjust grant caps within governance-tunable bounds.
+    function setGrantCaps(uint256 perProposalMax, uint256 monthlyMax) external onlyCouncil {
+        require(perProposalMax >= 10_000 * 10**10 && perProposalMax <= 100_000 * 10**10, "per-proposal bounds");
+        require(monthlyMax >= 50_000 * 10**10 && monthlyMax <= 500_000 * 10**10, "monthly bounds");
+        grantPerProposalMax = perProposalMax;
+        grantMonthlyMax = monthlyMax;
+        emit GrantCapsUpdated(perProposalMax, monthlyMax);
+    }
+
+    /// @notice Set the WDATUM contract used as the grant treasury source.
+    function setGrantToken(address token) external onlyCouncil {
+        require(token != address(0), "E00");
+        grantToken = token;
+        emit GrantTokenSet(token);
     }
 
     /// @notice Cast a YES vote. Each member can vote once per proposal.
