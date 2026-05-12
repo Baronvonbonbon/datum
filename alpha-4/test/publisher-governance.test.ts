@@ -300,4 +300,102 @@ describe("DatumPublisherGovernance", function () {
     await gov.connect(owner).acceptOwnership();
     expect(await gov.owner()).to.equal(owner.address);
   });
+
+  // ===========================================================================
+  // #3: Council-arbitrated advertiser fraud claims
+  // ===========================================================================
+  describe("Council-arbitrated advertiser fraud claims (#3)", function () {
+    const ADV_BOND = 1_000_000_000n;       // 0.1 DOT
+    const ADV_EVIDENCE = ethers.keccak256(ethers.toUtf8Bytes("advertiser_analytics_cid"));
+    let arbiterEOA: HardhatEthersSigner;
+    let secondPublisher: HardhatEthersSigner;
+
+    before(async function () {
+      // Use `voter2` as a stand-in Council arbiter for tests (in production this
+      // is the DatumCouncil contract address).
+      arbiterEOA = voter2;
+      secondPublisher = other;
+      // Set up the track
+      await gov.connect(owner).setCouncilArbiter(arbiterEOA.address);
+      await gov.connect(owner).setAdvertiserClaimBond(ADV_BOND);
+      // Make sure secondPublisher has stake so slash can happen
+      // (other staked nothing yet)
+      await stakeContract.connect(secondPublisher).stake({ value: PUBLISHER_STAKE });
+    });
+
+    it("AC1: file fraud claim — wrong bond amount reverts E11", async function () {
+      await expect(
+        gov.connect(advertiser).fileAdvertiserFraudClaim(publisher.address, 0, ADV_EVIDENCE, { value: 1n })
+      ).to.be.revertedWith("E11");
+    });
+
+    it("AC2: file fraud claim — self-accusation reverts E18", async function () {
+      await expect(
+        gov.connect(publisher).fileAdvertiserFraudClaim(publisher.address, 0, ADV_EVIDENCE, { value: ADV_BOND })
+      ).to.be.revertedWith("E18");
+    });
+
+    it("AC3: file fraud claim — emits event and stores claim", async function () {
+      await expect(
+        gov.connect(advertiser).fileAdvertiserFraudClaim(publisher.address, 42, ADV_EVIDENCE, { value: ADV_BOND })
+      ).to.emit(gov, "AdvertiserFraudClaimFiled");
+      const c = await gov.advertiserClaims(1n);
+      expect(c.advertiser).to.equal(advertiser.address);
+      expect(c.publisher).to.equal(publisher.address);
+      expect(c.campaignId).to.equal(42n);
+      expect(c.evidenceHash).to.equal(ADV_EVIDENCE);
+      expect(c.bond).to.equal(ADV_BOND);
+      expect(c.resolved).to.equal(false);
+    });
+
+    it("AC4: only councilArbiter can resolve", async function () {
+      await expect(
+        gov.connect(other).councilResolveAdvertiserClaim(1n, true)
+      ).to.be.revertedWith("E18");
+    });
+
+    it("AC5: resolve UPHELD — slashes publisher, refunds advertiser bond", async function () {
+      // Use a fresh claim (claim id 1 already exists; file another to keep tests independent)
+      await gov.connect(advertiser).fileAdvertiserFraudClaim(secondPublisher.address, 0, ADV_EVIDENCE, { value: ADV_BOND });
+      const claimId = (await gov.nextAdvertiserClaimId()) - 1n;
+      const stakeBefore = await stakeContract.staked(secondPublisher.address);
+      const advBefore = await gov.pendingGovPayout(advertiser.address);
+
+      await expect(
+        gov.connect(arbiterEOA).councilResolveAdvertiserClaim(claimId, true)
+      ).to.emit(gov, "AdvertiserFraudClaimResolved");
+
+      const stakeAfter = await stakeContract.staked(secondPublisher.address);
+      const expectedSlash = (stakeBefore * SLASH_BPS) / 10000n;
+      expect(stakeBefore - stakeAfter).to.equal(expectedSlash);
+      // Advertiser bond returned to pendingGovPayout
+      const advAfter = await gov.pendingGovPayout(advertiser.address);
+      expect(advAfter - advBefore).to.equal(ADV_BOND);
+    });
+
+    it("AC6: resolve DISMISSED — forwards bond to publisher as compensation", async function () {
+      // Resolve the original claim (id=1, against `publisher`) as DISMISSED
+      const pubBefore = await gov.pendingGovPayout(publisher.address);
+      await expect(
+        gov.connect(arbiterEOA).councilResolveAdvertiserClaim(1n, false)
+      ).to.emit(gov, "AdvertiserFraudClaimResolved");
+      const pubAfter = await gov.pendingGovPayout(publisher.address);
+      expect(pubAfter - pubBefore).to.equal(ADV_BOND);
+    });
+
+    it("AC7: cannot resolve same claim twice", async function () {
+      await expect(
+        gov.connect(arbiterEOA).councilResolveAdvertiserClaim(1n, true)
+      ).to.be.revertedWith("E41");
+    });
+
+    it("AC8: bond=0 disables the track (file reverts E01)", async function () {
+      await gov.connect(owner).setAdvertiserClaimBond(0);
+      await expect(
+        gov.connect(advertiser).fileAdvertiserFraudClaim(publisher.address, 0, ADV_EVIDENCE, { value: 0 })
+      ).to.be.revertedWith("E01");
+      // Restore for any subsequent tests
+      await gov.connect(owner).setAdvertiserClaimBond(ADV_BOND);
+    });
+  });
 });
