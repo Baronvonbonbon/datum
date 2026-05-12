@@ -30,6 +30,7 @@ import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, StoredSettings } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData, installIdleLockListener } from "@shared/walletManager";
+import { solvePow } from "./powSolver";
 import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider, getCampaignsContract } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
@@ -1391,6 +1392,13 @@ async function autoFlushDirect() {
     const deadlineBlock = currentBlock + ATTEST_DEADLINE_BLOCKS;
 
     // Build AttestedBatch[] — request publisher co-signature for each batch
+    // #5: Resolve PoW enforcement status and per-claim difficulty before solving.
+    //     Settlement view returns max_uint when enforcePow=false, so any
+    //     ZeroHash powNonce passes — no PoW work needed.
+    const settlement = getSettlementContract(settings.contractAddresses, provider);
+    let powEnforced = false;
+    try { powEnforced = await settlement.enforcePow(); } catch { /* old deploy */ }
+
     const attestedBatches = await Promise.all(batches.map(async (b) => {
       const publisher = b.claims[0]?.publisher ?? "";
       // A1-fix: claimsHash = keccak256(packed claim.claimHash[])
@@ -1413,10 +1421,22 @@ async function autoFlushDirect() {
       } catch {
         // Attestation unavailable — degraded trust mode
       }
-      return {
-        user: b.user,
-        campaignId: b.campaignId,
-        claims: b.claims.map((c) => ({
+
+      // #5: solve PoW per claim before assembling the batch. Skipped entirely
+      //      when enforcePow is off (target = max_uint, any nonce passes).
+      const solvedClaims = await Promise.all(b.claims.map(async (c) => {
+        let powNonce = c.powNonce;
+        if (powEnforced) {
+          try {
+            const target = BigInt((await settlement.powTargetForUser(b.user, c.eventCount)).toString());
+            const solved = await solvePow(c.claimHash, target);
+            if (solved) powNonce = solved;
+            else console.warn(`[DATUM] Auto-flush: PoW search budget exhausted for campaign ${b.campaignId} nonce ${c.nonce}`);
+          } catch (err) {
+            console.warn(`[DATUM] Auto-flush: PoW solve failed:`, err);
+          }
+        }
+        return {
           campaignId: c.campaignId,
           publisher: c.publisher,
           eventCount: c.eventCount,
@@ -1429,7 +1449,14 @@ async function autoFlushDirect() {
           zkProof: c.zkProof,
           nullifier: c.nullifier,
           actionSig: c.actionSig,
-        })),
+          powNonce,
+        };
+      }));
+
+      return {
+        user: b.user,
+        campaignId: b.campaignId,
+        claims: solvedClaims,
         deadlineBlock,
         publisherSig,
       };
@@ -1456,7 +1483,7 @@ async function autoFlushDirect() {
     }
 
     // Verify on-chain lastNonce per campaign to determine what settled/rejected
-    const settlement = getSettlementContract(settings.contractAddresses, provider);
+    // (`settlement` was already constructed earlier for the PoW target lookup)
     const settledNonces = new Map<string, bigint[]>();
     for (const b of batches) {
       const cid = b.campaignId.toString();

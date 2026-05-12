@@ -91,6 +91,8 @@ const REQUIRED_KEYS = [
   "governanceRouter", "council",
   // CPC (cost-per-click) fraud prevention
   "clickRegistry",
+  // B2: Council-driven blocklist curator (audit pass 2)
+  "blocklistCurator",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -505,7 +507,15 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumClickRegistry — ${err}`);
   }
 
-  console.log("\n=== All 21 contracts deployed ===\n");
+  // --- B2: Council-driven blocklist curator ---
+  try {
+    logStep("Deploying DatumCouncilBlocklistCurator (B2)");
+    await deployOrReuse("blocklistCurator", "DatumCouncilBlocklistCurator", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumCouncilBlocklistCurator — ${err}`);
+  }
+
+  console.log("\n=== All 22 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -919,6 +929,114 @@ async function main() {
   }
 
   // Alpha-4: Reputation is inline in Settlement (auto-accumulated, no separate wiring needed)
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Audit pass 2 wiring (2026-05-12)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // #5: ClaimValidator → Settlement (needed for PoW target view + history filter).
+  //     Lock-once; only effective on first deploy.
+  await wireIfNeeded(
+    "ClaimValidator.settlement",
+    "DatumClaimValidator", addresses.claimValidator,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
+  // B2: Publishers → blocklist curator. Don't lockBlocklistCurator yet (per
+  //     deploy plan: keep legacy owner-blocklist available during bootstrap).
+  await wireIfNeeded(
+    "Publishers.blocklistCurator",
+    "DatumPublishers", addresses.publishers,
+    "blocklistCurator", "setBlocklistCurator",
+    addresses.blocklistCurator,
+  );
+
+  // B2: CouncilBlocklistCurator.council = DatumCouncil
+  await wireIfNeeded(
+    "BlocklistCurator.council",
+    "DatumCouncilBlocklistCurator", addresses.blocklistCurator,
+    "council", "setCouncil",
+    addresses.council,
+  );
+
+  // #3: PublisherGovernance.councilArbiter = DatumCouncil
+  await wireIfNeeded(
+    "PublisherGovernance.councilArbiter",
+    "DatumPublisherGovernance", addresses.publisherGovernance,
+    "councilArbiter", "setCouncilArbiter",
+    addresses.council,
+  );
+
+  // #3: PublisherGovernance.advertiserClaimBond — 1 DOT default (10^10 planck).
+  //     Governance can re-tune later. 0 = track disabled.
+  {
+    const govIface = new ethers.Interface([
+      "function advertiserClaimBond() view returns (uint256)",
+      "function setAdvertiserClaimBond(uint256)",
+    ]);
+    const cur = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"],
+      await rawProvider.call({ to: addresses.publisherGovernance, data: govIface.encodeFunctionData("advertiserClaimBond") })
+    )[0];
+    const DEFAULT_ADV_BOND = 10_000_000_000n; // 1 DOT
+    if (cur === DEFAULT_ADV_BOND) {
+      console.log("  OK (already set): PublisherGovernance.advertiserClaimBond");
+    } else {
+      await sendCall(
+        addresses.publisherGovernance,
+        ["function setAdvertiserClaimBond(uint256)"],
+        "setAdvertiserClaimBond",
+        [DEFAULT_ADV_BOND],
+      );
+      console.log("  SET: PublisherGovernance.setAdvertiserClaimBond(" + DEFAULT_ADV_BOND + ")");
+    }
+  }
+
+  // #5: Flip enforcePow ON at deploy. Defaults are sane (256 hashes @ easy band).
+  {
+    const settleIface = new ethers.Interface([
+      "function enforcePow() view returns (bool)",
+      "function setEnforcePow(bool)",
+    ]);
+    const cur = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
+      await rawProvider.call({ to: addresses.settlement, data: settleIface.encodeFunctionData("enforcePow") })
+    )[0];
+    if (cur) {
+      console.log("  OK (already set): Settlement.enforcePow = true");
+    } else {
+      await sendCall(
+        addresses.settlement,
+        ["function setEnforcePow(bool)"],
+        "setEnforcePow",
+        [true],
+      );
+      console.log("  SET: Settlement.setEnforcePow(true)");
+    }
+  }
+
+  // A5/B8: lockBootstrap on Campaigns once governance/lifecycle/settlement/
+  //        budgetLedger refs are wired. Idempotent — re-runs are no-ops.
+  {
+    const iface = new ethers.Interface([
+      "function bootstrapped() view returns (bool)",
+      "function lockBootstrap()",
+    ]);
+    const cur = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
+      await rawProvider.call({ to: addresses.campaigns, data: iface.encodeFunctionData("bootstrapped") })
+    )[0];
+    if (cur) {
+      console.log("  OK (already locked): Campaigns.bootstrapped = true");
+    } else {
+      await sendCall(addresses.campaigns, ["function lockBootstrap()"], "lockBootstrap", []);
+      console.log("  SET: Campaigns.lockBootstrap()");
+    }
+  }
+
+  // A7: PaymentVault — keep feeShareRecipient mutable for now (token integration
+  //     wires it). lockFeeShareRecipient is a manual post-deploy step.
+
+  // B1/B7: DatumRelay liveness threshold is already on by default (constructor sets
+  //        14400 blocks). lockRelayerOpen is a manual post-deploy step.
 
   console.log("\n  All wiring complete.");
 

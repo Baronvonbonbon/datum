@@ -41,6 +41,7 @@ import { GovernanceParameters } from "./pages/governance/Parameters";
 import { PublisherFraud } from "./pages/governance/PublisherFraud";
 import { ProtocolParams } from "./pages/governance/ProtocolParams";
 import { Council } from "./pages/governance/Council";
+import { AdvertiserFraudClaimsPage } from "./pages/governance/AdvertiserFraudClaims";
 
 // Admin
 import { TimelockAdmin } from "./pages/admin/Timelock";
@@ -54,6 +55,7 @@ import { PublisherStakeAdmin } from "./pages/admin/PublisherStake";
 import { PublisherGovernanceAdmin } from "./pages/admin/PublisherGovernance";
 import { ChallengeBondsAdmin } from "./pages/admin/ChallengeBonds";
 import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
+import { SybilDefenseAdmin } from "./pages/admin/SybilDefense";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -61,6 +63,7 @@ import { HouseAdPreview } from "./pages/settings/HouseAdPreview";
 
 // Me
 import { History } from "./pages/me/History";
+import { AssurancePage } from "./pages/me/Assurance";
 
 // Demo
 import { Demo } from "./pages/Demo";
@@ -109,6 +112,7 @@ export function App() {
               <Route path="/governance/publisher-fraud" element={<PublisherFraud />} />
               <Route path="/governance/protocol" element={<ProtocolParams />} />
               <Route path="/governance/council" element={<Council />} />
+              <Route path="/governance/fraud-claims" element={<AdvertiserFraudClaimsPage />} />
 
               {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
@@ -123,6 +127,7 @@ export function App() {
               <Route path="/admin/publisher-governance" element={<PublisherGovernanceAdmin />} />
               <Route path="/admin/challenge-bonds" element={<ChallengeBondsAdmin />} />
               <Route path="/admin/nullifier-registry" element={<NullifierRegistryAdmin />} />
+              <Route path="/admin/sybil-defense" element={<SybilDefenseAdmin />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
@@ -130,6 +135,7 @@ export function App() {
 
               {/* Me — wallet-scoped views */}
               <Route path="/me/history" element={<History />} />
+              <Route path="/me/assurance" element={<AssurancePage />} />
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />

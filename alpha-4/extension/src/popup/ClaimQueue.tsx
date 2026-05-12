@@ -391,6 +391,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
             zkProof: c.zkProof,
             nullifier: c.nullifier,
             actionSig: c.actionSig,
+            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
           })),
           deadlineBlock: flushDeadlineBlock,
           publisherSig,
@@ -505,6 +506,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
               zkProof: c.zkProof,
               nullifier: c.nullifier,
               actionSig: c.actionSig,
+            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
             })),
           }));
           await resyncFromChain(address, settings, contractBatches);
@@ -643,6 +645,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           zkProof: c.zkProof,
           nullifier: c.nullifier,
           actionSig: c.actionSig,
+            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
         })),
         deadlineBlock: singleDeadlineBlock,
         publisherSig,
