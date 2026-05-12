@@ -190,6 +190,9 @@ describe("Integration", function () {
     await settlement.setClaimValidator(await claimValidator.getAddress());
     await settlement.setAttestationVerifier(await verifier.getAddress());
     await settlement.setCampaigns(await campaigns.getAddress());
+    // #5: wire validator → settlement so the PoW target view is queryable
+    //     when enforcePow flips on. Lock-once.
+    await claimValidator.setSettlement(await settlement.getAddress());
 
     // Token reward vault (ERC-20 sidecar)
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
@@ -944,5 +947,79 @@ describe("Integration", function () {
     expect(pubH).to.equal(pubL * 5n, "5× CPM ratio should produce 5× publisher payout");
     // Mid campaign pays 2× more than budget
     expect(pubM).to.equal(pubL * 2n, "2× CPM ratio should produce 2× publisher payout");
+  });
+
+  // ===========================================================================
+  // #5: End-to-end PoW enforcement with real claim flow
+  // ===========================================================================
+  describe("PoW enforcement — end-to-end real claim (#5)", function () {
+    /** Client-side PoW solver — mirrors what the extension would do. */
+    function findPowNonce(claimHash: string, target: bigint): string {
+      for (let i = 0; i < 1 << 24; i++) {
+        const nonceHex = ethers.toBeHex(i, 32);
+        const h = BigInt(ethers.keccak256(ethers.solidityPacked(["bytes32", "bytes32"], [claimHash, nonceHex])));
+        if (h <= target) return nonceHex;
+      }
+      throw new Error("PoW search budget exhausted");
+    }
+
+    it("PoW-E2E: flip enforcePow on, settle a real claim with valid PoW, payment lands in vault", async function () {
+      // Use a fresh signer with no prior settlements so the PoW bucket starts
+      // at zero (easy band: ~256 hashes per impression). Earlier tests filled
+      // `user`'s bucket; running with a fresh signer keeps the PoW solve cheap.
+      const freshUser = (await ethers.getSigners())[8];
+
+      // Step 1: flip the gate on globally.
+      await settlement.setEnforcePow(true);
+
+      // Step 2: create + activate a real campaign through the full stack.
+      const campaignId = await createTestCampaign();
+      await v2.connect(voter1).vote(campaignId, true, 0, { value: QUORUM_WEIGHTED });
+      await mineBlocks(MAX_GRACE + 1n);
+      await v2.evaluateCampaign(campaignId);
+
+      // Step 3: build a claim with eventCount=1 so the easy-band target is
+      //         reachable in JS (max>>8 ≈ 1/256 hashes).
+      const claims = buildClaims(campaignId, publisher.address, freshUser.address, 1, BID_CPM, 1n);
+
+      // Step 3a: try a few zero-effort submissions — high probability of rejection.
+      let rejected = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const attemptClaims = claims.map((c, i) => ({ ...c, powNonce: ethers.toBeHex(0xbad0 + attempt * 100 + i, 32) }));
+        const r = await settlement.connect(freshUser).settleClaims.staticCall([
+          { user: freshUser.address, campaignId, claims: attemptClaims }
+        ]);
+        if (r.rejectedCount === 1n && r.settledCount === 0n) { rejected = true; break; }
+      }
+      expect(rejected, "expected at least one zero-effort submission to be rejected").to.equal(true);
+
+      // Step 4: solve PoW client-side.
+      const target = BigInt((await settlement.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
+      claims[0].powNonce = findPowNonce(claims[0].claimHash, target);
+
+      // Step 5: submit through the real settleClaims path.
+      const vaultBefore = await vault.userBalance(freshUser.address);
+      const pubBefore = await vault.publisherBalance(publisher.address);
+
+      await expect(
+        settlement.connect(freshUser).settleClaims([{ user: freshUser.address, campaignId, claims }])
+      ).to.emit(settlement, "ClaimSettled");
+
+      // Step 6: assertions on full settlement state.
+      const vaultAfter = await vault.userBalance(freshUser.address);
+      const pubAfter = await vault.publisherBalance(publisher.address);
+      expect(vaultAfter).to.be.gt(vaultBefore, "user payment should land in vault");
+      expect(pubAfter).to.be.gt(pubBefore, "publisher payment should land in vault");
+
+      // Step 7: lastNonce advanced — confirms hash chain progressed.
+      expect(await settlement.lastNonce(freshUser.address, campaignId, 0)).to.equal(1n);
+
+      // Step 8: bucket filled — next claim from this user faces tighter target.
+      const bucketAfter = await settlement.userPowBucketEffective(freshUser.address);
+      expect(bucketAfter).to.be.gte(1n);
+
+      // Restore default for any subsequent suites.
+      await settlement.setEnforcePow(false);
+    });
   });
 });
