@@ -17,6 +17,18 @@ import "./interfaces/IDatumPaymentVault.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 
+/// @dev Minimal interface to DatumMintAuthority for the DATUM-token integration.
+///      Kept inline (rather than a full interface file) because Settlement only
+///      uses this single function, and the authority itself is optional —
+///      zero-address mintAuthority disables the mint flow.
+interface IDatumMintAuthority_Settle {
+    function mintForSettlement(
+        address user, uint256 userAmt,
+        address publisher, uint256 publisherAmt,
+        address advertiser, uint256 advertiserAmt
+    ) external;
+}
+
 /// @title DatumSettlement
 /// @notice Processes claim batches and distributes payments.
 ///
@@ -55,6 +67,37 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     IDatumPublisherStake public publisherStake;
     // CPC: click registry for type-1 session tracking (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
+
+    // ── DATUM token integration (zero address = disabled) ────────────────
+    /// @notice Mint authority for DATUM emissions. When set, every settled
+    ///         claim mints WDATUM to user/publisher/advertiser proportional
+    ///         to the payment, gated by `mintRatePerDot` and `dustMintThreshold`.
+    /// @dev    Set once via `setMintAuthority(addr)`. Cannot be unset (would
+    ///         require redeploying settlement). Zero address at deploy keeps
+    ///         the contract backward-compatible with pre-token alpha-4.
+    address public mintAuthority;
+
+    /// @notice DATUM per 1 DOT settled, in 10-decimal units.
+    /// @dev    This is the §3.3 `currentRate` (bootstrap value 19e10 = 19 DATUM/DOT).
+    ///         For scaffold integration this is held here as a governance-tunable
+    ///         value. The full Path H adaptive-rate machinery will move to a
+    ///         dedicated DatumMintCurve contract in a follow-up.
+    uint256 public mintRatePerDot = 19 * 10**10;
+
+    /// @notice Skip the DATUM mint entirely when totalMint < threshold.
+    /// @dev    Saves gas on dust mints. Default 0.01 DATUM (1e8 base units).
+    uint256 public dustMintThreshold = 10**8;
+
+    /// @notice Split BPS for user / publisher / advertiser DATUM rewards.
+    ///         BAKED at deploy per §3.3.
+    uint16 public constant DATUM_REWARD_USER_BPS       = 5500;
+    uint16 public constant DATUM_REWARD_PUBLISHER_BPS  = 4000;
+    uint16 public constant DATUM_REWARD_ADVERTISER_BPS =  500;
+
+    event MintAuthoritySet(address indexed authority);
+    event MintRateUpdated(uint256 oldRate, uint256 newRate);
+    event DustMintThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
+    event DatumMintFailed(address indexed user, address indexed publisher, address indexed advertiser, uint256 totalMint);
 
     // ── BM-5: Rate limiter (merged from DatumSettlementRateLimiter) ──
     uint256 public constant MIN_RL_WINDOW_SIZE = 10;
@@ -202,6 +245,32 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     /// @notice L-7: Set global per-block settlement cap in planck. 0 = disabled.
     function setMaxSettlementPerBlock(uint256 cap) external onlyOwner {
         maxSettlementPerBlock = cap;
+    }
+
+    /// @notice One-time wiring of the DATUM mint authority. Set once at activation;
+    ///         cannot be cleared. Activates settlement-driven DATUM minting.
+    function setMintAuthority(address _mintAuthority) external onlyOwner {
+        require(_mintAuthority != address(0), "E00");
+        require(mintAuthority == address(0), "already set");
+        mintAuthority = _mintAuthority;
+        emit MintAuthoritySet(_mintAuthority);
+    }
+
+    /// @notice Update the per-DOT DATUM mint rate. Scaffold path for §3.3 currentRate.
+    /// @dev    Governance-tunable for the scaffold. The full Path H adaptive
+    ///         mechanism will move this to a separate contract; for now,
+    ///         changes go through the standard owner/governance route.
+    function setMintRate(uint256 newRate) external onlyOwner {
+        uint256 old = mintRatePerDot;
+        mintRatePerDot = newRate;
+        emit MintRateUpdated(old, newRate);
+    }
+
+    function setDustMintThreshold(uint256 newThreshold) external onlyOwner {
+        require(newThreshold <= 1 * 10**10, "above cap");  // ≤ 1 DATUM max
+        uint256 old = dustMintThreshold;
+        dustMintThreshold = newThreshold;
+        emit DustMintThresholdUpdated(old, newThreshold);
     }
 
     receive() external payable { revert("E03"); }
@@ -638,6 +707,35 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             paymentVault.creditSettlement(
                 agg.publisher, agg.publisherPayment, user, agg.userPayment, agg.protocolFee
             );
+        }
+
+        // ── DATUM token mint (optional; gated on mintAuthority being set) ──
+        // Per §3.3: mint = payoutDOT × currentRate, split 55/40/5 user/publisher/advertiser.
+        // Skipped entirely if mintAuthority is unset (pre-token alpha-4 compatibility).
+        // Skipped per-batch if total mint would be below dust threshold.
+        if (mintAuthority != address(0) && agg.total > 0) {
+            // mintRate stored in 10-decimal base units (e.g. 19e10 = 19 DATUM/DOT).
+            // Both DOT planck and DATUM base units use 10 decimals; divide by 1e10 once.
+            uint256 totalMint = (agg.total * mintRatePerDot) / (10**10);
+            if (totalMint >= dustMintThreshold) {
+                uint256 userMint        = (totalMint * DATUM_REWARD_USER_BPS)      / 10000;
+                uint256 publisherMint   = (totalMint * DATUM_REWARD_PUBLISHER_BPS) / 10000;
+                uint256 advertiserMint  = totalMint - userMint - publisherMint;  // 500 bps + remainder
+                address advertiser = address(campaigns) == address(0)
+                    ? address(0)
+                    : campaigns.getCampaignAdvertiser(campaignId);
+
+                // Authority enforces its own MINTABLE_CAP; we don't second-guess here.
+                try IDatumMintAuthority_Settle(mintAuthority).mintForSettlement(
+                    user,        userMint,
+                    agg.publisher, publisherMint,
+                    advertiser,  advertiserMint
+                ) {} catch {
+                    // Non-critical: if the mint authority rejects (cap hit, etc.)
+                    // we don't want settlement to revert. Emit a signal for observers.
+                    emit DatumMintFailed(user, agg.publisher, advertiser, totalMint);
+                }
+            }
         }
 
         // Aggregate token reward credit (view claims only, non-critical)
