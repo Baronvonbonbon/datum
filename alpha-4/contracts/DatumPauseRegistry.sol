@@ -25,7 +25,19 @@ import "./DatumOwnable.sol";
 ///         Replay protection: each proposal is marked `executed` rather than
 ///         deleted (AUDIT-021), and approvers are tracked per-proposal.
 contract DatumPauseRegistry is DatumOwnable {
-    bool public paused;
+    /// @dev Raw pause flag. External callers read via `paused()` which lazily
+    ///      expires after MAX_PAUSE_BLOCKS so a single guardian holding the
+    ///      veto can't DoS the protocol indefinitely (A6/B6-fix).
+    bool internal _pausedRaw;
+    /// @notice Block at which `pause` / `pauseFast` was last engaged.
+    uint256 public pausedAtBlock;
+
+    /// @notice A6/B6-fix (2026-05-12): pause auto-expiry. ~14 days at 6s/block
+    ///         (14400 blocks/day × 14). After this window, `paused()` returns
+    ///         false even if `_pausedRaw == true`. Guardians can still re-engage
+    ///         via pauseFast() — this just caps the unbroken pause duration so
+    ///         no single guardian can freeze the system forever.
+    uint256 public constant MAX_PAUSE_BLOCKS = 201600;
 
     // SM-6: guardian set
     address[3] public guardians;
@@ -105,8 +117,9 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         vs. unpause is deliberate — live exploits don't wait for quorum.
     function pauseFast() external {
         require(_isGuardian(msg.sender), "E18");
-        require(!paused, "E11");
-        paused = true;
+        require(!paused(), "E11");
+        _pausedRaw = true;
+        pausedAtBlock = block.number;
         emit Paused(msg.sender);
     }
 
@@ -116,8 +129,19 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         owner key can only ratchet the system into pause; recovery
     ///         remains gated on the (potentially rotated) guardians.
     function pause() external onlyOwner {
-        paused = true;
+        _pausedRaw = true;
+        pausedAtBlock = block.number;
         emit Paused(msg.sender);
+    }
+
+    /// @notice A6/B6-fix: lazy-evaluated pause state. Returns false once
+    ///         `MAX_PAUSE_BLOCKS` have elapsed since the pause was engaged,
+    ///         even if no guardian has voted to unpause. Caps any single
+    ///         guardian's DoS power to a finite window.
+    function paused() public view returns (bool) {
+        if (!_pausedRaw) return false;
+        if (block.number > pausedAtBlock + MAX_PAUSE_BLOCKS) return false;
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -130,7 +154,7 @@ contract DatumPauseRegistry is DatumOwnable {
     function propose(uint8 action) external returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
         require(action == 2, "E11");
-        require(paused, "E11"); // must currently be paused to propose unpause
+        require(paused(), "E11"); // must currently be paused to propose unpause
 
         proposalId = ++_proposalNonce;
         Proposal storage p = _proposals[proposalId];
@@ -151,7 +175,7 @@ contract DatumPauseRegistry is DatumOwnable {
 
         // Pre-execution state validation per action type.
         if (p.action == 2) {
-            require(paused, "E11");
+            require(paused(), "E11");
         }
         // action == 3 (guardian rotation) needs no pre-state guard.
 
@@ -167,7 +191,8 @@ contract DatumPauseRegistry is DatumOwnable {
 
     function _execute(Proposal storage p) internal {
         if (p.action == 2) {
-            paused = false;
+            _pausedRaw = false;
+            pausedAtBlock = 0;
             emit Unpaused(msg.sender);
         } else if (p.action == 3) {
             _setGuardians(p.ng0, p.ng1, p.ng2);

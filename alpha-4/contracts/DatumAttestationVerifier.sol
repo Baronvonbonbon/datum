@@ -25,8 +25,12 @@ contract DatumAttestationVerifier is EIP712 {
     // Constants
     // -------------------------------------------------------------------------
 
+    // A1-fix (2026-05-12): bind claimsHash + deadlineBlock so a captured publisher
+    // cosig cannot be replayed with altered claim contents (rates, eventCounts,
+    // swapped open-campaign publisher field) or past its expiry. Mirrors the
+    // dual-sig path's CLAIM_BATCH_TYPEHASH in DatumSettlement.
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
-        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,uint256 lastNonce,uint256 claimCount)"
+        "PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)"
     );
 
     // -------------------------------------------------------------------------
@@ -66,6 +70,7 @@ contract DatumAttestationVerifier is EIP712 {
         address user;
         uint256 campaignId;
         IDatumSettlement.Claim[] claims;
+        uint256 deadlineBlock; // A1-fix: bound to publisher sig
         bytes publisherSig;
     }
 
@@ -108,16 +113,28 @@ contract DatumAttestationVerifier is EIP712 {
             }
             require(expectedPublisher != address(0), "E00");
 
+            // A1-fix: enforce deadline.
+            require(block.number <= ab.deadlineBlock, "E81");
+
             // Mandatory: verify publisher co-signature.
+            // A1-fix: hash all claim.claimHash values into a single
+            //         claimsHash. Matches Settlement._hashClaims for symmetry.
             // R-M3: digest built via OZ _hashTypedDataV4 so the domain separator
             //       rebuilds on chainid mismatch (chain-fork safe).
+            bytes32 claimsHash;
+            {
+                bytes32[] memory _hashes = new bytes32[](ab.claims.length);
+                for (uint256 i = 0; i < ab.claims.length; i++) {
+                    _hashes[i] = ab.claims[i].claimHash;
+                }
+                claimsHash = keccak256(abi.encodePacked(_hashes));
+            }
             bytes32 structHash = keccak256(abi.encode(
                 PUBLISHER_ATTESTATION_TYPEHASH,
                 ab.campaignId,
                 ab.user,
-                ab.claims[0].nonce,
-                ab.claims[ab.claims.length - 1].nonce,
-                ab.claims.length
+                claimsHash,
+                ab.deadlineBlock
             ));
             bytes32 digest = _hashTypedDataV4(structHash);
 

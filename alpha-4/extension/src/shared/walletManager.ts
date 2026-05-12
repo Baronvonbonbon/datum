@@ -35,6 +35,80 @@ export interface WalletEntry {
 let unlockedWallet: Wallet | null = null;
 let activeAccountName: string | null = null;
 
+// -------------------------------------------------------------------------
+// A13-fix (2026-05-12): idle auto-lock
+// -------------------------------------------------------------------------
+// MV3 service workers auto-terminate ~30s after the last activity, which
+// implicitly clears `unlockedWallet`. But auto-flush alarms can keep the
+// worker warm indefinitely — without an explicit timer, a popup unlock
+// would persist for as long as auto-flush runs. This timer caps that to a
+// configurable idle window. Refreshed on every wallet operation; on fire,
+// clears the in-memory key (next signing op requires re-unlock).
+const IDLE_LOCK_ALARM = "datum-wallet-idle-lock";
+const IDLE_LOCK_MINUTES_KEY = "walletIdleLockMinutes";
+const DEFAULT_IDLE_LOCK_MINUTES = 15;
+// 0 = never auto-lock (still respects service-worker death)
+const VALID_IDLE_LOCK_MINUTES = [0, 5, 15, 30] as const;
+type IdleLockMinutes = typeof VALID_IDLE_LOCK_MINUTES[number];
+
+/** Read the user-configured idle lock timeout (in minutes). */
+export async function getIdleLockMinutes(): Promise<IdleLockMinutes> {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) return DEFAULT_IDLE_LOCK_MINUTES;
+  const stored = await chrome.storage.local.get(IDLE_LOCK_MINUTES_KEY);
+  const v = stored[IDLE_LOCK_MINUTES_KEY];
+  if (typeof v === "number" && (VALID_IDLE_LOCK_MINUTES as readonly number[]).includes(v)) {
+    return v as IdleLockMinutes;
+  }
+  return DEFAULT_IDLE_LOCK_MINUTES;
+}
+
+/** Set the idle lock timeout. Pass 0 to disable. */
+export async function setIdleLockMinutes(minutes: IdleLockMinutes): Promise<void> {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+  if (!(VALID_IDLE_LOCK_MINUTES as readonly number[]).includes(minutes)) {
+    throw new Error(`Invalid idle-lock minutes: ${minutes}. Valid: ${VALID_IDLE_LOCK_MINUTES.join(",")}`);
+  }
+  await chrome.storage.local.set({ [IDLE_LOCK_MINUTES_KEY]: minutes });
+  // If wallet is currently unlocked, re-arm with the new timeout
+  if (unlockedWallet) await _armIdleLock();
+}
+
+/** (Re)arm the idle-lock alarm. Called on every wallet operation. */
+async function _armIdleLock(): Promise<void> {
+  if (typeof chrome === "undefined" || !chrome.alarms) return;
+  const minutes = await getIdleLockMinutes();
+  if (minutes <= 0) {
+    // Auto-lock disabled — clear any existing alarm.
+    try { await chrome.alarms.clear(IDLE_LOCK_ALARM); } catch {}
+    return;
+  }
+  // chrome.alarms.create overwrites an existing alarm of the same name —
+  // exactly the refresh behavior we want.
+  try {
+    chrome.alarms.create(IDLE_LOCK_ALARM, { delayInMinutes: minutes });
+  } catch {
+    // alarms API unavailable (e.g. unit-test env); the SW death is the
+    // implicit lock. Don't fail the calling wallet op.
+  }
+}
+
+/**
+ * Wire up the chrome.alarms listener. Call once at service-worker startup
+ * (in background/index.ts). Safe to call multiple times — duplicate listeners
+ * are no-ops on the same handler reference.
+ */
+let _idleLockListenerInstalled = false;
+export function installIdleLockListener(): void {
+  if (_idleLockListenerInstalled) return;
+  if (typeof chrome === "undefined" || !chrome.alarms?.onAlarm) return;
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === IDLE_LOCK_ALARM) {
+      lock();
+    }
+  });
+  _idleLockListenerInstalled = true;
+}
+
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -165,6 +239,7 @@ export async function importKey(privateKeyHex: string, password: string, account
 
   unlockedWallet = wallet;
   activeAccountName = name;
+  await _armIdleLock();
   return wallet.address;
 }
 
@@ -187,6 +262,7 @@ export async function generateKey(password: string, accountName?: string): Promi
 
   unlockedWallet = wallet;
   activeAccountName = name;
+  await _armIdleLock();
   return { address: wallet.address, privateKey: privateKeyHex };
 }
 
@@ -214,6 +290,7 @@ export async function unlock(password: string, rpcUrl?: string, accountName?: st
 
   unlockedWallet = wallet;
   activeAccountName = name;
+  await _armIdleLock();
 
   // Update stored address + active name
   await chrome.storage.local.set({ activeWalletName: name, connectedAddress: wallet.address });
@@ -280,6 +357,9 @@ export function getActiveAccountNameInMemory(): string | null {
 /** Get a signer connected to the given RPC. Throws if wallet is locked. */
 export function getSigner(rpcUrl: string): Wallet {
   if (!unlockedWallet) throw new Error("Wallet is locked. Unlock it first.");
+  // A13-fix: refresh the idle-lock timer on every signing-path access.
+  //          Fire-and-forget; failure (e.g. alarms API missing) doesn't break signing.
+  void _armIdleLock();
   const provider = new JsonRpcProvider(rpcUrl);
   return unlockedWallet.connect(provider) as Wallet;
 }
@@ -287,6 +367,10 @@ export function getSigner(rpcUrl: string): Wallet {
 /** Lock the wallet — clears the in-memory key. */
 export function lock(): void {
   unlockedWallet = null;
+  // A13-fix: clear any pending alarm so it doesn't fire spuriously later.
+  if (typeof chrome !== "undefined" && chrome.alarms) {
+    try { void chrome.alarms.clear(IDLE_LOCK_ALARM); } catch {}
+  }
 }
 
 /** Check if any wallets are configured. */

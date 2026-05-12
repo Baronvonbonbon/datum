@@ -84,6 +84,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         dedicated DatumMintCurve contract in a follow-up.
     uint256 public mintRatePerDot = 19 * 10**10;
 
+    /// @notice A3/B4-fix (2026-05-12): hard ceiling on `mintRatePerDot`. Caps the
+    ///         per-settlement DATUM emission an owner can dial in via setMintRate.
+    ///         100 DATUM/DOT — ~5× the bootstrap rate. MintAuthority enforces the
+    ///         95M cap separately; this just prevents a hostile owner from
+    ///         burning the entire mintable supply on a single large batch.
+    uint256 public constant MAX_MINT_RATE = 100 * 10**10;
+
     /// @notice Skip the DATUM mint entirely when totalMint < threshold.
     /// @dev    Saves gas on dust mints. Default 0.01 DATUM (1e8 base units).
     uint256 public dustMintThreshold = 10**8;
@@ -126,6 +133,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
     uint16 public minReputationScore;
 
+    // B5-fix (2026-05-12): per-user minimum acceptable AssuranceLevel. A user
+    // writes their own floor (0..2) and Settlement rejects batches addressed to
+    // that user when the campaign's effective AssuranceLevel is below it. This
+    // extends the AssuranceLevel choice from advertiser-only to user-as-well:
+    // users can refuse low-proof settlement (e.g. demand publisher cosig) on
+    // their own behalf without relying on each campaign's advertiser to opt in.
+    // Default 0 = accept any level (current behavior). Self-set only.
+    mapping(address => uint8) public userMinAssurance;
+    event UserMinAssuranceSet(address indexed user, uint8 level);
+
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
     event RateLimitsUpdated(uint256 windowBlocks, uint256 maxEventsPerWindow);
     event NullifierSubmitted(uint256 indexed campaignId, bytes32 indexed nullifier);
@@ -134,6 +151,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     /// @notice L-4: Emitted when the non-critical token-reward credit reverts so off-chain
     ///         monitors can flag mis-wired or under-funded reward configs.
     event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
+    /// @notice A4-fix: Emitted when publishers.isBlocked() reverts during a batch.
+    ///         Advisory only — settlement continues. Monitors should re-wire / fix the
+    ///         publishers ref. Not a rejection.
+    event BlocklistCheckFailed(uint256 indexed campaignId, address indexed publisher);
 
     // Triple-keyed chain state: (user, campaignId, actionType)
     mapping(address => mapping(uint256 => mapping(uint8 => uint256)))  public lastNonce;
@@ -177,12 +198,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev B8-fix (2026-05-12): structural references are lock-once. Settlement
+    ///      cannot have its budget ledger, payment vault, lifecycle, or relay
+    ///      hot-swapped post-bootstrap — every swap point is a rug surface and
+    ///      none of these have a legitimate change reason once wired. Deploy a
+    ///      fresh Settlement if you genuinely need to re-point.
     function configure(
         address _budgetLedger,
         address _paymentVault,
         address _lifecycle,
         address _relay
     ) external onlyOwner {
+        require(address(budgetLedger) == address(0), "already configured");
         require(_budgetLedger != address(0), "E00");
         require(_paymentVault != address(0), "E00");
         require(_lifecycle != address(0), "E00");
@@ -205,9 +232,17 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     }
 
     /// @notice BM-5: Update rate limiter window size and per-publisher event cap.
+    /// @dev    A8-fix (2026-05-12): once `rlWindowBlocks` is non-zero, only the
+    ///         per-publisher cap (`_maxEventsPerWindow`) may change. The window
+    ///         size itself is frozen because shifting it mid-flight would either
+    ///         invalidate in-flight publisher proofs (DoS) or, if the new size
+    ///         divides the old, re-open a previously-used window for double-use.
     function setRateLimits(uint256 _windowBlocks, uint256 _maxEventsPerWindow) external onlyOwner {
         require(_windowBlocks >= MIN_RL_WINDOW_SIZE, "E11");
         require(_maxEventsPerWindow > 0, "E11");
+        if (rlWindowBlocks != 0) {
+            require(_windowBlocks == rlWindowBlocks, "windowBlocks frozen");
+        }
         rlWindowBlocks = _windowBlocks;
         rlMaxEventsPerWindow = _maxEventsPerWindow;
         emit RateLimitsUpdated(_windowBlocks, _maxEventsPerWindow);
@@ -226,6 +261,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     }
 
     function setCampaigns(address addr) external onlyOwner {
+        // B8-fix: structural ref, lock-once.
+        require(address(campaigns) == address(0), "already set");
         require(addr != address(0), "E00");
         campaigns = IDatumCampaigns(addr);
     }
@@ -235,14 +272,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     }
 
     /// @notice FP-5: Update nullifier window size.
+    /// @dev    A8-fix (2026-05-12): lock-once. Off-chain ZK clients bake
+    ///         `windowId = block.number / nullifierWindowBlocks` into the
+    ///         nullifier preimage. Changing the divisor mid-flight either DoS's
+    ///         every in-flight proof or, worse, lets a previously-burned
+    ///         nullifier re-map to a fresh windowId (double-spend window).
     function setNullifierWindowBlocks(uint256 _windowBlocks) external onlyOwner {
         require(_windowBlocks > 0, "E11");
+        require(nullifierWindowBlocks == 0, "frozen");
         emit NullifierWindowBlocksUpdated(nullifierWindowBlocks, _windowBlocks);
         nullifierWindowBlocks = _windowBlocks;
     }
 
     function setMinReputationScore(uint16 score) external onlyOwner {
         minReputationScore = score;
+    }
+
+    /// @notice B5-fix: user sets their own minimum AssuranceLevel floor (0..2).
+    ///         Self-only; no admin or counterparty can lower or raise.
+    ///         0 = accept any (default). 1 = require publisher cosig. 2 = require dual-sig.
+    function setUserMinAssurance(uint8 level) external {
+        require(level <= 2, "E11");
+        userMinAssurance[msg.sender] = level;
+        emit UserMinAssuranceSet(msg.sender, level);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
@@ -273,6 +325,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         mechanism will move this to a separate contract; for now,
     ///         changes go through the standard owner/governance route.
     function setMintRate(uint256 newRate) external onlyOwner {
+        // A3/B4-fix: enforce hard ceiling. See MAX_MINT_RATE for rationale.
+        require(newRate <= MAX_MINT_RATE, "above cap");
         uint256 old = mintRatePerDot;
         mintRatePerDot = newRate;
         emit MintRateUpdated(old, newRate);
@@ -506,6 +560,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                 level = l;
             } catch {}
 
+            // B5-fix: honor the user's own floor. If a user demands ≥L1 and the
+            // campaign offers L0, treat the batch as if it required the user's
+            // floor — reject. Permits each user to opt out of low-proof settlement
+            // for themselves without protocol-wide policy changes.
+            uint8 uMin = userMinAssurance[user];
+            if (uMin > level) level = uMin;
+
             if (level >= 2) {
                 // Level 2 (DualSigned) requires settleSignedClaims (this would have
                 // set advertiserConsented). Reject everything else with reason 24.
@@ -614,7 +675,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                 continue;
             }
 
-            // S12: Settlement-level blocklist check (fail-safe: treat call failure as blocked)
+            // S12: Settlement-level blocklist check.
+            // A4-fix (2026-05-12): fail-OPEN on revert. The blocklist is a soft
+            //   policy layer; allowing a single misconfigured/paused/replaced
+            //   publishers ref to silently DoS every user's settlement is a
+            //   bigger systemic risk than letting a single batch slip past the
+            //   block. Operators get a loud event to investigate.
             if (address(publishers) != address(0)) {
                 try publishers.isBlocked(claim.publisher) returns (bool blocked) {
                     if (blocked) {
@@ -624,10 +690,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                         continue;
                     }
                 } catch {
-                    result.rejectedCount++;
-                    emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
-                    gapFound = true;
-                    continue;
+                    // Liveness: continue settlement; observers should watch for this event.
+                    emit BlocklistCheckFailed(claim.campaignId, claim.publisher);
                 }
             }
 

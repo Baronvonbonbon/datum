@@ -194,24 +194,21 @@ describe("Admin Timelock (DatumTimelock)", function () {
     await timelock.cancel(pid);
   });
 
-  // T11: settlement configure change via timelock
-  it("T11: settlement configure via timelock", async function () {
-    const calldata = settlement.interface.encodeFunctionData("configure", [
-      other.address, other.address, other.address, newAddr.address
-    ]);
+  // T11: settlement parameter change via timelock (B8-fix: configure is lock-once,
+  //      so test a mutable parameter setter instead — setMinClaimInterval).
+  it("T11: settlement parameter change via timelock", async function () {
+    const calldata = settlement.interface.encodeFunctionData("setMinClaimInterval", [42]);
     const salt = nextSalt();
     const pid = await timelock.hashProposal(await settlement.getAddress(), calldata, salt);
     await timelock.propose(await settlement.getAddress(), calldata, salt);
     await advanceTime(TIMELOCK_DELAY);
     await timelock.execute(pid);
-    expect(await settlement.relayContract()).to.equal(newAddr.address);
+    expect(await settlement.minClaimInterval()).to.equal(42n);
   });
 
   // T14: execute before delay reverts on settlement change
   it("T14: execute reverts before delay on settlement change", async function () {
-    const calldata = settlement.interface.encodeFunctionData("configure", [
-      other.address, other.address, other.address, other.address
-    ]);
+    const calldata = settlement.interface.encodeFunctionData("setMinClaimInterval", [99]);
     const salt = nextSalt();
     const pid = await timelock.hashProposal(await settlement.getAddress(), calldata, salt);
     await timelock.propose(await settlement.getAddress(), calldata, salt);

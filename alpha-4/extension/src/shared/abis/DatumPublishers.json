@@ -115,6 +115,25 @@
     },
     {
       "anonymous": false,
+      "inputs": [],
+      "name": "BlocklistCuratorLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "curator",
+          "type": "address"
+        }
+      ],
+      "name": "BlocklistCuratorSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
       "inputs": [
         {
           "indexed": true,
@@ -187,6 +206,25 @@
         }
       ],
       "name": "PublisherApprovalSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "PublisherMaxAssuranceSet",
       "type": "event"
     },
     {
@@ -394,6 +432,19 @@
     },
     {
       "inputs": [],
+      "name": "MAX_STAKE_GATE_AT_LOCK",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "MAX_TAKE_RATE_BPS",
       "outputs": [
         {
@@ -518,6 +569,32 @@
         }
       ],
       "name": "blocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "blocklistCurator",
+      "outputs": [
+        {
+          "internalType": "contract IDatumBlocklistCurator",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "blocklistCuratorLocked",
       "outputs": [
         {
           "internalType": "bool",
@@ -695,6 +772,13 @@
     },
     {
       "inputs": [],
+      "name": "lockBlocklistCurator",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "lockStakeGate",
       "outputs": [],
       "stateMutability": "nonpayable",
@@ -788,6 +872,25 @@
       "name": "proposeUnblock",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "publisherMaxAssurance",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -945,12 +1048,38 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "curator",
+          "type": "address"
+        }
+      ],
+      "name": "setBlocklistCurator",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "bytes32",
           "name": "hash",
           "type": "bytes32"
         }
       ],
       "name": "setProfile",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "setPublisherMaxAssurance",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

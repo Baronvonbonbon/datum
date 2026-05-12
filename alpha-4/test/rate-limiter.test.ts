@@ -145,11 +145,18 @@ describe("Settlement Rate Limiter (inline)", function () {
     expect(wid1).to.equal(wid2); // same window
   });
 
-  it("RL5: setRateLimits can update limits", async function () {
-    await settlement.setRateLimits(300n, 100000n);
-    expect(await settlement.rlWindowBlocks()).to.equal(300n);
+  it("RL5: setRateLimits can update max but window is frozen after first set", async function () {
+    // Window size is locked once non-zero (A8-fix: prevent mid-flight reshape
+    // of windowId mapping which would either DoS in-flight proofs or re-open
+    // already-used windows). Max-events may still be re-tuned at any time.
+    await settlement.setRateLimits(WINDOW_BLOCKS, 100000n);
+    expect(await settlement.rlWindowBlocks()).to.equal(WINDOW_BLOCKS);
     expect(await settlement.rlMaxEventsPerWindow()).to.equal(100000n);
-    // Restore
+    // Changing the window after first set must revert.
+    await expect(
+      settlement.setRateLimits(WINDOW_BLOCKS + 1n, 100000n)
+    ).to.be.revertedWith("windowBlocks frozen");
+    // Restore max
     await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 
@@ -253,20 +260,15 @@ describe("Settlement Rate Limiter (inline)", function () {
   });
 
   it("RL8: window resets after WINDOW_BLOCKS", async function () {
-    // Set limits and record some usage
-    await settlement.setRateLimits(10n, 1000n);
-
+    // A8-fix: windowBlocks frozen after first set; use the configured value.
     const [wid1, , ] = await settlement.currentWindowUsage(publisher.address);
 
-    // Mine past window
-    await mineBlocks(11n);
+    // Mine past one window
+    await mineBlocks(WINDOW_BLOCKS + 1n);
 
     const [wid2, events2, ] = await settlement.currentWindowUsage(publisher.address);
     expect(wid2).to.be.gt(wid1);
     expect(events2).to.equal(0n); // fresh window
-
-    // Restore
-    await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 
   it("RL9: rate limiter disabled by default (rlWindowBlocks=0 initially)", async function () {

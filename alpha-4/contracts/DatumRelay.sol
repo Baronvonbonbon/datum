@@ -22,8 +22,12 @@ contract DatumRelay is DatumOwnable, EIP712 {
         "ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,uint256 lastNonce,uint256 claimCount,uint256 deadlineBlock)"
     );
 
+    // A1-fix (2026-05-12): bind claimsHash + deadlineBlock so a captured publisher
+    // cosig cannot be replayed with altered claim contents (rates, eventCounts,
+    // swapped open-campaign publisher field) or past its expiry. Mirrors the
+    // dual-sig path's CLAIM_BATCH_TYPEHASH in DatumSettlement.
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
-        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,uint256 lastNonce,uint256 claimCount)"
+        "PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)"
     );
 
     // -------------------------------------------------------------------------
@@ -54,6 +58,13 @@ contract DatumRelay is DatumOwnable, EIP712 {
     event RelayerAuthorized(address indexed relayer, bool authorized);
     event SettlementUpdated(address indexed newSettlement);
     event CampaignsUpdated(address indexed newCampaigns);
+    event RelayerOpenLocked();
+
+    /// @notice B7-fix (2026-05-12): one-way switch. After flip, owner can no
+    ///         longer authorize relayers or change the liveness threshold —
+    ///         the permissionless-relay path is locked open forever.
+    ///         A credible commitment for the cypherpunk roadmap.
+    bool public relayerOpenLocked;
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -68,6 +79,11 @@ contract DatumRelay is DatumOwnable, EIP712 {
         settlement = IDatumSettlement(_settlement);
         campaigns = IDatumCampaignsSettlement(_campaigns);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+        // B1-fix (2026-05-12): default liveness fallback to ~24h (14400 blocks @
+        // 6s). The moment the owner authorizes any relayer, the permissionless
+        // escape hatch is already on — operators must explicitly call
+        // `setLivenessThreshold(0)` to disable, not implicitly via inaction.
+        livenessThresholdBlocks = 14400;
     }
 
     /// @notice Returns the current EIP-712 domain separator. Rebuilds automatically
@@ -94,6 +110,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
 
     /// @notice Add or remove an authorized relayer (H-4).
     function setRelayerAuthorized(address relayer, bool authorized) external onlyOwner {
+        require(!relayerOpenLocked, "open-locked");
         require(relayer != address(0), "E00");
         if (authorized && !authorizedRelayers[relayer]) {
             authorizedRelayers[relayer] = true;
@@ -108,7 +125,20 @@ contract DatumRelay is DatumOwnable, EIP712 {
     /// @notice Set the liveness fallback threshold. If no authorized relayer submits
     ///         within this many blocks, anyone can submit. 0 = always permissionless.
     function setLivenessThreshold(uint256 blocks) external onlyOwner {
+        require(!relayerOpenLocked, "open-locked");
         livenessThresholdBlocks = blocks;
+    }
+
+    /// @notice B7-fix: permanently commit to the permissionless relay path.
+    ///         After this call, owner can no longer authorize relayers or shift
+    ///         the liveness threshold. Irreversible.
+    function lockRelayerOpen() external onlyOwner {
+        require(!relayerOpenLocked, "already locked");
+        // Clearing the authorized set + threshold = anyone-can-relay forever.
+        // (Per the gate in settleClaimsFor: authorizedRelayerCount == 0 means
+        // no auth check.) Threshold becomes irrelevant once count is zero.
+        relayerOpenLocked = true;
+        emit RelayerOpenLocked();
     }
 
     // -------------------------------------------------------------------------
@@ -194,13 +224,19 @@ contract DatumRelay is DatumOwnable, EIP712 {
                     }
                 }
                 if (expectedPub != address(0)) {
+                    // A1-fix: hash all claim.claimHash values into a single
+                    // claimsHash. Matches Settlement._hashClaims for symmetry.
+                    bytes32[] memory _hashes = new bytes32[](sb.claims.length);
+                    for (uint256 i = 0; i < sb.claims.length; i++) {
+                        _hashes[i] = sb.claims[i].claimHash;
+                    }
+                    bytes32 claimsHash = keccak256(abi.encodePacked(_hashes));
                     bytes32 pubStructHash = keccak256(abi.encode(
                         PUBLISHER_ATTESTATION_TYPEHASH,
                         sb.campaignId,
                         sb.user,
-                        sb.claims[0].nonce,
-                        sb.claims[sb.claims.length - 1].nonce,
-                        sb.claims.length
+                        claimsHash,
+                        sb.deadlineBlock
                     ));
                     bytes32 pubDigest = _hashTypedDataV4(pubStructHash);
 

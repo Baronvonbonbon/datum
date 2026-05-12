@@ -1,7 +1,7 @@
 // DATUM background service worker entry point
 // Handles alarms, message routing, and scheduled tasks.
 
-import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes, ZeroHash } from "ethers";
+import { Wallet, JsonRpcProvider, Contract, hexlify, getBytes, ZeroHash, keccak256, solidityPacked } from "ethers";
 import { campaignPoller } from "./campaignPoller";
 import { startEarningsListener, stopEarningsListener, handleEarningsAlarm, EARNINGS_ALARM } from "./earningsListener";
 
@@ -29,7 +29,7 @@ import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, StoredSettings } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
-import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData } from "@shared/walletManager";
+import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData, installIdleLockListener } from "@shared/walletManager";
 import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider, getCampaignsContract } from "@shared/contracts";
 import { refreshPhishingList, isAddressBlocked, isUrlPhishing } from "@shared/phishingList";
 import { validateAndSanitize, passesContentBlocklist, MAX_METADATA_BYTES } from "@shared/contentSafety";
@@ -48,6 +48,11 @@ const ALARM_FLUSH_CLAIMS = "flushClaims";
 // -------------------------------------------------------------------------
 // Startup: register alarms and restore state
 // -------------------------------------------------------------------------
+
+// A13-fix: install the wallet idle-lock alarm listener at top-level so it's
+//          registered even if the service worker is spun up by a popup connect
+//          rather than onInstalled/onStartup. Idempotent.
+installIdleLockListener();
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[DATUM] Extension installed/updated");
@@ -899,13 +904,13 @@ async function handleMessage(
     }
 
     case "REQUEST_PUBLISHER_ATTESTATION": {
+      // A1-fix: attestation now binds claimsHash + deadlineBlock instead of nonce-range fields.
       const attestResult = await requestPublisherAttestation(
         msg.publisherAddress,
         msg.campaignId,
         msg.userAddress,
-        msg.firstNonce,
-        msg.lastNonce,
-        msg.claimCount
+        msg.claimsHash,
+        msg.deadlineBlock
       );
       return { signature: attestResult.signature || undefined, error: attestResult.error };
     }
@@ -1374,18 +1379,34 @@ async function autoFlushDirect() {
       wallet
     );
 
+    // A1-fix: deadlineBlock binds the publisher cosig to an expiry. ~5 min
+    //         at 6s/block = 50 blocks. Generous margin for relay queuing.
+    const ATTEST_DEADLINE_BLOCKS = 50n;
+    let currentBlock: bigint;
+    try {
+      currentBlock = BigInt(await provider.getBlockNumber());
+    } catch {
+      currentBlock = 0n;
+    }
+    const deadlineBlock = currentBlock + ATTEST_DEADLINE_BLOCKS;
+
     // Build AttestedBatch[] — request publisher co-signature for each batch
     const attestedBatches = await Promise.all(batches.map(async (b) => {
       const publisher = b.claims[0]?.publisher ?? "";
+      // A1-fix: claimsHash = keccak256(packed claim.claimHash[])
+      const claimHashes = b.claims.map((c) => c.claimHash);
+      const claimsHash = keccak256(solidityPacked(
+        new Array(claimHashes.length).fill("bytes32"),
+        claimHashes,
+      ));
       let publisherSig = "0x";
       try {
         const attestResult = await requestPublisherAttestation(
           publisher,
           b.campaignId.toString(),
           b.user,
-          b.claims[0].nonce.toString(),
-          b.claims[b.claims.length - 1].nonce.toString(),
-          b.claims.length,
+          claimsHash,
+          deadlineBlock,
         );
         if (attestResult.signature) publisherSig = attestResult.signature;
         if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
@@ -1409,6 +1430,7 @@ async function autoFlushDirect() {
           nullifier: c.nullifier,
           actionSig: c.actionSig,
         })),
+        deadlineBlock,
         publisherSig,
       };
     }));

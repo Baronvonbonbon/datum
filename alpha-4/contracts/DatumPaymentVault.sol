@@ -52,12 +52,28 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumOwnable 
     ///         address(0)) so governance can pause the auto-route if needed.
     address public feeShareRecipient;
 
+    /// @notice A7-fix (2026-05-12): one-way lock. Once locked, the owner can no
+    ///         longer redirect protocol fees to a different recipient. Mirrors
+    ///         the lockGuardianSet credible-commitment pattern. Operators should
+    ///         set the final FeeShare contract, verify, then lock.
+    bool public feeShareRecipientLocked;
+
     event FeeShareRecipientSet(address indexed recipient);
     event SweptToFeeShare(address indexed recipient, uint256 amount);
+    event FeeShareRecipientLocked();
 
     function setFeeShareRecipient(address recipient) external onlyOwner {
+        require(!feeShareRecipientLocked, "fee-share locked");
         feeShareRecipient = recipient;
         emit FeeShareRecipientSet(recipient);
+    }
+
+    /// @notice A7-fix: freeze the FeeShare recipient permanently.
+    function lockFeeShareRecipient() external onlyOwner {
+        require(!feeShareRecipientLocked, "already locked");
+        require(feeShareRecipient != address(0), "set first");
+        feeShareRecipientLocked = true;
+        emit FeeShareRecipientLocked();
     }
 
     /// @notice Push the entire accumulated protocol fee to the configured

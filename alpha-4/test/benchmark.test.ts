@@ -606,15 +606,28 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     const RPT_BUDGET = parseDOT("20");
     const RPT_DAILY  = parseDOT("4");
 
+    // B9-fix helper: settle 1 view event for `user` on a given campaign so
+    //                they pass the reportEligible gate (MIN_EVENTS_TO_REPORT=1).
+    async function settleOneFor(cid: bigint) {
+      const claims = buildClaims(cid, publisher.address, user.address, 1, RPT_CPM, 1n);
+      const batch = { user: user.address, campaignId: cid, claims };
+      await settlement.connect(user).settleClaims([batch]);
+    }
+
     before(async function () {
       reportCampaignId = await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM);
+      await settleOneFor(reportCampaignId);
       // 5 separate campaigns per reporter for each reason code in BM-RPT-3
       // (AUDIT-023 dedup: same address cannot report same campaign twice)
       rptPageCampaignIds = [];
       rptAdCampaignIds   = [];
       for (let i = 0; i < 5; i++) {
-        rptPageCampaignIds.push(await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM));
-        rptAdCampaignIds.push(await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM));
+        const pc = await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM);
+        await settleOneFor(pc);
+        rptPageCampaignIds.push(pc);
+        const ac = await newActiveCampaign(RPT_BUDGET, RPT_DAILY, RPT_CPM);
+        await settleOneFor(ac);
+        rptAdCampaignIds.push(ac);
       }
     });
 
@@ -790,6 +803,9 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-GAS-7: reportPage gas", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
+      // B9-fix: reporter must have at least 1 settled event on this campaign.
+      const seedClaims = buildClaims(cid, publisher.address, user.address, 1, CPM, 1n);
+      await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: seedClaims }]);
       await gasFor("reportPage (reason 1)", () =>
         campaigns.connect(user).reportPage(cid, 1)
       );

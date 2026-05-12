@@ -538,27 +538,30 @@ describe("Integration", function () {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
-        { name: "firstNonce", type: "uint256" },
-        { name: "lastNonce", type: "uint256" },
-        { name: "claimCount", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
+    const claimsHash = ethers.keccak256(ethers.solidityPacked(
+      claims.map(() => "bytes32"),
+      claims.map((c) => c.claimHash),
+    ));
+    const deadlineBlock = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     const value = {
       campaignId,
       user: user.address,
-      firstNonce: claims[0].nonce,
-      lastNonce: claims[claims.length - 1].nonce,
-      claimCount: claims.length,
+      claimsHash,
+      deadlineBlock,
     };
     const publisherSig = await publisher.signTypedData(domain, types, value);
 
     const result = await verifier.connect(user).settleClaimsAttested.staticCall([
-      { user: user.address, campaignId, claims, publisherSig }
+      { user: user.address, campaignId, claims, deadlineBlock, publisherSig }
     ]);
     expect(result.settledCount).to.equal(1n);
 
     await verifier.connect(user).settleClaimsAttested([
-      { user: user.address, campaignId, claims, publisherSig }
+      { user: user.address, campaignId, claims, deadlineBlock, publisherSig }
     ]);
   });
 
@@ -574,9 +577,10 @@ describe("Integration", function () {
     const cpm = BID_CPM;
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, cpm, impressions);
 
+    const deadlineBlock2 = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     await expect(
       verifier.connect(user).settleClaimsAttested([
-        { user: user.address, campaignId, claims, publisherSig: "0x" }
+        { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock2, publisherSig: "0x" }
       ])
     ).to.be.revertedWith("E33");
   });
@@ -604,22 +608,25 @@ describe("Integration", function () {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
-        { name: "firstNonce", type: "uint256" },
-        { name: "lastNonce", type: "uint256" },
-        { name: "claimCount", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
+    const claimsHash3 = ethers.keccak256(ethers.solidityPacked(
+      claims.map(() => "bytes32"),
+      claims.map((c) => c.claimHash),
+    ));
+    const deadlineBlock3 = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     const wrongSig = await user.signTypedData(domain, types, {
       campaignId,
       user: user.address,
-      firstNonce: claims[0].nonce,
-      lastNonce: claims[claims.length - 1].nonce,
-      claimCount: claims.length,
+      claimsHash: claimsHash3,
+      deadlineBlock: deadlineBlock3,
     });
 
     await expect(
       verifier.connect(user).settleClaimsAttested([
-        { user: user.address, campaignId, claims, publisherSig: wrongSig }
+        { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock3, publisherSig: wrongSig }
       ])
     ).to.be.revertedWith("E34");
   });
@@ -634,9 +641,10 @@ describe("Integration", function () {
 
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 1000n);
 
+    const deadlineBlock4 = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     await expect(
       verifier.connect(publisher).settleClaimsAttested([
-        { user: user.address, campaignId, claims, publisherSig: "0x" }
+        { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock4, publisherSig: "0x" }
       ])
     ).to.be.revertedWith("E32");
   });
@@ -669,26 +677,29 @@ describe("Integration", function () {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
-        { name: "firstNonce", type: "uint256" },
-        { name: "lastNonce", type: "uint256" },
-        { name: "claimCount", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
+    const claimsHash5 = ethers.keccak256(ethers.solidityPacked(
+      claims.map(() => "bytes32"),
+      claims.map((c) => c.claimHash),
+    ));
+    const deadlineBlock5 = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     const publisherSig = await publisher.signTypedData(domain, types, {
       campaignId,
       user: user.address,
-      firstNonce: claims[0].nonce,
-      lastNonce: claims[claims.length - 1].nonce,
-      claimCount: claims.length,
+      claimsHash: claimsHash5,
+      deadlineBlock: deadlineBlock5,
     });
 
     const result = await verifier.connect(user).settleClaimsAttested.staticCall([
-      { user: user.address, campaignId, claims, publisherSig }
+      { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock5, publisherSig }
     ]);
     expect(result.settledCount).to.equal(1n);
 
     await verifier.connect(user).settleClaimsAttested([
-      { user: user.address, campaignId, claims, publisherSig }
+      { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock5, publisherSig }
     ]);
   });
 
@@ -719,22 +730,25 @@ describe("Integration", function () {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
-        { name: "firstNonce", type: "uint256" },
-        { name: "lastNonce", type: "uint256" },
-        { name: "claimCount", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
+    const claimsHash6 = ethers.keccak256(ethers.solidityPacked(
+      claims.map(() => "bytes32"),
+      claims.map((c) => c.claimHash),
+    ));
+    const deadlineBlock6 = BigInt(await ethers.provider.getBlockNumber()) + 100n;
     const wrongSig = await user.signTypedData(domain, types, {
       campaignId,
       user: user.address,
-      firstNonce: claims[0].nonce,
-      lastNonce: claims[claims.length - 1].nonce,
-      claimCount: claims.length,
+      claimsHash: claimsHash6,
+      deadlineBlock: deadlineBlock6,
     });
 
     await expect(
       verifier.connect(user).settleClaimsAttested([
-        { user: user.address, campaignId, claims, publisherSig: wrongSig }
+        { user: user.address, campaignId, claims, deadlineBlock: deadlineBlock6, publisherSig: wrongSig }
       ])
     ).to.be.revertedWith("E34");
   });

@@ -6,6 +6,7 @@ import "./DatumOwnable.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumPublisherStake.sol";
+import "./interfaces/IDatumBlocklistCurator.sol";
 
 /// @title DatumPublishers
 /// @notice Publisher registry and take rate management.
@@ -22,8 +23,20 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     mapping(address => Publisher) private _publishers;
 
-    // S12: Global address blocklist (owner-managed)
+    // S12: Global address blocklist (owner-managed). Legacy path — OR-merged with
+    // the curator. Deprecated by B2-fix in favor of the swappable curator below.
     mapping(address => bool) public blocked;
+
+    // B2-fix (2026-05-12): pluggable blocklist curator. When non-zero, `isBlocked`
+    // OR-merges the curator's verdict with the legacy `blocked[]` map. The
+    // curator can be any contract implementing IDatumBlocklistCurator (DAO,
+    // Council, reputation system, no-op, etc.). Once `blocklistCuratorLocked`
+    // is flipped, owner can no longer change the curator and `blockAddress` /
+    // `executeUnblock` revert — censorship authority is permanently delegated.
+    IDatumBlocklistCurator public blocklistCurator;
+    bool public blocklistCuratorLocked;
+    event BlocklistCuratorSet(address indexed curator);
+    event BlocklistCuratorLocked();
 
     // C-5: Timelock-gated unblock — unblock requires 48h delay, block is instant (protective)
     mapping(address => uint256) public pendingUnblockTime;  // 0 = no pending unblock
@@ -118,11 +131,21 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         emit StakeGateSet(stakeContract, threshold);
     }
 
+    /// @notice A9-fix (2026-05-12): hard ceiling at the moment of locking. Without
+    ///         this, owner could call `setStakeGate(x, MAX_UINT)` then
+    ///         `lockStakeGate()` to permanently block the stake-bypass route.
+    ///         10000 DOT (10^14 planck) is roughly the deployer's expected
+    ///         affordability floor; calibrate per network.
+    uint256 public constant MAX_STAKE_GATE_AT_LOCK = 10**14;
+
     /// @notice R-L1: Freeze the stake-gate configuration permanently. After this
     ///         call, setStakeGate reverts. Owner should invoke once governance
     ///         has confirmed the wiring.
     function lockStakeGate() external onlyOwner {
         require(!stakeGateLocked, "E01");
+        // A9-fix: enforce the gate is set to something a normal staker can hit.
+        // Caller must lower the threshold below MAX_STAKE_GATE_AT_LOCK first.
+        require(stakeGate <= MAX_STAKE_GATE_AT_LOCK, "gate too high at lock");
         stakeGateLocked = true;
         emit StakeGateLocked();
     }
@@ -210,7 +233,10 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @notice Instantly block an address (protective action — no delay needed).
+    /// @dev B2-fix: reverts once the curator is locked. Censorship authority
+    ///      transfers fully to the curator at that point.
     function blockAddress(address addr) external onlyOwner {
+        require(!blocklistCuratorLocked, "curator-locked");
         require(addr != address(0), "E00");
         blocked[addr] = true;
         // Cancel any pending unblock for this address
@@ -230,7 +256,12 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     }
 
     /// @notice C-5: Execute a pending unblock after the delay has elapsed.
+    /// @dev B2-fix: once curator is locked, the owner cannot unblock legacy
+    ///      entries (curator becomes the sole authority). Pre-lock unblocks
+    ///      remain available so deployer can drain the legacy map before
+    ///      delegating fully.
     function executeUnblock(address addr) external onlyOwner {
+        require(!blocklistCuratorLocked, "curator-locked");
         require(addr != address(0), "E00");
         require(pendingUnblockTime[addr] != 0, "E01");
         require(block.timestamp >= pendingUnblockTime[addr], "E37");
@@ -246,8 +277,37 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         emit UnblockCancelled(addr);
     }
 
+    /// @notice B2-fix: returns true if EITHER the legacy `blocked[]` map flags
+    ///         this address OR the configured curator does. When curator is
+    ///         address(0), only the legacy map is consulted (back-compat).
+    ///         Once the deployer transitions to a real curator and calls
+    ///         lockBlocklistCurator, the curator becomes the sole authority and
+    ///         the legacy map is frozen (no new entries possible).
     function isBlocked(address addr) external view returns (bool) {
-        return blocked[addr];
+        if (blocked[addr]) return true;
+        IDatumBlocklistCurator c = blocklistCurator;
+        if (address(c) == address(0)) return false;
+        try c.isBlocked(addr) returns (bool b) {
+            return b;
+        } catch {
+            return false; // fail-open on curator reverts (liveness over policy)
+        }
+    }
+
+    /// @notice B2-fix: set the curator contract. Pass address(0) to disable.
+    function setBlocklistCurator(address curator) external onlyOwner {
+        require(!blocklistCuratorLocked, "curator-locked");
+        blocklistCurator = IDatumBlocklistCurator(curator);
+        emit BlocklistCuratorSet(curator);
+    }
+
+    /// @notice B2-fix: lock the curator permanently. After this, the owner can
+    ///         no longer change the curator, block addresses, or process unblocks
+    ///         — the curator is the sole censorship authority. Irreversible.
+    function lockBlocklistCurator() external onlyOwner {
+        require(!blocklistCuratorLocked, "already locked");
+        blocklistCuratorLocked = true;
+        emit BlocklistCuratorLocked();
     }
 
     // -------------------------------------------------------------------------

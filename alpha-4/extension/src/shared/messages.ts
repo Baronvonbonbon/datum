@@ -43,7 +43,7 @@ export type PopupToBackground =
   | { type: "POLL_CAMPAIGNS" }
   | { type: "GET_INTEREST_PROFILE" }
   | { type: "RESET_INTEREST_PROFILE" }
-  | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; firstNonce: string; lastNonce: string; claimCount: number }
+  | { type: "REQUEST_PUBLISHER_ATTESTATION"; publisherAddress: string; campaignId: string; userAddress: string; claimsHash: string; deadlineBlock: string }
   | { type: "GET_USER_PREFERENCES" }
   | { type: "UPDATE_USER_PREFERENCES"; preferences: Partial<import("./types").UserPreferences> }
   | { type: "BLOCK_CAMPAIGN"; campaignId: string }

@@ -7,12 +7,14 @@
 
 const ATTESTATION_TIMEOUT_MS = 3000;
 
+// A1-fix (2026-05-12): publisher now signs over claimsHash + deadlineBlock instead
+// of (firstNonce, lastNonce, claimCount). Prevents replay of a captured cosig
+// against altered claim contents and binds the cosig to an expiry block.
 interface AttestationRequest {
   campaignId: string;
   user: string;
-  firstNonce: string;
-  lastNonce: string;
-  claimCount: number;
+  claimsHash: string;   // 0x-prefixed keccak256(abi.encodePacked(claim.claimHash[]))
+  deadlineBlock: string; // decimal-string block.number expiry
 }
 
 interface AttestationResponse {
@@ -45,9 +47,8 @@ export async function requestPublisherAttestation(
   publisherAddress: string,
   campaignId: string,
   userAddress: string,
-  firstNonce: string,
-  lastNonce: string,
-  claimCount: number
+  claimsHash: string,
+  deadlineBlock: string | bigint
 ): Promise<AttestationResult> {
   try {
     const domain = await getPublisherDomain(publisherAddress);
@@ -56,22 +57,16 @@ export async function requestPublisherAttestation(
       return { signature: "", error: "No publisher relay URL configured" };
     }
 
-    // M6: Reject explicit http:// for non-local domains (HTTPS is always used)
-    const isLocal = domain === "localhost" || domain.startsWith("localhost:") || domain.startsWith("127.");
-    if (!isLocal && domain.startsWith("http://")) {
-      console.warn(`[DATUM] Publisher attestation: refusing HTTP for non-local domain ${domain}`);
-      return { signature: "", error: `HTTP not allowed for non-local domain (${domain})` };
-    }
-
-    // Strip protocol prefix if present (domain should be bare hostname)
+    // Always HTTPS — strip any user-supplied protocol prefix and re-prepend https://.
+    // A12: previous explicit http:// rejection was unreachable (regex stripped it
+    // before the protocol re-prepend); behavior is preserved by always using HTTPS.
     const bareDomain = domain.replace(/^https?:\/\//, "");
     const url = `https://${bareDomain}/.well-known/datum-attest`;
     const body: AttestationRequest = {
       campaignId,
       user: userAddress,
-      firstNonce,
-      lastNonce,
-      claimCount,
+      claimsHash,
+      deadlineBlock: typeof deadlineBlock === "bigint" ? deadlineBlock.toString() : deadlineBlock,
     };
 
     const controller = new AbortController();

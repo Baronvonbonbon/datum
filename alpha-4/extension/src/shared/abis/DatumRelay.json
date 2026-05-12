@@ -137,6 +137,12 @@
     },
     {
       "anonymous": false,
+      "inputs": [],
+      "name": "RelayerOpenLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
       "inputs": [
         {
           "indexed": true,
@@ -284,6 +290,13 @@
     },
     {
       "inputs": [],
+      "name": "lockRelayerOpen",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "owner",
       "outputs": [
         {
@@ -316,6 +329,19 @@
           "internalType": "address",
           "name": "",
           "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "relayerOpenLocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -468,8 +494,13 @@
             },
             {
               "internalType": "uint256",
-              "name": "deadline",
+              "name": "deadlineBlock",
               "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "expectedRelaySigner",
+              "type": "address"
             },
             {
               "internalType": "bytes",

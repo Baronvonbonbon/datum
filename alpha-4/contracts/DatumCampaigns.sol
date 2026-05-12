@@ -9,6 +9,14 @@ import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 
+/// @dev B9-fix: minimal Settlement read interface for the report eligibility
+///      gate. Kept inline — only one function needed and `IDatumSettlement`
+///      doesn't expose this getter.
+interface ISettlementReportGate {
+    function userCampaignSettled(address user, uint256 campaignId, uint8 actionType)
+        external view returns (uint256);
+}
+
 /// @title DatumCampaigns (Core)
 /// @notice Campaign state management — creation, activation, pausing, metadata, views.
 ///         Includes inlined campaign validation (SE-3), tag-based targeting (TX-1),
@@ -57,6 +65,23 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     address public lifecycleContract;
     IDatumPublishers public publishers;
     IDatumBudgetLedger public budgetLedger;
+
+    // A5/B8-fix (2026-05-12): two-step accept handoff for governance-critical refs.
+    // Pattern mirrors GovernanceRouter.setGovernor (A10). Once `bootstrapped` is
+    // locked via lockBootstrap(), direct one-step setters revert — the only path
+    // becomes stage (setX) + finalize (acceptX from the new address's context).
+    // This blocks typo'd / fake-target takeovers post-deployment while keeping
+    // the deploy script's one-shot wiring path workable.
+    address public pendingSettlementContract;
+    address public pendingGovernanceContract;
+    address public pendingLifecycleContract;
+    address public pendingBudgetLedger;
+    /// @notice One-way switch: when true, direct setters revert; only the
+    ///         stage+accept handoff path is permitted. Owner flips after the
+    ///         initial wiring is verified.
+    bool public bootstrapped;
+    event BootstrapLocked();
+    event PendingRefStaged(string indexed name, address indexed pending);
 
     // -------------------------------------------------------------------------
     // State
@@ -147,22 +172,61 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // Admin — contract reference setters (S2 zero-addr checks, S3 events)
     // -------------------------------------------------------------------------
 
+    /// @notice A5/B8-fix: pre-bootstrap, one-step; post-bootstrap, stages a
+    ///         pending address and the new contract must call
+    ///         `acceptSettlementContract()` from its own context.
     function setSettlementContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        emit ContractReferenceChanged("settlement", settlementContract, addr);
-        settlementContract = addr;
+        if (bootstrapped) {
+            pendingSettlementContract = addr;
+            emit PendingRefStaged("settlement", addr);
+        } else {
+            emit ContractReferenceChanged("settlement", settlementContract, addr);
+            settlementContract = addr;
+        }
+    }
+    function acceptSettlementContract() external {
+        address c = pendingSettlementContract;
+        require(c != address(0) && msg.sender == c, "E19");
+        emit ContractReferenceChanged("settlement", settlementContract, c);
+        settlementContract = c;
+        pendingSettlementContract = address(0);
     }
 
     function setGovernanceContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        emit ContractReferenceChanged("governance", governanceContract, addr);
-        governanceContract = addr;
+        if (bootstrapped) {
+            pendingGovernanceContract = addr;
+            emit PendingRefStaged("governance", addr);
+        } else {
+            emit ContractReferenceChanged("governance", governanceContract, addr);
+            governanceContract = addr;
+        }
+    }
+    function acceptGovernanceContract() external {
+        address c = pendingGovernanceContract;
+        require(c != address(0) && msg.sender == c, "E19");
+        emit ContractReferenceChanged("governance", governanceContract, c);
+        governanceContract = c;
+        pendingGovernanceContract = address(0);
     }
 
     function setLifecycleContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        emit ContractReferenceChanged("lifecycle", lifecycleContract, addr);
-        lifecycleContract = addr;
+        if (bootstrapped) {
+            pendingLifecycleContract = addr;
+            emit PendingRefStaged("lifecycle", addr);
+        } else {
+            emit ContractReferenceChanged("lifecycle", lifecycleContract, addr);
+            lifecycleContract = addr;
+        }
+    }
+    function acceptLifecycleContract() external {
+        address c = pendingLifecycleContract;
+        require(c != address(0) && msg.sender == c, "E19");
+        emit ContractReferenceChanged("lifecycle", lifecycleContract, c);
+        lifecycleContract = c;
+        pendingLifecycleContract = address(0);
     }
 
     function setPublishers(address addr) external onlyOwner {
@@ -173,8 +237,29 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
 
     function setBudgetLedger(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        emit ContractReferenceChanged("budgetLedger", address(budgetLedger), addr);
-        budgetLedger = IDatumBudgetLedger(addr);
+        if (bootstrapped) {
+            pendingBudgetLedger = addr;
+            emit PendingRefStaged("budgetLedger", addr);
+        } else {
+            emit ContractReferenceChanged("budgetLedger", address(budgetLedger), addr);
+            budgetLedger = IDatumBudgetLedger(addr);
+        }
+    }
+    function acceptBudgetLedger() external {
+        address c = pendingBudgetLedger;
+        require(c != address(0) && msg.sender == c, "E19");
+        emit ContractReferenceChanged("budgetLedger", address(budgetLedger), c);
+        budgetLedger = IDatumBudgetLedger(c);
+        pendingBudgetLedger = address(0);
+    }
+
+    /// @notice A5/B8-fix: one-way switch. After this, the four governance-
+    ///         critical setters above can only stage pending addresses; the
+    ///         new contract must call its acceptX() to finalize.
+    function lockBootstrap() external onlyOwner {
+        require(!bootstrapped, "already bootstrapped");
+        bootstrapped = true;
+        emit BootstrapLocked();
     }
 
     /// @notice Set challenge bonds contract. Pass address(0) to disable.
@@ -324,12 +409,37 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // Community reports (merged from DatumReports)
     // -------------------------------------------------------------------------
 
+    /// @notice B9-fix (2026-05-12): minimum settled events on this campaign the
+    ///         reporter must have before they can file a report. Sybil-resistant
+    ///         by construction: each settled event has been through publisher
+    ///         cosig + rate check + (where required) ZK proof. Fresh sock-puppet
+    ///         addresses can't accumulate `userCampaignSettled` without serving
+    ///         real impressions, so the protocol's own ledger gates eligibility.
+    ///         No token-holding requirement — real users qualify automatically.
+    uint256 public constant MIN_EVENTS_TO_REPORT = 1;
+
+    /// @dev B9-fix: skipped when `settlementContract == address(0)` so test
+    ///      fixtures and early-bootstrap deployments without a wired settlement
+    ///      can still exercise the report path. In production, settlement is
+    ///      always wired before campaigns go live.
+    function _requireReporterEligible(uint256 campaignId) internal view {
+        address s = settlementContract;
+        if (s == address(0)) return;
+        // Sum settled events across view/click/action — any genuine settled
+        // event on this campaign qualifies the reporter.
+        uint256 total = ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 0)
+                      + ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 1)
+                      + ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 2);
+        require(total >= MIN_EVENTS_TO_REPORT, "E62"); // not a real audience member
+    }
+
     /// @notice Report a campaign's page (publisher content violation).
     function reportPage(uint256 campaignId, uint8 reason) external {
         require(reason >= 1 && reason <= 5, "E68");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(!_hasReportedPage[campaignId][msg.sender], "E68");
+        _requireReporterEligible(campaignId);
         _hasReportedPage[campaignId][msg.sender] = true;
         pageReports[campaignId]++;
         address pub = c.publisher;
@@ -343,6 +453,7 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(!_hasReportedAd[campaignId][msg.sender], "E68");
+        _requireReporterEligible(campaignId);
         _hasReportedAd[campaignId][msg.sender] = true;
         adReports[campaignId]++;
         advertiserReports[c.advertiser]++;
@@ -496,6 +607,10 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
+    /// @dev A14-note (2026-05-12): intentionally NO global pause gate. Advertisers
+    ///      should retain the ability to update creative metadata during a pause —
+    ///      pause is for blocking *settlement*, not for freezing all state.
+    ///      Do not "fix" this by adding `!pauseRegistry.paused()`.
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");

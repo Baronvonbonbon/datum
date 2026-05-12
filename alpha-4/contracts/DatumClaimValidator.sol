@@ -55,11 +55,18 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         publishers = IDatumPublishers(addr);
     }
 
+    // A2-fix (2026-05-12): zero-check + lock-once on safety-critical refs.
+    // Previously the ZK verifier could be silently cleared (downgrade attack)
+    // or hot-swapped to a permissive verifier. ClickRegistry parallels Settlement.A13.
     function setZKVerifier(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(zkVerifier) == address(0), "already set");
         zkVerifier = IDatumZKVerifier(addr);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(clickRegistry) == address(0), "already set");
         clickRegistry = IDatumClickRegistry(addr);
     }
 
@@ -109,11 +116,15 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             } catch {}
         }
 
-        // Check 4: S12 blocklist — fail-safe: treat call failure as blocked
+        // Check 4: S12 blocklist.
+        // A4-fix (2026-05-12): fail-OPEN on revert. Mirrors Settlement: the
+        //   blocklist is a policy layer, not a critical safety invariant, and
+        //   silently DoS'ing every settlement on a single misconfigured ref
+        //   is more harmful than letting a single batch through.
         try publishers.isBlocked(claim.publisher) returns (bool blocked) {
             if (blocked) return (false, 11, 0, bytes32(0));
         } catch {
-            return (false, 11, 0, bytes32(0));
+            // Liveness: continue validation rather than rejecting.
         }
 
         // Check 5: rate check — fetch pot config for this action type

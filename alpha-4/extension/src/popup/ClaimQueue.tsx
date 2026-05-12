@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { keccak256, solidityPacked } from "ethers";
 import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
@@ -344,11 +345,21 @@ export function ClaimQueue({ address, onSettled }: Props) {
         return;
       }
 
+      // A1-fix: deadlineBlock binds the publisher cosig to an expiry; claimsHash
+      //         binds it to the exact claim contents. Compute current block once.
+      const _provider0 = signer.provider!;
+      const _currentBlock = BigInt(await _provider0.getBlockNumber());
+      const flushDeadlineBlock = _currentBlock + 50n; // ~5 min @ 6s
+
       // Request publisher attestation for each (sub-)batch.
-      // Each sub-batch gets its own EIP-712 sig covering its firstNonce/lastNonce/claimCount.
+      // Each sub-batch gets its own EIP-712 sig covering its claimsHash/deadlineBlock.
       const warnings: Record<string, string> = {};
       const attestedBatches = await Promise.all(flatBatches.map(async (b) => {
-        const claimsLen = b.claims.length;
+        const claimHashes = b.claims.map((c) => c.claimHash);
+        const claimsHash = keccak256(solidityPacked(
+          new Array(claimHashes.length).fill("bytes32"),
+          claimHashes,
+        ));
         let publisherSig = "0x";
         try {
           const attestResponse = await chrome.runtime.sendMessage({
@@ -356,9 +367,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
             publisherAddress: b.claims[0]?.publisher ?? "",
             campaignId: b.campaignId,
             userAddress: b.user,
-            firstNonce: b.claims[0].nonce,
-            lastNonce: b.claims[claimsLen - 1].nonce,
-            claimCount: claimsLen,
+            claimsHash,
+            deadlineBlock: flushDeadlineBlock.toString(),
           });
           if (attestResponse?.signature) publisherSig = attestResponse.signature;
           if (attestResponse?.error) warnings[b.campaignId] = attestResponse.error;
@@ -382,6 +392,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
             nullifier: c.nullifier,
             actionSig: c.actionSig,
           })),
+          deadlineBlock: flushDeadlineBlock,
           publisherSig,
         };
       }));
@@ -591,7 +602,15 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const trimmedBatch: SerializedClaimBatch = trimmed;
 
       // Request publisher attestation (use trimmedBatch — may have fewer claims than original)
-      const claimsLen = trimmedBatch.claims.length;
+      // A1-fix: bind to claimsHash + deadlineBlock instead of nonce-range fields.
+      const _provider1 = signer.provider!;
+      const _currentBlock1 = BigInt(await _provider1.getBlockNumber());
+      const singleDeadlineBlock = _currentBlock1 + 50n;
+      const _claimHashes = trimmedBatch.claims.map((c) => c.claimHash);
+      const _claimsHash = keccak256(solidityPacked(
+        new Array(_claimHashes.length).fill("bytes32"),
+        _claimHashes,
+      ));
       let publisherSig = "0x";
       try {
         const attestResponse = await chrome.runtime.sendMessage({
@@ -599,9 +618,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
           publisherAddress: trimmedBatch.claims[0]?.publisher ?? "",
           campaignId: trimmedBatch.campaignId,
           userAddress: trimmedBatch.user,
-          firstNonce: trimmedBatch.claims[0].nonce,
-          lastNonce: trimmedBatch.claims[claimsLen - 1].nonce,
-          claimCount: claimsLen,
+          claimsHash: _claimsHash,
+          deadlineBlock: singleDeadlineBlock.toString(),
         });
         if (attestResponse?.signature) publisherSig = attestResponse.signature;
         if (attestResponse?.error) setAttestationWarnings({ [campaignId]: attestResponse.error });
@@ -626,6 +644,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           nullifier: c.nullifier,
           actionSig: c.actionSig,
         })),
+        deadlineBlock: singleDeadlineBlock,
         publisherSig,
       };
 
@@ -778,6 +797,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
         const signature = await signer.signTypedData(domain, types, value);
 
         // Attempt publisher attestation (degraded trust if unavailable)
+        // A1-fix: bind to claimsHash + deadlineBlock (shared with the user sig's deadline).
+        const _ch = b.claims.map((c) => c.claimHash);
+        const _csh = keccak256(solidityPacked(new Array(_ch.length).fill("bytes32"), _ch));
         let publisherSig = "0x";
         try {
           const attestResponse = await chrome.runtime.sendMessage({
@@ -785,9 +807,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
             publisherAddress: b.claims[0]?.publisher ?? "",
             campaignId: b.campaignId,
             userAddress: b.user,
-            firstNonce: b.claims[0].nonce,
-            lastNonce: b.claims[claimsLen - 1].nonce,
-            claimCount: claimsLen,
+            claimsHash: _csh,
+            deadlineBlock: deadline.toString(),
           });
           if (attestResponse?.signature) {
             publisherSig = attestResponse.signature;

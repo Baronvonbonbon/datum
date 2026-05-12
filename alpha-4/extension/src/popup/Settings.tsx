@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { JsonRpcProvider, Contract, isAddress } from "ethers";
 import { StoredSettings, NetworkName, ContractAddresses, UserPreferences } from "@shared/types";
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
-import { unlock, isConfigured, getSigner } from "@shared/walletManager";
+import { unlock, isConfigured, getSigner, getIdleLockMinutes, setIdleLockMinutes } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
@@ -24,6 +24,8 @@ export function Settings({ address }: { address: string | null }) {
   const [autoSubmitPassword, setAutoSubmitPassword] = useState("");
   const [autoSubmitKeySet, setAutoSubmitKeySet] = useState(false);
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null);
+  // A13-fix: wallet idle-lock timeout (minutes). 0 = never.
+  const [idleLockMinutes, setIdleLockMinutesState] = useState<number>(15);
   // XM-14: SW restart deauth notice
   const [autoSubmitDeauthNotice, setAutoSubmitDeauthNotice] = useState(false);
   const [rpcWarning, setRpcWarning] = useState<string | null>(null);
@@ -55,6 +57,8 @@ export function Settings({ address }: { address: string | null }) {
     chrome.storage.local.get("settings", (stored) => {
       if (stored.settings) setSettings(stored.settings);
     });
+    // A13-fix: load current idle-lock setting
+    getIdleLockMinutes().then((m) => setIdleLockMinutesState(m));
     // Check auto-submit authorization via background (B1: encrypted)
     chrome.runtime.sendMessage({ type: "CHECK_AUTO_SUBMIT" }).then((resp) => {
       if (resp?.authorized) setAutoSubmitKeySet(true);
@@ -680,6 +684,28 @@ export function Settings({ address }: { address: string | null }) {
         )}
         <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 2 }}>
           Get a free key at pinata.cloud. Used to pin campaign metadata from My Ads tab.
+        </div>
+      </div>
+
+      {/* A13-fix: Wallet idle auto-lock */}
+      <div style={sectionStyle}>
+        <label style={labelStyle}>Auto-lock wallet after</label>
+        <select
+          value={idleLockMinutes}
+          onChange={async (e) => {
+            const v = parseInt(e.target.value, 10) as 0 | 5 | 15 | 30;
+            setIdleLockMinutesState(v);
+            await setIdleLockMinutes(v);
+          }}
+          style={{ ...inputStyle, width: 140 }}
+        >
+          <option value={5}>5 minutes idle</option>
+          <option value={15}>15 minutes idle</option>
+          <option value={30}>30 minutes idle</option>
+          <option value={0}>Never (not recommended)</option>
+        </select>
+        <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginTop: 2 }}>
+          Clears your unlocked wallet from memory after idle. You'll re-enter your password to sign again.
         </div>
       </div>
 

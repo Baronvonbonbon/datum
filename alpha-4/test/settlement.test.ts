@@ -635,9 +635,8 @@ describe("DatumSettlement", function () {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
-        { name: "firstNonce", type: "uint256" },
-        { name: "lastNonce", type: "uint256" },
-        { name: "claimCount", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
 
@@ -645,15 +644,19 @@ describe("DatumSettlement", function () {
       signer: HardhatEthersSigner,
       campaignId: bigint,
       userAddr: string,
-      claims: any[]
+      claims: any[],
+      deadlineBlock: bigint | number
     ) {
       const domain = await getEIP712Domain();
+      const claimsHash = ethers.keccak256(ethers.solidityPacked(
+        claims.map(() => "bytes32"),
+        claims.map((c: any) => c.claimHash),
+      ));
       const value = {
         campaignId,
         user: userAddr,
-        firstNonce: claims[0].nonce,
-        lastNonce: claims[claims.length - 1].nonce,
-        claimCount: claims.length,
+        claimsHash,
+        deadlineBlock: BigInt(deadlineBlock),
       };
       return signer.signTypedData(domain, publisherAttestationTypes, value);
     }
@@ -664,7 +667,7 @@ describe("DatumSettlement", function () {
 
       const deadline = (await ethers.provider.getBlockNumber()) + 100;
       const signature = await signBatch(user, cid, claims, deadline);
-      const publisherSig = await signPublisherAttestation(publisher, cid, user.address, claims);
+      const publisherSig = await signPublisherAttestation(publisher, cid, user.address, claims, deadline);
 
       const signedBatch = {
         user: user.address,
@@ -689,7 +692,7 @@ describe("DatumSettlement", function () {
 
       const deadline = (await ethers.provider.getBlockNumber()) + 100;
       const signature = await signBatch(user, cid, claims, deadline);
-      const publisherSig = await signPublisherAttestation(other, cid, user.address, claims);
+      const publisherSig = await signPublisherAttestation(other, cid, user.address, claims, deadline);
 
       const signedBatch = {
         user: user.address,
@@ -737,7 +740,7 @@ describe("DatumSettlement", function () {
 
       const deadline = (await ethers.provider.getBlockNumber()) + 100;
       const signature = await signBatch(user, cid, claims, deadline);
-      const validPubSig = await signPublisherAttestation(publisher, cid, user.address, claims);
+      const validPubSig = await signPublisherAttestation(publisher, cid, user.address, claims, deadline);
 
       const sigBytes = ethers.getBytes(validPubSig);
       sigBytes[0] ^= 0xff;
