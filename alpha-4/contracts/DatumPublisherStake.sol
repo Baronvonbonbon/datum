@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumPublisherStake.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -23,7 +24,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         are rejected with reason code 15.
 ///
 ///         Slash is called by PublisherGovernance when a fraud proposal resolves aye.
-contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, DatumOwnable {
+contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumOwnable {
     /// @notice Settlement contract — authorised to call recordImpressions.
     address public settlementContract;
 
@@ -117,9 +118,8 @@ contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, DatumOwna
 
         delete _pendingUnstake[msg.sender];
 
-        (bool ok,) = msg.sender.call{value: req.amount}("");
-        require(ok, "E02");
         emit Unstaked(msg.sender, req.amount);
+        _safeSend(msg.sender, req.amount);
     }
 
     // ── Settlement callback ────────────────────────────────────────────────────
@@ -166,9 +166,8 @@ contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, DatumOwna
             _staked[publisher] = active - fromActive;
         }
 
-        (bool ok,) = recipient.call{value: amount}("");
-        require(ok, "E02");
         emit Slashed(publisher, amount, recipient);
+        _safeSend(recipient, amount);
     }
 
     // ── Views ──────────────────────────────────────────────────────────────────
@@ -186,8 +185,21 @@ contract DatumPublisherStake is IDatumPublisherStake, ReentrancyGuard, DatumOwna
     }
 
     function requiredStake(address publisher) public view returns (uint256) {
-        uint256 uncapped = baseStakePlanck + _cumulativeImpressions[publisher] * planckPerImpression;
-        return Math.min(uncapped, maxRequiredStake); // AUDIT-012: cap bonding curve runaway
+        uint256 cap = maxRequiredStake;
+        uint256 base = baseStakePlanck;
+        uint256 perImp = planckPerImpression;
+        uint256 cum = _cumulativeImpressions[publisher];
+        // Saturating bonding-curve evaluation: short-circuit before the
+        // multiplication can overflow when an attacker drives `cum` very high.
+        // The cap is applied either way, so we only need to do the math when
+        // we're not already past it.
+        if (perImp == 0 || cum == 0) {
+            return base >= cap ? cap : base;
+        }
+        if (base >= cap) return cap;
+        uint256 headroom = cap - base;
+        if (cum > headroom / perImp) return cap;
+        return base + cum * perImp;
     }
 
     function isAdequatelyStaked(address publisher) external view returns (bool) {

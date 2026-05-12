@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumCampaigns.sol";
@@ -18,7 +19,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
-contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable {
+contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumOwnable {
     // -------------------------------------------------------------------------
     // Authorization
     // -------------------------------------------------------------------------
@@ -278,10 +279,10 @@ contract DatumBudgetLedger is IDatumBudgetLedger, ReentrancyGuard, DatumOwnable 
     // Internal
     // -------------------------------------------------------------------------
 
-    /// @dev Single native-transfer site.
+    /// @dev Single native-transfer site. Routes through `_safeSend` to
+    ///      sidestep the Paseo eth-rpc denomination bug (A2).
     function _send(address to, uint256 amount) internal {
-        (bool ok,) = payable(to).call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(to, amount);
     }
 
     /// @notice Reject stray native deposits — there is no internal path that

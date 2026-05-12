@@ -69,6 +69,19 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     ///         the orphan fees would be permanently stuck.
     uint256 public orphanDotPending;
 
+    /// @notice A7: One-time bootstrap stake locked under address(0). Prevents
+    ///         the classic first-staker inflation attack where a 1-wei staker
+    ///         after orphan accumulation can capture the entire orphan pool by
+    ///         folding it through a totalStaked of 1.
+    /// @dev    Must be set before any fees arrive in production; until then
+    ///         _notifyFee continues to park inflow in `orphanDotPending` so
+    ///         nothing is lost — but the orphan grows. After bootstrap, the
+    ///         first fold sends the accumulated orphan to address(0) (permanent
+    ///         burn from the staker pool's perspective), eliminating it as
+    ///         exploit surface.
+    bool public bootstrapped;
+    uint256 public constant MIN_BOOTSTRAP_STAKE = 1000 * 10**10; // 1000 WDATUM (10-dec)
+
     mapping(address => uint256) public stakedBy;
     mapping(address => uint256) public userDebt;
 
@@ -82,6 +95,7 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     event FeeNotified(uint256 amount, uint256 accDotPerShare, uint256 totalStaked);
     event OrphanFolded(uint256 amount);
     event Funded(address indexed from, uint256 amount);
+    event Bootstrapped(uint256 amount);
 
     // -------------------------------------------------------------------------
     // Construction
@@ -96,6 +110,28 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     /// @dev    Optional but recommended. Settable by owner; cleared with zero.
     function setPaymentVault(address vault) external onlyOwner {
         paymentVault = vault;
+    }
+
+    /// @notice A7: One-time bootstrap. Owner must have approved this contract
+    ///         for at least `MIN_BOOTSTRAP_STAKE` WDATUM before calling. The
+    ///         WDATUM is parked under `address(0)` — no path can withdraw it,
+    ///         so it permanently increases `totalStaked` and dilutes any
+    ///         flash-stake attempt to capture orphan fees.
+    /// @dev    Without this, a 1-wei staker arriving right before an orphan
+    ///         fold captures the entire orphan pool. Bootstrap stake must be
+    ///         large enough that flash-stake dilution is uneconomic.
+    function bootstrap(uint256 amount) external onlyOwner {
+        require(!bootstrapped, "already bootstrapped");
+        require(amount >= MIN_BOOTSTRAP_STAKE, "below min");
+        bootstrapped = true;
+        require(stakeToken.transferFrom(msg.sender, address(this), amount), "E02");
+        // Park under address(0) — no way to withdraw, dust attack now uneconomic.
+        stakedBy[address(0)] = amount;
+        totalStaked = amount;
+        // No debt snapshot needed: address(0) can't claim. Future orphan folds
+        // increase accDotPerShare; the share that would have accrued to the
+        // bootstrap stake is simply unclaimable, effectively burned.
+        emit Bootstrapped(amount);
     }
 
     /// @notice Permissionless sweep — pulls accumulated protocol fees from

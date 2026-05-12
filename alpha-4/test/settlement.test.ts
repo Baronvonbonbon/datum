@@ -474,7 +474,7 @@ describe("DatumSettlement", function () {
         { name: "firstNonce", type: "uint256" },
         { name: "lastNonce", type: "uint256" },
         { name: "claimCount", type: "uint256" },
-        { name: "deadline", type: "uint256" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
 
@@ -491,7 +491,7 @@ describe("DatumSettlement", function () {
         firstNonce: claims[0].nonce,
         lastNonce: claims[claims.length - 1].nonce,
         claimCount: claims.length,
-        deadline,
+        deadlineBlock: deadline,
       };
       return signer.signTypedData(domain, eip712Types, value);
     }
@@ -507,7 +507,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -530,7 +531,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -556,7 +558,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: tamperedSig,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -577,7 +580,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -598,7 +602,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -665,7 +670,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -689,7 +695,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -712,7 +719,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -740,7 +748,8 @@ describe("DatumSettlement", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline,
+        deadlineBlock: deadline,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: tamperedPubSig,
         advertiserSig: "0x",
@@ -772,7 +781,8 @@ describe("DatumSettlement", function () {
         { name: "user", type: "address" },
         { name: "campaignId", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
-        { name: "deadline", type: "uint256" },
+        { name: "deadlineBlock", type: "uint256" },
+        { name: "expectedRelaySigner", type: "address" },
       ],
     };
 
@@ -788,14 +798,16 @@ describe("DatumSettlement", function () {
       userAddr: string,
       campaignId: bigint,
       claims: any[],
-      deadline: number
+      deadlineBlock: number,
+      expectedRelaySigner: string,
     ) {
       const domain = await getDualSigDomain();
       const value = {
         user: userAddr,
         campaignId,
         claimsHash: hashClaims(claims),
-        deadline,
+        deadlineBlock,
+        expectedRelaySigner,
       };
       return signer.signTypedData(domain, dualSigTypes, value);
     }
@@ -805,16 +817,18 @@ describe("DatumSettlement", function () {
       claims: any[],
       pubSigner: HardhatEthersSigner,
       advSigner: HardhatEthersSigner,
-      deadline?: number
+      deadlineBlock?: number,
+      expectedRelaySigner: string = ethers.ZeroAddress,
     ) {
-      const dl = deadline ?? Number((await ethers.provider.getBlock("latest"))!.timestamp) + 3600;
-      const publisherSig = await signDualBatch(pubSigner, user.address, cid, claims, dl);
-      const advertiserSig = await signDualBatch(advSigner, user.address, cid, claims, dl);
+      const dl = deadlineBlock ?? (await ethers.provider.getBlockNumber()) + 100;
+      const publisherSig = await signDualBatch(pubSigner, user.address, cid, claims, dl, expectedRelaySigner);
+      const advertiserSig = await signDualBatch(advSigner, user.address, cid, claims, dl, expectedRelaySigner);
       return {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline: dl,
+        deadlineBlock: dl,
+        expectedRelaySigner,
         userSig: "0x",
         publisherSig,
         advertiserSig,
@@ -836,10 +850,11 @@ describe("DatumSettlement", function () {
 
     it("D2: publisher's relaySigner is accepted in place of publisher EOA", async function () {
       const cid = await createTestCampaign();
-      // Designate `protocol` as publisher's relaySigner
+      // Designate `protocol` as publisher's relaySigner.
       await mock.setRelaySigner(publisher.address, protocol.address);
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
-      const batch = await makeDualSignedBatch(cid, claims, protocol, owner);
+      // A1: cosig binds the expected relay key into the EIP-712 envelope.
+      const batch = await makeDualSignedBatch(cid, claims, protocol, owner, undefined, protocol.address);
 
       const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
@@ -873,7 +888,8 @@ describe("DatumSettlement", function () {
     it("D5: expired deadline reverts E81", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
-      const expired = Number((await ethers.provider.getBlock("latest"))!.timestamp) - 1;
+      // A9: deadline is block.number — pick one already past.
+      const expired = (await ethers.provider.getBlockNumber()) - 1;
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner, expired);
 
       await expect(

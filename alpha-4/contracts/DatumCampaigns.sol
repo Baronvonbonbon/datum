@@ -77,6 +77,13 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // ---- Targeting registry state (merged from DatumTargetingRegistry) ----
     mapping(address => bytes32[]) private _publisherTags;
     mapping(address => mapping(bytes32 => bool)) private _publisherTagSet;
+    // A8: when a publisher drops a tag, it stays effective for active campaigns
+    // until `block.number >= tagRemovalEffectiveBlock`. Prevents an advertiser-
+    // unfriendly griefing pattern where a publisher pulls a tag mid-campaign to
+    // strand the budget. Re-adding the tag clears the pending removal.
+    uint256 public constant TAG_REMOVAL_GRACE_BLOCKS = 14400; // ~24h at 6s/block
+    mapping(address => mapping(bytes32 => uint256)) public tagRemovalEffectiveBlock;
+    event TagRemovalScheduled(address indexed publisher, bytes32 indexed tag, uint256 effectiveBlock);
 
     // Approved tag registry
     bool public enforceTagRegistry;
@@ -95,6 +102,19 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     ///         co-sign before any settle, catching fraud at the bookkeeping layer.
     mapping(uint256 => bool) public campaignRequiresDualSig;
     event CampaignRequiresDualSigUpdated(uint256 indexed campaignId, bool required);
+
+    // A3: AssuranceLevel per campaign. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
+    // Reading uses `getCampaignAssuranceLevel` which OR-combines this with the
+    // legacy `campaignRequiresDualSig` flag for backward compatibility.
+    mapping(uint256 => uint8) public campaignAssuranceLevel;
+
+    // A14: metadata change tracking. Counter bumps on every successful
+    // setMetadata; off-chain publishers detect mid-flight creative swaps by
+    // watching the version. Active campaigns also pay a cooldown between
+    // changes so a publisher who just refreshed has time to re-inspect.
+    uint256 public constant METADATA_COOLDOWN_BLOCKS = 14400; // ~24h at 6s/block
+    mapping(uint256 => uint64) public campaignMetadataVersion;
+    mapping(uint256 => uint256) public campaignMetadataLastSetBlock;
 
     // ---- Community reports (merged from DatumReports) ----
     mapping(uint256 => uint256) public pageReports;
@@ -238,16 +258,33 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @notice Publisher sets their supported tags (max 32). Replaces all previous tags.
+    ///         A8: tags being dropped enter a grace period — they remain effective
+    ///         for `hasAllTags` calls until `block.number >= effectiveBlock`. Tags
+    ///         being re-added clear any pending removal.
     function setPublisherTags(bytes32[] calldata tagHashes) external {
         require(!pauseRegistry.paused(), "P");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(msg.sender);
         require(pub.registered, "Not registered");
         require(tagHashes.length <= MAX_PUBLISHER_TAGS, "E65");
 
-        // Clear old tags from the set
+        // Stage removals: for each old tag, decide whether the new set keeps it.
+        // Tags being dropped enter the grace window. Tags being kept have any
+        // pending removal cleared.
         bytes32[] storage oldTags = _publisherTags[msg.sender];
         for (uint256 i = 0; i < oldTags.length; i++) {
-            _publisherTagSet[msg.sender][oldTags[i]] = false;
+            bytes32 ot = oldTags[i];
+            bool kept = false;
+            for (uint256 j = 0; j < tagHashes.length; j++) {
+                if (tagHashes[j] == ot) { kept = true; break; }
+            }
+            _publisherTagSet[msg.sender][ot] = false;
+            if (kept) {
+                tagRemovalEffectiveBlock[msg.sender][ot] = 0;
+            } else {
+                uint256 eff = block.number + TAG_REMOVAL_GRACE_BLOCKS;
+                tagRemovalEffectiveBlock[msg.sender][ot] = eff;
+                emit TagRemovalScheduled(msg.sender, ot, eff);
+            }
         }
 
         delete _publisherTags[msg.sender];
@@ -257,6 +294,8 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
             if (enforce) require(approvedTags[tagHashes[i]], "E81");
             _publisherTags[msg.sender].push(tagHashes[i]);
             _publisherTagSet[msg.sender][tagHashes[i]] = true;
+            // Re-adding a previously-pending tag aborts its removal.
+            tagRemovalEffectiveBlock[msg.sender][tagHashes[i]] = 0;
         }
 
         emit TagsUpdated(msg.sender, tagHashes);
@@ -268,11 +307,15 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     }
 
     /// @notice Returns true if publisher has ALL of the required tags (AND logic).
+    ///         A8: tags in their post-removal grace window still count as held.
     function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool) {
         if (requiredTags.length == 0) return true;
         require(requiredTags.length <= MAX_CAMPAIGN_TAGS, "E66");
         for (uint256 i = 0; i < requiredTags.length; i++) {
-            if (!_publisherTagSet[publisher][requiredTags[i]]) return false;
+            if (_publisherTagSet[publisher][requiredTags[i]]) continue;
+            uint256 eff = tagRemovalEffectiveBlock[publisher][requiredTags[i]];
+            if (eff != 0 && block.number < eff) continue; // still in grace
+            return false;
         }
         return true;
     }
@@ -440,6 +483,11 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
             challengeBonds.lockBond{value: bondAmount}(campaignId, msg.sender, publisher);
         }
 
+        // A3: AssuranceLevel defaults to Permissive (0) for both open and
+        // closed campaigns. The advertiser explicitly opts into higher levels
+        // via setCampaignAssuranceLevel — no protocol-imposed paternalism.
+        // The legacy `campaignRequiresDualSig` toggle still works as the
+        // historical path to L2 and is OR-merged in getCampaignAssuranceLevel.
         emit CampaignCreated(campaignId, msg.sender, publisher, budgetValue, snapshot);
     }
 
@@ -452,8 +500,18 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
+
+        // A14: cooldown applies once the campaign is visible to publishers.
+        // Pending-status creatives can be revised freely until activation.
+        if (c.status != CampaignStatus.Pending) {
+            uint256 last = campaignMetadataLastSetBlock[campaignId];
+            require(last == 0 || block.number >= last + METADATA_COOLDOWN_BLOCKS, "E22");
+        }
         c.metadata = metadataHash;
-        emit CampaignMetadataSet(campaignId, metadataHash);
+        campaignMetadataLastSetBlock[campaignId] = block.number;
+        uint64 v = campaignMetadataVersion[campaignId] + 1;
+        campaignMetadataVersion[campaignId] = v;
+        emit CampaignMetadataSet(campaignId, metadataHash, v);
     }
 
     /// @notice Toggle whether this campaign requires the dual-sig settlement path.
@@ -474,6 +532,40 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     /// @notice Read the dual-sig requirement for a campaign. Settlement consults this.
     function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool) {
         return campaignRequiresDualSig[campaignId];
+    }
+
+    /// @notice A3: Effective AssuranceLevel. Reads the canonical storage and
+    ///         OR-merges the legacy `campaignRequiresDualSig` flag so old
+    ///         deployments continue to enforce dual-sig.
+    function getCampaignAssuranceLevel(uint256 campaignId) public view returns (uint8) {
+        uint8 stored = campaignAssuranceLevel[campaignId];
+        if (campaignRequiresDualSig[campaignId] && stored < 2) return 2;
+        return stored;
+    }
+
+    /// @notice A3: Set the campaign's AssuranceLevel. Raising the bar is
+    ///         locked once Active (per the same logic as `setCampaignRequiresDualSig`:
+    ///         the advertiser can't freeze user earnings mid-flight by adding
+    ///         new sig requirements they then refuse to provide). Lowering
+    ///         is permitted at any time — less proof never invalidates past
+    ///         claims and gives the advertiser an escape if their cosign
+    ///         pipeline breaks.
+    function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external {
+        require(level <= 2, "E11");
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        uint8 current = getCampaignAssuranceLevel(campaignId);
+        if (level > current) {
+            require(c.status == CampaignStatus.Pending, "E22");
+        }
+        campaignAssuranceLevel[campaignId] = level;
+        // Lowering below 2: clear the legacy flag so the OR-read agrees.
+        if (level < 2 && campaignRequiresDualSig[campaignId]) {
+            campaignRequiresDualSig[campaignId] = false;
+            emit CampaignRequiresDualSigUpdated(campaignId, false);
+        }
+        emit CampaignAssuranceLevelSet(campaignId, level);
     }
 
     // -------------------------------------------------------------------------

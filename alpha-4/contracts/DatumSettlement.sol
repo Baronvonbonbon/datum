@@ -154,9 +154,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // L-7: Global per-block settlement circuit breaker (0 = disabled)
     uint256 public maxSettlementPerBlock;
 
-    // EIP-712 type hash for dual-signed claim batches
+    // A1+A9: EIP-712 typehash binds the relay-signer the publisher expected at
+    // sign time + a block-number deadline (parity with DatumRelay). Both
+    // protect against state mutations between sign and submit:
+    //   - relaySigner: if the publisher rotates their relay key after signing,
+    //     submission fails — the advertiser's cosig is over a *specific* publisher
+    //     authority, not whoever the publishers contract returns at exec time.
+    //   - deadlineBlock: block.number is cheaper to predict than block.timestamp
+    //     and removes the unit-ambiguity vs. the Relay path.
     bytes32 private constant CLAIM_BATCH_TYPEHASH = keccak256(
-        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadline)"
+        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner)"
     );
     uint256 private _cbBlock;
     uint256 private _cbTotal;
@@ -239,6 +246,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     }
 
     function setClickRegistry(address addr) external onlyOwner {
+        // A13: lock once set. Re-pointing to a fresh registry would create a
+        // replay window for already-claimed click sessions. Deploy a new
+        // Settlement if a registry swap is genuinely required.
+        require(address(clickRegistry) == address(0), "already set");
+        require(addr != address(0), "E00");
         clickRegistry = IDatumClickRegistry(addr);
     }
 
@@ -289,9 +301,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         if (address(pauseRegistry) == address(0)) return (false, "pauseRegistry");
         if (address(claimValidator) == address(0)) return (false, "claimValidator");
         if (address(campaigns) == address(0)) return (false, "campaigns");
+        // A1: off-chain ZK clients derive `windowId = block.number / nullifierWindowBlocks`
+        // to bake into the nullifier preimage. A zero `nullifierWindowBlocks` makes
+        // every windowId collapse to 0, breaking replay prevention across windows.
+        // Require it set whenever the verifier is wired (claimValidator implies ZK path).
+        if (nullifierWindowBlocks == 0) return (false, "nullifierWindowBlocks");
         // Optional references (address(0) = disabled feature, not misconfigured):
         // publishers, tokenRewardVault, publisherStake, clickRegistry, attestationVerifier
-        // Inline features (rate limiter, nullifier registry, reputation) have no external refs
+        // Inline features (rate limiter, reputation) have no external refs
         return (true, "");
     }
 
@@ -373,17 +390,22 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             // I-3: reject empty batches — sigs over no claims do nothing and just burn gas
             require(batch.claims.length > 0, "E28");
 
-            // Deadline check
-            require(block.timestamp <= batch.deadline, "E81");
+            // A9: block.number deadline (was block.timestamp). Matches DatumRelay
+            // so off-chain clients use one consistent unit across paths.
+            require(block.number <= batch.deadlineBlock, "E81");
 
-            // Build the EIP-712 struct hash over the batch envelope
+            // Build the EIP-712 struct hash over the batch envelope.
+            // A1: expectedRelaySigner is bound at sign time so a post-sign
+            //     `publishers.setRelaySigner(...)` rotation cannot retroactively
+            //     change which key the advertiser cosigned over.
             bytes32 claimsHash = _hashClaims(batch.claims);
             bytes32 structHash = keccak256(abi.encode(
                 CLAIM_BATCH_TYPEHASH,
                 batch.user,
                 batch.campaignId,
                 claimsHash,
-                batch.deadline
+                batch.deadlineBlock,
+                batch.expectedRelaySigner
             ));
             bytes32 digest = _hashTypedDataV4(structHash);
 
@@ -396,17 +418,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             for (uint256 i = 1; i < batch.claims.length; i++) {
                 require(batch.claims[i].publisher == expectedPublisher, "E34");
             }
-            // Accept either the publisher themselves or their designated relay signer
-            address pubRelay = address(0);
-            if (address(publishers) != address(0)) {
-                try publishers.relaySigner(expectedPublisher) returns (address r) {
-                    pubRelay = r;
-                } catch {}
+            // A1: publisher sig must come from `expectedRelaySigner` (if set in
+            // the envelope) OR from the publisher's EOA itself. If the envelope
+            // declares a specific relay key (non-zero) it must also be the
+            // currently-configured one — otherwise the publisher rotated keys
+            // between sign and submit and the cosig is stale.
+            if (batch.expectedRelaySigner != address(0)) {
+                if (address(publishers) != address(0)) {
+                    address currentRelay = address(0);
+                    try publishers.relaySigner(expectedPublisher) returns (address r) {
+                        currentRelay = r;
+                    } catch {}
+                    require(currentRelay == batch.expectedRelaySigner, "E84");
+                }
+                require(pubSigner == batch.expectedRelaySigner, "E82");
+            } else {
+                // Strict path: only the publisher's EOA can sign.
+                require(pubSigner == expectedPublisher, "E82");
             }
-            require(
-                pubSigner == expectedPublisher || (pubRelay != address(0) && pubSigner == pubRelay),
-                "E82"
-            );
 
             // Recover and verify advertiser signature
             address advSigner = ECDSA.recover(digest, batch.advertiserSig);
@@ -466,9 +495,48 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ) internal {
         require(claims.length <= 10, "E28");
 
-        // Per-campaign dual-sig requirement: if the campaign has opted in, only
-        // the settleSignedClaims path satisfies it. Reject every claim otherwise.
+        // A3: AssuranceLevel gate. Read the campaign's effective level and
+        // enforce that the submission path delivers the required cryptographic
+        // proof. Levels nest: a dual-sig batch (advertiserConsented=true)
+        // satisfies every level; the relay path / publisher-relay msg.sender
+        // satisfies level 1 because the publisher signs at one of those layers.
         if (!advertiserConsented && address(campaigns) != address(0)) {
+            uint8 level = 0;
+            try campaigns.getCampaignAssuranceLevel(campaignId) returns (uint8 l) {
+                level = l;
+            } catch {}
+
+            if (level >= 2) {
+                // Level 2 (DualSigned) requires settleSignedClaims (this would have
+                // set advertiserConsented). Reject everything else with reason 24.
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(campaignId, user, claims[j].nonce, 24);
+                }
+                return;
+            }
+
+            if (level == 1) {
+                // Level 1 (PublisherSigned) requires that a publisher sig has
+                // been validated upstream. DatumRelay validates the publisher
+                // cosig before forwarding to settleClaims, and the publisher's
+                // own relaySigner submitting via settleClaims demonstrates
+                // their authority directly. Reject any other path.
+                bool fromRelay = (msg.sender == relayContract);
+                bool fromPublisherRelay = _isPublisherRelay(claims);
+                if (!fromRelay && !fromPublisherRelay) {
+                    for (uint256 j = 0; j < claims.length; j++) {
+                        result.rejectedCount++;
+                        emit ClaimRejected(campaignId, user, claims[j].nonce, 25);
+                    }
+                    return;
+                }
+            }
+
+            // Legacy fallback: older deployments may still set requiresDualSig
+            // directly without touching the new assurance field. getCampaignAssuranceLevel
+            // already OR-merges them, so this is redundant once that lands —
+            // kept here as a safety net during migration.
             try campaigns.getCampaignRequiresDualSig(campaignId) returns (bool needsDual) {
                 if (needsDual) {
                     for (uint256 j = 0; j < claims.length; j++) {

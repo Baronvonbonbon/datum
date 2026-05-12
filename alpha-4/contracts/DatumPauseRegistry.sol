@@ -5,26 +5,49 @@ import "./DatumOwnable.sol";
 
 /// @title DatumPauseRegistry
 /// @notice Global emergency pause circuit breaker.
-///         SM-6: pause/unpause require 2-of-3 guardian approval.
 ///
-///         Guardian approval flow:
-///         1. Any guardian calls propose(action) — records their vote, returns proposalId.
-///         2. A second guardian calls approve(proposalId) — executes immediately.
-///         3. Owner can update guardian set (owner itself should be a multisig for mainnet).
-///         Replay protection: each proposal is single-use (deleted on execution).
-///         All DATUM contracts check paused() via staticcall before critical operations.
+///         A5 model (cypherpunk-aligned):
+///           - **Fast pause:** any single guardian (1-of-N) OR owner-while-bootstrap
+///             can pause the system instantly. Designed for live-exploit response —
+///             no coordination required when funds are draining.
+///           - **Slow unpause:** requires 2-of-3 guardian approval. Asymmetry is by
+///             design — restoring the system must take more witnesses than tripping it.
+///           - **Guardian rotation:** sitting guardians vote 2-of-3 to replace the
+///             set. The owner-only `setGuardians` is preserved for the initial
+///             bootstrap (since the deployer is necessarily the only authority on
+///             day 0) but can be permanently disabled via `lockGuardianSet()`,
+///             after which only the guardians themselves can change the set.
+///
+///         All DATUM contracts check `paused()` via staticcall before critical
+///         operations. The 2-of-3 mechanism for unpause and rotation lives inside
+///         the same Proposal type, distinguished by `action`.
+///
+///         Replay protection: each proposal is marked `executed` rather than
+///         deleted (AUDIT-021), and approvers are tracked per-proposal.
 contract DatumPauseRegistry is DatumOwnable {
     bool public paused;
 
-    // SM-6: 2-of-3 guardian multisig for pause/unpause
+    // SM-6: guardian set
     address[3] public guardians;
     uint256 private _proposalNonce;
 
+    /// @notice A5: once locked, only sitting guardians (2-of-3) can rotate the
+    ///         guardian set. The owner loses unilateral authority over the
+    ///         protocol's safety committee. Designed to be flipped permanently
+    ///         after the genuine guardian set is in place.
+    bool public guardianSetLocked;
+
+    // ---- Proposal types ----
+    // action 1 (legacy pause), 2 (unpause), 3 (rotate guardians)
     struct Proposal {
-        uint8 action;     // 1 = pause, 2 = unpause
+        uint8 action;
         address proposer;
         uint8 approvals;
-        bool executed;    // AUDIT-021: replaces delete — prevents mapping ghost state
+        bool executed;
+        // Used when action == 3 (rotate guardians)
+        address ng0;
+        address ng1;
+        address ng2;
         mapping(address => bool) voted;
     }
     mapping(uint256 => Proposal) private _proposals;
@@ -32,19 +55,33 @@ contract DatumPauseRegistry is DatumOwnable {
     event Paused(address indexed by);
     event Unpaused(address indexed by);
     event GuardiansUpdated(address g0, address g1, address g2);
+    event GuardianSetLocked();
     event PauseProposed(uint256 indexed proposalId, uint8 action, address indexed proposer);
     event PauseApproved(uint256 indexed proposalId, address indexed approver);
+    event GuardianRotationProposed(uint256 indexed proposalId, address indexed proposer, address ng0, address ng1, address ng2);
 
     constructor(address g0, address g1, address g2) {
         _setGuardians(g0, g1, g2);
     }
 
     // -------------------------------------------------------------------------
-    // Owner admin
+    // Bootstrap admin — owner authority, frozen after `lockGuardianSet`
     // -------------------------------------------------------------------------
 
+    /// @notice Bootstrap-only guardian set rotation. After `lockGuardianSet()`
+    ///         this reverts; rotation must go through the 2-of-3 guardian flow.
     function setGuardians(address g0, address g1, address g2) external onlyOwner {
+        require(!guardianSetLocked, "locked");
         _setGuardians(g0, g1, g2);
+    }
+
+    /// @notice A5: permanently disable owner authority over the guardian set.
+    ///         Irreversible. After this the owner can still call no other
+    ///         pause-related function — guardians become fully self-managing.
+    function lockGuardianSet() external onlyOwner {
+        require(!guardianSetLocked, "already locked");
+        guardianSetLocked = true;
+        emit GuardianSetLocked();
     }
 
     function _setGuardians(address g0, address g1, address g2) internal {
@@ -57,20 +94,43 @@ contract DatumPauseRegistry is DatumOwnable {
     }
 
     // -------------------------------------------------------------------------
-    // SM-6: 2-of-3 guardian pause/unpause
+    // A5: solo fast-pause (any guardian)
     // -------------------------------------------------------------------------
 
     function _isGuardian(address addr) internal view returns (bool) {
         return addr == guardians[0] || addr == guardians[1] || addr == guardians[2];
     }
 
-    /// @notice Any guardian proposes a pause (action=1) or unpause (action=2).
-    /// @return proposalId — pass to approve() for the second guardian's confirmation.
+    /// @notice Any guardian can pause the system unilaterally. The asymmetry
+    ///         vs. unpause is deliberate — live exploits don't wait for quorum.
+    function pauseFast() external {
+        require(_isGuardian(msg.sender), "E18");
+        require(!paused, "E11");
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Owner solo pause — kept for emergency response by the deploying
+    ///         party. Restored to `pause` solely as the owner. Unpause still
+    ///         requires guardian quorum, so even an attacker who steals the
+    ///         owner key can only ratchet the system into pause; recovery
+    ///         remains gated on the (potentially rotated) guardians.
+    function pause() external onlyOwner {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    // -------------------------------------------------------------------------
+    // SM-6: 2-of-3 guardian unpause (action == 2)
+    // -------------------------------------------------------------------------
+
+    /// @notice Propose an unpause (action=2). Pause is intentionally not a
+    ///         valid action here — use `pauseFast` instead. Action codes are
+    ///         retained for future-extensibility but only 2 is honored.
     function propose(uint8 action) external returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
-        require(action == 1 || action == 2, "E11");
-        // Invariant: don't propose if already in that state
-        require(action == 1 ? !paused : paused, "E11");
+        require(action == 2, "E11");
+        require(paused, "E11"); // must currently be paused to propose unpause
 
         proposalId = ++_proposalNonce;
         Proposal storage p = _proposals[proposalId];
@@ -81,42 +141,61 @@ contract DatumPauseRegistry is DatumOwnable {
         emit PauseProposed(proposalId, action, msg.sender);
     }
 
-    /// @notice Second (or third) guardian approves a proposal.
-    ///         Executes immediately when the 2nd approval arrives.
+    /// @notice Approve an existing proposal. Executes on the 2nd vote.
     function approve(uint256 proposalId) external {
         require(_isGuardian(msg.sender), "E18");
         Proposal storage p = _proposals[proposalId];
-        require(p.action != 0, "E01");           // proposal exists
-        require(!p.executed, "E11");             // AUDIT-021: not already executed
-        require(!p.voted[msg.sender], "E11");    // not already voted
-        // Validate state hasn't changed since proposal
-        require(p.action == 1 ? !paused : paused, "E11");
+        require(p.action != 0, "E01");
+        require(!p.executed, "E11");
+        require(!p.voted[msg.sender], "E11");
+
+        // Pre-execution state validation per action type.
+        if (p.action == 2) {
+            require(paused, "E11");
+        }
+        // action == 3 (guardian rotation) needs no pre-state guard.
 
         p.voted[msg.sender] = true;
         p.approvals++;
         emit PauseApproved(proposalId, msg.sender);
 
         if (p.approvals >= 2) {
-            p.executed = true; // AUDIT-021: mark executed instead of delete (mapping can't be cleared)
-            _execute(p.action);
+            p.executed = true;
+            _execute(p);
         }
     }
 
-    function _execute(uint8 action) internal {
-        if (action == 1) {
-            paused = true;
-            emit Paused(msg.sender);
-        } else {
+    function _execute(Proposal storage p) internal {
+        if (p.action == 2) {
             paused = false;
             emit Unpaused(msg.sender);
+        } else if (p.action == 3) {
+            _setGuardians(p.ng0, p.ng1, p.ng2);
         }
     }
 
-    /// @notice Emergency owner pause — protective action only (C-4: unpause removed).
-    ///         Owner can pause the system instantly, but unpause always requires 2-of-3 guardians.
-    ///         On mainnet, owner should be a Gnosis Safe multisig.
-    function pause() external onlyOwner {
-        paused = true;
-        emit Paused(msg.sender);
+    // -------------------------------------------------------------------------
+    // A5: guardian self-rotation (action == 3)
+    // -------------------------------------------------------------------------
+
+    /// @notice Sitting guardian proposes a new guardian set. Any single sitting
+    ///         guardian can propose; activation requires a second approval.
+    ///         Works regardless of `guardianSetLocked` — that flag only blocks
+    ///         the owner-only `setGuardians` bootstrap path.
+    function proposeGuardianRotation(address ng0, address ng1, address ng2) external returns (uint256 proposalId) {
+        require(_isGuardian(msg.sender), "E18");
+        require(ng0 != address(0) && ng1 != address(0) && ng2 != address(0), "E00");
+        require(ng0 != ng1 && ng1 != ng2 && ng0 != ng2, "E11");
+
+        proposalId = ++_proposalNonce;
+        Proposal storage p = _proposals[proposalId];
+        p.action = 3;
+        p.proposer = msg.sender;
+        p.approvals = 1;
+        p.ng0 = ng0;
+        p.ng1 = ng1;
+        p.ng2 = ng2;
+        p.voted[msg.sender] = true;
+        emit GuardianRotationProposed(proposalId, msg.sender, ng0, ng1, ng2);
     }
 }

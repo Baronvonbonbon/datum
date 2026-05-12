@@ -41,4 +41,14 @@ interface IDatumPublishers {
     function profileHash(address publisher) external view returns (bytes32);
     function setRelaySigner(address signer) external;
     function setProfile(bytes32 hash) external;
+
+    // A3: AssuranceLevel — publisher self-declared capability signal.
+    // 0 = Permissive (any path), 1 = PublisherSigned, 2 = DualSigned.
+    // This is purely a discovery hint for SDKs/advertisers; on-chain
+    // claim acceptance is decided by cryptographic proof on each batch,
+    // not by this declaration. A publisher who actually cosigns L1/L2
+    // claims will be accepted regardless of what they declare here.
+    event PublisherMaxAssuranceSet(address indexed publisher, uint8 level);
+    function publisherMaxAssurance(address publisher) external view returns (uint8);
+    function setPublisherMaxAssurance(uint8 level) external;
 }

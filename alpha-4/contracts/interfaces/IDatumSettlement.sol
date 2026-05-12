@@ -50,7 +50,8 @@ interface IDatumSettlement {
         address user;
         uint256 campaignId;
         Claim[] claims;
-        uint256 deadline;        // block.number (relay) or block.timestamp (dual-sig) expiry
+        uint256 deadlineBlock;   // A9: block.number expiry — matches DatumRelay for unit-uniformity
+        address expectedRelaySigner;  // A1: relay signer the publisher binds at sign time; address(0) = require strict publisher sig
         bytes userSig;           // EIP-712 ECDSA from the user (relay path)
         bytes publisherSig;      // EIP-712 ECDSA from the campaign's publisher
         bytes advertiserSig;     // EIP-712 ECDSA from the campaign's advertiser

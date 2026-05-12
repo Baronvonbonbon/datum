@@ -141,7 +141,7 @@ describe("DatumCampaigns", function () {
 
     await expect(
       campaigns.connect(advertiser).setMetadata(id, hash)
-    ).to.emit(campaigns, "CampaignMetadataSet").withArgs(id, hash);
+    ).to.emit(campaigns, "CampaignMetadataSet").withArgs(id, hash, 1n);
 
     await expect(
       campaigns.connect(other).setMetadata(id, hash)

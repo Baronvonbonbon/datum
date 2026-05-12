@@ -217,5 +217,17 @@ contract MockCampaigns {
         return campaignRequiresDualSig[campaignId];
     }
 
+    // ── A3: AssuranceLevel mirror ────────────────────────────────────────────
+    mapping(uint256 => uint8) public campaignAssuranceLevel;
+    function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external {
+        require(level <= 2, "E11");
+        campaignAssuranceLevel[campaignId] = level;
+    }
+    function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8) {
+        uint8 stored = campaignAssuranceLevel[campaignId];
+        if (campaignRequiresDualSig[campaignId] && stored < 2) return 2;
+        return stored;
+    }
+
     receive() external payable {}
 }

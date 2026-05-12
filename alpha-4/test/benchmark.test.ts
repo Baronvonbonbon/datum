@@ -518,8 +518,13 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const cid1 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
       const cid2 = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
 
-      // Mine past current window so we get a fresh start
-      await mineBlocks(210);
+      // Align to the start of a fresh 200-block window with full headroom.
+      // Otherwise upstream test counts can leave us near a boundary and the
+      // two settlements below straddle two windows, masking the rate-limit hit.
+      const cur = BigInt(await ethers.provider.getBlockNumber());
+      const win = 200n;
+      const next = ((cur / win) + 1n) * win;
+      await mineBlocks(next - cur + 10n);
 
       // Use 49900 impressions (just under 50000 cap)
       const c1 = buildClaims(cid1, publisher.address, user.address, 1, RL_CPM, 49900n);
@@ -891,7 +896,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
       await expect(campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH))
         .to.emit(campaigns, "CampaignMetadataSet")
-        .withArgs(cid, IPFS_HASH);
+        .withArgs(cid, IPFS_HASH, 1n);
     });
 
     it("BM-META-4: metadata survives settlement (immutable tag data)", async function () {

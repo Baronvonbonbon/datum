@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title DatumChallengeBonds
@@ -22,7 +23,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         returnBond — called by DatumCampaignLifecycle on complete/expire
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution
 ///         claimBonus — called by advertiser directly
-contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGuard {
+contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwnable {
 
     /// @notice Campaigns contract — authorised to call lockBond.
     address public campaignsContract;
@@ -126,9 +127,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
         uint256 amount = pendingBondReturn[msg.sender];
         require(amount > 0, "E03");
         pendingBondReturn[msg.sender] = 0;
-        (bool ok,) = payable(recipient).call{value: amount}("");
-        require(ok, "E02");
         emit BondReturnClaimed(msg.sender, recipient, amount);
+        _safeSend(recipient, amount);
     }
 
     /// @inheritdoc IDatumChallengeBonds
@@ -180,9 +180,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, DatumOwnable, ReentrancyGu
 
         _bonusPool[publisher] -= share;
 
-        (bool ok,) = payable(recipient).call{value: share}("");
-        require(ok, "E02");
         emit BonusClaimed(campaignId, advertiser, share);
+        _safeSend(recipient, share);
     }
 
     // ── Views ──────────────────────────────────────────────────────────────────

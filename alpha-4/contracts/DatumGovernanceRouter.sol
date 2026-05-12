@@ -39,6 +39,12 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
     GovernancePhase public phase;
     address public governor;
 
+    // A10: pending governor must call acceptGovernor() from its own address
+    // to complete the handoff. Prevents owner from accidentally locking the
+    // router behind an EOA or a contract that doesn't actually exist.
+    address public pendingGovernor;
+    GovernancePhase public pendingPhase;
+
     IDatumCampaignsMinimal public campaigns;
     IDatumCampaignLifecycle public lifecycle;
 
@@ -47,6 +53,7 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     event PhaseTransitioned(GovernancePhase indexed newPhase, address indexed newGovernor);
+    event GovernorProposed(GovernancePhase indexed newPhase, address indexed newGovernor);
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
 
     // -------------------------------------------------------------------------
@@ -83,13 +90,27 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
     // Admin
     // -------------------------------------------------------------------------
 
-    /// @notice Update the active governance contract and phase label.
+    /// @notice A10: Stage a new governor. The proposed address must subsequently
+    ///         call `acceptGovernor()` from its own context to complete the handoff.
     ///         Called by the owner (Timelock) to advance through the ladder.
     function setGovernor(GovernancePhase newPhase, address newGovernor) external onlyOwner {
         require(newGovernor != address(0), "E00");
-        governor = newGovernor;
-        phase = newPhase;
-        emit PhaseTransitioned(newPhase, newGovernor);
+        pendingGovernor = newGovernor;
+        pendingPhase = newPhase;
+        emit GovernorProposed(newPhase, newGovernor);
+    }
+
+    /// @notice A10: The pending governor finalises the handoff. Proves the
+    ///         caller controls the address (i.e., it isn't a typo'd EOA, an
+    ///         unimplemented contract, or an attacker's stand-in).
+    function acceptGovernor() external {
+        address candidate = pendingGovernor;
+        require(candidate != address(0), "E00");
+        require(msg.sender == candidate, "E19");
+        governor = candidate;
+        phase = pendingPhase;
+        pendingGovernor = address(0);
+        emit PhaseTransitioned(pendingPhase, candidate);
     }
 
     function setCampaigns(address addr) external onlyOwner {

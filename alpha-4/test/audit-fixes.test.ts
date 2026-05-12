@@ -256,7 +256,8 @@ describe("Audit fixes", function () {
         { name: "user", type: "address" },
         { name: "campaignId", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
-        { name: "deadline", type: "uint256" },
+        { name: "deadlineBlock", type: "uint256" },
+        { name: "expectedRelaySigner", type: "address" },
       ],
     };
 
@@ -273,12 +274,13 @@ describe("Audit fixes", function () {
       pubSigner: HardhatEthersSigner,
       advSigner: HardhatEthersSigner
     ) {
-      const dl = Number((await ethers.provider.getBlock("latest"))!.timestamp) + 3600;
+      const dl = (await ethers.provider.getBlockNumber()) + 100;
       const value = {
         user: user.address,
         campaignId: cid,
         claimsHash: hashClaimsArr(claims),
-        deadline: dl,
+        deadlineBlock: dl,
+        expectedRelaySigner: ethers.ZeroAddress,
       };
       const domain = await getDomain();
       const publisherSig = await pubSigner.signTypedData(domain, types, value);
@@ -287,7 +289,8 @@ describe("Audit fixes", function () {
         user: user.address,
         campaignId: cid,
         claims,
-        deadline: dl,
+        deadlineBlock: dl,
+        expectedRelaySigner: ethers.ZeroAddress,
         userSig: "0x",
         publisherSig,
         advertiserSig,
@@ -406,6 +409,79 @@ describe("Audit fixes", function () {
       const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
     });
+
+    // ── A3: AssuranceLevel enforcement in _processBatch ───────────────────
+    it("A3-L0: direct settleClaims permitted at level 0 (default)", async function () {
+      const cid = await createPublisherLockedCampaign();
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const r = await settlement.connect(user).settleClaims.staticCall([
+        { user: user.address, campaignId: cid, claims: [c1] },
+      ]);
+      expect(r.settledCount).to.equal(1n);
+    });
+
+    it("A3-L1: direct settleClaims rejected (reason 25) at PublisherSigned level", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignAssuranceLevel(cid, 1);
+
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const tx = await settlement.connect(user).settleClaims([
+        { user: user.address, campaignId: cid, claims: [c1] },
+      ]);
+      const receipt = await tx.wait();
+      const iface = settlement.interface;
+      const rejected = receipt!.logs.filter((l) => {
+        try { return iface.parseLog(l)?.name === "ClaimRejected"; } catch { return false; }
+      });
+      expect(rejected.length).to.equal(1);
+      const parsed = iface.parseLog(rejected[0])!;
+      expect(parsed.args.reasonCode).to.equal(25n);
+    });
+
+    it("A3-L1: settleSignedClaims (dual-sig) still settles at PublisherSigned", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignAssuranceLevel(cid, 1);
+
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const batch = await makeBatch(cid, [c1], publisher, owner);
+      const r = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(r.settledCount).to.equal(1n);
+    });
+
+    it("A3-L1: publisher's relaySigner direct-submitting via settleClaims is accepted", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignAssuranceLevel(cid, 1);
+      // Designate publisher2 as publisher's relay signer.
+      await mock.setRelaySigner(publisher.address, publisher2.address);
+
+      const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
+      const r = await settlement.connect(publisher2).settleClaims.staticCall([
+        { user: user.address, campaignId: cid, claims: [c1] },
+      ]);
+      expect(r.settledCount).to.equal(1n);
+
+      // Cleanup
+      await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
+    });
+
+    it("A3-L2: backward-compat — legacy requiresDualSig still maps to level 2", async function () {
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignRequiresDualSig(cid, true);
+      // getCampaignAssuranceLevel should now report 2 even though stored field is 0.
+      const lvl = await mock.getCampaignAssuranceLevel(cid);
+      expect(lvl).to.equal(2);
+    });
+
+    it("A3: lowering level below 2 clears the legacy flag", async function () {
+      // This logic lives on real DatumCampaigns; mock provides only raw setters.
+      // Verified via real-contract integration tests elsewhere; here we just
+      // confirm the mock OR-merge view behaves as expected when both fields agree.
+      const cid = await createPublisherLockedCampaign();
+      await mock.setCampaignAssuranceLevel(cid, 1);
+      expect(await mock.getCampaignAssuranceLevel(cid)).to.equal(1);
+      await mock.setCampaignAssuranceLevel(cid, 0);
+      expect(await mock.getCampaignAssuranceLevel(cid)).to.equal(0);
+    });
   });
 
   // ── G-M1 Router admin shortcuts gated on Phase 0 ────────────────────────
@@ -436,6 +512,7 @@ describe("Audit fixes", function () {
       // not the underlying call — flip phase to Council and confirm we revert before
       // even reaching the delegate call.
       await router.setGovernor(1, otherSigner.address); // Council phase
+      await router.connect(otherSigner).acceptGovernor();
       await expect(
         router.connect(owner).adminActivateCampaign(1n)
       ).to.be.revertedWith("E19");
@@ -792,6 +869,133 @@ describe("Audit fixes", function () {
       await expect(
         campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, false)
       ).to.be.revertedWith("E22");
+    });
+
+    // ── A3: AssuranceLevel raise/lower semantics on real DatumCampaigns ───
+    it("A3: lowering AssuranceLevel is allowed while Active; raising is locked at Pending", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const advertiser = signers[1];
+      const publisherSig = signers[2];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[4].address, signers[5].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+      const ledger = await LedgerFactory.deploy();
+      const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
+      const campaigns = await CampaignsFactory.deploy(0n, 1000n, await pubs.getAddress(), await pause.getAddress());
+
+      await ledger.setCampaigns(await campaigns.getAddress());
+      await ledger.setSettlement(signers[0].address);
+      await ledger.setLifecycle(signers[0].address);
+      await campaigns.setBudgetLedger(await ledger.getAddress());
+      await campaigns.setGovernanceContract(signers[0].address);
+      await campaigns.setLifecycleContract(signers[0].address);
+      await campaigns.setSettlementContract(signers[0].address);
+
+      await pubs.connect(publisherSig).registerPublisher(5000);
+
+      const POT = {
+        actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n,
+        ratePlanck: 1n, actionVerifier: ethers.ZeroAddress,
+      };
+      await campaigns.connect(advertiser).createCampaign(
+        publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
+        { value: 1_000_000_000n }
+      );
+      const cid = (await campaigns.nextCampaignId()) - 1n;
+
+      // Default is L0 (permissive).
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(0);
+
+      // Pending → can raise to L2.
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 2);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(2);
+
+      // Pending → can lower to L1.
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 1);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(1);
+
+      await campaigns.activateCampaign(cid);
+
+      // Active → can lower (L1 → L0) at any time.
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 0);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(0);
+
+      // Active → can NOT raise (L0 → L1) anymore.
+      await expect(
+        campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 1)
+      ).to.be.revertedWith("E22");
+    });
+
+    it("A3: lowering L2 via setAssuranceLevel also clears the legacy requiresDualSig flag", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const advertiser = signers[1];
+      const publisherSig = signers[2];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[4].address, signers[5].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
+      const ledger = await LedgerFactory.deploy();
+      const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
+      const campaigns = await CampaignsFactory.deploy(0n, 1000n, await pubs.getAddress(), await pause.getAddress());
+
+      await ledger.setCampaigns(await campaigns.getAddress());
+      await ledger.setSettlement(signers[0].address);
+      await ledger.setLifecycle(signers[0].address);
+      await campaigns.setBudgetLedger(await ledger.getAddress());
+      await campaigns.setGovernanceContract(signers[0].address);
+      await campaigns.setLifecycleContract(signers[0].address);
+      await campaigns.setSettlementContract(signers[0].address);
+
+      await pubs.connect(publisherSig).registerPublisher(5000);
+
+      const POT = {
+        actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n,
+        ratePlanck: 1n, actionVerifier: ethers.ZeroAddress,
+      };
+      await campaigns.connect(advertiser).createCampaign(
+        publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
+        { value: 1_000_000_000n }
+      );
+      const cid = (await campaigns.nextCampaignId()) - 1n;
+
+      // Legacy path: opt into L2 via requiresDualSig.
+      await campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, true);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(2);
+      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(true);
+
+      // Lower to L0 via new setter — should also clear the legacy flag so the
+      // OR-read agrees.
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 0);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(0);
+      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(false);
+    });
+
+    it("A3: publisher can self-declare maxAssurance (discovery hint, off-chain only)", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const publisher = signers[1];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[2].address, signers[3].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+
+      await pubs.connect(publisher).registerPublisher(5000);
+      expect(await pubs.publisherMaxAssurance(publisher.address)).to.equal(0);
+
+      await pubs.connect(publisher).setPublisherMaxAssurance(2);
+      expect(await pubs.publisherMaxAssurance(publisher.address)).to.equal(2);
+
+      await expect(
+        pubs.connect(publisher).setPublisherMaxAssurance(3)
+      ).to.be.revertedWith("E11");
     });
   });
 

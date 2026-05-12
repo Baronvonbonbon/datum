@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -30,7 +31,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
-contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
+contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     uint8 public constant MAX_CONVICTION = 8;
 
     // -------------------------------------------------------------------------
@@ -242,10 +243,8 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         v.conviction = 0;
         v.lockedUntilBlock = 0;
 
-        (bool ok,) = msg.sender.call{value: refund}("");
-        require(ok, "E02");
-
         emit VoteWithdrawn(campaignId, msg.sender, refund, slash);
+        _safeSend(msg.sender, refund);
     }
 
     // -------------------------------------------------------------------------
@@ -360,8 +359,7 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         totalSlashClaimed[campaignId] += share;
 
         require(share > 0, "E58");
-        (bool ok,) = msg.sender.call{value: share}("");
-        require(ok, "E02");
+        _safeSend(msg.sender, share);
     }
 
     /// @notice Sweep unclaimed slash pool after deadline. Permissionless.
@@ -397,8 +395,7 @@ contract DatumGovernanceV2 is ReentrancyGuard, DatumOwnable {
         require(amount > 0, "E03");
         pendingOwnerSweep = 0;
         emit OwnerSweepClaimed(recipient, amount);
-        (bool ok,) = recipient.call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(recipient, amount);
     }
 
     // -------------------------------------------------------------------------

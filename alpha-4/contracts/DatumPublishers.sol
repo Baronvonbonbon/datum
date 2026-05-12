@@ -43,6 +43,10 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     mapping(address => address) public relaySigner;
     mapping(address => bytes32) public profileHash;
 
+    // A3: Self-declared capability — discovery hint for SDKs and advertisers,
+    // not an on-chain gate. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
+    mapping(address => uint8) public publisherMaxAssurance;
+
     /// @notice Block at which the publisher last rotated their relay signer.
     ///         Used by the rotation cooldown so an attacker briefly holding the
     ///         old key cannot keep pace with quick rotations.
@@ -308,5 +312,17 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         require(hash != bytes32(0), "E00");
         profileHash[msg.sender] = hash;
         emit ProfileUpdated(msg.sender, hash);
+    }
+
+    /// @notice A3: Self-declare the maximum AssuranceLevel this publisher
+    ///         supports. Discovery signal only — claim acceptance is decided
+    ///         per-batch by cryptographic proof. Lowering or raising is
+    ///         permitted at any time; publishers can freely upgrade as they
+    ///         build out cosign infrastructure or downgrade if they retire it.
+    function setPublisherMaxAssurance(uint8 level) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(level <= 2, "E11");
+        publisherMaxAssurance[msg.sender] = level;
+        emit PublisherMaxAssuranceSet(msg.sender, level);
     }
 }

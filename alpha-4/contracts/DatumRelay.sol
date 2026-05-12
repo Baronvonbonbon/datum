@@ -19,7 +19,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
     // -------------------------------------------------------------------------
 
     bytes32 private constant BATCH_TYPEHASH = keccak256(
-        "ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,uint256 lastNonce,uint256 claimCount,uint256 deadline)"
+        "ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,uint256 lastNonce,uint256 claimCount,uint256 deadlineBlock)"
     );
 
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
@@ -140,7 +140,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
 
         for (uint256 b = 0; b < batches.length; b++) {
             IDatumSettlement.SignedClaimBatch calldata sb = batches[b];
-            require(block.number <= sb.deadline, "E29");
+            require(block.number <= sb.deadlineBlock, "E29");
             require(sb.claims.length > 0, "E28");
 
             // EIP-712 user signature verification.
@@ -155,7 +155,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
                 sb.claims[0].nonce,
                 sb.claims[sb.claims.length - 1].nonce,
                 sb.claims.length,
-                sb.deadline
+                sb.deadlineBlock
             ));
             bytes32 digest = _hashTypedDataV4(structHash);
 
@@ -173,6 +173,14 @@ contract DatumRelay is DatumOwnable, EIP712 {
             require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
+
+            // A3: Enforce publisher cosig at AssuranceLevel >= 1.
+            // Campaigns interface for relay lookups already includes the view.
+            try campaigns.getCampaignAssuranceLevel(sb.campaignId) returns (uint8 lvl) {
+                if (lvl >= 1) {
+                    require(sb.publisherSig.length > 0, "E33");
+                }
+            } catch {}
 
             // Publisher co-signature (3-value return)
             if (sb.publisherSig.length > 0) {

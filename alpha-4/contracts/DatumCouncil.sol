@@ -334,7 +334,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         Proposal storage p = proposals[proposalId];
         require(p.proposedBlock > 0, "E01");
         require(!p.executed, "E52");
-        require(!p.vetoed, "E53");
+        require(!p.vetoed && !p.cancelled, "E53");
         require(block.number <= p.proposedBlock + vetoWindowBlocks, "E56");
 
         p.vetoed = true;

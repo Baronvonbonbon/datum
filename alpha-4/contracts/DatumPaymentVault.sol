@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumPaymentVault.sol";
 
 /// @title DatumPaymentVault
@@ -14,7 +15,7 @@ import "./interfaces/IDatumPaymentVault.sol";
 ///         Design: DOT is sent directly from BudgetLedger to this Vault via
 ///         deductAndTransfer(). Settlement then calls creditSettlement() (non-payable)
 ///         to record how the DOT should be split among publisher/user/protocol.
-contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable {
+contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumOwnable {
 
     // -------------------------------------------------------------------------
     // Authorization
@@ -203,10 +204,10 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable 
     // Internal
     // -------------------------------------------------------------------------
 
-    /// @dev Single native-transfer site. Transfer failure caught by E02.
+    /// @dev Single native-transfer site. Routes through `_safeSend` so the
+    ///      Paseo eth-rpc denomination bug (A2) cannot lock funds.
     function _send(address to, uint256 amount) internal {
-        (bool ok,) = payable(to).call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(to, amount);
     }
 
     // -------------------------------------------------------------------------

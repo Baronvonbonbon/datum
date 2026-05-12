@@ -6,6 +6,7 @@ import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title DatumPublisherGovernance
@@ -29,7 +30,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (unlike GovernanceV2 campaign slash) —
 ///         they simply can't withdraw until lockup expires.
-contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, ReentrancyGuard {
+contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender, DatumOwnable {
     uint8 public constant MAX_CONVICTION = 8;
 
     // ── Conviction table (same as GovernanceV2) ────────────────────────────────
@@ -149,6 +150,10 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         require(publisher != address(0), "E00");
         require(evidenceHash != bytes32(0), "E00");
         require(msg.value == proposeBond, "E11");
+        // A6: a publisher cannot be the proposer on their own fraud proposal.
+        // Without this, the proposer can vote against themselves to launder
+        // stake into the bond-bonus pool they (qua advertiser) can draw on.
+        require(msg.sender != publisher, "E18");
 
         uint256 proposalId = nextProposalId++;
         _proposals[proposalId] = Proposal({
@@ -192,9 +197,8 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
             require(block.number >= v.lockedUntilBlock, "E42"); // prior lock still active
             // Refund old locked amount — AUDIT-007: emit event for auditability
             uint256 refundAmount = v.lockAmount;
-            (bool ok,) = msg.sender.call{value: refundAmount}("");
-            require(ok, "E02");
             emit VoteRefunded(proposalId, msg.sender, refundAmount);
+            _safeSend(msg.sender, refundAmount);
         }
 
         uint256 weight = msg.value * _weight(conviction);
@@ -234,9 +238,8 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         v.conviction = 0;
         v.lockedUntilBlock = 0;
 
-        (bool ok,) = msg.sender.call{value: amount}("");
-        require(ok, "E02");
         emit VoteWithdrawn(proposalId, msg.sender, amount);
+        _safeSend(msg.sender, amount);
     }
 
     /// @inheritdoc IDatumPublisherGovernance
@@ -321,8 +324,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, DatumOwnable, Re
         require(amount > 0, "E03");
         pendingGovPayout[msg.sender] = 0;
         emit GovPayoutClaimed(msg.sender, recipient, amount);
-        (bool ok,) = recipient.call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(recipient, amount);
     }
 
     // ── Views ──────────────────────────────────────────────────────────────────

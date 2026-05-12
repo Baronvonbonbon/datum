@@ -410,7 +410,7 @@ describe("Integration", function () {
         { name: "firstNonce", type: "uint256" },
         { name: "lastNonce", type: "uint256" },
         { name: "claimCount", type: "uint256" },
-        { name: "deadline", type: "uint256" },
+        { name: "deadlineBlock", type: "uint256" },
       ],
     };
     const deadline = (await ethers.provider.getBlockNumber()) + 200;
@@ -420,7 +420,7 @@ describe("Integration", function () {
       firstNonce: claims[0].nonce,
       lastNonce: claims[claims.length - 1].nonce,
       claimCount: claims.length,
-      deadline,
+      deadlineBlock: deadline,
     };
     const signature = await user.signTypedData(domain, types, value);
 
@@ -428,7 +428,8 @@ describe("Integration", function () {
       user: user.address,
       campaignId,
       claims,
-      deadline,
+      deadlineBlock: deadline,
+      expectedRelaySigner: ethers.ZeroAddress,
       userSig: signature,
       publisherSig: "0x",
       advertiserSig: "0x",
@@ -759,7 +760,7 @@ describe("Integration", function () {
     // Set metadata (advertiser owns the campaign)
     await expect(campaigns.connect(advertiser).setMetadata(campaignId, CID_SHA256))
       .to.emit(campaigns, "CampaignMetadataSet")
-      .withArgs(campaignId, CID_SHA256);
+      .withArgs(campaignId, CID_SHA256, 1n);
 
     // Verify round-trip
     expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(CID_SHA256);

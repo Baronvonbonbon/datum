@@ -115,16 +115,29 @@ describe("DatumGovernanceRouter (admin functions)", function () {
     expect(takeRate).to.equal(500n);
   });
 
-  it("R8: setGovernor updates phase + governor, emits PhaseTransitioned", async function () {
-    const tx = await router.connect(owner).setGovernor(1, governor.address);
-    await expect(tx)
+  it("R8: setGovernor stages pending; acceptGovernor completes handoff", async function () {
+    // A10: two-step handoff — owner stages, candidate accepts from own ctx.
+    const stageTx = await router.connect(owner).setGovernor(1, governor.address);
+    await expect(stageTx)
+      .to.emit(router, "GovernorProposed")
+      .withArgs(1n, governor.address);
+    expect(await router.pendingGovernor()).to.equal(governor.address);
+    expect(await router.governor()).to.not.equal(governor.address); // not yet active
+
+    // Wrong-sender accept reverts.
+    await expect(router.connect(other).acceptGovernor()).to.be.revertedWith("E19");
+
+    const acceptTx = await router.connect(governor).acceptGovernor();
+    await expect(acceptTx)
       .to.emit(router, "PhaseTransitioned")
       .withArgs(1n, governor.address);
     expect(await router.governor()).to.equal(governor.address);
     expect(await router.phase()).to.equal(1n);
+    expect(await router.pendingGovernor()).to.equal(ethers.ZeroAddress);
 
-    // Restore owner as governor
+    // Restore owner as governor (two-step again).
     await router.connect(owner).setGovernor(0, owner.address);
+    await router.connect(owner).acceptGovernor();
   });
 
   it("R9: sweepTo forwards ETH balance to recipient", async function () {

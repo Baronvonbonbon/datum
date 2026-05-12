@@ -61,7 +61,12 @@ interface IDatumCampaigns {
         uint256 totalBudgetPlanck,
         uint16  snapshotTakeRateBps
     );
-    event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash);
+    event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash, uint64 version);
+    /// @notice A3: AssuranceLevel changed for a campaign. Levels:
+    ///   0 = Permissive (any registered publisher, any settle path)
+    ///   1 = PublisherSigned (publisher cosig required on every batch)
+    ///   2 = DualSigned (publisher + advertiser cosigs required)
+    event CampaignAssuranceLevelSet(uint256 indexed campaignId, uint8 level);
     event CampaignActivated(uint256 indexed campaignId);
     event CampaignPaused(uint256 indexed campaignId);
     event CampaignResumed(uint256 indexed campaignId);
@@ -130,6 +135,9 @@ interface IDatumCampaigns {
     ///         Advertiser-controlled toggle; default false. When true, only the
     ///         DatumSettlement.settleSignedClaims path may settle this campaign's claims.
     function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool);
+    /// @notice A3: effective AssuranceLevel (0/1/2). Reads canonical storage and
+    ///         OR-merges legacy `requiresDualSig` for backward compatibility.
+    function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8);
     function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
 
     /// @notice Returns campaign settlement data (3-tuple — no bidCpmPlanck, pots handle rates).

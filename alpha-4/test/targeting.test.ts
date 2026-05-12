@@ -8,7 +8,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { fundSigners } from "./helpers/mine";
+import { fundSigners, mineBlocks } from "./helpers/mine";
 
 // TX-1/TX-2: Tag-based targeting tests
 // TG1-TG6: Targeting (setPublisherTags, getPublisherTags2, hasAllTags) — merged into Campaigns
@@ -92,7 +92,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
       .withArgs(publisher2.address, tags);
   });
 
-  it("TG2: setTags replaces previous tags", async function () {
+  it("TG2: setTags replaces previous tags (with A8 removal grace)", async function () {
     // publisher2 already has [GAMING, DE] from TG1b
     const newTags = [TAG_DEFI, TAG_EN_US];
     await campaigns.connect(publisher2).setPublisherTags(newTags);
@@ -102,7 +102,11 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     expect(stored[0]).to.equal(TAG_DEFI);
     expect(stored[1]).to.equal(TAG_EN_US);
 
-    // Old tags should be removed from set
+    // A8: dropped tag still effective during the grace window.
+    expect(await campaigns.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.true;
+    const grace = Number(await campaigns.TAG_REMOVAL_GRACE_BLOCKS());
+    await mineBlocks(grace + 1);
+    // After grace elapses, dropped tag is truly gone.
     expect(await campaigns.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.false;
   });
 
@@ -167,10 +171,14 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     ).to.be.revertedWith("E66");
   });
 
-  it("TG6c: setTags to empty clears all tags", async function () {
+  it("TG6c: setTags to empty clears all tags (A8 grace honored)", async function () {
     await campaigns.connect(publisher2).setPublisherTags([]);
     const stored = await campaigns.getPublisherTags2(publisher2.address);
     expect(stored.length).to.equal(0);
+    // A8: dropped tags still effective until the grace elapses.
+    expect(await campaigns.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.true;
+    const grace = Number(await campaigns.TAG_REMOVAL_GRACE_BLOCKS());
+    await mineBlocks(grace + 1);
     expect(await campaigns.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.false;
   });
 
