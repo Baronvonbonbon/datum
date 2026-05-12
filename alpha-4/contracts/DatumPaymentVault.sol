@@ -43,6 +43,37 @@ contract DatumPaymentVault is IDatumPaymentVault, ReentrancyGuard, DatumOwnable 
         settlement = addr;
     }
 
+    // ── §2.1 DatumFeeShare integration ────────────────────────────────────
+    /// @notice Optional FeeShare recipient. When set, accumulated protocol fees
+    ///         can be permissionlessly swept to this address via sweepToFeeShare().
+    ///         When zero (default), only the owner-pull withdrawProtocol() path
+    ///         exists. Setting and clearing are both allowed (cleared by passing
+    ///         address(0)) so governance can pause the auto-route if needed.
+    address public feeShareRecipient;
+
+    event FeeShareRecipientSet(address indexed recipient);
+    event SweptToFeeShare(address indexed recipient, uint256 amount);
+
+    function setFeeShareRecipient(address recipient) external onlyOwner {
+        feeShareRecipient = recipient;
+        emit FeeShareRecipientSet(recipient);
+    }
+
+    /// @notice Push the entire accumulated protocol fee to the configured
+    ///         FeeShare recipient. Permissionless — anyone can call.
+    /// @dev    The recipient is expected to be a DatumFeeShare contract whose
+    ///         `receive()` folds the inflow into its accumulator. If no
+    ///         recipient is configured this reverts; use withdrawProtocol() instead.
+    function sweepToFeeShare() external nonReentrant {
+        address recipient = feeShareRecipient;
+        require(recipient != address(0), "E00");
+        uint256 amount = protocolBalance;
+        require(amount > 0, "E03");
+        protocolBalance = 0;
+        emit SweptToFeeShare(recipient, amount);
+        _send(recipient, amount);
+    }
+
     // -------------------------------------------------------------------------
     // Credit (Settlement only)
     // -------------------------------------------------------------------------

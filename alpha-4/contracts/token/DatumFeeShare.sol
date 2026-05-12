@@ -42,6 +42,11 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     /// @notice The stake token — WDATUM. Set at construction.
     IERC20 public immutable stakeToken;
 
+    /// @notice DatumPaymentVault address — source for protocol-fee sweeps.
+    ///         Optional; if zero, sweep() reverts and the contract relies on
+    ///         direct DOT inflows via fund() or receive().
+    address public paymentVault;
+
     /// @notice Accumulator scale factor. Higher = more precision for
     ///         small-stake-large-reward edge cases. 1e18 is standard.
     uint256 public constant ACC_SCALE = 1e18;
@@ -85,6 +90,35 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     constructor(address _stakeToken) {
         require(_stakeToken != address(0), "E00");
         stakeToken = IERC20(_stakeToken);
+    }
+
+    /// @notice Wire the DatumPaymentVault address so `sweep()` can pull fees.
+    /// @dev    Optional but recommended. Settable by owner; cleared with zero.
+    function setPaymentVault(address vault) external onlyOwner {
+        paymentVault = vault;
+    }
+
+    /// @notice Permissionless sweep — pulls accumulated protocol fees from
+    ///         PaymentVault. The DOT lands here via receive() and folds into
+    ///         the accumulator automatically.
+    /// @dev    Anyone can call. PaymentVault must have `feeShareRecipient`
+    ///         set to this contract's address; otherwise the call reverts on
+    ///         the vault side.
+    function sweep() external {
+        require(paymentVault != address(0), "E00");
+        // Low-level call to avoid hard interface dependency. The vault's
+        // sweepToFeeShare() reverts if no balance or no recipient — we
+        // bubble that up rather than swallow it.
+        (bool ok, bytes memory ret) = paymentVault.call(
+            abi.encodeWithSignature("sweepToFeeShare()")
+        );
+        if (!ok) {
+            // Bubble the revert reason if any.
+            if (ret.length > 0) {
+                assembly { revert(add(ret, 32), mload(ret)) }
+            }
+            revert("sweep failed");
+        }
     }
 
     // -------------------------------------------------------------------------
