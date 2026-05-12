@@ -29,6 +29,15 @@ interface IDatumMintAuthority_Settle {
     ) external;
 }
 
+/// @dev #1 (2026-05-12): minimal Campaigns view for the per-user per-campaign
+///      cap. Inline to avoid touching the IDatumCampaigns interface during
+///      staged migration. Older deployments without these getters simply
+///      revert and the try/catch above skips the cap.
+interface ICampaignsUserCapView {
+    function userEventCapPerWindow(uint256 campaignId) external view returns (uint32);
+    function userCapWindowBlocks(uint256 campaignId) external view returns (uint32);
+}
+
 /// @title DatumSettlement
 /// @notice Processes claim batches and distributes payments.
 ///
@@ -143,6 +152,65 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     mapping(address => uint8) public userMinAssurance;
     event UserMinAssuranceSet(address indexed user, uint8 level);
 
+    // -------------------------------------------------------------------------
+    // #5 (2026-05-12): Per-impression PoW with leaky-bucket difficulty
+    // -------------------------------------------------------------------------
+    // Each impression (claim with eventCount=N, scaled by N) must satisfy
+    // `keccak256(claimHash || powNonce) <= target(user, eventCount)`.
+    //
+    // Difficulty driver = a per-user **leaky bucket** of "recent abuse credits"
+    // that drains linearly with time. Each settled event adds `eventCount` to
+    // the bucket; the bucket drains 1 unit per `powBucketLeakPerN` blocks.
+    // Sustained abuse keeps the bucket full → quadratic difficulty kicks in.
+    // Stopping (or merely slowing) causes the bucket to drain and difficulty
+    // to settle back to linear, eventually to baseline.
+    //
+    // Difficulty curve (all params governable):
+    //   bucket    = max(0, userPowBucket - (blocksElapsed / powBucketLeakPerN))
+    //   shift     = powBaseShift                          // absolute floor
+    //             + bucket / powLinearDivisor             // gentle linear growth
+    //             + (bucket / powQuadDivisor)^2           // quadratic on sustained abuse
+    //   shift capped at POW_MAX_SHIFT (64 = effectively impossible).
+    //   target    = (type(uint256).max >> shift) / eventCount
+    //
+    // Per-impression scaling: target divided by eventCount so a single claim
+    // bundling 100 impressions needs ~100× the search work — bots cannot amortize.
+    //
+    // Defaults (base=8, linDiv=60, quadDiv=100, leakPerN=10):
+    //   1 event drains every 10 blocks (~1 min @ 6s/block).
+    //   Real user at 1 imp/min: bucket stays ≈ 0, shift=8 (256 hashes, instant).
+    //   Heavy user at 10 imp/min for 1h: bucket ≈ 540, shift~46 (prohibitive).
+    //   Same user stops for 90 min: bucket drains → back to ≈ 0.
+    //
+    // The lookback is implicit in the leak rate. With leakPerN=10 and a fully
+    // saturated bucket, it takes `bucket × 10` blocks (~ bucket × 1 min) to fully
+    // decay back to baseline. Governance can dial the lookback / forgiveness.
+    //
+    // Defaults off so existing tests + early testnet aren't blocked.
+    bool public enforcePow;
+    /// @notice Absolute floor of PoW difficulty bits — minimum shift regardless of usage.
+    uint8 public powBaseShift = 8;
+    /// @notice bucket / linearDivisor = extra bits (linear floor growth). Larger = slower growth.
+    uint32 public powLinearDivisor = 60;
+    /// @notice bucket / quadDivisor, squared = extra bits (quadratic abuse term). Larger = quadratic kicks in later.
+    uint32 public powQuadDivisor = 100;
+    /// @notice Blocks per 1 unit of bucket drainage. Larger = slower forgetting (more punitive memory).
+    uint32 public powBucketLeakPerN = 10;
+    /// @notice Hard cap on shift_bits so contract math can't run away — 64 bits
+    ///         is already 2^64 ≈ 18 quintillion hashes per impression (impossible).
+    uint8 public constant POW_MAX_SHIFT = 64;
+    /// @notice Per-user leaky-bucket counter; drains over time, fills on settled events.
+    mapping(address => uint256) public userPowBucket;
+    /// @notice Block of the last bucket read/write (lazy decay).
+    mapping(address => uint256) public userPowBucketLastUpdate;
+    event PowEnforcementSet(bool enforced);
+    event PowDifficultyCurveSet(uint8 baseShift, uint32 linearDivisor, uint32 quadDivisor, uint32 bucketLeakPerN);
+
+    // #2-extension (2026-05-12): cumulative settled events per user, all
+    // campaigns + actionTypes. Drives per-campaign minUserSettledHistory
+    // filters (proof-of-on-chain-history as a soft sybil bar).
+    mapping(address => uint256) public userTotalSettled;
+
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
     event RateLimitsUpdated(uint256 windowBlocks, uint256 maxEventsPerWindow);
     event NullifierSubmitted(uint256 indexed campaignId, bytes32 indexed nullifier);
@@ -163,6 +231,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // BM-2: Per-user per-campaign per-actionType cumulative settlement tracking
     mapping(address => mapping(uint256 => mapping(uint8 => uint256))) public userCampaignSettled;
     uint256 public constant MAX_USER_EVENTS = 100000;
+
+    // #1 (2026-05-12): Per-user per-campaign per-actionType per-window event
+    // counter. Window length is per-campaign (Campaigns.userCapWindowBlocks).
+    // windowId = block.number / windowBlocks.
+    mapping(address => mapping(uint256 => mapping(uint8 => mapping(uint256 => uint256))))
+        public userCampaignWindowEvents;
 
     // M-1: Revenue split — user gets 75% of remainder after publisher take rate
     uint256 private constant USER_SHARE_BPS = 7500;
@@ -295,6 +369,72 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         require(level <= 2, "E11");
         userMinAssurance[msg.sender] = level;
         emit UserMinAssuranceSet(msg.sender, level);
+    }
+
+    // -------------------------------------------------------------------------
+    // #5: PoW admin + difficulty target
+    // -------------------------------------------------------------------------
+
+    /// @notice Enable / disable per-impression PoW enforcement.
+    function setEnforcePow(bool enforced) external onlyOwner {
+        enforcePow = enforced;
+        emit PowEnforcementSet(enforced);
+    }
+
+    /// @notice Update the PoW difficulty curve. All four params bounded to
+    ///         prevent footguns: baseShift in [1, 32], divisors > 0, leak > 0.
+    function setPowDifficultyCurve(uint8 baseShift, uint32 linearDivisor, uint32 quadDivisor, uint32 bucketLeakPerN) external onlyOwner {
+        require(baseShift >= 1 && baseShift <= 32, "E11");
+        require(linearDivisor > 0, "E11");
+        require(quadDivisor > 0, "E11");
+        require(bucketLeakPerN > 0, "E11");
+        powBaseShift = baseShift;
+        powLinearDivisor = linearDivisor;
+        powQuadDivisor = quadDivisor;
+        powBucketLeakPerN = bucketLeakPerN;
+        emit PowDifficultyCurveSet(baseShift, linearDivisor, quadDivisor, bucketLeakPerN);
+    }
+
+    /// @dev Lazy bucket read: current effective bucket = stored - drainage since
+    ///      last update. Pure view; doesn't write back.
+    function _readPowBucket(address user) internal view returns (uint256) {
+        uint256 stored = userPowBucket[user];
+        if (stored == 0) return 0;
+        uint256 lastUpdate = userPowBucketLastUpdate[user];
+        if (lastUpdate == 0) return stored;
+        uint256 elapsed = block.number - lastUpdate;
+        uint256 drained = elapsed / uint256(powBucketLeakPerN);
+        return stored > drained ? stored - drained : 0;
+    }
+
+    /// @notice Current PoW target a user must satisfy for a claim of size
+    ///         `eventCount`. ClaimValidator queries this view at claim-time.
+    ///         Returns `keccak256(claimHash || powNonce)` upper bound (≤).
+    /// @dev    Leaky bucket: sustained abuse keeps the bucket full and shifts
+    ///         into quadratic difficulty; slowing or stopping drains the bucket
+    ///         and difficulty decays back to baseline. Lookback is implicit in
+    ///         the leak rate. Per-impression scaling: target/eventCount so
+    ///         larger batches require proportionally more search work.
+    function powTargetForUser(address user, uint256 eventCount) public view returns (uint256) {
+        if (!enforcePow || eventCount == 0) return type(uint256).max;
+        uint256 bucket = _readPowBucket(user);
+
+        // Quadratic with linear floor: shift = base + (bucket/linDiv) + (bucket/quadDiv)^2
+        uint256 linearExtra = bucket / uint256(powLinearDivisor);
+        uint256 quadInput = bucket / uint256(powQuadDivisor);
+        if (quadInput > type(uint32).max) quadInput = type(uint32).max;
+        uint256 quadExtra = quadInput * quadInput;
+
+        uint256 shift = uint256(powBaseShift) + linearExtra + quadExtra;
+        if (shift >= POW_MAX_SHIFT) return 0; // unreachable target → only powNonce hashing to 0 passes
+
+        return (type(uint256).max >> shift) / eventCount;
+    }
+
+    /// @notice Effective bucket level for a user right now (lazy decay applied).
+    ///         Convenience view for UIs / monitoring.
+    function userPowBucketEffective(address user) external view returns (uint256) {
+        return _readPowBucket(user);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
@@ -719,6 +859,33 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             }
             userCampaignSettled[user][claim.campaignId][claim.actionType] = newTotal;
 
+            // #1: Per-user per-campaign per-window cap (advertiser-set).
+            //     Cheap try/catch on the Campaigns view so older deployments
+            //     without these knobs continue to settle normally.
+            if (address(campaigns) != address(0)) {
+                uint32 capMax;
+                uint32 capWin;
+                try ICampaignsUserCapView(address(campaigns)).userEventCapPerWindow(claim.campaignId) returns (uint32 m) {
+                    capMax = m;
+                } catch {}
+                if (capMax > 0) {
+                    try ICampaignsUserCapView(address(campaigns)).userCapWindowBlocks(claim.campaignId) returns (uint32 w) {
+                        capWin = w;
+                    } catch {}
+                    if (capWin > 0) {
+                        uint256 wid = block.number / uint256(capWin);
+                        uint256 cur = userCampaignWindowEvents[user][claim.campaignId][claim.actionType][wid];
+                        if (cur + claim.eventCount > uint256(capMax)) {
+                            result.rejectedCount++;
+                            emit ClaimRejected(claim.campaignId, user, claim.nonce, 29);
+                            gapFound = true;
+                            continue;
+                        }
+                        userCampaignWindowEvents[user][claim.campaignId][claim.actionType][wid] = cur + claim.eventCount;
+                    }
+                }
+            }
+
             // BM-5: Per-publisher window rate limit (inline; view claims only)
             if (rlWindowBlocks > 0 && claim.actionType == 0) {
                 uint256 windowId = block.number / rlWindowBlocks;
@@ -806,6 +973,26 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
             // Track events for publisher stake bonding curve
             agg.eventsSettled += claim.eventCount;
+
+            // #5: Leaky-bucket update — drains by elapsed-blocks-since-last-update,
+            //     then adds the new events. Drives difficulty for *next* claim.
+            //     Sustained abuse keeps bucket full → quadratic difficulty;
+            //     slowing/stopping drains the bucket → linear decay back to baseline.
+            {
+                uint256 stored = userPowBucket[user];
+                uint256 lastUpdate = userPowBucketLastUpdate[user];
+                uint256 drained;
+                if (lastUpdate != 0) {
+                    drained = (block.number - lastUpdate) / uint256(powBucketLeakPerN);
+                }
+                uint256 afterDrain = stored > drained ? stored - drained : 0;
+                userPowBucket[user] = afterDrain + claim.eventCount;
+                userPowBucketLastUpdate[user] = block.number;
+            }
+
+            // #2-extension: cumulative settled events across all campaigns.
+            //               Drives per-campaign minUserSettledHistory gate.
+            userTotalSettled[user] += claim.eventCount;
 
             result.settledCount++;
             result.totalPaid += totalPayment;

@@ -367,6 +367,50 @@
       "inputs": [
         {
           "indexed": false,
+          "internalType": "uint8",
+          "name": "baseShift",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "linearDivisor",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "quadDivisor",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "bucketLeakPerN",
+          "type": "uint32"
+        }
+      ],
+      "name": "PowDifficultyCurveSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "enforced",
+          "type": "bool"
+        }
+      ],
+      "name": "PowEnforcementSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
           "internalType": "uint256",
           "name": "windowBlocks",
           "type": "uint256"
@@ -566,6 +610,19 @@
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "POW_MAX_SHIFT",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
         }
       ],
       "stateMutability": "view",
@@ -777,6 +834,19 @@
           "internalType": "uint256[]",
           "name": "extensions",
           "type": "uint256[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "enforcePow",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -1139,6 +1209,82 @@
     },
     {
       "inputs": [],
+      "name": "powBaseShift",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "powBucketLeakPerN",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "powLinearDivisor",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "powQuadDivisor",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "eventCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "powTargetForUser",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "publisherStake",
       "outputs": [
         {
@@ -1387,6 +1533,19 @@
     {
       "inputs": [
         {
+          "internalType": "bool",
+          "name": "enforced",
+          "type": "bool"
+        }
+      ],
+      "name": "setEnforcePow",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "uint256",
           "name": "cap",
           "type": "uint256"
@@ -1458,6 +1617,34 @@
         }
       ],
       "name": "setNullifierWindowBlocks",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "baseShift",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint32",
+          "name": "linearDivisor",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "quadDivisor",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "bucketLeakPerN",
+          "type": "uint32"
+        }
+      ],
+      "name": "setPowDifficultyCurve",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -1607,6 +1794,11 @@
                   "internalType": "bytes32[3]",
                   "name": "actionSig",
                   "type": "bytes32[3]"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "powNonce",
+                  "type": "bytes32"
                 }
               ],
               "internalType": "struct IDatumSettlement.Claim[]",
@@ -1724,6 +1916,11 @@
                       "internalType": "bytes32[3]",
                       "name": "actionSig",
                       "type": "bytes32[3]"
+                    },
+                    {
+                      "internalType": "bytes32",
+                      "name": "powNonce",
+                      "type": "bytes32"
                     }
                   ],
                   "internalType": "struct IDatumSettlement.Claim[]",
@@ -1844,6 +2041,11 @@
                   "internalType": "bytes32[3]",
                   "name": "actionSig",
                   "type": "bytes32[3]"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "powNonce",
+                  "type": "bytes32"
                 }
               ],
               "internalType": "struct IDatumSettlement.Claim[]",
@@ -1970,6 +2172,40 @@
           "internalType": "address",
           "name": "",
           "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "userCampaignWindowEvents",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
         }
       ],
       "name": "userMinAssurance",
@@ -1978,6 +2214,82 @@
           "internalType": "uint8",
           "name": "",
           "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "userPowBucket",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "userPowBucketEffective",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "userPowBucketLastUpdate",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "userTotalSettled",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",

@@ -22,6 +22,7 @@ interface IDatumSettlement {
         bytes32[8] zkProof;          // Groth16/BN254: 8 × uint256 (256 bytes); all-zero = no proof
         bytes32 nullifier;           // FP-5: Poseidon(userSecret, campaignId, windowId); bytes32(0) = skip
         bytes32[3] actionSig;        // type-2 only: ECDSA [r, s, v-as-bytes32]; all-zero = no sig
+        bytes32 powNonce;            // #5: PoW solver output; keccak256(claimHash||powNonce) must satisfy target when enforcePow is on
     }
 
     struct ClaimBatch {

@@ -237,6 +237,7 @@ describe("Audit fixes", function () {
         zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+        powNonce: ethers.ZeroHash,
       };
     }
 

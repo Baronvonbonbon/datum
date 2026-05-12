@@ -133,6 +133,19 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     // legacy `campaignRequiresDualSig` flag for backward compatibility.
     mapping(uint256 => uint8) public campaignAssuranceLevel;
 
+    // #1 (2026-05-12): per-user per-campaign cap. Both fields default 0 = disabled.
+    // Advertiser-settable. Raising locks at Pending (matches AssuranceLevel rules
+    // — can't tighten mid-flight and freeze user payouts); lowering allowed any time.
+    mapping(uint256 => uint32) public userEventCapPerWindow;
+    mapping(uint256 => uint32) public userCapWindowBlocks;
+    event CampaignUserCapSet(uint256 indexed campaignId, uint32 maxEvents, uint32 windowBlocks);
+
+    // #2-extension (2026-05-12): per-campaign minimum cumulative settled events
+    // the user must have on-record before participating. Soft proof-of-history
+    // sybil bar. 0 = disabled. Advertiser-settable; same Pending-only raise rule.
+    mapping(uint256 => uint32) public minUserSettledHistory;
+    event CampaignMinHistorySet(uint256 indexed campaignId, uint32 minHistory);
+
     // A14: metadata change tracking. Counter bumps on every successful
     // setMetadata; off-chain publishers detect mid-flight creative swaps by
     // watching the version. Active campaigns also pay a cooldown between
@@ -681,6 +694,46 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
             emit CampaignRequiresDualSigUpdated(campaignId, false);
         }
         emit CampaignAssuranceLevelSet(campaignId, level);
+    }
+
+    /// @notice #1 (2026-05-12): set the per-user per-window cap for this campaign.
+    ///         Both 0 = disabled. Raise locked once Active (advertiser can't
+    ///         tighten mid-flight and strand user earnings); lower allowed any time.
+    function setCampaignUserCap(uint256 campaignId, uint32 maxEvents, uint32 windowBlocks) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        // 0/0 is the disabled state; otherwise both must be non-zero.
+        if (maxEvents != 0 || windowBlocks != 0) {
+            require(maxEvents > 0 && windowBlocks > 0, "E11");
+        }
+        // Raise = tighter cap (smaller max OR shorter window) → locked at Pending.
+        uint32 prevMax = userEventCapPerWindow[campaignId];
+        uint32 prevWin = userCapWindowBlocks[campaignId];
+        bool tighter = (prevMax == 0 && maxEvents > 0)
+                    || (maxEvents > 0 && prevMax > 0 && maxEvents < prevMax)
+                    || (windowBlocks > 0 && prevWin > 0 && windowBlocks < prevWin);
+        if (tighter) {
+            require(c.status == CampaignStatus.Pending, "E22");
+        }
+        userEventCapPerWindow[campaignId] = maxEvents;
+        userCapWindowBlocks[campaignId] = windowBlocks;
+        emit CampaignUserCapSet(campaignId, maxEvents, windowBlocks);
+    }
+
+    /// @notice #2-extension (2026-05-12): set the minimum cumulative settled
+    ///         events a user must have (across any campaign) before participating
+    ///         in this campaign. 0 = disabled. Same Pending-only raise rule.
+    function setCampaignMinHistory(uint256 campaignId, uint32 minHistory) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        uint32 prev = minUserSettledHistory[campaignId];
+        if (minHistory > prev) {
+            require(c.status == CampaignStatus.Pending, "E22");
+        }
+        minUserSettledHistory[campaignId] = minHistory;
+        emit CampaignMinHistorySet(campaignId, minHistory);
     }
 
     // -------------------------------------------------------------------------

@@ -9,6 +9,22 @@ import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumZKVerifier.sol";
 import "./interfaces/IDatumClickRegistry.sol";
 
+/// @dev #5 + #2-extension (2026-05-12): minimal Settlement view interface for
+///      the PoW difficulty target and the per-user cumulative settled-events
+///      counter. Kept inline — only two functions; not worth a separate file.
+interface ISettlementSybilGate {
+    function enforcePow() external view returns (bool);
+    function powTargetForUser(address user, uint256 eventCount) external view returns (uint256);
+    function userTotalSettled(address user) external view returns (uint256);
+}
+
+/// @dev #1 + #2-extension: minimal Campaigns view interface for per-campaign
+///      sybil knobs. Calls are try/catch-wrapped — falls back to no-op when
+///      Campaigns doesn't expose these yet (staged migration).
+interface ICampaignsSybilKnobs {
+    function minUserSettledHistory(uint256 campaignId) external view returns (uint32);
+}
+
 /// @title DatumClaimValidator
 /// @notice Validates settlement claims — extracted from Settlement (SE-1).
 ///
@@ -31,6 +47,9 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     IDatumZKVerifier public zkVerifier;
     // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
+    // #5 + #2: optional Settlement ref for PoW target + history total reads.
+    //          address(0) = sybil gates disabled (default before wiring).
+    address public settlement;
 
     constructor(address _campaigns, address _publishers, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
@@ -68,6 +87,14 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         require(addr != address(0), "E00");
         require(address(clickRegistry) == address(0), "already set");
         clickRegistry = IDatumClickRegistry(addr);
+    }
+
+    /// @notice #5 + #2: wire Settlement so validator can read PoW target +
+    ///         cumulative-history counters. Lock-once (mirror of A13 pattern).
+    function setSettlement(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(settlement == address(0), "already set");
+        settlement = addr;
     }
 
     // -------------------------------------------------------------------------
@@ -166,6 +193,43 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             claim.previousClaimHash
         ));
         if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
+
+        // Check 8b: #5 — Per-impression PoW with scaling difficulty.
+        //   keccak256(claimHash || powNonce) <= target(user, eventCount).
+        //   Target tightens with the user's recent settled rate AND scales
+        //   inversely with eventCount so bots can't amortize across batched
+        //   impressions. Gated by settlement.enforcePow; skipped entirely
+        //   when settlement isn't wired (early bootstrap).
+        // Check 8c: #2-extension — proof-of-on-chain-history filter. The
+        //   campaign can require the reporter has settled N events historically
+        //   (across any campaign) before participating. Soft sybil bar that
+        //   doesn't lock out real users with prior protocol activity.
+        if (settlement != address(0)) {
+            ISettlementSybilGate s = ISettlementSybilGate(settlement);
+            // PoW (reason 27)
+            try s.enforcePow() returns (bool enf) {
+                if (enf) {
+                    try s.powTargetForUser(user, claim.eventCount) returns (uint256 target) {
+                        if (uint256(keccak256(abi.encodePacked(computedHash, claim.powNonce))) > target) {
+                            return (false, 27, 0, bytes32(0));
+                        }
+                    } catch {
+                        return (false, 27, 0, bytes32(0));
+                    }
+                }
+            } catch {}
+
+            // History gate (reason 28): per-campaign minUserSettledHistory
+            try ICampaignsSybilKnobs(address(campaigns)).minUserSettledHistory(claim.campaignId) returns (uint32 minHist) {
+                if (minHist > 0) {
+                    try s.userTotalSettled(user) returns (uint256 totalSettled) {
+                        if (totalSettled < uint256(minHist)) return (false, 28, 0, bytes32(0));
+                    } catch {
+                        return (false, 28, 0, bytes32(0));
+                    }
+                }
+            } catch {}
+        }
 
         // Check 9: ZK proof (view claims only, if campaign requires it)
         if (claim.actionType == 0 && address(zkVerifier) != address(0)) {

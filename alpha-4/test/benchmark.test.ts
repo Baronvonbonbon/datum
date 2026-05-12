@@ -121,6 +121,7 @@ function buildClaims(
       zkProof,
       nullifier: ethers.ZeroHash,
       actionSig: NO_SIG,
+      powNonce: ethers.ZeroHash,
     });
     prevHash = hash;
   }
@@ -548,6 +549,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         zkProof: ZK_EMPTY,
         nullifier: ethers.ZeroHash,
         actionSig: NO_SIG,
+      powNonce: ethers.ZeroHash,
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }

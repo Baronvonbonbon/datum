@@ -159,6 +159,7 @@ export const claimBuilder = {
         zkProof,
         nullifier,
         actionSig: SIG_EMPTY,
+        powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };
 
       // Persist updated chain state
@@ -229,6 +230,7 @@ export const claimBuilder = {
         zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
         actionSig: SIG_EMPTY,
+        powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };
 
       await setChainState(userAddress, msg.campaignId, 1, {
@@ -291,6 +293,7 @@ export const claimBuilder = {
         zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
         actionSig: parseSigToArray(msg.actionSig),
+        powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };
 
       await setChainState(userAddress, msg.campaignId, 2, {
@@ -363,6 +366,7 @@ interface SerializedClaim {
   zkProof: string[];
   nullifier: string;
   actionSig: string[];
+  powNonce: string;
   userAddress: string;
 }
 
@@ -396,6 +400,7 @@ function serializeClaim(claim: Claim, userAddress: string): SerializedClaim {
     zkProof: claim.zkProof,
     nullifier: claim.nullifier,
     actionSig: claim.actionSig,
+    powNonce: claim.powNonce,
     userAddress,
   };
 }

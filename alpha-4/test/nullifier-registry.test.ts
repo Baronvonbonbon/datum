@@ -120,6 +120,7 @@ describe("Settlement Nullifier (inline)", function () {
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+      powNonce: ethers.ZeroHash,
     };
   }
 

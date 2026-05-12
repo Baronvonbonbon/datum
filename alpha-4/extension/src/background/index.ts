@@ -1549,6 +1549,7 @@ function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
       zkProof: c.zkProof,
       nullifier: c.nullifier,
       actionSig: c.actionSig,
+      powNonce: c.powNonce,
     })),
   }));
 }

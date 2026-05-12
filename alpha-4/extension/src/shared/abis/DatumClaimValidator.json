@@ -220,9 +220,35 @@
           "type": "address"
         }
       ],
+      "name": "setSettlement",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
       "name": "setZKVerifier",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "settlement",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -301,6 +327,11 @@
               "internalType": "bytes32[3]",
               "name": "actionSig",
               "type": "bytes32[3]"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "powNonce",
+              "type": "bytes32"
             }
           ],
           "internalType": "struct IDatumSettlement.Claim",

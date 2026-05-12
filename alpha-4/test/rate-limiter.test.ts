@@ -197,6 +197,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       zkProof: Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+        powNonce: ethers.ZeroHash,
     };
 
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: [claim] }]);
@@ -241,6 +242,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       zkProof: Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+        powNonce: ethers.ZeroHash,
     };
 
     const tx = await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: [claim] }]);
