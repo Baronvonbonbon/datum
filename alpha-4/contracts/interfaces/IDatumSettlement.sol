@@ -52,10 +52,11 @@ interface IDatumSettlement {
         uint256 campaignId;
         Claim[] claims;
         uint256 deadlineBlock;   // A9: block.number expiry — matches DatumRelay for unit-uniformity
-        address expectedRelaySigner;  // A1: relay signer the publisher binds at sign time; address(0) = require strict publisher sig
+        address expectedRelaySigner;            // A1: publisher's relay signer at sign time; address(0) = require strict publisher EOA sig
+        address expectedAdvertiserRelaySigner;  // M6: advertiser's relay signer at sign time; address(0) = require strict advertiser EOA sig
         bytes userSig;           // EIP-712 ECDSA from the user (relay path)
-        bytes publisherSig;      // EIP-712 ECDSA from the campaign's publisher
-        bytes advertiserSig;     // EIP-712 ECDSA from the campaign's advertiser
+        bytes publisherSig;      // EIP-712 ECDSA from the campaign's publisher (or their relaySigner)
+        bytes advertiserSig;     // EIP-712 ECDSA from the campaign's advertiser (or their advertiserRelaySigner)
     }
 
     struct SettlementResult {

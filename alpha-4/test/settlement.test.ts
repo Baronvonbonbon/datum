@@ -513,6 +513,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -537,6 +538,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -564,6 +566,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: tamperedSig,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -586,6 +589,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -608,6 +612,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: "0x",
         advertiserSig: "0x",
@@ -679,6 +684,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -704,6 +710,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -728,6 +735,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig,
         advertiserSig: "0x",
@@ -757,6 +765,7 @@ describe("DatumSettlement", function () {
         claims,
         deadlineBlock: deadline,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
         publisherSig: tamperedPubSig,
         advertiserSig: "0x",
@@ -790,6 +799,7 @@ describe("DatumSettlement", function () {
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
         { name: "expectedRelaySigner", type: "address" },
+        { name: "expectedAdvertiserRelaySigner", type: "address" },
       ],
     };
 
@@ -807,6 +817,7 @@ describe("DatumSettlement", function () {
       claims: any[],
       deadlineBlock: number,
       expectedRelaySigner: string,
+      expectedAdvertiserRelaySigner: string = ethers.ZeroAddress,
     ) {
       const domain = await getDualSigDomain();
       const value = {
@@ -815,6 +826,7 @@ describe("DatumSettlement", function () {
         claimsHash: hashClaims(claims),
         deadlineBlock,
         expectedRelaySigner,
+        expectedAdvertiserRelaySigner,
       };
       return signer.signTypedData(domain, dualSigTypes, value);
     }
@@ -826,16 +838,18 @@ describe("DatumSettlement", function () {
       advSigner: HardhatEthersSigner,
       deadlineBlock?: number,
       expectedRelaySigner: string = ethers.ZeroAddress,
+      expectedAdvertiserRelaySigner: string = ethers.ZeroAddress,
     ) {
       const dl = deadlineBlock ?? (await ethers.provider.getBlockNumber()) + 100;
-      const publisherSig = await signDualBatch(pubSigner, user.address, cid, claims, dl, expectedRelaySigner);
-      const advertiserSig = await signDualBatch(advSigner, user.address, cid, claims, dl, expectedRelaySigner);
+      const publisherSig = await signDualBatch(pubSigner, user.address, cid, claims, dl, expectedRelaySigner, expectedAdvertiserRelaySigner);
+      const advertiserSig = await signDualBatch(advSigner, user.address, cid, claims, dl, expectedRelaySigner, expectedAdvertiserRelaySigner);
       return {
         user: user.address,
         campaignId: cid,
         claims,
         deadlineBlock: dl,
         expectedRelaySigner,
+        expectedAdvertiserRelaySigner,
         userSig: "0x",
         publisherSig,
         advertiserSig,
@@ -879,6 +893,55 @@ describe("DatumSettlement", function () {
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
       ).to.be.revertedWith("E82");
+    });
+
+    it("M6-A: advertiser's delegated relay signer is accepted in place of advertiser EOA", async function () {
+      const cid = await createTestCampaign();
+      // Designate `protocol` as the advertiser's hot key. The campaign's
+      // advertiser is `owner` (set inside createTestCampaign).
+      await mock.setAdvertiserRelaySigner(owner.address, protocol.address);
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // Envelope binds the advertiser relay key; advertiser sig comes from it.
+      const batch = await makeDualSignedBatch(
+        cid, claims, publisher, protocol, undefined, ethers.ZeroAddress, protocol.address,
+      );
+
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
+      expect(result.rejectedCount).to.equal(0n);
+
+      // Cleanup so other tests are unaffected
+      await mock.setAdvertiserRelaySigner(owner.address, ethers.ZeroAddress);
+    });
+
+    it("M6-B: stale advertiser relay key reverts E85 (rotation invalidates in-flight cosigs)", async function () {
+      const cid = await createTestCampaign();
+      // Step 1: advertiser registers `protocol` as their hot key.
+      await mock.setAdvertiserRelaySigner(owner.address, protocol.address);
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // Step 2: both parties cosign over an envelope binding `protocol`.
+      const batch = await makeDualSignedBatch(
+        cid, claims, publisher, protocol, undefined, ethers.ZeroAddress, protocol.address,
+      );
+      // Step 3: advertiser rotates to a different hot key between sign and submit.
+      await mock.setAdvertiserRelaySigner(owner.address, other.address);
+      // Step 4: submission must be rejected — the envelope's expected key no
+      // longer matches what the advertiser has registered on-chain.
+      await expect(
+        settlement.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWith("E85");
+
+      await mock.setAdvertiserRelaySigner(owner.address, ethers.ZeroAddress);
+    });
+
+    it("M6-C: advertiser EOA strict path still works when no delegation is set", async function () {
+      const cid = await createTestCampaign();
+      // No setAdvertiserRelaySigner call → strict path; advertiser must sign with EOA.
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
+
+      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(result.settledCount).to.equal(1n);
     });
 
     it("D4: bad advertiser signature reverts E83", async function () {

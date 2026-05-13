@@ -70,6 +70,18 @@ contract DatumMintAuthority is DatumOwnable {
     event MintedForBootstrap(address indexed user, uint256 amount);
     event MintedForVesting(address indexed recipient, uint256 amount);
     event IssuerTransferred(address indexed newIssuer);
+    event IssuerTransferStaged(address indexed newIssuer);
+    event IssuerTransferCancelled(address indexed newIssuer);
+
+    /// @notice H3-fix: staged successor for the §5.5 sunset. Set by owner via
+    ///         stageIssuerTransfer; must call acceptIssuerRole() from its own
+    ///         context to finalize. Once the transfer fires, `issuerLocked` is
+    ///         true forever — one transfer per deployment, by design.
+    address public pendingIssuer;
+    /// @notice True once the canonical issuer role has been handed off via the
+    ///         sunset path. After this, no further transfers are possible from
+    ///         this contract — the parachain pallet is the sole issuer.
+    bool public issuerLocked;
 
     // -------------------------------------------------------------------------
     // Construction
@@ -171,13 +183,43 @@ contract DatumMintAuthority is DatumOwnable {
     // Sunset — transfer Asset Hub issuer rights
     // -------------------------------------------------------------------------
 
-    /// @notice Transfer canonical asset issuer rights to a new authority.
-    /// @dev    The §5.5 sunset path: at parachain launch this transfers to the
-    ///         parachain's native issuance pallet. Owner-only — only the
-    ///         current governance authority can advance the sunset stage.
-    function transferIssuerTo(address newAuthority) external onlyOwner {
+    /// @notice H3-fix step 1/2: stage the sunset successor. Owner-only.
+    /// @dev    Successor must subsequently call acceptIssuerRole() from its
+    ///         own context to finalize. Proves the successor address exists
+    ///         and controls itself — protects against typos / dead contracts.
+    function stageIssuerTransfer(address newAuthority) external onlyOwner {
+        require(!issuerLocked, "issuer-locked");
         require(newAuthority != address(0), "E00");
-        precompile.transferIssuer(canonicalAssetId, newAuthority);
-        emit IssuerTransferred(newAuthority);
+        pendingIssuer = newAuthority;
+        emit IssuerTransferStaged(newAuthority);
+    }
+
+    /// @notice H3-fix: cancel a staged sunset transfer prior to acceptance.
+    function cancelIssuerTransfer() external onlyOwner {
+        require(!issuerLocked, "issuer-locked");
+        address staged = pendingIssuer;
+        require(staged != address(0), "none staged");
+        pendingIssuer = address(0);
+        emit IssuerTransferCancelled(staged);
+    }
+
+    /// @notice H3-fix step 2/2: successor confirms control of itself and the
+    ///         issuer role transfers irrevocably. Lock-once — after this call,
+    ///         no further transfers possible from this contract. The parachain
+    ///         pallet (or whichever successor is staged) becomes the sole
+    ///         issuer of canonical DATUM forever.
+    /// @dev    This is the §5.5 sunset endpoint. The single transfer this
+    ///         contract supports is by design: parachain migration is the
+    ///         one legitimate use, and after it the EVM-side authority must
+    ///         not be able to reclaim issuance.
+    function acceptIssuerRole() external {
+        require(!issuerLocked, "issuer-locked");
+        address staged = pendingIssuer;
+        require(staged != address(0), "none staged");
+        require(msg.sender == staged, "E19");
+        issuerLocked = true;
+        pendingIssuer = address(0);
+        precompile.transferIssuer(canonicalAssetId, staged);
+        emit IssuerTransferred(staged);
     }
 }

@@ -57,6 +57,7 @@ describe("DatumFeeShare — stake WDATUM, earn DOT", function () {
       await authority.getAddress(),
       await precompile.getAddress(),
       ASSET_ID,
+      true,
     );
 
     await authority.setWrapper(await wrapper.getAddress());

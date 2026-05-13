@@ -52,6 +52,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       await authority.getAddress(),
       await precompile.getAddress(),
       ASSET_ID,
+      true,
     );
 
     await authority.setWrapper(await wrapper.getAddress());
@@ -174,7 +175,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       const a = await AuthF.deploy(await p.getAddress(), ASSET_ID);
       await p.registerAsset(ASSET_ID, await a.getAddress(), "DATUM", "DATUM", Number(DECIMALS));
       const WF = await ethers.getContractFactory("DatumWrapper");
-      const w = await WF.deploy(await a.getAddress(), await p.getAddress(), ASSET_ID);
+      const w = await WF.deploy(await a.getAddress(), await p.getAddress(), ASSET_ID, true);
       await a.setWrapper(await w.getAddress());
       await a.setSettlement(deployer.address);
 

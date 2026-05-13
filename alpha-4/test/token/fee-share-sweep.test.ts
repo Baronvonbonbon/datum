@@ -46,7 +46,7 @@ describe("DatumPaymentVault → DatumFeeShare sweep", function () {
 
     const WrapperF = await ethers.getContractFactory("DatumWrapper");
     wrapper = await WrapperF.deploy(
-      await authority.getAddress(), await precompile.getAddress(), ASSET_ID,
+      await authority.getAddress(), await precompile.getAddress(), ASSET_ID, true,
     );
 
     await authority.setWrapper(await wrapper.getAddress());

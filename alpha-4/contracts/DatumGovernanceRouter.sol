@@ -61,6 +61,14 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     event PhaseTransitioned(GovernancePhase indexed newPhase, address indexed newGovernor);
     event GovernorProposed(GovernancePhase indexed newPhase, address indexed newGovernor);
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+    event PhaseFloorRaised(GovernancePhase indexed newFloor);
+
+    /// @notice M4-fix: monotonic phase floor. setGovernor refuses any proposal
+    ///         that would move `phase` below `phaseFloor`. Permanently writes
+    ///         the current phase as a floor when raisePhaseFloor() is called.
+    ///         Anyone can call to ratchet the floor up to the current phase.
+    ///         There is no path to lower the floor.
+    GovernancePhase public phaseFloor;
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -101,9 +109,24 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     ///         Called by the owner (Timelock) to advance through the ladder.
     function setGovernor(GovernancePhase newPhase, address newGovernor) external onlyOwner {
         require(newGovernor != address(0), "E00");
+        // M4-fix: enforce monotonic decentralization. Once the floor has been
+        // ratcheted (e.g. to Council), the Timelock owner cannot stage a
+        // regression back to Admin. Honors the protocol's stated invariant
+        // that governance becomes more community-driven over time.
+        require(uint8(newPhase) >= uint8(phaseFloor), "below phase floor");
         pendingGovernor = newGovernor;
         pendingPhase = newPhase;
         emit GovernorProposed(newPhase, newGovernor);
+    }
+
+    /// @notice M4-fix: permanently raise the phase floor to the current phase.
+    ///         Anyone can call — there's no information asymmetry, and the
+    ///         only state change is to LOCK the gradient at where it already is.
+    ///         Refuses if the floor is already at or above the current phase.
+    function raisePhaseFloor() external {
+        require(uint8(phase) > uint8(phaseFloor), "floor already at phase");
+        phaseFloor = phase;
+        emit PhaseFloorRaised(phase);
     }
 
     /// @notice A10: The pending governor finalises the handoff. Proves the

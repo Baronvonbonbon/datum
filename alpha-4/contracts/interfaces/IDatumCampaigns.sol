@@ -126,6 +126,11 @@ interface IDatumCampaigns {
 
     function getCampaignStatus(uint256 campaignId) external view returns (CampaignStatus);
     function getCampaignAdvertiser(uint256 campaignId) external view returns (address);
+    /// @notice M6: advertiser-side hot-key delegation reader. Zero means
+    ///         strict-EOA path; non-zero is the advertiser's authorized relay
+    ///         key. Settlement.settleSignedClaims uses this to verify cosigs
+    ///         when an advertiser uses the delegated path.
+    function getAdvertiserRelaySigner(address advertiser) external view returns (address);
     function getCampaignPublisher(uint256 campaignId) external view returns (address);
     function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory);
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address);

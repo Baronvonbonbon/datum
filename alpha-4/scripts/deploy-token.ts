@@ -104,10 +104,15 @@ async function main() {
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n[3] Deploying DatumWrapper (WDATUM)...");
   const WrapperF = await ethers.getContractFactory("DatumWrapper");
+  // L3-fix: pass devnetUnwrapShimEnabled = true here for devnet/testnet (uses
+  // AssetHubPrecompileMock + _ahAddressOf shim). Production / mainnet builds
+  // must deploy an XCM-aware Wrapper variant and pass false (or replace this
+  // contract entirely). See PRE-MAINNET-CHECKLIST.md §L3.
   const wrapper = await WrapperF.deploy(
     await authority.getAddress(),
     await precompile.getAddress(),
     assetId,
+    true, // devnetUnwrapShimEnabled — DEVNET ONLY
   );
   await wrapper.waitForDeployment();
   console.log(`    DatumWrapper:           ${await wrapper.getAddress()}`);

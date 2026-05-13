@@ -434,6 +434,7 @@ describe("Integration", function () {
       claims,
       deadlineBlock: deadline,
       expectedRelaySigner: ethers.ZeroAddress,
+      expectedAdvertiserRelaySigner: ethers.ZeroAddress,
       userSig: signature,
       publisherSig: "0x",
       advertiserSig: "0x",

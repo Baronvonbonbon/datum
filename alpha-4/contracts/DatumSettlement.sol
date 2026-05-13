@@ -224,6 +224,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         publishers ref. Not a rejection.
     event BlocklistCheckFailed(uint256 indexed campaignId, address indexed publisher);
 
+    /// @notice H2-fix: emitted when the AssuranceLevel or legacy dual-sig
+    ///         lookup on Campaigns reverts. The batch is failed CLOSED
+    ///         (treated as max-enforced), but operators should see this and
+    ///         repair the Campaigns wiring.
+    event AssuranceLookupFailed(uint256 indexed campaignId);
+
+    /// @notice M2-fix: emitted when an L1+ campaign's blocklist lookup reverts.
+    ///         At L1 or above the batch is rejected; at L0 it falls through
+    ///         (advisory BlocklistCheckFailed above).
+    event BlocklistFailedClosed(uint256 indexed campaignId, address indexed publisher);
+
+    /// @notice M1-fix: emitted when an L3 campaign settles without a valid ZK
+    ///         proof. The user opted in to ZK-only settlement via userMinAssurance=3.
+    event ZKAssuranceFailed(uint256 indexed campaignId, address indexed user);
+
     // Triple-keyed chain state: (user, campaignId, actionType)
     mapping(address => mapping(uint256 => mapping(uint8 => uint256)))  public lastNonce;
     mapping(address => mapping(uint256 => mapping(uint8 => bytes32))) public lastClaimHash;
@@ -257,8 +272,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     //     authority, not whoever the publishers contract returns at exec time.
     //   - deadlineBlock: block.number is cheaper to predict than block.timestamp
     //     and removes the unit-ambiguity vs. the Relay path.
+    /// @dev M6: extended to bind the advertiser's relay signer at sign time,
+    ///      mirroring the publisher-side A1 anti-rotation pattern. A post-sign
+    ///      `setAdvertiserRelaySigner` rotation invalidates in-flight cosigs.
     bytes32 private constant CLAIM_BATCH_TYPEHASH = keccak256(
-        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner)"
+        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner,address expectedAdvertiserRelaySigner)"
     );
     uint256 private _cbBlock;
     uint256 private _cbTotal;
@@ -383,11 +401,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         minReputationScore = score;
     }
 
-    /// @notice B5-fix: user sets their own minimum AssuranceLevel floor (0..2).
-    ///         Self-only; no admin or counterparty can lower or raise.
-    ///         0 = accept any (default). 1 = require publisher cosig. 2 = require dual-sig.
+    /// @notice B5-fix + M1-fix: user sets their own minimum AssuranceLevel
+    ///         floor (0..3). Self-only; no admin or counterparty can lower or raise.
+    ///         0 = accept any (default).
+    ///         1 = require publisher cosig (relay path or publisher's own relay).
+    ///         2 = require dual-sig (publisher + advertiser EIP-712 cosig).
+    ///         3 = require dual-sig AND campaign must require valid ZK proofs.
     function setUserMinAssurance(uint8 level) external {
-        require(level <= 2, "E11");
+        require(level <= 3, "E11");
         userMinAssurance[msg.sender] = level;
         emit UserMinAssuranceSet(msg.sender, level);
     }
@@ -610,9 +631,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             require(block.number <= batch.deadlineBlock, "E81");
 
             // Build the EIP-712 struct hash over the batch envelope.
-            // A1: expectedRelaySigner is bound at sign time so a post-sign
-            //     `publishers.setRelaySigner(...)` rotation cannot retroactively
-            //     change which key the advertiser cosigned over.
+            // A1/M6: both `expectedRelaySigner` (publisher's hot key at sign
+            //     time) and `expectedAdvertiserRelaySigner` (advertiser's hot
+            //     key at sign time) are bound to the envelope so a post-sign
+            //     rotation on either side invalidates in-flight cosigs.
             bytes32 claimsHash = _hashClaims(batch.claims);
             bytes32 structHash = keccak256(abi.encode(
                 CLAIM_BATCH_TYPEHASH,
@@ -620,7 +642,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                 batch.campaignId,
                 claimsHash,
                 batch.deadlineBlock,
-                batch.expectedRelaySigner
+                batch.expectedRelaySigner,
+                batch.expectedAdvertiserRelaySigner
             ));
             bytes32 digest = _hashTypedDataV4(structHash);
 
@@ -652,11 +675,28 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                 require(pubSigner == expectedPublisher, "E82");
             }
 
-            // Recover and verify advertiser signature
+            // Recover and verify advertiser signature.
+            // M6: advertiser-side delegation mirrors the publisher-side A1 pattern.
+            //   - If `expectedAdvertiserRelaySigner` is non-zero in the envelope,
+            //     the sig must come from that hot key AND the advertiser must still
+            //     have that key registered at submission time (a rotation between
+            //     sign and submit invalidates the cosig — same anti-staleness
+            //     semantics as the publisher relay path).
+            //   - If zero, strict path: sig must come from the advertiser's EOA.
             address advSigner = ECDSA.recover(digest, batch.advertiserSig);
             address expectedAdvertiser = campaigns.getCampaignAdvertiser(batch.campaignId);
             require(expectedAdvertiser != address(0), "E00");
-            require(advSigner == expectedAdvertiser, "E83");
+            if (batch.expectedAdvertiserRelaySigner != address(0)) {
+                address currentAdvRelay = address(0);
+                try campaigns.getAdvertiserRelaySigner(expectedAdvertiser) returns (address r) {
+                    currentAdvRelay = r;
+                } catch {}
+                require(currentAdvRelay == batch.expectedAdvertiserRelaySigner, "E85");
+                require(advSigner == batch.expectedAdvertiserRelaySigner, "E83");
+            } else {
+                // Strict path: only the advertiser's EOA can sign.
+                require(advSigner == expectedAdvertiser, "E83");
+            }
 
             _processBatch(batch.user, batch.campaignId, batch.claims, result, true);
         }
@@ -710,16 +750,52 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ) internal {
         require(claims.length <= 10, "E28");
 
-        // A3: AssuranceLevel gate. Read the campaign's effective level and
-        // enforce that the submission path delivers the required cryptographic
-        // proof. Levels nest: a dual-sig batch (advertiserConsented=true)
-        // satisfies every level; the relay path / publisher-relay msg.sender
-        // satisfies level 1 because the publisher signs at one of those layers.
-        if (!advertiserConsented && address(campaigns) != address(0)) {
-            uint8 level = 0;
+        // M1-fix (2026-05-13): user-floor L3 = ZK-only. Applies regardless of
+        // submission path (relay, publisher-relay, dual-sig). The user opted
+        // in to ZK-verified settlement for themselves; an advertiser cosig
+        // does NOT satisfy this floor. Reject if campaign doesn't require ZK.
+        if (userMinAssurance[user] >= 3 && address(campaigns) != address(0)) {
+            bool reqZk = false;
+            try campaigns.getCampaignRequiresZkProof(campaignId) returns (bool z) {
+                reqZk = z;
+            } catch {
+                // Fail closed on unreadable ZK flag — same gradient logic as H2.
+                reqZk = false;
+            }
+            if (!reqZk) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit ZKAssuranceFailed(campaignId, user);
+                    emit ClaimRejected(campaignId, user, claims[j].nonce, 26);
+                }
+                return;
+            }
+        }
+
+        // M2-fix (2026-05-13): compute the effective campaign level once for
+        // use by both the assurance gate AND the per-claim blocklist gate
+        // below. Dual-sig batches satisfy the path requirement but still need
+        // a level value so the blocklist gate can choose fail-open (L0) vs
+        // fail-closed (L1+).
+        uint8 effectiveLevel = 0;
+        if (address(campaigns) != address(0)) {
+            // H2-fix (2026-05-13): fail CLOSED on revert. Default to max
+            // enforced (2) so a misconfigured Campaigns ref can't silently
+            // downgrade high-assurance campaigns to L0.
+            effectiveLevel = 2;
             try campaigns.getCampaignAssuranceLevel(campaignId) returns (uint8 l) {
-                level = l;
-            } catch {}
+                effectiveLevel = l;
+            } catch {
+                emit AssuranceLookupFailed(campaignId);
+            }
+        }
+
+        // A3: AssuranceLevel gate. Enforce that the submission path delivers
+        // the required cryptographic proof. Levels nest: a dual-sig batch
+        // (advertiserConsented=true) satisfies every level; the relay path /
+        // publisher-relay msg.sender satisfies level 1.
+        if (!advertiserConsented && address(campaigns) != address(0)) {
+            uint8 level = effectiveLevel;
 
             // B5-fix: honor the user's own floor. If a user demands ≥L1 and the
             // campaign offers L0, treat the batch as if it required the user's
@@ -759,6 +835,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             // directly without touching the new assurance field. getCampaignAssuranceLevel
             // already OR-merges them, so this is redundant once that lands —
             // kept here as a safety net during migration.
+            // H2-fix (2026-05-13): on revert, fail-OPEN here specifically because
+            // the AssuranceLevel reader above (which OR-merges this flag) already
+            // succeeded. Fail-closing on a redundant check would over-reject L0
+            // campaigns whose legacy getter selector mismatches. Audit event
+            // surfaces the lookup failure for operators.
             try campaigns.getCampaignRequiresDualSig(campaignId) returns (bool needsDual) {
                 if (needsDual) {
                     for (uint256 j = 0; j < claims.length; j++) {
@@ -767,7 +848,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                     }
                     return;
                 }
-            } catch {}
+            } catch {
+                emit AssuranceLookupFailed(campaignId);
+            }
         }
 
         // All claims in a batch must share the same actionType (validated by chain state key)
@@ -837,11 +920,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             }
 
             // S12: Settlement-level blocklist check.
-            // A4-fix (2026-05-12): fail-OPEN on revert. The blocklist is a soft
-            //   policy layer; allowing a single misconfigured/paused/replaced
-            //   publishers ref to silently DoS every user's settlement is a
-            //   bigger systemic risk than letting a single batch slip past the
-            //   block. Operators get a loud event to investigate.
+            // M2-fix (2026-05-13): trust gradient — fail-open at L0, fail-closed
+            // at L1+. At L0 the protocol prefers liveness (a single rev'd
+            // publishers ref shouldn't DoS the whole flow); at L1+ the
+            // advertiser has signed something stronger and expects blocklist
+            // to be enforced, so a revert must reject rather than slip past.
             if (address(publishers) != address(0)) {
                 try publishers.isBlocked(claim.publisher) returns (bool blocked) {
                     if (blocked) {
@@ -851,7 +934,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                         continue;
                     }
                 } catch {
-                    // Liveness: continue settlement; observers should watch for this event.
+                    if (effectiveLevel >= 1) {
+                        // Fail closed: blocklist gate is part of L1+ guarantees.
+                        result.rejectedCount++;
+                        emit BlocklistFailedClosed(claim.campaignId, claim.publisher);
+                        emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
+                        gapFound = true;
+                        continue;
+                    }
+                    // L0: advisory event, continue settlement.
                     emit BlocklistCheckFailed(claim.campaignId, claim.publisher);
                 }
             }

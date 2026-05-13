@@ -8,6 +8,7 @@ import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
+import "./interfaces/IDatumTagCurator.sol";
 
 /// @dev B9-fix: minimal Settlement read interface for the report eligibility
 ///      gate. Kept inline — only one function needed and `IDatumSettlement`
@@ -115,6 +116,32 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     mapping(bytes32 => bool) public approvedTags;
     bytes32[] private _approvedTagList;
     mapping(bytes32 => uint256) private _approvedTagIndex; // 1-based
+
+    /// @notice M5-fix: external tag curator. When set and enforceTagRegistry
+    ///         is enabled, a tag is approved if EITHER the local mapping or
+    ///         the curator returns true. Lock-once so a hostile owner can't
+    ///         swap to a permissive curator.
+    address public tagCurator;
+    bool public tagCuratorLocked;
+    event TagCuratorSet(address indexed curator);
+    event TagCuratorLocked();
+
+    /// @notice L4-fix: one-way policy lock. Once set, the owner-mutable policy
+    ///         levers (setMaxCampaignBudget, setDefaultTakeRateBps,
+    ///         setEnforceTagRegistry, setBulletinRenewerReward) and direct
+    ///         tag-list mutations (approveTag, removeApprovedTag, approveTags)
+    ///         all revert. Intended for Phase-2 (OpenGov) cutover — at that
+    ///         point tag policy goes exclusively through the tagCurator.
+    bool public policyLocked;
+    event PolicyLocked();
+
+    /// @notice M6-fix: per-advertiser hot-key delegation. Mirrors the publisher
+    ///         relay-signer pattern (DatumPublishers.relaySigner). When set,
+    ///         the advertiser may cosign L2 batches from this hot key instead
+    ///         of their cold EOA. The cold key always remains able to sign
+    ///         directly (strict path) and to rotate this mapping.
+    mapping(address => address) public advertiserRelaySigner;
+    event AdvertiserRelaySignerSet(address indexed advertiser, address indexed signer);
 
     // ---- Allowlist snapshots (merged from DatumCampaignValidator) ----
     mapping(uint256 => bool) public campaignAllowlistEnabled;
@@ -378,24 +405,36 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///      governance can't push the default outside the protocol's stated economics.
     event DefaultTakeRateUpdated(uint16 oldBps, uint16 newBps);
     function setDefaultTakeRateBps(uint16 bps) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         require(bps >= MIN_DEFAULT_TAKE_RATE_BPS && bps <= MAX_DEFAULT_TAKE_RATE_BPS, "E11");
         emit DefaultTakeRateUpdated(defaultTakeRateBps, bps);
         defaultTakeRateBps = bps;
     }
 
     function setMaxCampaignBudget(uint256 amount) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         maxCampaignBudget = amount;
         emit MaxCampaignBudgetSet(amount);
     }
 
     /// @notice Enable or disable tag registry enforcement.
     function setEnforceTagRegistry(bool enforced) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         enforceTagRegistry = enforced;
         emit TagRegistryEnforced(enforced);
     }
 
+    /// @notice L4-fix: permanently lock owner-mutable policy levers. Tag
+    ///         mutations route exclusively through `tagCurator` after this.
+    function lockPolicy() external onlyOwner {
+        require(!policyLocked, "already locked");
+        policyLocked = true;
+        emit PolicyLocked();
+    }
+
     /// @notice Add a tag to the approved registry.
     function approveTag(bytes32 tag) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         require(tag != bytes32(0), "E00");
         require(!approvedTags[tag], "E15");
         approvedTags[tag] = true;
@@ -406,6 +445,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @notice Remove a tag from the approved registry (swap-and-pop).
     function removeApprovedTag(bytes32 tag) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         require(approvedTags[tag], "E01");
         approvedTags[tag] = false;
         uint256 idx = _approvedTagIndex[tag] - 1;
@@ -422,6 +462,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @notice Batch approve tags.
     function approveTags(bytes32[] calldata tags) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         for (uint256 i = 0; i < tags.length; i++) {
             require(tags[i] != bytes32(0), "E00");
             if (!approvedTags[tags[i]]) {
@@ -431,6 +472,34 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
                 emit TagApproved(tags[i]);
             }
         }
+    }
+
+    /// @notice M5-fix: wire an external tag curator. When set, `_isTagApproved`
+    ///         ORs the local mapping with the curator's `isTagApproved`.
+    function setTagCurator(address curator) external onlyOwner {
+        require(!tagCuratorLocked, "tag-curator-locked");
+        tagCurator = curator;
+        emit TagCuratorSet(curator);
+    }
+
+    /// @notice M5-fix: permanently freeze the tag curator pointer.
+    function lockTagCurator() external onlyOwner {
+        require(!tagCuratorLocked, "already locked");
+        tagCuratorLocked = true;
+        emit TagCuratorLocked();
+    }
+
+    /// @notice M5-fix: effective tag approval. Local mapping OR external curator.
+    function _isTagApproved(bytes32 tag) internal view returns (bool) {
+        if (approvedTags[tag]) return true;
+        if (tagCurator != address(0)) {
+            try IDatumTagCurator(tagCurator).isTagApproved(tag) returns (bool ok) {
+                return ok;
+            } catch {
+                return false;
+            }
+        }
+        return false;
     }
 
     /// @notice List all approved tags.
@@ -480,7 +549,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         bool enforce = enforceTagRegistry;
         for (uint256 i = 0; i < tagHashes.length; i++) {
             require(tagHashes[i] != bytes32(0), "E00");
-            if (enforce) require(approvedTags[tagHashes[i]], "E81");
+            if (enforce) require(_isTagApproved(tagHashes[i]), "E81");
             _publisherTags[msg.sender].push(tagHashes[i]);
             _publisherTagSet[msg.sender][tagHashes[i]] = true;
             // Re-adding a previously-pending tag aborts its removal.
@@ -1039,6 +1108,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Update the DOT reward paid per confirmed renewal. Owner-only,
     ///         bounded at MAX_BULLETIN_RENEWER_REWARD to prevent ratcheting.
     function setBulletinRenewerReward(uint256 newReward) external onlyOwner {
+        require(!policyLocked, "policy-locked");
         require(newReward <= MAX_BULLETIN_RENEWER_REWARD, "above cap");
         uint256 old = bulletinRenewerReward;
         bulletinRenewerReward = newReward;
@@ -1143,6 +1213,24 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     function getCampaignAdvertiser(uint256 campaignId) external view returns (address) {
         return _campaigns[campaignId].advertiser;
+    }
+
+    /// @notice M6-fix: caller is the advertiser (cold key) registering or
+    ///         rotating their per-batch hot key. Setting to address(0) revokes
+    ///         delegation — subsequent batches require strict EOA cosigs from
+    ///         this advertiser. The cold key is the SOLE authority over this
+    ///         mapping; a compromised hot key cannot self-perpetuate.
+    function setAdvertiserRelaySigner(address signer) external {
+        require(!pauseRegistry.paused(), "P");
+        advertiserRelaySigner[msg.sender] = signer;
+        emit AdvertiserRelaySignerSet(msg.sender, signer);
+    }
+
+    /// @notice M6-fix: settlement-side reader for the advertiser's current
+    ///         relay key. Exposed as a separate getter so Settlement doesn't
+    ///         need to know the mapping shape.
+    function getAdvertiserRelaySigner(address advertiser) external view returns (address) {
+        return advertiserRelaySigner[advertiser];
     }
 
     function getCampaignPublisher(uint256 campaignId) external view returns (address) {

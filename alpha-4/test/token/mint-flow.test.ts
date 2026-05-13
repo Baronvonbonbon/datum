@@ -20,6 +20,7 @@ import {
   DatumWrapper,
   DatumVesting,
   DatumBootstrapPool,
+  MockCampaigns,
 } from "../../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { mineBlocks } from "../helpers/mine";
@@ -40,6 +41,8 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
   let wrapper: DatumWrapper;
   let vesting: DatumVesting;
   let bootstrap: DatumBootstrapPool;
+  let mockCampaigns: MockCampaigns;
+  const HOUSE_AD_CAMPAIGN_ID = 1n;
 
   let deployer: HardhatEthersSigner;        // initial owner / will become founder vesting beneficiary
   let founder: HardhatEthersSigner;         // vesting beneficiary
@@ -75,6 +78,7 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
       await authority.getAddress(),
       await precompile.getAddress(),
       ASSET_ID,
+      true, // devnetUnwrapShimEnabled
     );
 
     // ── 4. DatumVesting ─────────────────────────────────────────────────────
@@ -86,6 +90,12 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
     // ── 5. DatumBootstrapPool ───────────────────────────────────────────────
     const BootstrapF = await ethers.getContractFactory("DatumBootstrapPool");
     bootstrap = await BootstrapF.deploy(settlement.address, await authority.getAddress());
+
+    // M3-fix: wire a MockCampaigns w/ the house-ad campaign at L1.
+    const MockCampaignsF = await ethers.getContractFactory("MockCampaigns");
+    mockCampaigns = await MockCampaignsF.deploy();
+    await mockCampaigns.setCampaignAssuranceLevel(HOUSE_AD_CAMPAIGN_ID, 1);
+    await bootstrap.setCampaigns(await mockCampaigns.getAddress());
 
     // ── 6. Wire the mint authority ──────────────────────────────────────────
     await authority.setWrapper(await wrapper.getAddress());
@@ -294,10 +304,10 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
 
     it("settlement can claim bonus for a new address", async function () {
       const before = await wrapper.balanceOf(dave.address);
-      const tx = await bootstrap.connect(settlement).claim.staticCall(dave.address);
+      const tx = await bootstrap.connect(settlement).claim.staticCall(dave.address, HOUSE_AD_CAMPAIGN_ID);
       expect(tx).to.equal(BOOTSTRAP_PER_ADDR);
 
-      await bootstrap.connect(settlement).claim(dave.address);
+      await bootstrap.connect(settlement).claim(dave.address, HOUSE_AD_CAMPAIGN_ID);
 
       expect(await wrapper.balanceOf(dave.address)).to.equal(before + BOOTSTRAP_PER_ADDR);
       expect(await bootstrap.hasReceivedBootstrap(dave.address)).to.equal(true);
@@ -306,22 +316,34 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
 
     it("second claim for the same address pays nothing (no-op)", async function () {
       const before = await wrapper.balanceOf(dave.address);
-      const result = await bootstrap.connect(settlement).claim.staticCall(dave.address);
+      const result = await bootstrap.connect(settlement).claim.staticCall(dave.address, HOUSE_AD_CAMPAIGN_ID);
       expect(result).to.equal(0);
 
-      await bootstrap.connect(settlement).claim(dave.address);
+      await bootstrap.connect(settlement).claim(dave.address, HOUSE_AD_CAMPAIGN_ID);
       expect(await wrapper.balanceOf(dave.address)).to.equal(before);
     });
 
     it("non-settlement caller is rejected", async function () {
-      await expect(bootstrap.connect(alice).claim(bob.address)).to.be.revertedWith("E18");
+      await expect(bootstrap.connect(alice).claim(bob.address, HOUSE_AD_CAMPAIGN_ID)).to.be.revertedWith("E18");
     });
 
     it("zero address is a silent no-op (does not corrupt state)", async function () {
-      const result = await bootstrap.connect(settlement).claim.staticCall(ethers.ZeroAddress);
+      const result = await bootstrap.connect(settlement).claim.staticCall(ethers.ZeroAddress, HOUSE_AD_CAMPAIGN_ID);
       expect(result).to.equal(0);
       // Calling it should also not revert
-      await bootstrap.connect(settlement).claim(ethers.ZeroAddress);
+      await bootstrap.connect(settlement).claim(ethers.ZeroAddress, HOUSE_AD_CAMPAIGN_ID);
+    });
+
+    it("M3: refuses to dispense if house-ad campaign is below L1", async function () {
+      const newRecipient = (await ethers.getSigners())[15];
+      const lowCampaignId = 999n;
+      await mockCampaigns.setCampaignAssuranceLevel(lowCampaignId, 0);
+      const before = await wrapper.balanceOf(newRecipient.address);
+      const result = await bootstrap.connect(settlement).claim.staticCall(newRecipient.address, lowCampaignId);
+      expect(result).to.equal(0);
+      await bootstrap.connect(settlement).claim(newRecipient.address, lowCampaignId);
+      expect(await wrapper.balanceOf(newRecipient.address)).to.equal(before);
+      expect(await bootstrap.hasReceivedBootstrap(newRecipient.address)).to.equal(false);
     });
 
     it("owner can adjust bootstrapPerAddress within hard bounds", async function () {

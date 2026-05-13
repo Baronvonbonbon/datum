@@ -259,6 +259,7 @@ describe("Audit fixes", function () {
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
         { name: "expectedRelaySigner", type: "address" },
+        { name: "expectedAdvertiserRelaySigner", type: "address" },
       ],
     };
 
@@ -282,6 +283,7 @@ describe("Audit fixes", function () {
         claimsHash: hashClaimsArr(claims),
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
       };
       const domain = await getDomain();
       const publisherSig = await pubSigner.signTypedData(domain, types, value);
@@ -292,6 +294,7 @@ describe("Audit fixes", function () {
         claims,
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: "0x",
         publisherSig,
         advertiserSig,
