@@ -107,7 +107,7 @@ export function BulletinManager() {
       const c = contracts.campaigns.connect(signer);
       const tx = await c.fundBulletinRenewalEscrow(BigInt(id), { value: v });
       await confirmTx(tx);
-      push("Escrow funded", "success");
+      push("Escrow funded", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -124,7 +124,7 @@ export function BulletinManager() {
       const c = contracts.campaigns.connect(signer);
       const tx = await c.withdrawBulletinRenewalEscrow(BigInt(id), recipient, v);
       await confirmTx(tx);
-      push("Escrow withdrawn", "success");
+      push("Escrow withdrawn", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -138,7 +138,7 @@ export function BulletinManager() {
       const c = contracts.campaigns.connect(signer);
       const tx = await c.setOpenBulletinRenewal(BigInt(id), !openMode);
       await confirmTx(tx);
-      push(`Open renewal ${openMode ? "disabled" : "enabled"}`, "success");
+      push(`Open renewal ${openMode ? "disabled" : "enabled"}`, "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -154,7 +154,7 @@ export function BulletinManager() {
       const c = contracts.campaigns.connect(signer);
       const tx = await c.setApprovedBulletinRenewer(BigInt(id), addr, approve);
       await confirmTx(tx);
-      push(`Renewer ${approve ? "approved" : "revoked"}`, "success");
+      push(`Renewer ${approve ? "approved" : "revoked"}`, "ok");
     } catch (err) {
       push(humanizeError(err), "error");
     } finally { setBusy(null); }
@@ -184,7 +184,7 @@ export function BulletinManager() {
         renewRes.newBulletinIndex,
       );
       await confirmTx(tx);
-      push("Bulletin creative renewed", "success");
+      push("Bulletin creative renewed", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");

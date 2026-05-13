@@ -87,7 +87,7 @@ export function Wrapper() {
       setBusy("Wrapping...");
       const tx = await wrapper.wrap(v);
       await confirmTx(tx);
-      push("WDATUM minted", "success");
+      push("WDATUM minted", "ok");
       setWrapAmount("");
       await refresh();
     } catch (err) {
@@ -109,7 +109,7 @@ export function Wrapper() {
       setBusy("Unwrapping...");
       const tx = await wrapper.unwrap(v, recipient);
       await confirmTx(tx);
-      push("WDATUM unwrapped to Asset Hub", "success");
+      push("WDATUM unwrapped to Asset Hub", "ok");
       setUnwrapAmount("");
       await refresh();
     } catch (err) {

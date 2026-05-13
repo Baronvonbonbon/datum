@@ -87,7 +87,7 @@ export function Vesting() {
       setBusy("Releasing...");
       const tx = await v.release();
       await confirmTx(tx);
-      push("Vested DATUM released", "success");
+      push("Vested DATUM released", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -103,7 +103,7 @@ export function Vesting() {
       setBusy("Extending vesting...");
       const tx = await v.extendVesting(t);
       await confirmTx(tx);
-      push("Vesting extended", "success");
+      push("Vesting extended", "ok");
       setNewEnd("");
       await refresh();
     } catch (err) {

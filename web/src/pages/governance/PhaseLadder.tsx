@@ -83,7 +83,7 @@ export function PhaseLadder() {
       setBusy("Staging transition...");
       const tx = await router.setGovernor(ph, addr);
       await confirmTx(tx);
-      push("Transition staged — new governor must call acceptGovernor", "success");
+      push("Transition staged — new governor must call acceptGovernor", "ok");
       setStageAddr("");
       await refresh();
     } catch (err) {
@@ -98,7 +98,7 @@ export function PhaseLadder() {
       setBusy("Accepting...");
       const tx = await router.acceptGovernor();
       await confirmTx(tx);
-      push("Governor handoff complete", "success");
+      push("Governor handoff complete", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");

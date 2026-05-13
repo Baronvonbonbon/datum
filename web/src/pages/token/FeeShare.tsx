@@ -96,7 +96,7 @@ export function FeeShare() {
       setBusy("Staking...");
       const tx = await fs.stake(v);
       await confirmTx(tx);
-      push("Staked", "success");
+      push("Staked", "ok");
       setStakeAmount("");
       await refresh();
     } catch (err) {
@@ -113,7 +113,7 @@ export function FeeShare() {
       setBusy("Unstaking...");
       const tx = await fs.unstake(v);
       await confirmTx(tx);
-      push("Unstaked + pending DOT claimed", "success");
+      push("Unstaked + pending DOT claimed", "ok");
       setUnstakeAmount("");
       await refresh();
     } catch (err) {
@@ -128,7 +128,7 @@ export function FeeShare() {
       setBusy("Claiming...");
       const tx = await fs.claim();
       await confirmTx(tx);
-      push("Pending DOT paid out", "success");
+      push("Pending DOT paid out", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
@@ -142,7 +142,7 @@ export function FeeShare() {
       setBusy("Sweeping fees from PaymentVault...");
       const tx = await fs.sweep();
       await confirmTx(tx);
-      push("Fees folded into accumulator", "success");
+      push("Fees folded into accumulator", "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");

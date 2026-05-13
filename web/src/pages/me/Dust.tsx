@@ -103,7 +103,7 @@ export function Dust() {
         tx = await c.claimPaseoDust();
       }
       await confirmTx(tx);
-      push("Dust claimed", "success");
+      push("Dust claimed", "ok");
       await scan();
     } catch (err) {
       push(humanizeError(err), "error");

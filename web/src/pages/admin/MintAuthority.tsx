@@ -96,7 +96,7 @@ export function MintAuthorityAdmin() {
       setBusy("Transferring issuer rights...");
       const tx = await m.transferIssuerTo(newIssuer);
       await confirmTx(tx);
-      push("Issuer transferred", "success");
+      push("Issuer transferred", "ok");
       setNewIssuer("");
       await refresh();
     } catch (err) {

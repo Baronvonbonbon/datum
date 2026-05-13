@@ -93,7 +93,7 @@ export function LockStateStrip({ entries, title = "Lock state" }: Props) {
       const c = new Contract(e.contractAddr, abi, signer);
       const tx = await c[e.locker]();
       await confirmTx(tx);
-      push(`${e.label} locked`, "success");
+      push(`${e.label} locked`, "ok");
       await refresh();
     } catch (err) {
       push(humanizeError(err), "error");
