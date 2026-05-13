@@ -195,3 +195,163 @@ describe("Path A: ClaimValidator uses verifyA via MockZKVerifier", function () {
     expect(await v.verifyA("0x", pubs)).to.equal(false);
   });
 });
+
+describe("Path A: DatumZKStake withdrawal lockup", function () {
+  let zkStake: any, mockToken: any;
+  let owner: any, alice: any, bob: any;
+  const INITIAL = 1_000_000n;
+
+  before(async function () {
+    await fundSigners();
+    [owner, alice, bob] = await ethers.getSigners();
+  });
+
+  beforeEach(async function () {
+    const Tok = await ethers.getContractFactory("MockERC20");
+    mockToken = await Tok.deploy("DATUM", "DATUM");
+    await mockToken.mint(alice.address, INITIAL);
+    await mockToken.mint(bob.address, INITIAL);
+
+    const F = await ethers.getContractFactory("DatumZKStake");
+    zkStake = await F.deploy(await mockToken.getAddress());
+  });
+
+  it("deposit transfers tokens and increments staked", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).deposit(1000n);
+    expect(await zkStake.staked(alice.address)).to.equal(1000n);
+    expect(await zkStake.totalLocked()).to.equal(1000n);
+    expect(await mockToken.balanceOf(alice.address)).to.equal(INITIAL - 1000n);
+  });
+
+  it("requestWithdrawal drops staked immediately and sets readyAt", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).deposit(1000n);
+    const tx = await zkStake.connect(alice).requestWithdrawal(400n);
+    const r = await tx.wait();
+    expect(await zkStake.staked(alice.address)).to.equal(600n);
+    const p = await zkStake.pending(alice.address);
+    expect(p.amount).to.equal(400n);
+    expect(p.readyAt).to.equal(BigInt(r!.blockNumber) + 432_000n);
+  });
+
+  it("executeWithdrawal reverts before lockup elapses (E37)", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 500n);
+    await zkStake.connect(alice).deposit(500n);
+    await zkStake.connect(alice).requestWithdrawal(500n);
+    await expect(zkStake.connect(alice).executeWithdrawal()).to.be.revertedWith("E37");
+  });
+
+  it("second request resets lockup clock (no rolling exits)", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).deposit(1000n);
+    const tx1 = await zkStake.connect(alice).requestWithdrawal(300n);
+    const r1 = await tx1.wait();
+    const ready1 = BigInt(r1!.blockNumber) + 432_000n;
+    // Advance some blocks
+    await ethers.provider.send("hardhat_mine", ["0x100"]); // 256 blocks
+    const tx2 = await zkStake.connect(alice).requestWithdrawal(200n);
+    const r2 = await tx2.wait();
+    const ready2 = BigInt(r2!.blockNumber) + 432_000n;
+    const p = await zkStake.pending(alice.address);
+    expect(p.amount).to.equal(500n);
+    expect(p.readyAt).to.equal(ready2);
+    expect(ready2).to.be.gt(ready1);
+  });
+
+  it("cancelWithdrawal folds pending back into staked, no lockup penalty", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).deposit(1000n);
+    await zkStake.connect(alice).requestWithdrawal(400n);
+    await zkStake.connect(alice).cancelWithdrawal();
+    expect(await zkStake.staked(alice.address)).to.equal(1000n);
+    const p = await zkStake.pending(alice.address);
+    expect(p.amount).to.equal(0n);
+    expect(p.readyAt).to.equal(0n);
+  });
+
+  it("executeWithdrawal transfers after lockup", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 500n);
+    await zkStake.connect(alice).deposit(500n);
+    await zkStake.connect(alice).requestWithdrawal(500n);
+    await ethers.provider.send("hardhat_mine", ["0x69780"]); // 432,000 blocks
+    await zkStake.connect(alice).executeWithdrawal();
+    expect(await mockToken.balanceOf(alice.address)).to.equal(INITIAL);
+    expect(await zkStake.totalLocked()).to.equal(0n);
+  });
+
+  it("cannot request more than staked (E03)", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 100n);
+    await zkStake.connect(alice).deposit(100n);
+    await expect(zkStake.connect(alice).requestWithdrawal(200n)).to.be.revertedWith("E03");
+  });
+
+  it("zero-amount actions revert E11/E03", async function () {
+    await expect(zkStake.connect(alice).deposit(0n)).to.be.revertedWith("E11");
+    await expect(zkStake.connect(alice).requestWithdrawal(0n)).to.be.revertedWith("E11");
+    await expect(zkStake.connect(alice).executeWithdrawal()).to.be.revertedWith("E03");
+    await expect(zkStake.connect(alice).cancelWithdrawal()).to.be.revertedWith("E03");
+  });
+});
+
+describe("Path A: governance cap on campaignMinStake", function () {
+  let campaigns: any, publishers: any, pauseReg: any, ledger: any;
+  let owner: any, advertiser: any, publisher: any, lifecycleMock: any;
+
+  beforeEach(async function () {
+    await fundSigners();
+    [owner, advertiser, publisher, lifecycleMock] = await ethers.getSigners();
+    const Pause = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await Pause.deploy(owner.address, advertiser.address, publisher.address);
+    const Pubs = await ethers.getContractFactory("DatumPublishers");
+    publishers = await Pubs.deploy(50n, await pauseReg.getAddress());
+    const Ledger = await ethers.getContractFactory("DatumBudgetLedger");
+    ledger = await Ledger.deploy();
+    const C = await ethers.getContractFactory("DatumCampaigns");
+    campaigns = await C.deploy(0n, 100n, await publishers.getAddress(), await pauseReg.getAddress());
+    await ledger.setCampaigns(await campaigns.getAddress());
+    await campaigns.setBudgetLedger(await ledger.getAddress());
+    await campaigns.setLifecycleContract(lifecycleMock.address);
+    await campaigns.setGovernanceContract(owner.address);
+    await publishers.connect(publisher).registerPublisher(5000);
+  });
+
+  async function newCampaign() {
+    const tx = await campaigns.connect(advertiser).createCampaign(
+      publisher.address,
+      [{ actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n, ratePlanck: 1n, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n,
+      { value: 1_000_000_000n }
+    );
+    await tx.wait();
+    return (await campaigns.nextCampaignId()) - 1n;
+  }
+
+  it("default cap is 0 (no cap)", async function () {
+    expect(await campaigns.maxAllowedMinStake()).to.equal(0n);
+    const cid = await newCampaign();
+    // With no cap, even huge values allowed
+    await campaigns.connect(advertiser).setCampaignMinStake(cid, ethers.MaxUint256);
+    expect(await campaigns.getCampaignMinStake(cid)).to.equal(ethers.MaxUint256);
+  });
+
+  it("owner can set cap; advertiser bounded by it (E11 above)", async function () {
+    await campaigns.setMaxAllowedMinStake(10_000n);
+    const cid = await newCampaign();
+    await campaigns.connect(advertiser).setCampaignMinStake(cid, 10_000n); // exact cap allowed
+    await expect(
+      campaigns.connect(advertiser).setCampaignMinStake(cid, 10_001n)
+    ).to.be.revertedWith("E11");
+  });
+
+  it("non-owner cannot set cap (E18)", async function () {
+    await expect(
+      campaigns.connect(advertiser).setMaxAllowedMinStake(100n)
+    ).to.be.revertedWith("E18");
+  });
+
+  it("setMaxAllowedMinStake reverts when policyLocked", async function () {
+    await campaigns.lockPolicy();
+    await expect(campaigns.setMaxAllowedMinStake(100n)).to.be.revertedWith("policy-locked");
+  });
+});

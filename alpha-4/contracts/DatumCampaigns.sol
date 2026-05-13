@@ -162,8 +162,15 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     //              0 = disabled (any user can claim if `requiresZkProof` is set).
     //              Read by ClaimValidator and passed as pub4 to DatumZKVerifier.verifyA.
     //              Raise locks at Pending (same rules as AssuranceLevel).
+    //              Bounded above by `maxAllowedMinStake` (governance-set) to prevent
+    //              hostile advertisers from setting absurd values that strand users.
     mapping(uint256 => uint256) public campaignMinStake;
     event CampaignMinStakeSet(uint256 indexed campaignId, uint256 minStake);
+
+    /// @notice Governance-set upper bound on `campaignMinStake`. 0 = no cap
+    ///         (any value allowed). Owner-tunable; subject to `policyLocked`.
+    uint256 public maxAllowedMinStake;
+    event MaxAllowedMinStakeSet(uint256 amount);
 
     // Path A (ZK): per-campaign required interest category id. bytes32(0) = any.
     //              Passed as pub6 to DatumZKVerifier.verifyA — the user proves
@@ -428,6 +435,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         require(!policyLocked, "policy-locked");
         maxCampaignBudget = amount;
         emit MaxCampaignBudgetSet(amount);
+    }
+
+    /// @notice Path A: governance cap on the advertiser-settable `campaignMinStake`.
+    ///         0 = no cap. Does NOT retroactively invalidate campaigns whose
+    ///         minStake was set above the new cap before this change; only future
+    ///         `setCampaignMinStake` calls are bounded. Subject to `policyLocked`.
+    function setMaxAllowedMinStake(uint256 amount) external onlyOwner {
+        require(!policyLocked, "policy-locked");
+        maxAllowedMinStake = amount;
+        emit MaxAllowedMinStakeSet(amount);
     }
 
     /// @notice Enable or disable tag registry enforcement.
@@ -876,6 +893,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
+        // Governance-set upper bound. 0 = no cap.
+        require(maxAllowedMinStake == 0 || minStake <= maxAllowedMinStake, "E11");
         if (minStake > campaignMinStake[campaignId]) {
             require(c.status == CampaignStatus.Pending, "E22");
         }
