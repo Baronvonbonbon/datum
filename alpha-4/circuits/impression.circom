@@ -2,65 +2,161 @@ pragma circom 2.0.0;
 
 include "../node_modules/circomlib/circuits/bitify.circom";
 include "../node_modules/circomlib/circuits/poseidon.circom";
+include "../node_modules/circomlib/circuits/mux1.circom";
+include "../node_modules/circomlib/circuits/comparators.circom";
 
-/// @title ImpressionClaim
-/// @notice Proves that an impression batch is valid for a specific claim, and
-///         commits to a per-user per-campaign per-window nullifier (FP-5).
+/// @title ImpressionClaim (Path A: stake-gate + private interest match)
+/// @notice Proves an impression batch is valid AND that the prover:
+///         (a) controls a `secret` whose nullifier dedupes per-window,
+///         (b) holds at least `minStake` DATUM (Merkle proof against `stakeRoot`),
+///         (c) has `requiredCategory` in their published interest commitment.
 ///
-/// Public inputs:
-///   claimHash   — blake256/keccak256(campaignId, publisher, user, eventCount, ratePlanck, actionType,
-///                 clickSessionHash, nonce, prevHash)
-///                 truncated to BN254 scalar field: uint256(hash) % r
-///                 (DatumZKVerifier performs this truncation before verify)
-///   nullifier   — Poseidon(secret, campaignId, windowId)
-///                 deterministic per user/campaign/window; submitted to DatumNullifierRegistry
-///                 to prevent replay across batches in the same window.
-///   impressions — impression count in this batch (must be ≥ 1)
-///                 PUBLIC so DatumZKVerifier.verify() can enforce claim.eventCount == proof.impressions.
-///                 A publisher cannot inflate eventCount without invalidating the Groth16 pairing check.
+/// Public inputs (7):
+///   claimHash          — keccak256 over (campaignId, publisher, user, eventCount, ...) % r
+///   nullifier          — Poseidon(secret, campaignId, windowId); dedupe key in NullifierRegistry
+///   impressions        — eventCount; must equal claim.eventCount
+///   stakeRoot          — current Merkle root of (userCommitment, balance) leaves
+///   minStake           — campaign-set DATUM threshold
+///   interestRoot       — user's published interest-tree root (16 leaves, depth 4)
+///   requiredCategory   — campaign-required category id (bytes32 → field-truncated)
 ///
 /// Private witnesses:
-///   nonce       — claim nonce from the claim struct
-///   secret      — user's private secret (never revealed; kept client-side)
-///   campaignId  — campaign ID (committed through nullifier; prevents cross-campaign reuse)
-///   windowId    — floor(blockNumber / windowBlocks); window-scopes the nullifier
+///   nonce              — claim nonce (binds proof to a specific claim)
+///   secret             — user's private secret (never revealed)
+///   campaignId         — committed via nullifier
+///   windowId           — floor(blockNumber / windowBlocks)
+///   balance            — user's DATUM balance (proven ≥ minStake)
+///   stakePath[STAKE_DEPTH]   — Merkle siblings for stake leaf
+///   stakeIdx[STAKE_DEPTH]    — 0 = sibling is right, 1 = sibling is left
+///   interestPath[INTEREST_DEPTH] — Merkle siblings for interest leaf
+///   interestIdx[INTEREST_DEPTH]  — 0/1 directionality
 ///
-/// Constraints:
-///   32   Num2Bits(32)  — impressions range check
-///    1   nonce binding — quadratic commitment
-///  ~260  Poseidon(3)   — nullifier derivation
-///  ─────────────────
-///  ~293  total (well within ptau12 limit of 4096)
+/// Constraint budget (rough):
+///   STAKE_DEPTH=16 × Poseidon(2) (~213)         → ~3,400
+///   INTEREST_DEPTH=4 × Poseidon(2)              → ~850
+///   userCommitment Poseidon(1)                  → ~75
+///   stake leaf Poseidon(2)                      → ~213
+///   nullifier Poseidon(3)                       → ~260
+///   range check Num2Bits(64)                    → ~64
+///   impressions Num2Bits(32)                    → ~32
+///   nonce binding                               → 1
+///   Σ ≈ 4,900 constraints (fits ptau13: 8,192)
 ///
 /// Trusted setup:
-///   Re-run `node scripts/setup-zk.mjs` after modifying this file to regenerate
-///   impression.zkey, vk.json, and setVK-calldata.json (now with IC0, IC1, IC2, IC3).
+///   `node scripts/setup-zk.mjs` downloads ptau13 (~140 MB) and regenerates
+///   impression.zkey, vk.json, setVK-calldata.json (now with IC0..IC7).
+
+template MerkleVerify(DEPTH) {
+    signal input leaf;
+    signal input path[DEPTH];      // siblings
+    signal input idx[DEPTH];       // 0 = leaf is left, 1 = leaf is right
+    signal output root;
+
+    component hashers[DEPTH];
+    component muxL[DEPTH];
+    component muxR[DEPTH];
+
+    signal cur[DEPTH + 1];
+    cur[0] <== leaf;
+
+    for (var i = 0; i < DEPTH; i++) {
+        // idx must be 0 or 1
+        idx[i] * (idx[i] - 1) === 0;
+
+        // (left, right) = idx==0 ? (cur, sibling) : (sibling, cur)
+        muxL[i] = Mux1();
+        muxL[i].c[0] <== cur[i];     // idx=0 → left=cur
+        muxL[i].c[1] <== path[i];    // idx=1 → left=sibling
+        muxL[i].s <== idx[i];
+
+        muxR[i] = Mux1();
+        muxR[i].c[0] <== path[i];    // idx=0 → right=sibling
+        muxR[i].c[1] <== cur[i];     // idx=1 → right=cur
+        muxR[i].s <== idx[i];
+
+        hashers[i] = Poseidon(2);
+        hashers[i].inputs[0] <== muxL[i].out;
+        hashers[i].inputs[1] <== muxR[i].out;
+        cur[i + 1] <== hashers[i].out;
+    }
+
+    root <== cur[DEPTH];
+}
+
 template ImpressionClaim() {
-    signal input claimHash;    // public: claim hash (ties proof to on-chain claim)
-    signal input nullifier;    // public: Poseidon(secret, campaignId, windowId)
-    signal input impressions;  // public: impression count — publisher cannot change eventCount without invalidating proof
-    signal input nonce;        // private: claim nonce
-    signal input secret;       // private: user's secret (never revealed)
-    signal input campaignId;   // private: campaign ID (committed through nullifier)
-    signal input windowId;     // private: floor(blockNumber / windowBlocks)
+    var STAKE_DEPTH = 16;     // 65,536-user capacity per epoch
+    var INTEREST_DEPTH = 4;   // 16 interest categories per user
 
-    // Range proof: impressions - 1 must fit in 32 bits
-    // Enforces impressions ∈ [1, 2^32+1). Underflows in the field if impressions == 0.
-    component bits = Num2Bits(32);
-    bits.in <== impressions - 1;
+    // ── Public inputs ────────────────────────────────────────────────────
+    signal input claimHash;
+    signal input nullifier;
+    signal input impressions;
+    signal input stakeRoot;
+    signal input minStake;
+    signal input interestRoot;
+    signal input requiredCategory;
 
-    // Bind nonce to the witness (quadratic constraint so it cannot be optimized away)
+    // ── Private witnesses ───────────────────────────────────────────────
+    signal input nonce;
+    signal input secret;
+    signal input campaignId;
+    signal input windowId;
+    signal input balance;
+    signal input stakePath[STAKE_DEPTH];
+    signal input stakeIdx[STAKE_DEPTH];
+    signal input interestPath[INTEREST_DEPTH];
+    signal input interestIdx[INTEREST_DEPTH];
+
+    // ── 1. Impressions range: in [1, 2^32+1) ────────────────────────────
+    component impBits = Num2Bits(32);
+    impBits.in <== impressions - 1;
+
+    // ── 2. Nonce binding (prevents proof reuse on a different claim) ────
     signal nonceSquared;
     nonceSquared <== nonce * nonce;
 
-    // FP-5: Derive nullifier from user secret + campaign + window.
-    // Prevents the same user from claiming the same campaign twice in the same window.
-    // The relay bot computes windowId = floor(blockNumber / windowBlocks) off-chain.
-    component h = Poseidon(3);
-    h.inputs[0] <== secret;
-    h.inputs[1] <== campaignId;
-    h.inputs[2] <== windowId;
-    h.out === nullifier;
+    // ── 3. Nullifier: Poseidon(secret, campaignId, windowId) ────────────
+    component nullH = Poseidon(3);
+    nullH.inputs[0] <== secret;
+    nullH.inputs[1] <== campaignId;
+    nullH.inputs[2] <== windowId;
+    nullH.out === nullifier;
+
+    // ── 4. userCommitment = Poseidon(secret) — binds stake leaf to same
+    //       secret used in nullifier. Prevents claiming someone else's stake.
+    component userC = Poseidon(1);
+    userC.inputs[0] <== secret;
+
+    // ── 5. Stake leaf = Poseidon(userCommitment, balance) ───────────────
+    component stakeLeaf = Poseidon(2);
+    stakeLeaf.inputs[0] <== userC.out;
+    stakeLeaf.inputs[1] <== balance;
+
+    // ── 6. Verify Merkle path → stakeRoot ───────────────────────────────
+    component stakeMerkle = MerkleVerify(STAKE_DEPTH);
+    stakeMerkle.leaf <== stakeLeaf.out;
+    for (var i = 0; i < STAKE_DEPTH; i++) {
+        stakeMerkle.path[i] <== stakePath[i];
+        stakeMerkle.idx[i] <== stakeIdx[i];
+    }
+    stakeMerkle.root === stakeRoot;
+
+    // ── 7. Range check: balance >= minStake (64-bit) ────────────────────
+    component stakeBits = Num2Bits(64);
+    stakeBits.in <== balance - minStake;
+
+    // ── 8. Interest Merkle: requiredCategory is a leaf under interestRoot
+    //       (Leaves are category ids themselves; Poseidon hash chain up.)
+    component interestMerkle = MerkleVerify(INTEREST_DEPTH);
+    interestMerkle.leaf <== requiredCategory;
+    for (var i = 0; i < INTEREST_DEPTH; i++) {
+        interestMerkle.path[i] <== interestPath[i];
+        interestMerkle.idx[i] <== interestIdx[i];
+    }
+    interestMerkle.root === interestRoot;
 }
 
-component main {public [claimHash, nullifier, impressions]} = ImpressionClaim();
+component main {public [
+    claimHash, nullifier, impressions,
+    stakeRoot, minStake, interestRoot, requiredCategory
+]} = ImpressionClaim();

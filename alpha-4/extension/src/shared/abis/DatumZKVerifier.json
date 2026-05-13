@@ -125,6 +125,26 @@
               "internalType": "uint256[2]",
               "name": "IC3",
               "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "IC4",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "IC5",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "IC6",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "IC7",
+              "type": "uint256[2]"
             }
           ],
           "internalType": "struct DatumZKVerifier.VerifyingKey",
@@ -209,6 +229,26 @@
           "internalType": "uint256[2]",
           "name": "IC3",
           "type": "uint256[2]"
+        },
+        {
+          "internalType": "uint256[2]",
+          "name": "IC4",
+          "type": "uint256[2]"
+        },
+        {
+          "internalType": "uint256[2]",
+          "name": "IC5",
+          "type": "uint256[2]"
+        },
+        {
+          "internalType": "uint256[2]",
+          "name": "IC6",
+          "type": "uint256[2]"
+        },
+        {
+          "internalType": "uint256[2]",
+          "name": "IC7",
+          "type": "uint256[2]"
         }
       ],
       "name": "setVerifyingKey",
@@ -256,7 +296,31 @@
       "outputs": [
         {
           "internalType": "bool",
-          "name": "valid",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "proof",
+          "type": "bytes"
+        },
+        {
+          "internalType": "uint256[7]",
+          "name": "pubs",
+          "type": "uint256[7]"
+        }
+      ],
+      "name": "verifyA",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
           "type": "bool"
         }
       ],

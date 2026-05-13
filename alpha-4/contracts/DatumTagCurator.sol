@@ -15,11 +15,9 @@ import "./interfaces/IDatumTagCurator.sol";
 ///         `lockCouncil()` is called, after which the pointer is permanently
 ///         frozen.
 ///
-///         Backwards-compat: when no curator is wired on Campaigns, the
-///         legacy Campaigns.approvedTags mapping is the source of truth. A
-///         curator is queried IN ADDITION to (an OR over) the legacy mapping
-///         so a Phase-0 rollout can pre-seed via Campaigns.approveTag, then
-///         transition to curator-driven approvals without losing state.
+///         DatumCampaigns OR-merges the curator's verdict with its own
+///         `approvedTags` mapping, so a deployer can use either path or
+///         both. When no curator is wired, `approvedTags` is consulted alone.
 contract DatumTagCurator is IDatumTagCurator, DatumOwnable {
     address public council;
     bool public councilLocked;

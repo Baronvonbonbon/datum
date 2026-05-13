@@ -35,8 +35,9 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT      = path.resolve(__dirname, "..");
 const CIRCUITS  = path.join(ROOT, "circuits");
-const PTAU_URL  = "https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_12.ptau";
-const PTAU_PATH = path.join(CIRCUITS, "ptau12.ptau");
+// Path A circuit (stake-gate + interest match) needs ~4,900 constraints — ptau13.
+const PTAU_URL  = "https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_13.ptau";
+const PTAU_PATH = path.join(CIRCUITS, "ptau13.ptau");
 const R1CS      = path.join(CIRCUITS, "impression.r1cs");
 const WASM_DIR  = path.join(CIRCUITS, "impression_js");
 const ZKEY0     = path.join(CIRCUITS, "impression_0000.zkey");
@@ -73,10 +74,10 @@ if (!existsSync(R1CS)) {
 // Step 2: Download ptau
 // -----------------------------------------------------------------------
 if (!existsSync(PTAU_PATH)) {
-  console.log("→ Downloading powersOfTau level 12 (~11 MB) ...");
+  console.log("→ Downloading powersOfTau level 13 (~22 MB) ...");
   execSync(`curl -L "${PTAU_URL}" -o "${PTAU_PATH}"`, { stdio: "inherit" });
 } else {
-  console.log("✓ ptau12 exists");
+  console.log("✓ ptau13 exists");
 }
 
 // -----------------------------------------------------------------------
@@ -116,15 +117,20 @@ function g2eip197(p) {
   ];
 }
 
+// Path A: 7 public inputs → IC0..IC7
 const calldata = {
   alpha1: g1(vk.vk_alpha_1),
   beta2:  g2eip197(vk.vk_beta_2),
   gamma2: g2eip197(vk.vk_gamma_2),
   delta2: g2eip197(vk.vk_delta_2),
-  IC0:    g1(vk.IC[0]),
-  IC1:    g1(vk.IC[1]),
-  IC2:    g1(vk.IC[2]),  // second public input (nullifier)
-  IC3:    g1(vk.IC[3]),  // third public input (impressions) — publisher cannot inflate eventCount
+  IC0:    g1(vk.IC[0]),  // constant
+  IC1:    g1(vk.IC[1]),  // claimHash
+  IC2:    g1(vk.IC[2]),  // nullifier
+  IC3:    g1(vk.IC[3]),  // impressions
+  IC4:    g1(vk.IC[4]),  // stakeRoot
+  IC5:    g1(vk.IC[5]),  // minStake
+  IC6:    g1(vk.IC[6]),  // interestRoot
+  IC7:    g1(vk.IC[7]),  // requiredCategory
 };
 writeFileSync(
   path.join(CIRCUITS, "setVK-calldata.json"),
@@ -137,60 +143,13 @@ console.log("\n--- setVerifyingKey() calldata ---");
 console.log(JSON.stringify(calldata, null, 2));
 
 // -----------------------------------------------------------------------
-// Step 5: Generate a sample proof for a known input
+// Step 5: Sample proof generation
 // -----------------------------------------------------------------------
-console.log("\n→ Generating sample proof ...");
-
-// Sample claim: campaignId=1, impressions=100, nonce=1, secret=42, windowId=0
-// The circuit enforces: Poseidon(secret, campaignId, windowId) === nullifier
-// We compute the nullifier via circomlibjs (if available) or skip the sample proof.
-const wasmPath = path.join(WASM_DIR, "impression.wasm");
-try {
-  // Attempt to compute Poseidon(secret=42, campaignId=1, windowId=0)
-  const { buildPoseidon } = await import("circomlibjs").catch(() => null) ?? {};
-  let nullifierValue = "0";
-  if (buildPoseidon) {
-    const poseidon = await buildPoseidon();
-    const hash = poseidon([42n, 1n, 0n]);
-    nullifierValue = poseidon.F.toString(hash);
-  } else {
-    console.warn("  circomlibjs not installed — sample proof input may be inconsistent");
-    console.warn("  Run: npm install circomlibjs  (in alpha-3/) for a consistent sample proof");
-  }
-
-  const sampleInput = {
-    claimHash:   "0",
-    nullifier:   nullifierValue,
-    impressions: "100",   // now public: publicSignals[2] == "100"
-    nonce:       "1",
-    secret:      "42",
-    campaignId:  "1",
-    windowId:    "0",
-  };
-
-  const { proof, publicSignals } = await snarkjs.groth16.fullProve(sampleInput, wasmPath, ZKEY);
-  console.log("✓ Sample proof generated");
-  console.log("  publicSignals:", publicSignals);
-
-  const sampleProof = {
-    pi_a:  [proof.pi_a[0], proof.pi_a[1]],
-    pi_b:  [
-      proof.pi_b[0][1], proof.pi_b[0][0],  // x_imag, x_real
-      proof.pi_b[1][1], proof.pi_b[1][0],  // y_imag, y_real
-    ],
-    pi_c:  [proof.pi_c[0], proof.pi_c[1]],
-    publicSignals,
-    input: sampleInput,
-  };
-  writeFileSync(
-    path.join(CIRCUITS, "sample-proof.json"),
-    JSON.stringify(sampleProof, null, 2)
-  );
-  console.log("✓ circuits/sample-proof.json written");
-} catch (err) {
-  console.warn("  WARNING: sample proof generation failed:", err.message);
-  console.warn("  This is non-fatal — zkey and VK are already written above.");
-}
+// Path A: sample proof needs full Merkle witnesses (stake tree + interest tree)
+// which is too involved to inline here. The benchmark and integration tests
+// build their own witnesses via a dedicated helper (test/helpers/zkWitness.ts —
+// to be added). VK + zkey are sufficient for deploy.ts.
+console.log("\n→ Skipping sample-proof (Path A needs full Merkle witnesses — see test helpers)");
 
 console.log(`
 =============================================================
@@ -199,18 +158,16 @@ console.log(`
  Next steps:
    1. In deploy.ts, after deploying DatumZKVerifier, call:
         await zkVerifier.setVerifyingKey(
-          calldata.alpha1, calldata.beta2, calldata.gamma2,
-          calldata.delta2, calldata.IC0, calldata.IC1, calldata.IC2
+          calldata.alpha1, calldata.beta2, calldata.gamma2, calldata.delta2,
+          calldata.IC0, calldata.IC1, calldata.IC2, calldata.IC3,
+          calldata.IC4, calldata.IC5, calldata.IC6, calldata.IC7
         );
-      (values from circuits/setVK-calldata.json — IC2 is the nullifier public input)
+      (values from circuits/setVK-calldata.json)
+      Public input order: claimHash, nullifier, impressions,
+                          stakeRoot, minStake, interestRoot, requiredCategory
 
-   2. In benchmark-paseo.ts, import snarkjs and call:
-        const { proof } = await snarkjs.groth16.fullProve(
-          { claimHash: claimHashFe.toString(), impressions: imps.toString(), nonce: n.toString() },
-          "circuits/impression_js/impression.wasm",
-          "circuits/impression.zkey"
-        );
-      Then encode as shown in encodeProof() below.
+   2. Benchmarks/tests build witnesses via test/helpers/zkWitness.ts (TBD)
+      which assembles stake-tree + interest-tree Merkle paths client-side.
 
    3. Run the benchmark:
         npx hardhat run scripts/benchmark-paseo.ts --network polkadotTestnet

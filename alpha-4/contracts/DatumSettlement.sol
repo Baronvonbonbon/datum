@@ -87,8 +87,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         claim mints WDATUM to user/publisher/advertiser proportional
     ///         to the payment, gated by `mintRatePerDot` and `dustMintThreshold`.
     /// @dev    Set once via `setMintAuthority(addr)`. Cannot be unset (would
-    ///         require redeploying settlement). Zero address at deploy keeps
-    ///         the contract backward-compatible with pre-token alpha-4.
+    ///         require redeploying settlement). Zero address at deploy means
+    ///         the mint flow is dormant until wired post-deploy.
     address public mintAuthority;
 
     /// @notice DATUM per 1 DOT settled, in 10-decimal units.
@@ -243,10 +243,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         publishers ref. Not a rejection.
     event BlocklistCheckFailed(uint256 indexed campaignId, address indexed publisher);
 
-    /// @notice H2-fix: emitted when the AssuranceLevel or legacy dual-sig
-    ///         lookup on Campaigns reverts. The batch is failed CLOSED
-    ///         (treated as max-enforced), but operators should see this and
-    ///         repair the Campaigns wiring.
+    /// @notice H2-fix: emitted when the AssuranceLevel lookup on Campaigns
+    ///         reverts. The batch is failed CLOSED (treated as max-enforced),
+    ///         but operators should see this and repair the Campaigns wiring.
     event AssuranceLookupFailed(uint256 indexed campaignId);
 
     /// @notice M2-fix: emitted when an L1+ campaign's blocklist lookup reverts.
@@ -821,8 +820,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
         // CB1: user-side advertiser blocklist. Advertiser is per-campaign, so
         // we can check at batch entry (one read per batch). Publisher block
-        // happens per-claim below since the publisher can vary per claim in
-        // legacy relay paths.
+        // happens per-claim below since the publisher can vary per claim.
         if (address(campaigns) != address(0)) {
             address adv = campaigns.getCampaignAdvertiser(campaignId);
             if (adv != address(0) && userBlocksAdvertiser[user][adv]) {
@@ -914,27 +912,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                     }
                     return;
                 }
-            }
-
-            // Legacy fallback: older deployments may still set requiresDualSig
-            // directly without touching the new assurance field. getCampaignAssuranceLevel
-            // already OR-merges them, so this is redundant once that lands —
-            // kept here as a safety net during migration.
-            // H2-fix (2026-05-13): on revert, fail-OPEN here specifically because
-            // the AssuranceLevel reader above (which OR-merges this flag) already
-            // succeeded. Fail-closing on a redundant check would over-reject L0
-            // campaigns whose legacy getter selector mismatches. Audit event
-            // surfaces the lookup failure for operators.
-            try campaigns.getCampaignRequiresDualSig(campaignId) returns (bool needsDual) {
-                if (needsDual) {
-                    for (uint256 j = 0; j < claims.length; j++) {
-                        result.rejectedCount++;
-                        emit ClaimRejected(campaignId, user, claims[j].nonce, 24);
-                    }
-                    return;
-                }
-            } catch {
-                emit AssuranceLookupFailed(campaignId);
             }
         }
 
@@ -1237,7 +1214,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
         // ── DATUM token mint (optional; gated on mintAuthority being set) ──
         // Per §3.3: mint = payoutDOT × currentRate, split 55/40/5 user/publisher/advertiser.
-        // Skipped entirely if mintAuthority is unset (pre-token alpha-4 compatibility).
+        // Skipped entirely if mintAuthority is unset (deferred wiring).
         // Skipped per-batch if total mint would be below dust threshold.
         if (mintAuthority != address(0) && agg.total > 0) {
             // mintRate stored in 10-decimal base units (e.g. 19e10 = 19 DATUM/DOT).

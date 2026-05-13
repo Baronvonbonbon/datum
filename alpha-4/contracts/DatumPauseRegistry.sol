@@ -25,25 +25,22 @@ import "./DatumOwnable.sol";
 ///         Replay protection: each proposal is marked `executed` rather than
 ///         deleted (AUDIT-021), and approvers are tracked per-proposal.
 contract DatumPauseRegistry is DatumOwnable {
-    /// @dev CB6: per-category pause bitfield. Replaces the single _pausedRaw
-    ///      bool. Backward-compatible `paused()` returns true iff any active
-    ///      category remains within its MAX_PAUSE_BLOCKS expiry window.
+    /// @dev CB6: per-category pause bitfield. `paused()` returns true iff any
+    ///      active category remains within its MAX_PAUSE_BLOCKS expiry window.
     uint8 internal _pausedCategoriesRaw;
     /// @notice CB6: per-category engagement block, for independent expiry.
     mapping(uint8 => uint256) public pausedAtBlockFor;
 
     /// @notice CB6: category bit values. Powers of 2 so they can be OR'd into
-    ///         the bitfield. CAT_ALL = full-stop legacy behavior.
+    ///         the bitfield. CAT_ALL = full-stop pause.
     uint8 public constant CAT_SETTLEMENT        = 1 << 0;
     uint8 public constant CAT_CAMPAIGN_CREATION = 1 << 1;
     uint8 public constant CAT_GOVERNANCE        = 1 << 2;
     uint8 public constant CAT_TOKEN_MINT        = 1 << 3;
     uint8 public constant CAT_ALL = CAT_SETTLEMENT | CAT_CAMPAIGN_CREATION | CAT_GOVERNANCE | CAT_TOKEN_MINT;
 
-    /// @notice Legacy accessor kept for back-compat with existing call sites.
-    ///         Equals pausedAtBlockFor[CAT_SETTLEMENT] for the common single-
-    ///         category settlement-pause case; for full-stop pause it's the
-    ///         most recently engaged category. Observers should prefer
+    /// @notice Convenience accessor: block number of the most-recent pause
+    ///         engagement across any category. Observers should prefer
     ///         pausedAtBlockFor[category] for precise per-category timing.
     uint256 public pausedAtBlock;
 
@@ -65,7 +62,7 @@ contract DatumPauseRegistry is DatumOwnable {
     bool public guardianSetLocked;
 
     // ---- Proposal types ----
-    // action 1 (legacy pause), 2 (unpause-all), 3 (rotate guardians),
+    // action 2 (unpause-all), 3 (rotate guardians),
     // action 4 (CB6: unpause specific categories)
     struct Proposal {
         uint8 action;
@@ -184,9 +181,9 @@ contract DatumPauseRegistry is DatumOwnable {
         if (raw & CAT_TOKEN_MINT        != 0 && block.number <= pausedAtBlockFor[CAT_TOKEN_MINT]        + MAX_PAUSE_BLOCKS) mask |= CAT_TOKEN_MINT;
     }
 
-    /// @notice Back-compat: true iff ANY category is currently active.
-    ///         Existing call sites continue to read this; CB6-aware call
-    ///         sites should prefer the per-category accessors below.
+    /// @notice True iff ANY category is currently paused. CB6-aware call
+    ///         sites should prefer the per-category accessors below for
+    ///         more precise gating.
     function paused() public view returns (bool) {
         return _activeMask() != 0;
     }
@@ -207,8 +204,7 @@ contract DatumPauseRegistry is DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @notice Propose an unpause (action=2). Pause is intentionally not a
-    ///         valid action here — use `pauseFast` instead. Action codes are
-    ///         retained for future-extensibility but only 2 is honored.
+    ///         valid action here — use `pauseFast` instead.
     function propose(uint8 action) external returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
         require(action == 2, "E11");

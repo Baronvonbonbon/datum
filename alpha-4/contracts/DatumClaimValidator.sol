@@ -8,6 +8,8 @@ import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumZKVerifier.sol";
 import "./interfaces/IDatumClickRegistry.sol";
+import "./interfaces/IDatumStakeRoot.sol";
+import "./interfaces/IDatumInterestCommitments.sol";
 
 /// @dev #5 + #2-extension (2026-05-12): minimal Settlement view interface for
 ///      the PoW difficulty target and the per-user cumulative settled-events
@@ -23,6 +25,13 @@ interface ISettlementSybilGate {
 ///      Campaigns doesn't expose these yet (staged migration).
 interface ICampaignsSybilKnobs {
     function minUserSettledHistory(uint256 campaignId) external view returns (uint32);
+}
+
+/// @dev Path A: campaign-level ZK gate knobs (minStake, requiredCategory).
+///      try/catch-wrapped so Campaigns without these getters keep working.
+interface ICampaignsZkKnobs {
+    function getCampaignMinStake(uint256 campaignId) external view returns (uint256);
+    function getCampaignRequiredCategory(uint256 campaignId) external view returns (bytes32);
 }
 
 /// @title DatumClaimValidator
@@ -50,6 +59,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     // #5 + #2: optional Settlement ref for PoW target + history total reads.
     //          address(0) = sybil gates disabled (default before wiring).
     address public settlement;
+
+    // Path A (ZK): stake-root + interest-commitment refs. Both optional —
+    //              when unset, Check 9 falls back to the legacy 3-pub verify()
+    //              entrypoint and the stake/interest gates are effectively off.
+    IDatumStakeRoot public stakeRoot;
+    IDatumInterestCommitments public interestCommitments;
 
     /// @notice D1a cypherpunk plumbing lock. ClaimValidator is a pure-validation
     ///         plumbing contract; all protocol-ref setters live under this one
@@ -101,6 +116,20 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         settlement = addr;
+    }
+
+    /// @notice Path A: wire the stake-root commitment contract.
+    function setStakeRoot(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        require(addr != address(0), "E00");
+        stakeRoot = IDatumStakeRoot(addr);
+    }
+
+    /// @notice Path A: wire the per-user interest-commitment contract.
+    function setInterestCommitments(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        require(addr != address(0), "E00");
+        interestCommitments = IDatumInterestCommitments(addr);
     }
 
     /// @notice Commit every protocol-ref on this contract permanently.
@@ -251,18 +280,20 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             } catch {}
         }
 
-        // Check 9: ZK proof (view claims only, if campaign requires it)
+        // Check 9: ZK proof (view claims only, if campaign requires it).
+        //          Path A: 7 public inputs — claimHash, nullifier, impressions,
+        //                  stakeRoot, minStake, interestRoot, requiredCategory.
+        //          Wallets/relays must build proofs against `stakeRoot.rootAt(latestEpoch)`
+        //          and the user's own interestRoot at proof-generation time. Brief
+        //          rollover races (root rotates between gen and verify) are expected;
+        //          relays should retry with a fresh proof on reason 16.
         if (claim.actionType == 0 && address(zkVerifier) != address(0)) {
             try campaigns.getCampaignRequiresZkProof(claim.campaignId) returns (bool reqZk) {
                 if (reqZk) {
                     bool proofPresent = false;
                     for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
                     if (!proofPresent) return (false, 16, 0, bytes32(0));
-                    try zkVerifier.verify(abi.encodePacked(claim.zkProof), computedHash, claim.nullifier, claim.eventCount) returns (bool valid) {
-                        if (!valid) return (false, 16, 0, bytes32(0));
-                    } catch {
-                        return (false, 16, 0, bytes32(0));
-                    }
+                    if (!_verifyPathA(claim, user, computedHash)) return (false, 16, 0, bytes32(0));
                 }
             } catch {
                 // M-4: fail closed — if we can't determine whether a ZK proof is required,
@@ -306,5 +337,51 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         r = sig[0];
         s = sig[1];
         v = uint8(uint256(sig[2]));
+    }
+
+    /// @dev Path A: build the 7-pub array and call DatumZKVerifier.verifyA.
+    ///      Returns false on any lookup failure or pairing mismatch.
+    function _verifyPathA(IDatumSettlement.Claim calldata claim, address user, bytes32 computedHash)
+        internal view returns (bool)
+    {
+        // Pub 3: stake root — current epoch root from the wired commitment contract.
+        bytes32 sRoot = bytes32(0);
+        if (address(stakeRoot) != address(0)) {
+            uint256 ep = stakeRoot.latestEpoch();
+            sRoot = stakeRoot.rootAt(ep);
+        }
+
+        // Pub 4: min stake — campaign-set threshold (0 = no stake floor).
+        uint256 minStake = 0;
+        try ICampaignsZkKnobs(address(campaigns)).getCampaignMinStake(claim.campaignId) returns (uint256 v) {
+            minStake = v;
+        } catch {}
+
+        // Pub 5: user's interest commitment.
+        bytes32 iRoot = bytes32(0);
+        if (address(interestCommitments) != address(0)) {
+            iRoot = interestCommitments.interestRoot(user);
+        }
+
+        // Pub 6: required category (0 = any).
+        bytes32 reqCat = bytes32(0);
+        try ICampaignsZkKnobs(address(campaigns)).getCampaignRequiredCategory(claim.campaignId) returns (bytes32 c) {
+            reqCat = c;
+        } catch {}
+
+        uint256[7] memory pubs = [
+            uint256(computedHash),
+            uint256(claim.nullifier),
+            claim.eventCount,
+            uint256(sRoot),
+            minStake,
+            uint256(iRoot),
+            uint256(reqCat)
+        ];
+        try zkVerifier.verifyA(abi.encodePacked(claim.zkProof), pubs) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
     }
 }

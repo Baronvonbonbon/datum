@@ -12,7 +12,6 @@ interface IDatumCampaignsSettlement {
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
     function getCampaignRewardToken(uint256 campaignId) external view returns (address);
     function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256);
-    /// @notice A3: effective AssuranceLevel (0/1/2). Reads the new canonical
-    ///         storage with backward-compat for the legacy `requiresDualSig` flag.
+    /// @notice A3: effective AssuranceLevel (0/1/2).
     function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8);
 }

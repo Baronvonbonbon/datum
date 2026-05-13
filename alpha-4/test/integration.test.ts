@@ -35,6 +35,7 @@ describe("Integration", function () {
   let settlement: DatumSettlement;
   let relay: DatumRelay;
   let pauseReg: DatumPauseRegistry;
+  let blocklistCurator: any;
   let ledger: DatumBudgetLedger;
   let vault: DatumPaymentVault;
   let lifecycle: DatumCampaignLifecycle;
@@ -126,6 +127,12 @@ describe("Integration", function () {
 
     const PublishersFactory = await ethers.getContractFactory("DatumPublishers");
     publishers = await PublishersFactory.deploy(TAKE_RATE_DELAY, await pauseReg.getAddress());
+
+    // B2: wire a blocklist curator with `owner` as council for test ergonomics.
+    const CuratorFactory = await ethers.getContractFactory("DatumCouncilBlocklistCurator");
+    blocklistCurator = await CuratorFactory.deploy();
+    await blocklistCurator.setCouncil(owner.address);
+    await publishers.setBlocklistCurator(await blocklistCurator.getAddress());
 
     const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
     ledger = await LedgerFactory.deploy();
@@ -473,8 +480,8 @@ describe("Integration", function () {
     await v2.evaluateCampaign(campaignId);
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
 
-    // Block the publisher AFTER campaign activation
-    await publishers.blockAddress(publisher.address);
+    // Block the publisher AFTER campaign activation (B2 curator path)
+    await blocklistCurator.blockAddr(publisher.address, ethers.ZeroHash);
 
     const impressions = 1000n;
     const cpm = BID_CPM;
@@ -491,10 +498,8 @@ describe("Integration", function () {
       settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }])
     ).to.emit(settlement, "ClaimRejected").withArgs(campaignId, user.address, 1n, 11);
 
-    // C-5: Unblock via propose/execute pattern
-    await publishers.proposeUnblock(publisher.address);
-    await advanceTime(172800);
-    await publishers.executeUnblock(publisher.address);
+    // Unblock via curator
+    await blocklistCurator.unblockAddr(publisher.address);
   });
 
   // Scenario G2: Settlement allows claims for unblocked publisher

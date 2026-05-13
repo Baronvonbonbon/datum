@@ -82,6 +82,12 @@
       "type": "event"
     },
     {
+      "anonymous": false,
+      "inputs": [],
+      "name": "PlumbingLocked",
+      "type": "event"
+    },
+    {
       "inputs": [],
       "name": "acceptOwnership",
       "outputs": [],
@@ -112,6 +118,26 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "interestCommitments",
+      "outputs": [
+        {
+          "internalType": "contract IDatumInterestCommitments",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lockPlumbing",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -148,6 +174,19 @@
           "internalType": "address",
           "name": "",
           "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "plumbingLocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -207,7 +246,46 @@
           "type": "address"
         }
       ],
+      "name": "setInterestCommitments",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
       "name": "setPublishers",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
+      "name": "setSettlement",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
+      "name": "setStakeRoot",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -223,6 +301,32 @@
       "name": "setZKVerifier",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "settlement",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "stakeRoot",
+      "outputs": [
+        {
+          "internalType": "contract IDatumStakeRoot",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -301,6 +405,11 @@
               "internalType": "bytes32[3]",
               "name": "actionSig",
               "type": "bytes32[3]"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "powNonce",
+              "type": "bytes32"
             }
           ],
           "internalType": "struct IDatumSettlement.Claim",

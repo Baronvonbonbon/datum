@@ -386,9 +386,9 @@ describe("Audit fixes", function () {
       expect(result.settledCount).to.equal(2n);
     });
 
-    it("dual-sig toggle: relay/direct path is rejected (reason 24) when requiresDualSig=true", async function () {
+    it("L2 assurance: relay/direct path is rejected (reason 24) at DualSigned level", async function () {
       const cid = await createPublisherLockedCampaign();
-      await mock.setCampaignRequiresDualSig(cid, true);
+      await mock.setCampaignAssuranceLevel(cid, 2);
 
       const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
       const tx = await settlement.connect(user).settleClaims([
@@ -404,9 +404,9 @@ describe("Audit fixes", function () {
       expect(parsed.args.reasonCode).to.equal(24n);
     });
 
-    it("dual-sig toggle: dual-sig path still settles when requiresDualSig=true", async function () {
+    it("L2 assurance: dual-sig path still settles at DualSigned level", async function () {
       const cid = await createPublisherLockedCampaign();
-      await mock.setCampaignRequiresDualSig(cid, true);
+      await mock.setCampaignAssuranceLevel(cid, 2);
 
       const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
       const batch = await makeBatch(cid, [c1], publisher, owner);
@@ -468,18 +468,7 @@ describe("Audit fixes", function () {
       await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
     });
 
-    it("A3-L2: backward-compat — legacy requiresDualSig still maps to level 2", async function () {
-      const cid = await createPublisherLockedCampaign();
-      await mock.setCampaignRequiresDualSig(cid, true);
-      // getCampaignAssuranceLevel should now report 2 even though stored field is 0.
-      const lvl = await mock.getCampaignAssuranceLevel(cid);
-      expect(lvl).to.equal(2);
-    });
-
-    it("A3: lowering level below 2 clears the legacy flag", async function () {
-      // This logic lives on real DatumCampaigns; mock provides only raw setters.
-      // Verified via real-contract integration tests elsewhere; here we just
-      // confirm the mock OR-merge view behaves as expected when both fields agree.
+    it("A3: lowering level below 2 reduces effective level", async function () {
       const cid = await createPublisherLockedCampaign();
       await mock.setCampaignAssuranceLevel(cid, 1);
       expect(await mock.getCampaignAssuranceLevel(cid)).to.equal(1);
@@ -741,10 +730,17 @@ describe("Audit fixes", function () {
       const ZERO2 = [0n, 0n] as [bigint, bigint];
       const ZERO4 = [0n, 0n, 0n, 0n] as [bigint, bigint, bigint, bigint];
 
-      await v.setVerifyingKey(ZERO2, ZERO4, ZERO4, ZERO4, ZERO2, ZERO2, ZERO2, ZERO2);
+      // Path A: 12 args (alpha1, beta2, gamma2, delta2, IC0..IC7)
+      await v.setVerifyingKey(
+        ZERO2, ZERO4, ZERO4, ZERO4,
+        ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2
+      );
       expect(await v.vkSet()).to.equal(true);
       await expect(
-        v.setVerifyingKey(ZERO2, ZERO4, ZERO4, ZERO4, ZERO2, ZERO2, ZERO2, ZERO2)
+        v.setVerifyingKey(
+          ZERO2, ZERO4, ZERO4, ZERO4,
+          ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2, ZERO2
+        )
       ).to.be.revertedWith("E01");
     });
   });
@@ -812,15 +808,9 @@ describe("Audit fixes", function () {
 
   // ── Threat-model follow-ups ─────────────────────────────────────────────
 
-  describe("TM-1: requiresDualSig locked once Active", function () {
-    it("rejects setCampaignRequiresDualSig on an Active campaign", async function () {
-      // Replay the M-3 setup minimally: deploy MockCampaigns and try the toggle
-      // on a campaign that has been activated. The mock uses status=1 directly.
-      const Mock = await ethers.getContractFactory("MockCampaigns");
-      const mock = await Mock.deploy();
-      // MockCampaigns doesn't enforce the same status guard since it's a mock,
-      // so we use the real DatumCampaigns flow via a separate fixture below.
-      // This test instead targets the live DatumCampaigns contract:
+  describe("TM-1: AssuranceLevel raise locked once Active", function () {
+    it("rejects setCampaignAssuranceLevel raise on an Active campaign", async function () {
+      // Targets the live DatumCampaigns contract:
       await fundSigners();
       const signers = await ethers.getSigners();
       const advertiser = signers[1];
@@ -862,16 +852,19 @@ describe("Audit fixes", function () {
       );
       const cid = (await campaigns.nextCampaignId()) - 1n;
 
-      // Pending → toggle works
-      await campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, true);
-      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(true);
+      // Pending → raise works
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 2);
+      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(2);
 
       // Activate (governance == owner in this test)
       await campaigns.activateCampaign(cid);
 
-      // Active → toggle reverts E22
+      // Active → lowering allowed
+      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 1);
+
+      // Active → raising reverts E22
       await expect(
-        campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, false)
+        campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 2)
       ).to.be.revertedWith("E22");
     });
 
@@ -932,53 +925,6 @@ describe("Audit fixes", function () {
       await expect(
         campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 1)
       ).to.be.revertedWith("E22");
-    });
-
-    it("A3: lowering L2 via setAssuranceLevel also clears the legacy requiresDualSig flag", async function () {
-      await fundSigners();
-      const signers = await ethers.getSigners();
-      const advertiser = signers[1];
-      const publisherSig = signers[2];
-
-      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
-      const pause = await PauseFactory.deploy(signers[0].address, signers[4].address, signers[5].address);
-      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
-      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
-      const LedgerFactory = await ethers.getContractFactory("DatumBudgetLedger");
-      const ledger = await LedgerFactory.deploy();
-      const CampaignsFactory = await ethers.getContractFactory("DatumCampaigns");
-      const campaigns = await CampaignsFactory.deploy(0n, 1000n, await pubs.getAddress(), await pause.getAddress());
-
-      await ledger.setCampaigns(await campaigns.getAddress());
-      await ledger.setSettlement(signers[0].address);
-      await ledger.setLifecycle(signers[0].address);
-      await campaigns.setBudgetLedger(await ledger.getAddress());
-      await campaigns.setGovernanceContract(signers[0].address);
-      await campaigns.setLifecycleContract(signers[0].address);
-      await campaigns.setSettlementContract(signers[0].address);
-
-      await pubs.connect(publisherSig).registerPublisher(5000);
-
-      const POT = {
-        actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n,
-        ratePlanck: 1n, actionVerifier: ethers.ZeroAddress,
-      };
-      await campaigns.connect(advertiser).createCampaign(
-        publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
-        { value: 1_000_000_000n }
-      );
-      const cid = (await campaigns.nextCampaignId()) - 1n;
-
-      // Legacy path: opt into L2 via requiresDualSig.
-      await campaigns.connect(advertiser).setCampaignRequiresDualSig(cid, true);
-      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(2);
-      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(true);
-
-      // Lower to L0 via new setter — should also clear the legacy flag so the
-      // OR-read agrees.
-      await campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 0);
-      expect(await campaigns.getCampaignAssuranceLevel(cid)).to.equal(0);
-      expect(await campaigns.getCampaignRequiresDualSig(cid)).to.equal(false);
     });
 
     it("A3: publisher can self-declare maxAssurance (discovery hint, off-chain only)", async function () {

@@ -49,32 +49,6 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "AddressBlocked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "AddressUnblocked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
           "name": "publisher",
           "type": "address"
         },
@@ -111,6 +85,25 @@
         }
       ],
       "name": "AllowlistToggled",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [],
+      "name": "BlocklistCuratorLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "curator",
+          "type": "address"
+        }
+      ],
+      "name": "BlocklistCuratorSet",
       "type": "event"
     },
     {
@@ -187,6 +180,25 @@
         }
       ],
       "name": "PublisherApprovalSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "publisher",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "PublisherMaxAssuranceSet",
       "type": "event"
     },
     {
@@ -336,34 +348,8 @@
     },
     {
       "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "UnblockCancelled",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "effectiveTime",
-          "type": "uint256"
-        }
-      ],
-      "name": "UnblockProposed",
+      "inputs": [],
+      "name": "WhitelistModeLocked",
       "type": "event"
     },
     {
@@ -387,6 +373,19 @@
           "internalType": "uint16",
           "name": "",
           "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_STAKE_GATE_AT_LOCK",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -421,19 +420,6 @@
     {
       "inputs": [],
       "name": "RELAY_SIGNER_ROTATION_COOLDOWN",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "UNBLOCK_DELAY",
       "outputs": [
         {
           "internalType": "uint256",
@@ -497,27 +483,21 @@
       "type": "function"
     },
     {
-      "inputs": [
+      "inputs": [],
+      "name": "blocklistCurator",
+      "outputs": [
         {
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "blockAddress",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
+          "internalType": "contract IDatumBlocklistCurator",
           "name": "",
           "type": "address"
         }
       ],
-      "name": "blocked",
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "blocklistCuratorLocked",
       "outputs": [
         {
           "internalType": "bool",
@@ -531,32 +511,6 @@
     {
       "inputs": [],
       "name": "cancelPendingTakeRate",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "cancelUnblock",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "addr",
-          "type": "address"
-        }
-      ],
-      "name": "executeUnblock",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -695,7 +649,21 @@
     },
     {
       "inputs": [],
+      "name": "lockBlocklistCurator",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "lockStakeGate",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lockWhitelistMode",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -747,25 +715,6 @@
           "type": "address"
         }
       ],
-      "name": "pendingUnblockTime",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
       "name": "profileHash",
       "outputs": [
         {
@@ -781,13 +730,19 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "addr",
+          "name": "",
           "type": "address"
         }
       ],
-      "name": "proposeUnblock",
-      "outputs": [],
-      "stateMutability": "nonpayable",
+      "name": "publisherMaxAssurance",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -945,12 +900,38 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "curator",
+          "type": "address"
+        }
+      ],
+      "name": "setBlocklistCurator",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "bytes32",
           "name": "hash",
           "type": "bytes32"
         }
       ],
       "name": "setProfile",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "setPublisherMaxAssurance",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -1067,6 +1048,19 @@
     {
       "inputs": [],
       "name": "whitelistMode",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "whitelistModeLocked",
       "outputs": [
         {
           "internalType": "bool",

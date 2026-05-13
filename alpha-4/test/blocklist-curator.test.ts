@@ -5,8 +5,8 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { fundSigners } from "./helpers/mine";
 
 // B2: Council-driven IDatumBlocklistCurator implementation.
-// Verifies the curator can be wired into DatumPublishers and supersedes/augments
-// the legacy `blocked[]` map per the OR-merge logic in publishers.isBlocked.
+// Verifies the curator can be wired into DatumPublishers and is consulted
+// via publishers.isBlocked.
 
 describe("DatumCouncilBlocklistCurator (B2)", function () {
   let curator: DatumCouncilBlocklistCurator;
@@ -54,14 +54,6 @@ describe("DatumCouncilBlocklistCurator (B2)", function () {
     expect(await curator.isBlocked(target.address)).to.equal(false);
     expect(await publishers.isBlocked(target.address)).to.equal(false);
     expect(await curator.blockReason(target.address)).to.equal(ethers.ZeroHash);
-  });
-
-  it("BC4: legacy blocked[] still OR-merges with curator (back-compat)", async function () {
-    // Owner-block via legacy map (curator is unrelated)
-    await publishers.connect(owner).blockAddress(other.address);
-    expect(await publishers.isBlocked(other.address)).to.equal(true);
-    // Curator says no — but legacy says yes, so OR-merge still true.
-    expect(await curator.isBlocked(other.address)).to.equal(false);
   });
 
   it("BC5: lockCouncil freezes council pointer permanently", async function () {

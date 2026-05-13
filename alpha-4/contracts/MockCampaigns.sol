@@ -219,15 +219,6 @@ contract MockCampaigns {
         return campaignRequiresZkProof[campaignId];
     }
 
-    // ── Per-campaign dual-sig toggle (mirrors DatumCampaigns) ────────────────
-    mapping(uint256 => bool) public campaignRequiresDualSig;
-    function setCampaignRequiresDualSig(uint256 campaignId, bool required) external {
-        campaignRequiresDualSig[campaignId] = required;
-    }
-    function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool) {
-        return campaignRequiresDualSig[campaignId];
-    }
-
     // ── A3: AssuranceLevel mirror ────────────────────────────────────────────
     mapping(uint256 => uint8) public campaignAssuranceLevel;
     function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external {
@@ -235,9 +226,7 @@ contract MockCampaigns {
         campaignAssuranceLevel[campaignId] = level;
     }
     function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8) {
-        uint8 stored = campaignAssuranceLevel[campaignId];
-        if (campaignRequiresDualSig[campaignId] && stored < 2) return 2;
-        return stored;
+        return campaignAssuranceLevel[campaignId];
     }
 
     receive() external payable {}

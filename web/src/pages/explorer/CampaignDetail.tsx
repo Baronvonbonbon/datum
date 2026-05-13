@@ -309,10 +309,10 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         setBondOwnerAddr(owner !== null ? (owner as string) : null);
       } catch { setBondAmount(null); setBondOwnerAddr(null); }
 
-      // Per-campaign dual-sig flag (post-b85fcf7 settlement opt-in)
+      // Per-campaign assurance level (L0/L1/L2). Dual-sig UI maps to L2.
       try {
-        const ds = await contracts.campaigns.getCampaignRequiresDualSig(BigInt(campaignId));
-        setRequiresDualSig(Boolean(ds));
+        const lvl = await contracts.campaigns.getCampaignAssuranceLevel(BigInt(campaignId));
+        setRequiresDualSig(Number(lvl) >= 2);
       } catch { setRequiresDualSig(false); }
 
       // Per-pot configuration — fetch all pots + remaining per pot
@@ -428,7 +428,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     setDualSigBusy(true);
     try {
       const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
-      const tx = await c.setCampaignRequiresDualSig(BigInt(campaign.id), !requiresDualSig);
+      // L0 (Permissive) ↔ L2 (DualSigned)
+      const tx = await c.setCampaignAssuranceLevel(BigInt(campaign.id), requiresDualSig ? 0 : 2);
       await confirmTx(tx);
       setRequiresDualSig(!requiresDualSig);
     } catch (err) {

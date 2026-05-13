@@ -15,15 +15,17 @@ import "./DatumOwnable.sol";
 ///                                  [x_imag, x_real, y_imag, y_real] (128 bytes)
 ///           pi_c  : uint256[2]   — G1 point (64 bytes)
 ///
-///         Public inputs (3):
-///           pub0 = claimHash   — keccak256(campaignId, publisher, user, eventCount, ...)
-///           pub1 = nullifier   — Poseidon(userSecret, campaignId, windowId)
-///           pub2 = impressions — impression count; must equal claim.eventCount (enforced by caller)
-///           All truncated to BN254 scalar field: uint256(x) % SCALAR_ORDER
+///         Path A: 7 public inputs (truncated mod SCALAR_ORDER before pairing):
+///           pub0 = claimHash          — keccak256(campaignId, publisher, user, ...)
+///           pub1 = nullifier          — Poseidon(secret, campaignId, windowId)
+///           pub2 = impressions        — claim.eventCount
+///           pub3 = stakeRoot          — DatumStakeRoot epoch root
+///           pub4 = minStake           — campaign-set DATUM threshold
+///           pub5 = interestRoot       — user's published interest commitment
+///           pub6 = requiredCategory   — campaign-required category id
 ///
-///         Circuit: circuits/impression.circom
-///           3 public inputs (claimHash, nullifier, impressions), 4 private witnesses
-///           Constraints: Num2Bits(32) + nonce binding + Poseidon(3) ≈ 293 total
+///         Circuit: circuits/impression.circom (Path A)
+///           7 public inputs, ~4,900 constraints (ptau13).
 ///
 ///         VK must be set by owner after running scripts/setup-zk.mjs.
 ///         While unset, verify() returns false (fail-safe).
@@ -33,13 +35,11 @@ contract DatumZKVerifier is DatumOwnable {
     // BN254 constants
     // -------------------------------------------------------------------------
 
-    /// @dev BN254 base field prime (Fp)
     uint256 private constant FIELD_PRIME =
         21888242871839275222246405745257275088696311157297823662689037894645226208583;
-
-    /// @dev BN254 scalar field order (Fr) — public inputs must be < this
     uint256 private constant SCALAR_ORDER =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 private constant NUM_PUBLIC_INPUTS = 7;
 
     // -------------------------------------------------------------------------
     // Verification key
@@ -47,20 +47,23 @@ contract DatumZKVerifier is DatumOwnable {
 
     /// @dev G2 points stored in EIP-197 order: [x_imag, x_real, y_imag, y_real]
     struct VerifyingKey {
-        uint256[2] alpha1;   // G1: [x, y]
-        uint256[4] beta2;    // G2: [x_imag, x_real, y_imag, y_real]
-        uint256[4] gamma2;   // G2: [x_imag, x_real, y_imag, y_real]
-        uint256[4] delta2;   // G2: [x_imag, x_real, y_imag, y_real]
-        uint256[2] IC0;      // G1 constant term
-        uint256[2] IC1;      // G1 coefficient for public input 0 (claimHash)
-        uint256[2] IC2;      // G1 coefficient for public input 1 (nullifier)
-        uint256[2] IC3;      // G1 coefficient for public input 2 (impressions)
+        uint256[2] alpha1;
+        uint256[4] beta2;
+        uint256[4] gamma2;
+        uint256[4] delta2;
+        uint256[2] IC0;  // constant
+        uint256[2] IC1;  // claimHash
+        uint256[2] IC2;  // nullifier
+        uint256[2] IC3;  // impressions
+        uint256[2] IC4;  // stakeRoot
+        uint256[2] IC5;  // minStake
+        uint256[2] IC6;  // interestRoot
+        uint256[2] IC7;  // requiredCategory
     }
 
     VerifyingKey private _vk;
     bool public vkSet;
 
-    /// @notice AUDIT-018: Includes hash of the full VK for on-chain auditability.
     event VerifyingKeySet(bytes32 indexed vkHash);
 
     // -------------------------------------------------------------------------
@@ -68,10 +71,9 @@ contract DatumZKVerifier is DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @notice Set Groth16 verification key after trusted setup.
-    ///         G2 point arrays must be in EIP-197 order: [x_imag, x_real, y_imag, y_real].
+    ///         Path A: 8 IC points (IC0..IC7) for 7 public inputs + constant.
+    ///         G2 arrays in EIP-197 order: [x_imag, x_real, y_imag, y_real].
     ///         Run `node scripts/setup-zk.mjs` to generate these values.
-    ///         IC3 is the coefficient for the third public input (impressions).
-    ///         Re-run setup after any circuit change.
     function setVerifyingKey(
         uint256[2] calldata alpha1,
         uint256[4] calldata beta2,
@@ -80,132 +82,128 @@ contract DatumZKVerifier is DatumOwnable {
         uint256[2] calldata IC0,
         uint256[2] calldata IC1,
         uint256[2] calldata IC2,
-        uint256[2] calldata IC3
+        uint256[2] calldata IC3,
+        uint256[2] calldata IC4,
+        uint256[2] calldata IC5,
+        uint256[2] calldata IC6,
+        uint256[2] calldata IC7
     ) external onlyOwner {
         // R-M1: Lock once. To rotate the VK, deploy a new verifier and re-wire
         //       ClaimValidator.setZKVerifier — preventing silent replacement of
         //       a trusted-setup VK with one accepting arbitrary proofs.
         require(!vkSet, "E01");
         _vk.alpha1 = alpha1;
-        _vk.beta2   = beta2;
-        _vk.gamma2  = gamma2;
-        _vk.delta2  = delta2;
-        _vk.IC0     = IC0;
-        _vk.IC1     = IC1;
-        _vk.IC2     = IC2;
-        _vk.IC3     = IC3;
+        _vk.beta2  = beta2;
+        _vk.gamma2 = gamma2;
+        _vk.delta2 = delta2;
+        _vk.IC0 = IC0;
+        _vk.IC1 = IC1;
+        _vk.IC2 = IC2;
+        _vk.IC3 = IC3;
+        _vk.IC4 = IC4;
+        _vk.IC5 = IC5;
+        _vk.IC6 = IC6;
+        _vk.IC7 = IC7;
         vkSet = true;
-        bytes32 vkHash = keccak256(abi.encode(alpha1, beta2, gamma2, delta2, IC0, IC1, IC2, IC3));
-        emit VerifyingKeySet(vkHash); // AUDIT-018: include VK hash for auditability
+        bytes32 vkHash = keccak256(abi.encode(
+            alpha1, beta2, gamma2, delta2,
+            IC0, IC1, IC2, IC3, IC4, IC5, IC6, IC7
+        ));
+        emit VerifyingKeySet(vkHash);
     }
 
     // -------------------------------------------------------------------------
     // Verify
     // -------------------------------------------------------------------------
 
-    /// @notice Verify a Groth16 proof for an impression claim.
-    /// @param proof              256 bytes: ABI-encoded (uint256[2] pi_a, uint256[4] pi_b, uint256[2] pi_c)
-    /// @param publicInputsHash   Claim hash from DatumClaimValidator (keccak256)
-    /// @param nullifier          Poseidon(userSecret, campaignId, windowId) — FP-5 replay prevention
-    /// @param impressionCount    claim.eventCount — must equal the impressions value the proof was generated with.
-    ///                           The pairing check enforces this: a proof generated with impressions=N
-    ///                           fails if impressionCount != N, preventing publisher inflation of eventCount.
-    /// @return valid  True iff proof is valid for these public inputs under the current VK.
-    function verify(bytes calldata proof, bytes32 publicInputsHash, bytes32 nullifier, uint256 impressionCount)
-        external
-        view
-        returns (bool valid)
+    /// @notice Verify a Groth16 proof for an impression claim (Path A).
+    /// @param proof     256 bytes: ABI-encoded (uint256[2] pi_a, uint256[4] pi_b, uint256[2] pi_c)
+    /// @param pubs      7 public inputs in circuit order:
+    ///                  [claimHash, nullifier, impressions,
+    ///                   stakeRoot, minStake, interestRoot, requiredCategory]
+    /// @return valid    True iff proof is valid for these public inputs under the current VK.
+    function verifyA(bytes calldata proof, uint256[NUM_PUBLIC_INPUTS] calldata pubs)
+        external view returns (bool)
     {
-        if (!vkSet)            return false;
+        uint256[NUM_PUBLIC_INPUTS] memory m;
+        for (uint256 i = 0; i < NUM_PUBLIC_INPUTS; i++) m[i] = pubs[i];
+        return _verify(proof, m);
+    }
+
+    /// @notice Legacy 3-pub adapter retained for callers that pre-date Path A.
+    ///         Pads stakeRoot/minStake/interestRoot/requiredCategory with 0 — proofs
+    ///         generated against the new circuit will FAIL through this entrypoint
+    ///         (intentionally). Once all callers move to verifyA, this can be deleted.
+    function verify(bytes calldata proof, bytes32 publicInputsHash, bytes32 nullifier, uint256 impressionCount)
+        external view returns (bool)
+    {
+        uint256[NUM_PUBLIC_INPUTS] memory padded;
+        padded[0] = uint256(publicInputsHash);
+        padded[1] = uint256(nullifier);
+        padded[2] = impressionCount;
+        return _verify(proof, padded);
+    }
+
+    function _verify(bytes calldata proof, uint256[NUM_PUBLIC_INPUTS] memory pubs)
+        internal view returns (bool)
+    {
+        if (!vkSet) return false;
         if (proof.length != 256) return false;
 
-        // Decode proof
+        (uint256 vkx, uint256 vky) = _computeVKX(pubs);
+        if (vkx == 0 && vky == 0) return false;
+
+        return _pairing(proof, vkx, vky);
+    }
+
+    function _computeVKX(uint256[NUM_PUBLIC_INPUTS] memory pubs)
+        internal view returns (uint256 vkx, uint256 vky)
+    {
+        vkx = _vk.IC0[0];
+        vky = _vk.IC0[1];
+        (vkx, vky) = _acc(vkx, vky, _vk.IC1[0], _vk.IC1[1], pubs[0]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC2[0], _vk.IC2[1], pubs[1]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC3[0], _vk.IC3[1], pubs[2]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC4[0], _vk.IC4[1], pubs[3]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC5[0], _vk.IC5[1], pubs[4]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC6[0], _vk.IC6[1], pubs[5]);
+        (vkx, vky) = _acc(vkx, vky, _vk.IC7[0], _vk.IC7[1], pubs[6]);
+    }
+
+    function _pairing(bytes calldata proof, uint256 vkx, uint256 vky)
+        internal view returns (bool)
+    {
         (uint256[2] memory pi_a, uint256[4] memory pi_b, uint256[2] memory pi_c) =
             abi.decode(proof, (uint256[2], uint256[4], uint256[2]));
 
-        // Public inputs truncated to BN254 scalar field
-        uint256 pub0 = uint256(publicInputsHash) % SCALAR_ORDER;
-        uint256 pub1 = uint256(nullifier) % SCALAR_ORDER;
-        uint256 pub2 = impressionCount % SCALAR_ORDER;
-
-        // vk_x = IC0 + IC1*pub0 + IC2*pub1 + IC3*pub2
-        // Step 1: IC1 * pub0  (ecMul, precompile 0x07)
-        uint256 vkx; uint256 vky;
-        {
-            (bool ok, bytes memory out) = address(0x07).staticcall(
-                abi.encode(_vk.IC1[0], _vk.IC1[1], pub0)
-            );
-            if (!ok || out.length < 64) return false;
-            (vkx, vky) = abi.decode(out, (uint256, uint256));
-        }
-        // Step 2: IC0 + (IC1*pub0)  (ecAdd, precompile 0x06)
-        {
-            (bool ok, bytes memory out) = address(0x06).staticcall(
-                abi.encode(_vk.IC0[0], _vk.IC0[1], vkx, vky)
-            );
-            if (!ok || out.length < 64) return false;
-            (vkx, vky) = abi.decode(out, (uint256, uint256));
-        }
-        // Step 3: IC2 * pub1  (ecMul, precompile 0x07)
-        uint256 ic2x; uint256 ic2y;
-        {
-            (bool ok, bytes memory out) = address(0x07).staticcall(
-                abi.encode(_vk.IC2[0], _vk.IC2[1], pub1)
-            );
-            if (!ok || out.length < 64) return false;
-            (ic2x, ic2y) = abi.decode(out, (uint256, uint256));
-        }
-        // Step 4: vk_x + (IC2*pub1)  (ecAdd, precompile 0x06)
-        {
-            (bool ok, bytes memory out) = address(0x06).staticcall(
-                abi.encode(vkx, vky, ic2x, ic2y)
-            );
-            if (!ok || out.length < 64) return false;
-            (vkx, vky) = abi.decode(out, (uint256, uint256));
-        }
-        // Step 5: IC3 * pub2  (ecMul, precompile 0x07)
-        uint256 ic3x; uint256 ic3y;
-        {
-            (bool ok, bytes memory out) = address(0x07).staticcall(
-                abi.encode(_vk.IC3[0], _vk.IC3[1], pub2)
-            );
-            if (!ok || out.length < 64) return false;
-            (ic3x, ic3y) = abi.decode(out, (uint256, uint256));
-        }
-        // Step 6: vk_x + (IC3*pub2)  (ecAdd, precompile 0x06)
-        {
-            (bool ok, bytes memory out) = address(0x06).staticcall(
-                abi.encode(vkx, vky, ic3x, ic3y)
-            );
-            if (!ok || out.length < 64) return false;
-            (vkx, vky) = abi.decode(out, (uint256, uint256));
-        }
-
-        // Negate pi_a for the pairing check: -A = (x, p - y)
         uint256 neg_pi_ay = pi_a[1] == 0 ? 0 : FIELD_PRIME - pi_a[1];
 
-        // Pairing check (precompile 0x08, EIP-197):
-        //   e(-A, B) · e(alpha1, beta2) · e(vk_x, gamma2) · e(C, delta2) == 1
-        //
-        // Each G2 pair slot: [x_imag, x_real, y_imag, y_real] (already in EIP-197 order)
         bytes memory inp = abi.encodePacked(
-            // pair 0: (-pi_a, pi_b)
             pi_a[0], neg_pi_ay,
             pi_b[0], pi_b[1], pi_b[2], pi_b[3],
-            // pair 1: (alpha1, beta2)
             _vk.alpha1[0], _vk.alpha1[1],
             _vk.beta2[0], _vk.beta2[1], _vk.beta2[2], _vk.beta2[3],
-            // pair 2: (vk_x, gamma2)
             vkx, vky,
             _vk.gamma2[0], _vk.gamma2[1], _vk.gamma2[2], _vk.gamma2[3],
-            // pair 3: (pi_c, delta2)
             pi_c[0], pi_c[1],
             _vk.delta2[0], _vk.delta2[1], _vk.delta2[2], _vk.delta2[3]
         );
-
         (bool pok, bytes memory pout) = address(0x08).staticcall(inp);
         if (!pok || pout.length < 32) return false;
         return abi.decode(pout, (uint256)) == 1;
+    }
+
+    /// @dev vk += IC * (pub mod SCALAR_ORDER). Returns (0,0) on any precompile failure.
+    function _acc(uint256 vkx, uint256 vky, uint256 icx, uint256 icy, uint256 pubRaw)
+        internal view returns (uint256, uint256)
+    {
+        uint256 pub = pubRaw % SCALAR_ORDER;
+        (bool ok, bytes memory out) = address(0x07).staticcall(abi.encode(icx, icy, pub));
+        if (!ok || out.length < 64) return (0, 0);
+        (uint256 mx, uint256 my) = abi.decode(out, (uint256, uint256));
+        (bool ok2, bytes memory out2) = address(0x06).staticcall(abi.encode(vkx, vky, mx, my));
+        if (!ok2 || out2.length < 64) return (0, 0);
+        return abi.decode(out2, (uint256, uint256));
     }
 
     // -------------------------------------------------------------------------

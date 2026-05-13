@@ -23,27 +23,15 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     mapping(address => Publisher) private _publishers;
 
-    // S12: Global address blocklist (owner-managed). Legacy path — OR-merged with
-    // the curator. Deprecated by B2-fix in favor of the swappable curator below.
-    mapping(address => bool) public blocked;
-
-    // B2-fix (2026-05-12): pluggable blocklist curator. When non-zero, `isBlocked`
-    // OR-merges the curator's verdict with the legacy `blocked[]` map. The
-    // curator can be any contract implementing IDatumBlocklistCurator (DAO,
-    // Council, reputation system, no-op, etc.). Once `blocklistCuratorLocked`
-    // is flipped, owner can no longer change the curator and `blockAddress` /
-    // `executeUnblock` revert — censorship authority is permanently delegated.
+    // B2-fix: pluggable blocklist curator. Sole source of truth for the
+    // address blocklist. The curator can be any contract implementing
+    // IDatumBlocklistCurator (DAO, Council, reputation system, no-op, etc.).
+    // Once `blocklistCuratorLocked` is flipped, owner can no longer change
+    // the curator — censorship authority is permanently delegated.
     IDatumBlocklistCurator public blocklistCurator;
     bool public blocklistCuratorLocked;
     event BlocklistCuratorSet(address indexed curator);
     event BlocklistCuratorLocked();
-
-    // C-5: Timelock-gated unblock — unblock requires 48h delay, block is instant (protective)
-    mapping(address => uint256) public pendingUnblockTime;  // 0 = no pending unblock
-    uint256 public constant UNBLOCK_DELAY = 172800;  // 48 hours in seconds
-
-    event UnblockProposed(address indexed addr, uint256 effectiveTime);
-    event UnblockCancelled(address indexed addr);
 
     // S12: Per-publisher advertiser allowlist
     mapping(address => bool) public allowlistEnabled;
@@ -89,8 +77,6 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     ///         contract that returns inflated `staked()` for any caller.
     bool public stakeGateLocked;
 
-    event AddressBlocked(address indexed addr);
-    event AddressUnblocked(address indexed addr);
     event AllowlistToggled(address indexed publisher, bool enabled);
     event AdvertiserAllowlistUpdated(address indexed publisher, address indexed advertiser, bool allowed);
     event SdkVersionRegistered(address indexed publisher, bytes32 hash);
@@ -177,7 +163,12 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     /// @inheritdoc IDatumPublishers
     function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused {
-        require(!blocked[msg.sender], "E62");
+        // Self-block via curator: a publisher flagged by the curator can't register.
+        if (address(blocklistCurator) != address(0)) {
+            try blocklistCurator.isBlocked(msg.sender) returns (bool b) {
+                require(!b, "E62");
+            } catch { /* fail-open: liveness over policy */ }
+        }
         bool stakedEnough = address(publisherStake) != address(0) &&
             stakeGate > 0 &&
             publisherStake.staked(msg.sender) >= stakeGate;
@@ -254,62 +245,12 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     }
 
     // -------------------------------------------------------------------------
-    // S12: Global blocklist (owner-managed)
+    // Blocklist (curator-managed)
     // -------------------------------------------------------------------------
 
-    /// @notice Instantly block an address (protective action — no delay needed).
-    /// @dev B2-fix: reverts once the curator is locked. Censorship authority
-    ///      transfers fully to the curator at that point.
-    function blockAddress(address addr) external onlyOwner {
-        require(!blocklistCuratorLocked, "curator-locked");
-        require(addr != address(0), "E00");
-        blocked[addr] = true;
-        // Cancel any pending unblock for this address
-        if (pendingUnblockTime[addr] != 0) {
-            pendingUnblockTime[addr] = 0;
-            emit UnblockCancelled(addr);
-        }
-        emit AddressBlocked(addr);
-    }
-
-    /// @notice C-5: Propose unblocking an address. Takes effect after UNBLOCK_DELAY.
-    function proposeUnblock(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(blocked[addr], "E01");
-        pendingUnblockTime[addr] = block.timestamp + UNBLOCK_DELAY;
-        emit UnblockProposed(addr, pendingUnblockTime[addr]);
-    }
-
-    /// @notice C-5: Execute a pending unblock after the delay has elapsed.
-    /// @dev B2-fix: once curator is locked, the owner cannot unblock legacy
-    ///      entries (curator becomes the sole authority). Pre-lock unblocks
-    ///      remain available so deployer can drain the legacy map before
-    ///      delegating fully.
-    function executeUnblock(address addr) external onlyOwner {
-        require(!blocklistCuratorLocked, "curator-locked");
-        require(addr != address(0), "E00");
-        require(pendingUnblockTime[addr] != 0, "E01");
-        require(block.timestamp >= pendingUnblockTime[addr], "E37");
-        pendingUnblockTime[addr] = 0;
-        blocked[addr] = false;
-        emit AddressUnblocked(addr);
-    }
-
-    /// @notice Cancel a pending unblock.
-    function cancelUnblock(address addr) external onlyOwner {
-        require(pendingUnblockTime[addr] != 0, "E01");
-        pendingUnblockTime[addr] = 0;
-        emit UnblockCancelled(addr);
-    }
-
-    /// @notice B2-fix: returns true if EITHER the legacy `blocked[]` map flags
-    ///         this address OR the configured curator does. When curator is
-    ///         address(0), only the legacy map is consulted (back-compat).
-    ///         Once the deployer transitions to a real curator and calls
-    ///         lockBlocklistCurator, the curator becomes the sole authority and
-    ///         the legacy map is frozen (no new entries possible).
+    /// @notice B2: returns true iff the configured curator flags this address.
+    ///         When curator is address(0), no addresses are blocked.
     function isBlocked(address addr) external view returns (bool) {
-        if (blocked[addr]) return true;
         IDatumBlocklistCurator c = blocklistCurator;
         if (address(c) == address(0)) return false;
         try c.isBlocked(addr) returns (bool b) {

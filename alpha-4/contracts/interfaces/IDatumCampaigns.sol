@@ -136,12 +136,7 @@ interface IDatumCampaigns {
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address);
     function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory);
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
-    /// @notice Per-campaign dual-sig settlement requirement.
-    ///         Advertiser-controlled toggle; default false. When true, only the
-    ///         DatumSettlement.settleSignedClaims path may settle this campaign's claims.
-    function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool);
-    /// @notice A3: effective AssuranceLevel (0/1/2). Reads canonical storage and
-    ///         OR-merges legacy `requiresDualSig` for backward compatibility.
+    /// @notice A3: effective AssuranceLevel (0/1/2).
     function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8);
     function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
 

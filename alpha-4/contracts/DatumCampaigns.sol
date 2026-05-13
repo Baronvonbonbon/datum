@@ -155,18 +155,23 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     mapping(uint256 => bool) public campaignAllowlistEnabled;
     mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
 
-    /// @notice Per-campaign toggle: when true, settlement requires the dual-sig path
-    ///         (publisher + advertiser EIP-712 cosigs via DatumSettlement.settleSignedClaims).
-    ///         When false (default), the relay path / direct settlement is allowed.
-    ///         Advertiser-controlled — lets a campaign owner demand explicit batch-level
-    ///         co-sign before any settle, catching fraud at the bookkeeping layer.
-    mapping(uint256 => bool) public campaignRequiresDualSig;
-    event CampaignRequiresDualSigUpdated(uint256 indexed campaignId, bool required);
-
     // A3: AssuranceLevel per campaign. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
-    // Reading uses `getCampaignAssuranceLevel` which OR-combines this with the
-    // legacy `campaignRequiresDualSig` flag for backward compatibility.
     mapping(uint256 => uint8) public campaignAssuranceLevel;
+
+    // Path A (ZK): per-campaign DATUM stake minimum a user must prove to claim.
+    //              0 = disabled (any user can claim if `requiresZkProof` is set).
+    //              Read by ClaimValidator and passed as pub4 to DatumZKVerifier.verifyA.
+    //              Raise locks at Pending (same rules as AssuranceLevel).
+    mapping(uint256 => uint256) public campaignMinStake;
+    event CampaignMinStakeSet(uint256 indexed campaignId, uint256 minStake);
+
+    // Path A (ZK): per-campaign required interest category id. bytes32(0) = any.
+    //              Passed as pub6 to DatumZKVerifier.verifyA — the user proves
+    //              this category is in their published interest tree (Merkle
+    //              inclusion) without revealing the rest of the set.
+    //              Set/replace permitted only while Pending.
+    mapping(uint256 => bytes32) public campaignRequiredCategory;
+    event CampaignRequiredCategorySet(uint256 indexed campaignId, bytes32 category);
 
     // #1 (2026-05-12): per-user per-campaign cap. Both fields default 0 = disabled.
     // Advertiser-settable. Raising locks at Pending (matches AssuranceLevel rules
@@ -809,8 +814,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         // A3: AssuranceLevel defaults to Permissive (0) for both open and
         // closed campaigns. The advertiser explicitly opts into higher levels
         // via setCampaignAssuranceLevel — no protocol-imposed paternalism.
-        // The legacy `campaignRequiresDualSig` toggle still works as the
-        // historical path to L2 and is OR-merged in getCampaignAssuranceLevel.
         emit CampaignCreated(campaignId, msg.sender, publisher, budgetValue, snapshot);
     }
 
@@ -841,58 +844,64 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         emit CampaignMetadataSet(campaignId, metadataHash, v);
     }
 
-    /// @notice Toggle whether this campaign requires the dual-sig settlement path.
-    ///         When true, single-sig (relay) settlement attempts will reject all
-    ///         claims with reason code 24. Only the advertiser can flip this,
-    ///         and only **before activation**. Once Active, the toggle is locked
-    ///         to prevent the advertiser from freezing user earnings mid-flight
-    ///         by demanding co-sigs they then refuse to provide.
-    function setCampaignRequiresDualSig(uint256 campaignId, bool required) external {
-        Campaign storage c = _campaigns[campaignId];
-        require(c.advertiser != address(0), "E01");
-        require(msg.sender == c.advertiser, "E21");
-        require(c.status == CampaignStatus.Pending, "E22");
-        campaignRequiresDualSig[campaignId] = required;
-        emit CampaignRequiresDualSigUpdated(campaignId, required);
-    }
-
-    /// @notice Read the dual-sig requirement for a campaign. Settlement consults this.
-    function getCampaignRequiresDualSig(uint256 campaignId) external view returns (bool) {
-        return campaignRequiresDualSig[campaignId];
-    }
-
-    /// @notice A3: Effective AssuranceLevel. Reads the canonical storage and
-    ///         OR-merges the legacy `campaignRequiresDualSig` flag so old
-    ///         deployments continue to enforce dual-sig.
+    /// @notice A3: Effective AssuranceLevel.
     function getCampaignAssuranceLevel(uint256 campaignId) public view returns (uint8) {
-        uint8 stored = campaignAssuranceLevel[campaignId];
-        if (campaignRequiresDualSig[campaignId] && stored < 2) return 2;
-        return stored;
+        return campaignAssuranceLevel[campaignId];
     }
 
     /// @notice A3: Set the campaign's AssuranceLevel. Raising the bar is
-    ///         locked once Active (per the same logic as `setCampaignRequiresDualSig`:
-    ///         the advertiser can't freeze user earnings mid-flight by adding
-    ///         new sig requirements they then refuse to provide). Lowering
-    ///         is permitted at any time — less proof never invalidates past
-    ///         claims and gives the advertiser an escape if their cosign
-    ///         pipeline breaks.
+    ///         locked once Active (advertiser can't freeze user earnings
+    ///         mid-flight by adding new sig requirements they then refuse
+    ///         to provide). Lowering is permitted at any time — less proof
+    ///         never invalidates past claims and gives the advertiser an
+    ///         escape if their cosign pipeline breaks.
     function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external {
         require(level <= 2, "E11");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
-        uint8 current = getCampaignAssuranceLevel(campaignId);
+        uint8 current = campaignAssuranceLevel[campaignId];
         if (level > current) {
             require(c.status == CampaignStatus.Pending, "E22");
         }
         campaignAssuranceLevel[campaignId] = level;
-        // Lowering below 2: clear the legacy flag so the OR-read agrees.
-        if (level < 2 && campaignRequiresDualSig[campaignId]) {
-            campaignRequiresDualSig[campaignId] = false;
-            emit CampaignRequiresDualSigUpdated(campaignId, false);
-        }
         emit CampaignAssuranceLevelSet(campaignId, level);
+    }
+
+    /// @notice Path A: set the campaign's minimum DATUM stake threshold for
+    ///         ZK-gated claims. 0 disables the gate. Raising locked at Pending
+    ///         (advertiser can't strand staked users mid-flight); lowering allowed
+    ///         any time (loosens the gate — past claims remain valid).
+    function setCampaignMinStake(uint256 campaignId, uint256 minStake) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        if (minStake > campaignMinStake[campaignId]) {
+            require(c.status == CampaignStatus.Pending, "E22");
+        }
+        campaignMinStake[campaignId] = minStake;
+        emit CampaignMinStakeSet(campaignId, minStake);
+    }
+
+    /// @notice Path A: set the campaign's required interest category.
+    ///         bytes32(0) = any. Changes locked once Active (changing a required
+    ///         category mid-flight would invalidate user proofs in flight).
+    function setCampaignRequiredCategory(uint256 campaignId, bytes32 category) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Pending, "E22");
+        campaignRequiredCategory[campaignId] = category;
+        emit CampaignRequiredCategorySet(campaignId, category);
+    }
+
+    /// @notice Path A getter — convenience accessor for ClaimValidator.
+    function getCampaignMinStake(uint256 campaignId) external view returns (uint256) {
+        return campaignMinStake[campaignId];
+    }
+
+    function getCampaignRequiredCategory(uint256 campaignId) external view returns (bytes32) {
+        return campaignRequiredCategory[campaignId];
     }
 
     /// @notice #1 (2026-05-12): set the per-user per-window cap for this campaign.
