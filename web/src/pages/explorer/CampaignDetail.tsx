@@ -540,6 +540,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
             {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
               <>
                 <Link to={`/advertiser/campaign/${campaign.id}/metadata`} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Edit Metadata</Link>
+                <Link to={`/advertiser/campaign/${campaign.id}/bulletin`} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Bulletin</Link>
                 <Link to="/advertiser" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>My Campaigns</Link>
               </>
             )}
