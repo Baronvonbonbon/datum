@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import "./DatumOwnable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title DatumCouncil
 /// @notice Phase 1 governance: N-of-M trusted member council.
@@ -23,6 +25,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///           → proposals target the Router directly, e.g.:
 ///               targets = [router],  calldatas = [activateCampaign(id)]
 contract DatumCouncil is DatumOwnable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
 
     /// @notice G-L2: floor on threshold/member count so the council can't
     ///         self-degrade past a 2-of-3 multisig floor (e.g. 1-of-1 dictator).
@@ -257,11 +261,8 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         require(grantMonthlyUsed + amount <= grantMonthlyMax, "above monthly cap");
         grantMonthlyUsed += amount;
 
-        // Transfer via ERC-20 transfer (treasury token = WDATUM).
-        (bool ok, bytes memory ret) = grantToken.call(
-            abi.encodeWithSignature("transfer(address,uint256)", recipient, amount)
-        );
-        require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "transfer failed");
+        // Transfer via SafeERC20 (handles non-bool-returning tokens correctly).
+        IERC20(grantToken).safeTransfer(recipient, amount);
 
         emit GrantExecuted(recipient, amount, grantMonthlyUsed);
     }

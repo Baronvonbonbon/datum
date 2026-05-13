@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import "./interfaces/IDatumParameterGovernance.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./DatumOwnable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./PaseoSafeSender.sol";
 
 /**
  * DatumParameterGovernance — T1-B
@@ -24,7 +24,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  *              E11 bad value, E18 not owner, E40 proposal state/condition error,
  *              E57 reentrancy.
  */
-contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, ReentrancyGuard {
+contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, PaseoSafeSender {
 
     // ── Conviction table ────────────────────────────────────────────────────────
     uint8 public constant MAX_CONVICTION = 8;
@@ -122,11 +122,10 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
             // Remove old weight
             uint256 oldWeight = v.lockAmount * _weight(v.conviction);
             if (v.aye) p.ayeWeight -= oldWeight; else p.nayWeight -= oldWeight;
-            // Refund old deposit
+            // Refund old deposit (Paseo-dust-safe; trailing dust queues).
             uint256 refund = v.lockAmount;
             v.lockAmount = 0;
-            (bool ok,) = msg.sender.call{value: refund}("");
-            require(ok, "E02");
+            _safeSend(msg.sender, refund);
         }
 
         uint256 weight = msg.value * _weight(conviction);
@@ -149,8 +148,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
         v.lockAmount = 0;
         v.lockUntil = 0;
 
-        (bool ok,) = msg.sender.call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(msg.sender, amount);
 
         emit VoteWithdrawn(proposalId, msg.sender, amount);
     }
@@ -238,8 +236,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Re
         require(amount > 0, "E03");
         pendingBondPayout[msg.sender] = 0;
         emit BondPayoutClaimed(msg.sender, recipient, amount);
-        (bool ok,) = recipient.call{value: amount}("");
-        require(ok, "E02");
+        _safeSend(recipient, amount);
     }
 
     // ── Admin ────────────────────────────────────────────────────────────────────

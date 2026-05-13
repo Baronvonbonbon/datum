@@ -72,6 +72,13 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     // Safe rollout: admission whitelist (owner-managed; whitelistMode=false = open registration)
     bool public whitelistMode;
     mapping(address => bool) public approved;
+    /// @notice Cypherpunk one-way switch (alpha-4 audit pass 3.5). Once flipped
+    ///         via lockWhitelistMode(), the owner can no longer toggle
+    ///         whitelistMode back on or approve/unapprove publishers. Publisher
+    ///         registration becomes permanently open (subject only to the
+    ///         independent stake gate, which has its own R-L1 lock).
+    bool public whitelistModeLocked;
+    event WhitelistModeLocked();
 
     // Stake-gated registration: if stakeGate > 0, a publisher with staked() >= stakeGate
     // bypasses the whitelist check. address(0) = stake gate disabled.
@@ -108,16 +115,34 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     // -------------------------------------------------------------------------
 
     /// @notice Enable or disable whitelist-only publisher registration.
+    /// @dev    Cypherpunk-locked: after `lockWhitelistMode()`, this setter
+    ///         reverts. The protocol commits to permanently open registration.
     function setWhitelistMode(bool enabled) external onlyOwner {
+        require(!whitelistModeLocked, "locked");
         whitelistMode = enabled;
         emit WhitelistModeSet(enabled);
     }
 
     /// @notice Approve or revoke a publisher address for registration in whitelist mode.
+    /// @dev    Same lock as setWhitelistMode — once locked, the approval list
+    ///         is frozen (it has no effect anyway when whitelistMode = false).
     function setApproved(address publisher, bool isApproved) external onlyOwner {
+        require(!whitelistModeLocked, "locked");
         require(publisher != address(0), "E00");
         approved[publisher] = isApproved;
         emit PublisherApprovalSet(publisher, isApproved);
+    }
+
+    /// @notice Cypherpunk one-way switch: commit to permanently open publisher
+    ///         registration. Requires whitelistMode == false at the moment of
+    ///         locking, so the protocol can't be locked into a permanent
+    ///         allow-list dictatorship. After this call, neither setWhitelistMode
+    ///         nor setApproved can be called by the owner ever again.
+    function lockWhitelistMode() external onlyOwner {
+        require(!whitelistMode, "still enabled");
+        require(!whitelistModeLocked, "already locked");
+        whitelistModeLocked = true;
+        emit WhitelistModeLocked();
     }
 
     /// @notice Set the stake contract and minimum stake threshold for registration bypass.

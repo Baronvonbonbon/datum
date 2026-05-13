@@ -71,20 +71,26 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumOwnable 
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev Cypherpunk lock-once: BudgetLedger holds advertiser DOT. Any of
+    ///      these three refs being hot-swappable would let an owner redirect
+    ///      who can deduct/refund/sweep that DOT (rug surface). One write each.
     function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(address(campaigns) == address(0), "already set");
         emit ContractReferenceChanged("campaigns", address(campaigns), addr);
         campaigns = IDatumCampaigns(addr);
     }
 
     function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(settlement == address(0), "already set");
         emit ContractReferenceChanged("settlement", settlement, addr);
         settlement = addr;
     }
 
     function setLifecycle(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(lifecycle == address(0), "already set");
         emit ContractReferenceChanged("lifecycle", lifecycle, addr);
         lifecycle = addr;
     }

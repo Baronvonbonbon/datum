@@ -59,13 +59,20 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumOwna
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
+    /// @dev Cypherpunk lock-once: settlementContract is the only caller allowed
+    ///      to advance the publisher's bonding curve (recordImpressions). Swap =
+    ///      forge impressions to inflate required-stake on rivals.
     function setSettlementContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(settlementContract == address(0), "already set");
         settlementContract = addr;
     }
 
+    /// @dev Cypherpunk lock-once: slashContract may forcibly burn staked DOT.
+    ///      Hot-swap = unilateral slash of any publisher.
     function setSlashContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(slashContract == address(0), "already set");
         slashContract = addr;
     }
 

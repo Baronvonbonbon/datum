@@ -35,6 +35,12 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     ///      30 days at 6s blocks = 432,000 blocks.
     uint256 public immutable inactivityTimeoutBlocks;
 
+    /// @notice D1a cypherpunk plumbing lock. Lifecycle is a state-machine
+    ///         plumbing contract; all protocol-ref setters live under this one
+    ///         switch. Pre-lock: owner can swap refs to fix wiring mistakes.
+    ///         Post-lock: every setter on this contract reverts forever.
+    bool public plumbingLocked;
+    event PlumbingLocked();
 
     modifier whenNotPaused() {
         require(!pauseRegistry.paused(), "P");
@@ -58,34 +64,53 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev D1a plumbing-lock pattern: all five setters share `plumbingLocked`.
+    ///      Pre-lock: swap freely. Post-lock: setters revert forever.
     function setCampaigns(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("campaigns", address(campaigns), addr);
         campaigns = IDatumCampaigns(addr);
     }
 
     function setBudgetLedger(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("budgetLedger", address(budgetLedger), addr);
         budgetLedger = IDatumBudgetLedger(addr);
     }
 
     function setGovernanceContract(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("governance", governanceContract, addr);
         governanceContract = addr;
     }
 
     function setSettlementContract(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("settlement", settlementContract, addr);
         settlementContract = addr;
     }
 
-    /// @notice Set challenge bonds contract. Pass address(0) to disable.
+    /// @notice Set challenge bonds contract. address(0) leaves the feature off.
     function setChallengeBonds(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         emit ContractReferenceChanged("challengeBonds", address(challengeBonds), addr);
         challengeBonds = IDatumChallengeBonds(addr);
+    }
+
+    /// @notice D1a: commit every Lifecycle ref permanently.
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        require(address(campaigns) != address(0), "campaigns unset");
+        require(address(budgetLedger) != address(0), "budgetLedger unset");
+        require(governanceContract != address(0), "governance unset");
+        require(settlementContract != address(0), "settlement unset");
+        // challengeBonds is optional — zero is a valid committed state.
+        plumbingLocked = true;
+        emit PlumbingLocked();
     }
 
     // -------------------------------------------------------------------------

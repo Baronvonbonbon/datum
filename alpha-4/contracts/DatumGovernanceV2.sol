@@ -153,17 +153,22 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev Cypherpunk lock-once: lifecycle is the target of terminate/demote
+    ///      proposals. Hot-swap could redirect governance actions to a no-op
+    ///      lifecycle that swallows them.
     function setLifecycle(address _lifecycle) external onlyOwner {
         require(_lifecycle != address(0), "E00");
+        require(address(lifecycle) == address(0), "already set");
         emit ContractReferenceChanged("lifecycle", address(lifecycle), _lifecycle);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
     }
 
-    /// @notice Phase 3 Router compatibility: update the campaigns reference.
-    ///         In the governance ladder, govV2.campaigns is set to the Router so
-    ///         activateCampaign/getCampaignForSettlement route through the Router.
+    /// @dev Cypherpunk lock-once. In the ladder, this is wired once to the
+    ///      Router and frozen — Phase transitions happen at the Router, not by
+    ///      re-pointing the governance contracts.
     function setCampaigns(address _campaigns) external onlyOwner {
         require(_campaigns != address(0), "E00");
+        require(campaigns == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaigns, _campaigns);
         campaigns = _campaigns;
     }

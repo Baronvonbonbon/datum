@@ -6,8 +6,12 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 /// @title DatumOwnable
 /// @notice Shared Ownable2Step base for all DATUM owner-gated contracts.
 ///         - Uses E18 error code for unauthorized access (consistent with DATUM error codes).
-///         - Blocks renounceOwnership (protocol contracts must always have an owner).
 ///         - Requires non-zero newOwner on transfer.
+///         - `renounceOwnership` is the OZ default: a single owner call sets
+///           owner = address(0). Cypherpunk-aligned: lets the protocol commit
+///           to no-admin permanence once every per-ref `lockX` has been called.
+///           FOOTGUN: bricks every onlyOwner setter forever — callers must
+///           verify each contract's lock state before invoking.
 abstract contract DatumOwnable is Ownable2Step {
     constructor() Ownable(msg.sender) {}
 
@@ -23,9 +27,5 @@ abstract contract DatumOwnable is Ownable2Step {
     function acceptOwnership() public override {
         require(msg.sender == pendingOwner(), "E18");
         _transferOwnership(msg.sender);
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        revert("E18");
     }
 }

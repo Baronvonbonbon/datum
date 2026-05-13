@@ -51,6 +51,15 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     //          address(0) = sybil gates disabled (default before wiring).
     address public settlement;
 
+    /// @notice D1a cypherpunk plumbing lock. ClaimValidator is a pure-validation
+    ///         plumbing contract; all protocol-ref setters live under this one
+    ///         switch. Pre-lock: owner can swap refs to fix wiring mistakes.
+    ///         Post-lock: every setter on this contract reverts forever.
+    ///         Deploy scripts should call `lockPlumbing()` once all wiring is
+    ///         verified and the protocol is ready to commit.
+    bool public plumbingLocked;
+    event PlumbingLocked();
+
     constructor(address _campaigns, address _publishers, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
         require(_publishers != address(0), "E00");
@@ -61,40 +70,51 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     }
 
     // -------------------------------------------------------------------------
-    // Admin
+    // Admin (all setters gated by plumbingLocked)
     // -------------------------------------------------------------------------
 
     function setCampaigns(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         campaigns = IDatumCampaigns(addr);
     }
 
     function setPublishers(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         publishers = IDatumPublishers(addr);
     }
 
-    // A2-fix (2026-05-12): zero-check + lock-once on safety-critical refs.
-    // Previously the ZK verifier could be silently cleared (downgrade attack)
-    // or hot-swapped to a permissive verifier. ClickRegistry parallels Settlement.A13.
     function setZKVerifier(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
-        require(address(zkVerifier) == address(0), "already set");
         zkVerifier = IDatumZKVerifier(addr);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
-        require(address(clickRegistry) == address(0), "already set");
         clickRegistry = IDatumClickRegistry(addr);
     }
 
-    /// @notice #5 + #2: wire Settlement so validator can read PoW target +
-    ///         cumulative-history counters. Lock-once (mirror of A13 pattern).
     function setSettlement(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
         settlement = addr;
+    }
+
+    /// @notice Commit every protocol-ref on this contract permanently.
+    /// @dev    Requires every ref to be set non-zero first — protects against
+    ///         locking with a critical ref still unwired. Optional refs that
+    ///         remain zero are *committed to staying zero* by the lock.
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        require(address(campaigns) != address(0), "campaigns unset");
+        require(address(publishers) != address(0), "publishers unset");
+        // zkVerifier, clickRegistry, settlement are optional — zero is a valid
+        // post-lock state (feature off forever) so we don't require them.
+        plumbingLocked = true;
+        emit PlumbingLocked();
     }
 
     // -------------------------------------------------------------------------

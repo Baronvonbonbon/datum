@@ -295,13 +295,20 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         emit SettlementConfigured(_budgetLedger, _paymentVault, _lifecycle, _relay);
     }
 
+    /// @dev Cypherpunk lock-once: validators are settlement-critical. A malicious
+    ///      owner swap to a permissive validator is the single largest rug
+    ///      surface (fake rates → drain budgets). One write, then frozen.
     function setClaimValidator(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(address(claimValidator) == address(0), "already set");
         claimValidator = IDatumClaimValidator(addr);
     }
 
+    /// @dev Cypherpunk lock-once: same rationale as setClaimValidator —
+    ///      a swappable attestation verifier lets an owner forge dual-sig.
     function setAttestationVerifier(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(attestationVerifier == address(0), "already set");
         attestationVerifier = addr;
     }
 
@@ -326,11 +333,22 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         minClaimInterval = interval;
     }
 
+    /// @dev Cypherpunk lock-once: publishers ref drives blocklist + stake gates.
+    ///      A swap could silently disable those (point to a permissive contract).
+    ///      address(0) is a valid initial state ("feature off"); once set non-zero
+    ///      it is frozen for the life of this Settlement.
     function setPublishers(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(publishers) == address(0), "already set");
         publishers = IDatumPublishers(addr);
     }
 
+    /// @dev D3: Cypherpunk lock-once on optional feature. tokenRewardVault holds
+    ///      advertiser-deposited ERC20s; a hot-swap could redirect credit() to
+    ///      a hostile vault that quietly absorbs rewards. address(0) leaves the
+    ///      feature off; once set non-zero it's frozen.
     function setTokenRewardVault(address addr) external onlyOwner {
+        require(address(tokenRewardVault) == address(0), "already set");
         tokenRewardVault = IDatumTokenRewardVault(addr);
     }
 
@@ -341,7 +359,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         campaigns = IDatumCampaigns(addr);
     }
 
+    /// @dev Cypherpunk lock-once: stake adequacy gate. Hot-swap could neuter it.
     function setPublisherStake(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(publisherStake) == address(0), "already set");
         publisherStake = IDatumPublisherStake(addr);
     }
 

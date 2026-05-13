@@ -54,18 +54,24 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
+    /// @dev Cypherpunk lock-once: ChallengeBonds holds advertiser DOT. The three
+    ///      callers below are the only ones with privileged operations (lock,
+    ///      release, slash). Hot-swap = trivial drain. Frozen after first write.
     function setCampaignsContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(campaignsContract == address(0), "already set");
         campaignsContract = addr;
     }
 
     function setLifecycleContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(lifecycleContract == address(0), "already set");
         lifecycleContract = addr;
     }
 
     function setGovernanceContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(governanceContract == address(0), "already set");
         governanceContract = addr;
     }
 

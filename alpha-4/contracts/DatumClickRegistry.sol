@@ -34,6 +34,12 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumOwnable {
     address public relay;
     address public settlement;
 
+    /// @notice D1a cypherpunk plumbing lock. ClickRegistry is a session-state
+    ///         plumbing contract; both protocol-ref setters live under this one
+    ///         switch. Pre-lock: owner can swap to fix wiring. Post-lock:
+    ///         frozen forever.
+    bool public plumbingLocked;
+    event PlumbingLocked();
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
 
     // -------------------------------------------------------------------------
@@ -51,16 +57,28 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumOwnable {
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev D1a plumbing-lock pattern: both setters gated by `plumbingLocked`.
     function setRelay(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("relay", relay, addr);
         relay = addr;
     }
 
     function setSettlement(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("settlement", settlement, addr);
         settlement = addr;
+    }
+
+    /// @notice D1a: commit both ClickRegistry refs permanently.
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        require(relay != address(0), "relay unset");
+        require(settlement != address(0), "settlement unset");
+        plumbingLocked = true;
+        emit PlumbingLocked();
     }
 
     // -------------------------------------------------------------------------

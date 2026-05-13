@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./DatumOwnable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 
@@ -24,7 +24,7 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 ///           Set govV2.lifecycle = router  (Router implements terminateCampaign + demoteCampaign)
 ///           → govV2 calls router.activateCampaign/terminateCampaign/demoteCampaign
 ///           → Router checks msg.sender == governor, then forwards to the real contracts.
-contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
+contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
 
     // -------------------------------------------------------------------------
     // Phase enum
@@ -47,6 +47,12 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
 
     IDatumCampaignsMinimal public campaigns;
     IDatumCampaignLifecycle public lifecycle;
+
+    /// @notice D1a cypherpunk plumbing lock. Router is a forwarding plumbing
+    ///         contract; both protocol-ref setters live under this one switch.
+    ///         Pre-lock: owner can swap to fix wiring. Post-lock: frozen forever.
+    bool public plumbingLocked;
+    event PlumbingLocked();
 
     // -------------------------------------------------------------------------
     // Events
@@ -113,25 +119,37 @@ contract DatumGovernanceRouter is DatumOwnable, ReentrancyGuard {
         emit PhaseTransitioned(pendingPhase, candidate);
     }
 
+    /// @dev D1a plumbing-lock pattern: both setters gated by `plumbingLocked`.
     function setCampaigns(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("campaigns", address(campaigns), addr);
         campaigns = IDatumCampaignsMinimal(addr);
     }
 
     function setLifecycle(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         emit ContractReferenceChanged("lifecycle", address(lifecycle), addr);
         lifecycle = IDatumCampaignLifecycle(addr);
     }
 
-    /// @notice Sweep accumulated slash ETH to `to` (treasury/governance contract).
+    /// @notice D1a: commit both Router refs permanently.
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        require(address(campaigns) != address(0), "campaigns unset");
+        require(address(lifecycle) != address(0), "lifecycle unset");
+        plumbingLocked = true;
+        emit PlumbingLocked();
+    }
+
+    /// @notice Sweep accumulated slash DOT to `to` (treasury/governance contract).
+    /// @dev    Paseo-dust-safe via `_safeSend`; trailing dust queues for pull.
     function sweepTo(address payable to) external onlyOwner {
         require(to != address(0), "E00");
         uint256 bal = address(this).balance;
         if (bal > 0) {
-            (bool ok,) = to.call{value: bal}("");
-            require(ok, "E02");
+            _safeSend(to, bal);
         }
     }
 

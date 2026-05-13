@@ -371,8 +371,9 @@ describe("DatumSettlement.settleClaimsMulti", function () {
 
     expect(result.settledCount).to.equal(1n);
     expect(result.rejectedCount).to.equal(0n);
-
-    // Disable stake for remaining tests
-    await settlement.setPublisherStake(ethers.ZeroAddress);
+    // Note: setPublisherStake is now cypherpunk-lock-once (alpha-4 audit pass
+    // 3.5), so we can't toggle it off mid-suite. Move any subsequent tests
+    // that need the stake gate disabled into their own describe block with a
+    // fresh deploy that never wires publisherStake.
   });
 });

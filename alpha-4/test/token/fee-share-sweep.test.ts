@@ -127,12 +127,14 @@ describe("DatumPaymentVault → DatumFeeShare sweep", function () {
     });
 
     it("Sweep reverts when FeeShare.paymentVault is unset", async function () {
-      const savedVault = await feeShare.paymentVault();
-      await feeShare.setPaymentVault(ethers.ZeroAddress);
+      // Cypherpunk lock-once on FeeShare.setPaymentVault means the wired vault
+      // can never be downgraded to address(0) mid-flight. Instead, deploy a
+      // fresh FeeShare that never wires its paymentVault and verify the
+      // pre-bootstrap revert path.
+      const FreshFeeShareF = await ethers.getContractFactory("DatumFeeShare");
+      const freshFeeShare = await FreshFeeShareF.deploy(await wrapper.getAddress());
 
-      await expect(feeShare.sweep()).to.be.revertedWith("E00");
-
-      await feeShare.setPaymentVault(savedVault);
+      await expect(freshFeeShare.sweep()).to.be.revertedWith("E00");
     });
 
     it("Owner can withdraw protocol via legacy path (fallback)", async function () {

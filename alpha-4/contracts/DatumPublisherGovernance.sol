@@ -173,17 +173,26 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
+    /// @dev Cypherpunk lock-once: PublisherStake is where this contract reads
+    ///      stake + calls slash. Hot-swap = unilateral slash of any publisher.
     function setPublisherStake(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(address(publisherStake) == address(0), "already set");
         publisherStake = IDatumPublisherStake(addr);
     }
 
+    /// @dev Cypherpunk lock-once on first non-zero write; address(0) leaves the
+    ///      challenge-bonds reward path disabled. Once non-zero, frozen.
     function setChallengeBonds(address addr) external onlyOwner {
+        require(address(challengeBonds) == address(0), "already set");
         challengeBonds = IDatumChallengeBonds(addr);
     }
 
+    /// @dev Cypherpunk lock-once: pauseRegistry gates vote/resolve. Hot-swap to
+    ///      a fake "always-unpaused" registry would bypass emergency pause.
     function setPauseRegistry(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(address(pauseRegistry) == address(0), "already set");
         pauseRegistry = IDatumPauseRegistry(addr);
     }
 
@@ -202,8 +211,14 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @notice #3: Set the Council contract authorized to resolve advertiser
-    ///         fraud claims. Address(0) disables the Council-arbitrated track.
+    ///         fraud claims.
+    /// @dev    D3 cypherpunk lock-once: a hot-swappable arbiter is a unilateral
+    ///         slash backdoor. address(0) leaves the Council-arbitrated track
+    ///         disabled; once set non-zero it's frozen for the life of the
+    ///         contract. To rotate arbiters, the Council itself rotates its
+    ///         membership at the Council contract level.
     function setCouncilArbiter(address arbiter) external onlyOwner {
+        require(councilArbiter == address(0), "already set");
         councilArbiter = arbiter;
         emit CouncilArbiterSet(arbiter);
     }

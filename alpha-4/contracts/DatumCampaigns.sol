@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -25,7 +25,7 @@ interface ISettlementReportGate {
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
 ///         in DatumBudgetLedger per (campaignId, actionType).
-contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
+contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------------------------------------------------------------------------
     // Configuration
     // -------------------------------------------------------------------------
@@ -163,6 +163,87 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
     mapping(uint256 => mapping(address => bool)) private _hasReportedAd;
 
     // -------------------------------------------------------------------------
+    // Bulletin Chain creative storage (audit pass 3.7)
+    // -------------------------------------------------------------------------
+    //
+    // Parallel-to-IPFS storage path. Advertisers upload creatives to the
+    // Polkadot Bulletin Chain (Paseo: wss://paseo-bulletin-rpc.polkadot.io),
+    // receive an IPFS-compatible CID + (block, index) reference, and post
+    // those refs here for canonical resolution. Frontends prefer Bulletin Chain
+    // when set; otherwise fall back to the existing `metadata` IPFS hash.
+    //
+    // Bulletin Chain retention is ~2 weeks on Paseo; the contract enforces an
+    // upper bound on per-renewal expiry advancement so a single fraudulent
+    // confirmBulletinRenewal can't claim a year of retention in one call.
+    //
+    // Storage rent is paid in *authorization quota* on Bulletin Chain (not DOT),
+    // so the EVM contract can't directly pay renewers. Instead an optional
+    // escrow per campaign lets advertisers reimburse renewers a fixed DOT
+    // amount per confirmed renewal. Renewer set is advertiser-gated (default
+    // owner-only, optional allowlist or fully-open per-campaign flag).
+
+    struct BulletinRef {
+        bytes32 cidDigest;             // multihash digest (Blake2b-256 by default)
+        uint8   cidCodec;              // 0 = raw, 1 = dag-pb manifest, future codecs reserved
+        uint32  bulletinBlock;         // current Bulletin Chain block number
+        uint32  bulletinIndex;         // current index within that Bulletin Chain block
+        uint64  expiryHubBlock;        // Hub-block estimate when Bulletin retention expires
+        uint64  retentionHorizonBlock; // advertiser-set regulatory horizon (renew until this Hub-block)
+        uint32  version;               // bumps on every set/renew (mirror of campaignMetadataVersion)
+    }
+    mapping(uint256 => BulletinRef) public campaignBulletin;
+
+    // Per-campaign DOT escrow for renewer reimbursement. Permissionless funding.
+    mapping(uint256 => uint256) public bulletinRenewalEscrow;
+
+    // Renewer trust gradient: advertiser picks per-campaign.
+    //   default — advertiser-only renewal (no escrow needed)
+    //   allowlist — advertiser approves specific renewer addresses
+    //   open — anyone can renew (highest risk; advertiser opts in)
+    mapping(uint256 => mapping(address => bool)) public approvedBulletinRenewer;
+    mapping(uint256 => bool) public openBulletinRenewal;
+
+    // Renewer reward in planck, paid from escrow per confirmed renewal.
+    // Owner-tunable up to MAX cap; bounded to prevent ratcheting griefing.
+    uint256 public bulletinRenewerReward = 10**8; // 0.01 DOT default
+    uint256 public constant MAX_BULLETIN_RENEWER_REWARD = 10 * 10**10; // 10 DOT cap
+
+    // Bound on per-renewal expiry advancement. Bulletin Chain retention is
+    // ~2 weeks on Paseo; allow a small buffer for clock skew + chain timing.
+    // 220_000 Hub-blocks @ 6s ≈ 15.3 days.
+    uint64 public constant MAX_RETENTION_ADVANCE_BLOCKS = 220_000;
+
+    // Lead time before expiry for the permissionless `requestBulletinRenewal`
+    // event to fire. ~1 day @ 6s blocks.
+    uint64 public constant BULLETIN_RENEWAL_LEAD_BLOCKS = 14_400;
+
+    event BulletinCreativeSet(
+        uint256 indexed campaignId,
+        bytes32 indexed cidDigest,
+        uint8 codec,
+        uint32 bulletinBlock,
+        uint32 bulletinIndex,
+        uint64 expiryHubBlock,
+        uint64 retentionHorizonBlock,
+        uint32 version
+    );
+    event BulletinCreativeRenewed(
+        uint256 indexed campaignId,
+        address indexed renewer,
+        uint32 newBlock,
+        uint32 newIndex,
+        uint64 newExpiryHubBlock,
+        uint32 version
+    );
+    event BulletinRenewalDue(uint256 indexed campaignId, uint64 expiryHubBlock, uint256 escrowBalance);
+    event BulletinRenewalEscrowFunded(uint256 indexed campaignId, address indexed funder, uint256 amount, uint256 totalEscrow);
+    event BulletinRenewalEscrowWithdrawn(uint256 indexed campaignId, address indexed recipient, uint256 amount);
+    event BulletinRenewerAuthorized(uint256 indexed campaignId, address indexed renewer, bool authorized);
+    event BulletinRenewalModeChanged(uint256 indexed campaignId, bool open);
+    event BulletinRenewerRewardUpdated(uint256 oldReward, uint256 newReward);
+    event BulletinCreativeExpired(uint256 indexed campaignId);
+
+    // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
@@ -242,8 +323,13 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         pendingLifecycleContract = address(0);
     }
 
+    /// @dev Cypherpunk lock-once: publishers is set in the constructor (non-zero
+    ///      at deploy); this setter therefore reverts on every call —
+    ///      effectively immutable. Kept in the ABI to surface the lock semantics
+    ///      to indexers/tooling rather than silently dropping the symbol.
     function setPublishers(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(address(publishers) == address(0), "already set");
         emit ContractReferenceChanged("publishers", address(publishers), addr);
         publishers = IDatumPublishers(addr);
     }
@@ -275,8 +361,13 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         emit BootstrapLocked();
     }
 
-    /// @notice Set challenge bonds contract. Pass address(0) to disable.
+    /// @notice Set challenge bonds contract.
+    /// @dev    D3 cypherpunk lock-once on first non-zero write. ChallengeBonds
+    ///         holds advertiser bond DOT; a hot-swap could redirect lockBond
+    ///         calls to a hostile contract. address(0) leaves the feature off
+    ///         and is the initial state; once set non-zero it's frozen.
     function setChallengeBonds(address addr) external onlyOwner {
+        require(address(challengeBonds) == address(0), "already set");
         emit ContractReferenceChanged("challengeBonds", address(challengeBonds), addr);
         challengeBonds = IDatumChallengeBonds(addr);
     }
@@ -493,6 +584,11 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11");
         require(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget, "E80");
         require(requiredTags.length <= MAX_CAMPAIGN_TAGS, "E66");
+        // C1-fix: forbid stranded bonds. If the advertiser passes a non-zero
+        // bondAmount while ChallengeBonds isn't wired, the lockBond branch
+        // below is skipped and the bondAmount portion would sit in this
+        // contract permanently (no withdrawal path). Fail loudly instead.
+        require(bondAmount == 0 || address(challengeBonds) != address(0), "E00");
 
         // Validate pots
         require(pots.length >= 1 && pots.length <= 3, "E93");
@@ -734,6 +830,236 @@ contract DatumCampaigns is IDatumCampaigns, ReentrancyGuard, DatumOwnable {
         }
         minUserSettledHistory[campaignId] = minHistory;
         emit CampaignMinHistorySet(campaignId, minHistory);
+    }
+
+    // -------------------------------------------------------------------------
+    // Bulletin Chain creative storage (audit pass 3.7)
+    // -------------------------------------------------------------------------
+
+    /// @notice Set or replace the Bulletin Chain reference for this campaign's
+    ///         creative. Advertiser-only. The advertiser uploads the creative
+    ///         to Bulletin Chain off-chain (PAPI/Console UI), receives a
+    ///         `(CID, block, index)` triple, then registers it here.
+    /// @dev    Mirrors `setMetadata` semantics:
+    ///         - while Pending: free re-uploads
+    ///         - while Active/Paused: subject to METADATA_COOLDOWN_BLOCKS between updates
+    ///         - bumps a per-campaign version counter on every successful call
+    /// @param  campaignId            target campaign
+    /// @param  cidDigest             32-byte multihash digest from Bulletin Chain
+    /// @param  cidCodec              0 = raw, 1 = dag-pb manifest
+    /// @param  bulletinBlock         block number on Bulletin Chain where the
+    ///                               TransactionStorage.store transaction landed
+    /// @param  bulletinIndex         index of that transaction within the block
+    /// @param  retentionHorizonBlock Hub-block at or before which the advertiser
+    ///                               commits to keeping the creative alive
+    ///                               (regulatory retention horizon)
+    function setBulletinCreative(
+        uint256 campaignId,
+        bytes32 cidDigest,
+        uint8   cidCodec,
+        uint32  bulletinBlock,
+        uint32  bulletinIndex,
+        uint64  retentionHorizonBlock
+    ) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(cidDigest != bytes32(0), "E00");
+        require(bulletinBlock > 0, "E11");
+        require(retentionHorizonBlock > block.number, "E11");
+
+        BulletinRef storage br = campaignBulletin[campaignId];
+
+        // Cooldown only applies to subsequent updates on a non-Pending campaign.
+        // The first upload on any status is free (no prior version to gate against).
+        if (c.status != CampaignStatus.Pending && br.cidDigest != bytes32(0)) {
+            uint64 lastSet = br.expiryHubBlock > MAX_RETENTION_ADVANCE_BLOCKS
+                ? br.expiryHubBlock - MAX_RETENTION_ADVANCE_BLOCKS
+                : 0;
+            require(block.number >= lastSet + METADATA_COOLDOWN_BLOCKS, "E22");
+        }
+
+        // Expiry estimate: capped at MAX_RETENTION_ADVANCE_BLOCKS from now.
+        // The actual Bulletin Chain retention is shorter than this; the bound
+        // protects against fraudulent inflation if the function ever becomes
+        // callable by a non-advertiser path.
+        uint64 expiry = uint64(block.number) + MAX_RETENTION_ADVANCE_BLOCKS;
+
+        br.cidDigest = cidDigest;
+        br.cidCodec = cidCodec;
+        br.bulletinBlock = bulletinBlock;
+        br.bulletinIndex = bulletinIndex;
+        br.expiryHubBlock = expiry;
+        br.retentionHorizonBlock = retentionHorizonBlock;
+        br.version += 1;
+
+        emit BulletinCreativeSet(
+            campaignId, cidDigest, cidCodec, bulletinBlock, bulletinIndex,
+            expiry, retentionHorizonBlock, br.version
+        );
+    }
+
+    /// @notice Confirm a successful Bulletin Chain `transactionStorage.renew`.
+    ///         Gated by the renewer trust gradient:
+    ///           - msg.sender == c.advertiser: always allowed (free)
+    ///           - approvedBulletinRenewer[id][msg.sender]: allowed if advertiser approved
+    ///           - openBulletinRenewal[id]: allowed for anyone
+    ///         Non-advertiser callers are paid `bulletinRenewerReward` from the
+    ///         campaign's renewal escrow.
+    /// @dev    Expiry advancement is capped at MAX_RETENTION_ADVANCE_BLOCKS so
+    ///         a fake confirmation can't claim more retention than Bulletin
+    ///         Chain actually grants. CID does NOT change on renewal — only
+    ///         the `(bulletinBlock, bulletinIndex, expiryHubBlock)` triple.
+    function confirmBulletinRenewal(
+        uint256 campaignId,
+        uint32  newBulletinBlock,
+        uint32  newBulletinIndex
+    ) external nonReentrant {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        BulletinRef storage br = campaignBulletin[campaignId];
+        require(br.cidDigest != bytes32(0), "E01"); // no ref to renew
+
+        bool isAdvertiser = (msg.sender == c.advertiser);
+        if (!isAdvertiser) {
+            require(
+                openBulletinRenewal[campaignId] || approvedBulletinRenewer[campaignId][msg.sender],
+                "E18"
+            );
+        }
+
+        require(newBulletinBlock > br.bulletinBlock, "E11"); // monotonic
+        require(newBulletinBlock > 0, "E11");
+
+        // Bounded expiry advancement: at most one Bulletin retention period
+        // ahead of the current Hub block.
+        uint64 newExpiry = uint64(block.number) + MAX_RETENTION_ADVANCE_BLOCKS;
+
+        br.bulletinBlock = newBulletinBlock;
+        br.bulletinIndex = newBulletinIndex;
+        br.expiryHubBlock = newExpiry;
+        br.version += 1;
+
+        // Pay renewer reward from escrow if caller is not the advertiser.
+        if (!isAdvertiser) {
+            uint256 reward = bulletinRenewerReward;
+            uint256 escrow = bulletinRenewalEscrow[campaignId];
+            if (reward > 0 && escrow >= reward) {
+                bulletinRenewalEscrow[campaignId] = escrow - reward;
+                _safeSend(msg.sender, reward);
+            }
+        }
+
+        emit BulletinCreativeRenewed(
+            campaignId, msg.sender, newBulletinBlock, newBulletinIndex, newExpiry, br.version
+        );
+    }
+
+    /// @notice Permissionless: emit a `BulletinRenewalDue` event when this
+    ///         campaign's Bulletin Chain creative is approaching expiry.
+    ///         Off-chain renewers listen for this and call
+    ///         `transactionStorage.renew` on Bulletin Chain followed by
+    ///         `confirmBulletinRenewal` here. Free to call by anyone; rate
+    ///         self-limited by the expiry condition (event won't fire again
+    ///         until a renewal advances the expiry).
+    function requestBulletinRenewal(uint256 campaignId) external {
+        BulletinRef storage br = campaignBulletin[campaignId];
+        require(br.cidDigest != bytes32(0), "E01");
+        require(
+            br.expiryHubBlock > block.number &&
+            br.expiryHubBlock - block.number <= BULLETIN_RENEWAL_LEAD_BLOCKS,
+            "E22"
+        );
+        emit BulletinRenewalDue(campaignId, br.expiryHubBlock, bulletinRenewalEscrow[campaignId]);
+    }
+
+    /// @notice Mark a Bulletin Chain creative as expired (permissionless).
+    ///         Only callable once retention has actually lapsed. Frontends
+    ///         can use this event to fall back to the IPFS hash for display.
+    function markBulletinExpired(uint256 campaignId) external {
+        BulletinRef storage br = campaignBulletin[campaignId];
+        require(br.cidDigest != bytes32(0), "E01");
+        require(block.number >= br.expiryHubBlock, "E22");
+        // Zero the CID digest so frontends fall back to IPFS metadata.
+        // Preserve other fields for historical/audit visibility.
+        br.cidDigest = bytes32(0);
+        emit BulletinCreativeExpired(campaignId);
+    }
+
+    // -------- Renewal escrow (advertiser-funded, advertiser-withdrawable) -----
+
+    /// @notice Fund the renewal escrow for a campaign. Permissionless funding
+    ///         (anyone can top up — useful for collective campaigns).
+    function fundBulletinRenewalEscrow(uint256 campaignId) external payable {
+        require(_campaigns[campaignId].advertiser != address(0), "E01");
+        require(msg.value > 0, "E11");
+        bulletinRenewalEscrow[campaignId] += msg.value;
+        emit BulletinRenewalEscrowFunded(
+            campaignId, msg.sender, msg.value, bulletinRenewalEscrow[campaignId]
+        );
+    }
+
+    /// @notice Withdraw unused escrow to a recipient. Advertiser-only.
+    function withdrawBulletinRenewalEscrow(uint256 campaignId, address recipient, uint256 amount) external nonReentrant {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(recipient != address(0), "E00");
+        require(amount > 0 && amount <= bulletinRenewalEscrow[campaignId], "E11");
+        bulletinRenewalEscrow[campaignId] -= amount;
+        emit BulletinRenewalEscrowWithdrawn(campaignId, recipient, amount);
+        _safeSend(recipient, amount);
+    }
+
+    // -------- Renewer authorization (advertiser-controlled) ------------------
+
+    /// @notice Approve / revoke a specific renewer address for this campaign.
+    function setApprovedBulletinRenewer(uint256 campaignId, address renewer, bool approved) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(renewer != address(0), "E00");
+        approvedBulletinRenewer[campaignId][renewer] = approved;
+        emit BulletinRenewerAuthorized(campaignId, renewer, approved);
+    }
+
+    /// @notice Toggle fully-open renewal for this campaign. When true, anyone
+    ///         can call `confirmBulletinRenewal` and drain renewer reward.
+    ///         Advertiser is responsible for sizing the escrow to match risk.
+    function setOpenBulletinRenewal(uint256 campaignId, bool open) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        openBulletinRenewal[campaignId] = open;
+        emit BulletinRenewalModeChanged(campaignId, open);
+    }
+
+    // -------- Owner-tunable renewer reward (bounded) -------------------------
+
+    /// @notice Update the DOT reward paid per confirmed renewal. Owner-only,
+    ///         bounded at MAX_BULLETIN_RENEWER_REWARD to prevent ratcheting.
+    function setBulletinRenewerReward(uint256 newReward) external onlyOwner {
+        require(newReward <= MAX_BULLETIN_RENEWER_REWARD, "above cap");
+        uint256 old = bulletinRenewerReward;
+        bulletinRenewerReward = newReward;
+        emit BulletinRenewerRewardUpdated(old, newReward);
+    }
+
+    // -------- Views ----------------------------------------------------------
+
+    /// @notice Returns the campaign's current Bulletin Chain creative reference.
+    ///         If `cidDigest == 0`, no Bulletin reference is set and the
+    ///         frontend should fall back to the legacy IPFS `metadata` hash.
+    function getBulletinCreative(uint256 campaignId) external view returns (BulletinRef memory) {
+        return campaignBulletin[campaignId];
+    }
+
+    /// @notice Convenience view: is the Bulletin creative due for renewal soon?
+    function isBulletinRenewalDue(uint256 campaignId) external view returns (bool) {
+        BulletinRef storage br = campaignBulletin[campaignId];
+        if (br.cidDigest == bytes32(0)) return false;
+        if (br.expiryHubBlock <= block.number) return false;
+        return br.expiryHubBlock - block.number <= BULLETIN_RENEWAL_LEAD_BLOCKS;
     }
 
     // -------------------------------------------------------------------------

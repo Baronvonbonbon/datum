@@ -1038,6 +1038,34 @@ async function main() {
   // B1/B7: DatumRelay liveness threshold is already on by default (constructor sets
   //        14400 blocks). lockRelayerOpen is a manual post-deploy step.
 
+  // D1a (audit pass 3.6): lockPlumbing() on every plumbing contract. After this
+  //     call every protocol-ref setter on the contract reverts forever. Every
+  //     plumbing contract validates required refs are non-zero at lock time, so
+  //     this MUST run after all wireIfNeeded() calls above. Idempotent — the
+  //     `plumbingLocked()` read short-circuits re-runs. Must also run BEFORE
+  //     ownership transfer to Timelock (deployer is still the owner here).
+  async function lockPlumbingIfNeeded(label: string, addr: string): Promise<void> {
+    const iface = new ethers.Interface([
+      "function plumbingLocked() view returns (bool)",
+      "function lockPlumbing()",
+    ]);
+    const cur = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
+      await rawProvider.call({ to: addr, data: iface.encodeFunctionData("plumbingLocked") })
+    )[0];
+    if (cur) {
+      console.log(`  OK (already locked): ${label}.plumbingLocked`);
+      return;
+    }
+    await sendCall(addr, ["function lockPlumbing()"], "lockPlumbing", []);
+    console.log(`  SET: ${label}.lockPlumbing()`);
+  }
+
+  await lockPlumbingIfNeeded("ClaimValidator",   addresses.claimValidator);
+  await lockPlumbingIfNeeded("Lifecycle",        addresses.campaignLifecycle);
+  await lockPlumbingIfNeeded("ClickRegistry",    addresses.clickRegistry);
+  await lockPlumbingIfNeeded("Relay",            addresses.relay);
+  await lockPlumbingIfNeeded("GovernanceRouter", addresses.governanceRouter);
+
   console.log("\n  All wiring complete.");
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1207,6 +1235,19 @@ async function main() {
     }
   }
 
+  // D1a (audit pass 3.6): verify every plumbing contract is locked.
+  async function checkBool(label: string, contractAddr: string, getter: string, expected: boolean) {
+    const iface = new ethers.Interface([`function ${getter}() view returns (bool)`]);
+    const result = await rawProvider.call({ to: contractAddr, data: iface.encodeFunctionData(getter) });
+    const actual = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], result)[0];
+    if (actual !== expected) {
+      console.error(`  FAIL: ${label} — expected ${expected}, got ${actual}`);
+      valid = false;
+    } else {
+      console.log(`  OK: ${label}`);
+    }
+  }
+
   // Settlement
   await check("Settlement.budgetLedger", await readAddr(addresses.settlement, "budgetLedger"), addresses.budgetLedger);
   await check("Settlement.paymentVault", await readAddr(addresses.settlement, "paymentVault"), addresses.paymentVault);
@@ -1280,6 +1321,13 @@ async function main() {
   await check("Settlement.clickRegistry", await readAddr(addresses.settlement, "clickRegistry"), addresses.clickRegistry);
 
   // Alpha-4: NullifierRegistry + Reputation merged into Settlement (no separate checks needed)
+
+  // D1a (audit pass 3.6): every plumbing contract must be committed via lockPlumbing().
+  await checkBool("ClaimValidator.plumbingLocked",   addresses.claimValidator,    "plumbingLocked", true);
+  await checkBool("Lifecycle.plumbingLocked",        addresses.campaignLifecycle, "plumbingLocked", true);
+  await checkBool("ClickRegistry.plumbingLocked",    addresses.clickRegistry,     "plumbingLocked", true);
+  await checkBool("Relay.plumbingLocked",            addresses.relay,             "plumbingLocked", true);
+  await checkBool("GovernanceRouter.plumbingLocked", addresses.governanceRouter,  "plumbingLocked", true);
 
   // T1-B: ParameterGovernance — standalone, no cross-contract wiring needed at deploy time
   // (ownership transfer to ParameterGovernance happens per-contract via governance proposals)

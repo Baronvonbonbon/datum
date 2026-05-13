@@ -34,8 +34,11 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @dev Cypherpunk lock-once: settlement is the only address that may
+    ///      credit token rewards. Hot-swap = drain advertiser deposits.
     function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
+        require(settlement == address(0), "already set");
         settlement = addr;
     }
 

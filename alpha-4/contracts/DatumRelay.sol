@@ -66,6 +66,12 @@ contract DatumRelay is DatumOwnable, EIP712 {
     ///         A credible commitment for the cypherpunk roadmap.
     bool public relayerOpenLocked;
 
+    /// @notice D1a cypherpunk plumbing lock. Relay is a forwarding plumbing
+    ///         contract; both protocol-ref setters live under this one switch.
+    ///         Pre-lock: owner can swap to fix wiring. Post-lock: frozen forever.
+    bool public plumbingLocked;
+    event PlumbingLocked();
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -96,16 +102,28 @@ contract DatumRelay is DatumOwnable, EIP712 {
     // Admin (H-6)
     // -------------------------------------------------------------------------
 
+    /// @dev D1a plumbing-lock pattern: both setters gated by `plumbingLocked`.
     function setSettlement(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         settlement = IDatumSettlement(addr);
         emit SettlementUpdated(addr);
     }
 
     function setCampaigns(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         campaigns = IDatumCampaignsSettlement(addr);
         emit CampaignsUpdated(addr);
+    }
+
+    /// @notice D1a: commit both Relay refs permanently.
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        require(address(settlement) != address(0), "settlement unset");
+        require(address(campaigns) != address(0), "campaigns unset");
+        plumbingLocked = true;
+        emit PlumbingLocked();
     }
 
     /// @notice Add or remove an authorized relayer (H-4).

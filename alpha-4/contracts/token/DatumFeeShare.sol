@@ -2,8 +2,10 @@
 pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../DatumOwnable.sol";
+import "../PaseoSafeSender.sol";
 
 /// @title DatumFeeShare
 /// @notice Stake WDATUM, earn DOT. Implements the §2.1 cashflow utility.
@@ -33,7 +35,9 @@ import "../DatumOwnable.sol";
 ///         For the devnet scaffold, the PaymentVault integration is stubbed:
 ///         anyone can call `fund()` (payable) to simulate fee inflow without
 ///         requiring the full PaymentVault.
-contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
+contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
+    using SafeERC20 for IERC20;
+
 
     // -------------------------------------------------------------------------
     // Configuration (immutable post-deploy)
@@ -108,7 +112,11 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
 
     /// @notice Wire the DatumPaymentVault address so `sweep()` can pull fees.
     /// @dev    Optional but recommended. Settable by owner; cleared with zero.
+    /// @dev Cypherpunk lock-once on first non-zero write. Sweep pulls fees
+    ///      from this address — hot-swap = redirect every protocol fee to a
+    ///      hostile vault. address(0) leaves the auto-route disabled.
     function setPaymentVault(address vault) external onlyOwner {
+        require(paymentVault == address(0), "already set");
         paymentVault = vault;
     }
 
@@ -124,7 +132,7 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
         require(!bootstrapped, "already bootstrapped");
         require(amount >= MIN_BOOTSTRAP_STAKE, "below min");
         bootstrapped = true;
-        require(stakeToken.transferFrom(msg.sender, address(this), amount), "E02");
+        stakeToken.safeTransferFrom(msg.sender, address(this), amount);
         // Park under address(0) — no way to withdraw, dust attack now uneconomic.
         stakedBy[address(0)] = amount;
         totalStaked = amount;
@@ -166,7 +174,7 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "E11");
         _settle(msg.sender);
-        require(stakeToken.transferFrom(msg.sender, address(this), amount), "E02");
+        stakeToken.safeTransferFrom(msg.sender, address(this), amount);
         stakedBy[msg.sender] += amount;
         totalStaked += amount;
         _resetDebt(msg.sender);
@@ -181,7 +189,7 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
         stakedBy[msg.sender] -= amount;
         totalStaked -= amount;
         _resetDebt(msg.sender);
-        require(stakeToken.transfer(msg.sender, amount), "E02");
+        stakeToken.safeTransfer(msg.sender, amount);
         emit Unstaked(msg.sender, amount, totalStaked);
     }
 
@@ -239,19 +247,17 @@ contract DatumFeeShare is DatumOwnable, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     /// @notice Pay out any pending DOT to `user` before changing their stake.
-    /// @dev    Pull pattern via a low-level call so a user contract with a
-    ///         hostile fallback cannot block their own settlement — but they
-    ///         also can't grief by reverting on receive. Failed transfers
-    ///         leave the pending balance recoverable via a subsequent call.
+    /// @dev    Routes through `_safeSend` so Paseo eth-rpc's denomination
+    ///         rounding bug (rejects values where `value % 10^6 >= 500_000`)
+    ///         queues the trailing dust instead of reverting the whole claim.
+    ///         Recipients pull queued dust via `claimPaseoDust*`.
     function _settle(address user) internal {
         uint256 pending = (stakedBy[user] * accDotPerShare) / ACC_SCALE;
         if (pending <= userDebt[user]) return;
         uint256 owed = pending - userDebt[user];
         if (owed == 0) return;
-        // Update debt BEFORE transfer (reentrancy guard already protects, but defence-in-depth).
         userDebt[user] = pending;
-        (bool ok, ) = user.call{value: owed}("");
-        require(ok, "E02");
+        _safeSend(user, owed);
         emit Claimed(user, owed);
     }
 
