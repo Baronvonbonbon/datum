@@ -57,6 +57,11 @@ import { PublisherGovernanceAdmin } from "./pages/admin/PublisherGovernance";
 import { ChallengeBondsAdmin } from "./pages/admin/ChallengeBonds";
 import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
 import { SybilDefenseAdmin } from "./pages/admin/SybilDefense";
+import { MintAuthorityAdmin } from "./pages/admin/MintAuthority";
+import { Wrapper as WrapperPage } from "./pages/token/Wrapper";
+import { FeeShare as FeeSharePage } from "./pages/token/FeeShare";
+import { Bootstrap as BootstrapPage } from "./pages/token/Bootstrap";
+import { Vesting as VestingPage } from "./pages/token/Vesting";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -130,6 +135,14 @@ export function App() {
               <Route path="/admin/challenge-bonds" element={<ChallengeBondsAdmin />} />
               <Route path="/admin/nullifier-registry" element={<NullifierRegistryAdmin />} />
               <Route path="/admin/sybil-defense" element={<SybilDefenseAdmin />} />
+              <Route path="/admin/mint-authority" element={<MintAuthorityAdmin />} />
+
+              {/* DATUM token system */}
+              <Route path="/token" element={<Navigate to="/token/wrapper" replace />} />
+              <Route path="/token/wrapper" element={<WrapperPage />} />
+              <Route path="/token/fee-share" element={<FeeSharePage />} />
+              <Route path="/token/bootstrap" element={<BootstrapPage />} />
+              <Route path="/token/vesting" element={<VestingPage />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
