@@ -7,6 +7,7 @@ import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
 import { getAssetMetadata } from "@shared/assetRegistry";
+import { PendingDust } from "./PendingDust";
 
 const ERC20_ABI = [
   "function symbol() view returns (string)",
@@ -34,6 +35,9 @@ export function UserPanel({ address, refreshTrigger }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [behaviorChains, setBehaviorChains] = useState<BehaviorChainState[]>([]);
   const [sym, setSym] = useState("DOT");
+  // Snapshot of settings.rpcUrl + contractAddresses for child components.
+  const [rpcUrl, setRpcUrl] = useState<string>("");
+  const [contractAddresses, setContractAddresses] = useState<typeof DEFAULT_SETTINGS.contractAddresses | null>(null);
 
   // Sweep config
   const [sweepAddress, setSweepAddress] = useState("");
@@ -57,6 +61,8 @@ export function UserPanel({ address, refreshTrigger }: Props) {
     setError(null);
     try {
       const settings = await getSettings();
+      setRpcUrl(settings.rpcUrl);
+      setContractAddresses(settings.contractAddresses);
       if (!settings.contractAddresses.paymentVault) return;
       const provider = getProvider(settings.rpcUrl);
       const vault = getPaymentVaultContract(settings.contractAddresses, provider);
@@ -289,6 +295,16 @@ export function UserPanel({ address, refreshTrigger }: Props) {
               75% of settled impressions
             </div>
           </div>
+
+          {/* PaseoSafeSender dust claim — surveys protocol contracts for queued planck */}
+          {contractAddresses && rpcUrl && (
+            <PendingDust
+              address={address}
+              rpcUrl={rpcUrl}
+              contractAddresses={contractAddresses}
+              refreshTrigger={refreshTrigger}
+            />
+          )}
 
           {/* EA-4: Withdrawal minimum display (denomination rounding: value % 10^6 >= 500k rejected) */}
           {balance !== null && balance > 0n && balance < 1_000_000n && (
