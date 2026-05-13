@@ -214,6 +214,9 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
 
     const F = await ethers.getContractFactory("DatumZKStake");
     zkStake = await F.deploy(await mockToken.getAddress());
+    // Pre-register commitments so deposit() works directly
+    await zkStake.connect(alice).setUserCommitment(ethers.id("alice-secret"));
+    await zkStake.connect(bob).setUserCommitment(ethers.id("bob-secret"));
   });
 
   it("deposit transfers tokens and increments staked", async function () {
@@ -226,6 +229,7 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
 
   it("requestWithdrawal drops staked immediately and sets readyAt", async function () {
     await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).setUserCommitment(ethers.id("alice-secret"));
     await zkStake.connect(alice).deposit(1000n);
     const tx = await zkStake.connect(alice).requestWithdrawal(400n);
     const r = await tx.wait();
@@ -244,6 +248,7 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
 
   it("second request resets lockup clock (no rolling exits)", async function () {
     await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).setUserCommitment(ethers.id("alice-secret"));
     await zkStake.connect(alice).deposit(1000n);
     const tx1 = await zkStake.connect(alice).requestWithdrawal(300n);
     const r1 = await tx1.wait();
@@ -261,6 +266,7 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
 
   it("cancelWithdrawal folds pending back into staked, no lockup penalty", async function () {
     await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+    await zkStake.connect(alice).setUserCommitment(ethers.id("alice-secret"));
     await zkStake.connect(alice).deposit(1000n);
     await zkStake.connect(alice).requestWithdrawal(400n);
     await zkStake.connect(alice).cancelWithdrawal();
@@ -291,6 +297,93 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
     await expect(zkStake.connect(alice).requestWithdrawal(0n)).to.be.revertedWith("E11");
     await expect(zkStake.connect(alice).executeWithdrawal()).to.be.revertedWith("E03");
     await expect(zkStake.connect(alice).cancelWithdrawal()).to.be.revertedWith("E03");
+  });
+
+  it("deposit without userCommitment reverts E01", async function () {
+    // bob has commitment from beforeEach; use a fresh signer
+    const fresh = (await ethers.getSigners())[10];
+    await mockToken.mint(fresh.address, 100n);
+    await mockToken.connect(fresh).approve(await zkStake.getAddress(), 100n);
+    await expect(zkStake.connect(fresh).deposit(100n)).to.be.revertedWith("E01");
+  });
+
+  it("setUserCommitment locked once user has stake", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 100n);
+    await zkStake.connect(alice).deposit(100n);
+    await expect(
+      zkStake.connect(alice).setUserCommitment(ethers.id("alice-v2"))
+    ).to.be.revertedWith("locked-by-stake");
+  });
+
+  it("depositWith atomically sets commitment + deposits", async function () {
+    const fresh = (await ethers.getSigners())[11];
+    await mockToken.mint(fresh.address, 1000n);
+    await mockToken.connect(fresh).approve(await zkStake.getAddress(), 1000n);
+    const commit = ethers.id("fresh-secret");
+    await zkStake.connect(fresh).depositWith(commit, 1000n);
+    expect(await zkStake.userCommitment(fresh.address)).to.equal(commit);
+    expect(await zkStake.staked(fresh.address)).to.equal(1000n);
+  });
+
+  it("depositWith reverts if commitment differs from on-file", async function () {
+    await mockToken.connect(alice).approve(await zkStake.getAddress(), 100n);
+    await expect(
+      zkStake.connect(alice).depositWith(ethers.id("wrong"), 100n)
+    ).to.be.revertedWith("commitment-mismatch");
+  });
+
+  // ── Slashing ──────────────────────────────────────────────────────────
+  describe("slashing", function () {
+    let slasher: any;
+
+    beforeEach(async function () {
+      slasher = (await ethers.getSigners())[5];
+      await zkStake.setSlasher(slasher.address, true);
+      await zkStake.setSlashRecipient(bob.address);
+      await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
+      await zkStake.connect(alice).deposit(1000n);
+    });
+
+    it("non-slasher cannot slash (E18)", async function () {
+      await expect(zkStake.connect(alice).slash(alice.address, 100n)).to.be.revertedWith("E18");
+    });
+
+    it("slash takes from active stake when no pending", async function () {
+      const bobBefore = await mockToken.balanceOf(bob.address);
+      const tx = await zkStake.connect(slasher).slash(alice.address, 300n);
+      const r = await tx.wait();
+      expect(await zkStake.staked(alice.address)).to.equal(700n);
+      expect(await mockToken.balanceOf(bob.address)).to.equal(bobBefore + 300n);
+      // Event check
+      const log = r!.logs.find((l: any) => { try { return zkStake.interface.parseLog(l)?.name === "Slashed"; } catch { return false; } });
+      const parsed = zkStake.interface.parseLog(log!);
+      expect(parsed!.args.fromStaked).to.equal(300n);
+      expect(parsed!.args.fromPending).to.equal(0n);
+    });
+
+    it("slash drains pending FIRST then active", async function () {
+      await zkStake.connect(alice).requestWithdrawal(400n);
+      // pending=400, staked=600
+      await zkStake.connect(slasher).slash(alice.address, 500n);
+      const p = await zkStake.pending(alice.address);
+      expect(p.amount).to.equal(0n);   // 400 taken from pending
+      expect(await zkStake.staked(alice.address)).to.equal(500n); // 100 from staked
+    });
+
+    it("slash >= totalUserHeld takes everything", async function () {
+      // staked=1000 only
+      await zkStake.connect(slasher).slash(alice.address, 2000n);
+      expect(await zkStake.staked(alice.address)).to.equal(0n);
+      // totalLocked should drop by only what existed
+      expect(await zkStake.totalLocked()).to.equal(0n);
+    });
+
+    it("lockSlashers freezes the role set permanently", async function () {
+      await zkStake.lockSlashers();
+      await expect(
+        zkStake.setSlasher(alice.address, true)
+      ).to.be.revertedWith("slashers-locked");
+    });
   });
 });
 

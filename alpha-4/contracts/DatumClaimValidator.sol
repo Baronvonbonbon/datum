@@ -239,7 +239,8 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             claim.actionType,
             claim.clickSessionHash,
             claim.nonce,
-            claim.previousClaimHash
+            claim.previousClaimHash,
+            claim.stakeRootUsed
         ));
         if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
 
@@ -344,11 +345,17 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     function _verifyPathA(IDatumSettlement.Claim calldata claim, address user, bytes32 computedHash)
         internal view returns (bool)
     {
-        // Pub 3: stake root — current epoch root from the wired commitment contract.
-        bytes32 sRoot = bytes32(0);
-        if (address(stakeRoot) != address(0)) {
-            uint256 ep = stakeRoot.latestEpoch();
-            sRoot = stakeRoot.rootAt(ep);
+        // Pub 3: stake root — wallet/relay submits which root the proof was
+        //         generated against (claim.stakeRootUsed). Validator checks
+        //         it's within the configured lookback window. If stakeRoot
+        //         contract isn't wired, fall back to bytes32(0) — circuit
+        //         expects 0 when no stake gate is enforced.
+        bytes32 sRoot = claim.stakeRootUsed;
+        if (sRoot != bytes32(0)) {
+            // require recency only when a non-zero root is asserted; otherwise
+            // the campaign's minStake==0 path treats this as "no gate"
+            if (address(stakeRoot) == address(0)) return false;
+            if (!stakeRoot.isRecent(sRoot)) return false;
         }
 
         // Pub 4: min stake — campaign-set threshold (0 = no stake floor).

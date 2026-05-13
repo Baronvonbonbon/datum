@@ -402,6 +402,11 @@
               "type": "bytes32"
             },
             {
+              "internalType": "bytes32",
+              "name": "stakeRootUsed",
+              "type": "bytes32"
+            },
+            {
               "internalType": "bytes32[3]",
               "name": "actionSig",
               "type": "bytes32[3]"

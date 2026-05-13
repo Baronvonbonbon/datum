@@ -62,8 +62,8 @@ describe("DatumSettlement", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       claims.push({
         campaignId,
@@ -77,6 +77,7 @@ describe("DatumSettlement", function () {
         claimHash: hash,
         zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
+        stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
       });
@@ -271,8 +272,8 @@ describe("DatumSettlement", function () {
     const highCpm = BID_CPM + 1n;
     const nonce = 1n;
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 1000n, highCpm, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [cid, publisher.address, user.address, 1000n, highCpm, 0, ethers.ZeroHash, nonce, ethers.ZeroHash, ethers.ZeroHash]
     );
     const claims = [{
       campaignId: cid,
@@ -286,6 +287,7 @@ describe("DatumSettlement", function () {
       claimHash: hash,
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     }];
@@ -310,8 +312,8 @@ describe("DatumSettlement", function () {
     const cid = await createTestCampaign();
     const nonZeroPrev = ethers.keccak256(ethers.toUtf8Bytes("not-zero"));
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, 1n, nonZeroPrev]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, 1n, nonZeroPrev, ethers.ZeroHash]
     );
     const claims = [{
       campaignId: cid,
@@ -325,6 +327,7 @@ describe("DatumSettlement", function () {
       claimHash: hash,
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     }];
@@ -369,8 +372,8 @@ describe("DatumSettlement", function () {
     const cid = await createTestCampaign();
     const nonce = 1n;
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, 0n, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [cid, publisher.address, user.address, 0n, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash, ethers.ZeroHash]
     );
     const claims = [{
       campaignId: cid,
@@ -384,6 +387,7 @@ describe("DatumSettlement", function () {
       claimHash: hash,
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     }];
@@ -1101,13 +1105,13 @@ describe("DatumSettlement", function () {
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
 
       const tx = await settlement.connect(user).settleClaims([batch2]);
@@ -1134,13 +1138,13 @@ describe("DatumSettlement", function () {
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -1158,13 +1162,13 @@ describe("DatumSettlement", function () {
       const prevHash = await settlement.lastClaimHash(user.address, cid, 0);
       const nonce = 2n;
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);

@@ -247,6 +247,7 @@ function serializeClaimBatches(batches: any[]): any[] {
       claimHash: c.claimHash,
       zkProof: c.zkProof,
       nullifier: c.nullifier ?? ZeroHash,
+      stakeRootUsed: ZeroHash,
       actionSig: c.actionSig ?? "0x",
     })),
   }));
@@ -610,6 +611,7 @@ async function handleMessage(msg: any): Promise<unknown> {
           claimHash,
           zkProof: "0x",
           nullifier: ZeroHash,
+          stakeRootUsed: ZeroHash,
           actionSig: "0x",
           userAddress,
         });
@@ -724,7 +726,7 @@ async function handleMessage(msg: any): Promise<unknown> {
               eventCount: impressionCount.toString(), ratePlanck: cpm,
               actionType: "0", clickSessionHash: ZeroHash,
               nonce: nonce.toString(), previousClaimHash: prevHash,
-              claimHash, zkProof: "0x", nullifier: ZeroHash, actionSig: "0x", userAddress: ua,
+              claimHash, zkProof: "0x", nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: "0x", userAddress: ua,
             });
             chain = { lastNonce: Number(nonce), lastClaimHash: claimHash };
           }
@@ -805,6 +807,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                   claimHash,
                   zkProof: "0x",
                   nullifier: ZeroHash,
+                  stakeRootUsed: ZeroHash,
                   actionSig: "0x",
                   userAddress: ua,
                 });
@@ -958,6 +961,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                 claimHash: firstClaim.claimHash,
                 zkProof: firstClaim.zkProof,
                 nullifier: firstClaim.nullifier ?? ZeroHash,
+                stakeRootUsed: ZeroHash,
                 actionSig: firstClaim.actionSig ?? "0x",
               };
               const [ok, reasonCode]: [boolean, number] = await claimValidator.validateClaim(
@@ -1105,7 +1109,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                       : "0x0000000000000000000000000000000000000000000000000000000000000000";
                     const fc = b.claims[0];
                     const [vOk, vCode]: [boolean, number] = await cv.validateClaim(
-                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, actionSig: fc.actionSig ?? "0x" },
+                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, stakeRootUsed: fc.stakeRootUsed ?? ZeroHash, actionSig: fc.actionSig ?? "0x" },
                       b.user, expectedNonce2, expectedPrevHash2,
                     );
                     if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;

@@ -45,8 +45,8 @@ describe("Checks & Balances (CB1-CB7)", function () {
   function buildClaim(campaignId: bigint, pubAddr: string, userAddr: string, nonce: bigint) {
     const eventCount = 1000n;
     const claimHash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [campaignId, pubAddr, userAddr, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [campaignId, pubAddr, userAddr, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash, ethers.ZeroHash]
     );
     return {
       campaignId, publisher: pubAddr, eventCount, ratePlanck: BID_CPM,
@@ -55,6 +55,7 @@ describe("Checks & Balances (CB1-CB7)", function () {
       zkProof: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash,
         ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] as [string,string,string],
       powNonce: ethers.ZeroHash,
     };

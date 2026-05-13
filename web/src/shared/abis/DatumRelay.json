@@ -118,6 +118,12 @@
     },
     {
       "anonymous": false,
+      "inputs": [],
+      "name": "PlumbingLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
       "inputs": [
         {
           "indexed": true,
@@ -133,6 +139,12 @@
         }
       ],
       "name": "RelayerAuthorized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [],
+      "name": "RelayerOpenLocked",
       "type": "event"
     },
     {
@@ -284,6 +296,20 @@
     },
     {
       "inputs": [],
+      "name": "lockPlumbing",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lockRelayerOpen",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "owner",
       "outputs": [
         {
@@ -316,6 +342,32 @@
           "internalType": "address",
           "name": "",
           "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "plumbingLocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "relayerOpenLocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -457,9 +509,19 @@
                   "type": "bytes32"
                 },
                 {
+                  "internalType": "bytes32",
+                  "name": "stakeRootUsed",
+                  "type": "bytes32"
+                },
+                {
                   "internalType": "bytes32[3]",
                   "name": "actionSig",
                   "type": "bytes32[3]"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "powNonce",
+                  "type": "bytes32"
                 }
               ],
               "internalType": "struct IDatumSettlement.Claim[]",
@@ -468,8 +530,18 @@
             },
             {
               "internalType": "uint256",
-              "name": "deadline",
+              "name": "deadlineBlock",
               "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "expectedRelaySigner",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "expectedAdvertiserRelaySigner",
+              "type": "address"
             },
             {
               "internalType": "bytes",

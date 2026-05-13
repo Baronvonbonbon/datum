@@ -51,8 +51,8 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       claims.push({
         campaignId,
@@ -66,6 +66,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
         claimHash: hash,
         zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
+        stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
       });
@@ -212,8 +213,8 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     const nonce = 10n;
     const impressions = 10001n;
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [campaignId, publisher.address, user.address, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [campaignId, publisher.address, user.address, impressions, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
     const overClaim = {
       campaignId,
@@ -227,6 +228,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       claimHash: hash,
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     };

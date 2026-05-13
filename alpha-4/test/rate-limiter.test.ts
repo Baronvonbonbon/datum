@@ -180,8 +180,8 @@ describe("Settlement Rate Limiter (inline)", function () {
     const nonce = 1n;
     const prevHash = ethers.ZeroHash;
     const claimHash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [campaignId, publisher.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [campaignId, publisher.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
 
     const claim = {
@@ -196,6 +196,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       claimHash,
       zkProof: Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     };
@@ -225,8 +226,8 @@ describe("Settlement Rate Limiter (inline)", function () {
     const nonce = 1n;
     const prevHash = ethers.ZeroHash;
     const claimHash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [campaignId, publisher2.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [campaignId, publisher2.address, user.address, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
 
     const claim = {
@@ -241,6 +242,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       claimHash,
       zkProof: Array(8).fill(ethers.ZeroHash),
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
     };

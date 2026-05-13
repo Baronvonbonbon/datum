@@ -116,10 +116,15 @@ export const claimBuilder = {
       // For type-0 (view) claims: clickSessionHash = ZeroHash
       const clickSessionHash = ZeroHash;
 
-      // keccak256; 9-field preimage matches DatumClaimValidator.validateClaim():
-      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
+      // Path A: stakeRootUsed is part of the preimage so wallets can target a
+      // specific stake-root epoch. ZeroHash here = no stake gate enforced for
+      // this claim. The ZK proof generator overwrites it when staking is used.
+      let stakeRootUsed = ZeroHash;
+
+      // keccak256; 10-field preimage matches DatumClaimValidator.validateClaim():
+      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash, stakeRootUsed)
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
         [
           campaignId,
           msg.publisherAddress,
@@ -130,6 +135,7 @@ export const claimBuilder = {
           clickSessionHash,
           nonce,
           previousClaimHash,
+          stakeRootUsed,
         ]
       );
 
@@ -158,6 +164,7 @@ export const claimBuilder = {
         claimHash,
         zkProof,
         nullifier,
+        stakeRootUsed,
         actionSig: SIG_EMPTY,
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };
@@ -212,9 +219,10 @@ export const claimBuilder = {
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
       const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
 
+      const stakeRootUsed = ZeroHash; // click claims don't use ZK stake gate
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed]
       );
 
       const claim: Claim = {
@@ -229,6 +237,7 @@ export const claimBuilder = {
         claimHash,
         zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
+        stakeRootUsed,
         actionSig: SIG_EMPTY,
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };
@@ -275,9 +284,10 @@ export const claimBuilder = {
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
+      const stakeRootUsed = ZeroHash; // remote-action claims don't use ZK stake gate
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash, stakeRootUsed]
       );
 
       const claim: Claim = {
@@ -292,6 +302,7 @@ export const claimBuilder = {
         claimHash,
         zkProof: ZK_EMPTY,
         nullifier: ZeroHash,
+        stakeRootUsed,
         actionSig: parseSigToArray(msg.actionSig),
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
       };

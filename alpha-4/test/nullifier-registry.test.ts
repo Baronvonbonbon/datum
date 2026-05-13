@@ -104,8 +104,8 @@ describe("Settlement Nullifier (inline)", function () {
 
   function buildClaim(cid: bigint, nonce: bigint, prevHash: string, nullifier: string): any {
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [cid, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [cid, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
     return {
       campaignId: cid,
@@ -119,6 +119,7 @@ describe("Settlement Nullifier (inline)", function () {
       claimHash: hash,
       zkProof: new Array(8).fill(ethers.ZeroHash),
       nullifier,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
       powNonce: ethers.ZeroHash,
     };

@@ -21,6 +21,7 @@ export interface Claim {
   claimHash: string;          // bytes32 hex
   zkProof: string[];          // bytes32[8] — 8 BN254 scalars; all ZeroHash for non-ZK campaigns
   nullifier: string;          // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  stakeRootUsed: string;      // Path A: bytes32 stake-root the proof was generated against; ZeroHash for no stake gate
   actionSig: string[];        // bytes32[3] — [r, s, v_as_bytes32]; all ZeroHash for type-0/1
   powNonce: string;           // #5: bytes32 PoW nonce; ZeroHash when enforcePow=false or solved lazily at submit
 }
@@ -369,6 +370,7 @@ export interface SerializedClaim {
   claimHash: string;
   zkProof: string[];           // bytes32[8] — serialized as JSON array of hex strings
   nullifier: string;           // bytes32 hex; ZeroHash for non-ZK campaigns (FP-5)
+  stakeRootUsed: string;       // Path A: bytes32 stake-root the proof was generated against
   actionSig: string[];         // bytes32[3] — [r, s, v_as_bytes32]
   powNonce: string;            // #5: bytes32 PoW nonce
 }

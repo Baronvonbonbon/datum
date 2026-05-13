@@ -60,8 +60,8 @@ describe("DatumSettlement.settleClaimsMulti", function () {
     for (let i = 1; i <= count; i++) {
       const nonce = BigInt(i);
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, publisherAddr, userAddr, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, publisherAddr, userAddr, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       claims.push({
         campaignId,
@@ -75,6 +75,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
         claimHash: hash,
         zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
+        stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
       });

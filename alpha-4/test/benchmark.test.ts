@@ -105,8 +105,8 @@ function buildClaims(
   for (let i = 1; i <= count; i++) {
     const nonce = BigInt(i);
     const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-      [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+      [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
     claims.push({
       campaignId,
@@ -120,6 +120,7 @@ function buildClaims(
       claimHash: hash,
       zkProof,
       nullifier: ethers.ZeroHash,
+      stakeRootUsed: ethers.ZeroHash,
       actionSig: NO_SIG,
       powNonce: ethers.ZeroHash,
     });
@@ -533,8 +534,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
       // Next claim: 200 more → 50100 total > 50000 cap → rejected
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [cid2, publisher.address, user.address, 200n, RL_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [cid2, publisher.address, user.address, 200n, RL_CPM, 0, ethers.ZeroHash, 1n, ethers.ZeroHash, ethers.ZeroHash]
       );
       const c2 = [{
         campaignId: cid2,
@@ -548,6 +549,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         claimHash: hash,
         zkProof: ZK_EMPTY,
         nullifier: ethers.ZeroHash,
+        stakeRootUsed: ethers.ZeroHash,
         actionSig: NO_SIG,
       powNonce: ethers.ZeroHash,
       }];

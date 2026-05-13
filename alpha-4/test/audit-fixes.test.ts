@@ -221,8 +221,8 @@ describe("Audit fixes", function () {
     ) {
       const eventCount = 1000n;
       const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-        [campaignId, pubAddr, userAddr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prevHash]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        [campaignId, pubAddr, userAddr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       return {
         campaignId,
@@ -236,6 +236,7 @@ describe("Audit fixes", function () {
         claimHash: hash,
         zkProof: new Array(8).fill(ethers.ZeroHash),
         nullifier: ethers.ZeroHash,
+        stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
         powNonce: ethers.ZeroHash,
       };

@@ -44,6 +44,14 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     ///         and constructs the Merkle leaf `Poseidon(userCommitment, staked)`.
     mapping(address => uint256) public staked;
 
+    /// @notice Per-address Poseidon-secret commitment = Poseidon(secret).
+    ///         Must be set BEFORE the user's first deposit (or atomically with
+    ///         it via `depositWith`). Lock-once: cannot be changed after the
+    ///         user has any active stake. The off-chain root builder uses this
+    ///         to construct the Merkle leaf Poseidon(userCommitment, staked).
+    mapping(address => bytes32) public userCommitment;
+    event UserCommitmentSet(address indexed user, bytes32 commitment);
+
     struct PendingWithdrawal {
         uint256 amount;
         uint256 readyAt;  // block number
@@ -53,6 +61,19 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     /// @notice Total DATUM held in the contract — sum of all staked + all pending.
     ///         Invariant check helper for off-chain monitoring.
     uint256 public totalLocked;
+
+    /// @notice Authorized slashers (Settlement, Governance contracts).
+    ///         Owner-managed up until `slashersLocked` is flipped.
+    mapping(address => bool) public isSlasher;
+    bool public slashersLocked;
+    /// @notice Where slashed funds go. address(0) = burn (token.transfer to 0xdead
+    ///         pattern not supported by all ERC20s, so we hold them here and let
+    ///         the owner pull to a treasury post-lock if desired).
+    address public slashRecipient;
+    event SlasherSet(address indexed who, bool authorized);
+    event SlashersLocked();
+    event SlashRecipientSet(address indexed recipient);
+    event Slashed(address indexed user, uint256 fromStaked, uint256 fromPending, address indexed by);
 
     event Deposited(address indexed user, uint256 amount, uint256 newStaked);
     event WithdrawalRequested(address indexed user, uint256 amount, uint256 readyAt);
@@ -67,14 +88,47 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     // User flow
     // -------------------------------------------------------------------------
 
-    /// @notice Stake DATUM. Caller must have approved this contract first.
+    /// @notice Set / change your Poseidon-secret commitment. Lock-once: only
+    ///         allowed while you have ZERO active stake AND zero pending
+    ///         withdrawal. After your first deposit it is permanently fixed
+    ///         (changing it mid-stake would orphan your funds from the secret).
+    function setUserCommitment(bytes32 commitment) external {
+        require(commitment != bytes32(0), "E11");
+        require(staked[msg.sender] == 0 && pending[msg.sender].amount == 0, "locked-by-stake");
+        userCommitment[msg.sender] = commitment;
+        emit UserCommitmentSet(msg.sender, commitment);
+    }
+
+    /// @notice One-shot deposit-and-commit. Convenience for first-time users
+    ///         who haven't set their commitment yet. Reverts if a different
+    ///         commitment is already on file.
+    function depositWith(bytes32 commitment, uint256 amount) external nonReentrant {
+        require(commitment != bytes32(0), "E11");
+        bytes32 cur = userCommitment[msg.sender];
+        if (cur == bytes32(0)) {
+            userCommitment[msg.sender] = commitment;
+            emit UserCommitmentSet(msg.sender, commitment);
+        } else {
+            require(cur == commitment, "commitment-mismatch");
+        }
+        _deposit(msg.sender, amount);
+    }
+
+    /// @notice Stake DATUM. Caller must have approved this contract first AND
+    ///         have a userCommitment on file (else deposit reverts E01 — set
+    ///         one via `setUserCommitment` or use `depositWith`).
     function deposit(uint256 amount) external nonReentrant {
+        require(userCommitment[msg.sender] != bytes32(0), "E01");
+        _deposit(msg.sender, amount);
+    }
+
+    function _deposit(address user, uint256 amount) internal {
         require(amount > 0, "E11");
         // pull tokens before mutating state (SafeERC20 reverts on failure)
-        token.safeTransferFrom(msg.sender, address(this), amount);
-        staked[msg.sender] += amount;
+        token.safeTransferFrom(user, address(this), amount);
+        staked[user] += amount;
         totalLocked += amount;
-        emit Deposited(msg.sender, amount, staked[msg.sender]);
+        emit Deposited(user, amount, staked[user]);
     }
 
     /// @notice Begin unstaking `amount`. Drops `staked[msg.sender]` immediately
@@ -132,5 +186,74 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
         if (p.amount == 0) return 0;
         if (block.number >= p.readyAt) return 0;
         return p.readyAt - block.number;
+    }
+
+    // -------------------------------------------------------------------------
+    // Slashing
+    // -------------------------------------------------------------------------
+
+    function setSlasher(address who, bool authorized) external onlyOwner {
+        require(!slashersLocked, "slashers-locked");
+        require(who != address(0), "E00");
+        isSlasher[who] = authorized;
+        emit SlasherSet(who, authorized);
+    }
+
+    function setSlashRecipient(address r) external onlyOwner {
+        // R may be address(0) — interpreted as "hold in contract" (no auto-payout).
+        slashRecipient = r;
+        emit SlashRecipientSet(r);
+    }
+
+    /// @notice Lock the slasher set permanently. After this, isSlasher entries
+    ///         cannot be added or removed; the slashing authority is fixed.
+    function lockSlashers() external onlyOwner {
+        require(!slashersLocked, "already locked");
+        slashersLocked = true;
+        emit SlashersLocked();
+    }
+
+    /// @notice Slash a user's stake. Pulls from pending FIRST (since pending
+    ///         is in-flight to the user) before touching active stake. This
+    ///         ordering means a malicious user cannot dodge slash by queueing
+    ///         a withdrawal — pending funds are at risk until executed.
+    /// @param user            User to slash.
+    /// @param amount          Total amount to remove.
+    /// @return fromStaked     How much came from active stake.
+    /// @return fromPending    How much came from pending.
+    function slash(address user, uint256 amount) external nonReentrant returns (uint256 fromStaked, uint256 fromPending) {
+        require(isSlasher[msg.sender], "E18");
+        require(amount > 0, "E11");
+        uint256 remaining = amount;
+
+        PendingWithdrawal storage p = pending[user];
+        if (p.amount > 0) {
+            uint256 takeP = p.amount >= remaining ? remaining : p.amount;
+            p.amount -= takeP;
+            remaining -= takeP;
+            fromPending = takeP;
+            if (p.amount == 0) p.readyAt = 0;
+        }
+        if (remaining > 0) {
+            uint256 takeS = staked[user] >= remaining ? remaining : staked[user];
+            staked[user] -= takeS;
+            remaining -= takeS;
+            fromStaked = takeS;
+        }
+        uint256 realized = fromStaked + fromPending;
+        require(realized > 0, "E03");
+        totalLocked -= realized;
+
+        if (slashRecipient != address(0)) {
+            token.safeTransfer(slashRecipient, realized);
+        }
+        // else: funds remain in the contract — totalLocked drops, but the
+        // contract's actual ERC20 balance is unchanged. Owner can wire a
+        // recipient later via setSlashRecipient and re-call... actually no,
+        // once slashed the funds are accounted "removed" from any user balance.
+        // Held funds become orphan dust unless slashRecipient is set up-front.
+        // Recommendation: set slashRecipient before locking slashers.
+
+        emit Slashed(user, fromStaked, fromPending, msg.sender);
     }
 }
