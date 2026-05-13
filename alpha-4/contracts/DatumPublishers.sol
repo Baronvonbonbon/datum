@@ -106,7 +106,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     }
 
     modifier whenNotPaused() {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedCampaignCreation(), "P");
         _;
     }
 

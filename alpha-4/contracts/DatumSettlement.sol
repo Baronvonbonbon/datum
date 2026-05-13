@@ -74,6 +74,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     IDatumCampaigns public campaigns;
     // FP-1: optional publisher stake enforcement (address(0) = disabled)
     IDatumPublisherStake public publisherStake;
+
+    /// @notice CB4: advertiser-side stake contract. When non-zero, Settlement
+    ///         calls recordBudgetSpent on each settled batch so the bonding
+    ///         curve advances. Lock-once below.
+    address public advertiserStake;
     // CPC: click registry for type-1 session tracking (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
 
@@ -150,6 +155,20 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // their own behalf without relying on each campaign's advertiser to opt in.
     // Default 0 = accept any level (current behavior). Self-set only.
     mapping(address => uint8) public userMinAssurance;
+
+    /// @notice CB1: per-user counterparty blocklists. Self-set; only the user
+    ///         themselves can mutate. Checked in _processBatch — any batch
+    ///         routed to a user who has blocked the counterparty is rejected
+    ///         regardless of AssuranceLevel. Symmetric to the publisher's
+    ///         per-advertiser allowlist.
+    mapping(address => mapping(address => bool)) public userBlocksPublisher;
+    mapping(address => mapping(address => bool)) public userBlocksAdvertiser;
+
+    /// @notice CB2: per-user self-pause flag. Self-set; only the user. While
+    ///         true, every settlement to this user is rejected — a kill-switch
+    ///         the user can hit during suspected key compromise without
+    ///         needing protocol-level action.
+    mapping(address => bool) public userPaused;
     event UserMinAssuranceSet(address indexed user, uint8 level);
 
     // -------------------------------------------------------------------------
@@ -238,6 +257,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     /// @notice M1-fix: emitted when an L3 campaign settles without a valid ZK
     ///         proof. The user opted in to ZK-only settlement via userMinAssurance=3.
     event ZKAssuranceFailed(uint256 indexed campaignId, address indexed user);
+
+    /// @notice CB1: emitted when a user's self-managed blocklist rejects a batch.
+    event UserBlocklistRejected(address indexed user, address indexed counterparty);
+    event UserBlocksPublisherSet(address indexed user, address indexed publisher, bool blocked);
+    event UserBlocksAdvertiserSet(address indexed user, address indexed advertiser, bool blocked);
+
+    /// @notice CB2: emitted on user self-pause toggle.
+    event UserPausedSet(address indexed user, bool paused);
 
     // Triple-keyed chain state: (user, campaignId, actionType)
     mapping(address => mapping(uint256 => mapping(uint8 => uint256)))  public lastNonce;
@@ -384,6 +411,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         publisherStake = IDatumPublisherStake(addr);
     }
 
+    /// @dev CB4 lock-once: advertiser-stake callback target. Hot-swap could
+    ///      forge budget-spent on rivals to drive their required-stake up.
+    function setAdvertiserStake(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(advertiserStake == address(0), "already set");
+        advertiserStake = addr;
+    }
+
     /// @notice FP-5: Update nullifier window size.
     /// @dev    A8-fix (2026-05-12): lock-once. Off-chain ZK clients bake
     ///         `windowId = block.number / nullifierWindowBlocks` into the
@@ -411,6 +446,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         require(level <= 3, "E11");
         userMinAssurance[msg.sender] = level;
         emit UserMinAssuranceSet(msg.sender, level);
+    }
+
+    /// @notice CB1: self-managed publisher blocklist. Caller is the user.
+    ///         Blocked publishers cannot settle claims to this user.
+    function setUserBlocksPublisher(address publisher, bool blocked) external {
+        require(publisher != address(0), "E00");
+        userBlocksPublisher[msg.sender][publisher] = blocked;
+        emit UserBlocksPublisherSet(msg.sender, publisher, blocked);
+    }
+
+    /// @notice CB1: self-managed advertiser blocklist. Caller is the user.
+    function setUserBlocksAdvertiser(address advertiser, bool blocked) external {
+        require(advertiser != address(0), "E00");
+        userBlocksAdvertiser[msg.sender][advertiser] = blocked;
+        emit UserBlocksAdvertiserSet(msg.sender, advertiser, blocked);
+    }
+
+    /// @notice CB2: user self-pause kill switch. While true, no batches settle
+    ///         to this user regardless of submission path or AssuranceLevel.
+    ///         Self-set; only the user.
+    function setUserPaused(bool paused_) external {
+        userPaused[msg.sender] = paused_;
+        emit UserPausedSet(msg.sender, paused_);
     }
 
     // -------------------------------------------------------------------------
@@ -560,7 +618,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     {
         require(address(claimValidator) != address(0), "E00");
 
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
 
         require(batches.length <= 10, "E28");
 
@@ -586,7 +644,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     {
         require(address(claimValidator) != address(0), "E00");
 
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
 
         require(batches.length <= 10, "E28");
 
@@ -617,7 +675,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         returns (SettlementResult memory result)
     {
         require(address(claimValidator) != address(0), "E00");
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
         require(batches.length <= 10, "E28");
 
         for (uint256 b = 0; b < batches.length; b++) {
@@ -749,6 +807,33 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         bool advertiserConsented
     ) internal {
         require(claims.length <= 10, "E28");
+
+        // CB2 (2026-05-13): user self-pause kill switch. Reject the whole
+        // batch when the user has paused their own account — emits per-claim
+        // ClaimRejected so observers can see the cause.
+        if (userPaused[user]) {
+            for (uint256 j = 0; j < claims.length; j++) {
+                result.rejectedCount++;
+                emit ClaimRejected(campaignId, user, claims[j].nonce, 27);
+            }
+            return;
+        }
+
+        // CB1: user-side advertiser blocklist. Advertiser is per-campaign, so
+        // we can check at batch entry (one read per batch). Publisher block
+        // happens per-claim below since the publisher can vary per claim in
+        // legacy relay paths.
+        if (address(campaigns) != address(0)) {
+            address adv = campaigns.getCampaignAdvertiser(campaignId);
+            if (adv != address(0) && userBlocksAdvertiser[user][adv]) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit ClaimRejected(campaignId, user, claims[j].nonce, 28);
+                }
+                emit UserBlocklistRejected(user, adv);
+                return;
+            }
+        }
 
         // M1-fix (2026-05-13): user-floor L3 = ZK-only. Applies regardless of
         // submission path (relay, publisher-relay, dual-sig). The user opted
@@ -945,6 +1030,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                     // L0: advisory event, continue settlement.
                     emit BlocklistCheckFailed(claim.campaignId, claim.publisher);
                 }
+            }
+
+            // CB1: per-claim publisher block from user's self-managed list.
+            // Treated as a hard reject (gap-set) so chain state stays linear.
+            if (userBlocksPublisher[user][claim.publisher]) {
+                result.rejectedCount++;
+                emit ClaimRejected(claim.campaignId, user, claim.nonce, 28);
+                emit UserBlocklistRejected(user, claim.publisher);
+                gapFound = true;
+                continue;
             }
 
             // Delegate validation to ClaimValidator satellite (SE-1)
@@ -1181,6 +1276,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         // FP-1: Record settled events on publisher stake bonding curve
         if (address(publisherStake) != address(0) && agg.eventsSettled > 0 && agg.publisher != address(0)) {
             publisherStake.recordImpressions(agg.publisher, agg.eventsSettled);
+        }
+
+        // CB4: Record DOT spent on advertiser stake bonding curve. Best-effort
+        // (try/catch) so a misconfigured advertiser-stake target cannot DoS
+        // settlement. Looked up via campaigns.getCampaignAdvertiser since
+        // batches are scoped to one campaignId.
+        if (advertiserStake != address(0) && agg.total > 0 && address(campaigns) != address(0)) {
+            address advertiser_ = campaigns.getCampaignAdvertiser(campaignId);
+            if (advertiser_ != address(0)) {
+                (bool ok, ) = advertiserStake.call(abi.encodeWithSignature(
+                    "recordBudgetSpent(address,uint256)",
+                    advertiser_, agg.total
+                ));
+                ok; // suppressed: callback failure is non-critical
+            }
         }
 
         // FP-16: Record reputation stats (inline)

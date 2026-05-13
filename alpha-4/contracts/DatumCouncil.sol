@@ -73,6 +73,23 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     uint256 public memberCount;
     address public guardian;
 
+    /// @notice CB3: per-member hot-key delegation. A member registers a relay
+    ///         signer that may act on their behalf for propose() and vote().
+    ///         The relay key CANNOT mutate membership (those require onlyCouncil
+    ///         = a passed proposal). Set to address(0) to revoke.
+    ///         Mirrors DatumPublishers.relaySigner + DatumCampaigns.advertiserRelaySigner.
+    mapping(address => address) public memberRelaySigner;       // member => relay
+    mapping(address => address) public memberFromRelay;         // relay => member (reverse O(1))
+
+    /// @notice CB7: per-member proposal rate limit. Each member can propose
+    ///         at most once every `proposalCooldownBlocks`. Prevents a single
+    ///         member (or compromised relay) from spamming the proposal queue.
+    ///         Defaults to 0 (disabled) — Council activates via self-vote when
+    ///         membership is stable. Settable within [0, MAX].
+    uint256 public proposalCooldownBlocks; // default 0 (disabled)
+    uint256 public constant MAX_PROPOSAL_COOLDOWN = 14400; // ~24h
+    mapping(address => uint256) public lastProposalBlock;
+
     uint256 public threshold;
     uint256 public votingPeriodBlocks;
     uint256 public executionDelayBlocks;
@@ -92,19 +109,30 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     event MemberAdded(address indexed member);
     event MemberRemoved(address indexed member);
     event GuardianSet(address indexed guardian);
+    event MemberRelaySignerSet(address indexed member, address indexed relay);
 
     // -------------------------------------------------------------------------
     // Modifiers
     // -------------------------------------------------------------------------
 
     modifier onlyMember() {
-        require(isMember[msg.sender], "E18");
+        require(_actingMember() != address(0), "E18");
         _;
     }
 
     modifier onlyCouncil() {
         require(msg.sender == address(this), "E18");
         _;
+    }
+
+    /// @notice CB3: resolves the caller to a member identity, accepting either
+    ///         the member's EOA or their registered relay signer. Returns
+    ///         address(0) if neither path matches a current member.
+    function _actingMember() internal view returns (address) {
+        if (isMember[msg.sender]) return msg.sender;
+        address m = memberFromRelay[msg.sender];
+        if (m != address(0) && isMember[m]) return m;
+        return address(0);
     }
 
     // -------------------------------------------------------------------------
@@ -162,7 +190,8 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         bytes[] calldata calldatas,
         string calldata description
     ) external onlyMember returns (uint256 proposalId) {
-        return _propose(msg.sender, targets, values, calldatas, description);
+        // CB3: record the member identity (not the relay signer) as proposer.
+        return _propose(_actingMember(), targets, values, calldatas, description);
     }
 
     /// @dev Internal proposal creation, shared by propose() and proposeGrant().
@@ -176,6 +205,16 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         require(targets.length > 0, "E00");
         require(targets.length == values.length, "E00");
         require(targets.length == calldatas.length, "E00");
+
+        // CB7: per-member cooldown (0 = disabled). Proposer is the member
+        // identity (already resolved by callers via _actingMember), so this
+        // rate-limits regardless of cold-key vs relay path.
+        uint256 cd = proposalCooldownBlocks;
+        if (cd > 0) {
+            uint256 last = lastProposalBlock[proposer];
+            require(last == 0 || block.number >= last + cd, "E86");
+            lastProposalBlock[proposer] = block.number;
+        }
 
         proposalId = nextProposalId++;
         proposals[proposalId] = Proposal({
@@ -240,7 +279,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         values[0] = 0;
         calldatas[0] = abi.encodeWithSelector(this.executeGrant.selector, recipient, amount);
 
-        proposalId = _propose(msg.sender, targets, values, calldatas, description);
+        proposalId = _propose(_actingMember(), targets, values, calldatas, description);
         emit GrantProposed(proposalId, recipient, amount, description);
     }
 
@@ -290,12 +329,16 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         require(p.proposedBlock > 0, "E01");      // proposal exists
         require(!p.executed && !p.vetoed && !p.cancelled, "E50");
         require(block.number <= p.votingEndsBlock, "E51");
-        require(!hasVoted[proposalId][msg.sender], "E42");
 
-        hasVoted[proposalId][msg.sender] = true;
+        // CB3: key the vote on the member identity, not the relay signer.
+        // This means a member can't double-vote by using both EOA and relay.
+        address member = _actingMember();
+        require(!hasVoted[proposalId][member], "E42");
+
+        hasVoted[proposalId][member] = true;
         p.voteCount++;
 
-        emit Voted(proposalId, msg.sender, p.voteCount);
+        emit Voted(proposalId, member, p.voteCount);
 
         if (p.voteCount >= threshold && p.executableAfterBlock == 0) {
             p.executableAfterBlock = block.number + executionDelayBlocks;
@@ -346,12 +389,13 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     function cancel(uint256 proposalId) external {
         Proposal storage p = proposals[proposalId];
         require(p.proposedBlock > 0, "E01");
-        require(msg.sender == p.proposer, "E18");
+        // CB3: proposer is the member identity; relay can cancel on their behalf.
+        require(_actingMember() == p.proposer && p.proposer != address(0), "E18");
         require(!p.executed, "E52");
         require(!p.vetoed && !p.cancelled, "E53");
 
         p.cancelled = true;
-        emit Cancelled(proposalId, msg.sender);
+        emit Cancelled(proposalId, p.proposer);
     }
 
     // -------------------------------------------------------------------------
@@ -375,6 +419,17 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         require(memberCount > MIN_COUNCIL_SIZE, "E00");    // G-L2: enforce safety floor
         isMember[member] = false;
 
+        // CB3: clean up the relay-signer mapping when a member is removed so a
+        // previously-delegated relay key can't act after the underlying member
+        // is gone. _actingMember() already gates on isMember, so this is
+        // belt-and-suspenders for state hygiene.
+        address relay = memberRelaySigner[member];
+        if (relay != address(0)) {
+            delete memberFromRelay[relay];
+            delete memberRelaySigner[member];
+            emit MemberRelaySignerSet(member, address(0));
+        }
+
         // M-8: swap-and-pop to keep _memberList compact
         uint256 idx = _memberIndex[member];
         uint256 lastIdx = _memberList.length - 1;
@@ -396,6 +451,33 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         emit GuardianSet(_guardian);
     }
 
+    /// @notice CB3: member self-registers (or rotates) a hot relay key.
+    ///         The caller is the member; the cold-key authority over this
+    ///         mapping. Setting to address(0) revokes any prior delegation.
+    ///         A relay key cannot be a current member (would create routing
+    ///         ambiguity in _actingMember) and cannot be the guardian.
+    function setMemberRelaySigner(address relay) external onlyMember {
+        address member = _actingMember();
+        // Disallow rotation FROM the relay key itself — relay rotation is a
+        // cold-key authority. A compromised hot key cannot self-perpetuate by
+        // pointing the delegation elsewhere.
+        require(msg.sender == member, "cold-key only");
+        require(relay == address(0) || !isMember[relay], "relay-is-member");
+        require(relay != guardian, "relay-is-guardian");
+
+        address prev = memberRelaySigner[member];
+        if (prev != address(0)) {
+            delete memberFromRelay[prev];
+        }
+        memberRelaySigner[member] = relay;
+        if (relay != address(0)) {
+            // Disallow a single relay key delegated by two members.
+            require(memberFromRelay[relay] == address(0), "relay-already-delegated");
+            memberFromRelay[relay] = member;
+        }
+        emit MemberRelaySignerSet(member, relay);
+    }
+
     function setThreshold(uint256 _threshold) external onlyCouncil {
         require(_threshold >= MIN_THRESHOLD && _threshold <= memberCount, "E00"); // G-L2
         threshold = _threshold;
@@ -414,6 +496,13 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     function setVetoWindow(uint256 blocks) external onlyCouncil {
         require(blocks >= MIN_VETO_WINDOW, "E00"); // G-L3
         vetoWindowBlocks = blocks;
+    }
+
+    /// @notice CB7: adjust per-member proposal cooldown. Council self-vote
+    ///         only. 0 disables the rate limit; max bounded at MAX.
+    function setProposalCooldown(uint256 blocks) external onlyCouncil {
+        require(blocks <= MAX_PROPOSAL_COOLDOWN, "above max");
+        proposalCooldownBlocks = blocks;
     }
 
     function setMaxExecutionWindow(uint256 blocks) external onlyCouncil {

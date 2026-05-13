@@ -9,6 +9,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumTagCurator.sol";
+import "./interfaces/IDatumAdvertiserStake.sol";
 
 /// @dev B9-fix: minimal Settlement read interface for the report eligibility
 ///      gate. Kept inline — only one function needed and `IDatumSettlement`
@@ -142,6 +143,13 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         directly (strict path) and to rotate this mapping.
     mapping(address => address) public advertiserRelaySigner;
     event AdvertiserRelaySignerSet(address indexed advertiser, address indexed signer);
+
+    /// @notice CB4: optional gate on createCampaign. When set non-zero,
+    ///         advertisers must be adequately staked per the bonding curve.
+    ///         Lock-once for cypherpunk hardening — a hostile owner can't
+    ///         swap to a permissive stake contract that always returns true.
+    IDatumAdvertiserStake public advertiserStake;
+    event AdvertiserStakeSet(address indexed stakeContract);
 
     // ---- Allowlist snapshots (merged from DatumCampaignValidator) ----
     mapping(uint256 => bool) public campaignAllowlistEnabled;
@@ -489,6 +497,17 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         emit TagCuratorLocked();
     }
 
+    /// @notice CB4: wire the advertiser-stake contract. Lock-once: a hostile
+    ///         owner cannot hot-swap to a permissive stake reader. Set to
+    ///         address(0) at deploy if not yet ready; first non-zero write
+    ///         is final.
+    function setAdvertiserStake(address addr) external onlyOwner {
+        require(address(advertiserStake) == address(0), "already set");
+        require(addr != address(0), "E00");
+        advertiserStake = IDatumAdvertiserStake(addr);
+        emit AdvertiserStakeSet(addr);
+    }
+
     /// @notice M5-fix: effective tag approval. Local mapping OR external curator.
     function _isTagApproved(bytes32 tag) internal view returns (bool) {
         if (approvedTags[tag]) return true;
@@ -520,7 +539,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         for `hasAllTags` calls until `block.number >= effectiveBlock`. Tags
     ///         being re-added clear any pending removal.
     function setPublisherTags(bytes32[] calldata tagHashes) external {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedCampaignCreation(), "P");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(msg.sender);
         require(pub.registered, "Not registered");
         require(tagHashes.length <= MAX_PUBLISHER_TAGS, "E65");
@@ -647,7 +666,22 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint256 rewardPerImpression,
         uint256 bondAmount
     ) external payable nonReentrant returns (uint256 campaignId) {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedCampaignCreation(), "P");
+
+        // CB4: optional advertiser-stake gate. When the stake contract is
+        // wired, the caller must be adequately staked per the bonding curve.
+        // Fail-closed on revert (treat unreadable stake as inadequate) so a
+        // misconfigured stake ref can't bypass the gate.
+        if (address(advertiserStake) != address(0)) {
+            bool ok = false;
+            try advertiserStake.isAdequatelyStaked(msg.sender) returns (bool s) {
+                ok = s;
+            } catch {
+                ok = false;
+            }
+            require(ok, "stake-inadequate");
+        }
+
         require(msg.value > bondAmount, "E11");
         uint256 budgetValue = msg.value - bondAmount;
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11");
@@ -1138,7 +1172,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @inheritdoc IDatumCampaigns
     function activateCampaign(uint256 campaignId) external {
-        require(!pauseRegistry.paused(), "P");
+        // Governance-driven action — gated on governance pause, not settlement.
+        require(!pauseRegistry.pausedGovernance(), "P");
         require(msg.sender == governanceContract, "E19");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
@@ -1221,7 +1256,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         this advertiser. The cold key is the SOLE authority over this
     ///         mapping; a compromised hot key cannot self-perpetuate.
     function setAdvertiserRelaySigner(address signer) external {
-        require(!pauseRegistry.paused(), "P");
+        // Advertiser-side rotation is part of the settlement trust path —
+        // gate on settlement pause so a settlement-pause halts both the
+        // batches AND new advertiser hot-key rotations during triage.
+        require(!pauseRegistry.pausedSettlement(), "P");
         advertiserRelaySigner[msg.sender] = signer;
         emit AdvertiserRelaySignerSet(msg.sender, signer);
     }

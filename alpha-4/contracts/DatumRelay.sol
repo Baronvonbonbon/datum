@@ -167,7 +167,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
         external
         returns (IDatumSettlement.SettlementResult memory result)
     {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
 
         // H-4: Relayer authorization check with liveness fallback
         if (authorizedRelayerCount > 0) {

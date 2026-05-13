@@ -178,7 +178,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     // -------------------------------------------------------------------------
 
     function vote(uint256 campaignId, bool aye, uint8 conviction) external payable nonReentrant {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedGovernance(), "P");
         require(conviction <= MAX_CONVICTION, "E40");
         require(msg.value > 0, "E41");
 
@@ -257,7 +257,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     // -------------------------------------------------------------------------
 
     function evaluateCampaign(uint256 campaignId) external {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedGovernance(), "P");
         (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
 
         uint256 total = ayeWeighted[campaignId] + nayWeighted[campaignId];

@@ -64,7 +64,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Pa
     event BondPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
 
     // ── Modifiers ───────────────────────────────────────────────────────────────
-    modifier whenNotPaused() { require(!pauseRegistry.paused(), "P"); _; }
+    modifier whenNotPaused() { require(!pauseRegistry.pausedGovernance(), "P"); _; }
 
     // ── Constructor ─────────────────────────────────────────────────────────────
     constructor(

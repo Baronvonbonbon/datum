@@ -133,7 +133,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     modifier whenNotPaused() {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedGovernance(), "P");
         _;
     }
 

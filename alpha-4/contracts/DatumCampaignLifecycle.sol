@@ -43,7 +43,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     event PlumbingLocked();
 
     modifier whenNotPaused() {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
         _;
     }
 
@@ -153,7 +153,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     /// @dev Called by GovernanceV2 directly (not via Campaigns).
     ///      10% slash to governance, 90% refund to advertiser.
     function terminateCampaign(uint256 campaignId) external nonReentrant {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
         require(msg.sender == governanceContract, "E19");
 
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
@@ -212,7 +212,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     ///      pendingExpiryBlock is set to type(uint256).max to prevent expirePendingCampaign
     ///      from racing the governance termination path.
     function demoteCampaign(uint256 campaignId) external nonReentrant {
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
         require(msg.sender == governanceContract, "E19");
 
         IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);

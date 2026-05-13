@@ -25,11 +25,26 @@ import "./DatumOwnable.sol";
 ///         Replay protection: each proposal is marked `executed` rather than
 ///         deleted (AUDIT-021), and approvers are tracked per-proposal.
 contract DatumPauseRegistry is DatumOwnable {
-    /// @dev Raw pause flag. External callers read via `paused()` which lazily
-    ///      expires after MAX_PAUSE_BLOCKS so a single guardian holding the
-    ///      veto can't DoS the protocol indefinitely (A6/B6-fix).
-    bool internal _pausedRaw;
-    /// @notice Block at which `pause` / `pauseFast` was last engaged.
+    /// @dev CB6: per-category pause bitfield. Replaces the single _pausedRaw
+    ///      bool. Backward-compatible `paused()` returns true iff any active
+    ///      category remains within its MAX_PAUSE_BLOCKS expiry window.
+    uint8 internal _pausedCategoriesRaw;
+    /// @notice CB6: per-category engagement block, for independent expiry.
+    mapping(uint8 => uint256) public pausedAtBlockFor;
+
+    /// @notice CB6: category bit values. Powers of 2 so they can be OR'd into
+    ///         the bitfield. CAT_ALL = full-stop legacy behavior.
+    uint8 public constant CAT_SETTLEMENT        = 1 << 0;
+    uint8 public constant CAT_CAMPAIGN_CREATION = 1 << 1;
+    uint8 public constant CAT_GOVERNANCE        = 1 << 2;
+    uint8 public constant CAT_TOKEN_MINT        = 1 << 3;
+    uint8 public constant CAT_ALL = CAT_SETTLEMENT | CAT_CAMPAIGN_CREATION | CAT_GOVERNANCE | CAT_TOKEN_MINT;
+
+    /// @notice Legacy accessor kept for back-compat with existing call sites.
+    ///         Equals pausedAtBlockFor[CAT_SETTLEMENT] for the common single-
+    ///         category settlement-pause case; for full-stop pause it's the
+    ///         most recently engaged category. Observers should prefer
+    ///         pausedAtBlockFor[category] for precise per-category timing.
     uint256 public pausedAtBlock;
 
     /// @notice A6/B6-fix (2026-05-12): pause auto-expiry. ~14 days at 6s/block
@@ -50,7 +65,8 @@ contract DatumPauseRegistry is DatumOwnable {
     bool public guardianSetLocked;
 
     // ---- Proposal types ----
-    // action 1 (legacy pause), 2 (unpause), 3 (rotate guardians)
+    // action 1 (legacy pause), 2 (unpause-all), 3 (rotate guardians),
+    // action 4 (CB6: unpause specific categories)
     struct Proposal {
         uint8 action;
         address proposer;
@@ -60,12 +76,16 @@ contract DatumPauseRegistry is DatumOwnable {
         address ng0;
         address ng1;
         address ng2;
+        // CB6: used when action == 4 (categorical unpause)
+        uint8 categories;
         mapping(address => bool) voted;
     }
     mapping(uint256 => Proposal) private _proposals;
 
     event Paused(address indexed by);
     event Unpaused(address indexed by);
+    event PausedCategory(address indexed by, uint8 indexed categories);
+    event UnpausedCategory(address indexed by, uint8 indexed categories);
     event GuardiansUpdated(address g0, address g1, address g2);
     event GuardianSetLocked();
     event PauseProposed(uint256 indexed proposalId, uint8 action, address indexed proposer);
@@ -117,32 +137,70 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         vs. unpause is deliberate — live exploits don't wait for quorum.
     function pauseFast() external {
         require(_isGuardian(msg.sender), "E18");
-        require(!paused(), "E11");
-        _pausedRaw = true;
-        pausedAtBlock = block.number;
-        emit Paused(msg.sender);
+        _engage(msg.sender, CAT_ALL);
+    }
+
+    /// @notice CB6: per-category fast-pause. Any guardian can pause a subset
+    ///         of categories, limiting blast radius. `categories` is a
+    ///         bitfield of CAT_* constants.
+    function pauseFastCategories(uint8 categories) external {
+        require(_isGuardian(msg.sender), "E18");
+        require(categories != 0 && (categories & ~CAT_ALL) == 0, "E11");
+        _engage(msg.sender, categories);
     }
 
     /// @notice Owner solo pause — kept for emergency response by the deploying
-    ///         party. Restored to `pause` solely as the owner. Unpause still
-    ///         requires guardian quorum, so even an attacker who steals the
-    ///         owner key can only ratchet the system into pause; recovery
-    ///         remains gated on the (potentially rotated) guardians.
+    ///         party. Engages every category. Unpause still requires guardian
+    ///         quorum, so even an attacker who steals the owner key can only
+    ///         ratchet the system into pause; recovery remains gated on the
+    ///         (potentially rotated) guardians.
     function pause() external onlyOwner {
-        _pausedRaw = true;
-        pausedAtBlock = block.number;
-        emit Paused(msg.sender);
+        _engage(msg.sender, CAT_ALL);
     }
 
-    /// @notice A6/B6-fix: lazy-evaluated pause state. Returns false once
-    ///         `MAX_PAUSE_BLOCKS` have elapsed since the pause was engaged,
-    ///         even if no guardian has voted to unpause. Caps any single
-    ///         guardian's DoS power to a finite window.
-    function paused() public view returns (bool) {
-        if (!_pausedRaw) return false;
-        if (block.number > pausedAtBlock + MAX_PAUSE_BLOCKS) return false;
-        return true;
+    /// @dev Internal helper: OR `categories` into the bitfield and refresh the
+    ///      engagement block for each. Idempotent — re-engaging an already-
+    ///      active category resets its expiry clock (useful: a guardian can
+    ///      extend a near-expired pause by re-calling pauseFast).
+    function _engage(address by, uint8 categories) internal {
+        require(categories != 0, "E11");
+        _pausedCategoriesRaw |= categories;
+        if (categories & CAT_SETTLEMENT        != 0) pausedAtBlockFor[CAT_SETTLEMENT]        = block.number;
+        if (categories & CAT_CAMPAIGN_CREATION != 0) pausedAtBlockFor[CAT_CAMPAIGN_CREATION] = block.number;
+        if (categories & CAT_GOVERNANCE        != 0) pausedAtBlockFor[CAT_GOVERNANCE]        = block.number;
+        if (categories & CAT_TOKEN_MINT        != 0) pausedAtBlockFor[CAT_TOKEN_MINT]        = block.number;
+        pausedAtBlock = block.number;
+        emit PausedCategory(by, categories);
+        emit Paused(by);
     }
+
+    /// @notice CB6: bitfield of currently-active (within-window) categories.
+    function _activeMask() internal view returns (uint8 mask) {
+        uint8 raw = _pausedCategoriesRaw;
+        if (raw == 0) return 0;
+        if (raw & CAT_SETTLEMENT        != 0 && block.number <= pausedAtBlockFor[CAT_SETTLEMENT]        + MAX_PAUSE_BLOCKS) mask |= CAT_SETTLEMENT;
+        if (raw & CAT_CAMPAIGN_CREATION != 0 && block.number <= pausedAtBlockFor[CAT_CAMPAIGN_CREATION] + MAX_PAUSE_BLOCKS) mask |= CAT_CAMPAIGN_CREATION;
+        if (raw & CAT_GOVERNANCE        != 0 && block.number <= pausedAtBlockFor[CAT_GOVERNANCE]        + MAX_PAUSE_BLOCKS) mask |= CAT_GOVERNANCE;
+        if (raw & CAT_TOKEN_MINT        != 0 && block.number <= pausedAtBlockFor[CAT_TOKEN_MINT]        + MAX_PAUSE_BLOCKS) mask |= CAT_TOKEN_MINT;
+    }
+
+    /// @notice Back-compat: true iff ANY category is currently active.
+    ///         Existing call sites continue to read this; CB6-aware call
+    ///         sites should prefer the per-category accessors below.
+    function paused() public view returns (bool) {
+        return _activeMask() != 0;
+    }
+
+    /// @notice CB6: per-category pause checks. Each contract should call the
+    ///         category most relevant to its operation — a settlement pause
+    ///         should not block governance from responding.
+    function pausedSettlement()       external view returns (bool) { return (_activeMask() & CAT_SETTLEMENT)        != 0; }
+    function pausedCampaignCreation() external view returns (bool) { return (_activeMask() & CAT_CAMPAIGN_CREATION) != 0; }
+    function pausedGovernance()       external view returns (bool) { return (_activeMask() & CAT_GOVERNANCE)        != 0; }
+    function pausedTokenMint()        external view returns (bool) { return (_activeMask() & CAT_TOKEN_MINT)         != 0; }
+
+    /// @notice CB6: raw bitfield read for observers that want the full state.
+    function pausedCategories() external view returns (uint8) { return _activeMask(); }
 
     // -------------------------------------------------------------------------
     // SM-6: 2-of-3 guardian unpause (action == 2)
@@ -176,6 +234,9 @@ contract DatumPauseRegistry is DatumOwnable {
         // Pre-execution state validation per action type.
         if (p.action == 2) {
             require(paused(), "E11");
+        } else if (p.action == 4) {
+            // CB6: must still have at least one of the target categories active.
+            require((_activeMask() & p.categories) != 0, "E11");
         }
         // action == 3 (guardian rotation) needs no pre-state guard.
 
@@ -191,12 +252,41 @@ contract DatumPauseRegistry is DatumOwnable {
 
     function _execute(Proposal storage p) internal {
         if (p.action == 2) {
-            _pausedRaw = false;
+            // Unpause all categories.
+            uint8 cleared = _pausedCategoriesRaw;
+            _pausedCategoriesRaw = 0;
             pausedAtBlock = 0;
+            emit UnpausedCategory(msg.sender, cleared);
             emit Unpaused(msg.sender);
         } else if (p.action == 3) {
             _setGuardians(p.ng0, p.ng1, p.ng2);
+        } else if (p.action == 4) {
+            // CB6: clear only the specified categories.
+            _pausedCategoriesRaw &= ~p.categories;
+            emit UnpausedCategory(msg.sender, p.categories);
+            if (_pausedCategoriesRaw == 0) {
+                pausedAtBlock = 0;
+                emit Unpaused(msg.sender);
+            }
         }
+    }
+
+    /// @notice CB6: propose unpause of a specific category subset. Same 2-of-3
+    ///         approval as full unpause. Lets the council unpause governance
+    ///         while leaving settlement paused (or vice versa) for triage.
+    function proposeCategoryUnpause(uint8 categories) external returns (uint256 proposalId) {
+        require(_isGuardian(msg.sender), "E18");
+        require(categories != 0 && (categories & ~CAT_ALL) == 0, "E11");
+        require((_activeMask() & categories) != 0, "E11"); // at least one must be active
+
+        proposalId = ++_proposalNonce;
+        Proposal storage p = _proposals[proposalId];
+        p.action = 4;
+        p.proposer = msg.sender;
+        p.approvals = 1;
+        p.categories = categories;
+        p.voted[msg.sender] = true;
+        emit PauseProposed(proposalId, 4, msg.sender);
     }
 
     // -------------------------------------------------------------------------

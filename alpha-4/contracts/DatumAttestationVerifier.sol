@@ -83,7 +83,7 @@ contract DatumAttestationVerifier is EIP712 {
         returns (IDatumSettlement.SettlementResult memory result)
     {
         // S4: Pause check (mirrors Settlement.settleClaims)
-        require(!pauseRegistry.paused(), "P");
+        require(!pauseRegistry.pausedSettlement(), "P");
 
         IDatumSettlement.ClaimBatch[] memory forwardBatches =
             new IDatumSettlement.ClaimBatch[](batches.length);
