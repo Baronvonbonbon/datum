@@ -8,9 +8,21 @@ import { CampaignMetadata, AdFormat, AD_FORMAT_SIZES, CreativeAsset } from "@sha
 import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
+import { BulletinCodec } from "@shared/bulletinChain";
+import {
+  listInjectedExtensions,
+  connectExtension,
+  signerFor,
+  storeOnBulletin,
+  getAuthorization,
+} from "@shared/bulletinChainClient";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+
+// Default regulatory retention horizon: ~1 year of Hub blocks (6s blocks).
+// Used by the Bulletin Chain path when the advertiser doesn't override it.
+const DEFAULT_RETENTION_HORIZON_BLOCKS = 5_256_000n;
 
 export function SetMetadata() {
   const { id } = useParams<{ id: string }>();
@@ -35,10 +47,7 @@ export function SetMetadata() {
   const [txMsg, setTxMsg] = useState("");
   const [pinStatus, setPinStatus] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!signer) return;
-
+  function buildMetadata(): CampaignMetadata | null {
     const perFormatImages: CreativeAsset[] = (Object.entries(formatImages) as [AdFormat, string][])
       .filter(([, url]) => url.trim())
       .map(([format, url]) => ({ format, url: url.trim() }));
@@ -63,9 +72,26 @@ export function SetMetadata() {
     if (!validated) {
       setTxMsg("Metadata failed content validation. Check for blocked phrases or invalid URLs.");
       setTxState("error");
-      return;
+      return null;
     }
+    return validated;
+  }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!signer) return;
+
+    const validated = buildMetadata();
+    if (!validated) return;
+
+    if (settings.ipfsProvider === "bulletin") {
+      await handleSubmitBulletin(validated);
+    } else {
+      await handleSubmitIpfs(validated);
+    }
+  }
+
+  async function handleSubmitIpfs(validated: CampaignMetadata) {
     const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
     const noKeyRequired = settings.ipfsProvider === "custom" || settings.ipfsProvider === "selfhosted";
     if (!apiKey && !noKeyRequired) {
@@ -91,12 +117,72 @@ export function SetMetadata() {
       if (pinResult.warning) push(pinResult.warning, "warn");
 
       const metadataHash = cidToBytes32(pinResult.cid);
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaigns.connect(signer!);
       const tx = await c.setMetadata(BigInt(id!), metadataHash);
       await confirmTx(tx);
 
       setTxState("success");
       setTxMsg(`Metadata set on-chain. CID: ${pinResult.cid}`);
+      setTimeout(() => navigate(`/advertiser/campaign/${id}`), 3000);
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setTxMsg(humanizeError(err));
+      setTxState("error");
+    }
+  }
+
+  async function handleSubmitBulletin(validated: CampaignMetadata) {
+    setTxState("pending");
+
+    try {
+      // 1. Locate a polkadot.js-compatible wallet extension.
+      setPinStatus("Looking for wallet extension...");
+      const exts = await listInjectedExtensions();
+      if (exts.length === 0) {
+        throw new Error(
+          "No Polkadot wallet extension detected. Install polkadot{.js}, Talisman, SubWallet, or Fearless and reload.",
+        );
+      }
+
+      setPinStatus(`Connecting to ${exts[0]}...`);
+      const { accounts } = await connectExtension(exts[0]);
+      if (accounts.length === 0) {
+        throw new Error(`No accounts available in ${exts[0]}. Open the extension and create / unlock an account.`);
+      }
+      // Phase A: use the first available account. F5 will add account selection UI.
+      const account = accounts[0];
+
+      // 2. Verify the account has Bulletin Chain authorization.
+      setPinStatus(`Checking Bulletin Chain authorization for ${account.address.slice(0, 10)}...`);
+      const auth = await getAuthorization(account.address);
+      if (!auth.authorized) {
+        throw new Error(
+          `${account.address.slice(0, 10)}... is not authorized on Bulletin Chain. Visit the faucet (https://paritytech.github.io/polkadot-bulletin-chain/) to grant authorization first.`,
+        );
+      }
+
+      // 3. Submit transactionStorage.store with the JSON-serialized metadata.
+      const data = new TextEncoder().encode(JSON.stringify(validated));
+      setPinStatus(`Uploading ${data.byteLength} bytes to Bulletin Chain...`);
+      const storeRes = await storeOnBulletin(data, signerFor(account));
+      setPinStatus(`Stored: ${storeRes.cid} (block ${storeRes.bulletinBlock}, idx ${storeRes.bulletinIndex})`);
+
+      // 4. Record the reference on Hub.
+      const c = contracts.campaigns.connect(signer!);
+      const horizonBlock = BigInt(await contracts.campaigns.runner!.provider!.getBlockNumber())
+        + DEFAULT_RETENTION_HORIZON_BLOCKS;
+      const tx = await c.setBulletinCreative(
+        BigInt(id!),
+        storeRes.cidDigest,
+        storeRes.cidCodec,
+        storeRes.bulletinBlock,
+        storeRes.bulletinIndex,
+        horizonBlock,
+      );
+      await confirmTx(tx);
+
+      setTxState("success");
+      setTxMsg(`Bulletin Chain creative set on Hub. CID: ${storeRes.cid}`);
       setTimeout(() => navigate(`/advertiser/campaign/${id}`), 3000);
     } catch (err) {
       push(humanizeError(err), "error");
@@ -113,12 +199,22 @@ export function SetMetadata() {
         <Link to={`/advertiser/campaign/${id}`} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaign #{id}</Link>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Set Campaign Metadata</h1>
         <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>
-          Metadata is pinned to IPFS and the hash stored on-chain. Requires an IPFS pinning key in{" "}
-          <Link to="/settings" style={{ color: "var(--accent)" }}>Settings</Link>.
+          {settings.ipfsProvider === "bulletin"
+            ? "Creative will be uploaded to the Polkadot Bulletin Chain. Requires a Bulletin-authorized account in your wallet extension."
+            : <>Metadata is pinned to IPFS and the hash stored on-chain. Requires an IPFS pinning key in <Link to="/settings" style={{ color: "var(--accent)" }}>Settings</Link>.</>
+          }
         </p>
       </div>
 
-      {!(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && settings.ipfsProvider !== "selfhosted" && (
+      {settings.ipfsProvider === "bulletin" && (
+        <div className="nano-info" style={{ marginBottom: 16 }}>
+          Bulletin Chain selected. Authorize your wallet address at the{" "}
+          <a href="https://paritytech.github.io/polkadot-bulletin-chain/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Paseo faucet</a>
+          {" "}before uploading.
+        </div>
+      )}
+
+      {settings.ipfsProvider !== "bulletin" && !(settings.ipfsApiKey || settings.pinataApiKey) && settings.ipfsProvider !== "custom" && settings.ipfsProvider !== "selfhosted" && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
           No IPFS pinning key configured. <Link to="/settings" style={{ color: "var(--accent)" }}>Add it in Settings.</Link>
         </div>

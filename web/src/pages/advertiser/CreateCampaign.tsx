@@ -309,28 +309,72 @@ export function CreateCampaign() {
     const validated = validateAndSanitize(metadata);
     if (!validated) { setMetaTxMsg("Content validation failed."); setMetaTxState("error"); return; }
 
-    const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
-    if (!apiKey && settings.ipfsProvider !== "custom") {
-      setMetaTxMsg("No IPFS pinning key. Add one in Settings.");
-      setMetaTxState("error");
-      return;
-    }
-
     setMetaTxState("pending");
-    setPinStatus("Pinning to IPFS...");
     try {
-      const pinResult = await pinToIPFS({ provider: settings.ipfsProvider ?? "pinata", apiKey, endpoint: settings.ipfsApiEndpoint }, validated);
-      if (!pinResult.ok || !pinResult.cid) throw new Error(pinResult.error ?? "IPFS pin failed");
-      setPinStatus(`Pinned: ${pinResult.cid}${pinResult.warning ? " ⚠ local-only" : ""}`);
-      if (pinResult.warning) push(pinResult.warning, "warn");
+      if (settings.ipfsProvider === "bulletin") {
+        // Bulletin Chain path: upload to Bulletin via PAPI, then call setBulletinCreative.
+        setPinStatus("Looking for wallet extension...");
+        const { listInjectedExtensions, connectExtension, signerFor, storeOnBulletin, getAuthorization } =
+          await import("@shared/bulletinChainClient");
+        const exts = await listInjectedExtensions();
+        if (exts.length === 0) {
+          throw new Error("No Polkadot wallet extension detected. Install polkadot{.js}, Talisman, SubWallet, or Fearless.");
+        }
+        setPinStatus(`Connecting to ${exts[0]}...`);
+        const { accounts } = await connectExtension(exts[0]);
+        if (accounts.length === 0) {
+          throw new Error(`No accounts in ${exts[0]}. Open the extension and create / unlock an account.`);
+        }
+        const account = accounts[0];
 
-      const metadataHash = cidToBytes32(pinResult.cid);
-      const c = contracts.campaigns.connect(signer);
-      const tx = await c.setMetadata(BigInt(createdId), metadataHash);
-      await confirmTx(tx);
+        setPinStatus(`Checking Bulletin authorization for ${account.address.slice(0, 10)}...`);
+        const auth = await getAuthorization(account.address);
+        if (!auth.authorized) {
+          throw new Error(
+            `${account.address.slice(0, 10)}... is not authorized. Visit the Bulletin Chain faucet (https://paritytech.github.io/polkadot-bulletin-chain/) first.`,
+          );
+        }
 
-      setMetaTxState("success");
-      setMetaTxMsg(`Metadata set! CID: ${pinResult.cid}`);
+        const data = new TextEncoder().encode(JSON.stringify(validated));
+        setPinStatus(`Uploading ${data.byteLength} bytes to Bulletin Chain...`);
+        const storeRes = await storeOnBulletin(data, signerFor(account));
+        setPinStatus(`Stored: ${storeRes.cid} (block ${storeRes.bulletinBlock}, idx ${storeRes.bulletinIndex})`);
+
+        // ~1 year retention horizon at 6s Hub blocks.
+        const DEFAULT_HORIZON = 5_256_000n;
+        const horizonBlock = BigInt(await contracts.campaigns.runner!.provider!.getBlockNumber()) + DEFAULT_HORIZON;
+        const c = contracts.campaigns.connect(signer);
+        const tx = await c.setBulletinCreative(
+          BigInt(createdId),
+          storeRes.cidDigest,
+          storeRes.cidCodec,
+          storeRes.bulletinBlock,
+          storeRes.bulletinIndex,
+          horizonBlock,
+        );
+        await confirmTx(tx);
+        setMetaTxState("success");
+        setMetaTxMsg(`Bulletin Chain creative set! CID: ${storeRes.cid}`);
+      } else {
+        // IPFS path (existing).
+        const apiKey = settings.ipfsApiKey || settings.pinataApiKey || "";
+        if (!apiKey && settings.ipfsProvider !== "custom") {
+          throw new Error("No IPFS pinning key. Add one in Settings.");
+        }
+        setPinStatus("Pinning to IPFS...");
+        const pinResult = await pinToIPFS({ provider: settings.ipfsProvider ?? "pinata", apiKey, endpoint: settings.ipfsApiEndpoint }, validated);
+        if (!pinResult.ok || !pinResult.cid) throw new Error(pinResult.error ?? "IPFS pin failed");
+        setPinStatus(`Pinned: ${pinResult.cid}${pinResult.warning ? " ⚠ local-only" : ""}`);
+        if (pinResult.warning) push(pinResult.warning, "warn");
+
+        const metadataHash = cidToBytes32(pinResult.cid);
+        const c = contracts.campaigns.connect(signer);
+        const tx = await c.setMetadata(BigInt(createdId), metadataHash);
+        await confirmTx(tx);
+
+        setMetaTxState("success");
+        setMetaTxMsg(`Metadata set! CID: ${pinResult.cid}`);
+      }
 
       // Go to step 3 if reward token was configured, else navigate after delay
       const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;

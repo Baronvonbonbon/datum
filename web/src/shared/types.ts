@@ -309,7 +309,8 @@ export type IpfsProvider =
   | "nftstorage"
   | "selfhosted"
   | "localipfs"
-  | "custom";
+  | "custom"
+  | "bulletin";
 
 export type ThemeName = "dark" | "light";
 

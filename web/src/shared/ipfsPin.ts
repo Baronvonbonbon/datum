@@ -82,6 +82,13 @@ export const IPFS_PROVIDERS: Record<IpfsProvider, ProviderInfo> = {
     docsUrl: "",
     needsEndpoint: true,
   },
+  bulletin: {
+    label: "Polkadot Bulletin Chain (Paseo)",
+    placeholder: "(no API key — auth granted via Bulletin faucet)",
+    keyLabel: "Auth (managed via faucet UI)",
+    docsUrl: "https://paritytech.github.io/polkadot-bulletin-chain/",
+    needsEndpoint: false,
+  },
 };
 
 // ── Pinning implementations ───────────────────────────────────────────────────
@@ -305,6 +312,16 @@ export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): 
       case "selfhosted":  return await pinViaCustom(key, SELFHOSTED_UPLOAD_URL, metadata);
       case "localipfs":   return await pinViaKubo(config.endpoint ?? "", key, metadata);
       case "custom":      return await pinViaCustom(key, config.endpoint ?? "", metadata);
+      case "bulletin":
+        // Bulletin Chain uploads don't flow through pinToIPFS because they require
+        // a PolkadotSigner (wallet extension) and produce a (block, index) tuple in
+        // addition to the CID. The upload UI (CreateCampaign / SetMetadata) detects
+        // provider == "bulletin" and dispatches to bulletinChainClient.storeOnBulletin
+        // directly, bypassing this function.
+        return {
+          ok: false,
+          error: "Bulletin Chain uploads have their own dispatch path; this function should not be called with provider=bulletin",
+        };
     }
   } catch (err) {
     return { ok: false, error: `Pin failed: ${String(err).slice(0, 200)}` };
@@ -376,6 +393,11 @@ export async function testPinConfig(config: PinConfig): Promise<{ ok: boolean; e
       }
       case "custom": {
         if (!config.endpoint?.trim()) return { ok: false, error: "No endpoint URL set" };
+        return { ok: true };
+      }
+      case "bulletin": {
+        // Bulletin Chain has no API key; auth status is checked at upload time
+        // via bulletinChainClient.getAuthorization. Surface a hint instead.
         return { ok: true };
       }
     }
