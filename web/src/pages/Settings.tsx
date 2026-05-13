@@ -8,28 +8,61 @@ import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
 import { IpfsProvider } from "@shared/types";
 
-const CONTRACT_LABELS: Record<string, string> = {
-  campaigns: "Campaigns",
-  publishers: "Publishers",
-  governanceV2: "GovernanceV2",
-  settlement: "Settlement",
-  relay: "Relay",
-  pauseRegistry: "PauseRegistry",
-  timelock: "Timelock",
-  zkVerifier: "ZKVerifier",
-  budgetLedger: "BudgetLedger",
-  paymentVault: "PaymentVault",
-  lifecycle: "CampaignLifecycle",
-  attestationVerifier: "AttestationVerifier",
-  claimValidator: "ClaimValidator",
-  tokenRewardVault: "TokenRewardVault",
-  publisherStake: "PublisherStake",
-  challengeBonds: "ChallengeBonds",
-  publisherGovernance: "PublisherGovernance",
-  governanceRouter: "GovernanceRouter",
-  council: "Council",
-  clickRegistry: "ClickRegistry",
+// Field metadata: label + which group + whether optional.
+//
+// Core fields are required on any working deploy. Optional fields enable
+// specific UI features (token system, curator-delegated blocklist) and
+// safely no-op when left blank.
+type ContractFieldGroup = "core" | "satellite" | "governance" | "optional";
+
+interface ContractFieldMeta {
+  label: string;
+  group: ContractFieldGroup;
+  feature?: string; // user-facing feature this address unlocks
+}
+
+const CONTRACT_FIELDS: Record<string, ContractFieldMeta> = {
+  // Core
+  campaigns:            { label: "Campaigns", group: "core" },
+  publishers:           { label: "Publishers", group: "core" },
+  settlement:           { label: "Settlement", group: "core" },
+  relay:                { label: "Relay", group: "core" },
+  pauseRegistry:        { label: "PauseRegistry", group: "core" },
+  timelock:             { label: "Timelock", group: "core" },
+  zkVerifier:           { label: "ZKVerifier", group: "core" },
+  // Satellites + supporting contracts
+  budgetLedger:         { label: "BudgetLedger", group: "satellite" },
+  paymentVault:         { label: "PaymentVault", group: "satellite" },
+  lifecycle:            { label: "CampaignLifecycle", group: "satellite" },
+  attestationVerifier:  { label: "AttestationVerifier", group: "satellite" },
+  claimValidator:       { label: "ClaimValidator", group: "satellite" },
+  tokenRewardVault:     { label: "TokenRewardVault", group: "satellite" },
+  publisherStake:       { label: "PublisherStake", group: "satellite" },
+  challengeBonds:       { label: "ChallengeBonds", group: "satellite" },
+  clickRegistry:        { label: "ClickRegistry", group: "satellite" },
+  // Governance
+  governanceV2:         { label: "GovernanceV2", group: "governance" },
+  publisherGovernance:  { label: "PublisherGovernance", group: "governance" },
+  parameterGovernance:  { label: "ParameterGovernance", group: "governance" },
+  governanceRouter:     { label: "GovernanceRouter", group: "governance" },
+  council:              { label: "Council", group: "governance" },
+  // Optional / post-token-deploy
+  councilBlocklistCurator: { label: "CouncilBlocklistCurator", group: "optional", feature: "Curator-delegated blocklist" },
+  wrapper:              { label: "DatumWrapper (WDATUM)", group: "optional", feature: "WDATUM wrap/unwrap" },
+  mintAuthority:        { label: "DatumMintAuthority", group: "optional", feature: "DATUM emission admin" },
+  bootstrapPool:        { label: "DatumBootstrapPool", group: "optional", feature: "House-ad onboarding bonus" },
+  vesting:              { label: "DatumVesting", group: "optional", feature: "Founder/ops vesting" },
+  feeShare:             { label: "DatumFeeShare", group: "optional", feature: "Stake WDATUM, earn DOT" },
 };
+
+const GROUP_TITLES: Record<ContractFieldGroup, string> = {
+  core: "Core",
+  satellite: "Satellites & support",
+  governance: "Governance",
+  optional: "Optional (token system + curator)",
+};
+
+const GROUP_ORDER: ContractFieldGroup[] = ["core", "satellite", "governance", "optional"];
 
 export function Settings() {
   const { settings, updateSettings, setNetwork, setContractAddress, resetToDefaults } = useSettings();
@@ -286,44 +319,60 @@ export function Settings() {
           {showContracts ? "▼ Hide addresses" : "▶ Show addresses"}
         </button>
         {showContracts && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {Object.keys(CONTRACT_LABELS).map((key) => {
-              const addr = (settings.contractAddresses as any)[key] ?? "";
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {GROUP_ORDER.map((group) => {
+              const fields = Object.entries(CONTRACT_FIELDS).filter(([, meta]) => meta.group === group);
+              if (fields.length === 0) return null;
               const explorer = getExplorerUrl(settings.network);
               return (
-                <div key={key}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                    <label style={{ color: "var(--text)", fontSize: 12 }}>{CONTRACT_LABELS[key]}</label>
-                    {explorer && addr && (
-                      <a
-                        href={`${explorer}/address/${addr}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`View ${CONTRACT_LABELS[key]} on block explorer`}
-                        style={{ color: "var(--accent-dim)", fontSize: 10, textDecoration: "none", lineHeight: 1 }}
-                      >
-                        ↗
-                      </a>
-                    )}
+                <div key={group} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid var(--border)", paddingBottom: 4 }}>
+                    {GROUP_TITLES[group]}
                   </div>
-                  <input
-                    value={addr}
-                    onChange={(e) => {
-                      const v = e.target.value.trim();
-                      if (v === "" || /^0x[0-9a-fA-F]{0,40}$/.test(v)) setContractAddress(key as any, v);
-                    }}
-                    placeholder="0x..."
-                    className="nano-input"
-                    style={{ fontFamily: "var(--font-mono)" }}
-                  />
-                  {addr && !/^0x[0-9a-fA-F]{40}$/.test(addr) && (
-                    <div style={{ color: "var(--warn)", fontSize: 10, marginTop: 2 }}>Invalid address format</div>
-                  )}
+                  {fields.map(([key, meta]) => {
+                    const addr = (settings.contractAddresses as any)[key] ?? "";
+                    const isOptional = meta.group === "optional";
+                    return (
+                      <div key={key}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <label style={{ color: "var(--text)", fontSize: 12 }}>{meta.label}</label>
+                          {meta.feature && (
+                            <span style={{ color: "var(--text-dim)", fontSize: 10 }}>· {meta.feature}</span>
+                          )}
+                          {explorer && addr && (
+                            <a
+                              href={`${explorer}/address/${addr}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`View ${meta.label} on block explorer`}
+                              style={{ color: "var(--accent-dim)", fontSize: 10, textDecoration: "none", lineHeight: 1 }}
+                            >
+                              ↗
+                            </a>
+                          )}
+                        </div>
+                        <input
+                          value={addr}
+                          onChange={(e) => {
+                            const v = e.target.value.trim();
+                            if (v === "" || /^0x[0-9a-fA-F]{0,40}$/.test(v)) setContractAddress(key as any, v);
+                          }}
+                          placeholder={isOptional ? "0x... (leave blank to disable feature)" : "0x..."}
+                          className="nano-input"
+                          style={{ fontFamily: "var(--font-mono)" }}
+                        />
+                        {addr && !/^0x[0-9a-fA-F]{40}$/.test(addr) && (
+                          <div style={{ color: "var(--warn)", fontSize: 10, marginTop: 2 }}>Invalid address format</div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
               Changing the network above auto-fills known addresses. Manual overrides are preserved.
+              Optional fields can stay blank — pages that depend on them will show a "feature unavailable" notice instead of failing.
             </div>
           </div>
         )}
