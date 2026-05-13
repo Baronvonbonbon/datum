@@ -21,7 +21,11 @@ export default defineConfig({
      * from web/node_modules, not from the extension's own node_modules (which
      * isn't installed in CI/Cloudflare where only `cd web && npm install` runs).
      */
-    dedupe: ["ethers", "react", "react-dom", "@noble/hashes", "pine-rpc"],
+    // Note: do NOT dedupe @noble/hashes — ethers pins 1.3.2 while
+    // @polkadot-api/substrate-bindings needs 2.x (imports "@noble/hashes/blake2.js"
+    // which only exists in 2.x). Deduping forces everyone onto the hoisted 1.3.2
+    // and breaks the bulletin-chain client build.
+    dedupe: ["ethers", "react", "react-dom", "pine-rpc"],
 
     alias: [
       /**
