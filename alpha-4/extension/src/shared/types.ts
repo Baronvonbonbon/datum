@@ -416,6 +416,13 @@ export interface ContractAddresses {
   clickRegistry: string;        // FP-CPC: impression→click session registry for CPC fraud prevention
   governanceRouter: string;     // Stable-address proxy + inline admin (Phase 0)
   council: string;              // Phase 1: N-of-M trusted council voting
+  // Optional (post-token-deploy) — extension treats empty / undefined as "feature off".
+  councilBlocklistCurator?: string;
+  wrapper?: string;             // DatumWrapper (WDATUM ERC-20)
+  mintAuthority?: string;       // DatumMintAuthority (canonical DATUM bridge)
+  bootstrapPool?: string;       // DatumBootstrapPool (house-ad bonus)
+  vesting?: string;             // DatumVesting (founder + ops vesting)
+  feeShare?: string;            // DatumFeeShare (stake WDATUM, earn DOT)
 }
 
 // User ad preferences — persisted in chrome.storage.local

@@ -3,6 +3,22 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "_settlement",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_mintAuthority",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "owner",
         "type": "address"
       }
@@ -27,49 +43,42 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "addr",
+        "name": "user",
         "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "bytes32",
-        "name": "reasonHash",
-        "type": "bytes32"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "remaining",
+        "type": "uint256"
       }
     ],
-    "name": "AddrBlocked",
+    "name": "BootstrapClaimed",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
-      }
-    ],
-    "name": "AddrUnblocked",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "CouncilLocked",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldAmount",
+        "type": "uint256"
+      },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "council",
-        "type": "address"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newAmount",
+        "type": "uint256"
       }
     ],
-    "name": "CouncilSet",
+    "name": "BootstrapPerAddressUpdated",
     "type": "event"
   },
   {
@@ -111,6 +120,51 @@
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [],
+    "name": "PoolDepleted",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "BOOTSTRAP_PER_ADDRESS_MAX",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "BOOTSTRAP_PER_ADDRESS_MIN",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "BOOTSTRAP_RESERVE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "acceptOwnership",
     "outputs": [],
@@ -118,24 +172,64 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "bootstrapPerAddress",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "bootstrapRemaining",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
-        "name": "addr",
+        "name": "user",
         "type": "address"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "reasonHash",
-        "type": "bytes32"
       }
     ],
-    "name": "blockAddr",
-    "outputs": [],
+    "name": "claim",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "paid",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "estimatedRecipientsRemaining",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -143,33 +237,7 @@
         "type": "address"
       }
     ],
-    "name": "blockReason",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "council",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "councilLocked",
+    "name": "hasReceivedBootstrap",
     "outputs": [
       {
         "internalType": "bool",
@@ -181,14 +249,8 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
-      }
-    ],
-    "name": "isBlocked",
+    "inputs": [],
+    "name": "isExhausted",
     "outputs": [
       {
         "internalType": "bool",
@@ -201,9 +263,15 @@
   },
   {
     "inputs": [],
-    "name": "lockCouncil",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "name": "mintAuthority",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -242,14 +310,27 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "newAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "setBootstrapPerAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlement",
+    "outputs": [
+      {
         "internalType": "address",
-        "name": "newCouncil",
+        "name": "",
         "type": "address"
       }
     ],
-    "name": "setCouncil",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -261,19 +342,6 @@
       }
     ],
     "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
-      }
-    ],
-    "name": "unblockAddr",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

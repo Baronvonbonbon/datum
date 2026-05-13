@@ -300,6 +300,17 @@ export interface ContractAddresses {
   // Governance ladder
   governanceRouter: string;
   council: string;
+  // Curator (B2-fix delegated blocklist curator; optional)
+  councilBlocklistCurator?: string;
+  // DATUM token system (optional — not yet on Paseo testnet deploy).
+  // When any of these is empty / zero, the corresponding UI surface is
+  // rendered in a disabled state with a "feature unavailable on this
+  // deployment" note.
+  wrapper?: string;
+  mintAuthority?: string;
+  bootstrapPool?: string;
+  vesting?: string;
+  feeShare?: string;
 }
 
 export type IpfsProvider =

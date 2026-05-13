@@ -22,6 +22,12 @@ import DatumClickRegistryAbi from "./abis/DatumClickRegistry.json";
 import DatumGovernanceRouterAbi from "./abis/DatumGovernanceRouter.json";
 import DatumCouncilAbi from "./abis/DatumCouncil.json";
 import DatumZKVerifierAbi from "./abis/DatumZKVerifier.json";
+import DatumWrapperAbi from "./abis/DatumWrapper.json";
+import DatumMintAuthorityAbi from "./abis/DatumMintAuthority.json";
+import DatumBootstrapPoolAbi from "./abis/DatumBootstrapPool.json";
+import DatumVestingAbi from "./abis/DatumVesting.json";
+import DatumFeeShareAbi from "./abis/DatumFeeShare.json";
+import DatumCouncilBlocklistCuratorAbi from "./abis/DatumCouncilBlocklistCurator.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider | JsonRpcApiProvider;
@@ -286,4 +292,40 @@ export function getCouncilContract(addresses: ContractAddresses, provider: Provi
 
 export function getZKVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.zkVerifier, abi(DatumZKVerifierAbi), provider);
+}
+
+// ── Optional contracts (token system + curator) ───────────────────────────────
+//
+// Each returns null when the address is unset on this deployment. Call sites
+// surface a "feature unavailable on this network" notice rather than
+// constructing against the zero address.
+
+export function getWrapperContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.wrapper) return null;
+  return make(addresses.wrapper, abi(DatumWrapperAbi), provider);
+}
+
+export function getMintAuthorityContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.mintAuthority) return null;
+  return make(addresses.mintAuthority, abi(DatumMintAuthorityAbi), provider);
+}
+
+export function getBootstrapPoolContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.bootstrapPool) return null;
+  return make(addresses.bootstrapPool, abi(DatumBootstrapPoolAbi), provider);
+}
+
+export function getVestingContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.vesting) return null;
+  return make(addresses.vesting, abi(DatumVestingAbi), provider);
+}
+
+export function getFeeShareContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.feeShare) return null;
+  return make(addresses.feeShare, abi(DatumFeeShareAbi), provider);
+}
+
+export function getCouncilBlocklistCuratorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.councilBlocklistCurator) return null;
+  return make(addresses.councilBlocklistCurator, abi(DatumCouncilBlocklistCuratorAbi), provider);
 }
