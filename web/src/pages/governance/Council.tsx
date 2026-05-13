@@ -7,11 +7,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { ethers, Interface } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useBlock } from "../../hooks/useBlock";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
@@ -40,6 +42,7 @@ interface CouncilProposal {
 
 export function Council() {
   const contracts = useContracts();
+  const { settings } = useSettings();
   const { address, signer } = useWallet();
   const { blockNumber } = useBlock();
   const { confirmTx } = useTx();
@@ -61,6 +64,18 @@ export function Council() {
   const [propValue, setPropValue] = useState("0");
   const [propCalldata, setPropCalldata] = useState("");
   const [propDescription, setPropDescription] = useState("");
+
+  // Grant treasury state
+  const [grantToken, setGrantToken] = useState<string>("");
+  const [grantPerProposalMax, setGrantPerProposalMax] = useState<bigint>(0n);
+  const [grantMonthlyMax, setGrantMonthlyMax] = useState<bigint>(0n);
+  const [grantMonthlyUsed, setGrantMonthlyUsed] = useState<bigint>(0n);
+
+  // Grant proposal form
+  const [showGrant, setShowGrant] = useState(false);
+  const [grantRecipient, setGrantRecipient] = useState("");
+  const [grantAmount, setGrantAmount] = useState("");
+  const [grantDescription, setGrantDescription] = useState("");
 
   const isMember = address ? members.some((m) => m.toLowerCase() === address.toLowerCase()) : false;
   const isGuardian = address ? guardian.toLowerCase() === address.toLowerCase() : false;
@@ -87,6 +102,20 @@ export function Council() {
         vetoWindow: Number(vw),
         maxExec: Number(me),
       });
+
+      // Grant treasury state
+      try {
+        const [gt, perMax, monthMax, monthUsed] = await Promise.all([
+          contracts.council.grantToken().catch(() => ethers.ZeroAddress),
+          contracts.council.grantPerProposalMax().catch(() => 0n),
+          contracts.council.grantMonthlyMax().catch(() => 0n),
+          contracts.council.grantMonthlyUsed().catch(() => 0n),
+        ]);
+        setGrantToken(String(gt));
+        setGrantPerProposalMax(BigInt(perMax));
+        setGrantMonthlyMax(BigInt(monthMax));
+        setGrantMonthlyUsed(BigInt(monthUsed));
+      } catch { /* legacy deployment */ }
 
       const nextId = Number(await contracts.council.nextProposalId().catch(() => 0n));
       const loaded: CouncilProposal[] = [];
@@ -208,6 +237,37 @@ export function Council() {
     }
   }
 
+  async function handleProposeGrant(e: React.FormEvent) {
+    e.preventDefault();
+    if (!signer || !isMember) return;
+    setTxState("pending"); setTxMsg("");
+    try {
+      const recipient = grantRecipient.trim();
+      if (!ethers.isAddress(recipient)) throw new Error("Invalid recipient address");
+      // Grant token uses 10 decimals (WDATUM); accept human-readable input.
+      const amount = ethers.parseUnits(grantAmount.trim(), 10);
+      if (amount <= 0n) throw new Error("Amount must be positive");
+      if (amount > grantPerProposalMax) {
+        throw new Error(`Above per-proposal cap (${ethers.formatUnits(grantPerProposalMax, 10)} DATUM)`);
+      }
+      const iface = new Interface(["function executeGrant(address recipient, uint256 amount)"]);
+      const calldata = iface.encodeFunctionData("executeGrant", [recipient, amount]);
+      const councilAddr = settings.contractAddresses.council;
+      const c = contracts.council.connect(signer);
+      const tx = await c.propose([councilAddr], [0n], [calldata], grantDescription.trim() || `Grant ${grantAmount} DATUM to ${recipient}`);
+      await confirmTx(tx);
+      setTxState("success");
+      setTxMsg("Grant proposal submitted.");
+      setGrantRecipient(""); setGrantAmount(""); setGrantDescription("");
+      setShowGrant(false);
+      load();
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setTxMsg(humanizeError(err));
+      setTxState("error");
+    }
+  }
+
   async function handlePropose(e: React.FormEvent) {
     e.preventDefault();
     if (!signer || !isMember) return;
@@ -251,16 +311,76 @@ export function Council() {
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
           {isMember && (
-            <button
-              onClick={() => setShowPropose((s) => !s)}
-              className="nano-btn nano-btn-accent"
-              style={{ padding: "6px 14px", fontSize: 13 }}
-            >
-              {showPropose ? "Close" : "+ New Proposal"}
-            </button>
+            <>
+              <button
+                onClick={() => { setShowPropose((s) => !s); setShowGrant(false); }}
+                className="nano-btn nano-btn-accent"
+                style={{ padding: "6px 14px", fontSize: 13 }}
+              >
+                {showPropose ? "Close" : "+ New Proposal"}
+              </button>
+              <button
+                onClick={() => { setShowGrant((s) => !s); setShowPropose(false); }}
+                className="nano-btn"
+                style={{ padding: "6px 14px", fontSize: 13 }}
+                disabled={!grantToken || grantToken === ethers.ZeroAddress}
+                title={!grantToken || grantToken === ethers.ZeroAddress ? "Grant token not configured" : ""}
+              >
+                {showGrant ? "Close" : "+ Grant"}
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Grant treasury */}
+      {grantToken && grantToken !== ethers.ZeroAddress && (
+        <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Grant treasury</div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
+            <span style={{ color: "var(--text-muted)" }}>Grant token</span>
+            <AddressDisplay address={grantToken} chars={8} style={{ fontSize: 11 }} />
+            <span style={{ color: "var(--text-muted)" }}>Per-proposal cap</span>
+            <span style={{ color: "var(--text)" }}>{ethers.formatUnits(grantPerProposalMax, 10)} DATUM</span>
+            <span style={{ color: "var(--text-muted)" }}>Monthly cap</span>
+            <span style={{ color: "var(--text)" }}>{ethers.formatUnits(grantMonthlyMax, 10)} DATUM</span>
+            <span style={{ color: "var(--text-muted)" }}>Used this month</span>
+            <span style={{ color: "var(--text)" }}>
+              {ethers.formatUnits(grantMonthlyUsed, 10)} DATUM
+              {grantMonthlyMax > 0n && ` (${Number(grantMonthlyUsed * 10000n / grantMonthlyMax) / 100}%)`}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Grant proposal form */}
+      {showGrant && isMember && (
+        <form onSubmit={handleProposeGrant} className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Propose grant</div>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 12 }}>
+            Builds a council proposal that, once passed + executed, calls{" "}
+            <code>executeGrant(recipient, amount)</code> on the council contract itself.
+            Standard threshold + execution delay + veto window apply.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Recipient address
+              <input className="nano-input" value={grantRecipient} onChange={(e) => setGrantRecipient(e.target.value)} placeholder="0x..." style={{ marginTop: 4 }} required />
+            </label>
+            <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Amount (DATUM, 10 decimals)
+              <input className="nano-input" value={grantAmount} onChange={(e) => setGrantAmount(e.target.value)} placeholder="100" style={{ marginTop: 4 }} required />
+            </label>
+            <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Description
+              <textarea className="nano-input" value={grantDescription} onChange={(e) => setGrantDescription(e.target.value)} rows={2} style={{ marginTop: 4 }} placeholder="Why this grant?" />
+            </label>
+            <button type="submit" className="nano-btn nano-btn-accent" style={{ alignSelf: "flex-start", padding: "6px 16px", fontSize: 12 }}>
+              Submit grant proposal
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Membership + config */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
