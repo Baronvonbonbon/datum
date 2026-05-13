@@ -8,7 +8,7 @@ export type ContentToBackground =
   | { type: "GET_ACTIVE_CAMPAIGNS" }
   | { type: "UPDATE_INTEREST"; tags: string[]; category?: string; delta?: number }
   | { type: "SELECT_CAMPAIGN"; campaigns: any[]; pageCategory: string; pageTags?: string[]; slotFormat?: string; excludedCampaignIds?: string[] }
-  | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string }
+  | { type: "FETCH_IPFS_METADATA"; campaignId: string; metadataHash: string; bulletinDigest?: string; bulletinCodec?: number }
   | { type: "ENGAGEMENT_RECORDED"; event: import("./types").EngagementEvent }
   | { type: "ENGAGEMENT_QUALITY_RESULT"; campaignId: string; qualityScore: number; passed: boolean }
   | { type: "SET_PUBLISHER_RELAY"; publisher: string; relay: string }

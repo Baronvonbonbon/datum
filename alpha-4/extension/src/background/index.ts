@@ -595,29 +595,57 @@ async function handleMessage(
 
     case "FETCH_IPFS_METADATA": {
       // Content script requests metadata fetch (background has no CSP restrictions)
-      const { campaignId: cid, metadataHash: mHash } = msg as any;
-      console.log(`[DATUM] FETCH_IPFS_METADATA: campaignId=${cid}, hash=${mHash}`);
-      if (!cid || !mHash) return { metadata: null };
+      const { campaignId: cid, metadataHash: mHash, bulletinDigest, bulletinCodec } = msg as any;
+      console.log(`[DATUM] FETCH_IPFS_METADATA: campaignId=${cid}, hash=${mHash}, bulletin=${bulletinDigest ?? "none"}`);
+      if (!cid || (!mHash && !bulletinDigest)) return { metadata: null };
       const s = await getSettings();
       const primaryGateway = s.ipfsGateway || "https://dweb.link/ipfs/";
-      // Try multiple gateways for reliability
-      const gateways = [
+
+      // Phase A: try the Bulletin Chain Paseo gateway first when a digest is
+      // present, then fall back to standard IPFS gateways using the legacy
+      // metadataHash. If the content script didn't pass a Bulletin ref, look
+      // it up on demand from the campaigns contract.
+      const { bulletinGatewayUrl, BulletinCodec } = await import("@shared/bulletinChain");
+      let effectiveDigest: string | undefined = bulletinDigest;
+      let effectiveCodec: number = bulletinCodec ?? BulletinCodec.Raw;
+      if (!effectiveDigest && s.contractAddresses?.campaigns) {
+        try {
+          const provider = await getReadProvider(s.rpcUrl, !!s.usePine, NETWORK_CONFIGS[s.network]?.pineChain);
+          const campaigns = getCampaignsContract(s.contractAddresses, provider);
+          const ref: any = await campaigns.getBulletinCreative(BigInt(cid));
+          effectiveDigest = (ref.cidDigest ?? ref[0]) as string;
+          effectiveCodec = Number(ref.cidCodec ?? ref[1] ?? 0);
+        } catch {
+          // legacy deployment / RPC down — silently skip Bulletin path
+        }
+      }
+      const candidates: string[] = [];
+      if (effectiveDigest && effectiveDigest !== "0x" + "0".repeat(64)) {
+        const bUrl = bulletinGatewayUrl(effectiveDigest, effectiveCodec as any);
+        if (bUrl) candidates.push(bUrl);
+      }
+      const ipfsGateways = [
         primaryGateway,
         "https://ipfs.io/ipfs/",
         "https://cloudflare-ipfs.com/ipfs/",
         "https://gateway.pinata.cloud/ipfs/",
       ];
-      // Deduplicate (in case primaryGateway is already in the list)
-      const uniqueGateways = [...new Set(gateways.map(g => g.endsWith("/") ? g : g + "/"))];
+      const uniqueIpfsGateways = [...new Set(ipfsGateways.map(g => g.endsWith("/") ? g : g + "/"))];
+      if (mHash) {
+        for (const gw of uniqueIpfsGateways) {
+          const u = metadataUrl(mHash, gw);
+          if (u) candidates.push(u);
+        }
+      }
 
-      for (const gw of uniqueGateways) {
-        const url = metadataUrl(mHash, gw);
-        if (!url) continue;
+      for (const url of candidates) {
+        let host = url;
+        try { host = new URL(url).hostname; } catch { /* ignore */ }
         try {
           console.log(`[DATUM] FETCH_IPFS_METADATA: trying ${url}`);
           const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
           if (!resp.ok) {
-            console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} returned ${resp.status}`);
+            console.warn(`[DATUM] FETCH_IPFS_METADATA: ${host} returned ${resp.status}`);
             continue;
           }
           const bodyBytes = new Uint8Array(await resp.arrayBuffer());
@@ -643,10 +671,10 @@ async function handleMessage(
           // Cache for future use
           const metaKey = `metadata:${cid}`;
           await chrome.storage.local.set({ [metaKey]: meta, [`metadata_ts:${cid}`]: Date.now() });
-          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${gw}`);
+          console.log(`[DATUM] FETCH_IPFS_METADATA: success from ${host}`);
           return { metadata: meta };
         } catch (err) {
-          console.warn(`[DATUM] FETCH_IPFS_METADATA: ${gw} error:`, err);
+          console.warn(`[DATUM] FETCH_IPFS_METADATA: ${host} error:`, err);
           continue;
         }
       }
