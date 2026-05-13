@@ -8,9 +8,21 @@ import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+import { LockStateStrip, LockEntry } from "../../components/LockStateStrip";
+import { useSettings } from "../../context/SettingsContext";
 
 export function ProtocolFeesAdmin() {
   const contracts = useContracts();
+  const { settings } = useSettings();
+  const locks: LockEntry[] = [
+    {
+      label: "FeeShare recipient",
+      description: "After lock, owner can't redirect protocol fees to a different recipient. Set the final FeeShare contract, verify, then lock.",
+      contractAddr: settings.contractAddresses.paymentVault,
+      getter: "feeShareRecipientLocked",
+      locker: "lockFeeShareRecipient",
+    },
+  ];
   const { signer, address } = useWallet();
   const { confirmTx } = useTx();
   const { push } = useToast();
@@ -106,6 +118,9 @@ export function ProtocolFeesAdmin() {
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Protocol Fees</h1>
+
+      <LockStateStrip entries={locks} />
+
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Protocol earns 25% of the user share on every settled claim. Slash pool accumulates penalties from losing governance voters.
       </p>

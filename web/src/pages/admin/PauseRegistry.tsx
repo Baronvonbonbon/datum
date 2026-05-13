@@ -6,6 +6,8 @@ import { AdminNav } from "../../components/AdminNav";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+import { LockStateStrip, LockEntry } from "../../components/LockStateStrip";
+import { useSettings } from "../../context/SettingsContext";
 
 const PAUSED_CONTRACTS = [
   "Campaigns",
@@ -20,6 +22,17 @@ export function PauseRegistryAdmin() {
   const { signer } = useWallet();
   const { confirmTx } = useTx();
   const { push } = useToast();
+  const { settings } = useSettings();
+
+  const locks: LockEntry[] = [
+    {
+      label: "Guardian set",
+      description: "After lock, owner can't rotate guardians; rotation goes via 2-of-3 guardian self-proposal.",
+      contractAddr: settings.contractAddresses.pauseRegistry,
+      getter: "guardianSetLocked",
+      locker: "lockGuardianSet",
+    },
+  ];
   const [paused, setPaused] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [txState, setTxState] = useState<"idle" | "pending" | "success" | "error">("idle");
@@ -75,6 +88,8 @@ export function PauseRegistryAdmin() {
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Pause Registry</h1>
+
+      <LockStateStrip entries={locks} />
 
       <div className="nano-info nano-info--muted" style={{ marginBottom: 16, fontSize: 12 }}>
         The pause registry provides a single on-chain flag checked by all protocol contracts. In an emergency, pausing here suspends all user-facing operations simultaneously.

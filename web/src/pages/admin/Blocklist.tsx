@@ -8,6 +8,8 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
+import { LockStateStrip, LockEntry } from "../../components/LockStateStrip";
+import { useSettings } from "../../context/SettingsContext";
 import { useToast } from "../../context/ToastContext";
 
 interface BlockedEntry {
@@ -24,7 +26,34 @@ interface PendingProposal {
   subject: string; // address being blocked/unblocked
 }
 
+function blocklistLocks(addrs: import("@shared/types").ContractAddresses): LockEntry[] {
+  return [
+    {
+      label: "Blocklist curator",
+      description: "After lock, censorship authority is delegated permanently to the curator contract; blockAddress/executeUnblock revert.",
+      contractAddr: addrs.publishers,
+      getter: "blocklistCuratorLocked",
+      locker: "lockBlocklistCurator",
+    },
+    {
+      label: "Whitelist mode",
+      description: "After lock, publisher registration becomes permanently open (whitelistMode must be off at lock time).",
+      contractAddr: addrs.publishers,
+      getter: "whitelistModeLocked",
+      locker: "lockWhitelistMode",
+    },
+    {
+      label: "Stake gate",
+      description: "After lock, the stake-based registration bypass config is frozen.",
+      contractAddr: addrs.publishers,
+      getter: "stakeGateLocked",
+      locker: "lockStakeGate",
+    },
+  ];
+}
+
 export function BlocklistAdmin() {
+  const { settings } = useSettings();
   const contracts = useContracts();
   const { signer } = useWallet();
   const { confirmTx } = useTx();
@@ -171,6 +200,9 @@ export function BlocklistAdmin() {
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <AdminNav />
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Address Blocklist</h1>
+
+      <LockStateStrip entries={blocklistLocks(settings.contractAddresses)} />
+
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>
         Blocked addresses cannot register as publishers or create campaigns. Existing claims from blocked publishers are rejected at settlement (code 11).
         Changes go through the 48-hour timelock for transparency.
