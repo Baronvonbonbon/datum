@@ -43,6 +43,7 @@ import { PublisherFraud } from "./pages/governance/PublisherFraud";
 import { ProtocolParams } from "./pages/governance/ProtocolParams";
 import { Council } from "./pages/governance/Council";
 import { AdvertiserFraudClaimsPage } from "./pages/governance/AdvertiserFraudClaims";
+import { PhaseLadder } from "./pages/governance/PhaseLadder";
 
 // Admin
 import { TimelockAdmin } from "./pages/admin/Timelock";
@@ -121,6 +122,7 @@ export function App() {
               <Route path="/governance/protocol" element={<ProtocolParams />} />
               <Route path="/governance/council" element={<Council />} />
               <Route path="/governance/fraud-claims" element={<AdvertiserFraudClaimsPage />} />
+              <Route path="/governance/phase" element={<PhaseLadder />} />
 
               {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
