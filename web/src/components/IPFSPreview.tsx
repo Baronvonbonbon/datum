@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { bytes32ToCid, metadataUrl } from "@shared/ipfs";
+import { bulletinGatewayUrl, BulletinCodec, PASEO_BULLETIN_GATEWAY } from "@shared/bulletinChain";
 import { validateAndSanitize } from "@shared/contentSafety";
 import { CampaignMetadata, AD_FORMAT_SIZES, AdFormat } from "@shared/types";
 import { useSettings } from "../context/SettingsContext";
@@ -182,13 +183,17 @@ function ImageViewerModal({
 }
 
 interface Props {
-  metadataHash: string; // bytes32 hex
+  metadataHash: string; // bytes32 hex (legacy IPFS path)
   compact?: boolean;
+  /** Optional Bulletin Chain creative reference. When `bulletinDigest` is
+   *  non-zero, the Paseo Bulletin gateway is tried before any IPFS gateway. */
+  bulletinDigest?: string;
+  bulletinCodec?: BulletinCodec;
 }
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 
-export function IPFSPreview({ metadataHash, compact = false }: Props) {
+export function IPFSPreview({ metadataHash, compact = false, bulletinDigest, bulletinCodec }: Props) {
   const { settings } = useSettings();
   const [metadata, setMetadata] = useState<CampaignMetadata | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,12 +201,20 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [imageViewerStart, setImageViewerStart] = useState(0);
 
+  // Active Bulletin ref iff digest is non-zero.
+  const hasBulletin = !!bulletinDigest && bulletinDigest !== ZERO_HASH;
+  const bulletinUrl = hasBulletin
+    ? bulletinGatewayUrl(bulletinDigest!, bulletinCodec ?? BulletinCodec.Raw)
+    : null;
+
   useEffect(() => {
-    if (!metadataHash || metadataHash === ZERO_HASH) return;
+    // If neither Bulletin nor a non-zero IPFS hash is set, nothing to fetch.
+    if (!hasBulletin && (!metadataHash || metadataHash === ZERO_HASH)) return;
     setLoading(true);
     setError(null);
 
-    const primaryUrl = metadataUrl(metadataHash, settings.ipfsGateway);
+    // Primary URL: Bulletin Chain gateway when set; otherwise legacy IPFS.
+    const primaryUrl = bulletinUrl ?? metadataUrl(metadataHash, settings.ipfsGateway);
     if (!primaryUrl) { setLoading(false); return; }
 
     // Fallback gateways tried in order when the primary returns 404.
@@ -384,12 +397,12 @@ export function IPFSPreview({ metadataHash, compact = false }: Props) {
           Category: {metadata.category}
           {" · "}
           <a
-            href={metadataUrl(metadataHash, settings.ipfsGateway) ?? "#"}
+            href={(hasBulletin ? bulletinUrl : metadataUrl(metadataHash, settings.ipfsGateway)) ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: "var(--accent-dim)" }}
           >
-            View on IPFS
+            {hasBulletin ? "View on Bulletin" : "View on IPFS"}
           </a>
         </div>
       </div>

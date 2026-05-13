@@ -57,6 +57,8 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [budget, setBudget] = useState<any>(null);
   const [governance, setGovernance] = useState<any>(null);
   const [metadataHash, setMetadataHash] = useState<string>("0x" + "0".repeat(64));
+  const [bulletinDigest, setBulletinDigest] = useState<string>("0x" + "0".repeat(64));
+  const [bulletinCodec, setBulletinCodec] = useState<number>(0);
   const [snapshotRelaySigner, setSnapshotRelaySigner] = useState<string | null>(null);
   const [snapshotTags, setSnapshotTags] = useState<string[]>([]);
   const [requiredTags, setRequiredTags] = useState<string[]>([]);
@@ -248,6 +250,16 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           setMetadataHash(last.args?.metadataHash ?? "0x" + "0".repeat(64));
         }
       } catch { /* no events */ }
+
+      // Bulletin Chain creative ref (Phase A): prefer when set.
+      try {
+        const ref = await contracts.campaigns.getBulletinCreative(BigInt(campaignId));
+        // ethers v6 returns Result tuple; tolerate either struct-style or array-style.
+        const digest = (ref as any).cidDigest ?? (ref as any)[0];
+        const codec = Number((ref as any).cidCodec ?? (ref as any)[1] ?? 0);
+        if (digest && typeof digest === "string") setBulletinDigest(digest);
+        setBulletinCodec(codec);
+      } catch { /* legacy deployment without Bulletin support */ }
 
       // Token reward sidecar
       try {
@@ -750,7 +762,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
 
       <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
         <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Creative</h2>
-        <IPFSPreview metadataHash={metadataHash} />
+        <IPFSPreview metadataHash={metadataHash} bulletinDigest={bulletinDigest} bulletinCodec={bulletinCodec} />
       </section>
 
       {/* Token Reward Sidecar — shown to all if campaign has one */}
