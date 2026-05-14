@@ -80,3 +80,18 @@ can be settled on-chain via stake slashing rather than off-chain trust.
 - **Curators.** Blocklist and tag-approval policies live in swappable curator contracts. The owner can hot-swap until `lockCouncil()` / `lockBlocklistCurator()` is called, after which the council (or whoever is wired in) is the sole authority.
 
 See the 2026-05-13 audit-pass notes (`project_alpha4_audit_2026_05_pass5.md` in the memory dir) for the most recent set of hardenings.
+
+## Subdirectories
+
+- **[`process-flows/`](./process-flows/)** — per-role action sequences (User,
+  Publisher, Advertiser, Relay, Reporter, Guardian, Council Member,
+  OpenGov Voter, Deployer / Timelock) plus the cross-role checks-and-balances
+  matrix and the gaps analysis.
+- **[`proposals/`](./proposals/)** — design proposals (implemented and
+  pending). Current contents:
+  - `multi-publisher-campaigns.md` — multi-publisher campaign support
+    with per-publisher bonds (implemented 2026-05-14).
+- **[`comparative-analysis.md`](./comparative-analysis.md)** — DATUM vs
+  traditional and crypto ad-tech systems.
+- **[`gaps-in-checks-and-balances.md`](./gaps-in-checks-and-balances.md)** —
+  structural gaps the role matrix doesn't fully address.

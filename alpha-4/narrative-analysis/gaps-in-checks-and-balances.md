@@ -191,6 +191,15 @@ reputation contamination — get nothing.
 
 **Contract surface.** `DatumPublisherGovernance.resolve` distribution.
 
+**Partial mitigation (2026-05-14).** With per-publisher bonds shipped
+as part of the multi-publisher campaign work, the advertiser side of
+G-9 is now finer-grained: an advertiser running a multi-publisher
+campaign with bonds posted per publisher gets compensated only for
+the *specific* publisher that was found fraudulent — not for any
+publisher in the set. This better aligns the compensation with the
+actual victim of each upheld fraud event. **User-side compensation
+remains unaddressed.**
+
 **Why the matrix entry isn't enough.** The slash *deters* fraud but
 doesn't *remediate* affected users. Users are passive observers of the
 slash even when they're the actual victims.

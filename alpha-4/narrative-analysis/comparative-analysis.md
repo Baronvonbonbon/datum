@@ -308,7 +308,7 @@ custody anything (every payment is in user-controlled DOT/WDATUM).
 
 ## Where DATUM is genuinely novel
 
-Five design choices distinguish DATUM from every system above:
+Six design choices distinguish DATUM from every system above:
 
 1. **User as a paid first-class participant** in a system that doesn't
    require KYC. BAT requires KYC at the off-ramp. Permission.io requires
@@ -335,6 +335,15 @@ Five design choices distinguish DATUM from every system above:
    computational work per impression. The intent: bots that amortise
    across many impressions face quadratic difficulty growth, making
    high-velocity fake-impression farming economically unviable.
+
+6. **Per-publisher bonded multi-publisher campaigns** (2026-05-14).
+   A single campaign can run across N allowlisted publishers, with an
+   independent bond per `(campaign, publisher)` pair. The bond's
+   slash-recovery is scoped to *that specific publisher's* fraud, not
+   to a campaign-wide pool. Incumbent ad networks share campaign
+   budgets across publishers but have no per-publisher accountability
+   bond; AdEx's channels are bilateral (one advertiser ↔ one
+   validator pair, not one campaign × N publishers).
 
 ---
 

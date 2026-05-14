@@ -1,8 +1,9 @@
 # DatumChallengeBonds
 
-Optional skin-in-the-game for advertisers. At campaign creation, the
-advertiser can lock a DOT bond. The bond does nothing visible day-to-day,
-but two things can happen to it:
+Optional skin-in-the-game for advertisers. At campaign creation (or when
+adding a publisher to a multi-publisher campaign's allowlist), the
+advertiser can lock a DOT bond *per (campaign, publisher) pair*. The
+bond does nothing visible day-to-day, but two things can happen to it:
 
 1. Campaign ends cleanly (Completed or Expired) → bond is returned.
 2. PublisherGovernance upholds fraud against the campaign's serving
@@ -10,6 +11,14 @@ but two things can happen to it:
    associated with that publisher. Bonded advertisers can claim a
    pro-rata share — but the bond itself is *burned* (forfeit to the
    pool, not returned) when they claim the bonus.
+
+**Per-publisher bonds (multi-publisher support, 2026-05-14).** When a
+campaign has multiple allowlisted publishers (see `DatumCampaigns`),
+the advertiser may post an independent bond for each
+`(campaign, publisher)` pair. Each bond is associated with that
+specific publisher's bonus pool; fraud upheld against one publisher in
+the set affects only that publisher's bond. The legacy single-publisher
+case is the degenerate case where exactly one pair is bonded.
 
 ## Why advertisers would do this
 
@@ -26,29 +35,40 @@ Two reasons:
 ## State
 
 ```
-_bondOwner[campaignId]     — who owns the bond
-_bond[campaignId]          — bond amount
-_bondPublisher[campaignId] — which publisher the bond is associated with
-_totalBonds[publisher]     — sum of all bonds for this publisher (denominator for claims)
-_bonusPool[publisher]      — slash proceeds awaiting distribution
-_bonusClaimed[campaignId]  — single-claim guard
-pendingBondReturn[addr]    — pull-queue for normal returns (M-1 audit pattern)
+_bondOwner[campaignId][publisher]   — who owns the bond for this pair
+_bond[campaignId][publisher]        — bond amount for this pair
+_bondedPublishers[campaignId][]  — enumeration list (for returnBond iteration)
+_isBondedPublisher[id][pub]      — dedup guard for the enumeration
+_totalBonds[publisher]           — sum of all bonds for this publisher (claim denominator)
+_bonusPool[publisher]            — slash proceeds awaiting distribution
+_bonusClaimed[id][publisher]     — single-claim guard per (campaign, publisher)
+pendingBondReturn[addr]          — pull-queue for normal returns (M-1 audit pattern)
 ```
 
 ## Entry points
 
-- **`lockBond(campaignId, publisher)`** — payable; callable only by
-  `campaignsContract` during createCampaign. Records the bond.
+- **`lockBond(campaignId, advertiser, publisher)`** — payable; callable
+  only by `campaignsContract` during createCampaign OR during
+  `addAllowedPublisher`. Records the bond keyed on
+  `(campaignId, publisher)`. Reverts if that pair is already bonded
+  (`E71`) or if the campaign already has `MAX_BONDED_PUBLISHERS = 32`
+  bonded publishers.
 - **`returnBond(campaignId)`** — callable only by `lifecycleContract`
-  during normal campaign end. Credits `pendingBondReturn[advertiser]`
-  rather than pushing — a contract-advertiser with a reverting fallback
-  can't DoS Lifecycle.
+  during normal campaign end. Iterates `_bondedPublishers[campaignId]`
+  and credits each unclaimed bond to its advertiser's
+  `pendingBondReturn` queue. Bonded publishers whose advertiser
+  already claimed-as-bonus are skipped.
 - **`addToPool(publisher, amount)`** — callable only by
   `governanceContract` (PublisherGovernance) when fraud is upheld.
   Increments `_bonusPool[publisher]`.
-- **`claimBonus(campaignId)`** — callable by the bond owner. Computes
-  `share = bond × bonusPool / totalBonds`, burns the bond, transfers
-  the share. Single-shot per bond.
+- **`claimBonus(campaignId)`** — *legacy single-publisher* path.
+  Routes to the only bonded publisher when one exists; reverts
+  `"ambiguous"` when >1 publishers are bonded. Preserves `E01` (no
+  bond) and `E72` (already claimed) semantics.
+- **`claimBonusForPublisher(campaignId, publisher)`** — multi-publisher
+  variant. Required when a campaign has more than one bonded
+  publisher. Computes `share = bond × bonusPool / totalBonds`, burns
+  the (campaign, publisher) bond, transfers share.
 - **`claimBondReturn()`** — pulls accumulated `pendingBondReturn`.
 
 ## Pull-payment doctrine

@@ -45,6 +45,29 @@ afterward, can be slashed, rated, blocked, allowlisted.
 10. **Integrate the SDK** — the publisher's site embeds the DATUM SDK
     which renders ads and reports impressions to the relay.
 
+### Participating in multi-publisher campaigns
+
+Publishers can be added to a campaign's allowlist by the advertiser
+via `DatumCampaigns.addAllowedPublisher(campaignId, publisher)`. From
+the publisher's perspective:
+
+- **Their take rate is snapshotted** at the moment the advertiser
+  adds them. A later rate update by the publisher (via
+  `Publishers.updateTakeRate`) does not affect this campaign.
+- **They can be removed** at any time by the advertiser via
+  `removeAllowedPublisher` — hard cutoff, so any unsettled claims for
+  the campaign from this publisher will start failing immediately.
+- **They compete for budget** with the other allowlisted publishers
+  in the set (single budget pot per campaign). Faster relays / lower
+  take rates pull more of the budget.
+- **They can have an individual bond** posted against them by the
+  advertiser; on fraud upheld, that publisher's bonus pool is
+  funded from the slash, not a campaign-wide pool.
+
+To discover which campaigns they're allowlisted on, publishers
+typically run an off-chain indexer over `PublisherAllowed` /
+`PublisherRemoved` events.
+
 ### Steady state (per impression cycle)
 
 The publisher is largely passive on-chain:

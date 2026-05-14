@@ -38,8 +38,11 @@ through their campaign ownership, their bonded campaigns in
 `DatumCampaigns.createCampaign(publisher, pots, requiredTags,
 allowlistEnabled, rewardToken, rewardPerImpression, bondAmount) payable`:
 
-- `publisher`: a specific publisher EOA (closed campaign) or
-  `address(0)` (open campaign serveable by any matching publisher).
+- `publisher`: a specific publisher EOA (closed campaign — populates
+  the allowlist with that one publisher), or `address(0)` (open
+  campaign, tag-matched). For multi-publisher campaigns, start with
+  either initial publisher or `address(0)` and use
+  `addAllowedPublisher` afterward.
 - `pots`: array of `(actionType, budgetPlanck, dailyCapPlanck,
   ratePlanck, actionVerifier)`. One pot per action type the
   advertiser wants to fund (view / click / remote-action).
@@ -66,6 +69,30 @@ Constraints checked at creation:
 - `requiredTags` are all approved (local map ∪ TagCurator).
 - For closed campaigns, the publisher must be `isAllowedAdvertiser` if
   the publisher has allowlistEnabled.
+
+### Multi-publisher campaign setup (optional)
+
+For campaigns running across multiple pre-vetted publishers:
+
+- **`addAllowedPublisher(campaignId, publisher) payable`** — adds a
+  publisher to the campaign's serving allowlist. The publisher's
+  current `takeRateBps` is snapshotted at this moment, so a later rate
+  change by the publisher doesn't affect this campaign. Allowed in
+  both Pending and Active.
+  - If `msg.value > 0` is passed, that DOT is locked as a
+    per-`(campaign, publisher)` bond. Each publisher in the set can
+    have an independent bond.
+- **`removeAllowedPublisher(campaignId, publisher)`** — hard cutoff.
+  From the next block, claims from this publisher fail Check 3
+  (reason 5). The publisher's already-submitted-but-not-yet-settled
+  claims fail; the in-flight bond remains claimable at end-of-campaign.
+- **`isAllowedPublisher(id, pub)`** + **`getCampaignPublisherTakeRate(id, pub)`** —
+  read-side views.
+- **`campaignAllowedPublisherCount(id)`** + **`campaignMode(id)`** —
+  query the campaign's current mode (0 = OPEN, 1 = ALLOWLIST). The
+  legacy single-publisher case is just allowlist with count=1.
+- **`MAX_ALLOWED_PUBLISHERS = 32`** caps the set size; aligned with
+  ChallengeBonds' iteration bound.
 
 ### Policy configuration (Pending state)
 

@@ -20,7 +20,20 @@ failure short-circuits with a numeric reason code (mapped in
 0. **Action type bounded.** 0 (view), 1 (click), 2 (action). Otherwise reason 21.
 1. **Event count in range.** Non-zero, ≤ `MAX_CLAIM_EVENTS`.
 2. **Campaign status == Active.** Read from `campaigns.getCampaignForSettlement`.
-3. **Publisher match.** For closed campaigns (`cPublisher != 0`), `claim.publisher` must equal `cPublisher`, AND if `campaignAllowlistEnabled[id]` the advertiser must be in the allowlist snapshot. For open campaigns, `claim.publisher != 0` and `publishers.allowlistEnabled(claim.publisher) == false` (BM-7).
+3. **Publisher match — tri-state (2026-05-14 multi-publisher unification).**
+   - **Allowlist mode** (`campaignAllowedPublisherCount > 0`): require
+     `isAllowedPublisher(id, claim.publisher) == true`, use per-publisher
+     take-rate snapshot from `getCampaignPublisherTakeRate(id, publisher)`.
+     Covers both legacy single-publisher campaigns (count = 1) and new
+     multi-publisher campaigns (count > 1).
+   - **Legacy fallback** (allowlist getters revert / campaign predates
+     the upgrade): use the `cPublisher` from `getCampaignForSettlement`
+     directly. Closed-campaign behaviour preserved.
+   - **Open mode** (`count == 0` and `cPublisher == 0`): `claim.publisher
+     != 0` and `publishers.allowlistEnabled(claim.publisher) == false`
+     (BM-7). Tag-match validation runs as before.
+   - In all modes, `campaignAllowlistEnabled[id]` (the **publisher's**
+     advertiser allowlist snapshot) is also checked at L1+.
 4. **S12 blocklist.** Calls `publishers.isBlocked(claim.publisher)` (fail-open path — see Settlement for fail-closed at L1+).
 5. **Rate within pot bounds.** Reads `campaigns.getCampaignPot(id, actionType)`. Reverts if no pot; rejects if `claim.ratePlanck > potRate`.
 6. **Nonce chain.** Strict `expectedNonce` match.
