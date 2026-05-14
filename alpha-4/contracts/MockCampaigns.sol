@@ -46,6 +46,9 @@ contract MockCampaigns {
     // Test setup helpers
     // -------------------------------------------------------------------------
 
+    /// @dev Test helper: also auto-populates the multi-publisher allowlist
+    ///      with `publisher` (if non-zero) so the new ClaimValidator
+    ///      Check 3 allowlist path resolves for closed-campaign test setups.
     function setCampaign(
         uint256 id,
         address advertiser,
@@ -63,9 +66,51 @@ contract MockCampaigns {
             pendingExpiryBlock: block.number + 100,
             terminationBlock: 0
         });
+        // Multi-publisher unification: closed campaign = allowlist with one entry.
+        if (publisher != address(0)) {
+            _allowedPublisher[id][publisher] = true;
+            _allowedPublisherTakeRate[id][publisher] = takeRate;
+            _allowedPublisherCount[id] = 1;
+        } else {
+            _allowedPublisherCount[id] = 0;
+        }
         if (id >= nextCampaignId) {
             nextCampaignId = id + 1;
         }
+    }
+
+    /// @dev Add a publisher to the campaign's allowlist (multi-publisher).
+    function addAllowedPublisherMock(uint256 id, address publisher, uint16 takeRate) external {
+        require(publisher != address(0), "E00");
+        require(!_allowedPublisher[id][publisher], "E71");
+        _allowedPublisher[id][publisher] = true;
+        _allowedPublisherTakeRate[id][publisher] = takeRate;
+        _allowedPublisherCount[id] += 1;
+    }
+
+    /// @dev Remove a publisher from the campaign's allowlist.
+    function removeAllowedPublisherMock(uint256 id, address publisher) external {
+        require(_allowedPublisher[id][publisher], "E01");
+        _allowedPublisher[id][publisher] = false;
+        _allowedPublisherCount[id] -= 1;
+    }
+
+    // Multi-publisher mock state.
+    mapping(uint256 => mapping(address => bool)) private _allowedPublisher;
+    mapping(uint256 => mapping(address => uint16)) private _allowedPublisherTakeRate;
+    mapping(uint256 => uint16) private _allowedPublisherCount;
+
+    function isAllowedPublisher(uint256 campaignId, address publisher) external view returns (bool) {
+        return _allowedPublisher[campaignId][publisher];
+    }
+    function getCampaignPublisherTakeRate(uint256 campaignId, address publisher) external view returns (uint16) {
+        return _allowedPublisherTakeRate[campaignId][publisher];
+    }
+    function campaignAllowedPublisherCount(uint256 campaignId) external view returns (uint16) {
+        return _allowedPublisherCount[campaignId];
+    }
+    function campaignMode(uint256 campaignId) external view returns (uint8) {
+        return _allowedPublisherCount[campaignId] > 0 ? 1 : 0;
     }
 
     function setStatus(uint256 id, uint8 status) external {

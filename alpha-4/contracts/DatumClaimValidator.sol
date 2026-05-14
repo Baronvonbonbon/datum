@@ -182,29 +182,70 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         if (claim.eventCount == 0) return (false, 2, 0, bytes32(0));
         if (claim.eventCount > MAX_CLAIM_EVENTS) return (false, 17, 0, bytes32(0));
 
-        // Check 2: campaign exists and is active; get publisher + take rate
+        // Check 2: campaign exists and is active; get the legacy single-publisher
+        // hint + the open-mode default take rate.
         (uint8 status, address cPublisher, uint16 cTakeRate)
             = campaigns.getCampaignForSettlement(claim.campaignId);
 
         if (status != 1) return (false, 4, 0, bytes32(0));
 
-        // Check 3: publisher match
-        if (cPublisher != address(0)) {
-            if (claim.publisher != cPublisher) return (false, 5, 0, bytes32(0));
-            // AUDIT-005: For targeted campaigns, verify advertiser is still in allowlist snapshot
+        // Check 3: publisher match — tri-state, unified through the allowlist.
+        //   If the campaign has any allowed publishers, ALLOWLIST mode applies
+        //   (covers both legacy single-publisher and new multi-publisher).
+        //   Otherwise it's OPEN mode and the existing tag-match path runs.
+        if (claim.publisher == address(0)) return (false, 5, 0, bytes32(0));
+
+        uint16 allowedCount = 0;
+        try campaigns.campaignAllowedPublisherCount(claim.campaignId) returns (uint16 n) {
+            allowedCount = n;
+        } catch {
+            // Legacy Campaigns without these getters: fall back to the
+            // single-publisher cPublisher check below.
+        }
+
+        if (allowedCount > 0) {
+            // ALLOWLIST mode: per-publisher gate + per-publisher take rate snapshot.
+            try campaigns.isAllowedPublisher(claim.campaignId, claim.publisher) returns (bool allowed) {
+                if (!allowed) return (false, 5, 0, bytes32(0));
+            } catch {
+                return (false, 5, 0, bytes32(0));
+            }
+            try campaigns.getCampaignPublisherTakeRate(claim.campaignId, claim.publisher)
+                returns (uint16 r)
+            {
+                cTakeRate = r;
+            } catch {
+                // Per-publisher rate must be readable in allowlist mode.
+                return (false, 5, 0, bytes32(0));
+            }
+            // Advertiser allowlist snapshot still applies (publisher-side opt-in).
             try campaigns.campaignAllowlistEnabled(claim.campaignId) returns (bool alEnabled) {
                 if (alEnabled) {
                     address advertiser = campaigns.getCampaignAdvertiser(claim.campaignId);
-                    try campaigns.campaignAllowlistSnapshot(claim.campaignId, advertiser) returns (bool allowed) {
-                        if (!allowed) return (false, 15, 0, bytes32(0));
+                    try campaigns.campaignAllowlistSnapshot(claim.campaignId, advertiser) returns (bool ok) {
+                        if (!ok) return (false, 15, 0, bytes32(0));
+                    } catch {
+                        return (false, 15, 0, bytes32(0));
+                    }
+                }
+            } catch {}
+        } else if (cPublisher != address(0)) {
+            // Legacy fast path for old Campaigns deployments that don't expose
+            // the allowlist getters: use the single-publisher hint directly.
+            if (claim.publisher != cPublisher) return (false, 5, 0, bytes32(0));
+            try campaigns.campaignAllowlistEnabled(claim.campaignId) returns (bool alEnabled) {
+                if (alEnabled) {
+                    address advertiser = campaigns.getCampaignAdvertiser(claim.campaignId);
+                    try campaigns.campaignAllowlistSnapshot(claim.campaignId, advertiser) returns (bool ok) {
+                        if (!ok) return (false, 15, 0, bytes32(0));
                     } catch {
                         return (false, 15, 0, bytes32(0));
                     }
                 }
             } catch {}
         } else {
-            if (claim.publisher == address(0)) return (false, 5, 0, bytes32(0));
-            // Open campaigns cannot be served by publishers with allowlist enabled (BM-7)
+            // OPEN mode: tag-matched. Publishers with their own allowlist
+            // enabled cannot serve open campaigns (BM-7).
             try publishers.allowlistEnabled(claim.publisher) returns (bool alEnabled) {
                 if (alEnabled) return (false, 15, 0, bytes32(0));
             } catch {}

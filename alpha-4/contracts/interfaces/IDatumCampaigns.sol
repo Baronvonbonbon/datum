@@ -165,9 +165,18 @@ interface IDatumCampaigns {
     function governanceContract() external view returns (address);
     function lifecycleContract() external view returns (address);
 
-    // Allowlist snapshot views (merged from CampaignValidator)
+    // Allowlist snapshot views (merged from CampaignValidator).
+    // NOTE: these are the PUBLISHER's advertiser allowlist snapshot (publisher
+    // controls which advertisers may run on their inventory). Distinct from
+    // the CAMPAIGN's publisher allowlist (`campaignAllowedPublisher` below).
     function campaignAllowlistEnabled(uint256 campaignId) external view returns (bool);
     function campaignAllowlistSnapshot(uint256 campaignId, address advertiser) external view returns (bool);
+
+    // Multi-publisher campaign views.
+    function isAllowedPublisher(uint256 campaignId, address publisher) external view returns (bool);
+    function getCampaignPublisherTakeRate(uint256 campaignId, address publisher) external view returns (uint16);
+    function campaignAllowedPublisherCount(uint256 campaignId) external view returns (uint16);
+    function campaignMode(uint256 campaignId) external view returns (uint8);
 
     // Targeting views (merged from TargetingRegistry)
     function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool);

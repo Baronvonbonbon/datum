@@ -17,9 +17,16 @@ Settlement charges the right pot based on the claim's `actionType`.
 
 The policy bundle covers:
 
-- **Publisher targeting.** Either a single designated publisher
-  (`campaign.publisher != address(0)` — a "closed" campaign) or open to any
-  publisher whose tags match (`requiredTags` set + open serving).
+- **Publisher targeting.** Tri-state:
+  - **Open** — `campaignAllowedPublisherCount == 0`. Any registered
+    publisher whose tags cover `requiredTags` may serve.
+  - **Allowlist (single)** — `count == 1`. The single-publisher
+    legacy case; `createCampaign(publisher=A)` populates the allowlist
+    with A. Backward-compatible with all existing closed-campaign flows.
+  - **Allowlist (multi)** — `count > 1`. Advertiser explicitly enumerates
+    N publishers via `addAllowedPublisher`. Each publisher's take rate
+    is snapshotted at the moment they're added, so a later rate change
+    by the publisher doesn't affect this campaign.
 - **Advertiser allowlist.** When `allowlistEnabled`, only advertisers in
   `_allowedAdvertisers[publisher]` may run on a publisher's inventory.
 - **AssuranceLevel** (0=Permissive, 1=PublisherSigned, 2=DualSigned). Locks
@@ -47,7 +54,9 @@ later a Council, finally OpenGov.
 
 ## Key entry points
 
-- `createCampaign(publisher, pots, requiredTags, allowlistEnabled, rewardToken, rewardPerImpression, bondAmount)` — payable; locks `msg.value > bondAmount` into the budget ledger across the supplied pots and stages a campaign as `Pending`. If `advertiserStake` is wired (CB4), caller must be adequately staked.
+- `createCampaign(publisher, pots, requiredTags, allowlistEnabled, rewardToken, rewardPerImpression, bondAmount)` — payable; locks `msg.value > bondAmount` into the budget ledger across the supplied pots and stages a campaign as `Pending`. If `publisher != 0`, populates the multi-publisher allowlist with that one publisher. If `advertiserStake` is wired (CB4), caller must be adequately staked.
+- `addAllowedPublisher(campaignId, publisher) payable` — adds a publisher to the campaign's allowlist; `msg.value > 0` optionally locks a per-`(campaign, publisher)` bond. Allowed in Pending and Active.
+- `removeAllowedPublisher(campaignId, publisher)` — hard cutoff: from the next block, claims from this publisher fail Check 3.
 - `setCampaignAssuranceLevel(id, level)` — advertiser-only; lock-raise at Pending.
 - `setCampaignMinStake(id, amount)` — advertiser-only; clamped by `maxAllowedMinStake`; lock-raise at Pending.
 - `setCampaignRequiredCategory(id, category)` — advertiser-only; Pending only.

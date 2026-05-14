@@ -9,20 +9,23 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 /// @title DatumChallengeBonds
 /// @notice FP-2: Optional advertiser challenge bonds.
 ///
-///         Advertisers may lock a DOT bond when creating a campaign. On normal
-///         campaign end (complete or expire), the bond is returned. If publisher
-///         fraud is upheld by PublisherGovernance, a fraction of the slash
-///         proceeds flows into that publisher's bonus pool. Bonded advertisers
-///         can then claimBonus(), receiving bond * bonusPool / totalBonds
-///         (proportional share of the pool, capped to pool balance).
+///         **Per-publisher bonds (multi-publisher campaign support).**
+///         A single campaign may have multiple allowlisted publishers (see
+///         DatumCampaigns), and the advertiser may post an independent bond
+///         per (campaign, publisher) pair. Each bond is associated with the
+///         specific publisher's bonus pool; fraud upheld against one publisher
+///         in the set only affects that publisher's bond claims.
 ///
-///         When claimBonus() is called the bond is burned (not returned) — the
-///         advertiser receives only the bonus.
+///         The single-publisher case (legacy "closed" campaign) is just the
+///         degenerate case where one (campaign, publisher) pair is bonded.
 ///
-///         lockBond  — called by DatumCampaigns on creation (msg.value = bond)
-///         returnBond — called by DatumCampaignLifecycle on complete/expire
-///         addToPool  — called by DatumPublisherGovernance on fraud resolution
-///         claimBonus — called by advertiser directly
+///         lockBond   — called by DatumCampaigns on creation OR when adding a
+///                      publisher to the allowlist mid-campaign with a bond.
+///         returnBond — called by DatumCampaignLifecycle on complete/expire;
+///                      iterates all bonded publishers for the campaign.
+///         addToPool  — called by DatumPublisherGovernance on fraud resolution;
+///                      per-publisher (unchanged).
+///         claimBonus — called by advertiser per-(campaign, publisher).
 contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwnable {
 
     /// @notice Campaigns contract — authorised to call lockBond.
@@ -34,15 +37,25 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
     /// @notice PublisherGovernance — authorised to call addToPool.
     address public governanceContract;
 
+    /// @notice Per-campaign max distinct publishers that may be bonded.
+    ///         Caps the gas cost of returnBond iteration. Aligned with
+    ///         Campaigns.MAX_ALLOWED_PUBLISHERS so an out-of-bounds case
+    ///         can't happen.
+    uint256 public constant MAX_BONDED_PUBLISHERS = 32;
+
     // ── State ──────────────────────────────────────────────────────────────────
 
-    mapping(uint256 => address) private _bondOwner;
-    mapping(uint256 => uint256) private _bond;
-    mapping(uint256 => address) private _bondPublisher;
+    // Per-(campaign, publisher) bond storage.
+    mapping(uint256 => mapping(address => uint256)) private _bond;
+    mapping(uint256 => mapping(address => address)) private _bondOwner;
+    mapping(uint256 => mapping(address => bool))    private _bonusClaimed;
+
+    // Per-campaign enumeration of bonded publishers, for returnBond iteration.
+    mapping(uint256 => address[]) private _bondedPublishers;
+    mapping(uint256 => mapping(address => bool)) private _isBondedPublisher;
 
     mapping(address => uint256) private _totalBonds;
     mapping(address => uint256) private _bonusPool;
-    mapping(uint256 => bool)    private _bonusClaimed;
 
     /// @dev M-1: Pull-pattern queue for bond returns. returnBond records here
     ///      so a contract advertiser with a reverting fallback cannot DoS Lifecycle.
@@ -54,9 +67,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
 
     // ── Admin ──────────────────────────────────────────────────────────────────
 
-    /// @dev Cypherpunk lock-once: ChallengeBonds holds advertiser DOT. The three
-    ///      callers below are the only ones with privileged operations (lock,
-    ///      release, slash). Hot-swap = trivial drain. Frozen after first write.
+    /// @dev Cypherpunk lock-once: ChallengeBonds holds advertiser DOT.
     function setCampaignsContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         require(campaignsContract == address(0), "already set");
@@ -80,42 +91,56 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
     // ── Core actions ───────────────────────────────────────────────────────────
 
     /// @inheritdoc IDatumChallengeBonds
+    /// @dev Per-publisher: multiple lockBond calls allowed for distinct
+    ///      publishers on the same campaign. Reverts if (campaignId, publisher)
+    ///      is already bonded.
     function lockBond(uint256 campaignId, address advertiser, address publisher) external payable {
         require(msg.sender == campaignsContract, "E18");
         require(msg.value > 0, "E11");
-        require(_bond[campaignId] == 0, "E71"); // already bonded
+        require(publisher != address(0), "E00");
+        require(_bond[campaignId][publisher] == 0, "E71"); // already bonded for this pair
+        require(_bondedPublishers[campaignId].length < MAX_BONDED_PUBLISHERS, "E11");
 
-        _bondOwner[campaignId] = advertiser;
-        _bond[campaignId] = msg.value;
-        _bondPublisher[campaignId] = publisher;
+        _bondOwner[campaignId][publisher] = advertiser;
+        _bond[campaignId][publisher] = msg.value;
         _totalBonds[publisher] += msg.value;
+
+        if (!_isBondedPublisher[campaignId][publisher]) {
+            _isBondedPublisher[campaignId][publisher] = true;
+            _bondedPublishers[campaignId].push(publisher);
+        }
 
         emit BondLocked(campaignId, advertiser, publisher, msg.value);
     }
 
     /// @inheritdoc IDatumChallengeBonds
-    /// @dev M-1: Records return into `pendingBondReturn[advertiser]` instead of
-    ///      pushing native DOT. Advertiser pulls via claimBondReturn[To].
+    /// @dev M-1: Records returns into `pendingBondReturn` instead of pushing.
+    ///      Multi-publisher: iterates the bonded set and returns each
+    ///      unclaimed bond to the corresponding advertiser pull-queue.
     function returnBond(uint256 campaignId) external nonReentrant {
         require(msg.sender == lifecycleContract, "E18");
-        uint256 amount = _bond[campaignId];
-        if (amount == 0) return; // no bond — silently skip (optional bond)
+        address[] storage publishers = _bondedPublishers[campaignId];
+        uint256 n = publishers.length;
+        for (uint256 i = 0; i < n; i++) {
+            address publisher = publishers[i];
+            uint256 amount = _bond[campaignId][publisher];
+            if (amount == 0) continue;       // already claimed as bonus
+            if (_bonusClaimed[campaignId][publisher]) continue;
 
-        address advertiser = _bondOwner[campaignId];
-        address publisher  = _bondPublisher[campaignId];
+            address advertiser = _bondOwner[campaignId][publisher];
 
-        // Clear bond state before queueing the refund
-        _bond[campaignId] = 0;
-        _bondOwner[campaignId] = address(0);
-        _bondPublisher[campaignId] = address(0);
-        if (_totalBonds[publisher] >= amount) {
-            _totalBonds[publisher] -= amount;
-        } else {
-            _totalBonds[publisher] = 0;
+            // Clear state before queueing the refund.
+            _bond[campaignId][publisher] = 0;
+            _bondOwner[campaignId][publisher] = address(0);
+            if (_totalBonds[publisher] >= amount) {
+                _totalBonds[publisher] -= amount;
+            } else {
+                _totalBonds[publisher] = 0;
+            }
+
+            pendingBondReturn[advertiser] += amount;
+            emit BondReturned(campaignId, advertiser, amount);
         }
-
-        pendingBondReturn[advertiser] += amount;
-        emit BondReturned(campaignId, advertiser, amount);
     }
 
     /// @notice M-1: Pull a queued bond return to msg.sender.
@@ -146,38 +171,84 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
     }
 
     /// @inheritdoc IDatumChallengeBonds
+    /// @dev Legacy single-publisher claimBonus. Resolves the publisher from the
+    ///      campaign's bonded set:
+    ///        - 0 bonded publishers → preserve legacy E01 (no bond).
+    ///        - 1 bonded publisher  → claim against that pair (may E72 if
+    ///                                  already claimed).
+    ///        - 2+ bonded publishers → "ambiguous"; caller must use the
+    ///                                  per-publisher claim variant.
     function claimBonus(uint256 campaignId) external nonReentrant {
-        _claimBonus(campaignId, msg.sender);
+        address publisher = _resolveLegacyPublisher(campaignId);
+        _claimBonus(campaignId, publisher, msg.sender);
     }
 
-    /// @notice M-1 cold-wallet variant: claim bonus to a chosen recipient.
-    ///         Only the bond owner (msg.sender) can call.
+    /// @notice M-1 cold-wallet variant.
     function claimBonusTo(uint256 campaignId, address recipient) external nonReentrant {
         require(recipient != address(0), "E00");
-        _claimBonus(campaignId, recipient);
+        address publisher = _resolveLegacyPublisher(campaignId);
+        _claimBonus(campaignId, publisher, recipient);
     }
 
-    function _claimBonus(uint256 campaignId, address recipient) internal {
-        require(!_bonusClaimed[campaignId], "E72"); // already claimed
-        uint256 bondAmt = _bond[campaignId];
-        require(bondAmt > 0, "E01"); // no bond
-        address advertiser = _bondOwner[campaignId];
+    /// @dev Legacy resolver. Reverts E01 when no bonds exist (preserving
+    ///      legacy semantics). Reverts "ambiguous" only when >1 distinct
+    ///      bonded publishers exist for the campaign.
+    function _resolveLegacyPublisher(uint256 campaignId) internal view returns (address) {
+        address[] storage pubs = _bondedPublishers[campaignId];
+        if (pubs.length == 0) revert("E01"); // no bond ever existed
+        if (pubs.length == 1) return pubs[0];
+        // >1 — must be ambiguous OR all-but-one already claimed.
+        address found = address(0);
+        for (uint256 i = 0; i < pubs.length; i++) {
+            address p = pubs[i];
+            // Consider any non-claimed slot, OR the currently-claimed slot
+            // (so a double-claim attempt resolves to that slot and surfaces E72).
+            if (!_bonusClaimed[campaignId][p]) {
+                if (_bond[campaignId][p] > 0) {
+                    if (found != address(0)) revert("ambiguous");
+                    found = p;
+                }
+            } else {
+                // claimed entry — fall back to it if it's the only one
+                if (found == address(0)) found = p;
+            }
+        }
+        return found == address(0) ? pubs[0] : found;
+    }
+
+    /// @notice Per-publisher claim — required for multi-publisher campaigns
+    ///         where multiple bonds are locked.
+    function claimBonusForPublisher(uint256 campaignId, address publisher) external nonReentrant {
+        _claimBonus(campaignId, publisher, msg.sender);
+    }
+
+    /// @notice Per-publisher cold-wallet variant.
+    function claimBonusForPublisherTo(uint256 campaignId, address publisher, address recipient)
+        external nonReentrant
+    {
+        require(recipient != address(0), "E00");
+        _claimBonus(campaignId, publisher, recipient);
+    }
+
+    function _claimBonus(uint256 campaignId, address publisher, address recipient) internal {
+        require(!_bonusClaimed[campaignId][publisher], "E72");
+        uint256 bondAmt = _bond[campaignId][publisher];
+        require(bondAmt > 0, "E01");
+        address advertiser = _bondOwner[campaignId][publisher];
         require(msg.sender == advertiser, "E18");
-        address publisher = _bondPublisher[campaignId];
 
         uint256 total = _totalBonds[publisher];
         uint256 pool  = _bonusPool[publisher];
-        require(pool > 0, "E03"); // no bonus pool yet
+        require(pool > 0, "E03");
 
-        // AUDIT-013: Use proportional share calculation; cap to pool balance
+        // AUDIT-013: Use proportional share calculation; cap to pool balance.
         uint256 share = (bondAmt * pool) / total;
         if (share > pool) share = pool;
 
-        // Mark claimed and burn the bond (bond is NOT returned)
-        _bonusClaimed[campaignId] = true;
-        _bond[campaignId] = 0;
-        _bondOwner[campaignId] = address(0);
-        _bondPublisher[campaignId] = address(0);
+        // Mark claimed and burn the bond (bond is NOT returned).
+        _bonusClaimed[campaignId][publisher] = true;
+        _bond[campaignId][publisher] = 0;
+        _bondOwner[campaignId][publisher] = address(0);
         if (_totalBonds[publisher] >= bondAmt) {
             _totalBonds[publisher] -= bondAmt;
         } else {
@@ -190,18 +261,61 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
         _safeSend(recipient, share);
     }
 
+    /// @dev Returns the publisher iff exactly one publisher is bonded on this
+    ///      campaign and that bond is still active; otherwise returns address(0).
+    function _singleBondedPublisher(uint256 campaignId) internal view returns (address) {
+        address[] storage pubs = _bondedPublishers[campaignId];
+        address found = address(0);
+        for (uint256 i = 0; i < pubs.length; i++) {
+            address p = pubs[i];
+            if (_bond[campaignId][p] > 0) {
+                if (found != address(0)) return address(0); // ambiguous
+                found = p;
+            }
+        }
+        return found;
+    }
+
     // ── Views ──────────────────────────────────────────────────────────────────
 
+    /// @dev Legacy view: returns the owner of the single bond if exactly one
+    ///      bond is active on this campaign. Returns address(0) if ambiguous
+    ///      or none. For multi-publisher campaigns, callers should use
+    ///      `bondOwnerForPublisher`.
     function bondOwner(uint256 campaignId) external view returns (address) {
-        return _bondOwner[campaignId];
+        address publisher = _singleBondedPublisher(campaignId);
+        if (publisher == address(0)) return address(0);
+        return _bondOwner[campaignId][publisher];
     }
 
+    /// @dev Legacy view: returns the amount of the single bond if exactly
+    ///      one bond is active. Returns 0 if ambiguous or none.
     function bond(uint256 campaignId) external view returns (uint256) {
-        return _bond[campaignId];
+        address publisher = _singleBondedPublisher(campaignId);
+        if (publisher == address(0)) return 0;
+        return _bond[campaignId][publisher];
     }
 
+    /// @dev Legacy view: returns the publisher if exactly one bond is active.
     function bondPublisher(uint256 campaignId) external view returns (address) {
-        return _bondPublisher[campaignId];
+        return _singleBondedPublisher(campaignId);
+    }
+
+    /// @notice Per-publisher views.
+    function bondForPublisher(uint256 campaignId, address publisher) external view returns (uint256) {
+        return _bond[campaignId][publisher];
+    }
+
+    function bondOwnerForPublisher(uint256 campaignId, address publisher) external view returns (address) {
+        return _bondOwner[campaignId][publisher];
+    }
+
+    function bonusClaimedForPublisher(uint256 campaignId, address publisher) external view returns (bool) {
+        return _bonusClaimed[campaignId][publisher];
+    }
+
+    function bondedPublishers(uint256 campaignId) external view returns (address[] memory) {
+        return _bondedPublishers[campaignId];
     }
 
     function totalBonds(address publisher) external view returns (uint256) {
@@ -212,7 +326,17 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
         return _bonusPool[publisher];
     }
 
+    /// @dev Legacy view: claimed status of the single-publisher bond.
     function bonusClaimed(uint256 campaignId) external view returns (bool) {
-        return _bonusClaimed[campaignId];
+        address publisher = _singleBondedPublisher(campaignId);
+        if (publisher == address(0)) {
+            // Either ambiguous or no active bonds — check any historical claim.
+            address[] storage pubs = _bondedPublishers[campaignId];
+            for (uint256 i = 0; i < pubs.length; i++) {
+                if (_bonusClaimed[campaignId][pubs[i]]) return true;
+            }
+            return false;
+        }
+        return _bonusClaimed[campaignId][publisher];
     }
 }

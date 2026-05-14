@@ -1,6 +1,19 @@
 # Proposal: Multi-Publisher Campaigns
 
-**Status:** Design proposal, unimplemented.
+**Status:** **Implemented** 2026-05-14. See commit landing
+`DatumChallengeBonds`, `DatumCampaigns`, `DatumClaimValidator`,
+`MockCampaigns`, and `test/multi-publisher.test.ts` (19 regression tests).
+**Implementation changes vs original proposal:**
+- D-3 chose per-publisher bonds (not "forbid in v1"). `_bond[id][pub]`
+  per-publisher storage; `returnBond` iterates the bonded set;
+  `claimBonusForPublisher(id, pub)` for multi-publisher; legacy
+  `claimBonus(id)` resolves the single bonded publisher (E01/E72
+  preserved).
+- Architectural unification: single-publisher campaign is now an
+  allowlist of size 1. `createCampaign(publisher=A)` populates the
+  allowlist with A directly. The `Campaign.publisher` field stays as
+  initialization metadata.
+
 **Author:** 2026-05-14 analysis.
 **Motivation:** Let advertisers pre-vet a set of N publishers and run a
 single campaign across all of them, without N separate campaign creations.

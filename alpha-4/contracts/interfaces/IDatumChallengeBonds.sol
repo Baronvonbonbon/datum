@@ -50,11 +50,25 @@ interface IDatumChallengeBonds {
     /// @notice M-1: Pending bond-return amount for an advertiser.
     function pendingBondReturn(address advertiser) external view returns (uint256);
 
+    /// @notice Per-publisher claim variants (multi-publisher campaign support).
+    function claimBonusForPublisher(uint256 campaignId, address publisher) external;
+    function claimBonusForPublisherTo(uint256 campaignId, address publisher, address recipient) external;
+
     // ── Views ──────────────────────────────────────────────────────────────────
 
+    /// @notice Legacy single-publisher views. Resolve only when exactly one
+    ///         publisher is bonded on the campaign; return zero/empty otherwise.
+    ///         Callers handling multi-publisher campaigns should use the
+    ///         per-publisher variants below.
     function bondOwner(uint256 campaignId) external view returns (address);
     function bond(uint256 campaignId) external view returns (uint256);
     function bondPublisher(uint256 campaignId) external view returns (address);
+
+    /// @notice Per-publisher views.
+    function bondForPublisher(uint256 campaignId, address publisher) external view returns (uint256);
+    function bondOwnerForPublisher(uint256 campaignId, address publisher) external view returns (address);
+    function bonusClaimedForPublisher(uint256 campaignId, address publisher) external view returns (bool);
+    function bondedPublishers(uint256 campaignId) external view returns (address[] memory);
 
     /// @notice Total bonds locked against a publisher across all campaigns.
     function totalBonds(address publisher) external view returns (uint256);
@@ -62,6 +76,6 @@ interface IDatumChallengeBonds {
     /// @notice Current bonus pool accrued for a publisher from slash proceeds.
     function bonusPool(address publisher) external view returns (uint256);
 
-    /// @notice Whether the bonus has been claimed for a campaign.
+    /// @notice Whether any bonus has been claimed for a campaign (legacy).
     function bonusClaimed(uint256 campaignId) external view returns (bool);
 }

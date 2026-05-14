@@ -152,8 +152,41 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     event AdvertiserStakeSet(address indexed stakeContract);
 
     // ---- Allowlist snapshots (merged from DatumCampaignValidator) ----
+    // Per-PUBLISHER's advertiser allowlist (set by the publisher on their inventory).
     mapping(uint256 => bool) public campaignAllowlistEnabled;
     mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
+
+    // ── Multi-publisher campaign support ───────────────────────────────────
+    //
+    // A campaign is either:
+    //   - OPEN: campaignAllowedPublisherCount[id] == 0
+    //           Any registered publisher whose tags cover the campaign's
+    //           requiredTags may serve. Take rate falls back to
+    //           defaultTakeRateBps (snapshotted into Campaign.snapshotTakeRateBps
+    //           at creation).
+    //   - ALLOWLIST: campaignAllowedPublisherCount[id] > 0
+    //           Only listed publishers may serve. Per-publisher take rate is
+    //           snapshotted at allowlist-add time so a publisher cannot raise
+    //           their rate mid-campaign and change the deal.
+    //
+    // The legacy "closed campaign" (single publisher) is the degenerate
+    // allowlist case with count == 1. createCampaign(publisher != 0)
+    // populates the allowlist with that one publisher.
+    //
+    // The Campaign struct's `publisher` field remains as initialization
+    // metadata (the publisher passed at creation). For multi-publisher
+    // campaigns it may be stale after `removeAllowedPublisher`.
+    mapping(uint256 => mapping(address => bool)) public campaignAllowedPublisher;
+    mapping(uint256 => uint16) public campaignAllowedPublisherCount;
+    mapping(uint256 => mapping(address => uint16)) public campaignPublisherTakeRate;
+
+    /// @notice Hard cap on the number of distinct publishers per campaign,
+    ///         to bound gas on enumeration paths (e.g., ChallengeBonds.returnBond).
+    ///         Aligned with DatumChallengeBonds.MAX_BONDED_PUBLISHERS.
+    uint16 public constant MAX_ALLOWED_PUBLISHERS = 32;
+
+    event PublisherAllowed(uint256 indexed campaignId, address indexed publisher, uint16 takeRateBps);
+    event PublisherRemoved(uint256 indexed campaignId, address indexed publisher);
 
     // A3: AssuranceLevel per campaign. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
     mapping(uint256 => uint8) public campaignAssuranceLevel;
@@ -778,6 +811,14 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
             campaignAllowlistSnapshot[campaignId][msg.sender] = true;
         }
 
+        // Multi-publisher: a closed campaign is just an allowlist of one.
+        if (publisher != address(0)) {
+            campaignAllowedPublisher[campaignId][publisher] = true;
+            campaignAllowedPublisherCount[campaignId] = 1;
+            campaignPublisherTakeRate[campaignId][publisher] = snapshot;
+            emit PublisherAllowed(campaignId, publisher, snapshot);
+        }
+
         if (rewardToken != address(0)) {
             require(rewardPerImpression > 0, "E11");
         }
@@ -921,6 +962,97 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     function getCampaignRequiredCategory(uint256 campaignId) external view returns (bytes32) {
         return campaignRequiredCategory[campaignId];
+    }
+
+    // ── Multi-publisher campaign management ───────────────────────────────────
+
+    /// @notice Add a publisher to the campaign's serving allowlist with an
+    ///         optional per-(campaign, publisher) bond. Advertiser-only.
+    ///         Allowed in both Pending and Active states — adding capacity
+    ///         never strands anyone.
+    ///
+    ///         The publisher's `takeRateBps` is snapshotted at this moment;
+    ///         later rate changes by the publisher do not affect this campaign.
+    ///
+    ///         If `msg.value > 0`, the value is forwarded to
+    ///         `DatumChallengeBonds.lockBond` as the bond for this
+    ///         (campaign, publisher) pair. Requires ChallengeBonds wired.
+    function addAllowedPublisher(uint256 campaignId, address publisher)
+        external payable nonReentrant
+    {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Pending || c.status == CampaignStatus.Active, "E22");
+        require(publisher != address(0), "E00");
+        require(!campaignAllowedPublisher[campaignId][publisher], "E71"); // already in set
+        require(campaignAllowedPublisherCount[campaignId] < MAX_ALLOWED_PUBLISHERS, "E11");
+
+        // Validate the publisher: registered, not blocked, tag match.
+        require(!publishers.isBlocked(publisher), "E62");
+        IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
+        require(pub.registered, "E62");
+
+        // Per-publisher allowlist (publisher's own advertiser allowlist).
+        if (publishers.allowlistEnabled(publisher)) {
+            require(publishers.isAllowedAdvertiser(publisher, msg.sender), "E62");
+        }
+
+        // Tag match against the campaign's required tags.
+        bytes32[] storage reqTags = _campaignTags[campaignId];
+        for (uint256 i = 0; i < reqTags.length; i++) {
+            require(_publisherTagSet[publisher][reqTags[i]], "E62");
+        }
+
+        // Snapshot take rate at this moment.
+        uint16 rate = pub.takeRateBps;
+        campaignAllowedPublisher[campaignId][publisher] = true;
+        campaignPublisherTakeRate[campaignId][publisher] = rate;
+        campaignAllowedPublisherCount[campaignId] += 1;
+
+        emit PublisherAllowed(campaignId, publisher, rate);
+
+        // Optional bond for this (campaign, publisher) pair.
+        if (msg.value > 0) {
+            require(address(challengeBonds) != address(0), "E00");
+            challengeBonds.lockBond{value: msg.value}(campaignId, msg.sender, publisher);
+        }
+    }
+
+    /// @notice Remove a publisher from the campaign's allowlist. Hard cutoff:
+    ///         from the next block, claims from this publisher fail Check 3.
+    ///         In-flight bonds for this (campaign, publisher) pair remain
+    ///         claimable via the normal end-of-campaign return path.
+    function removeAllowedPublisher(uint256 campaignId, address publisher) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(campaignAllowedPublisher[campaignId][publisher], "E01");
+
+        campaignAllowedPublisher[campaignId][publisher] = false;
+        campaignAllowedPublisherCount[campaignId] -= 1;
+        // Note: per-publisher take-rate snapshot retained so any bond
+        //       still in-flight has stable reference data. Storage costs
+        //       are negligible vs the safety of stable references.
+
+        emit PublisherRemoved(campaignId, publisher);
+    }
+
+    /// @notice View: is this publisher allowed to serve this campaign?
+    function isAllowedPublisher(uint256 campaignId, address publisher) external view returns (bool) {
+        return campaignAllowedPublisher[campaignId][publisher];
+    }
+
+    /// @notice View: per-publisher take-rate snapshot for this campaign.
+    function getCampaignPublisherTakeRate(uint256 campaignId, address publisher)
+        external view returns (uint16)
+    {
+        return campaignPublisherTakeRate[campaignId][publisher];
+    }
+
+    /// @notice View: campaign mode. 0 = OPEN, 1 = ALLOWLIST.
+    function campaignMode(uint256 campaignId) external view returns (uint8) {
+        return campaignAllowedPublisherCount[campaignId] > 0 ? 1 : 0;
     }
 
     /// @notice #1 (2026-05-12): set the per-user per-window cap for this campaign.
