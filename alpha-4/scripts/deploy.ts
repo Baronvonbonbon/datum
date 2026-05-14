@@ -594,29 +594,10 @@ async function main() {
     console.log(`  SET: ${label}`);
   }
 
-  // ── Settlement.configure(budgetLedger, paymentVault, lifecycle, relay) ──
-  const sCurrentBL = await readAddr(addresses.settlement, "budgetLedger");
-  const sCurrentPV = await readAddr(addresses.settlement, "paymentVault");
-  const sCurrentLC = await readAddr(addresses.settlement, "lifecycle");
-  const sCurrentRL = await readAddr(addresses.settlement, "relayContract");
-
-  const settlementConfigured =
-    sCurrentBL === addresses.budgetLedger.toLowerCase() &&
-    sCurrentPV === addresses.paymentVault.toLowerCase() &&
-    sCurrentLC === addresses.campaignLifecycle.toLowerCase() &&
-    sCurrentRL === addresses.relay.toLowerCase();
-
-  if (settlementConfigured) {
-    console.log("  OK (already set): Settlement.configure(...)");
-  } else {
-    await sendCall(
-      addresses.settlement,
-      ["function configure(address,address,address,address)"],
-      "configure",
-      [addresses.budgetLedger, addresses.paymentVault, addresses.campaignLifecycle, addresses.relay],
-    );
-    console.log("  SET: Settlement.configure(budgetLedger, paymentVault, lifecycle, relay)");
-  }
+  // (LOCK-ONCE: Settlement.configure(budgetLedger, paymentVault, lifecycle,
+  //  relay) moved to STAGE 3. It's the foundational lock-once that holds
+  //  Settlement's view of its supporting plumbing; fire it last with the
+  //  rest of the Settlement lock-onces.)
 
   // ── Relay: setSettlement, setCampaigns (mutable; update when they're redeployed) ──
   await wireIfNeeded(
@@ -632,53 +613,11 @@ async function main() {
     addresses.campaigns,
   );
 
-  // ── Settlement.setClaimValidator(claimValidator) ──
-  await wireIfNeeded(
-    "Settlement.claimValidator",
-    "DatumSettlement", addresses.settlement,
-    "claimValidator", "setClaimValidator",
-    addresses.claimValidator,
-  );
-
-  // ── Settlement.setAttestationVerifier(attestationVerifier) ──
-  await wireIfNeeded(
-    "Settlement.attestationVerifier",
-    "DatumSettlement", addresses.settlement,
-    "attestationVerifier", "setAttestationVerifier",
-    addresses.attestationVerifier,
-  );
-
-  // ── Settlement.setPublishers(publishers) — S12 settlement-level blocklist ──
-  await wireIfNeeded(
-    "Settlement.publishers",
-    "DatumSettlement", addresses.settlement,
-    "publishers", "setPublishers",
-    addresses.publishers,
-  );
-
-  // ── Settlement.setTokenRewardVault(tokenRewardVault) ──
-  await wireIfNeeded(
-    "Settlement.tokenRewardVault",
-    "DatumSettlement", addresses.settlement,
-    "tokenRewardVault", "setTokenRewardVault",
-    addresses.tokenRewardVault,
-  );
-
-  // ── Settlement.setCampaigns(campaigns) — for reading reward token config ──
-  await wireIfNeeded(
-    "Settlement.campaigns",
-    "DatumSettlement", addresses.settlement,
-    "campaigns", "setCampaigns",
-    addresses.campaigns,
-  );
-
-  // ── TokenRewardVault.setSettlement(settlement) ──
-  await wireIfNeeded(
-    "TokenRewardVault.settlement",
-    "DatumTokenRewardVault", addresses.tokenRewardVault,
-    "settlement", "setSettlement",
-    addresses.settlement,
-  );
+  // (LOCK-ONCE: Settlement.setClaimValidator / setAttestationVerifier /
+  //  setPublishers / setTokenRewardVault / setCampaigns / setPublisherStake /
+  //  setClickRegistry / TokenRewardVault.setSettlement moved to STAGE 3
+  //  below. These setters cannot be re-pointed once written, so they're
+  //  fired LAST in the wiring phase after all soft wiring is verified.)
 
   // ── Campaigns: setBudgetLedger, setLifecycleContract, setGovernanceContract, setSettlementContract ──
   await wireIfNeeded(
@@ -706,33 +645,8 @@ async function main() {
     addresses.settlement,
   );
 
-  // ── BudgetLedger: setCampaigns, setSettlement, setLifecycle ──
-  await wireIfNeeded(
-    "BudgetLedger.campaigns",
-    "DatumBudgetLedger", addresses.budgetLedger,
-    "campaigns", "setCampaigns",
-    addresses.campaigns,
-  );
-  await wireIfNeeded(
-    "BudgetLedger.settlement",
-    "DatumBudgetLedger", addresses.budgetLedger,
-    "settlement", "setSettlement",
-    addresses.settlement,
-  );
-  await wireIfNeeded(
-    "BudgetLedger.lifecycle",
-    "DatumBudgetLedger", addresses.budgetLedger,
-    "lifecycle", "setLifecycle",
-    addresses.campaignLifecycle,
-  );
-
-  // ── PaymentVault: setSettlement ──
-  await wireIfNeeded(
-    "PaymentVault.settlement",
-    "DatumPaymentVault", addresses.paymentVault,
-    "settlement", "setSettlement",
-    addresses.settlement,
-  );
+  // (LOCK-ONCE: BudgetLedger.setCampaigns / setSettlement / setLifecycle and
+  //  PaymentVault.setSettlement moved to STAGE 3 below.)
 
   // ── CampaignLifecycle: setCampaigns, setBudgetLedger, setGovernanceContract, setSettlementContract ──
   await wireIfNeeded(
@@ -819,13 +733,7 @@ async function main() {
     }
   }
 
-  // ── GovernanceV2: setLifecycle (GovernanceHelper + GovernanceSlash merged inline in alpha-4) ──
-  await wireIfNeeded(
-    "GovernanceV2.lifecycle",
-    "DatumGovernanceV2", addresses.governanceV2,
-    "lifecycle", "setLifecycle",
-    addresses.campaignLifecycle,
-  );
+  // (LOCK-ONCE: GovernanceV2.setLifecycle moved to STAGE 3.)
 
   // ── GovernanceRouter: update campaigns + lifecycle when redeployed ──
   await wireIfNeeded(
@@ -845,99 +753,12 @@ async function main() {
   // Governor is set at deploy time (deployer = Phase 0 Admin).
   // Phase transitions go through Timelock after ownership transfer.
 
-  // ── FP-1+FP-4: PublisherStake ──
-  // Settlement calls recordImpressions() after each settled batch
-  await wireIfNeeded(
-    "PublisherStake.settlementContract",
-    "DatumPublisherStake", addresses.publisherStake,
-    "settlementContract", "setSettlementContract",
-    addresses.settlement,
-  );
-  // PublisherGovernance calls slash() to penalise fraud-upheld publishers
-  await wireIfNeeded(
-    "PublisherStake.slashContract",
-    "DatumPublisherStake", addresses.publisherStake,
-    "slashContract", "setSlashContract",
-    addresses.publisherGovernance,
-  );
-  // Settlement stake check: address(0) keeps check disabled until operator enables it
-  // Wire it so stake enforcement is active from first deploy.
-  await wireIfNeeded(
-    "Settlement.publisherStake",
-    "DatumSettlement", addresses.settlement,
-    "publisherStake", "setPublisherStake",
-    addresses.publisherStake,
-  );
-
-  // ── FP-2: ChallengeBonds ──
-  await wireIfNeeded(
-    "ChallengeBonds.campaignsContract",
-    "DatumChallengeBonds", addresses.challengeBonds,
-    "campaignsContract", "setCampaignsContract",
-    addresses.campaigns,
-  );
-  await wireIfNeeded(
-    "ChallengeBonds.lifecycleContract",
-    "DatumChallengeBonds", addresses.challengeBonds,
-    "lifecycleContract", "setLifecycleContract",
-    addresses.campaignLifecycle,
-  );
-  await wireIfNeeded(
-    "ChallengeBonds.governanceContract",
-    "DatumChallengeBonds", addresses.challengeBonds,
-    "governanceContract", "setGovernanceContract",
-    addresses.publisherGovernance,
-  );
-  // Campaigns calls lockBond() when advertisers include a bond at campaign creation
-  await wireIfNeeded(
-    "Campaigns.challengeBonds",
-    "DatumCampaigns", addresses.campaigns,
-    "challengeBonds", "setChallengeBonds",
-    addresses.challengeBonds,
-  );
-  // Lifecycle calls returnBond() on campaign end / non-fraud resolution
-  await wireIfNeeded(
-    "Lifecycle.challengeBonds",
-    "DatumCampaignLifecycle", addresses.campaignLifecycle,
-    "challengeBonds", "setChallengeBonds",
-    addresses.challengeBonds,
-  );
-
-  // ── Optimistic activation (Phases 1/2a/2b) ──
-  // ActivationBonds is the gateway between Campaigns (creator bond opens
-  // here), GovernanceV2 (contested-Pending votes consult isContested), and
-  // ClaimValidator (settlement consults isMuted).
-  await wireIfNeeded(
-    "ActivationBonds.campaignsContract",
-    "DatumActivationBonds", addresses.activationBonds,
-    "campaignsContract", "setCampaignsContract",
-    addresses.campaigns,
-  );
-  await wireIfNeeded(
-    "Campaigns.activationBonds",
-    "DatumCampaigns", addresses.campaigns,
-    "activationBonds", "setActivationBonds",
-    addresses.activationBonds,
-  );
-  // GovernanceV2 reads isContested(cid) to decide whether to allow a vote
-  // on a Pending campaign. With this wired, uncontested Pending campaigns
-  // activate via the permissionless ActivationBonds.activate() path and
-  // never reach governance; contested cases go through commit-reveal.
-  await wireIfNeeded(
-    "GovernanceV2.activationBonds",
-    "DatumGovernanceV2", addresses.governanceV2,
-    "activationBonds", "setActivationBonds",
-    addresses.activationBonds,
-  );
-  // ClaimValidator reads isMuted(cid) on the hot settlement path; muted
-  // campaigns reject with reason 22. Subject to plumbingLocked — call this
-  // before lockPlumbing() runs.
-  await wireIfNeeded(
-    "ClaimValidator.activationBonds",
-    "DatumClaimValidator", addresses.claimValidator,
-    "activationBonds", "setActivationBonds",
-    addresses.activationBonds,
-  );
+  // (LOCK-ONCE: PublisherStake / ChallengeBonds / Campaigns.challengeBonds /
+  //  Settlement.publisherStake / ActivationBonds wiring moved to STAGE 3.
+  //  Lifecycle.setChallengeBonds and ClaimValidator.setActivationBonds are
+  //  plumbingLocked-gated rather than per-call lock-once, but they're moved
+  //  to STAGE 3 alongside their lock-once counterparts so the whole bond/
+  //  activation wiring fires atomically as the last block.)
 
   // Re-apply commit-reveal phases. The GovernanceV2 constructor already sets
   // 14400/14400; this call is a no-op when the on-chain values already match
@@ -967,7 +788,7 @@ async function main() {
     }
   }
 
-  // ── ClickRegistry: setRelay, setSettlement; Settlement.setClickRegistry ──
+  // ── ClickRegistry: setRelay, setSettlement (Settlement.setClickRegistry moves to STAGE 3) ──
   await wireIfNeeded(
     "ClickRegistry.relay",
     "DatumClickRegistry", addresses.clickRegistry,
@@ -979,12 +800,6 @@ async function main() {
     "DatumClickRegistry", addresses.clickRegistry,
     "settlement", "setSettlement",
     addresses.settlement,
-  );
-  await wireIfNeeded(
-    "Settlement.clickRegistry",
-    "DatumSettlement", addresses.settlement,
-    "clickRegistry", "setClickRegistry",
-    addresses.clickRegistry,
   );
 
   // ── Alpha-4 inline: Settlement rate limiter + nullifier window ──
@@ -1037,37 +852,19 @@ async function main() {
   // Audit pass 2 wiring (2026-05-12)
   // ──────────────────────────────────────────────────────────────────────────
 
-  // #5: ClaimValidator → Settlement (needed for PoW target view + history filter).
-  //     Lock-once; only effective on first deploy.
-  await wireIfNeeded(
-    "ClaimValidator.settlement",
-    "DatumClaimValidator", addresses.claimValidator,
-    "settlement", "setSettlement",
-    addresses.settlement,
-  );
-
-  // B2: Publishers → blocklist curator. Don't lockBlocklistCurator yet (per
-  //     deploy plan: keep legacy owner-blocklist available during bootstrap).
+  // (LOCK-ONCE: ClaimValidator.setSettlement + PublisherGovernance.setCouncilArbiter
+  //  moved to STAGE 3. Publishers.setBlocklistCurator and BlocklistCurator.setCouncil
+  //  are not lock-once — they stay here.)
   await wireIfNeeded(
     "Publishers.blocklistCurator",
     "DatumPublishers", addresses.publishers,
     "blocklistCurator", "setBlocklistCurator",
     addresses.blocklistCurator,
   );
-
-  // B2: CouncilBlocklistCurator.council = DatumCouncil
   await wireIfNeeded(
     "BlocklistCurator.council",
     "DatumCouncilBlocklistCurator", addresses.blocklistCurator,
     "council", "setCouncil",
-    addresses.council,
-  );
-
-  // #3: PublisherGovernance.councilArbiter = DatumCouncil
-  await wireIfNeeded(
-    "PublisherGovernance.councilArbiter",
-    "DatumPublisherGovernance", addresses.publisherGovernance,
-    "councilArbiter", "setCouncilArbiter",
     addresses.council,
   );
 
@@ -1116,6 +913,252 @@ async function main() {
       console.log("  SET: Settlement.setEnforcePow(true)");
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STAGE 3 — LOCK-ONCE COMMITS
+  //
+  // Every wireIfNeeded() below is a one-shot vow. The target contract reverts
+  // any subsequent attempt to change the reference. Grouped at the end of
+  // wiring so a deploy failure before STAGE 3 leaves all earlier wiring
+  // recoverable (parameters tunable, soft refs swappable).
+  //
+  // Re-run safe: each call's getter is checked first; if already correctly
+  // set the call is skipped.
+  //
+  // Pre-flight verification: before committing the lock-onces, log every
+  // upstream contract address being wired so the operator can sanity-check
+  // against deployed-addresses.json before the writes go out.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  console.log("\n  ── STAGE 3 PRE-FLIGHT: addresses about to be locked-in ──");
+  console.log("    campaigns        =", addresses.campaigns);
+  console.log("    settlement       =", addresses.settlement);
+  console.log("    claimValidator   =", addresses.claimValidator);
+  console.log("    attestationVer.  =", addresses.attestationVerifier);
+  console.log("    publishers       =", addresses.publishers);
+  console.log("    tokenRewardVault =", addresses.tokenRewardVault);
+  console.log("    budgetLedger     =", addresses.budgetLedger);
+  console.log("    paymentVault     =", addresses.paymentVault);
+  console.log("    campaignLifecycle=", addresses.campaignLifecycle);
+  console.log("    governanceV2     =", addresses.governanceV2);
+  console.log("    publisherStake   =", addresses.publisherStake);
+  console.log("    publisherGov     =", addresses.publisherGovernance);
+  console.log("    challengeBonds   =", addresses.challengeBonds);
+  console.log("    activationBonds  =", addresses.activationBonds);
+  console.log("    clickRegistry    =", addresses.clickRegistry);
+  console.log("    council          =", addresses.council);
+  console.log("  ───────────────────────────────────────────────────────────\n");
+
+  // ── Settlement.configure: foundational lock-once tying Settlement to its
+  //    BudgetLedger, PaymentVault, Lifecycle, and Relay refs. Must precede
+  //    every other Settlement lock-once below. ──
+  {
+    const sCurrentBL = await readAddr(addresses.settlement, "budgetLedger");
+    const sCurrentPV = await readAddr(addresses.settlement, "paymentVault");
+    const sCurrentLC = await readAddr(addresses.settlement, "lifecycle");
+    const sCurrentRL = await readAddr(addresses.settlement, "relayContract");
+    const settlementConfigured =
+      sCurrentBL === addresses.budgetLedger.toLowerCase() &&
+      sCurrentPV === addresses.paymentVault.toLowerCase() &&
+      sCurrentLC === addresses.campaignLifecycle.toLowerCase() &&
+      sCurrentRL === addresses.relay.toLowerCase();
+    if (settlementConfigured) {
+      console.log("  OK (already set): Settlement.configure(...)");
+    } else {
+      await sendCall(
+        addresses.settlement,
+        ["function configure(address,address,address,address)"],
+        "configure",
+        [addresses.budgetLedger, addresses.paymentVault, addresses.campaignLifecycle, addresses.relay],
+      );
+      console.log("  SET: Settlement.configure(budgetLedger, paymentVault, lifecycle, relay)");
+    }
+  }
+
+  // ── Settlement protocol-ref lock-onces ──
+  await wireIfNeeded(
+    "Settlement.claimValidator",
+    "DatumSettlement", addresses.settlement,
+    "claimValidator", "setClaimValidator",
+    addresses.claimValidator,
+  );
+  await wireIfNeeded(
+    "Settlement.attestationVerifier",
+    "DatumSettlement", addresses.settlement,
+    "attestationVerifier", "setAttestationVerifier",
+    addresses.attestationVerifier,
+  );
+  await wireIfNeeded(
+    "Settlement.publishers",
+    "DatumSettlement", addresses.settlement,
+    "publishers", "setPublishers",
+    addresses.publishers,
+  );
+  await wireIfNeeded(
+    "Settlement.tokenRewardVault",
+    "DatumSettlement", addresses.settlement,
+    "tokenRewardVault", "setTokenRewardVault",
+    addresses.tokenRewardVault,
+  );
+  await wireIfNeeded(
+    "Settlement.campaigns",
+    "DatumSettlement", addresses.settlement,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "Settlement.clickRegistry",
+    "DatumSettlement", addresses.settlement,
+    "clickRegistry", "setClickRegistry",
+    addresses.clickRegistry,
+  );
+
+  // ── TokenRewardVault back-reference ──
+  await wireIfNeeded(
+    "TokenRewardVault.settlement",
+    "DatumTokenRewardVault", addresses.tokenRewardVault,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
+  // ── BudgetLedger / PaymentVault lock-onces ──
+  await wireIfNeeded(
+    "BudgetLedger.campaigns",
+    "DatumBudgetLedger", addresses.budgetLedger,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "BudgetLedger.settlement",
+    "DatumBudgetLedger", addresses.budgetLedger,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "BudgetLedger.lifecycle",
+    "DatumBudgetLedger", addresses.budgetLedger,
+    "lifecycle", "setLifecycle",
+    addresses.campaignLifecycle,
+  );
+  await wireIfNeeded(
+    "PaymentVault.settlement",
+    "DatumPaymentVault", addresses.paymentVault,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
+  // ── GovernanceV2 lock-once refs ──
+  await wireIfNeeded(
+    "GovernanceV2.lifecycle",
+    "DatumGovernanceV2", addresses.governanceV2,
+    "lifecycle", "setLifecycle",
+    addresses.campaignLifecycle,
+  );
+
+  // ── FP-1+FP-4: PublisherStake bidirectional wiring (lock-once both sides) ──
+  await wireIfNeeded(
+    "PublisherStake.settlementContract",
+    "DatumPublisherStake", addresses.publisherStake,
+    "settlementContract", "setSettlementContract",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "PublisherStake.slashContract",
+    "DatumPublisherStake", addresses.publisherStake,
+    "slashContract", "setSlashContract",
+    addresses.publisherGovernance,
+  );
+  await wireIfNeeded(
+    "Settlement.publisherStake",
+    "DatumSettlement", addresses.settlement,
+    "publisherStake", "setPublisherStake",
+    addresses.publisherStake,
+  );
+
+  // ── FP-2: ChallengeBonds wiring (all three setters lock-once) ──
+  await wireIfNeeded(
+    "ChallengeBonds.campaignsContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "campaignsContract", "setCampaignsContract",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "ChallengeBonds.lifecycleContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "lifecycleContract", "setLifecycleContract",
+    addresses.campaignLifecycle,
+  );
+  await wireIfNeeded(
+    "ChallengeBonds.governanceContract",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "governanceContract", "setGovernanceContract",
+    addresses.publisherGovernance,
+  );
+  // Campaigns calls lockBond() when advertisers include a bond at creation.
+  await wireIfNeeded(
+    "Campaigns.challengeBonds",
+    "DatumCampaigns", addresses.campaigns,
+    "challengeBonds", "setChallengeBonds",
+    addresses.challengeBonds,
+  );
+  // Lifecycle.setChallengeBonds is plumbingLocked-gated, not per-call
+  // lock-once. Co-located here so all bond wiring fires atomically.
+  await wireIfNeeded(
+    "Lifecycle.challengeBonds",
+    "DatumCampaignLifecycle", addresses.campaignLifecycle,
+    "challengeBonds", "setChallengeBonds",
+    addresses.challengeBonds,
+  );
+
+  // ── Optimistic activation (Phases 1/2a/2b) — all lock-once ──
+  await wireIfNeeded(
+    "ActivationBonds.campaignsContract",
+    "DatumActivationBonds", addresses.activationBonds,
+    "campaignsContract", "setCampaignsContract",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "Campaigns.activationBonds",
+    "DatumCampaigns", addresses.campaigns,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+  await wireIfNeeded(
+    "GovernanceV2.activationBonds",
+    "DatumGovernanceV2", addresses.governanceV2,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+  // ClaimValidator.setActivationBonds is plumbingLocked-gated (not
+  // per-call lock-once). MUST run before lockPlumbing below.
+  await wireIfNeeded(
+    "ClaimValidator.activationBonds",
+    "DatumClaimValidator", addresses.claimValidator,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+
+  // ── #5: ClaimValidator → Settlement (lock-once on first non-zero set) ──
+  await wireIfNeeded(
+    "ClaimValidator.settlement",
+    "DatumClaimValidator", addresses.claimValidator,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
+  // ── #3: PublisherGovernance.councilArbiter (lock-once) ──
+  await wireIfNeeded(
+    "PublisherGovernance.councilArbiter",
+    "DatumPublisherGovernance", addresses.publisherGovernance,
+    "councilArbiter", "setCouncilArbiter",
+    addresses.council,
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STAGE 4 — IRREVOCABLE FLAGS
+  // After this, no setter on the locked plumbing contracts works again,
+  // and Campaigns.setSettlementContract etc. enter post-bootstrap staging mode.
+  // ═══════════════════════════════════════════════════════════════════════════
 
   // A5/B8: lockBootstrap on Campaigns once governance/lifecycle/settlement/
   //        budgetLedger refs are wired. Idempotent — re-runs are no-ops.
