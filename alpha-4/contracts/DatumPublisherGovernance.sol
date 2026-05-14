@@ -33,16 +33,27 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender, DatumOwnable {
     uint8 public constant MAX_CONVICTION = 8;
 
-    // ── Conviction table (same as GovernanceV2) ────────────────────────────────
+    // ── Conviction curve (governable, quadratic) ──────────────────────────────
+    //   weight(c) = (convictionA * c² + convictionB * c) / CONVICTION_SCALE + 1
+    //   Defaults A=25, B=50 match the legacy step-function endpoint at c=8 (21x).
 
-    function _weight(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory w = [uint256(1), 2, 3, 4, 6, 9, 14, 18, 21];
-        return w[c];
+    uint256 public constant CONVICTION_SCALE = 100;
+    uint256 public constant MAX_LOCKUP_BLOCKS = 10_512_000;  // 2y
+
+    uint256 public convictionA;
+    uint256 public convictionB;
+    uint256[9] public convictionLockup;
+
+    event ConvictionCurveSet(uint256 a, uint256 b);
+    event ConvictionLockupsSet(uint256[9] lockups);
+
+    function _weight(uint8 c) internal view returns (uint256) {
+        uint256 cu = uint256(c);
+        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
     }
 
-    function _lockup(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory l = [uint256(0), 14400, 43200, 100800, 302400, 1296000, 2592000, 3888000, 5256000];
-        return l[c];
+    function _lockup(uint8 c) internal view returns (uint256) {
+        return convictionLockup[c];
     }
 
     // ── Configuration ──────────────────────────────────────────────────────────
@@ -169,6 +180,47 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
         minGraceBlocks = _minGraceBlocks;
         proposeBond = _proposeBond;
         nextProposalId = 1;
+
+        // Default quadratic conviction curve (matches V2 endpoints).
+        convictionA = 25;
+        convictionB = 50;
+        convictionLockup[0] = 0;
+        convictionLockup[1] = 14400;
+        convictionLockup[2] = 43200;
+        convictionLockup[3] = 100800;
+        convictionLockup[4] = 302400;
+        convictionLockup[5] = 1296000;
+        convictionLockup[6] = 2592000;
+        convictionLockup[7] = 3888000;
+        convictionLockup[8] = 5256000;
+    }
+
+    // ── Governable gating parameters ──────────────────────────────────────────
+    event QuorumSet(uint256 value);
+    event SlashBpsSet(uint256 value);
+    event BondBonusBpsSet(uint256 value);
+    event MinGraceBlocksSet(uint256 value);
+    event ProposeBondSet(uint256 value);
+
+    function setQuorum(uint256 v) external onlyOwner { quorum = v; emit QuorumSet(v); }
+    function setSlashBps(uint256 v) external onlyOwner { require(v <= 10000, "E11"); slashBps = v; emit SlashBpsSet(v); }
+    function setBondBonusBps(uint256 v) external onlyOwner { require(v <= 10000, "E11"); bondBonusBps = v; emit BondBonusBpsSet(v); }
+    function setMinGraceBlocks(uint256 v) external onlyOwner { minGraceBlocks = v; emit MinGraceBlocksSet(v); }
+    function setProposeBond(uint256 v) external onlyOwner { proposeBond = v; emit ProposeBondSet(v); }
+
+    function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+        uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
+        require(maxWeight <= 1000, "E11");
+        convictionA = a; convictionB = b;
+        emit ConvictionCurveSet(a, b);
+    }
+
+    function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
+        for (uint256 i = 0; i < 9; i++) {
+            require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
+            convictionLockup[i] = l[i];
+        }
+        emit ConvictionLockupsSet(l);
     }
 
     // ── Admin ──────────────────────────────────────────────────────────────────
@@ -203,11 +255,6 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
         slashBps = _slashBps;
         bondBonusBps = _bondBonusBps;
         minGraceBlocks = _minGrace;
-    }
-
-    /// @notice G-M5: Set the bond required to file a fraud proposal. 0 disables.
-    function setProposeBond(uint256 _proposeBond) external onlyOwner {
-        proposeBond = _proposeBond;
     }
 
     /// @notice #3: Set the Council contract authorized to resolve advertiser
@@ -510,13 +557,13 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @notice Returns the weight multiplier for a conviction level.
-    function convictionWeight(uint8 conviction) external pure returns (uint256) {
+    function convictionWeight(uint8 conviction) external view returns (uint256) {
         require(conviction <= MAX_CONVICTION, "E40");
         return _weight(conviction);
     }
 
     /// @notice Returns the lockup duration in blocks for a conviction level.
-    function convictionLockup(uint8 conviction) external pure returns (uint256) {
+    function convictionLockupBlocks(uint8 conviction) external view returns (uint256) {
         require(conviction <= MAX_CONVICTION, "E40");
         return _lockup(conviction);
     }

@@ -120,6 +120,63 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "ConvictionCurveSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256[9]",
+        "name": "lockups",
+        "type": "uint256[9]"
+      }
+    ],
+    "name": "ConvictionLockupsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "baseGrace",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "gracePerQuorum",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maxGrace",
+        "type": "uint256"
+      }
+    ],
+    "name": "GraceParamsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "recipient",
@@ -246,6 +303,45 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "QuorumWeightedSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "SlashBpsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "TerminationQuorumSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "uint256",
         "name": "campaignId",
@@ -312,12 +408,38 @@
   },
   {
     "inputs": [],
+    "name": "CONVICTION_SCALE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_CONVICTION",
     "outputs": [
       {
         "internalType": "uint8",
         "name": "",
         "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_LOCKUP_BLOCKS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -442,6 +564,51 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "convictionA",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "convictionB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "convictionLockup",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint8",
@@ -457,7 +624,7 @@
         "type": "uint256"
       }
     ],
-    "stateMutability": "pure",
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -790,12 +957,105 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "setConvictionCurve",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[9]",
+        "name": "l",
+        "type": "uint256[9]"
+      }
+    ],
+    "name": "setConvictionLockups",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_baseGrace",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_gracePerQuorum",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxGrace",
+        "type": "uint256"
+      }
+    ],
+    "name": "setGraceParams",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_lifecycle",
         "type": "address"
       }
     ],
     "name": "setLifecycle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setQuorumWeighted",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setSlashBps",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setTerminationQuorum",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

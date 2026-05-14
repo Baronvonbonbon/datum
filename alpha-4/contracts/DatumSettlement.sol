@@ -110,10 +110,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     uint256 public dustMintThreshold = 10**8;
 
     /// @notice Split BPS for user / publisher / advertiser DATUM rewards.
-    ///         BAKED at deploy per §3.3.
-    uint16 public constant DATUM_REWARD_USER_BPS       = 5500;
-    uint16 public constant DATUM_REWARD_PUBLISHER_BPS  = 4000;
-    uint16 public constant DATUM_REWARD_ADVERTISER_BPS =  500;
+    ///         Governance-tunable via `setDatumRewardSplit`; sum must equal
+    ///         10000. Defaults match §3.3: 55/40/5.
+    uint16 public datumRewardUserBps       = 5500;
+    uint16 public datumRewardPublisherBps  = 4000;
+    uint16 public datumRewardAdvertiserBps =  500;
+    event DatumRewardSplitSet(uint16 userBps, uint16 publisherBps, uint16 advertiserBps);
 
     event MintAuthoritySet(address indexed authority);
     event MintRateUpdated(uint256 oldRate, uint256 newRate);
@@ -279,8 +281,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     mapping(address => mapping(uint256 => mapping(uint8 => mapping(uint256 => uint256))))
         public userCampaignWindowEvents;
 
-    // M-1: Revenue split — user gets 75% of remainder after publisher take rate
-    uint256 private constant USER_SHARE_BPS = 7500;
+    // M-1: Revenue split — user gets `userShareBps / 10000` of remainder after
+    //      publisher take rate. Governance-tunable within [MIN_USER_SHARE_BPS,
+    //      MAX_USER_SHARE_BPS] via setUserShareBps. Defaults to 75%.
+    uint16 public userShareBps = 7500;
+    uint16 public constant MIN_USER_SHARE_BPS = 5000;   // floor protects user payout from dropping below 50% of remainder
+    uint16 public constant MAX_USER_SHARE_BPS = 9000;   // ceiling preserves a minimum 10% protocol fee
+    event UserShareBpsSet(uint16 bps);
     uint256 private constant BPS_DENOMINATOR = 10000;
 
     // BM-10: Minimum blocks between settlement batches per user per campaign (0 = disabled)
@@ -576,6 +583,27 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         uint256 old = dustMintThreshold;
         dustMintThreshold = newThreshold;
         emit DustMintThresholdUpdated(old, newThreshold);
+    }
+
+    /// @notice Governance: set the user's share of `remainder` (after publisher
+    ///         take rate). Bounded to [MIN_USER_SHARE_BPS, MAX_USER_SHARE_BPS]
+    ///         so neither user nor protocol can be governance-pushed to 0.
+    function setUserShareBps(uint16 bps) external onlyOwner {
+        require(bps >= MIN_USER_SHARE_BPS && bps <= MAX_USER_SHARE_BPS, "E11");
+        userShareBps = bps;
+        emit UserShareBpsSet(bps);
+    }
+
+    /// @notice Governance: set the DATUM mint reward split (user / publisher /
+    ///         advertiser). Sum must equal 10000. No per-leg lower bound — a
+    ///         legitimate future split might zero one party out (e.g. user-only
+    ///         rewards). Each value is uint16 so max is 10000 anyway.
+    function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwner {
+        require(uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) == 10000, "E11");
+        datumRewardUserBps = userBps;
+        datumRewardPublisherBps = publisherBps;
+        datumRewardAdvertiserBps = advertiserBps;
+        emit DatumRewardSplitSet(userBps, publisherBps, advertiserBps);
     }
 
     receive() external payable { revert("E03"); }
@@ -1131,7 +1159,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
             uint256 publisherPayment = (totalPayment * cTakeRate) / BPS_DENOMINATOR;
             uint256 rem = totalPayment - publisherPayment;
-            uint256 userPayment = (rem * USER_SHARE_BPS) / BPS_DENOMINATOR;
+            uint256 userPayment = (rem * uint256(userShareBps)) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;
 
             // Deduct from budget ledger and transfer DOT to payment vault
@@ -1221,9 +1249,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             // Both DOT planck and DATUM base units use 10 decimals; divide by 1e10 once.
             uint256 totalMint = (agg.total * mintRatePerDot) / (10**10);
             if (totalMint >= dustMintThreshold) {
-                uint256 userMint        = (totalMint * DATUM_REWARD_USER_BPS)      / 10000;
-                uint256 publisherMint   = (totalMint * DATUM_REWARD_PUBLISHER_BPS) / 10000;
-                uint256 advertiserMint  = totalMint - userMint - publisherMint;  // 500 bps + remainder
+                uint256 userMint        = (totalMint * uint256(datumRewardUserBps))      / 10000;
+                uint256 publisherMint   = (totalMint * uint256(datumRewardPublisherBps)) / 10000;
+                uint256 advertiserMint  = totalMint - userMint - publisherMint;  // remainder = advertiser share
                 address advertiser = address(campaigns) == address(0)
                     ? address(0)
                     : campaigns.getCampaignAdvertiser(campaignId);

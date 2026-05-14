@@ -266,6 +266,31 @@
       "inputs": [
         {
           "indexed": false,
+          "internalType": "uint16",
+          "name": "userBps",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "publisherBps",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "advertiserBps",
+          "type": "uint16"
+        }
+      ],
+      "name": "DatumRewardSplitSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
           "internalType": "uint256",
           "name": "oldThreshold",
           "type": "uint256"
@@ -661,6 +686,19 @@
       "anonymous": false,
       "inputs": [
         {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "bps",
+          "type": "uint16"
+        }
+      ],
+      "name": "UserShareBpsSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
           "indexed": true,
           "internalType": "uint256",
           "name": "campaignId",
@@ -675,45 +713,6 @@
       ],
       "name": "ZKAssuranceFailed",
       "type": "event"
-    },
-    {
-      "inputs": [],
-      "name": "DATUM_REWARD_ADVERTISER_BPS",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "DATUM_REWARD_PUBLISHER_BPS",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "DATUM_REWARD_USER_BPS",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
     },
     {
       "inputs": [],
@@ -743,12 +742,38 @@
     },
     {
       "inputs": [],
+      "name": "MAX_USER_SHARE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "MIN_RL_WINDOW_SIZE",
       "outputs": [
         {
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MIN_USER_SHARE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -930,6 +955,45 @@
           "internalType": "uint256",
           "name": "limit",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "datumRewardAdvertiserBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "datumRewardPublisherBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "datumRewardUserBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -1685,6 +1749,29 @@
     {
       "inputs": [
         {
+          "internalType": "uint16",
+          "name": "userBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "publisherBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "advertiserBps",
+          "type": "uint16"
+        }
+      ],
+      "name": "setDatumRewardSplit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "uint256",
           "name": "newThreshold",
           "type": "uint256"
@@ -1929,6 +2016,19 @@
         }
       ],
       "name": "setUserPaused",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint16",
+          "name": "bps",
+          "type": "uint16"
+        }
+      ],
+      "name": "setUserShareBps",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2572,6 +2672,19 @@
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "userShareBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
         }
       ],
       "stateMutability": "view",

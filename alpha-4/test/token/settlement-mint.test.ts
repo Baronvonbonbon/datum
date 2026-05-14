@@ -131,10 +131,33 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       await settlement.setDustMintThreshold(UNIT / 100n);
     });
 
-    it("split BPS constants match §3.3 spec", async function () {
-      expect(await settlement.DATUM_REWARD_USER_BPS()).to.equal(5500);
-      expect(await settlement.DATUM_REWARD_PUBLISHER_BPS()).to.equal(4000);
-      expect(await settlement.DATUM_REWARD_ADVERTISER_BPS()).to.equal(500);
+    it("split BPS defaults match §3.3 spec (now governance-tunable via setDatumRewardSplit)", async function () {
+      expect(await settlement.datumRewardUserBps()).to.equal(5500);
+      expect(await settlement.datumRewardPublisherBps()).to.equal(4000);
+      expect(await settlement.datumRewardAdvertiserBps()).to.equal(500);
+    });
+
+    it("setDatumRewardSplit rejects non-10000 sum", async function () {
+      await expect(
+        settlement.setDatumRewardSplit(5000, 4000, 500)
+      ).to.be.revertedWith("E11");
+    });
+
+    it("setDatumRewardSplit updates values when sum=10000", async function () {
+      await settlement.setDatumRewardSplit(6000, 3500, 500);
+      expect(await settlement.datumRewardUserBps()).to.equal(6000);
+      expect(await settlement.datumRewardPublisherBps()).to.equal(3500);
+      expect(await settlement.datumRewardAdvertiserBps()).to.equal(500);
+      // Restore defaults for downstream tests in this suite.
+      await settlement.setDatumRewardSplit(5500, 4000, 500);
+    });
+
+    it("setUserShareBps bounded to [MIN, MAX]", async function () {
+      await expect(settlement.setUserShareBps(4999)).to.be.revertedWith("E11");
+      await expect(settlement.setUserShareBps(9001)).to.be.revertedWith("E11");
+      await settlement.setUserShareBps(8000);
+      expect(await settlement.userShareBps()).to.equal(8000);
+      await settlement.setUserShareBps(7500);  // restore default
     });
   });
 

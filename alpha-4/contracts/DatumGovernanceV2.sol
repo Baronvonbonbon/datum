@@ -35,21 +35,37 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     uint8 public constant MAX_CONVICTION = 8;
 
     // -------------------------------------------------------------------------
-    // Conviction lookup — constant arrays
-    // Polkadot Hub: 6-second block time, 14,400 blocks/day
-    //   0 →  1x /   0d    1 →  2x /   1d   2 →  3x /   3d
-    //   3 →  4x /   7d    4 →  6x /  21d   5 →  9x /  90d
-    //   6 → 14x / 180d    7 → 18x / 270d   8 → 21x / 365d
+    // Conviction lookup — GOVERNABLE quadratic curve + governable lockup array
+    //
+    //   weight(c) = (convictionA * c² + convictionB * c) / CONVICTION_SCALE + 1
+    //
+    // Defaults (A=25, B=50, SCALE=100) → weight(0)=1, weight(8)=21
+    //   matching the old step-function endpoint while delivering a smooth
+    //   quadratic ramp. Governance can re-tune any time via setConvictionCurve.
+    //
+    //   Lockup is an 9-element array (one per conviction level). Governance
+    //   can rewrite it wholesale via setConvictionLockups, but each element is
+    //   bounded by MAX_LOCKUP_BLOCKS to prevent griefing voters with absurd
+    //   locks.
     // -------------------------------------------------------------------------
+    uint256 public constant CONVICTION_SCALE = 100;
+    /// @notice Upper bound on any single conviction-level lockup. 2 years at 6s/block.
+    uint256 public constant MAX_LOCKUP_BLOCKS = 10_512_000;
 
-    function _weight(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory w = [uint256(1), 2, 3, 4, 6, 9, 14, 18, 21];
-        return w[c];
+    uint256 public convictionA;       // quadratic coefficient (× CONVICTION_SCALE)
+    uint256 public convictionB;       // linear coefficient (× CONVICTION_SCALE)
+    uint256[9] public convictionLockup;
+
+    event ConvictionCurveSet(uint256 a, uint256 b);
+    event ConvictionLockupsSet(uint256[9] lockups);
+
+    function _weight(uint8 c) internal view returns (uint256) {
+        uint256 cu = uint256(c);
+        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
     }
 
-    function _lockup(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory l = [uint256(0), 14400, 43200, 100800, 302400, 1296000, 2592000, 3888000, 5256000];
-        return l[c];
+    function _lockup(uint8 c) internal view returns (uint256) {
+        return convictionLockup[c];
     }
 
     // -------------------------------------------------------------------------
@@ -143,6 +159,21 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         gracePerQuorum = _gracePerQuorum;
         maxGraceBlocks = _maxGrace;
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+
+        // Default conviction curve: weight(c) = (25c² + 50c)/100 + 1
+        //   c=0 → 1x, c=4 → 7x, c=8 → 21x (matches old step-function endpoint).
+        convictionA = 25;
+        convictionB = 50;
+        // Default lockup schedule (same as legacy step function, ≤ MAX_LOCKUP_BLOCKS).
+        convictionLockup[0] = 0;
+        convictionLockup[1] = 14400;
+        convictionLockup[2] = 43200;
+        convictionLockup[3] = 100800;
+        convictionLockup[4] = 302400;
+        convictionLockup[5] = 1296000;
+        convictionLockup[6] = 2592000;
+        convictionLockup[7] = 3888000;
+        convictionLockup[8] = 5256000;
     }
 
     /// @dev Accept ETH from contract-originated transfers (e.g. BudgetLedger slash fraction)
@@ -171,6 +202,65 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         require(campaigns == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaigns, _campaigns);
         campaigns = _campaigns;
+    }
+
+    // -------------------------------------------------------------------------
+    // Governable gating parameters (all owner-only — in the ladder, owner is
+    // the Timelock/Router, so changes traverse the protocol's governance flow).
+    // -------------------------------------------------------------------------
+
+    event QuorumWeightedSet(uint256 value);
+    event SlashBpsSet(uint256 value);
+    event TerminationQuorumSet(uint256 value);
+    event GraceParamsSet(uint256 baseGrace, uint256 gracePerQuorum, uint256 maxGrace);
+
+    function setQuorumWeighted(uint256 v) external onlyOwner {
+        quorumWeighted = v;
+        emit QuorumWeightedSet(v);
+    }
+
+    function setSlashBps(uint256 v) external onlyOwner {
+        require(v < 10000, "E11");
+        slashBps = v;
+        emit SlashBpsSet(v);
+    }
+
+    function setTerminationQuorum(uint256 v) external onlyOwner {
+        terminationQuorum = v;
+        emit TerminationQuorumSet(v);
+    }
+
+    function setGraceParams(uint256 _baseGrace, uint256 _gracePerQuorum, uint256 _maxGrace) external onlyOwner {
+        require(_maxGrace >= _baseGrace, "E11");
+        baseGraceBlocks = _baseGrace;
+        gracePerQuorum = _gracePerQuorum;
+        maxGraceBlocks = _maxGrace;
+        emit GraceParamsSet(_baseGrace, _gracePerQuorum, _maxGrace);
+    }
+
+    /// @notice Update the quadratic conviction curve coefficients.
+    ///         weight(c) = (a*c² + b*c) / CONVICTION_SCALE + 1
+    function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+        // Sanity: at MAX_CONVICTION the weight should fit in a reasonable
+        // value. Cap at 1000x effective weight to prevent governance setting
+        // an absurd coefficient that makes a single super-conviction vote
+        // dominate quorum forever.
+        uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
+        require(maxWeight <= 1000, "E11");
+        convictionA = a;
+        convictionB = b;
+        emit ConvictionCurveSet(a, b);
+    }
+
+    /// @notice Update the per-conviction-level lockup schedule. Pass all 9
+    ///         values at once. Each capped at MAX_LOCKUP_BLOCKS to prevent
+    ///         griefing voters with absurdly long locks.
+    function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
+        for (uint256 i = 0; i < 9; i++) {
+            require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
+            convictionLockup[i] = l[i];
+        }
+        emit ConvictionLockupsSet(l);
     }
 
     // -------------------------------------------------------------------------
@@ -431,7 +521,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         return (v.direction, v.lockAmount, v.conviction, v.lockedUntilBlock);
     }
 
-    function convictionWeight(uint8 conviction) external pure returns (uint256) {
+    function convictionWeight(uint8 conviction) external view returns (uint256) {
         require(conviction <= MAX_CONVICTION, "E40");
         return _weight(conviction);
     }

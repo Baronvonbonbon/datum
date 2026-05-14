@@ -32,9 +32,12 @@ describe("DatumGovernanceV2", function () {
   const GRACE_PER_QUORUM = 20n;          // additional grace blocks per quorum-unit
   const MAX_GRACE = 50n;                 // cap on grace period
 
-  // Alpha-2 conviction curve: escalating cost, low levels cheap, high = true conviction
-  // Weights [1,2,3,4,6,9,14,18,21], Lockups [0,1d,3d,7d,21d,90d,180d,270d,365d]
-  const WEIGHTS = [1n, 2n, 3n, 4n, 6n, 9n, 14n, 18n, 21n];
+  // Default quadratic conviction curve: weight(c) = (25c² + 50c)/100 + 1
+  //   c: 0  1  2  3  4  5   6   7   8
+  //   w: 1  1  3  4  7  9  13  16  21
+  // Lockups unchanged at [0,1d,3d,7d,21d,90d,180d,270d,365d]; both are now
+  // governable via setConvictionCurve / setConvictionLockups.
+  const WEIGHTS = [1n, 1n, 3n, 4n, 7n, 9n, 13n, 16n, 21n];
   const LOCKUPS = [0n, 14400n, 43200n, 100800n, 302400n, 1296000n, 2592000n, 3888000n, 5256000n];
 
   let nextCid = 1n;

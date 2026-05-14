@@ -169,6 +169,51 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "BondBonusBpsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "ConvictionCurveSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256[9]",
+        "name": "lockups",
+        "type": "uint256[9]"
+      }
+    ],
+    "name": "ConvictionLockupsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "arbiter",
@@ -226,6 +271,19 @@
       }
     ],
     "name": "GovPayoutQueued",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "MinGraceBlocksSet",
     "type": "event"
   },
   {
@@ -426,6 +484,45 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProposeBondSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "QuorumSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "SlashBpsSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "owner",
@@ -530,12 +627,38 @@
   },
   {
     "inputs": [],
+    "name": "CONVICTION_SCALE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_CONVICTION",
     "outputs": [
       {
         "internalType": "uint8",
         "name": "",
         "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_LOCKUP_BLOCKS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -682,11 +805,37 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "convictionA",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "convictionB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
-        "internalType": "uint8",
-        "name": "conviction",
-        "type": "uint8"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "name": "convictionLockup",
@@ -697,7 +846,26 @@
         "type": "uint256"
       }
     ],
-    "stateMutability": "pure",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "conviction",
+        "type": "uint8"
+      }
+    ],
+    "name": "convictionLockupBlocks",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -716,7 +884,7 @@
         "type": "uint256"
       }
     ],
-    "stateMutability": "pure",
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1100,6 +1268,19 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setBondBonusBps",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "addr",
         "type": "address"
@@ -1113,12 +1294,56 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "a",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "b",
+        "type": "uint256"
+      }
+    ],
+    "name": "setConvictionCurve",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[9]",
+        "name": "l",
+        "type": "uint256[9]"
+      }
+    ],
+    "name": "setConvictionLockups",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "arbiter",
         "type": "address"
       }
     ],
     "name": "setCouncilArbiter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMinGraceBlocks",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1168,7 +1393,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_proposeBond",
+        "name": "v",
         "type": "uint256"
       }
     ],
@@ -1186,6 +1411,32 @@
       }
     ],
     "name": "setPublisherStake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setQuorum",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "v",
+        "type": "uint256"
+      }
+    ],
+    "name": "setSlashBps",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

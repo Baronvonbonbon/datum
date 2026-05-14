@@ -30,14 +30,24 @@ import "./PaseoSafeSender.sol";
 contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSender, DatumOwnable {
     uint8 public constant MAX_CONVICTION = 8;
 
-    function _weight(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory w = [uint256(1), 2, 3, 4, 6, 9, 14, 18, 21];
-        return w[c];
+    // Governable quadratic conviction curve (defaults A=25, B=50 → weight(8)=21x).
+    uint256 public constant CONVICTION_SCALE = 100;
+    uint256 public constant MAX_LOCKUP_BLOCKS = 10_512_000;
+
+    uint256 public convictionA;
+    uint256 public convictionB;
+    uint256[9] public convictionLockup;
+
+    event ConvictionCurveSet(uint256 a, uint256 b);
+    event ConvictionLockupsSet(uint256[9] lockups);
+
+    function _weight(uint8 c) internal view returns (uint256) {
+        uint256 cu = uint256(c);
+        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
     }
 
-    function _lockup(uint8 c) internal pure returns (uint256) {
-        uint256[9] memory l = [uint256(0), 14400, 43200, 100800, 302400, 1296000, 2592000, 3888000, 5256000];
-        return l[c];
+    function _lockup(uint8 c) internal view returns (uint256) {
+        return convictionLockup[c];
     }
 
     // ── Configuration ──────────────────────────────────────────────────────────
@@ -86,6 +96,19 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         minGraceBlocks = _minGraceBlocks;
         proposeBond = _proposeBond;
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+
+        // Default quadratic conviction curve.
+        convictionA = 25;
+        convictionB = 50;
+        convictionLockup[0] = 0;
+        convictionLockup[1] = 14400;
+        convictionLockup[2] = 43200;
+        convictionLockup[3] = 100800;
+        convictionLockup[4] = 302400;
+        convictionLockup[5] = 1296000;
+        convictionLockup[6] = 2592000;
+        convictionLockup[7] = 3888000;
+        convictionLockup[8] = 5256000;
     }
 
     // ── Admin (lock-once on stake ref) ─────────────────────────────────────────
@@ -98,12 +121,30 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         advertiserStake = IDatumAdvertiserStake(addr);
     }
 
+    event ParamsSet(uint256 quorum, uint256 slashBps, uint256 grace, uint256 bond);
+
     function setParams(uint256 _quorum, uint256 _slashBps, uint256 _grace, uint256 _bond) external onlyOwner {
         require(_slashBps <= 10_000, "E11");
         quorum = _quorum;
         slashBps = _slashBps;
         minGraceBlocks = _grace;
         proposeBond = _bond;
+        emit ParamsSet(_quorum, _slashBps, _grace, _bond);
+    }
+
+    function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+        uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
+        require(maxWeight <= 1000, "E11");
+        convictionA = a; convictionB = b;
+        emit ConvictionCurveSet(a, b);
+    }
+
+    function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
+        for (uint256 i = 0; i < 9; i++) {
+            require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
+            convictionLockup[i] = l[i];
+        }
+        emit ConvictionLockupsSet(l);
     }
 
     modifier whenNotPaused() { require(!pauseRegistry.pausedGovernance(), "P"); _; }
