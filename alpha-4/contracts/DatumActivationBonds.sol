@@ -6,6 +6,10 @@ import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./DatumOwnable.sol";
 import "./PaseoSafeSender.sol";
 
+interface IDatumCampaignsForMute {
+    function getCampaignAdvertiser(uint256 campaignId) external view returns (address);
+}
+
 /// @title DatumActivationBonds
 /// @notice Optimistic-activation collateral. See IDatumActivationBonds.
 ///
@@ -61,6 +65,21 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
     ///      settlement (matches DatumChallengeBonds.pendingBondReturn).
     mapping(address => uint256) private _pending;
 
+    // ── Emergency mute state (Phase 2b) ───────────────────────────────────────
+    // Independent from the activation challenge state above. A campaign can
+    // be muted at most once per Active cycle: a fresh mute requires either no
+    // prior mute or a resolved one.
+    struct MuteState {
+        bool     active;       // true while bond is locked + isMuted=true
+        address  muter;
+        uint128  bond;
+        uint64   openedAt;
+    }
+    mapping(uint256 => MuteState) private _mute;
+
+    uint256 private _muteMinBond;     // floor; default 10× minBond
+    uint64  private _muteMaxBlocks;   // auto-resolve timeout
+
     // ── Events for parameter changes ──────────────────────────────────────────
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
     event MinBondSet(uint256 value);
@@ -68,6 +87,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
     event WinnerBonusBpsSet(uint16 value);
     event TreasuryBpsSet(uint16 value);
     event TreasurySet(address treasury);
+    event MuteMinBondSet(uint256 value);
+    event MuteMaxBlocksSet(uint64 value);
 
     // ── Constructor ───────────────────────────────────────────────────────────
     constructor(
@@ -85,6 +106,11 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         _winnerBonusBps = winnerBonusBps_;
         _treasuryBps = treasuryBps_;
         treasury = treasury_;
+        // Mute defaults: ≥ 10× minBond floor (muting a paying campaign is
+        // more disruptive than challenging activation, so the bar is higher)
+        // and 14400 blocks (~1 day @ 6s/block) to auto-resolve a stuck mute.
+        _muteMinBond = minBond_ * 10;
+        _muteMaxBlocks = 14400;
     }
 
     /// @dev Accept refund from Campaigns/Lifecycle on edge paths and from
@@ -127,6 +153,17 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         _treasuryBps = treasuryBps_;
         emit WinnerBonusBpsSet(winnerBps);
         emit TreasuryBpsSet(treasuryBps_);
+    }
+
+    function setMuteMinBond(uint256 v) external onlyOwner {
+        _muteMinBond = v;
+        emit MuteMinBondSet(v);
+    }
+
+    function setMuteMaxBlocks(uint64 v) external onlyOwner {
+        require(v > 0 && v <= MAX_TIMELOCK_BLOCKS, "E11");
+        _muteMaxBlocks = v;
+        emit MuteMaxBlocksSet(v);
     }
 
     // ── Write paths ───────────────────────────────────────────────────────────
@@ -234,6 +271,116 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         _safeSend(recipient, amount);
     }
 
+    // ── Emergency mute (Phase 2b) ─────────────────────────────────────────────
+    //
+    //   Phase 2b is the runtime analogue of the activation challenge: anyone
+    //   may post a bond to instantly mute an Active campaign while a demote
+    //   vote runs in DatumGovernanceV2. Mute is collateralised — if the
+    //   campaign survives the vote (status returns to Active) or the mute
+    //   times out without a demote, the muter's bond is paid to the
+    //   advertiser as compensation for the freeze period. If the campaign is
+    //   Terminated, the muter is refunded with a bonus from the slash pool
+    //   (claimed via the existing GovernanceV2 slash distribution, not paid
+    //   from this contract).
+    //
+    //   Single-shot per campaign — settleMute must clear before a new mute
+    //   can open. ClaimValidator consults isMuted() to reject claims while
+    //   the bond is active.
+
+    function mute(uint256 campaignId) external payable nonReentrant {
+        MuteState storage m = _mute[campaignId];
+        require(!m.active, "E94"); // already muted
+        require(msg.value >= _muteMinBond, "E11");
+        require(msg.value <= type(uint128).max, "E11");
+
+        (uint8 status,,) = IDatumCampaignsMinimal(campaignsContract)
+            .getCampaignForSettlement(campaignId);
+        require(status == 1, "E20"); // must be Active
+
+        // Self-mute: muter cannot be the advertiser. Best-effort read; if
+        // the campaigns implementation doesn't expose the advertiser, skip
+        // the self-mute guard rather than reverting (forward-compat).
+        try IDatumCampaignsForMute(campaignsContract).getCampaignAdvertiser(campaignId) returns (address adv) {
+            require(adv != msg.sender, "E97");
+        } catch { /* leave guard off if getter unavailable */ }
+
+        m.active = true;
+        m.muter = msg.sender;
+        m.bond = uint128(msg.value);
+        m.openedAt = uint64(block.number);
+
+        emit Muted(campaignId, msg.sender, msg.value);
+    }
+
+    function settleMute(uint256 campaignId) external nonReentrant {
+        MuteState storage m = _mute[campaignId];
+        require(m.active, "E95");
+
+        (uint8 status,,) = IDatumCampaignsMinimal(campaignsContract)
+            .getCampaignForSettlement(campaignId);
+
+        uint256 bond = m.bond;
+        address muter = m.muter;
+        bool upheld;
+        uint256 payoutAmount;
+
+        if (status == 4) {
+            // Terminated — mute upheld. Muter refunded their bond. Any bonus
+            // they're entitled to as a voter on the winning side flows
+            // through the GovernanceV2 slash pool, not this contract.
+            upheld = true;
+            payoutAmount = bond;
+            _pending[muter] += bond;
+        } else if (status == 1) {
+            // Still Active — mute rejected only if the timeout has elapsed.
+            // Otherwise we're still mid-vote; caller must wait.
+            require(block.number >= uint256(m.openedAt) + uint256(_muteMaxBlocks), "E96");
+            _payoutMuteRejected(campaignId, m, bond, muter);
+            upheld = false;
+            payoutAmount = bond; // amount transferred to advertiser
+        } else if (status == 5 || status == 3) {
+            // Expired or Completed — no-fault for the muter (campaign reached
+            // a terminal state outside the demote-vote process). Refund.
+            upheld = false;
+            payoutAmount = bond;
+            _pending[muter] += bond;
+        } else {
+            // Pending(0) or Paused(2): demote-vote may have moved the
+            // campaign out of Active mid-flight; not yet resolvable.
+            revert("E98");
+        }
+
+        // Clear mute (single-shot per Active cycle).
+        m.active = false;
+        m.bond = 0;
+        m.muter = address(0);
+        m.openedAt = 0;
+
+        emit MuteResolved(campaignId, upheld, payoutAmount);
+    }
+
+    function _payoutMuteRejected(
+        uint256 campaignId,
+        MuteState storage m,
+        uint256 bond,
+        address muter
+    ) internal {
+        // Bond is slashed to advertiser. If the advertiser getter isn't
+        // available (or returns address(0)), route to treasury so the bond
+        // can't be permanently stranded.
+        address advertiser;
+        try IDatumCampaignsForMute(campaignsContract).getCampaignAdvertiser(campaignId) returns (address adv) {
+            advertiser = adv;
+        } catch {
+            advertiser = address(0);
+        }
+        address recipient = advertiser != address(0) ? advertiser : treasury;
+        require(recipient != address(0), "E00"); // both unset — refuse to strand
+        _pending[recipient] += bond;
+        // Silence unused-var warnings for non-touched fields.
+        (muter, m);
+    }
+
     // ── Internal payout maths ─────────────────────────────────────────────────
 
     function _payoutCreatorWin(uint256 campaignId, State storage s) internal {
@@ -331,4 +478,20 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
     function timelockBlocks() external view returns (uint64) { return _timelockBlocks; }
     function winnerBonusBps() external view returns (uint16) { return _winnerBonusBps; }
     function treasuryBps() external view returns (uint16) { return _treasuryBps; }
+
+    // ── Mute views ────────────────────────────────────────────────────────────
+    function isMuted(uint256 campaignId) external view returns (bool) {
+        return _mute[campaignId].active;
+    }
+    function muterOf(uint256 campaignId) external view returns (address) {
+        return _mute[campaignId].muter;
+    }
+    function muteBondOf(uint256 campaignId) external view returns (uint256) {
+        return _mute[campaignId].bond;
+    }
+    function mutedAtBlock(uint256 campaignId) external view returns (uint64) {
+        return _mute[campaignId].openedAt;
+    }
+    function muteMinBond() external view returns (uint256) { return _muteMinBond; }
+    function muteMaxBlocks() external view returns (uint64) { return _muteMaxBlocks; }
 }

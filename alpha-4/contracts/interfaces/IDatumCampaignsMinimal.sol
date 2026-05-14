@@ -12,3 +12,12 @@ interface IDatumCampaignsMinimal {
     );
     function activateCampaign(uint256 campaignId) external;
 }
+
+/// @notice Advertiser-of-record read used by ActivationBonds.settleMute to
+///         compensate the advertiser when a mute is rejected. Kept out of
+///         the minimal interface so the GovernanceRouter passthrough doesn't
+///         need a third stub. ActivationBonds uses try/catch against this
+///         shape so legacy Campaigns implementations remain compatible.
+interface IDatumCampaignsAdvertiser {
+    function getCampaignAdvertiser(uint256 campaignId) external view returns (address);
+}

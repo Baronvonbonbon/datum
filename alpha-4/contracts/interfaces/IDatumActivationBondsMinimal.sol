@@ -7,4 +7,7 @@ pragma solidity ^0.8.24;
 interface IDatumActivationBondsMinimal {
     function isContested(uint256 campaignId) external view returns (bool);
     function isOpen(uint256 campaignId) external view returns (bool);
+    /// @notice Bond-backed runtime mute. ClaimValidator consults this to
+    ///         reject claims for an Active-but-muted campaign.
+    function isMuted(uint256 campaignId) external view returns (bool);
 }

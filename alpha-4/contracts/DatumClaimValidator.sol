@@ -10,6 +10,7 @@ import "./interfaces/IDatumZKVerifier.sol";
 import "./interfaces/IDatumClickRegistry.sol";
 import "./interfaces/IDatumStakeRoot.sol";
 import "./interfaces/IDatumInterestCommitments.sol";
+import "./interfaces/IDatumActivationBondsMinimal.sol";
 
 /// @dev #5 + #2-extension (2026-05-12): minimal Settlement view interface for
 ///      the PoW difficulty target and the per-user cumulative settled-events
@@ -69,6 +70,18 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     //              entrypoint and the stake/interest gates are effectively off.
     IDatumStakeRoot public stakeRoot;
     IDatumInterestCommitments public interestCommitments;
+
+    /// @notice Optimistic-activation mute gateway. When wired, claims for
+    ///         a muted campaign are rejected at the validation layer. Same
+    ///         contract that holds the activation bond — see
+    ///         DatumActivationBonds.mute(). address(0) = mute gate disabled.
+    IDatumActivationBondsMinimal public activationBonds;
+    event ActivationBondsSet(address addr);
+    function setActivationBonds(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        activationBonds = IDatumActivationBondsMinimal(addr);
+        emit ActivationBondsSet(addr);
+    }
 
     /// @notice M-8 audit fix: minimum age (in blocks) for an interest
     ///         commitment before a ZK proof using it will verify. Defeats
@@ -188,6 +201,16 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
             = campaigns.getCampaignForSettlement(claim.campaignId);
 
         if (status != 1) return (false, 4, 0, bytes32(0));
+
+        // Phase 2b: bond-backed runtime mute. When ActivationBonds is wired,
+        // a muted Active campaign rejects all claims for the duration of the
+        // mute. Reason 22 = "campaign muted by bond". try/catch keeps a
+        // stale or misconfigured reference from bricking settlement.
+        if (address(activationBonds) != address(0)) {
+            try activationBonds.isMuted(claim.campaignId) returns (bool muted) {
+                if (muted) return (false, 22, 0, bytes32(0));
+            } catch { /* fail-open: untrusted view, prefer paying */ }
+        }
 
         // Check 3: publisher match — tri-state, unified through the allowlist.
         //   If the campaign has any allowed publishers, ALLOWLIST mode applies

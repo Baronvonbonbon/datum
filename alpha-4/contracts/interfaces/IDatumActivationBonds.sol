@@ -27,6 +27,13 @@ interface IDatumActivationBonds {
     event Resolved(uint256 indexed campaignId, bool creatorWon, uint256 winnerRefund, uint256 winnerBonus, uint256 treasuryCut);
     event PayoutClaimed(address indexed recipient, uint256 amount);
 
+    /// @notice Active campaign was muted by a bond-backed call.
+    event Muted(uint256 indexed campaignId, address indexed muter, uint256 bond);
+    /// @notice Mute resolved. upheld=true if campaign was Terminated; false
+    ///         if campaign remained Active (mute rejected) or auto-resolved
+    ///         at muteMaxBlocks timeout.
+    event MuteResolved(uint256 indexed campaignId, bool upheld, uint256 refundOrPenalty);
+
     // ── Write ─────────────────────────────────────────────────────────────────
 
     /// @notice Open a bond for a new campaign. Called by DatumCampaigns at createCampaign.
@@ -51,6 +58,36 @@ interface IDatumActivationBonds {
     /// @notice Pull-pattern claim for queued refunds/bonuses.
     function claim() external;
     function claimTo(address recipient) external;
+
+    // ── Emergency mute (Phase 2b) ─────────────────────────────────────────────
+
+    /// @notice Bond-backed instant pause on an Active campaign.
+    ///         Sets isMuted(cid)=true; DatumClaimValidator rejects claims
+    ///         while muted. Resolution comes via settleMute() after the
+    ///         demote vote concludes OR after muteMaxBlocks auto-timeout.
+    function mute(uint256 campaignId) external payable;
+
+    /// @notice Resolve a mute by reading current campaign status. Active →
+    ///         mute rejected, muter bond paid to advertiser; Terminated →
+    ///         mute upheld, muter refunded with optional bonus; Expired →
+    ///         no-fault, muter refunded. Auto-resolves as "rejected" after
+    ///         muteMaxBlocks even if campaign is still Active.
+    function settleMute(uint256 campaignId) external;
+
+    /// @notice True while a campaign is bond-muted. Consulted by
+    ///         DatumClaimValidator on the settlement path.
+    function isMuted(uint256 campaignId) external view returns (bool);
+
+    function muterOf(uint256 campaignId) external view returns (address);
+    function muteBondOf(uint256 campaignId) external view returns (uint256);
+    function mutedAtBlock(uint256 campaignId) external view returns (uint64);
+
+    /// @notice Floor on mute bond — higher than challenge minBond because
+    ///         muting an Active (paying) campaign is more disruptive.
+    function muteMinBond() external view returns (uint256);
+    /// @notice Max blocks a mute can stay open before auto-resolving as
+    ///         "rejected" (anti-grief). Governable.
+    function muteMaxBlocks() external view returns (uint64);
 
     // ── Views ─────────────────────────────────────────────────────────────────
     function phase(uint256 campaignId) external view returns (Phase);
