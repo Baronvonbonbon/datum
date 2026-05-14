@@ -704,6 +704,8 @@ describe("Audit fixes", function () {
       const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
       const stake = await StakeFactory.deploy(1_000_000_000n, 0n, 100n);
       await stake.connect(owner).setSlashContract(slashContract.address);
+      // H-2 cap: this test needs full-slash semantics, lift the per-call cap.
+      await stake.connect(owner).setMaxSlashBpsPerCall(10000);
 
       const STAKE = parseDOT("10");
       const REQUEST = parseDOT("4");          // pending = 4

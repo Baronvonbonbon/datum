@@ -90,6 +90,18 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumOwna
         maxRequiredStake = cap;
     }
 
+    /// @notice H-2 audit fix: max fraction of a publisher's slashable balance
+    ///         a single slash call may consume, in bps. Defaults to 5000 (50%).
+    ///         Multi-call slashes remain possible.
+    uint16 public maxSlashBpsPerCall = 5000;
+    event MaxSlashBpsPerCallSet(uint16 bps);
+
+    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwner {
+        require(bps > 0 && bps <= 10000, "E11");
+        maxSlashBpsPerCall = bps;
+        emit MaxSlashBpsPerCallSet(bps);
+    }
+
     receive() external payable { revert("E03"); }
 
     // ── Publisher actions ──────────────────────────────────────────────────────
@@ -156,6 +168,9 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumOwna
         uint256 totalSlashable = active + pendingAmt;
 
         if (amount > totalSlashable) amount = totalSlashable;
+        // H-2: cap a single slash at maxSlashBpsPerCall of total slashable.
+        uint256 callCap = (totalSlashable * uint256(maxSlashBpsPerCall)) / 10000;
+        if (amount > callCap) amount = callCap;
         if (amount == 0) return;
 
         // Take from pending first (so a recent requestUnstake can't dodge slash).

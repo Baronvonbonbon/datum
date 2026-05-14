@@ -182,6 +182,16 @@ contract MockCampaigns {
         return blockedAddresses[addr];
     }
 
+    /// @dev H-3: strict variant. Mock has no curator so behavior matches isBlocked.
+    ///      `revertOnIsBlockedStrict` lets tests simulate a misconfigured /
+    ///      reverting curator so the fail-closed branch in Settlement is reachable.
+    bool public revertOnIsBlockedStrict;
+    function setRevertOnIsBlockedStrict(bool v) external { revertOnIsBlockedStrict = v; }
+    function isBlockedStrict(address addr) external view returns (bool) {
+        require(!revertOnIsBlockedStrict, "curator-down");
+        return blockedAddresses[addr];
+    }
+
     /// @dev Returns false by default — no allowlist enabled.
     function allowlistEnabled(address) external pure returns (bool) {
         return false;

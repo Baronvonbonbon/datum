@@ -38,6 +38,8 @@ describe("DatumPublisherStake", function () {
 
     await stake.connect(owner).setSettlementContract(settlement.address);
     await stake.connect(owner).setSlashContract(slashContract.address);
+    // H-2: lift per-call cap so legacy tests that drain full stakes pass.
+    await stake.connect(owner).setMaxSlashBpsPerCall(10000);
 
     // Pre-stake publisher2 so it has room to unstake above BASE_STAKE
     await stake.connect(publisher2).stake({ value: 5_000_000_000n });

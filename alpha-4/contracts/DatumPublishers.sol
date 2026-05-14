@@ -163,11 +163,13 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     /// @inheritdoc IDatumPublishers
     function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused {
-        // Self-block via curator: a publisher flagged by the curator can't register.
+        // M-6 audit fix: fail-CLOSED. A flagged publisher can't register; a
+        // curator that reverts must be repaired before registration resumes.
+        // Liveness during brief curator outages is sacrificed to honest gate
+        // semantics — better to delay one registration than to whitelist
+        // anyone for the duration of a misconfiguration.
         if (address(blocklistCurator) != address(0)) {
-            try blocklistCurator.isBlocked(msg.sender) returns (bool b) {
-                require(!b, "E62");
-            } catch { /* fail-open: liveness over policy */ }
+            require(!blocklistCurator.isBlocked(msg.sender), "E62");
         }
         bool stakedEnough = address(publisherStake) != address(0) &&
             stakeGate > 0 &&
@@ -250,6 +252,9 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
 
     /// @notice B2: returns true iff the configured curator flags this address.
     ///         When curator is address(0), no addresses are blocked.
+    ///         Fail-OPEN on curator revert (liveness over policy) — callers
+    ///         that need fail-closed semantics (Settlement L1+) must use
+    ///         `isBlockedStrict` instead.
     function isBlocked(address addr) external view returns (bool) {
         IDatumBlocklistCurator c = blocklistCurator;
         if (address(c) == address(0)) return false;
@@ -258,6 +263,17 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         } catch {
             return false; // fail-open on curator reverts (liveness over policy)
         }
+    }
+
+    /// @notice H-3 audit fix: strict blocklist read. Propagates curator
+    ///         reverts to the caller. Used by Settlement at AssuranceLevel ≥1
+    ///         where the advertiser's cosig implies the blocklist is part of
+    ///         the trust path and a silent fail-open contradicts that.
+    function isBlockedStrict(address addr) external view returns (bool) {
+        IDatumBlocklistCurator c = blocklistCurator;
+        if (address(c) == address(0)) return false;
+        // No try/catch — let the curator revert bubble.
+        return c.isBlocked(addr);
     }
 
     /// @notice B2-fix: set the curator contract. Pass address(0) to disable.

@@ -47,9 +47,25 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     event ConvictionCurveSet(uint256 a, uint256 b);
     event ConvictionLockupsSet(uint256[9] lockups);
 
-    function _weight(uint8 c) internal view returns (uint256) {
+    /// @notice M-2 audit fix: per-proposal snapshot of conviction curve.
+    ///         Captured at propose() time so a governance retune cannot
+    ///         retroactively reweight in-flight votes. Lockups are already
+    ///         snapshotted per-vote in `lockedUntilBlock`, so only the
+    ///         weight curve needs proposal-scoped freezing.
+    mapping(uint256 => uint256) public proposalConvictionA;
+    mapping(uint256 => uint256) public proposalConvictionB;
+
+    function _weight(uint256 proposalId, uint8 c) internal view returns (uint256) {
         uint256 cu = uint256(c);
-        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
+        uint256 a = proposalConvictionA[proposalId];
+        uint256 b = proposalConvictionB[proposalId];
+        // Back-compat: proposals created before the snapshot existed have
+        // a==b==0; in that case fall through to live coefficients.
+        if (a == 0 && b == 0) {
+            a = convictionA;
+            b = convictionB;
+        }
+        return (a * cu * cu + b * cu) / CONVICTION_SCALE + 1;
     }
 
     function _lockup(uint8 c) internal view returns (uint256) {
@@ -387,6 +403,10 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
             bond: msg.value
         });
 
+        // M-2: snapshot the conviction curve at propose time.
+        proposalConvictionA[proposalId] = convictionA;
+        proposalConvictionB[proposalId] = convictionB;
+
         emit ProposalCreated(proposalId, publisher, evidenceHash);
         if (msg.value > 0) emit ProposeBondLocked(proposalId, msg.sender, msg.value);
     }
@@ -404,7 +424,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
 
         // Remove existing vote weight (re-vote support)
         if (v.direction != 0) {
-            uint256 existingWeight = v.lockAmount * _weight(v.conviction);
+            uint256 existingWeight = v.lockAmount * _weight(proposalId, v.conviction);
             if (v.direction == 1) {
                 p.ayeWeighted -= existingWeight;
             } else {
@@ -420,7 +440,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
             _safeSend(msg.sender, refundAmount);
         }
 
-        uint256 weight = msg.value * _weight(conviction);
+        uint256 weight = msg.value * _weight(proposalId, conviction);
         uint256 lockup = _lockup(conviction);
 
         v.direction = aye ? 1 : 2;
@@ -447,7 +467,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
         // G-L4: rely on Solidity 0.8 checked arithmetic — silently capping at zero
         //       hides invariant violations. If weight tracking ever desyncs, revert.
         Proposal storage p = _proposals[proposalId];
-        uint256 weight = v.lockAmount * _weight(v.conviction);
+        uint256 weight = v.lockAmount * _weight(proposalId, v.conviction);
         if (v.direction == 1) p.ayeWeighted -= weight;
         else                   p.nayWeighted -= weight;
 
@@ -556,10 +576,14 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
         return _votes[proposalId][voter];
     }
 
-    /// @notice Returns the weight multiplier for a conviction level.
+    /// @notice Returns the weight multiplier for a conviction level under the
+    ///         CURRENT curve. In-flight proposals use their snapshotted curve
+    ///         via `_weight(proposalId, c)`; this view is for UIs probing the
+    ///         live parameters.
     function convictionWeight(uint8 conviction) external view returns (uint256) {
         require(conviction <= MAX_CONVICTION, "E40");
-        return _weight(conviction);
+        uint256 cu = uint256(conviction);
+        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
     }
 
     /// @notice Returns the lockup duration in blocks for a conviction level.

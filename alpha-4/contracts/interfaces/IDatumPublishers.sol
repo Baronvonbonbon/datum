@@ -31,6 +31,9 @@ interface IDatumPublishers {
 
     // S12: Global blocklist
     function isBlocked(address addr) external view returns (bool);
+    // H-3 audit fix: strict variant — propagates curator revert instead of
+    // fail-open. Settlement L1+ uses this so the fail-closed gate is reachable.
+    function isBlockedStrict(address addr) external view returns (bool);
 
     // S12: Per-publisher allowlist
     function allowlistEnabled(address publisher) external view returns (bool);

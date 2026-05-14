@@ -340,6 +340,8 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
       slasher = (await ethers.getSigners())[5];
       await zkStake.setSlasher(slasher.address, true);
       await zkStake.setSlashRecipient(bob.address);
+      // H-2: lift per-call cap so legacy tests can drain full balances in one call.
+      await zkStake.setMaxSlashBpsPerCall(10000);
       await mockToken.connect(alice).approve(await zkStake.getAddress(), 1000n);
       await zkStake.connect(alice).deposit(1000n);
     });

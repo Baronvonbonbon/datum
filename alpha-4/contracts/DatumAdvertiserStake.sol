@@ -91,6 +91,17 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumOw
         maxRequiredStake = cap;
     }
 
+    /// @notice H-2 audit fix: max fraction of an advertiser's slashable balance
+    ///         a single slash call may consume, in bps. Default 5000 (50%).
+    uint16 public maxSlashBpsPerCall = 5000;
+    event MaxSlashBpsPerCallSet(uint16 bps);
+
+    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwner {
+        require(bps > 0 && bps <= 10000, "E11");
+        maxSlashBpsPerCall = bps;
+        emit MaxSlashBpsPerCallSet(bps);
+    }
+
     receive() external payable { revert("E03"); }
 
     // ── Advertiser actions ─────────────────────────────────────────────────────
@@ -156,6 +167,9 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumOw
         uint256 totalSlashable = active + pendingAmt;
 
         if (amount > totalSlashable) amount = totalSlashable;
+        // H-2: cap a single slash at maxSlashBpsPerCall of total slashable.
+        uint256 callCap = (totalSlashable * uint256(maxSlashBpsPerCall)) / 10000;
+        if (amount > callCap) amount = callCap;
         if (amount == 0) return;
 
         uint256 fromPending = amount < pendingAmt ? amount : pendingAmt;

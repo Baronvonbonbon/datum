@@ -199,6 +199,25 @@ contract DatumPauseRegistry is DatumOwnable {
     /// @notice CB6: raw bitfield read for observers that want the full state.
     function pausedCategories() external view returns (uint8) { return _activeMask(); }
 
+    /// @notice M-7 audit fix: permissionless cleanup of stale (expired) raw
+    ///         category bits. `paused()` already masks expired bits via
+    ///         `_activeMask`, but the raw bitfield can drift indefinitely
+    ///         after auto-expiry, confusing observers reading
+    ///         `_pausedCategoriesRaw` directly. Anyone can call this to
+    ///         reconcile raw state with effective state.
+    function expireStaleCategories() external {
+        uint8 raw = _pausedCategoriesRaw;
+        if (raw == 0) return;
+        uint8 active = _activeMask();
+        if (raw == active) return;
+        _pausedCategoriesRaw = active;
+        if (active == 0) {
+            pausedAtBlock = 0;
+            emit Unpaused(msg.sender);
+        }
+        emit UnpausedCategory(msg.sender, raw & ~active);
+    }
+
     // -------------------------------------------------------------------------
     // SM-6: 2-of-3 guardian unpause (action == 2)
     // -------------------------------------------------------------------------

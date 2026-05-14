@@ -32,6 +32,10 @@ interface ICampaignsSybilKnobs {
 interface ICampaignsZkKnobs {
     function getCampaignMinStake(uint256 campaignId) external view returns (uint256);
     function getCampaignRequiredCategory(uint256 campaignId) external view returns (bytes32);
+    // M-4 audit fix: global cap on per-campaign minStake, clamped at proof
+    //   consumption time so a hostile campaign cannot strand users even if
+    //   the cap was raised after the campaign set its minStake.
+    function maxAllowedMinStake() external view returns (uint256);
 }
 
 /// @title DatumClaimValidator
@@ -65,6 +69,20 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     //              entrypoint and the stake/interest gates are effectively off.
     IDatumStakeRoot public stakeRoot;
     IDatumInterestCommitments public interestCommitments;
+
+    /// @notice M-8 audit fix: minimum age (in blocks) for an interest
+    ///         commitment before a ZK proof using it will verify. Defeats
+    ///         reactive last-second swaps to satisfy a campaign's
+    ///         requiredCategory. Default 100 blocks (~10 min @ 6s/block).
+    ///         0 = disabled. Governance-tunable; subject to plumbingLocked.
+    uint256 public minInterestAgeBlocks = 100;
+    event MinInterestAgeBlocksSet(uint256 blocks_);
+
+    function setMinInterestAgeBlocks(uint256 blocks_) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        minInterestAgeBlocks = blocks_;
+        emit MinInterestAgeBlocksSet(blocks_);
+    }
 
     /// @notice D1a cypherpunk plumbing lock. ClaimValidator is a pure-validation
     ///         plumbing contract; all protocol-ref setters live under this one
@@ -359,15 +377,33 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         }
 
         // Pub 4: min stake — campaign-set threshold (0 = no stake floor).
+        //   M-4 audit fix: clamp by the governance-set maxAllowedMinStake at
+        //   consumption time (not just at write time). Defends users from a
+        //   campaign whose minStake was set before the cap was tightened.
         uint256 minStake = 0;
         try ICampaignsZkKnobs(address(campaigns)).getCampaignMinStake(claim.campaignId) returns (uint256 v) {
             minStake = v;
         } catch {}
+        if (minStake > 0) {
+            try ICampaignsZkKnobs(address(campaigns)).maxAllowedMinStake() returns (uint256 cap) {
+                if (cap > 0 && minStake > cap) minStake = cap;
+            } catch {}
+        }
 
         // Pub 5: user's interest commitment.
+        //   M-8 audit fix: enforce minimum commitment age. A commitment set
+        //   within `minInterestAgeBlocks` of the proof's submission cannot be
+        //   used — defeats reactive swaps to satisfy a campaign's required
+        //   category right before settling.
         bytes32 iRoot = bytes32(0);
         if (address(interestCommitments) != address(0)) {
             iRoot = interestCommitments.interestRoot(user);
+            if (iRoot != bytes32(0) && minInterestAgeBlocks > 0) {
+                uint256 setAt = interestCommitments.lastSetBlock(user);
+                // setAt is the block at which the current iRoot was written;
+                // require it to be at least minInterestAgeBlocks in the past.
+                if (block.number < setAt + minInterestAgeBlocks) return false;
+            }
         }
 
         // Pub 6: required category (0 = any).

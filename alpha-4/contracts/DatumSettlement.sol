@@ -1011,20 +1011,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
             // S12: Settlement-level blocklist check.
             // M2-fix (2026-05-13): trust gradient — fail-open at L0, fail-closed
-            // at L1+. At L0 the protocol prefers liveness (a single rev'd
-            // publishers ref shouldn't DoS the whole flow); at L1+ the
-            // advertiser has signed something stronger and expects blocklist
-            // to be enforced, so a revert must reject rather than slip past.
+            // at L1+. H-3 audit fix (2026-05-13): use isBlockedStrict at L1+ so
+            // a curator revert actually reaches this try/catch (the fail-open
+            // isBlocked variant swallowed reverts internally, making the
+            // fail-closed branch unreachable). isBlocked (fail-open) still used
+            // at L0 where liveness is preferred.
             if (address(publishers) != address(0)) {
-                try publishers.isBlocked(claim.publisher) returns (bool blocked) {
-                    if (blocked) {
-                        result.rejectedCount++;
-                        emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
-                        gapFound = true;
-                        continue;
-                    }
-                } catch {
-                    if (effectiveLevel >= 1) {
+                if (effectiveLevel >= 1) {
+                    try publishers.isBlockedStrict(claim.publisher) returns (bool blocked) {
+                        if (blocked) {
+                            result.rejectedCount++;
+                            emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
+                            gapFound = true;
+                            continue;
+                        }
+                    } catch {
                         // Fail closed: blocklist gate is part of L1+ guarantees.
                         result.rejectedCount++;
                         emit BlocklistFailedClosed(claim.campaignId, claim.publisher);
@@ -1032,8 +1033,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                         gapFound = true;
                         continue;
                     }
-                    // L0: advisory event, continue settlement.
-                    emit BlocklistCheckFailed(claim.campaignId, claim.publisher);
+                } else {
+                    // L0: fail-open. publishers.isBlocked already swallows
+                    // curator reverts and returns false, so no try/catch needed.
+                    if (publishers.isBlocked(claim.publisher)) {
+                        result.rejectedCount++;
+                        emit ClaimRejected(claim.campaignId, user, claim.nonce, 11);
+                        gapFound = true;
+                        continue;
+                    }
                 }
             }
 
@@ -1135,9 +1143,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
             lastClaimHash[user][claim.campaignId][claim.actionType] = computedHash;
             lastNonce[user][claim.campaignId][claim.actionType] = claim.nonce;
 
-            // FP-5: Register nullifier (view claims only, inline)
+            // FP-5: Register nullifier (view claims only, inline).
+            // L-1 audit fix: redundant require removed — the pre-check above
+            // already sets gapFound on collision, so this branch only runs
+            // for fresh nullifiers.
             if (claim.actionType == 0 && claim.nullifier != bytes32(0)) {
-                require(!_nullifierUsed[claim.campaignId][claim.nullifier], "E73");
                 _nullifierUsed[claim.campaignId][claim.nullifier] = true;
                 emit NullifierSubmitted(claim.campaignId, claim.nullifier);
             }

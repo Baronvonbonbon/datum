@@ -66,10 +66,19 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     ///         Owner-managed up until `slashersLocked` is flipped.
     mapping(address => bool) public isSlasher;
     bool public slashersLocked;
-    /// @notice Where slashed funds go. address(0) = burn (token.transfer to 0xdead
-    ///         pattern not supported by all ERC20s, so we hold them here and let
-    ///         the owner pull to a treasury post-lock if desired).
+    /// @notice Where slashed funds go. Required to be non-zero at slash time
+    ///         (H-1 audit fix) so slashed DATUM can never be orphaned in this
+    ///         contract. Set before `lockSlashers()`.
     address public slashRecipient;
+
+    /// @notice H-2 audit fix: max fraction of a user's slashable balance that
+    ///         a single slash call may consume, in bps. Defaults to 5000 (50%).
+    ///         Governance-tunable up to 10000 (100%). Multi-call slashes are
+    ///         possible — the cap is defense-in-depth against a compromised
+    ///         slasher draining everyone in one call.
+    uint16 public maxSlashBpsPerCall = 5000;
+    event MaxSlashBpsPerCallSet(uint16 bps);
+
     event SlasherSet(address indexed who, bool authorized);
     event SlashersLocked();
     event SlashRecipientSet(address indexed recipient);
@@ -200,9 +209,16 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     }
 
     function setSlashRecipient(address r) external onlyOwner {
-        // R may be address(0) — interpreted as "hold in contract" (no auto-payout).
+        require(r != address(0), "E00");
         slashRecipient = r;
         emit SlashRecipientSet(r);
+    }
+
+    /// @notice H-2 audit fix: governance-tunable per-call slash ceiling.
+    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwner {
+        require(bps > 0 && bps <= 10000, "E11");
+        maxSlashBpsPerCall = bps;
+        emit MaxSlashBpsPerCallSet(bps);
     }
 
     /// @notice Lock the slasher set permanently. After this, isSlasher entries
@@ -224,6 +240,17 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     function slash(address user, uint256 amount) external nonReentrant returns (uint256 fromStaked, uint256 fromPending) {
         require(isSlasher[msg.sender], "E18");
         require(amount > 0, "E11");
+        // H-1: recipient must be set so slashed funds can never orphan.
+        require(slashRecipient != address(0), "no-recipient");
+
+        // H-2: cap a single slash at maxSlashBpsPerCall of the user's total
+        //      slashable balance. Defense-in-depth — a compromised slasher
+        //      cannot drain everyone in one call.
+        uint256 totalSlashable = staked[user] + pending[user].amount;
+        uint256 callCap = (totalSlashable * uint256(maxSlashBpsPerCall)) / 10000;
+        if (amount > callCap) amount = callCap;
+        require(amount > 0, "E03");
+
         uint256 remaining = amount;
 
         PendingWithdrawal storage p = pending[user];
@@ -244,15 +271,8 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
         require(realized > 0, "E03");
         totalLocked -= realized;
 
-        if (slashRecipient != address(0)) {
-            token.safeTransfer(slashRecipient, realized);
-        }
-        // else: funds remain in the contract — totalLocked drops, but the
-        // contract's actual ERC20 balance is unchanged. Owner can wire a
-        // recipient later via setSlashRecipient and re-call... actually no,
-        // once slashed the funds are accounted "removed" from any user balance.
-        // Held funds become orphan dust unless slashRecipient is set up-front.
-        // Recommendation: set slashRecipient before locking slashers.
+        // H-1: recipient is required non-zero above; orphan-funds path removed.
+        token.safeTransfer(slashRecipient, realized);
 
         emit Slashed(user, fromStaked, fromPending, msg.sender);
     }

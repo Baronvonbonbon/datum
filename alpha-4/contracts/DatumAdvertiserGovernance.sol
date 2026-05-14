@@ -41,9 +41,19 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
     event ConvictionCurveSet(uint256 a, uint256 b);
     event ConvictionLockupsSet(uint256[9] lockups);
 
-    function _weight(uint8 c) internal view returns (uint256) {
+    /// @notice M-2 audit fix: per-proposal snapshot of conviction curve.
+    mapping(uint256 => uint256) public proposalConvictionA;
+    mapping(uint256 => uint256) public proposalConvictionB;
+
+    function _weight(uint256 proposalId, uint8 c) internal view returns (uint256) {
         uint256 cu = uint256(c);
-        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
+        uint256 a = proposalConvictionA[proposalId];
+        uint256 b = proposalConvictionB[proposalId];
+        if (a == 0 && b == 0) {
+            a = convictionA;
+            b = convictionB;
+        }
+        return (a * cu * cu + b * cu) / CONVICTION_SCALE + 1;
     }
 
     function _lockup(uint8 c) internal view returns (uint256) {
@@ -169,6 +179,9 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
             proposer: msg.sender,
             bondLocked: msg.value
         });
+        // M-2: snapshot the conviction curve at propose time.
+        proposalConvictionA[id] = convictionA;
+        proposalConvictionB[id] = convictionB;
         emit AdvertiserFraudProposed(id, advertiser, msg.sender, evidenceHash);
     }
 
@@ -179,7 +192,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         require(msg.value > 0, "E11");
         require(votes[id][msg.sender].stake == 0, "E42"); // single vote per user per proposal
 
-        uint256 w = msg.value * _weight(conviction);
+        uint256 w = msg.value * _weight(id, conviction);
         uint256 lockup = block.number + _lockup(conviction);
 
         votes[id][msg.sender] = VoteRecord({
@@ -270,8 +283,10 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
     // ── Accept slash proceeds ──────────────────────────────────────────────────
     receive() external payable {
         // Slashed DOT lands here from AdvertiserStake — credit to treasury.
-        if (msg.sender == address(advertiserStake)) {
-            treasuryBalance += msg.value;
-        }
+        // L-3 audit fix: revert on any other sender so mistransfers can't
+        // silently orphan DOT in this contract (sweepTreasury only sweeps
+        // tracked treasuryBalance, not the contract's actual balance).
+        require(msg.sender == address(advertiserStake), "E03");
+        treasuryBalance += msg.value;
     }
 }

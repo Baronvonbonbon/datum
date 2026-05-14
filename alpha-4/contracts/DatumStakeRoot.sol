@@ -82,6 +82,13 @@ contract DatumStakeRoot is DatumOwnable {
                 break;
             }
         }
+        // L-4 audit fix: clamp threshold so the contract can never enter a
+        //   permanent stalled state where threshold > reporters.length and no
+        //   proposal can finalise.
+        if (threshold > reporters.length) {
+            threshold = reporters.length;
+            emit ThresholdSet(threshold);
+        }
         emit ReporterRemoved(who);
     }
 
@@ -103,6 +110,13 @@ contract DatumStakeRoot is DatumOwnable {
         require(epoch >= latestEpoch, "E64");
         require(root != bytes32(0), "E11");
 
+        // M-1 audit fix: first-finalised-wins per epoch. Reject any further
+        //   proposals once an epoch's root is set. Off-chain reporters must
+        //   correct an erroneous epoch by proposing a *later* epoch — this
+        //   keeps proofs against the finalised root stable (no displacement
+        //   mid-flight) and removes the oscillation surface.
+        require(rootAt[epoch] == bytes32(0), "E22");
+
         bytes32 pid = keccak256(abi.encode(epoch, root));
         Proposal storage p = _proposals[pid];
 
@@ -121,10 +135,6 @@ contract DatumStakeRoot is DatumOwnable {
         emit StakeRootApproved(epoch, root, msg.sender);
 
         if (p.approvals >= threshold) {
-            // If another root has already been finalized for this same epoch,
-            // we OVERWRITE — this is intentional: later proposals reflect
-            // newer reporter consensus (e.g. after a fork or correction).
-            // To prevent oscillation, off-chain reporters MUST sign monotonically.
             p.finalized = true;
             rootAt[epoch] = root;
             if (epoch > latestEpoch) latestEpoch = epoch;

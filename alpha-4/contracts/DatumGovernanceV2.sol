@@ -59,9 +59,22 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     event ConvictionCurveSet(uint256 a, uint256 b);
     event ConvictionLockupsSet(uint256[9] lockups);
 
-    function _weight(uint8 c) internal view returns (uint256) {
+    /// @notice M-2 audit fix: per-campaign-proposal snapshot of conviction
+    ///         coefficients. Populated lazily on the first vote per campaignId
+    ///         so governance retunes can't reweight in-flight proposals.
+    mapping(uint256 => uint256) public proposalConvictionA;
+    mapping(uint256 => uint256) public proposalConvictionB;
+
+    function _weight(uint256 campaignId, uint8 c) internal view returns (uint256) {
         uint256 cu = uint256(c);
-        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
+        uint256 a = proposalConvictionA[campaignId];
+        uint256 b = proposalConvictionB[campaignId];
+        if (a == 0 && b == 0) {
+            // Pre-snapshot or never-voted proposal — use live curve.
+            a = convictionA;
+            b = convictionB;
+        }
+        return (a * cu * cu + b * cu) / CONVICTION_SCALE + 1;
     }
 
     function _lockup(uint8 c) internal view returns (uint256) {
@@ -282,7 +295,15 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         require(status == 0 || status == 1, "E43");
 
-        uint256 weight = msg.value * _weight(conviction);
+        // M-2: snapshot the conviction curve on the first vote for this
+        //      campaign. Subsequent votes on the same proposal reuse the
+        //      snapshot, even if governance retunes the curve mid-vote-window.
+        if (proposalConvictionA[campaignId] == 0 && proposalConvictionB[campaignId] == 0) {
+            proposalConvictionA[campaignId] = convictionA;
+            proposalConvictionB[campaignId] = convictionB;
+        }
+
+        uint256 weight = msg.value * _weight(campaignId, conviction);
         uint256 lockup = _lockup(conviction);
 
         v.direction = aye ? 1 : 2;
@@ -314,7 +335,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         require(v.direction != 0, "E44");
         require(block.number >= v.lockedUntilBlock, "E45");
 
-        uint256 weight = v.lockAmount * _weight(v.conviction);
+        uint256 weight = v.lockAmount * _weight(campaignId, v.conviction);
         uint256 slash = 0;
 
         if (v.direction == 1) {
@@ -444,7 +465,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
                    || (status == 4 && v.direction == 2);
         require(winner, "E56");
 
-        uint256 voterWeight = v.lockAmount * _weight(v.conviction);
+        uint256 voterWeight = v.lockAmount * _weight(campaignId, v.conviction);
         uint256 pool = slashCollected[campaignId];
         require(winningWeight[campaignId] > 0, "E61");
         uint256 share = Math.mulDiv(pool, voterWeight, winningWeight[campaignId]);
@@ -521,9 +542,12 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         return (v.direction, v.lockAmount, v.conviction, v.lockedUntilBlock);
     }
 
+    /// @notice Returns the weight multiplier under the CURRENT curve.
+    ///         In-flight proposals use their snapshotted curve internally.
     function convictionWeight(uint8 conviction) external view returns (uint256) {
         require(conviction <= MAX_CONVICTION, "E40");
-        return _weight(conviction);
+        uint256 cu = uint256(conviction);
+        return (convictionA * cu * cu + convictionB * cu) / CONVICTION_SCALE + 1;
     }
 
     /// @notice View: claimable slash reward for a voter
@@ -537,7 +561,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         bool winner = (status == 3 && v.direction == 1) || (status == 4 && v.direction == 2);
         if (!winner || v.direction == 0) return 0;
 
-        uint256 voterWeight = v.lockAmount * _weight(v.conviction);
+        uint256 voterWeight = v.lockAmount * _weight(campaignId, v.conviction);
         uint256 pool = slashCollected[campaignId];
         if (winningWeight[campaignId] == 0) return 0;
         return Math.mulDiv(pool, voterWeight, winningWeight[campaignId]);
