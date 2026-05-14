@@ -445,6 +445,61 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
         emit MemberRemoved(member);
     }
 
+    /// @notice Cap on batch council-member ops. Council size is bounded in
+    ///         practice; 32 covers any reasonable rotation in one proposal.
+    uint256 public constant MAX_COUNCIL_BATCH = 32;
+
+    /// @notice Batch addMember. One proposal → multiple member adds.
+    function addMembers(address[] calldata newMembers) external onlyCouncil {
+        require(newMembers.length > 0 && newMembers.length <= MAX_COUNCIL_BATCH, "E11");
+        for (uint256 i = 0; i < newMembers.length; i++) {
+            address member = newMembers[i];
+            require(member != address(0), "E00");
+            require(!isMember[member], "E00");
+            require(member != guardian, "E11");
+            isMember[member] = true;
+            _memberIndex[member] = _memberList.length;
+            _memberList.push(member);
+            memberCount++;
+            emit MemberAdded(member);
+        }
+    }
+
+    /// @notice Batch removeMember. Per-step floor checks identical to the
+    ///         single-call removeMember — guarantees memberCount > threshold
+    ///         AND > MIN_COUNCIL_SIZE at every intermediate step, not just
+    ///         at the end.
+    function removeMembers(address[] calldata members) external onlyCouncil {
+        require(members.length > 0 && members.length <= MAX_COUNCIL_BATCH, "E11");
+        for (uint256 i = 0; i < members.length; i++) {
+            address member = members[i];
+            require(isMember[member], "E01");
+            require(memberCount > threshold, "E00");
+            require(memberCount > MIN_COUNCIL_SIZE, "E00");
+            isMember[member] = false;
+
+            address relay = memberRelaySigner[member];
+            if (relay != address(0)) {
+                delete memberFromRelay[relay];
+                delete memberRelaySigner[member];
+                emit MemberRelaySignerSet(member, address(0));
+            }
+
+            uint256 idx = _memberIndex[member];
+            uint256 lastIdx = _memberList.length - 1;
+            if (idx != lastIdx) {
+                address lastMember = _memberList[lastIdx];
+                _memberList[idx] = lastMember;
+                _memberIndex[lastMember] = idx;
+            }
+            _memberList.pop();
+            delete _memberIndex[member];
+
+            memberCount--;
+            emit MemberRemoved(member);
+        }
+    }
+
     function setGuardian(address _guardian) external onlyCouncil {
         require(_guardian == address(0) || !isMember[_guardian], "E11"); // guardian ≠ member
         guardian = _guardian;

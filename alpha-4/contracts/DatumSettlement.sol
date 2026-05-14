@@ -149,6 +149,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
     uint16 public minReputationScore;
 
+    // ── Settlement batch size (governable, was hard-coded 10 in alpha-3) ──
+    // Original cap was 10 due to PVM cross-contract staticcall weight pressure.
+    // Alpha-4 satellite merge eliminated those staticcalls, and the EVM gas
+    // budget comfortably fits much larger batches. Governance can re-tune via
+    // setMaxBatchSize, bounded by MAX_BATCH_SIZE_CEILING.
+    uint256 public constant MAX_BATCH_SIZE_CEILING = 200;
+    uint256 public maxBatchSize = 50;
+    event MaxBatchSizeSet(uint256 value);
+
     // B5-fix (2026-05-12): per-user minimum acceptable AssuranceLevel. A user
     // writes their own floor (0..2) and Settlement rejects batches addressed to
     // that user when the campaign's effective AssuranceLevel is below it. This
@@ -438,6 +447,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         nullifierWindowBlocks = _windowBlocks;
     }
 
+    function setMaxBatchSize(uint256 v) external onlyOwner {
+        require(v > 0 && v <= MAX_BATCH_SIZE_CEILING, "E11");
+        maxBatchSize = v;
+        emit MaxBatchSizeSet(v);
+    }
+
     function setMinReputationScore(uint16 score) external onlyOwner {
         minReputationScore = score;
     }
@@ -647,7 +662,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
         require(!pauseRegistry.pausedSettlement(), "P");
 
-        require(batches.length <= 10, "E28");
+        require(batches.length <= maxBatchSize, "E28");
 
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
@@ -673,11 +688,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
 
         require(!pauseRegistry.pausedSettlement(), "P");
 
-        require(batches.length <= 10, "E28");
+        require(batches.length <= maxBatchSize, "E28");
 
         for (uint256 u = 0; u < batches.length; u++) {
             UserClaimBatch calldata ub = batches[u];
-            require(ub.campaigns.length <= 10, "E28");
+            require(ub.campaigns.length <= maxBatchSize, "E28");
 
             for (uint256 c = 0; c < ub.campaigns.length; c++) {
                 CampaignClaims calldata cc = ub.campaigns[c];
@@ -703,7 +718,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     {
         require(address(claimValidator) != address(0), "E00");
         require(!pauseRegistry.pausedSettlement(), "P");
-        require(batches.length <= 10, "E28");
+        require(batches.length <= maxBatchSize, "E28");
 
         for (uint256 b = 0; b < batches.length; b++) {
             SignedClaimBatch calldata batch = batches[b];
@@ -833,7 +848,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         SettlementResult memory result,
         bool advertiserConsented
     ) internal {
-        require(claims.length <= 10, "E28");
+        require(claims.length <= maxBatchSize, "E28");
 
         // CB2 (2026-05-13): user self-pause kill switch. Reject the whole
         // batch when the user has paused their own account — emits per-claim

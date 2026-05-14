@@ -55,6 +55,12 @@ contract DatumRelay is DatumOwnable, EIP712 {
     /// @notice Last block at which an authorized relayer submitted a batch.
     uint256 public lastRelayBlock;
 
+    // ── Relay batch size (governable, was hard-coded 10 in alpha-3) ───────────
+    // PVM-legacy cap on per-tx forwarded batches. EVM allows much more.
+    uint256 public constant MAX_RELAY_BATCH_CEILING = 200;
+    uint256 public maxBatchSize = 50;
+    event MaxBatchSizeSet(uint256 value);
+
     event RelayerAuthorized(address indexed relayer, bool authorized);
     event SettlementUpdated(address indexed newSettlement);
     event CampaignsUpdated(address indexed newCampaigns);
@@ -142,6 +148,12 @@ contract DatumRelay is DatumOwnable, EIP712 {
 
     /// @notice Set the liveness fallback threshold. If no authorized relayer submits
     ///         within this many blocks, anyone can submit. 0 = always permissionless.
+    function setMaxBatchSize(uint256 v) external onlyOwner {
+        require(v > 0 && v <= MAX_RELAY_BATCH_CEILING, "E11");
+        maxBatchSize = v;
+        emit MaxBatchSizeSet(v);
+    }
+
     function setLivenessThreshold(uint256 blocks) external onlyOwner {
         require(!relayerOpenLocked, "open-locked");
         livenessThresholdBlocks = blocks;
@@ -183,7 +195,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
             }
         }
 
-        require(batches.length <= 10, "E28");
+        require(batches.length <= maxBatchSize, "E28");
         IDatumSettlement.ClaimBatch[] memory forwardBatches = new IDatumSettlement.ClaimBatch[](batches.length);
 
         for (uint256 b = 0; b < batches.length; b++) {

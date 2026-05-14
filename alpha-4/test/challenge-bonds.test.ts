@@ -240,4 +240,18 @@ describe("DatumChallengeBonds", function () {
       bonds.connect(other).setCampaignsContract(campaigns.address)
     ).to.be.revertedWith("E18");
   });
+
+  // CB21: maxBondedPublishers default + setter bounded by ceiling
+  it("CB21: maxBondedPublishers default 64, setter bounded", async function () {
+    expect(await bonds.maxBondedPublishers()).to.equal(64);
+    const ceiling = await bonds.MAX_BONDED_PUBLISHERS_CEILING();
+    expect(ceiling).to.equal(256);
+    await expect(bonds.setMaxBondedPublishers(0)).to.be.revertedWith("E11");
+    await expect(bonds.setMaxBondedPublishers(ceiling + 1n)).to.be.revertedWith("E11");
+    await bonds.setMaxBondedPublishers(128);
+    expect(await bonds.maxBondedPublishers()).to.equal(128);
+    await expect(
+      bonds.connect(other).setMaxBondedPublishers(64)
+    ).to.be.revertedWith("E18");
+  });
 });

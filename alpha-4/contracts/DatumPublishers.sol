@@ -391,6 +391,30 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         emit ProfileUpdated(msg.sender, hash);
     }
 
+    /// @notice Atomically update both relay signer and profile hash in one
+    ///         call. Saves one signature and one tx fee for the common
+    ///         "rotate key + refresh metadata" flow. Per-field semantics
+    ///         (rotation cooldown on relay; non-zero profile hash) are
+    ///         identical to the single-field setters.
+    function setRelaySignerAndProfile(address signer, bytes32 hash) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(hash != bytes32(0), "E00");
+
+        // Relay signer update with rotation cooldown.
+        uint256 lastRotated = relaySignerRotatedBlock[msg.sender];
+        require(
+            lastRotated == 0 || block.number >= lastRotated + RELAY_SIGNER_ROTATION_COOLDOWN,
+            "E22"
+        );
+        relaySigner[msg.sender] = signer;
+        relaySignerRotatedBlock[msg.sender] = block.number;
+        emit RelaySignerUpdated(msg.sender, signer);
+
+        // Profile hash update.
+        profileHash[msg.sender] = hash;
+        emit ProfileUpdated(msg.sender, hash);
+    }
+
     /// @notice A3: Self-declare the maximum AssuranceLevel this publisher
     ///         supports. Discovery signal only — claim acceptance is decided
     ///         per-batch by cryptographic proof. Lowering or raising is

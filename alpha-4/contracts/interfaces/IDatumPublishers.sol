@@ -50,6 +50,8 @@ interface IDatumPublishers {
     function profileHash(address publisher) external view returns (bytes32);
     function setRelaySigner(address signer) external;
     function setProfile(bytes32 hash) external;
+    /// @notice Atomic combined update — relay signer + profile hash in one tx.
+    function setRelaySignerAndProfile(address signer, bytes32 hash) external;
 
     // A3: AssuranceLevel — publisher self-declared capability signal.
     // 0 = Permissive (any path), 1 = PublisherSigned, 2 = DualSigned.

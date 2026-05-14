@@ -134,13 +134,16 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     ).to.be.revertedWith("Not registered");
   });
 
-  it("TG5: setTags rejects more than 32 tags (E65)", async function () {
-    const tooMany = Array.from({ length: 33 }, (_, i) =>
+  it("TG5: setTags rejects more than maxPublisherTags (E65)", async function () {
+    // Default is 64 (governance-settable). Shrink to 4 to keep the test cheap.
+    await campaigns.setMaxPublisherTags(4);
+    const tooMany = Array.from({ length: 5 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
     await expect(
       campaigns.connect(publisher).setPublisherTags(tooMany)
     ).to.be.revertedWith("E65");
+    await campaigns.setMaxPublisherTags(64); // restore default
   });
 
   it("TG5b: setTags rejects zero hash (E00)", async function () {
@@ -162,13 +165,15 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     await pauseReg.connect(publisher).approve(pid);
   });
 
-  it("TG6b: hasAllTags rejects more than 8 required tags (E66)", async function () {
-    const tooMany = Array.from({ length: 9 }, (_, i) =>
+  it("TG6b: hasAllTags rejects more than maxCampaignTags (E66)", async function () {
+    await campaigns.setMaxCampaignTags(2);
+    const tooMany = Array.from({ length: 3 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
     await expect(
       campaigns.hasAllTags(publisher.address, tooMany)
     ).to.be.revertedWith("E66");
+    await campaigns.setMaxCampaignTags(16); // restore default
   });
 
   it("TG6c: setTags to empty clears all tags (A8 grace honored)", async function () {
@@ -261,8 +266,36 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     expect(tags.length).to.equal(2);
   });
 
-  it("TG11: createCampaign rejects more than 8 requiredTags (E66)", async function () {
-    const tooMany = Array.from({ length: 9 }, (_, i) =>
+  it("TG-gov-1: setMaxPublisherTags bounded by ceiling (E11)", async function () {
+    const ceiling = await campaigns.MAX_PUBLISHER_TAGS_CEILING();
+    await expect(campaigns.setMaxPublisherTags(0)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxPublisherTags(ceiling + 1n)).to.be.revertedWith("E11");
+    await campaigns.setMaxPublisherTags(128);
+    expect(await campaigns.maxPublisherTags()).to.equal(128);
+    await campaigns.setMaxPublisherTags(64); // restore
+  });
+
+  it("TG-gov-2: setMaxCampaignTags bounded by ceiling (E11)", async function () {
+    const ceiling = await campaigns.MAX_CAMPAIGN_TAGS_CEILING();
+    await expect(campaigns.setMaxCampaignTags(0)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxCampaignTags(ceiling + 1n)).to.be.revertedWith("E11");
+  });
+
+  it("TG-gov-3: setMaxAllowedPublishers bounded by ceiling (E11)", async function () {
+    const ceiling = await campaigns.MAX_ALLOWED_PUBLISHERS_CEILING();
+    await expect(campaigns.setMaxAllowedPublishers(0)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxAllowedPublishers(ceiling + 1n)).to.be.revertedWith("E11");
+  });
+
+  it("TG-gov-4: only owner can set caps (E18)", async function () {
+    await expect(campaigns.connect(advertiser).setMaxPublisherTags(50)).to.be.revertedWith("E18");
+    await expect(campaigns.connect(advertiser).setMaxCampaignTags(10)).to.be.revertedWith("E18");
+    await expect(campaigns.connect(advertiser).setMaxAllowedPublishers(50)).to.be.revertedWith("E18");
+  });
+
+  it("TG11: createCampaign rejects more than maxCampaignTags (E66)", async function () {
+    await campaigns.setMaxCampaignTags(2);
+    const tooMany = Array.from({ length: 3 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
     await expect(
@@ -273,6 +306,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
         { value: BUDGET }
       )
     ).to.be.revertedWith("E66");
+    await campaigns.setMaxCampaignTags(16); // restore default
   });
 
 });

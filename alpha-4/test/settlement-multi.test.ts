@@ -312,23 +312,26 @@ describe("DatumSettlement.settleClaimsMulti", function () {
 
   // ── Batch limits ──────────────────────────────────────────────────────────────
 
-  // SM12: >10 users in batches reverts E28
-  it("SM12: >10 user entries reverts E28", async function () {
+  // SM12: > maxBatchSize user entries reverts E28
+  it("SM12: > maxBatchSize user entries reverts E28", async function () {
+    await settlement.connect(owner).setMaxBatchSize(2);
     const cid = await createCampaign();
     const claims = buildClaims(cid, publisher.address, user1.address, 1);
-    const batches = Array(11).fill({
+    const batches = Array(3).fill({
       user: user1.address,
       campaigns: [{ campaignId: cid, claims }],
     });
     await expect(
       settlement.connect(relay).settleClaimsMulti(batches)
     ).to.be.revertedWith("E28");
+    await settlement.connect(owner).setMaxBatchSize(50);
   });
 
-  // SM13: >10 campaigns per user reverts E28
-  it("SM13: >10 campaigns per user reverts E28", async function () {
+  // SM13: > maxBatchSize campaigns per user reverts E28
+  it("SM13: > maxBatchSize campaigns per user reverts E28", async function () {
+    await settlement.connect(owner).setMaxBatchSize(2);
     const campaigns = [];
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 3; i++) {
       const cid = await createCampaign();
       campaigns.push({ campaignId: cid, claims: buildClaims(cid, publisher.address, user1.address, 1) });
     }
@@ -337,6 +340,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
         { user: user1.address, campaigns }
       ])
     ).to.be.revertedWith("E28");
+    await settlement.connect(owner).setMaxBatchSize(50);
   });
 
   // ── FP-1 publisher stake integration ─────────────────────────────────────────

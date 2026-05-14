@@ -975,6 +975,67 @@ describe("Audit fixes", function () {
     });
   });
 
+  describe("Phase C: combined setRelaySignerAndProfile", function () {
+    it("sets both relay signer and profile hash in one tx", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const publisher = signers[1];
+
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[2].address, signers[3].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+
+      await pubs.connect(publisher).registerPublisher(5000);
+
+      const newSigner = signers[4].address;
+      const profile = ethers.keccak256(ethers.toUtf8Bytes("ipfs-cid-here"));
+      const tx = await pubs.connect(publisher).setRelaySignerAndProfile(newSigner, profile);
+      const rcpt = await tx.wait();
+
+      expect(await pubs.relaySigner(publisher.address)).to.equal(newSigner);
+      expect(await pubs.profileHash(publisher.address)).to.equal(profile);
+
+      // Both events emitted
+      const evts = rcpt!.logs
+        .map((l: any) => { try { return pubs.interface.parseLog(l)?.name; } catch { return undefined; } })
+        .filter((n: any) => !!n);
+      expect(evts).to.include.members(["RelaySignerUpdated", "ProfileUpdated"]);
+    });
+
+    it("rejects zero profile hash (E00)", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const publisher = signers[1];
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[2].address, signers[3].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+      await pubs.connect(publisher).registerPublisher(5000);
+      await expect(
+        pubs.connect(publisher).setRelaySignerAndProfile(signers[4].address, ethers.ZeroHash)
+      ).to.be.revertedWith("E00");
+    });
+
+    it("respects relay-rotation cooldown (E22)", async function () {
+      await fundSigners();
+      const signers = await ethers.getSigners();
+      const publisher = signers[1];
+      const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+      const pause = await PauseFactory.deploy(signers[0].address, signers[2].address, signers[3].address);
+      const PubsFactory = await ethers.getContractFactory("DatumPublishers");
+      const pubs = await PubsFactory.deploy(50n, await pause.getAddress());
+      await pubs.connect(publisher).registerPublisher(5000);
+
+      const profile = ethers.keccak256(ethers.toUtf8Bytes("p"));
+      await pubs.connect(publisher).setRelaySignerAndProfile(signers[4].address, profile);
+      // Immediate second call hits cooldown
+      await expect(
+        pubs.connect(publisher).setRelaySignerAndProfile(signers[5].address, profile)
+      ).to.be.revertedWith("E22");
+    });
+  });
+
   describe("TM-3: Council guardian/member mutual exclusivity", function () {
     it("rejects member added when they are already guardian", async function () {
       await fundSigners();

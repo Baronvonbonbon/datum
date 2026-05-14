@@ -38,10 +38,17 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
     address public governanceContract;
 
     /// @notice Per-campaign max distinct publishers that may be bonded.
-    ///         Caps the gas cost of returnBond iteration. Aligned with
-    ///         Campaigns.MAX_ALLOWED_PUBLISHERS so an out-of-bounds case
-    ///         can't happen.
-    uint256 public constant MAX_BONDED_PUBLISHERS = 32;
+    ///         Caps the gas cost of returnBond iteration. Governance must
+    ///         keep this ≥ DatumCampaigns.maxAllowedPublishers (same proposal)
+    ///         so addAllowedPublisher with a bond can't exceed this limit.
+    uint256 public constant MAX_BONDED_PUBLISHERS_CEILING = 256;
+    uint256 public maxBondedPublishers = 64; // was hard-coded 32
+    event MaxBondedPublishersSet(uint256 value);
+    function setMaxBondedPublishers(uint256 v) external onlyOwner {
+        require(v > 0 && v <= MAX_BONDED_PUBLISHERS_CEILING, "E11");
+        maxBondedPublishers = v;
+        emit MaxBondedPublishersSet(v);
+    }
 
     // ── State ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +106,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwna
         require(msg.value > 0, "E11");
         require(publisher != address(0), "E00");
         require(_bond[campaignId][publisher] == 0, "E71"); // already bonded for this pair
-        require(_bondedPublishers[campaignId].length < MAX_BONDED_PUBLISHERS, "E11");
+        require(_bondedPublishers[campaignId].length < maxBondedPublishers, "E11");
 
         _bondOwner[campaignId][publisher] = advertiser;
         _bond[campaignId][publisher] = msg.value;

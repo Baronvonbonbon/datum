@@ -335,6 +335,56 @@ describe("DatumCouncil", function () {
     expect(await council.memberCount()).to.equal(3n);
   });
 
+  // ── C20b: addMembers / removeMembers batch ────────────────────────────────
+  it("C20b addMembers batch — two members added in one proposal", async function () {
+    const allSigners = await ethers.getSigners();
+    const extra1 = allSigners[6];
+    const extra2 = allSigners[7];
+    const calldata = council.interface.encodeFunctionData(
+      "addMembers", [[extra1.address, extra2.address]]
+    );
+    await council.connect(alice).propose([await council.getAddress()], [0], [calldata], "batch add");
+    const pid = (await council.nextProposalId()) - 1n;
+    await council.connect(alice).vote(pid);
+    await council.connect(bob).vote(pid);
+    const p = await council.proposals(pid);
+    await mineBlocks(Number(p.executableAfterBlock - BigInt(await ethers.provider.getBlockNumber())) + 1);
+    await council.execute(pid);
+
+    expect(await council.isMember(extra1.address)).to.be.true;
+    expect(await council.isMember(extra2.address)).to.be.true;
+    expect(await council.memberCount()).to.equal(5n);
+  });
+
+  it("C20c removeMembers batch — two members removed in one proposal", async function () {
+    const allSigners = await ethers.getSigners();
+    const extra1 = allSigners[6];
+    const extra2 = allSigners[7];
+    const calldata = council.interface.encodeFunctionData(
+      "removeMembers", [[extra1.address, extra2.address]]
+    );
+    await council.connect(alice).propose([await council.getAddress()], [0], [calldata], "batch rm");
+    const pid = (await council.nextProposalId()) - 1n;
+    await council.connect(alice).vote(pid);
+    await council.connect(bob).vote(pid);
+    const p = await council.proposals(pid);
+    await mineBlocks(Number(p.executableAfterBlock - BigInt(await ethers.provider.getBlockNumber())) + 1);
+    await council.execute(pid);
+
+    expect(await council.isMember(extra1.address)).to.be.false;
+    expect(await council.isMember(extra2.address)).to.be.false;
+    expect(await council.memberCount()).to.equal(3n);
+  });
+
+  it("C20d batch ops only callable from council (onlyCouncil)", async function () {
+    await expect(
+      council.connect(alice).addMembers([outsider.address])
+    ).to.be.reverted; // onlyCouncil reverts on direct call (no specific message in modifier)
+    await expect(
+      council.connect(alice).removeMembers([outsider.address])
+    ).to.be.reverted;
+  });
+
   // ── C21: setThreshold via council proposal ─────────────────────────────────
 
   it("C21 setThreshold — via council self-proposal", async function () {

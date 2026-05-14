@@ -1003,15 +1003,26 @@ describe("DatumSettlement", function () {
       }
     });
 
-    it("D8: batch length > 10 reverts E28", async function () {
+    it("D8: batch length > maxBatchSize reverts E28", async function () {
+      // Shrink to 2 so the test stays cheap; default is 50 (governance-settable).
+      await settlement.connect(owner).setMaxBatchSize(2);
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
-      const tooMany = new Array(11).fill(batch);
+      const tooMany = new Array(3).fill(batch);
 
       await expect(
         settlement.connect(other).settleSignedClaims(tooMany)
       ).to.be.revertedWith("E28");
+
+      // Restore for other tests
+      await settlement.connect(owner).setMaxBatchSize(50);
+    });
+
+    it("D8b: setMaxBatchSize bounded by ceiling (E11)", async function () {
+      const ceiling = await settlement.MAX_BATCH_SIZE_CEILING();
+      await expect(settlement.connect(owner).setMaxBatchSize(0)).to.be.revertedWith("E11");
+      await expect(settlement.connect(owner).setMaxBatchSize(ceiling + 1n)).to.be.revertedWith("E11");
     });
   });
 

@@ -246,10 +246,91 @@ describe("Multi-publisher campaigns", function () {
 
   // ── Cap on allowlist size ──────────────────────────────────────────────
 
-  it("MAX_ALLOWED_PUBLISHERS cap is enforced", async function () {
-    // 32 is the cap. We can't easily register 32 EOAs in this test env;
-    // instead verify the constant is exposed and the bonds-side mirror matches.
-    expect(await campaigns.MAX_ALLOWED_PUBLISHERS()).to.equal(32);
-    expect(await bonds.MAX_BONDED_PUBLISHERS()).to.equal(32);
+  // ── addAllowedPublishers (batch variant, Phase C) ────────────────────
+  describe("addAllowedPublishers (batch)", function () {
+    it("batch adds two publishers without bond in one call", async function () {
+      const id = await createCampaign(ethers.ZeroAddress); // open campaign
+      await campaigns.connect(advertiser).addAllowedPublishers(
+        id, [pub1.address, pub2.address], [0n, 0n], { value: 0 }
+      );
+      expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(2);
+      expect(await campaigns.isAllowedPublisher(id, pub1.address)).to.equal(true);
+      expect(await campaigns.isAllowedPublisher(id, pub2.address)).to.equal(true);
+      expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+      expect(await campaigns.getCampaignPublisherTakeRate(id, pub2.address)).to.equal(4000);
+    });
+
+    it("batch adds with per-entry bonds; sum must equal msg.value", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      const b1 = parseDOT("0.5"), b2 = parseDOT("0.25");
+      await campaigns.connect(advertiser).addAllowedPublishers(
+        id, [pub1.address, pub2.address], [b1, b2], { value: b1 + b2 }
+      );
+      expect(await bonds.bondForPublisher(id, pub1.address)).to.equal(b1);
+      expect(await bonds.bondForPublisher(id, pub2.address)).to.equal(b2);
+    });
+
+    it("mismatched sum of bonds vs msg.value reverts (E11)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      await expect(
+        campaigns.connect(advertiser).addAllowedPublishers(
+          id, [pub1.address], [parseDOT("0.5")], { value: parseDOT("0.4") }
+        )
+      ).to.be.revertedWith("E11");
+    });
+
+    it("array length mismatch reverts (E11)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      await expect(
+        campaigns.connect(advertiser).addAllowedPublishers(
+          id, [pub1.address, pub2.address], [0n], { value: 0 }
+        )
+      ).to.be.revertedWith("E11");
+    });
+
+    it("empty batch reverts (E11)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      await expect(
+        campaigns.connect(advertiser).addAllowedPublishers(id, [], [], { value: 0 })
+      ).to.be.revertedWith("E11");
+    });
+
+    it("non-advertiser reverts (E21)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      await expect(
+        campaigns.connect(other).addAllowedPublishers(id, [pub1.address], [0n], { value: 0 })
+      ).to.be.revertedWith("E21");
+    });
+
+    it("duplicate in batch reverts (E71)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      await expect(
+        campaigns.connect(advertiser).addAllowedPublishers(
+          id, [pub1.address, pub1.address], [0n, 0n], { value: 0 }
+        )
+      ).to.be.revertedWith("E71");
+    });
+
+    it("exceeding remaining headroom reverts (E11)", async function () {
+      const id = await createCampaign(ethers.ZeroAddress);
+      // Shrink cap so we can hit the headroom check
+      await campaigns.setMaxAllowedPublishers(1);
+      await expect(
+        campaigns.connect(advertiser).addAllowedPublishers(
+          id, [pub1.address, pub2.address], [0n, 0n], { value: 0 }
+        )
+      ).to.be.revertedWith("E11");
+      await campaigns.setMaxAllowedPublishers(64); // restore
+    });
+  });
+
+  it("maxAllowedPublishers cap is exposed + lockstep with bonds", async function () {
+    // Default after Phase B is 64; governance can re-tune within
+    // MAX_ALLOWED_PUBLISHERS_CEILING. Same default on the bonds side.
+    expect(await campaigns.maxAllowedPublishers()).to.equal(64);
+    expect(await bonds.maxBondedPublishers()).to.equal(64);
+    // Ceilings exposed
+    expect(await campaigns.MAX_ALLOWED_PUBLISHERS_CEILING()).to.equal(256);
+    expect(await bonds.MAX_BONDED_PUBLISHERS_CEILING()).to.equal(256);
   });
 });

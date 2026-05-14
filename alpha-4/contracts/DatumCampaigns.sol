@@ -45,8 +45,14 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///      so the default can never escape the protocol's stated economics.
     uint16 public constant MIN_DEFAULT_TAKE_RATE_BPS = 3000;
     uint16 public constant MAX_DEFAULT_TAKE_RATE_BPS = 8000;
-    uint8 public constant MAX_PUBLISHER_TAGS = 32;
-    uint8 public constant MAX_CAMPAIGN_TAGS = 8;
+    // Cap ceilings — governance-settable working values below. Original
+    // alpha-3 caps (32/8) were PVM-sized; EVM permits more headroom.
+    uint16 public constant MAX_PUBLISHER_TAGS_CEILING = 256;
+    uint16 public constant MAX_CAMPAIGN_TAGS_CEILING  = 64;
+    uint16 public maxPublisherTags = 64; // was hard-coded 32
+    uint16 public maxCampaignTags  = 16; // was hard-coded 8
+    event MaxPublisherTagsSet(uint16 value);
+    event MaxCampaignTagsSet(uint16 value);
 
     // Safe rollout: max campaign budget cap (0 = disabled)
     uint256 public maxCampaignBudget;
@@ -211,10 +217,13 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     mapping(uint256 => uint16) public campaignAllowedPublisherCount;
     mapping(uint256 => mapping(address => uint16)) public campaignPublisherTakeRate;
 
-    /// @notice Hard cap on the number of distinct publishers per campaign,
-    ///         to bound gas on enumeration paths (e.g., ChallengeBonds.returnBond).
-    ///         Aligned with DatumChallengeBonds.MAX_BONDED_PUBLISHERS.
-    uint16 public constant MAX_ALLOWED_PUBLISHERS = 32;
+    /// @notice Cap on the number of distinct publishers per campaign. Bounds
+    ///         gas on enumeration paths (DatumChallengeBonds.returnBond). MUST
+    ///         remain ≤ DatumChallengeBonds.maxBondedPublishers — governance
+    ///         updates both in the same proposal to keep them aligned.
+    uint16 public constant MAX_ALLOWED_PUBLISHERS_CEILING = 256;
+    uint16 public maxAllowedPublishers = 64; // was hard-coded 32
+    event MaxAllowedPublishersSet(uint16 value);
 
     event PublisherAllowed(uint256 indexed campaignId, address indexed publisher, uint16 takeRateBps);
     event PublisherRemoved(uint256 indexed campaignId, address indexed publisher);
@@ -513,6 +522,31 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         emit MaxCampaignBudgetSet(amount);
     }
 
+    /// @notice Tune the per-publisher tag-list cap. Bounded by ceiling so
+    ///         setPublisherTags can't be ground to a halt by an absurd value.
+    function setMaxPublisherTags(uint16 v) external onlyOwner {
+        require(v > 0 && v <= MAX_PUBLISHER_TAGS_CEILING, "E11");
+        maxPublisherTags = v;
+        emit MaxPublisherTagsSet(v);
+    }
+
+    /// @notice Tune the per-campaign required-tag cap.
+    function setMaxCampaignTags(uint16 v) external onlyOwner {
+        require(v > 0 && v <= MAX_CAMPAIGN_TAGS_CEILING, "E11");
+        maxCampaignTags = v;
+        emit MaxCampaignTagsSet(v);
+    }
+
+    /// @notice Tune the per-campaign publisher-allowlist cap. Governance must
+    ///         keep this ≤ DatumChallengeBonds.maxBondedPublishers (set in
+    ///         the same proposal) so addAllowedPublisher with bond can't
+    ///         outrun the bond-enumeration limit.
+    function setMaxAllowedPublishers(uint16 v) external onlyOwner {
+        require(v > 0 && v <= MAX_ALLOWED_PUBLISHERS_CEILING, "E11");
+        maxAllowedPublishers = v;
+        emit MaxAllowedPublishersSet(v);
+    }
+
     /// @notice Path A: governance cap on the advertiser-settable `campaignMinStake`.
     ///         0 = no cap. Does NOT retroactively invalidate campaigns whose
     ///         minStake was set above the new cap before this change; only future
@@ -684,7 +718,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         require(!pauseRegistry.pausedCampaignCreation(), "P");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(msg.sender);
         require(pub.registered, "Not registered");
-        require(tagHashes.length <= MAX_PUBLISHER_TAGS, "E65");
+        require(tagHashes.length <= maxPublisherTags, "E65");
 
         // Stage removals: for each old tag, decide whether the new set keeps it.
         // Tags being dropped enter the grace window. Tags being kept have any
@@ -758,7 +792,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         A8: tags in their post-removal grace window still count as held.
     function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool) {
         if (requiredTags.length == 0) return true;
-        require(requiredTags.length <= MAX_CAMPAIGN_TAGS, "E66");
+        require(requiredTags.length <= maxCampaignTags, "E66");
         for (uint256 i = 0; i < requiredTags.length; i++) {
             if (_publisherTagSet[publisher][requiredTags[i]]) continue;
             uint256 eff = tagRemovalEffectiveBlock[publisher][requiredTags[i]];
@@ -885,7 +919,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint256 budgetValue = msg.value - bondAmount - activationBondAmount;
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11");
         require(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget, "E80");
-        require(requiredTags.length <= MAX_CAMPAIGN_TAGS, "E66");
+        require(requiredTags.length <= maxCampaignTags, "E66");
         // C1-fix: forbid stranded bonds. If the advertiser passes a non-zero
         // bondAmount while ChallengeBonds isn't wired, the lockBond branch
         // below is skipped and the bondAmount portion would sit in this
@@ -1143,7 +1177,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         require(c.status == CampaignStatus.Pending || c.status == CampaignStatus.Active, "E22");
         require(publisher != address(0), "E00");
         require(!campaignAllowedPublisher[campaignId][publisher], "E71"); // already in set
-        require(campaignAllowedPublisherCount[campaignId] < MAX_ALLOWED_PUBLISHERS, "E11");
+        require(campaignAllowedPublisherCount[campaignId] < maxAllowedPublishers, "E11");
 
         // Validate the publisher: registered, not blocked, tag match.
         require(!publishers.isBlocked(publisher), "E62");
@@ -1173,6 +1207,76 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         if (msg.value > 0) {
             require(address(challengeBonds) != address(0), "E00");
             challengeBonds.lockBond{value: msg.value}(campaignId, msg.sender, publisher);
+        }
+    }
+
+    /// @notice Cap on per-call batch size for addAllowedPublishers — small
+    ///         enough to fit comfortably within a single block's gas budget
+    ///         given the per-entry validation work (publisher lookup,
+    ///         allowlist check, tag-match loop, take-rate snapshot, optional
+    ///         lockBond). 32 covers the legacy MAX_ALLOWED_PUBLISHERS in one
+    ///         shot; larger campaigns split across multiple txs.
+    uint256 public constant MAX_ADD_PUBLISHERS_BATCH = 32;
+
+    /// @notice Batch variant of addAllowedPublisher. Each entry behaves
+    ///         identically to a single addAllowedPublisher call — same
+    ///         validation, same PublisherAllowed event, same bond mechanics.
+    ///         Saves N-1 signatures and the per-tx fixed-cost overhead.
+    ///
+    ///         bondAmounts[i] is the bond locked for (campaignId, publishers[i]).
+    ///         Use 0 for entries with no bond. The sum of all bondAmounts must
+    ///         equal msg.value (no implicit refund, no implicit assignment).
+    function addAllowedPublishers(
+        uint256 campaignId,
+        address[] calldata pubs,
+        uint256[] calldata bondAmounts
+    ) external payable nonReentrant {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Pending || c.status == CampaignStatus.Active, "E22");
+        require(pubs.length == bondAmounts.length, "E11");
+        require(pubs.length > 0 && pubs.length <= MAX_ADD_PUBLISHERS_BATCH, "E11");
+
+        // Headroom check up-front so a partial mass-add doesn't write
+        // some publishers and then revert at entry N.
+        require(
+            campaignAllowedPublisherCount[campaignId] + pubs.length <= maxAllowedPublishers,
+            "E11"
+        );
+
+        // Sum bonds; fail loudly if msg.value mismatches.
+        uint256 sumBonds;
+        for (uint256 i = 0; i < bondAmounts.length; i++) sumBonds += bondAmounts[i];
+        require(sumBonds == msg.value, "E11");
+        require(sumBonds == 0 || address(challengeBonds) != address(0), "E00");
+
+        bytes32[] storage reqTags = _campaignTags[campaignId];
+        for (uint256 i = 0; i < pubs.length; i++) {
+            address publisher = pubs[i];
+            require(publisher != address(0), "E00");
+            require(!campaignAllowedPublisher[campaignId][publisher], "E71");
+
+            // Per-publisher validation (mirror of single-call addAllowedPublisher).
+            require(!publishers.isBlocked(publisher), "E62");
+            IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
+            require(pub.registered, "E62");
+            if (publishers.allowlistEnabled(publisher)) {
+                require(publishers.isAllowedAdvertiser(publisher, msg.sender), "E62");
+            }
+            for (uint256 j = 0; j < reqTags.length; j++) {
+                require(_publisherTagSet[publisher][reqTags[j]], "E62");
+            }
+
+            uint16 rate = pub.takeRateBps;
+            campaignAllowedPublisher[campaignId][publisher] = true;
+            campaignPublisherTakeRate[campaignId][publisher] = rate;
+            campaignAllowedPublisherCount[campaignId] += 1;
+            emit PublisherAllowed(campaignId, publisher, rate);
+
+            if (bondAmounts[i] > 0) {
+                challengeBonds.lockBond{value: bondAmounts[i]}(campaignId, msg.sender, publisher);
+            }
         }
     }
 
