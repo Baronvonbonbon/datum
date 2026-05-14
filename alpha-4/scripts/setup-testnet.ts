@@ -163,6 +163,9 @@ const publishersAbi = [
 
 const campaignsAbi = [
   "function createCampaign(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  // Optimistic-activation entrypoint: locks an activation bond in
+  // DatumActivationBonds at creation and skips the always-vote governance path.
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
@@ -171,6 +174,15 @@ const campaignsAbi = [
   // Inline reports (merged from Reports)
   "function reportPage(uint256 campaignId, uint8 reason)",
   "function reportAd(uint256 campaignId, uint8 reason)",
+];
+
+const activationBondsAbi = [
+  "function minBond() view returns (uint256)",
+  "function timelockBlocks() view returns (uint64)",
+  "function setTimelockBlocks(uint64 v)",
+  "function activate(uint256 campaignId)",
+  "function phase(uint256 campaignId) view returns (uint8)",
+  "function timelockExpiry(uint256 campaignId) view returns (uint64)",
 ];
 
 const govV2Abi = [
@@ -474,6 +486,15 @@ async function main() {
   const campIface = new Interface(campaignsAbi);
   const govIface = new Interface(govV2Abi);
   const govRouterIface = new Interface(governanceRouterAbi);
+  const activationIface = new Interface(activationBondsAbi);
+
+  // Optimistic activation present?
+  const useOptimistic = !!addrs.activationBonds;
+  if (useOptimistic) {
+    log("INIT", `Optimistic activation gateway present at ${addrs.activationBonds}`);
+  } else {
+    log("INIT", "Optimistic activation not deployed — falling back to legacy AdminGovernance activate path");
+  }
 
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
@@ -675,6 +696,23 @@ async function main() {
   const baseCampaignId = BigInt(baseIdRaw);
   log("3", `  nextCampaignId (base): ${baseCampaignId}`);
 
+  // ── Optimistic activation: shrink timelock for testnet seeding ──
+  // Production timelock is 24h (14400 blocks). For seeding 100+ campaigns
+  // we shorten it to ~1 min so the script can permissionlessly activate
+  // them in the same run. minBond stays at the deploy default.
+  const TESTNET_TIMELOCK_BLOCKS = 10n;
+  let activationMinBond = 0n;
+  if (useOptimistic) {
+    const curTimelockRaw = await readCall(rawProvider, addrs.activationBonds, activationIface, "timelockBlocks", []);
+    if (BigInt(curTimelockRaw) !== TESTNET_TIMELOCK_BLOCKS) {
+      log("3", `  Shrinking ActivationBonds.timelockBlocks ${BigInt(curTimelockRaw)} → ${TESTNET_TIMELOCK_BLOCKS} for testnet seed`);
+      await sendCall(alice, rawProvider, addrs.activationBonds, activationIface, "setTimelockBlocks", [TESTNET_TIMELOCK_BLOCKS]);
+    }
+    const minBondRaw = await readCall(rawProvider, addrs.activationBonds, activationIface, "minBond", []);
+    activationMinBond = BigInt(minBondRaw);
+    log("3", `  ActivationBonds.minBond: ${formatDOT(activationMinBond)} PAS`);
+  }
+
   const allCampaignIds: bigint[] = [];
   const allCampaignSpecs: CampaignSpec[] = [];
 
@@ -692,11 +730,19 @@ async function main() {
     const campaignId = baseCampaignId + BigInt(allCampaignIds.length);
 
     try {
-      await sendCall(
-        adv, rawProvider, addrs.campaigns, campIface, "createCampaign",
-        [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n],
-        spec.budget,
-      );
+      if (useOptimistic) {
+        await sendCall(
+          adv, rawProvider, addrs.campaigns, campIface, "createCampaignWithActivation",
+          [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n, activationMinBond],
+          spec.budget + activationMinBond,
+        );
+      } else {
+        await sendCall(
+          adv, rawProvider, addrs.campaigns, campIface, "createCampaign",
+          [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n],
+          spec.budget,
+        );
+      }
 
       allCampaignIds.push(campaignId);
       allCampaignSpecs.push(spec);
@@ -710,75 +756,95 @@ async function main() {
   log("3", `Created ${allCampaignIds.length}/${CAMPAIGN_SPECS.length} campaigns (${createFailed} failed)`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 4. VOTE AYE (Frank) + EVALUATE TO ACTIVATE — all campaigns
+  // 4. ACTIVATE — optimistic path (permissionless after timelock) or legacy
+  //               AdminGovernance fallback when ActivationBonds isn't wired.
   // ═══════════════════════════════════════════════════════════════════════════
-  log("4", "--- Voting + activating all campaigns ---");
-
-  const quorumResult = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
-  const quorum = BigInt(quorumResult);
-  log("4", `  Governance quorum: ${formatDOT(quorum)} PAS (conviction-weighted)`);
-
-  // Conviction 0 = 1x weight. Single Frank vote covers quorum.
-  const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
-  log("4", `  Vote stake per campaign: ${formatDOT(VOTE_STAKE)} PAS (conviction 0, no lockup)`);
-
-  const frankBal = await rawProvider.getBalance(frank.address);
-  const neededForVotes = VOTE_STAKE * BigInt(allCampaignIds.length) + parseDOT("10");
-  if (frankBal < neededForVotes) {
-    log("4", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, needs ~${formatDOT(neededForVotes)} PAS for ${allCampaignIds.length} votes`);
-  }
-
-  // Phase 4a: Frank votes aye on all campaigns
-  log("4", `  Phase 4a: Voting on ${allCampaignIds.length} campaigns...`);
-  let voteOk = 0;
-  const votedIds: bigint[] = [];
-  for (let i = 0; i < allCampaignIds.length; i++) {
-    const cid = allCampaignIds[i];
-    try {
-      await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
-        [cid, true, 0],
-        VOTE_STAKE,
-      );
-      votedIds.push(cid);
-      voteOk++;
-      if ((i + 1) % 10 === 0) log("4", `    voted on ${i + 1}/${allCampaignIds.length}...`);
-    } catch (err) {
-      log("4", `    vote failed for ID ${cid}: ${String(err).slice(0, 100)}`);
-    }
-  }
-  log("4", `  Voted on ${voteOk}/${allCampaignIds.length} campaigns`);
-
-  // Phase 4b: Wait for BASE_GRACE_BLOCKS (10) past the last vote before evaluating
-  // evaluateCampaign reverts with E53 if block.number < lastVote + baseGraceBlocks
-  {
-    const curHex = await rawProvider.send("eth_blockNumber", []);
-    const curBlock = parseInt(curHex, 16);
-    const graceBlocks = 10; // matches deploy.ts BASE_GRACE_BLOCKS
-    const targetBlock = curBlock + graceBlocks + 1;
-    log("4", `  Waiting for grace period (block ${curBlock} → ${targetBlock}, +${graceBlocks + 1} blocks)...`);
-    await waitForBlock(rawProvider, targetBlock);
-  }
-
-  // Phase 4b: Alice activates all campaigns via AdminGovernance (Phase 0 governor).
-  // GovernanceV2 votes above demonstrate conviction-weighted voting; activation goes
-  // through the Router's current governor (AdminGovernance) since the Phase 2
-  // transition requires a 48h Timelock delay and hasn't happened on testnet yet.
-  log("4", `  Phase 4b: Activating ${allCampaignIds.length} campaigns via AdminGovernance...`);
+  log("4", "--- Activating all campaigns ---");
   let activateOk = 0;
-  for (let i = 0; i < allCampaignIds.length; i++) {
-    const cid = allCampaignIds[i];
-    try {
-      await sendCall(alice, rawProvider, addrs.governanceRouter, govRouterIface, "adminActivateCampaign", [cid]);
-      const statusRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
-      const s = Number(BigInt(statusRaw));
-      if (s === 1) {
-        activateOk++;
-      } else {
-        log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after activate`);
+
+  if (useOptimistic) {
+    // Optimistic path: every campaign opened a bond at create-time. Wait for
+    // the (testnet-shrunken) timelock to pass, then permissionlessly call
+    // ActivationBonds.activate(cid) on each. No vote needed for the uncontested
+    // routine seed flow.
+    const curHex = await rawProvider.send("eth_blockNumber", []);
+    const curBlock = BigInt(parseInt(curHex, 16));
+    const targetBlock = Number(curBlock + TESTNET_TIMELOCK_BLOCKS + 1n);
+    log("4", `  Waiting for activation timelock (block ${curBlock} → ${targetBlock}, +${TESTNET_TIMELOCK_BLOCKS + 1n} blocks)...`);
+    await waitForBlock(rawProvider, targetBlock);
+
+    log("4", `  Permissionless activate() on ${allCampaignIds.length} campaigns via ActivationBonds...`);
+    for (let i = 0; i < allCampaignIds.length; i++) {
+      const cid = allCampaignIds[i];
+      try {
+        await sendCall(alice, rawProvider, addrs.activationBonds, activationIface, "activate", [cid]);
+        const statusRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
+        const s = Number(BigInt(statusRaw));
+        if (s === 1) {
+          activateOk++;
+        } else {
+          log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after activate`);
+        }
+        if ((i + 1) % 10 === 0) log("4", `    activated ${i + 1}/${allCampaignIds.length}...`);
+      } catch (err) {
+        log("4", `    activate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
       }
-      if ((i + 1) % 10 === 0) log("4", `    activated ${i + 1}/${allCampaignIds.length}...`);
-    } catch (err) {
-      log("4", `    activate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
+    }
+  } else {
+    // Legacy fallback: Frank votes aye + Alice admin-activates via the Router.
+    const quorumResult = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
+    const quorum = BigInt(quorumResult);
+    log("4", `  Governance quorum: ${formatDOT(quorum)} PAS (conviction-weighted)`);
+    const VOTE_STAKE = quorum > parseDOT("10") ? quorum : parseDOT("2");
+    log("4", `  Vote stake per campaign: ${formatDOT(VOTE_STAKE)} PAS (conviction 0, no lockup)`);
+
+    const frankBal = await rawProvider.getBalance(frank.address);
+    const neededForVotes = VOTE_STAKE * BigInt(allCampaignIds.length) + parseDOT("10");
+    if (frankBal < neededForVotes) {
+      log("4", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, needs ~${formatDOT(neededForVotes)} PAS for ${allCampaignIds.length} votes`);
+    }
+    log("4", `  Phase 4a: Voting on ${allCampaignIds.length} campaigns...`);
+    let voteOk = 0;
+    for (let i = 0; i < allCampaignIds.length; i++) {
+      const cid = allCampaignIds[i];
+      try {
+        await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote",
+          [cid, true, 0],
+          VOTE_STAKE,
+        );
+        voteOk++;
+        if ((i + 1) % 10 === 0) log("4", `    voted on ${i + 1}/${allCampaignIds.length}...`);
+      } catch (err) {
+        log("4", `    vote failed for ID ${cid}: ${String(err).slice(0, 100)}`);
+      }
+    }
+    log("4", `  Voted on ${voteOk}/${allCampaignIds.length} campaigns`);
+
+    {
+      const curHex = await rawProvider.send("eth_blockNumber", []);
+      const curBlock = parseInt(curHex, 16);
+      const graceBlocks = 10;
+      const targetBlock = curBlock + graceBlocks + 1;
+      log("4", `  Waiting for grace period (block ${curBlock} → ${targetBlock}, +${graceBlocks + 1} blocks)...`);
+      await waitForBlock(rawProvider, targetBlock);
+    }
+
+    log("4", `  Phase 4b: Activating ${allCampaignIds.length} campaigns via AdminGovernance...`);
+    for (let i = 0; i < allCampaignIds.length; i++) {
+      const cid = allCampaignIds[i];
+      try {
+        await sendCall(alice, rawProvider, addrs.governanceRouter, govRouterIface, "adminActivateCampaign", [cid]);
+        const statusRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
+        const s = Number(BigInt(statusRaw));
+        if (s === 1) {
+          activateOk++;
+        } else {
+          log("4", `    WARNING: ID ${cid} status ${STATUS_NAMES[s]} after activate`);
+        }
+        if ((i + 1) % 10 === 0) log("4", `    activated ${i + 1}/${allCampaignIds.length}...`);
+      } catch (err) {
+        log("4", `    activate failed for ID ${cid}: ${String(err).slice(0, 100)}`);
+      }
     }
   }
   log("4", `  Activated ${activateOk}/${allCampaignIds.length} campaigns`);

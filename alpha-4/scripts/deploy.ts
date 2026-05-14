@@ -1,4 +1,4 @@
-// deploy.ts — Full 21-contract Alpha-4 deployment + wiring + ownership transfer
+// deploy.ts — Full 22-contract Alpha-4 deployment + wiring + ownership transfer
 //
 // Alpha-4 consolidation: 9 satellite contracts merged into parents (29 → 20):
 //   GovernanceHelper + GovernanceSlash → GovernanceV2
@@ -10,6 +10,12 @@
 //   - DatumPublisherStake       (FP-1+FP-4: publisher staking + bonding curve)
 //   - DatumChallengeBonds       (FP-2: advertiser challenge bonds)
 //   - DatumPublisherGovernance  (FP-3: conviction-weighted publisher fraud governance)
+//
+// Optimistic activation (Phase 1 + 2a + 2b, 2026-05-14):
+//   - DatumActivationBonds      (creator bond + permissionless activate after
+//                                timelock unless contested; commit-reveal vote
+//                                on contested Pending; emergency mute bond on
+//                                Active campaigns)
 //
 // Governance ladder (Phase 0 → 2):
 //   - DatumGovernanceRouter     (stable proxy with inline admin functions)
@@ -93,6 +99,8 @@ const REQUIRED_KEYS = [
   "clickRegistry",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
+  // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
+  "activationBonds",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -127,6 +135,20 @@ const COUNCIL_EXECUTION_DELAY = 10n;                 // testnet: ~1 min
 const COUNCIL_VETO_WINDOW = 200n;                    // testnet: ~20 min
 const COUNCIL_MAX_EXECUTION_WINDOW = 100n;           // testnet: ~10 min
 const COUNCIL_THRESHOLD = 1n;                        // 1-of-1 for testnet (deployer is sole member)
+
+// Optimistic activation parameters
+const ACTIVATION_MIN_BOND = parseDOT("0.1");         // 0.1 DOT floor for creator bond
+const ACTIVATION_TIMELOCK_BLOCKS = 14400n;           // ~24h at 6s/block — challenge window
+const ACTIVATION_WINNER_BONUS_BPS = 5000n;           // 50% of loser bond → winner bonus
+const ACTIVATION_TREASURY_BPS = 0n;                  // 0% to treasury (start conservative; tunable)
+// Mute defaults inside the contract: muteMinBond = 10× minBond,
+// muteMaxBlocks = 14400. Override via setMuteMinBond/setMuteMaxBlocks below
+// if a different mute economics is desired post-deploy.
+
+// GovernanceV2 commit-reveal phases (default 14400/14400 set in constructor;
+// re-applied here for clarity and to allow per-deploy overrides).
+const GOV_COMMIT_BLOCKS = 14400n;                    // ~24h commit window
+const GOV_REVEAL_BLOCKS = 14400n;                    // ~24h reveal window
 // For mainnet, set initial members to Gnosis Safe addresses of council members.
 // Council members and threshold can be changed later via council self-governance proposals.
 
@@ -515,7 +537,24 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumCouncilBlocklistCurator — ${err}`);
   }
 
-  console.log("\n=== All 22 contracts deployed ===\n");
+  // --- Optimistic activation: 22nd contract (Phases 1/2a/2b) ---
+  // Treasury recipient: deployer (Alice) for testnet. Mainnet should redirect
+  // to a governance-controlled treasury contract before flipping treasuryBps
+  // non-zero.
+  try {
+    logStep("Deploying DatumActivationBonds (optimistic activation + emergency mute)");
+    await deployOrReuse("activationBonds", "DatumActivationBonds", [
+      ACTIVATION_MIN_BOND,
+      ACTIVATION_TIMELOCK_BLOCKS,
+      ACTIVATION_WINNER_BONUS_BPS,
+      ACTIVATION_TREASURY_BPS,
+      deployer.address,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumActivationBonds — ${err}`);
+  }
+
+  console.log("\n=== All 23 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -863,6 +902,70 @@ async function main() {
     "challengeBonds", "setChallengeBonds",
     addresses.challengeBonds,
   );
+
+  // ── Optimistic activation (Phases 1/2a/2b) ──
+  // ActivationBonds is the gateway between Campaigns (creator bond opens
+  // here), GovernanceV2 (contested-Pending votes consult isContested), and
+  // ClaimValidator (settlement consults isMuted).
+  await wireIfNeeded(
+    "ActivationBonds.campaignsContract",
+    "DatumActivationBonds", addresses.activationBonds,
+    "campaignsContract", "setCampaignsContract",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "Campaigns.activationBonds",
+    "DatumCampaigns", addresses.campaigns,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+  // GovernanceV2 reads isContested(cid) to decide whether to allow a vote
+  // on a Pending campaign. With this wired, uncontested Pending campaigns
+  // activate via the permissionless ActivationBonds.activate() path and
+  // never reach governance; contested cases go through commit-reveal.
+  await wireIfNeeded(
+    "GovernanceV2.activationBonds",
+    "DatumGovernanceV2", addresses.governanceV2,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+  // ClaimValidator reads isMuted(cid) on the hot settlement path; muted
+  // campaigns reject with reason 22. Subject to plumbingLocked — call this
+  // before lockPlumbing() runs.
+  await wireIfNeeded(
+    "ClaimValidator.activationBonds",
+    "DatumClaimValidator", addresses.claimValidator,
+    "activationBonds", "setActivationBonds",
+    addresses.activationBonds,
+  );
+
+  // Re-apply commit-reveal phases. The GovernanceV2 constructor already sets
+  // 14400/14400; this call is a no-op when the on-chain values already match
+  // but lets per-deploy tuning happen here without rewriting the constructor.
+  {
+    const govIface = new ethers.Interface([
+      "function commitBlocks() view returns (uint64)",
+      "function revealBlocks() view returns (uint64)",
+      "function setCommitRevealPhases(uint64,uint64)",
+    ]);
+    const curCommit = ethers.AbiCoder.defaultAbiCoder().decode(["uint64"],
+      await rawProvider.call({ to: addresses.governanceV2, data: govIface.encodeFunctionData("commitBlocks") })
+    )[0] as bigint;
+    const curReveal = ethers.AbiCoder.defaultAbiCoder().decode(["uint64"],
+      await rawProvider.call({ to: addresses.governanceV2, data: govIface.encodeFunctionData("revealBlocks") })
+    )[0] as bigint;
+    if (curCommit === GOV_COMMIT_BLOCKS && curReveal === GOV_REVEAL_BLOCKS) {
+      console.log("  OK (already set): GovernanceV2.commitRevealPhases " + curCommit + "/" + curReveal);
+    } else {
+      await sendCall(
+        addresses.governanceV2,
+        ["function setCommitRevealPhases(uint64,uint64)"],
+        "setCommitRevealPhases",
+        [GOV_COMMIT_BLOCKS, GOV_REVEAL_BLOCKS],
+      );
+      console.log("  SET: GovernanceV2.setCommitRevealPhases(" + GOV_COMMIT_BLOCKS + ", " + GOV_REVEAL_BLOCKS + ")");
+    }
+  }
 
   // ── ClickRegistry: setRelay, setSettlement; Settlement.setClickRegistry ──
   await wireIfNeeded(
