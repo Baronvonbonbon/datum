@@ -33,17 +33,42 @@ afterward, can be slashed, rated, blocked, allowlisted.
    remains the only authority to rotate this.
 6. **(Optional) Set profile metadata** via `setProfile(bytes32 hash)`
    — an IPFS CID pointing at the publisher's profile document.
-7. **(Optional) Set tags** via `DatumCampaigns.setPublisherTags(bytes32[])`
-   — the taxonomy tags this publisher serves. Tags must be approved
-   either locally in Campaigns or by the `DatumTagCurator`.
-8. **(Optional) Configure advertiser allowlist** via
+7. **(Optional) Pick a tag-policy lane** via
+   `DatumPublishers.setPublisherTagMode(mode)`:
+   - `0 = Any` (default) — accept any non-zero `bytes32` tag.
+     Permissionless / cypherpunk-pure.
+   - `1 = StakeGated` — tags must be Bonded in `DatumTagRegistry`
+     (publisher relies on the WDATUM-staked tag market).
+   - `2 = Curated` — tags must be in the locally-approved set or
+     approved by the `DatumTagCurator` (council-vetted vocabulary).
+
+   The choice is per-publisher and free to change.
+8. **(Optional) Set tags** via `DatumCampaigns.setPublisherTags(bytes32[])`
+   — the taxonomy tags this publisher serves. Validation runs against
+   the lane chosen in step 7. Tags rejected by the lane revert the
+   call (e.g., a Curated-mode publisher passing an unapproved tag
+   gets `E81`; a StakeGated-mode publisher passing an unbonded tag
+   gets `E82`).
+9. **(Optional) Configure advertiser allowlist** via
    `DatumPublishers._allowedAdvertisers` + `allowlistEnabled = true`
    to restrict which advertisers can run campaigns on their inventory.
-9. **(Optional) Self-declare AssuranceLevel** via `publisherMaxAssurance` —
-   informational signal to SDKs and advertisers about the cosigning
-   capability this publisher offers.
-10. **Integrate the SDK** — the publisher's site embeds the DATUM SDK
+10. **(Optional) Self-declare AssuranceLevel** via `publisherMaxAssurance` —
+    informational signal to SDKs and advertisers about the cosigning
+    capability this publisher offers.
+11. **Integrate the SDK** — the publisher's site embeds the DATUM SDK
     which renders ads and reports impressions to the relay.
+
+### (Optional) Operate in the stake-gated tag market
+
+If running in `StakeGated` mode, a publisher can also:
+
+- **Register a tag** themselves via `DatumTagRegistry.registerTag(tag, amount)`
+  after approving WDATUM. The publisher becomes the tag owner; tags are
+  refreshed automatically as the publisher continues to use them.
+- **Stake as a juror** via `stakeAsJuror(amount)` to participate in tag
+  disputes, earn jury rewards, and signal protocol skin-in-the-game.
+- **Garbage-collect** stale tags via `expireTag(tag)` and pocket 100%
+  of the lapsed bond as a keeper bounty.
 
 ### Participating in multi-publisher campaigns
 

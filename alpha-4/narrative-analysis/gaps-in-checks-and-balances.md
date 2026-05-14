@@ -149,6 +149,16 @@ callable by the affected address itself, with a bond. Auto-unblocks if
 the council doesn't ratify the block within N blocks. Forces the
 council to actively defend each block, not just enact it.
 
+**2026-05-14 partial mitigation for the *tag*-curator analog of this
+gap.** Tag-curator decisions used to have the same monopoly shape: a
+tag the council refused to approve was unreachable network-wide. The
+three-lane model (`DatumTagRegistry` + per-actor `publisherTagMode` /
+`campaignTagMode`) gives anyone an exit: opt out of the Curated lane
+into StakeGated (bond the tag yourself, contestable by Schelling jury,
+not council) or Any (no on-chain check). G-6's address-blocklist
+analog has no equivalent escape hatch yet — that would be the
+cypherpunk follow-up.
+
 ### G-7. Asymmetric AssuranceLevel direction silently rejects
 
 **Failure mode.** Users can demand a *higher* level than the campaign

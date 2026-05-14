@@ -54,4 +54,10 @@ interface IDatumPublishers {
     event PublisherMaxAssuranceSet(address indexed publisher, uint8 level);
     function publisherMaxAssurance(address publisher) external view returns (uint8);
     function setPublisherMaxAssurance(uint8 level) external;
+
+    // PublisherTagMode — per-publisher lane selector for tag policy.
+    // 0 = Curated, 1 = StakeGated, 2 = Any. Default 0.
+    event PublisherTagModeSet(address indexed publisher, uint8 mode);
+    function publisherTagMode(address publisher) external view returns (uint8);
+    function setPublisherTagMode(uint8 mode) external;
 }

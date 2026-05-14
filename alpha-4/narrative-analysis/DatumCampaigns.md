@@ -31,9 +31,16 @@ The policy bundle covers:
   `_allowedAdvertisers[publisher]` may run on a publisher's inventory.
 - **AssuranceLevel** (0=Permissive, 1=PublisherSigned, 2=DualSigned). Locks
   raises at `Pending`; lowering is always allowed.
-- **Required tags.** A campaign asserts a bitset of taxonomy tags
-  (`requiredTags`) that the serving publisher's tags must cover. Tag approval
-  flows through `DatumTagCurator` if wired.
+- **Required tags + tag-policy lane.** A campaign asserts a set of
+  taxonomy tags (`requiredTags`) that the serving publisher's tags must
+  cover. As of 2026-05-14, tag *policy* is no longer single-track:
+  each campaign picks a `campaignTagMode` (0 = Any, 1 = StakeGated,
+  2 = Curated, default 0). The chosen mode determines what the
+  `requiredTags` are validated against — see `DatumTagRegistry.md` and
+  `DatumTagCurator.md` for the StakeGated and Curated lanes. Tightening
+  the mode (Any → StakeGated/Curated) is done via
+  `setCampaignTagMode(campaignId, mode)` pre-activation; the call
+  re-validates every existing requiredTag under the new lane.
 - **ZK gate knobs (Path A).** `campaignMinStake` (DATUM threshold the user
   must prove via ZK) and `campaignRequiredCategory` (interest category the
   user must prove they've committed to). Both feed `DatumZKVerifier.verifyA`
@@ -57,6 +64,7 @@ later a Council, finally OpenGov.
 - `createCampaign(publisher, pots, requiredTags, allowlistEnabled, rewardToken, rewardPerImpression, bondAmount)` — payable; locks `msg.value > bondAmount` into the budget ledger across the supplied pots and stages a campaign as `Pending`. If `publisher != 0`, populates the multi-publisher allowlist with that one publisher. If `advertiserStake` is wired (CB4), caller must be adequately staked.
 - `addAllowedPublisher(campaignId, publisher) payable` — adds a publisher to the campaign's allowlist; `msg.value > 0` optionally locks a per-`(campaign, publisher)` bond. Allowed in Pending and Active.
 - `removeAllowedPublisher(campaignId, publisher)` — hard cutoff: from the next block, claims from this publisher fail Check 3.
+- `setCampaignTagMode(id, mode)` — advertiser-only; Pending-only; tightening only (Any → StakeGated/Curated). Re-validates every `requiredTags[i]` under the new lane.
 - `setCampaignAssuranceLevel(id, level)` — advertiser-only; lock-raise at Pending.
 - `setCampaignMinStake(id, amount)` — advertiser-only; clamped by `maxAllowedMinStake`; lock-raise at Pending.
 - `setCampaignRequiredCategory(id, category)` — advertiser-only; Pending only.
@@ -71,8 +79,17 @@ later a Council, finally OpenGov.
 - The challenge bond (`bondAmount`) goes into `DatumChallengeBonds` if wired.
 - Lock-once on the AdvertiserStake reference: a hostile owner can't redirect
   the gate to a permissive contract.
-- TagCurator and policy lock are lockable via `lockTagCurator` and
-  `lockPolicy`.
+- **Three-lane tag policy** with `lockLanes()` pinning the menu permanently.
+  `lockLanes()` replaced the older `lockPolicy()` with a deliberately
+  narrower scope: it locks lane *availability* (Any / StakeGated /
+  Curated all stay selectable forever) but does **not** lock lane
+  *parameters*. `maxCampaignBudget`, `defaultTakeRateBps`,
+  `bulletinRenewerReward`, `maxAllowedMinStake`, and all
+  `DatumTagRegistry` gov knobs remain governance-tunable indefinitely.
+  This is the cypherpunk move: freeze the menu, free the dials.
+  Sibling locks: `lockTagCurator()` (curator pointer) and the lock that
+  `lockLanes()` applies to `tagRegistry` and the curated `approveTag`
+  mutations.
 - The `userEventCapPerWindow` and `minUserSettledHistory` setters can lower
   but not raise once Active — same principle as AssuranceLevel.
 - Settlement's pause check is on **`pausedSettlement`** (the Settlement

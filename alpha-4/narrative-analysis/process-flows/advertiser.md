@@ -46,8 +46,11 @@ allowlistEnabled, rewardToken, rewardPerImpression, bondAmount) payable`:
 - `pots`: array of `(actionType, budgetPlanck, dailyCapPlanck,
   ratePlanck, actionVerifier)`. One pot per action type the
   advertiser wants to fund (view / click / remote-action).
-- `requiredTags`: taxonomy bitset that the serving publisher's tags
-  must cover.
+- `requiredTags`: taxonomy bytes32 set that the serving publisher's
+  tags must cover. At creation, validation is permissive — the
+  campaign starts in `campaignTagMode = 0 (Any)` and any non-zero
+  bytes32 is accepted. To tighten, see "Tag-policy lane selection"
+  below.
 - `allowlistEnabled`: snapshot of `publishers.isAllowedAdvertiser(publisher,
   self)` for closed campaigns.
 - `rewardToken` + `rewardPerImpression`: optional ERC-20 reward leg
@@ -66,9 +69,40 @@ Constraints checked at creation:
 - `budgetValue >= MINIMUM_BUDGET_PLANCK` (10⁹ planck = 0.1 DOT).
 - `budgetValue <= maxCampaignBudget` (governance-set ceiling).
 - AdvertiserStake adequacy if wired (fail-CLOSED on revert).
-- `requiredTags` are all approved (local map ∪ TagCurator).
+- `requiredTags` are all non-zero (deeper lane-aware validation
+  happens later if the advertiser tightens `campaignTagMode`).
 - For closed campaigns, the publisher must be `isAllowedAdvertiser` if
   the publisher has allowlistEnabled.
+
+### Tag-policy lane selection (optional)
+
+Three lanes coexist for advertiser-side tag validation. Each campaign
+picks one via `campaignTagMode`:
+
+- `0 = Any` (default) — `requiredTags` are accepted as-is; matching
+  relies on the serving publisher's own tag set. Permissionless /
+  cypherpunk-pure.
+- `1 = StakeGated` — every `requiredTags[i]` must be Bonded in
+  `DatumTagRegistry` at the time `setCampaignTagMode` is called.
+  The advertiser is asserting "I only want my campaign to serve
+  against tags the network has economic skin in."
+- `2 = Curated` — every `requiredTags[i]` must be `_isTagApproved`
+  (local list OR `DatumTagCurator`). Conservative posture.
+
+**Tightening is one-way and Pending-only.** Call:
+
+```solidity
+campaigns.setCampaignTagMode(campaignId, 1 or 2);
+```
+
+The setter re-validates every existing `requiredTags[i]` against the
+chosen lane and reverts on the first failure. After tightening, the
+campaign is pinned in that lane — you cannot swap between StakeGated
+and Curated; only Any → strict is permitted. (Wrong-lane decisions
+require a fresh campaign.)
+
+If `setCampaignTagMode` is never called, the campaign stays in `Any`
+mode through its lifetime.
 
 ### Multi-publisher campaign setup (optional)
 

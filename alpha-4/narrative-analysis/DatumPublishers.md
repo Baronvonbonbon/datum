@@ -10,6 +10,12 @@ contract carries:
 - Per-publisher profile metadata hash.
 - Per-publisher self-declared AssuranceLevel (informational; the protocol
   enforces level on the campaign, not the publisher).
+- Per-publisher self-declared `publisherTagMode` (0 = Any, 1 = StakeGated,
+  2 = Curated, default 0). Drives which lane `setPublisherTags` enforces
+  when the publisher updates their tag set. See `DatumTagRegistry.md`
+  and `DatumTagCurator.md` for the lanes; the dispatch logic lives in
+  `DatumCampaigns._requireTagAllowedForLane`. Free toggle, no governance
+  involvement.
 - Publisher tags (taxonomy, set via Campaigns).
 - Pluggable blocklist via the `IDatumBlocklistCurator` curator.
 - Optional stake gate (publisher must stake DATUM via DatumPublisherStake to

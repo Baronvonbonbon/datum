@@ -1,9 +1,26 @@
 # DatumTagCurator
 
+**One of three coexisting tag-policy lanes** (see `DatumTagRegistry.md` for
+the StakeGated lane, and the `Any` mode for permissionless). The
+TagCurator implements the **Curated** lane: council-approved tags, owner
+fallback list, council-driven via standard proposals.
+
 Sibling of `DatumCouncilBlocklistCurator`, but for taxonomy tags rather
 than addresses. Plugs into `DatumCampaigns.setTagCurator(this)`, then the
 Council drives `approveTag(bytes32)` / `removeTag(bytes32)` via standard
 council proposals.
+
+## Place in the three-lane model
+
+The curator is not the only path to a usable tag. Each publisher picks a
+`publisherTagMode` (0 = Any, 1 = StakeGated, 2 = Curated, default 0) and
+each campaign picks a `campaignTagMode` (same enum, default 0). The
+curator is consulted only when an actor is in mode 2.
+
+The Curated lane is the **conservative launch posture** and the default
+for migration paths from the alpha-3/early-alpha-4 model. Operators who
+want a council-blessed taxonomy continue to use it unchanged; operators
+who want to opt out can do so per-actor without governance involvement.
 
 ## What "tags" are
 
@@ -65,4 +82,16 @@ The protocol could in principle have no taxonomy at all and let
 campaigns/publishers settle their own terms via off-chain agreements.
 That was the alpha-2 design. Alpha-3 added tags because operators wanted
 on-chain targeting rules; alpha-4 added the curator because operators
-wanted the tag set itself to be governable.
+wanted the tag set itself to be governable. The 2026-05-14 three-lane
+model **kept the curator** but opened parallel non-curated paths
+(`Any`, `StakeGated`) so the curator is one option in a market rather
+than the only path to a usable tag.
+
+## Kill-switch
+
+`DatumCampaigns.setEnforceTagRegistry(false)` demotes the Curated lane to
+permissive (any tag accepted from Curated-mode actors). The kill switch
+is meant for migration / emergency revert, not for steady-state operation.
+
+After `lockLanes()` the kill switch can only be flipped on, never off —
+guaranteeing the Curated lane remains a meaningful gate forever.

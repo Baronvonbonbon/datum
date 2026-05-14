@@ -345,6 +345,26 @@ Six design choices distinguish DATUM from every system above:
    bond; AdEx's channels are bilateral (one advertiser ↔ one
    validator pair, not one campaign × N publishers).
 
+7. **Three-lane tag policy** (2026-05-14). Tag taxonomy is not a
+   single regime. Every publisher and every campaign picks one of
+   three lanes for tag validation:
+   - **Any** — permissionless `bytes32` namespace, no on-chain check.
+   - **StakeGated** — `DatumTagRegistry`: anyone can register a tag
+     by bonding WDATUM, symmetric challenge bonds, Schelling-point
+     commit-reveal jury (no council in the dispute hot path), idle
+     tags expire with 100% of the bond paid to the caller as a
+     garbage-collection bounty.
+   - **Curated** — `DatumTagCurator`: council-approved vocabulary.
+
+   The three lanes coexist permanently behind `lockLanes()`, which
+   freezes the *menu* but leaves *parameters* gov-tunable forever
+   (with hard floors so the StakeGated lane cannot be priced out by
+   future governance). No incumbent has anything analogous to a
+   user-selectable, on-chain, stake-arbitrated tag namespace; IAB
+   taxonomies and Google's content categories are unilaterally
+   defined by the platform. AdEx and Adshares have category schemas
+   but no on-chain dispute economics. BAT has no tag concept at all.
+
 ---
 
 ## Where DATUM trades off

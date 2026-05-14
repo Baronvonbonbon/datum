@@ -39,7 +39,8 @@ can be settled on-chain via stake slashing rather than off-chain trust.
 17. **[DatumGovernanceRouter](./DatumGovernanceRouter.md)** — stable-address proxy spanning Admin → Council → OpenGov phases.
 18. **[DatumCouncil](./DatumCouncil.md)** — N-of-M trusted-member council (Phase 1).
 19. **[DatumCouncilBlocklistCurator](./DatumCouncilBlocklistCurator.md)** — council-driven blocklist for Publishers.
-20. **[DatumTagCurator](./DatumTagCurator.md)** — council-driven tag-approval registry for Campaigns.
+20. **[DatumTagCurator](./DatumTagCurator.md)** — council-driven tag-approval registry for Campaigns (Curated lane of the three-lane tag-policy model).
+20a. **[DatumTagRegistry](./DatumTagRegistry.md)** — WDATUM-staked tag namespace with Schelling-jury arbitration and bounty-driven expiry (StakeGated lane of the three-lane tag-policy model).
 21. **[DatumTimelock](./DatumTimelock.md)** — 48-hour delay on owner-gated admin changes.
 22. **[DatumParameterGovernance](./DatumParameterGovernance.md)** — conviction voting on parameter changes.
 23. **[DatumPauseRegistry](./DatumPauseRegistry.md)** — global per-category emergency pause.

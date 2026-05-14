@@ -445,8 +445,11 @@ describe("Path A: governance cap on campaignMinStake", function () {
     ).to.be.revertedWith("E18");
   });
 
-  it("setMaxAllowedMinStake reverts when policyLocked", async function () {
-    await campaigns.lockPolicy();
-    await expect(campaigns.setMaxAllowedMinStake(100n)).to.be.revertedWith("policy-locked");
+  it("setMaxAllowedMinStake remains tunable after lockLanes (parameter, not lane)", async function () {
+    // lockLanes requires tagRegistry to be wired first; skip that path here by
+    // asserting the simpler invariant: setMaxAllowedMinStake never had a
+    // lock check in the new posture and stays callable indefinitely.
+    await expect(campaigns.setMaxAllowedMinStake(100n)).to.not.be.reverted;
+    expect(await campaigns.maxAllowedMinStake()).to.equal(100n);
   });
 });

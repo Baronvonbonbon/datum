@@ -48,6 +48,15 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
     // not an on-chain gate. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
     mapping(address => uint8) public publisherMaxAssurance;
 
+    /// @notice Lane selector for the publisher's tag policy. Determines which
+    ///         lane gates `setPublisherTags`:
+    ///           0 = Curated     — `_isTagApproved` must return true
+    ///           1 = StakeGated  — TagRegistry.isTagBonded must return true
+    ///           2 = Any         — no lane gate (free-form bytes32)
+    ///         Defaults to 0 (Curated) for safety. Per-publisher choice;
+    ///         no governance involvement.
+    mapping(address => uint8) public publisherTagMode;
+
     /// @notice Block at which the publisher last rotated their relay signer.
     ///         Used by the rotation cooldown so an attacker briefly holding the
     ///         old key cannot keep pace with quick rotations.
@@ -366,5 +375,13 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         require(level <= 2, "E11");
         publisherMaxAssurance[msg.sender] = level;
         emit PublisherMaxAssuranceSet(msg.sender, level);
+    }
+
+    /// @notice Set the publisher's tag-policy lane. See `publisherTagMode`.
+    function setPublisherTagMode(uint8 mode) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(mode <= 2, "E11");
+        publisherTagMode[msg.sender] = mode;
+        emit PublisherTagModeSet(msg.sender, mode);
     }
 }
