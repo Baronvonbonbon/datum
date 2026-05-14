@@ -239,6 +239,99 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     ).to.be.revertedWith("Not registered");
   });
 
+  // -------------------------------------------------------------------------
+  // AL2-batch: setAllowedAdvertisers — batch variant
+  // -------------------------------------------------------------------------
+
+  it("AL2-batch-a: batch sets multiple advertisers in one call", async function () {
+    const advA = scammer.address;       // borrow signers as advertiser addrs
+    const advB = lifecycleMock.address;
+    const advC = other.address;
+    await publishers.connect(publisher).setAllowedAdvertisers(
+      [advA, advB, advC], [true, true, true]
+    );
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advA)).to.be.true;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advB)).to.be.true;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advC)).to.be.true;
+  });
+
+  it("AL2-batch-b: batch supports mixed add+remove in one call", async function () {
+    // From AL2-batch-a these three are currently true; flip two off, keep one on
+    const advA = scammer.address;
+    const advB = lifecycleMock.address;
+    const advC = other.address;
+    await publishers.connect(publisher).setAllowedAdvertisers(
+      [advA, advB, advC], [false, true, false]
+    );
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advA)).to.be.false;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advB)).to.be.true;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, advC)).to.be.false;
+  });
+
+  it("AL2-batch-c: emits one AdvertiserAllowlistUpdated per entry", async function () {
+    const advA = scammer.address;
+    const advB = other.address;
+    const tx = await publishers.connect(publisher).setAllowedAdvertisers(
+      [advA, advB], [true, true]
+    );
+    const rcpt = await tx.wait();
+    const evts = rcpt!.logs.filter((l: any) => {
+      try { return publishers.interface.parseLog(l)?.name === "AdvertiserAllowlistUpdated"; }
+      catch { return false; }
+    });
+    expect(evts.length).to.equal(2);
+  });
+
+  it("AL2-batch-d: mismatched array lengths revert (E11)", async function () {
+    await expect(
+      publishers.connect(publisher).setAllowedAdvertisers(
+        [scammer.address, other.address], [true]
+      )
+    ).to.be.revertedWith("E11");
+  });
+
+  it("AL2-batch-e: empty batch reverts (E11)", async function () {
+    await expect(
+      publishers.connect(publisher).setAllowedAdvertisers([], [])
+    ).to.be.revertedWith("E11");
+  });
+
+  it("AL2-batch-f: oversized batch reverts (E11)", async function () {
+    const max = await publishers.MAX_ALLOWLIST_BATCH();
+    const addrs = Array.from({ length: Number(max) + 1 }, () => scammer.address);
+    const flags = Array.from({ length: Number(max) + 1 }, () => true);
+    await expect(
+      publishers.connect(publisher).setAllowedAdvertisers(addrs, flags)
+    ).to.be.revertedWith("E11");
+  });
+
+  it("AL2-batch-g: zero address in batch reverts (E00)", async function () {
+    await expect(
+      publishers.connect(publisher).setAllowedAdvertisers(
+        [scammer.address, ethers.ZeroAddress], [true, true]
+      )
+    ).to.be.revertedWith("E00");
+  });
+
+  it("AL2-batch-h: only registered publisher can call (Not registered)", async function () {
+    await expect(
+      publishers.connect(other).setAllowedAdvertisers([scammer.address], [true])
+    ).to.be.revertedWith("Not registered");
+  });
+
+  it("AL2-batch-i: cleanup — restore allowlist state for downstream tests", async function () {
+    // The AL* tests share state via the file-level `before()` hook. Reset the
+    // signers we touched above so AL3/AL4 see the original allowlist
+    // (only `advertiser` allowed).
+    await publishers.connect(publisher).setAllowedAdvertisers(
+      [scammer.address, lifecycleMock.address, other.address],
+      [false, false, false]
+    );
+    expect(await publishers.isAllowedAdvertiser(publisher.address, scammer.address)).to.be.false;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, lifecycleMock.address)).to.be.false;
+    expect(await publishers.isAllowedAdvertiser(publisher.address, other.address)).to.be.false;
+  });
+
   it("AL3: createCampaign respects allowlist — allowed advertiser succeeds", async function () {
     // Allowlist is enabled, advertiser is allowed (from AL2b)
     const tx = await campaigns.connect(advertiser).createCampaign(

@@ -318,6 +318,32 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumOwnable {
         emit AdvertiserAllowlistUpdated(msg.sender, advertiser, allowed);
     }
 
+    /// @notice Max entries accepted by setAllowedAdvertisers in a single
+    ///         call. Bounded to keep gas predictable inside one block on
+    ///         Paseo's tx weight cap. If a publisher needs to update more
+    ///         than this in one cycle they split into multiple calls.
+    uint256 public constant MAX_ALLOWLIST_BATCH = 256;
+
+    /// @notice Batch add/remove advertisers from the publisher's allowlist
+    ///         in a single transaction. Per-entry behaviour is identical to
+    ///         setAllowedAdvertiser. Emits AdvertiserAllowlistUpdated for
+    ///         each entry so indexers see the same event stream as N
+    ///         single-call transactions.
+    function setAllowedAdvertisers(
+        address[] calldata advertisers,
+        bool[] calldata allowed
+    ) external whenNotPaused {
+        require(_publishers[msg.sender].registered, "Not registered");
+        require(advertisers.length == allowed.length, "E11");
+        require(advertisers.length > 0 && advertisers.length <= MAX_ALLOWLIST_BATCH, "E11");
+        for (uint256 i = 0; i < advertisers.length; i++) {
+            address adv = advertisers[i];
+            require(adv != address(0), "E00");
+            _allowedAdvertisers[msg.sender][adv] = allowed[i];
+            emit AdvertiserAllowlistUpdated(msg.sender, adv, allowed[i]);
+        }
+    }
+
     function isAllowedAdvertiser(address publisher, address advertiser) external view returns (bool) {
         return _allowedAdvertisers[publisher][advertiser];
     }

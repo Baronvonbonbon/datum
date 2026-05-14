@@ -39,6 +39,12 @@ interface IDatumPublishers {
     function allowlistEnabled(address publisher) external view returns (bool);
     function isAllowedAdvertiser(address publisher, address advertiser) external view returns (bool);
 
+    /// @notice Batch variant of setAllowedAdvertiser. Caps the array length
+    ///         at MAX_ALLOWLIST_BATCH to keep one tx finishable inside the
+    ///         block gas budget. Per-entry behaviour is identical to the
+    ///         single-call form: emits AdvertiserAllowlistUpdated for each.
+    function setAllowedAdvertisers(address[] calldata advertisers, bool[] calldata allowed) external;
+
     // Publisher profile (hot key + metadata hash)
     function relaySigner(address publisher) external view returns (address);
     function profileHash(address publisher) external view returns (bytes32);
