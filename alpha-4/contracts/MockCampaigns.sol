@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumBudgetLedger.sol";
+import "./interfaces/IDatumActivationBonds.sol";
 
 /// @title MockCampaigns
 /// @notice Test-only mock for DatumCampaigns. Supports direct status/data manipulation
@@ -38,6 +39,7 @@ contract MockCampaigns {
     address public settlementContract;
     address public governanceContract;
     address public lifecycleContract;
+    address public activationBonds;
     IDatumBudgetLedger public budgetLedger;
 
     uint256 public nextCampaignId = 1;
@@ -167,10 +169,21 @@ contract MockCampaigns {
 
     function activateCampaign(uint256 campaignId) external {
         require(
-            msg.sender == governanceContract,
+            msg.sender == governanceContract ||
+            (activationBonds != address(0) && msg.sender == activationBonds),
             "E19"
         );
         campaigns[campaignId].status = CampaignStatus.Active;
+    }
+
+    function setActivationBonds(address addr) external {
+        activationBonds = addr;
+    }
+
+    /// @notice Test helper: forwards an openBond call as the campaigns contract.
+    function callOpenBond(uint256 campaignId, address creator) external payable {
+        require(activationBonds != address(0), "E00");
+        IDatumActivationBonds(activationBonds).openBond{value: msg.value}(campaignId, creator);
     }
 
     function getCampaignStatus(uint256 campaignId) external view returns (CampaignStatus) {

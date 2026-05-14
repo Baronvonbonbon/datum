@@ -8,7 +8,9 @@ import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
+import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumTagCurator.sol";
+import "./interfaces/IDatumTagRegistry.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 
 /// @dev B9-fix: minimal Settlement read interface for the report eligibility
@@ -101,6 +103,11 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // FP-2: optional challenge bonds contract (address(0) = disabled)
     IDatumChallengeBonds public challengeBonds;
 
+    // Optimistic activation: when wired, createCampaign locks an activation
+    // bond and the campaign can be activated permissionlessly after timelock
+    // unless challenged. address(0) = disabled (legacy governance-vote path).
+    address public activationBonds;
+
     // ---- Targeting registry state (merged from DatumTargetingRegistry) ----
     mapping(address => bytes32[]) private _publisherTags;
     mapping(address => mapping(bytes32 => bool)) private _publisherTagSet;
@@ -127,14 +134,38 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     event TagCuratorSet(address indexed curator);
     event TagCuratorLocked();
 
-    /// @notice L4-fix: one-way policy lock. Once set, the owner-mutable policy
-    ///         levers (setMaxCampaignBudget, setDefaultTakeRateBps,
-    ///         setEnforceTagRegistry, setBulletinRenewerReward) and direct
-    ///         tag-list mutations (approveTag, removeApprovedTag, approveTags)
-    ///         all revert. Intended for Phase-2 (OpenGov) cutover — at that
-    ///         point tag policy goes exclusively through the tagCurator.
-    bool public policyLocked;
-    event PolicyLocked();
+    /// @notice One-way lane lock. Once set:
+    ///         - `setEnforceTagRegistry(false)` is permanently disabled (the
+    ///           Curated lane stays selectable forever).
+    ///         - Direct local approvedTags mutations (approveTag,
+    ///           removeApprovedTag, approveTags) revert — tag curation routes
+    ///           exclusively through `tagCurator` thereafter.
+    ///         - The `tagRegistry` pointer cannot be unset (the StakeGated
+    ///           lane stays selectable forever).
+    ///
+    ///         Crucially, this lock does NOT freeze protocol *parameters* —
+    ///         `setMaxCampaignBudget`, `setDefaultTakeRateBps`,
+    ///         `setBulletinRenewerReward`, `setMaxAllowedMinStake` remain
+    ///         gov-tunable indefinitely. Lock the lane menu; free the params.
+    bool public lanesLocked;
+    event LanesLocked();
+
+    /// @notice Stake-gated tag namespace. When wired, publishers/campaigns in
+    ///         StakeGated mode require the tag to be bonded in this registry.
+    ///         Lock-once via `lockLanes()` so a hostile owner can't swap to a
+    ///         permissive registry post-launch.
+    IDatumTagRegistry public tagRegistry;
+    event TagRegistrySet(address indexed registry);
+
+    /// @notice Per-campaign tag-policy lane selected by the advertiser.
+    ///         0 = Any (default; requiredTags accepted as-is, matching relies
+    ///             on publisher's own tag set)
+    ///         1 = StakeGated (every requiredTag must be Bonded in tagRegistry)
+    ///         2 = Curated    (every requiredTag must be `_isTagApproved`)
+    ///         Set via `setCampaignTagMode` before activation; tightening only
+    ///         (Any → StakeGated/Curated, never back).
+    mapping(uint256 => uint8) public campaignTagMode;
+    event CampaignTagModeSet(uint256 indexed campaignId, uint8 mode);
 
     /// @notice M6-fix: per-advertiser hot-key delegation. Mirrors the publisher
     ///         relay-signer pattern (DatumPublishers.relaySigner). When set,
@@ -201,7 +232,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     event CampaignMinStakeSet(uint256 indexed campaignId, uint256 minStake);
 
     /// @notice Governance-set upper bound on `campaignMinStake`. 0 = no cap
-    ///         (any value allowed). Owner-tunable; subject to `policyLocked`.
+    ///         (any value allowed). Owner-tunable; subject to `lanesLocked`.
     uint256 public maxAllowedMinStake;
     event MaxAllowedMinStakeSet(uint256 amount);
 
@@ -452,20 +483,32 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         challengeBonds = IDatumChallengeBonds(addr);
     }
 
+    /// @notice Set activation-bonds contract (optimistic activation gateway).
+    /// @dev    Cypherpunk lock-once. ActivationBonds holds creator + challenger
+    ///         bond DOT and is granted authority to call activateCampaign on the
+    ///         optimistic path. Hot-swap would let a hostile contract drain
+    ///         pending bonds or auto-activate campaigns. address(0) leaves
+    ///         optimistic activation disabled and falls back to the legacy
+    ///         governance-vote path.
+    function setActivationBonds(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(activationBonds == address(0), "already set");
+        emit ContractReferenceChanged("activationBonds", activationBonds, addr);
+        activationBonds = addr;
+    }
+
     /// @notice Set the maximum campaign budget. 0 disables the cap.
     /// @notice Update the take rate applied to open campaigns (publisher = address(0)).
     /// @dev Bounded to the same 30%–80% range as individual publisher take rates so
     ///      governance can't push the default outside the protocol's stated economics.
     event DefaultTakeRateUpdated(uint16 oldBps, uint16 newBps);
     function setDefaultTakeRateBps(uint16 bps) external onlyOwner {
-        require(!policyLocked, "policy-locked");
         require(bps >= MIN_DEFAULT_TAKE_RATE_BPS && bps <= MAX_DEFAULT_TAKE_RATE_BPS, "E11");
         emit DefaultTakeRateUpdated(defaultTakeRateBps, bps);
         defaultTakeRateBps = bps;
     }
 
     function setMaxCampaignBudget(uint256 amount) external onlyOwner {
-        require(!policyLocked, "policy-locked");
         maxCampaignBudget = amount;
         emit MaxCampaignBudgetSet(amount);
     }
@@ -473,31 +516,75 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Path A: governance cap on the advertiser-settable `campaignMinStake`.
     ///         0 = no cap. Does NOT retroactively invalidate campaigns whose
     ///         minStake was set above the new cap before this change; only future
-    ///         `setCampaignMinStake` calls are bounded. Subject to `policyLocked`.
+    ///         `setCampaignMinStake` calls are bounded. Parameter — gov-tunable
+    ///         indefinitely; not subject to `lockLanes`.
     function setMaxAllowedMinStake(uint256 amount) external onlyOwner {
-        require(!policyLocked, "policy-locked");
         maxAllowedMinStake = amount;
         emit MaxAllowedMinStakeSet(amount);
     }
 
-    /// @notice Enable or disable tag registry enforcement.
+    /// @notice Enable or disable the Curated lane's enforcement layer. False =
+    ///         curated lane lets through any tag (effectively a kill-switch
+    ///         that demotes Curated-mode publishers to Any-mode for tag
+    ///         registration). After `lockLanes()`, this can only be flipped
+    ///         from false→true — the kill switch cannot be re-armed against
+    ///         the lane.
     function setEnforceTagRegistry(bool enforced) external onlyOwner {
-        require(!policyLocked, "policy-locked");
+        if (lanesLocked) require(enforced, "lanes-locked");
         enforceTagRegistry = enforced;
         emit TagRegistryEnforced(enforced);
     }
 
-    /// @notice L4-fix: permanently lock owner-mutable policy levers. Tag
-    ///         mutations route exclusively through `tagCurator` after this.
-    function lockPolicy() external onlyOwner {
-        require(!policyLocked, "already locked");
-        policyLocked = true;
-        emit PolicyLocked();
+    /// @notice Advertiser tightens the lane for their campaign before
+    ///         activation. Tightening only: Any (0) → StakeGated (1) or
+    ///         Curated (2); StakeGated and Curated are sibling-strict and
+    ///         cannot be swapped to each other (that would require a fresh
+    ///         campaign). All existing `requiredTags` are re-validated against
+    ///         the new lane and must satisfy it.
+    function setCampaignTagMode(uint256 campaignId, uint8 mode) external {
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        require(c.status == CampaignStatus.Pending, "E64"); // pre-activation only
+        require(mode <= 2, "E11");
+
+        uint8 current = campaignTagMode[campaignId];
+        // Allow Any → anything; otherwise mode must equal current (idempotent).
+        require(current == 0 || current == mode, "E84"); // can only tighten from Any
+
+        // Re-validate every requiredTag under the new lane.
+        bytes32[] storage reqTags = _campaignTags[campaignId];
+        bool enforce = enforceTagRegistry;
+        for (uint256 i = 0; i < reqTags.length; i++) {
+            _requireTagAllowedForLane(reqTags[i], mode, enforce);
+        }
+
+        campaignTagMode[campaignId] = mode;
+        emit CampaignTagModeSet(campaignId, mode);
+    }
+
+    /// @notice Permanently freeze the three-lane menu (Any / StakeGated /
+    ///         Curated). After this, no future governance can collapse the
+    ///         menu down to a single lane. Parameters within each lane
+    ///         remain gov-tunable indefinitely. See `lanesLocked` natspec.
+    function lockLanes() external onlyOwner {
+        require(!lanesLocked, "already locked");
+        require(address(tagRegistry) != address(0), "registry-unset");
+        lanesLocked = true;
+        emit LanesLocked();
+    }
+
+    /// @notice Wire the stake-gated tag registry. Must be set before
+    ///         `lockLanes()` — the lock pins this pointer permanently.
+    function setTagRegistry(address registry) external onlyOwner {
+        require(!lanesLocked, "lanes-locked");
+        tagRegistry = IDatumTagRegistry(registry);
+        emit TagRegistrySet(registry);
     }
 
     /// @notice Add a tag to the approved registry.
     function approveTag(bytes32 tag) external onlyOwner {
-        require(!policyLocked, "policy-locked");
+        require(!lanesLocked, "lanes-locked");
         require(tag != bytes32(0), "E00");
         require(!approvedTags[tag], "E15");
         approvedTags[tag] = true;
@@ -508,7 +595,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @notice Remove a tag from the approved registry (swap-and-pop).
     function removeApprovedTag(bytes32 tag) external onlyOwner {
-        require(!policyLocked, "policy-locked");
+        require(!lanesLocked, "lanes-locked");
         require(approvedTags[tag], "E01");
         approvedTags[tag] = false;
         uint256 idx = _approvedTagIndex[tag] - 1;
@@ -525,7 +612,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @notice Batch approve tags.
     function approveTags(bytes32[] calldata tags) external onlyOwner {
-        require(!policyLocked, "policy-locked");
+        require(!lanesLocked, "lanes-locked");
         for (uint256 i = 0; i < tags.length; i++) {
             require(tags[i] != bytes32(0), "E00");
             if (!approvedTags[tags[i]]) {
@@ -620,17 +707,46 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         }
 
         delete _publisherTags[msg.sender];
+        uint8 mode = publishers.publisherTagMode(msg.sender);
         bool enforce = enforceTagRegistry;
         for (uint256 i = 0; i < tagHashes.length; i++) {
             require(tagHashes[i] != bytes32(0), "E00");
-            if (enforce) require(_isTagApproved(tagHashes[i]), "E81");
+            _requireTagAllowedForLane(tagHashes[i], mode, enforce);
             _publisherTags[msg.sender].push(tagHashes[i]);
             _publisherTagSet[msg.sender][tagHashes[i]] = true;
             // Re-adding a previously-pending tag aborts its removal.
             tagRemovalEffectiveBlock[msg.sender][tagHashes[i]] = 0;
+
+            // Best-effort: refresh usage in the stake-gated registry so the
+            // tag's expiry timer is bumped while it's actively in use.
+            if (mode == 1 && address(tagRegistry) != address(0)) {
+                // recordUsage is gated to campaignsContract; if wiring is
+                // incomplete this reverts. Try/catch so a publisher's tag
+                // update doesn't fail on a misconfigured ref.
+                try tagRegistry.recordUsage(tagHashes[i]) {} catch {}
+            }
         }
 
         emit TagsUpdated(msg.sender, tagHashes);
+    }
+
+    /// @notice Lane-aware tag validation. Reverts if the tag is not acceptable
+    ///         under the chosen lane.
+    ///         mode 0 (Any)         — no check beyond non-zero.
+    ///         mode 1 (StakeGated)  — tag must be Bonded in `tagRegistry`.
+    ///         mode 2 (Curated)     — tag must satisfy `_isTagApproved` when
+    ///                                 `enforceTagRegistry` is true. When the
+    ///                                 kill-switch is off, the lane is demoted
+    ///                                 to permissive for tag acceptance.
+    function _requireTagAllowedForLane(bytes32 tag, uint8 mode, bool enforce) internal view {
+        if (mode == 0) return;
+        if (mode == 1) {
+            require(address(tagRegistry) != address(0), "registry-unset");
+            require(tagRegistry.isTagBonded(tag), "E82"); // not bonded
+            return;
+        }
+        require(mode == 2, "E83"); // unknown mode
+        if (enforce) require(_isTagApproved(tag), "E81");
     }
 
     /// @notice Returns all tags for a publisher.
@@ -712,6 +828,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
+    /// @notice Backwards-compat overload — equivalent to the 8-arg form with
+    ///         activationBondAmount = 0 (legacy always-vote activation path).
     function createCampaign(
         address publisher,
         ActionPotConfig[] calldata pots,
@@ -720,7 +838,33 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         address rewardToken,
         uint256 rewardPerImpression,
         uint256 bondAmount
-    ) external payable nonReentrant returns (uint256 campaignId) {
+    ) external payable returns (uint256 campaignId) {
+        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0);
+    }
+
+    function createCampaignWithActivation(
+        address publisher,
+        ActionPotConfig[] calldata pots,
+        bytes32[] calldata requiredTags,
+        bool requireZkProof,
+        address rewardToken,
+        uint256 rewardPerImpression,
+        uint256 bondAmount,
+        uint256 activationBondAmount
+    ) external payable returns (uint256 campaignId) {
+        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount);
+    }
+
+    function _createCampaign(
+        address publisher,
+        ActionPotConfig[] calldata pots,
+        bytes32[] calldata requiredTags,
+        bool requireZkProof,
+        address rewardToken,
+        uint256 rewardPerImpression,
+        uint256 bondAmount,
+        uint256 activationBondAmount
+    ) internal nonReentrant returns (uint256 campaignId) {
         require(!pauseRegistry.pausedCampaignCreation(), "P");
 
         // CB4: optional advertiser-stake gate. When the stake contract is
@@ -737,8 +881,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
             require(ok, "stake-inadequate");
         }
 
-        require(msg.value > bondAmount, "E11");
-        uint256 budgetValue = msg.value - bondAmount;
+        require(msg.value > bondAmount + activationBondAmount, "E11");
+        uint256 budgetValue = msg.value - bondAmount - activationBondAmount;
         require(budgetValue >= MINIMUM_BUDGET_PLANCK, "E11");
         require(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget, "E80");
         require(requiredTags.length <= MAX_CAMPAIGN_TAGS, "E66");
@@ -747,6 +891,9 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         // below is skipped and the bondAmount portion would sit in this
         // contract permanently (no withdrawal path). Fail loudly instead.
         require(bondAmount == 0 || address(challengeBonds) != address(0), "E00");
+        // Same protection for activation bond: forbid stranded value if the
+        // ActivationBonds gateway isn't wired.
+        require(activationBondAmount == 0 || activationBonds != address(0), "E00");
 
         // Validate pots
         require(pots.length >= 1 && pots.length <= 3, "E93");
@@ -867,6 +1014,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         // FP-2: Lock optional bond in ChallengeBonds
         if (bondAmount > 0 && address(challengeBonds) != address(0)) {
             challengeBonds.lockBond{value: bondAmount}(campaignId, msg.sender, publisher);
+        }
+
+        // Optimistic activation: open the activation bond if the gateway is
+        // wired and the advertiser supplied bond value. Without this, the
+        // campaign sits Pending until governance activates it through the
+        // legacy vote path.
+        if (activationBondAmount > 0 && activationBonds != address(0)) {
+            IDatumActivationBonds(activationBonds).openBond{value: activationBondAmount}(
+                campaignId, msg.sender
+            );
         }
 
         // A3: AssuranceLevel defaults to Permissive (0) for both open and
@@ -1302,7 +1459,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Update the DOT reward paid per confirmed renewal. Owner-only,
     ///         bounded at MAX_BULLETIN_RENEWER_REWARD to prevent ratcheting.
     function setBulletinRenewerReward(uint256 newReward) external onlyOwner {
-        require(!policyLocked, "policy-locked");
         require(newReward <= MAX_BULLETIN_RENEWER_REWARD, "above cap");
         uint256 old = bulletinRenewerReward;
         bulletinRenewerReward = newReward;
@@ -1334,7 +1490,14 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     function activateCampaign(uint256 campaignId) external {
         // Governance-driven action — gated on governance pause, not settlement.
         require(!pauseRegistry.pausedGovernance(), "P");
-        require(msg.sender == governanceContract, "E19");
+        // Two authorities: governance (legacy vote path or contested-vote
+        // resolution) and ActivationBonds (optimistic permissionless path
+        // after timelock with no challenge).
+        require(
+            msg.sender == governanceContract ||
+            (activationBonds != address(0) && msg.sender == activationBonds),
+            "E19"
+        );
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(c.status == CampaignStatus.Pending, "E20");

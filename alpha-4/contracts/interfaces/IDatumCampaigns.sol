@@ -105,6 +105,23 @@ interface IDatumCampaigns {
         uint256 bondAmount
     ) external payable returns (uint256 campaignId);
 
+    /// @notice Like createCampaign but also opens an activation bond on the
+    ///         optimistic activation path. Locked in ActivationBonds at
+    ///         creation; refunded after permissionless activate() if
+    ///         uncontested, or slashed/refunded per governance resolution if
+    ///         a challenger posted a counter-bond. activationBondAmount > 0
+    ///         required (use createCampaign for the legacy vote path).
+    function createCampaignWithActivation(
+        address publisher,
+        ActionPotConfig[] calldata pots,
+        bytes32[] calldata requiredTags,
+        bool requireZkProof,
+        address rewardToken,
+        uint256 rewardPerImpression,
+        uint256 bondAmount,
+        uint256 activationBondAmount
+    ) external payable returns (uint256 campaignId);
+
     function setMetadata(uint256 campaignId, bytes32 metadataHash) external;
 
     function activateCampaign(uint256 campaignId) external;

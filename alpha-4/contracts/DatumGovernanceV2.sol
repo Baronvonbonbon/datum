@@ -8,6 +8,7 @@ import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
+import "./interfaces/IDatumActivationBondsMinimal.sol";
 
 /// @title DatumGovernanceV2
 /// @notice Dynamic conviction-based governance: vote/withdraw/re-vote, campaign evaluation,
@@ -88,6 +89,11 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     address public campaigns;
     IDatumCampaignLifecycle public lifecycle;
     IDatumPauseRegistry public immutable pauseRegistry;
+    /// @notice Optimistic-activation gateway. When wired, votes on Pending
+    ///         campaigns require a contestation (challenger bond posted). If
+    ///         unset (address(0)), legacy always-on Pending voting applies —
+    ///         keeps old deployments and tests working.
+    IDatumActivationBondsMinimal public activationBonds;
 
     uint256 public quorumWeighted;
     uint256 public slashBps;
@@ -105,6 +111,13 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         uint256 lockAmount;
         uint8 conviction;         // 0-8
         uint256 lockedUntilBlock;
+        // Commit-reveal extension: when the contested-Pending flow is used,
+        // commitHash is non-zero between commit and reveal. revealVote()
+        // verifies the hash, populates direction/conviction, and zeroes
+        // commitHash to signal a completed reveal. Non-revealers leave
+        // commitHash non-zero and direction == 0 — sweepUnrevealed() then
+        // forfeits their lockAmount to the slash pool.
+        bytes32 commitHash;
     }
 
     mapping(uint256 => uint256) public ayeWeighted;
@@ -113,6 +126,32 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     mapping(uint256 => uint256) public slashCollected;
     mapping(uint256 => mapping(address => Vote)) private _votes;
     mapping(uint256 => uint256) public firstNayBlock;
+
+    // ---- Commit-reveal window state ------------------------------------------
+    // Applied only to contested-Pending votes (status==0 with ActivationBonds
+    // wired + isContested=true). Active demote votes keep the existing
+    // open-tally vote() flow so a malicious campaign can be stopped quickly.
+    struct CommitRevealWindow {
+        uint64 commitDeadline;
+        uint64 revealDeadline;
+        bool   opened;
+    }
+    mapping(uint256 => CommitRevealWindow) public commitRevealWindow;
+
+    /// @notice Blocks allotted to the commit phase. Governable, default 14400
+    ///         (~1 day at 6s/block).
+    uint64 public commitBlocks;
+    /// @notice Blocks allotted to the reveal phase. Governable, default 14400.
+    uint64 public revealBlocks;
+
+    /// @notice Upper bound on either phase length — caps total grief window.
+    uint64 public constant MAX_PHASE_BLOCKS = 1_209_600; // ~84 days
+
+    event CommitRevealWindowOpened(uint256 indexed campaignId, uint64 commitDeadline, uint64 revealDeadline);
+    event VoteCommitted(uint256 indexed campaignId, address indexed voter, bytes32 commitHash, uint256 amount);
+    event VoteRevealed(uint256 indexed campaignId, address indexed voter, bool aye, uint8 conviction);
+    event UnrevealedSwept(uint256 indexed campaignId, address indexed voter, uint256 amount);
+    event CommitRevealPhasesSet(uint64 commitBlocks, uint64 revealBlocks);
     // AUDIT-011: track last block where a vote changed the decisive side, for symmetric grace period
     mapping(uint256 => uint256) public lastSignificantVoteBlock;
 
@@ -177,6 +216,10 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         //   c=0 → 1x, c=4 → 7x, c=8 → 21x (matches old step-function endpoint).
         convictionA = 25;
         convictionB = 50;
+
+        // Default commit-reveal: 1 day commit + 1 day reveal (6s blocks).
+        commitBlocks = 14400;
+        revealBlocks = 14400;
         // Default lockup schedule (same as legacy step function, ≤ MAX_LOCKUP_BLOCKS).
         convictionLockup[0] = 0;
         convictionLockup[1] = 14400;
@@ -215,6 +258,18 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         require(campaigns == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaigns, _campaigns);
         campaigns = _campaigns;
+    }
+
+    /// @dev Cypherpunk lock-once. Once wired, voting on Pending campaigns is
+    ///      restricted to contested cases — uncontested campaigns activate
+    ///      via the ActivationBonds optimistic path instead. Hot-swap to a
+    ///      contract that always reports `isContested=true` would re-open
+    ///      the legacy bandwagon-prone vote path.
+    function setActivationBonds(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(activationBonds) == address(0), "already set");
+        emit ContractReferenceChanged("activationBonds", address(activationBonds), addr);
+        activationBonds = IDatumActivationBondsMinimal(addr);
     }
 
     // -------------------------------------------------------------------------
@@ -268,6 +323,17 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     /// @notice Update the per-conviction-level lockup schedule. Pass all 9
     ///         values at once. Each capped at MAX_LOCKUP_BLOCKS to prevent
     ///         griefing voters with absurdly long locks.
+    /// @notice Adjust the commit and reveal phase lengths. Each bounded to
+    ///         MAX_PHASE_BLOCKS so governance can't grief voters with absurd
+    ///         windows (mirrors the conviction-lockup bound).
+    function setCommitRevealPhases(uint64 _commit, uint64 _reveal) external onlyOwner {
+        require(_commit > 0 && _commit <= MAX_PHASE_BLOCKS, "E11");
+        require(_reveal > 0 && _reveal <= MAX_PHASE_BLOCKS, "E11");
+        commitBlocks = _commit;
+        revealBlocks = _reveal;
+        emit CommitRevealPhasesSet(_commit, _reveal);
+    }
+
     function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
         for (uint256 i = 0; i < 9; i++) {
             require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
@@ -294,6 +360,15 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
 
         (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
         require(status == 0 || status == 1, "E43");
+
+        // Optimistic-activation gate: when the ActivationBonds gateway is
+        // wired, the contested-Pending vote path MUST go through commit-reveal
+        // (commitVote/revealVote). The legacy open-tally vote() is reserved
+        // for the Active demote path, where speed beats signal quality and a
+        // separate emergency-mute mechanism handles the bandwagon concern.
+        if (status == 0 && address(activationBonds) != address(0)) {
+            revert("E51"); // use commitVote/revealVote
+        }
 
         // M-2: snapshot the conviction curve on the first vote for this
         //      campaign. Subsequent votes on the same proposal reuse the
@@ -324,6 +399,141 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         lastSignificantVoteBlock[campaignId] = block.number;
 
         emit VoteCast(campaignId, msg.sender, aye, msg.value, conviction);
+    }
+
+    // -------------------------------------------------------------------------
+    // Commit-reveal (contested-Pending votes only)
+    // -------------------------------------------------------------------------
+    //
+    //   Two-phase voting on contested campaign activation defeats bandwagoning
+    //   and tally-anchoring: voters submit a hash of their (direction, conviction,
+    //   salt, voter, campaignId) tuple during the commit window with their
+    //   locked stake, then reveal cleartext in a later window. The running
+    //   tally is invisible until reveal begins.
+    //
+    //   Non-revealers full-forfeit their stake to the slash pool via
+    //   sweepUnrevealed(). This is the deliberate cost of commit-reveal:
+    //   salt loss = stake loss. Voters who fear loss should reveal early.
+    //
+    //   The window opens lazily on the first commit. Reveal begins when
+    //   commitDeadline is passed and ends at revealDeadline.
+
+    function _hashCommit(
+        uint256 campaignId,
+        address voter,
+        bool aye,
+        uint8 conviction,
+        bytes32 salt
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(campaignId, voter, aye, conviction, salt));
+    }
+
+    function _openCommitRevealWindow(uint256 campaignId) internal {
+        CommitRevealWindow storage w = commitRevealWindow[campaignId];
+        if (w.opened) return;
+        w.opened = true;
+        w.commitDeadline = uint64(block.number) + commitBlocks;
+        w.revealDeadline = w.commitDeadline + revealBlocks;
+        emit CommitRevealWindowOpened(campaignId, w.commitDeadline, w.revealDeadline);
+    }
+
+    function commitVote(uint256 campaignId, bytes32 hash) external payable nonReentrant {
+        require(!pauseRegistry.pausedGovernance(), "P");
+        require(hash != bytes32(0), "E40");
+        require(msg.value > 0, "E41");
+
+        (uint8 status,,) = IDatumCampaignsMinimal(campaigns).getCampaignForSettlement(campaignId);
+        require(status == 0, "E43"); // commit-reveal only for Pending
+        // ActivationBonds must be wired and the campaign must be contested.
+        // Without contestation, the campaign auto-activates via the bond path
+        // and never reaches governance.
+        require(address(activationBonds) != address(0), "E51");
+        require(activationBonds.isContested(campaignId), "E95");
+
+        // Snapshot conviction curve on the first commit per campaign — keeps
+        // mid-vote retunes from reweighting in-flight proposals (mirrors M-2
+        // logic in vote()).
+        if (proposalConvictionA[campaignId] == 0 && proposalConvictionB[campaignId] == 0) {
+            proposalConvictionA[campaignId] = convictionA;
+            proposalConvictionB[campaignId] = convictionB;
+        }
+
+        Vote storage v = _votes[campaignId][msg.sender];
+        require(v.direction == 0 && v.commitHash == bytes32(0), "E42"); // already committed/voted
+
+        _openCommitRevealWindow(campaignId);
+        CommitRevealWindow storage w = commitRevealWindow[campaignId];
+        require(block.number <= w.commitDeadline, "E51"); // commit window closed
+
+        v.commitHash = hash;
+        v.lockAmount = msg.value;
+
+        emit VoteCommitted(campaignId, msg.sender, hash, msg.value);
+    }
+
+    function revealVote(
+        uint256 campaignId,
+        bool aye,
+        uint8 conviction,
+        bytes32 salt
+    ) external nonReentrant {
+        require(!pauseRegistry.pausedGovernance(), "P");
+        require(conviction <= MAX_CONVICTION, "E40");
+
+        CommitRevealWindow storage w = commitRevealWindow[campaignId];
+        require(w.opened, "E52"); // window never opened
+        require(block.number > w.commitDeadline, "E51"); // still in commit phase
+        require(block.number <= w.revealDeadline, "E51"); // reveal window closed
+
+        Vote storage v = _votes[campaignId][msg.sender];
+        require(v.commitHash != bytes32(0), "E44"); // never committed
+        require(v.direction == 0, "E42"); // already revealed
+
+        bytes32 expected = _hashCommit(campaignId, msg.sender, aye, conviction, salt);
+        require(expected == v.commitHash, "E53"); // hash mismatch
+
+        uint256 weight = v.lockAmount * _weight(campaignId, conviction);
+        uint256 lockup = _lockup(conviction);
+
+        v.direction = aye ? 1 : 2;
+        v.conviction = conviction;
+        v.lockedUntilBlock = block.number + lockup;
+        v.commitHash = bytes32(0); // mark revealed
+
+        if (aye) {
+            ayeWeighted[campaignId] += weight;
+        } else {
+            nayWeighted[campaignId] += weight;
+            if (firstNayBlock[campaignId] == 0) {
+                firstNayBlock[campaignId] = block.number;
+            }
+        }
+        lastSignificantVoteBlock[campaignId] = block.number;
+
+        emit VoteRevealed(campaignId, msg.sender, aye, conviction);
+    }
+
+    /// @notice Forfeit an unrevealed commit's stake to the slash pool.
+    ///         Permissionless after revealDeadline. The full lockAmount moves
+    ///         to slashCollected[campaignId] for distribution to revealers on
+    ///         the winning side.
+    function sweepUnrevealed(uint256 campaignId, address voter) external nonReentrant {
+        CommitRevealWindow storage w = commitRevealWindow[campaignId];
+        require(w.opened, "E52");
+        require(block.number > w.revealDeadline, "E51"); // reveal still open
+
+        Vote storage v = _votes[campaignId][voter];
+        require(v.commitHash != bytes32(0), "E44"); // already revealed or no commit
+        require(v.direction == 0, "E42"); // safety: revealed votes are zeroed
+
+        uint256 forfeit = v.lockAmount;
+        require(forfeit > 0, "E03");
+
+        v.commitHash = bytes32(0);
+        v.lockAmount = 0;
+        slashCollected[campaignId] += forfeit;
+
+        emit UnrevealedSwept(campaignId, voter, forfeit);
     }
 
     // -------------------------------------------------------------------------
@@ -375,6 +585,13 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
 
         if (status == 0) {
             // Pending: two paths — activation (aye wins) or termination (nay wins after grace)
+            // Commit-reveal gate: if a window was opened, no evaluation until
+            // reveal phase has closed. Prevents an early evaluator from
+            // resolving the vote before all committers have revealed.
+            CommitRevealWindow storage w = commitRevealWindow[campaignId];
+            if (w.opened) {
+                require(block.number > w.revealDeadline, "E51");
+            }
             require(total >= quorumWeighted, "E46");
             bool ayeWins = ayeWeighted[campaignId] * 10000 > total * 5000;
             bool nayWins = nayWeighted[campaignId] * 10000 >= total * 5000

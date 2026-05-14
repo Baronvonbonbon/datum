@@ -536,4 +536,32 @@ describe("DatumGovernanceV2", function () {
       owner.sendTransaction({ to: await v2.getAddress(), value: 1n })
     ).not.to.be.reverted;
   });
+
+  // ---------------------------------------------------------------------------
+  // OAB-G: optimistic-activation gate. When ActivationBonds is wired, voting
+  // on a Pending campaign requires a posted challenge (isContested=true).
+  // Uncontested campaigns flow through the bond+timelock path off-chain of
+  // this contract.
+  // ---------------------------------------------------------------------------
+  describe("OAB-G: optimistic-activation contestation gate", function () {
+    it("Pending vote rejected with E51 when ActivationBonds wired (must use commit-reveal)", async function () {
+      const BondsFactory = await ethers.getContractFactory("DatumActivationBonds");
+      const ab = await BondsFactory.deploy(parseDOT("0.1"), 100n, 5000, 0, owner.address);
+      await ab.setCampaignsContract(await mock.getAddress());
+      await v2.setActivationBonds(await ab.getAddress());
+
+      const cid = await setupCampaign(0); // Pending
+      // With ActivationBonds wired, legacy vote() is reserved for Active
+      // demote; Pending votes must use commitVote/revealVote.
+      await expect(
+        v2.connect(voter1).vote(cid, true, 0, { value: parseDOT("1") })
+      ).to.be.revertedWith("E51");
+
+      // Active path unaffected by gate
+      const cidActive = await setupCampaign(1);
+      await expect(
+        v2.connect(voter1).vote(cidActive, false, 0, { value: parseDOT("1") })
+      ).not.to.be.reverted;
+    });
+  });
 });

@@ -1,0 +1,334 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.24;
+
+import "./interfaces/IDatumActivationBonds.sol";
+import "./interfaces/IDatumCampaignsMinimal.sol";
+import "./DatumOwnable.sol";
+import "./PaseoSafeSender.sol";
+
+/// @title DatumActivationBonds
+/// @notice Optimistic-activation collateral. See IDatumActivationBonds.
+///
+///         Architectural note: routine campaigns no longer require a
+///         governance vote to go Active. The advertiser posts a bond at
+///         createCampaign, a short timelock runs, and anyone may then
+///         activate() the campaign permissionlessly. A challenger who
+///         disputes activation posts a counter-bond, escalating the
+///         campaign into the GovernanceV2 vote path. Losing-side bond is
+///         partially redistributed to the winner; remainder returns to the
+///         loser so disputes don't wipe out a defeated party wholesale.
+///
+///         Cypherpunk lock-once: Campaigns and Lifecycle addresses are
+///         set exactly once and frozen. Treasury and governable parameters
+///         are owner-mutable (owner is Timelock/Router in the ladder).
+contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOwnable {
+    // ── Wiring ────────────────────────────────────────────────────────────────
+
+    /// @notice Campaigns contract — only authority that may call openBond.
+    address public campaignsContract;
+
+    /// @notice Treasury recipient for the treasuryBps cut of slashed bond.
+    address public treasury;
+
+    // ── Governable parameters ─────────────────────────────────────────────────
+    uint256 private _minBond;          // smallest accepted creator bond
+    uint64  private _timelockBlocks;   // window during which challenges accepted
+    uint16  private _winnerBonusBps;   // bps of loser bond paid as winner bonus
+    uint16  private _treasuryBps;      // bps of loser bond paid to treasury
+
+    /// @notice Upper bound on combined winner+treasury bps. Loser always
+    ///         retains at least 2000 bps (20%) of their bond on dispute loss
+    ///         — prevents governance from configuring a 100% slash that
+    ///         removes refund-floor protection (mirrors GovernanceV2 G-M2).
+    uint16 public constant MAX_PUNISHMENT_BPS = 8000;
+
+    /// @notice Upper bound on timelock — caps grief window length.
+    uint64 public constant MAX_TIMELOCK_BLOCKS = 1_209_600; // ~84 days @ 6s/block
+
+    // ── Per-campaign state ────────────────────────────────────────────────────
+    struct State {
+        Phase    phase;
+        uint64   timelockExpiry;
+        address  creator;
+        uint128  creatorBond;
+        address  challenger;
+        uint128  challengerBond;
+    }
+    mapping(uint256 => State) private _state;
+
+    /// @dev Pull-pattern queue for refunds and bonus payouts. Avoids any
+    ///      external call to a hostile contract advertiser from blocking
+    ///      settlement (matches DatumChallengeBonds.pendingBondReturn).
+    mapping(address => uint256) private _pending;
+
+    // ── Events for parameter changes ──────────────────────────────────────────
+    event ContractReferenceChanged(string name, address oldAddr, address newAddr);
+    event MinBondSet(uint256 value);
+    event TimelockBlocksSet(uint64 value);
+    event WinnerBonusBpsSet(uint16 value);
+    event TreasuryBpsSet(uint16 value);
+    event TreasurySet(address treasury);
+
+    // ── Constructor ───────────────────────────────────────────────────────────
+    constructor(
+        uint256 minBond_,
+        uint64  timelockBlocks_,
+        uint16  winnerBonusBps_,
+        uint16  treasuryBps_,
+        address treasury_
+    ) DatumOwnable() {
+        require(timelockBlocks_ > 0 && timelockBlocks_ <= MAX_TIMELOCK_BLOCKS, "E11");
+        require(uint32(winnerBonusBps_) + uint32(treasuryBps_) <= MAX_PUNISHMENT_BPS, "E11");
+        require(treasury_ != address(0) || treasuryBps_ == 0, "E00");
+        _minBond = minBond_;
+        _timelockBlocks = timelockBlocks_;
+        _winnerBonusBps = winnerBonusBps_;
+        _treasuryBps = treasuryBps_;
+        treasury = treasury_;
+    }
+
+    /// @dev Accept refund from Campaigns/Lifecycle on edge paths and from
+    ///      challengers posting counter-bond.
+    receive() external payable {}
+
+    // ── Admin ─────────────────────────────────────────────────────────────────
+
+    /// @dev Cypherpunk lock-once. The campaigns reference is the only authority
+    ///      to mint bonds — hot-swapping it could redirect creator-bond flow.
+    function setCampaignsContract(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(campaignsContract == address(0), "already set");
+        emit ContractReferenceChanged("campaigns", campaignsContract, addr);
+        campaignsContract = addr;
+    }
+
+    function setTreasury(address addr) external onlyOwner {
+        // treasury may legitimately be address(0) (treasuryBps must then be 0)
+        require(_treasuryBps == 0 || addr != address(0), "E00");
+        emit TreasurySet(addr);
+        treasury = addr;
+    }
+
+    function setMinBond(uint256 v) external onlyOwner {
+        _minBond = v;
+        emit MinBondSet(v);
+    }
+
+    function setTimelockBlocks(uint64 v) external onlyOwner {
+        require(v > 0 && v <= MAX_TIMELOCK_BLOCKS, "E11");
+        _timelockBlocks = v;
+        emit TimelockBlocksSet(v);
+    }
+
+    function setPunishmentBps(uint16 winnerBps, uint16 treasuryBps_) external onlyOwner {
+        require(uint32(winnerBps) + uint32(treasuryBps_) <= MAX_PUNISHMENT_BPS, "E11");
+        require(treasuryBps_ == 0 || treasury != address(0), "E00");
+        _winnerBonusBps = winnerBps;
+        _treasuryBps = treasuryBps_;
+        emit WinnerBonusBpsSet(winnerBps);
+        emit TreasuryBpsSet(treasuryBps_);
+    }
+
+    // ── Write paths ───────────────────────────────────────────────────────────
+
+    /// @inheritdoc IDatumActivationBonds
+    function openBond(uint256 campaignId, address creator) external payable {
+        require(msg.sender == campaignsContract, "E19");
+        require(creator != address(0), "E00");
+        require(msg.value >= _minBond, "E11");
+        require(msg.value <= type(uint128).max, "E11");
+
+        State storage s = _state[campaignId];
+        require(s.phase == Phase.None, "E94"); // already opened
+
+        s.phase = Phase.Open;
+        s.creator = creator;
+        s.creatorBond = uint128(msg.value);
+        s.timelockExpiry = uint64(block.number) + _timelockBlocks;
+
+        emit BondOpened(campaignId, creator, msg.value, s.timelockExpiry);
+    }
+
+    /// @inheritdoc IDatumActivationBonds
+    function challenge(uint256 campaignId) external payable nonReentrant {
+        State storage s = _state[campaignId];
+        require(s.phase == Phase.Open, "E95");
+        require(block.number < s.timelockExpiry, "E96"); // timelock closed
+        require(msg.sender != s.creator, "E97"); // creator cannot self-challenge
+        require(msg.value >= s.creatorBond, "E97"); // ≥ creator's bond
+        require(msg.value <= type(uint128).max, "E11");
+
+        s.phase = Phase.Contested;
+        s.challenger = msg.sender;
+        s.challengerBond = uint128(msg.value);
+
+        emit Challenged(campaignId, msg.sender, msg.value);
+    }
+
+    /// @inheritdoc IDatumActivationBonds
+    function activate(uint256 campaignId) external nonReentrant {
+        State storage s = _state[campaignId];
+        require(s.phase == Phase.Open, "E95");
+        require(block.number >= s.timelockExpiry, "E96"); // still in timelock
+
+        // Read current status — only activate if still Pending. (If Lifecycle
+        // already moved status to Expired, fall through to settle().)
+        (uint8 status,,) = IDatumCampaignsMinimal(campaignsContract).getCampaignForSettlement(campaignId);
+        require(status == 0, "E20"); // not Pending
+
+        uint256 refund = s.creatorBond;
+        address creator = s.creator;
+        s.phase = Phase.Resolved;
+        s.creatorBond = 0;
+
+        _pending[creator] += refund;
+        IDatumCampaignsMinimal(campaignsContract).activateCampaign(campaignId);
+
+        emit Activated(campaignId, msg.sender);
+        emit Resolved(campaignId, true, refund, 0, 0);
+    }
+
+    /// @inheritdoc IDatumActivationBonds
+    function settle(uint256 campaignId) external nonReentrant {
+        State storage s = _state[campaignId];
+        require(s.phase == Phase.Open || s.phase == Phase.Contested, "E94");
+
+        (uint8 status,,) = IDatumCampaignsMinimal(campaignsContract).getCampaignForSettlement(campaignId);
+
+        // Resolvable terminal states: Active(1), Terminated(4), Expired(5).
+        // Pending(0) or Paused(2) or Completed(3) — not yet resolvable here.
+        // (Completed implies activation happened — that means we already
+        //  resolved at activate() or the campaign was activated by governance,
+        //  which is handled by Active branch.)
+        if (status == 1) {
+            // creator won — campaign Active
+            _payoutCreatorWin(campaignId, s);
+        } else if (status == 4) {
+            // challenger won — campaign Terminated by governance
+            require(s.phase == Phase.Contested, "E96"); // can only terminate via vote, which requires contested
+            _payoutChallengerWin(campaignId, s);
+        } else if (status == 5) {
+            // Expired — no-fault timeout. Refund both.
+            _payoutNoFault(campaignId, s);
+        } else {
+            revert("E98");
+        }
+    }
+
+    /// @inheritdoc IDatumActivationBonds
+    function claim() external nonReentrant {
+        _claim(msg.sender, msg.sender);
+    }
+
+    /// @inheritdoc IDatumActivationBonds
+    function claimTo(address recipient) external nonReentrant {
+        require(recipient != address(0), "E00");
+        _claim(msg.sender, recipient);
+    }
+
+    function _claim(address account, address recipient) internal {
+        uint256 amount = _pending[account];
+        require(amount > 0, "E03");
+        _pending[account] = 0;
+        emit PayoutClaimed(recipient, amount);
+        _safeSend(recipient, amount);
+    }
+
+    // ── Internal payout maths ─────────────────────────────────────────────────
+
+    function _payoutCreatorWin(uint256 campaignId, State storage s) internal {
+        uint256 creatorAmt = s.creatorBond;
+        uint256 challengerBond_ = s.challengerBond;
+        uint256 bonus;
+        uint256 toTreasury;
+        uint256 challengerRefund;
+
+        if (challengerBond_ > 0) {
+            bonus = challengerBond_ * _winnerBonusBps / 10000;
+            toTreasury = challengerBond_ * _treasuryBps / 10000;
+            challengerRefund = challengerBond_ - bonus - toTreasury;
+        }
+
+        s.phase = Phase.Resolved;
+        s.creatorBond = 0;
+        s.challengerBond = 0;
+
+        _pending[s.creator] += creatorAmt + bonus;
+        if (challengerRefund > 0) _pending[s.challenger] += challengerRefund;
+        if (toTreasury > 0) _pending[treasury] += toTreasury;
+
+        emit Resolved(campaignId, true, creatorAmt, bonus, toTreasury);
+    }
+
+    function _payoutChallengerWin(uint256 campaignId, State storage s) internal {
+        uint256 challengerAmt = s.challengerBond;
+        uint256 creatorBond_ = s.creatorBond;
+        uint256 bonus = creatorBond_ * _winnerBonusBps / 10000;
+        uint256 toTreasury = creatorBond_ * _treasuryBps / 10000;
+        uint256 creatorRefund = creatorBond_ - bonus - toTreasury;
+
+        s.phase = Phase.Resolved;
+        s.creatorBond = 0;
+        s.challengerBond = 0;
+
+        _pending[s.challenger] += challengerAmt + bonus;
+        if (creatorRefund > 0) _pending[s.creator] += creatorRefund;
+        if (toTreasury > 0) _pending[treasury] += toTreasury;
+
+        emit Resolved(campaignId, false, challengerAmt, bonus, toTreasury);
+    }
+
+    function _payoutNoFault(uint256 campaignId, State storage s) internal {
+        uint256 cBond = s.creatorBond;
+        uint256 chBond = s.challengerBond;
+        s.phase = Phase.Resolved;
+        s.creatorBond = 0;
+        s.challengerBond = 0;
+        if (cBond > 0) _pending[s.creator] += cBond;
+        if (chBond > 0) _pending[s.challenger] += chBond;
+        emit Resolved(campaignId, false, 0, 0, 0);
+    }
+
+    // ── Views ─────────────────────────────────────────────────────────────────
+
+    function phase(uint256 campaignId) external view returns (Phase) {
+        return _state[campaignId].phase;
+    }
+
+    function isContested(uint256 campaignId) external view returns (bool) {
+        return _state[campaignId].phase == Phase.Contested;
+    }
+
+    function isOpen(uint256 campaignId) external view returns (bool) {
+        return _state[campaignId].phase == Phase.Open;
+    }
+
+    function creatorOf(uint256 campaignId) external view returns (address) {
+        return _state[campaignId].creator;
+    }
+
+    function challengerOf(uint256 campaignId) external view returns (address) {
+        return _state[campaignId].challenger;
+    }
+
+    function creatorBond(uint256 campaignId) external view returns (uint256) {
+        return _state[campaignId].creatorBond;
+    }
+
+    function challengerBond(uint256 campaignId) external view returns (uint256) {
+        return _state[campaignId].challengerBond;
+    }
+
+    function timelockExpiry(uint256 campaignId) external view returns (uint64) {
+        return _state[campaignId].timelockExpiry;
+    }
+
+    function pending(address account) external view returns (uint256) {
+        return _pending[account];
+    }
+
+    function minBond() external view returns (uint256) { return _minBond; }
+    function timelockBlocks() external view returns (uint64) { return _timelockBlocks; }
+    function winnerBonusBps() external view returns (uint16) { return _winnerBonusBps; }
+    function treasuryBps() external view returns (uint16) { return _treasuryBps; }
+}
