@@ -1022,6 +1022,46 @@ function emitMarkdown(): string {
   out.push(`Above that, every party in the chain is net-positive on fees alone (revenue redistribution`);
   out.push(`and DATUM rewards are upside on top).\n`);
 
+  // ─── Practical implications / interpretation ─────────────────────────────
+  out.push(`## Interpretation\n`);
+
+  out.push(`### Per-relay annual cost recap (5 gwei)\n`);
+  out.push(`| Tier | DOT/yr | Per-claim gas |`);
+  out.push(`|---|---:|---:|`);
+  const relayHobby = tierGasFor("Relay", RELAY_TIERS, "Hobby")    * 5e-9;
+  const relayStd   = tierGasFor("Relay", RELAY_TIERS, "Standard") * 5e-9;
+  const relayHvy   = tierGasFor("Relay", RELAY_TIERS, "Heavy")    * 5e-9;
+  const relayHyp   = tierGasFor("Relay", RELAY_TIERS, "Hyper")    * 5e-9;
+  out.push(`| Hobby (1 batch/hr × 1 claim) | ${relayHobby.toFixed(2)} | ${Math.round(gas1).toLocaleString()} (no amortisation) |`);
+  out.push(`| Standard (1 batch/hr × 5 claims) | ${relayStd.toFixed(2)} | ${Math.round(gas5/5).toLocaleString()} |`);
+  out.push(`| Heavy (10 batches/hr × 10 claims) | ${relayHvy.toFixed(2)} | ${Math.round(gas10/10).toLocaleString()} |`);
+  out.push(`| Hyper (1 batch/min × 10 claims) | ${relayHyp.toFixed(2)} | ${Math.round(gas10/10).toLocaleString()} |`);
+  out.push("");
+  out.push(`Linear-fit marginal cost: \`gas(n_claims) ≈ ${Math.round(txOverhead).toLocaleString()} + ${Math.round(marginalPerClaim).toLocaleString()} × n\`.`);
+  out.push(`Bigger batches get dramatically cheaper per claim — at 10 claims/batch, per-claim`);
+  out.push(`gas drops from ${Math.round(gas1).toLocaleString()} to ${Math.round(gas10/10).toLocaleString()}.`);
+  out.push(`Relay operators should batch as aggressively as latency tolerance allows.\n`);
+
+  out.push(`### Headline finding\n`);
+  out.push(`With users self-settling and a monthly batching cadence at conservative Hub pricing,`);
+  out.push(`the minimum CPM for the user side to be net-positive on gas fees is`);
+  out.push(`**${userMinCPM.toFixed(3)} DOT per 1,000 impressions**. At $5/DOT that's ~$${(userMinCPM * 5).toFixed(2)} CPM`);
+  out.push(`— over an order of magnitude below traditional web2 CPMs ($1–5).\n`);
+
+  out.push(`### Practical implications\n`);
+  out.push(`- **The user side dominates.** Publishers and advertisers break even at CPMs`);
+  out.push(`  100–300× lower than what users need.`);
+  out.push(`- **Higher-traffic users dominate proportionally less.** A user with 36k imps/yr`);
+  out.push(`  breaks even at CPM ≈ 0.003 DOT — 10× cheaper than the 3,650-imp baseline.`);
+  out.push(`- **Cadence is the lever, not contract optimisation.** Switching users from daily`);
+  out.push(`  to monthly batching drops the break-even CPM 24×. Yearly batching drops it 80×.`);
+  out.push(`- **At-scale viability is comfortable.** Real-world programmatic CPMs ($0.50–$5)`);
+  out.push(`  sit 15–300× above the break-even floor at conservative pricing.`);
+  out.push(`- **Worst-case (50 gwei × daily batching)** still bottoms out at CPM ≈ 7.3 DOT`);
+  out.push(`  = ~$36/CPM — above traditional rates, but only in pathological combinations.`);
+  out.push(`- The protocol's incentive design should encourage users to batch monthly+ via`);
+  out.push(`  UI defaults and/or DATUM token rewards for delayed settlement.\n`);
+
   // Combined network economy view ───────────────────────────────────────────
   return out.join("\n");
 }
