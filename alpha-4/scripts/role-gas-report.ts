@@ -1056,111 +1056,158 @@ function emitMarkdown(): string {
   out.push(`Above that, every party in the chain is net-positive on fees alone (revenue redistribution`);
   out.push(`and DATUM rewards are upside on top).\n`);
 
-  // ─── DATUM token monetary policy (DatumMintAuthority) ───────────────────
+  // ─── DATUM token monetary policy (Path H per TOKENOMICS.md §3.3) ─────────
   const gasPerKimp = (gas1 * 12 + userOverheadGas) * 5e-9 * 1000 / impsPerYr; // DOT/1000 imps user must net
   const gasPerYr = (gas1 * 12 + userOverheadGas) * 5e-9; // DOT/yr at 5 gwei
-  const baseMintRate = 19;            // mintRatePerDot default (DATUM per DOT settled)
-  const maxMintRate = 100;            // MAX_MINT_RATE ceiling
-  const settlementCap = 89_000_000;   // 89M DATUM reserved for settlement mints
-  const cpmDOT = 0.20;                // illustrative CPM assumption
+  const initialRate = 19;                  // INITIAL_RATE (DATUM/DOT, bootstrap; adapts immediately)
+  const minRate = 0.001;
+  const maxRate = 200;
+  const halvingYears = 7;                  // HALVING_PERIOD (baked, non-governable)
+  const daysPerEpoch = 2555;               // 7 × 365
+  const epoch0Budget = 47_500_000;         // first epoch budget; halves each subsequent epoch
+  const epoch0DailyCap = epoch0Budget / daysPerEpoch;  // 18,591 DATUM/day
+  const settlementCap = 89_000_000;        // 89M settlement slice of MINTABLE_CAP
+  const totalEmittable = 95_000_000;       // full 95M emittable (bootstrap + vesting + settlement)
+  const userShare = 0.55;                  // 55% to user
+  const cpmDOT = 0.20;                     // illustrative CPM
+  // Legacy alias for downstream sections that pre-date the Path H rewrite.
+  // Reflects the bootstrap rate; in steady state the rate adapts dynamically.
+  const baseMintRate = initialRate;
 
-  out.push(`### DATUM token mint emission (protocol-minted)\n`);
-  out.push(`DATUM is the protocol's native token. It is **minted by the protocol** via`);
-  out.push(`\`DatumMintAuthority\` on every settled batch, using:\n`);
-  out.push(`\`totalMint = DOT_paid × mintRatePerDot\``);
-  out.push(`split user 55% / publisher 40% / advertiser 5%.\n`);
-  out.push(`Default \`mintRatePerDot = ${baseMintRate}\` (capped at ${maxMintRate} by \`MAX_MINT_RATE\`).`);
-  out.push(`Settlement-mintable supply caps at **${settlementCap.toLocaleString()} DATUM** (89M slice of the`);
-  out.push(`95M MINTABLE_CAP; the other 6M reserves bootstrap + vesting).\n`);
-  out.push(`*Note: this is the **protocol mint** path, completely separate from*`);
-  out.push(`*\`DatumTokenRewardVault\` (advertiser-supplied sidecar tokens — does not draw on the cap).*\n`);
+  out.push(`### DATUM token mint emission (Path H — TOKENOMICS §3.3)\n`);
+  out.push(`The protocol's intended emission model is **Path H: baked halvings + adaptive rate**.`);
+  out.push(`Mirroring Bitcoin's two-layer design: outer halving + inner difficulty adjustment.\n`);
+  out.push(`**Outer (baked, non-governable):**`);
+  out.push(`- Total emittable supply: **95M DATUM** (after 5M founder premint).`);
+  out.push(`- Halving period: **7 calendar years**.`);
+  out.push(`- Epoch budgets (geometric): **47.5M, 23.75M, 11.875M, 5.94M, 2.97M, ...** Sums to exactly 95M.`);
+  out.push(`- Daily cap derived: \`epoch_budget / 2,555 days\`. Epoch 0 = **18,591 DATUM/day**.\n`);
+  out.push(`**Inner (dynamic adjustment, permissionless):**`);
+  out.push(`- Per-DOT mint rate adapts every 1 day (governance-tunable [1, 90] days) to target the daily cap.`);
+  out.push(`- Bounded: **MIN_RATE 0.001**, **MAX_RATE 200** DATUM/DOT.`);
+  out.push(`- Max change per adjustment period: **2×** (anti-volatility).`);
+  out.push(`- Bootstrap rate: 19 DATUM/DOT; adapts on first adjustment.\n`);
+  out.push(`**Per-claim mint:** \`totalMint = DOT_paid × currentRate\`, capped by remaining daily +`);
+  out.push(`epoch budgets. Split user 55% / publisher 40% / advertiser 5% (baked, not governable).\n`);
+  out.push(`> **Implementation gap:** The current alpha-4 \`DatumSettlement.mintRatePerDot\` is a flat`);
+  out.push(`> storage variable with an owner setter (\`setMintRate\`). It is a **placeholder** for the`);
+  out.push(`> Path H mechanism — no on-chain epoch tracking, no daily cap clipping, no \`adjustRate()\``);
+  out.push(`> function. Projections below model the spec; the contract will need to grow into it.\n`);
 
-  out.push(`### DATUM emission under usage growth (mintRatePerDot = ${baseMintRate})\n`);
-  out.push(`Assuming monthly user-batching, 3,650 imps/user/yr, and 0.20 DOT CPM:\n`);
-  out.push(`| Users | Annual imps | Annual DOT settled | DATUM minted/yr | Cumulative after 10 yrs | % of 89M cap | Years to cap |`);
-  out.push(`|---:|---:|---:|---:|---:|---:|---:|`);
+  out.push(`### Per-epoch emission curve (baked schedule)\n`);
+  out.push(`Hardwired geometric halving over 70 years (10 epochs):\n`);
+  out.push(`| Epoch | Years | Epoch budget (DATUM) | Daily cap (DATUM) | Cumulative (DATUM) | % of 95M |`);
+  out.push(`|---:|---|---:|---:|---:|---:|`);
+  let cumBudget = 0;
+  for (let e = 0; e < 10; e++) {
+    const startYr = e * halvingYears;
+    const endYr = (e + 1) * halvingYears;
+    const epochBudget = epoch0Budget / Math.pow(2, e);
+    const dailyCap = epochBudget / daysPerEpoch;
+    cumBudget += epochBudget;
+    const pctTotal = (cumBudget / totalEmittable) * 100;
+    out.push(`| ${e} | ${startYr}–${endYr} | ${fmt(epochBudget)} | ${fmt(dailyCap)} | ${fmt(cumBudget)} | ${fmt(pctTotal)}% |`);
+  }
+  out.push("");
+  out.push(`The geometric series converges to **exactly 95M** (50% + 25% + 12.5% + ... = 100% of 95M).`);
+  out.push(`Total dilution is bounded by construction; halving cadence is baked.\n`);
+
+  out.push(`### Dynamic rate at different network volumes (epoch 0, daily cap 18,591 DATUM/day)\n`);
+  out.push(`The adjustment loop drives the rate toward \`daily_cap / observed_DOT_volume\`.`);
+  out.push(`Three rate-binding regimes:\n`);
+  out.push(`| Daily DOT volume | Required rate to hit cap | Effective rate (clamped) | Effective daily mint | Regime |`);
+  out.push(`|---:|---:|---:|---:|---|`);
+  const dailyVolumes = [1, 10, 93, 1_000, 10_000, 100_000, 1_000_000, 18_591_000, 100_000_000];
+  for (const v of dailyVolumes) {
+    const requiredRate = epoch0DailyCap / v;
+    let effRate: number, regime: string;
+    if (requiredRate > maxRate) { effRate = maxRate; regime = "MAX_RATE clamp (cap not filled)"; }
+    else if (requiredRate < minRate) { effRate = minRate; regime = "MIN_RATE clamp (daily cap clips mint)"; }
+    else { effRate = requiredRate; regime = "rate adapts to fill cap exactly"; }
+    const effMint = Math.min(v * effRate, epoch0DailyCap);
+    out.push(`| ${fmt(v)} | ${fmt(requiredRate)} | ${fmt(effRate)} | ${fmt(effMint)} | ${regime} |`);
+  }
+  out.push("");
+  out.push(`**Cap-fill threshold:** at volume ≥ **${fmt(epoch0DailyCap / maxRate)} DOT/day** the rate is below MAX_RATE,`);
+  out.push(`so the daily cap is fully filled and per-recipient DATUM scales with their share of total volume.`);
+  out.push(`Below this volume, the rate is pinned at 200 DATUM/DOT and total daily emission < cap.\n`);
+
+  out.push(`### Per-user DATUM revenue at different network sizes (epoch 0, steady state)\n`);
+  out.push(`Assumes daily cap is filled (network volume above ${fmt(epoch0DailyCap / maxRate)} DOT/day),`);
+  out.push(`each user receives an equal share of total settlement volume, 0.20 DOT CPM, 3,650 imps/user/yr:\n`);
+  out.push(`| Users | Daily DOT settled | User's share of daily mint (DATUM) | Annual DATUM per user | Annual DOT-eq at DATUM/DOT = 0.10 |`);
+  out.push(`|---:|---:|---:|---:|---:|`);
   for (const n of [1_000, 10_000, 100_000, 1_000_000, 10_000_000]) {
-    const annualImps = n * impsPerYr;
-    const annualSettleDOT = annualImps * cpmDOT / 1000;
-    const annualMint = annualSettleDOT * baseMintRate;
-    const tenYearMint = annualMint * 10;
-    const pctCap10y = (tenYearMint / settlementCap) * 100;
-    const yearsToCap = settlementCap / annualMint;
-    out.push(`| ${n.toLocaleString()} | ${annualImps.toLocaleString()} | ${fmt(annualSettleDOT)} | ${fmt(annualMint)} | ${fmt(tenYearMint)} | ${fmt(pctCap10y)}% | ${fmt(yearsToCap)} |`);
+    const dailyDot = n * impsPerYr / 365 * cpmDOT / 1000;
+    let effRate: number;
+    const requiredRate = epoch0DailyCap / dailyDot;
+    if (requiredRate > maxRate) effRate = maxRate;
+    else if (requiredRate < minRate) effRate = minRate;
+    else effRate = requiredRate;
+    const totalDailyMint = Math.min(dailyDot * effRate, epoch0DailyCap);
+    const userDailyMint = totalDailyMint * userShare / n;
+    const userAnnualMint = userDailyMint * 365;
+    const userAnnualDOTeq = userAnnualMint * 0.10;
+    out.push(`| ${fmt(n)} | ${fmt(dailyDot)} | ${fmt(userDailyMint)} | ${fmt(userAnnualMint)} | ${fmt(userAnnualDOTeq)} |`);
   }
   out.push("");
-  out.push(`At 1M users (the headline network scale), default rate exhausts the 89M cap in`);
-  out.push(`**${fmt(settlementCap / (1_000_000 * impsPerYr * cpmDOT / 1000 * baseMintRate))} years** — too fast.`);
-  out.push(`Governance has two levers: halve \`mintRatePerDot\` periodically, or accept faster cap depletion.\n`);
+  out.push(`Notice the **counter-intuitive dynamic**: as the network grows past the cap-fill threshold,`);
+  out.push(`each user's DATUM share *shrinks* (fixed cap divided across more users). The user-side`);
+  out.push(`subsidy is generous in early adoption and dilutes as the network scales — by design, to`);
+  out.push(`reward bootstrap participants more than late-arrivals.\n`);
 
-  out.push(`### Mint-rate halving curve (governance-driven)\n`);
-  out.push(`No automatic halving in code — \`mintRatePerDot\` is set via \`setMintRate\` (owner / governance).`);
-  out.push(`A Bitcoin-style halving every 4 years stretches emission while keeping monetary scarcity`);
-  out.push(`predictable. Per-period mint at each halving level, **steady-state 1M users + 0.20 DOT CPM**:\n`);
-  const steadyAnnualSettleDOT = 1_000_000 * impsPerYr * cpmDOT / 1000;
-  out.push(`| Halving | Year | mintRatePerDot | Annual mint | 4-yr period mint | Cumulative | % of 89M cap |`);
-  out.push(`|---:|---:|---:|---:|---:|---:|---:|`);
-  let cumMint = 0;
-  let capYear = -1;
-  for (let h = 0; h <= 12; h++) {
-    const year = h * 4;
-    const rate = baseMintRate / Math.pow(2, h);
-    const annualMint = steadyAnnualSettleDOT * rate;
-    const periodMint = annualMint * 4;
-    const preCum = cumMint;
-    cumMint += periodMint;
-    let displayCum = cumMint;
-    let pctCap = (cumMint / settlementCap) * 100;
-    let note = "";
-    if (cumMint >= settlementCap && capYear < 0) {
-      // The cap is hit somewhere inside this 4-year window. Linear-interp the exact year.
-      const headroom = settlementCap - preCum;
-      capYear = (h - 1) * 4 + headroom / annualMint;
-      displayCum = settlementCap;
-      pctCap = 100;
-      note = ` **← CAP HIT at year ~${fmt(capYear)}**`;
-    } else if (capYear >= 0) {
-      displayCum = settlementCap;
-      pctCap = 100;
-      note = ` (cap reached)`;
-    }
-    out.push(`| ${h} | ${year} | ${fmt(rate)} | ${fmt(annualMint)} | ${fmt(periodMint)} | ${fmt(displayCum)} | ${fmt(pctCap)}%${note} |`);
-  }
+  out.push(`### DATUM mint as a user-side subsidy (dynamic rate)\n`);
+  out.push(`The user receives **55% of every DATUM mint**, but under Path H the per-DOT rate is`);
+  out.push(`*dynamic* — it adapts daily to target the epoch's daily cap. The user's effective`);
+  out.push(`revenue share per impression depends on:`);
+  out.push(`1. **DATUM/DOT spot price P** (market-determined)`);
+  out.push(`2. **Current rate** (adapts to volume — see table above)`);
+  out.push(`3. **Network volume share** (per-user share of total daily DOT settled)\n`);
+  out.push(`\`share_eff_DOT_per_imp = 0.000375 × CPM_DOT + 0.55 × (DOT_per_imp × currentRate) × P\``);
   out.push("");
-  const asymptotic = 2 * steadyAnnualSettleDOT * baseMintRate * 4;
-  out.push(`Asymptotic total under perpetual halving (geometric series, 4-yr cadence): **${fmt(asymptotic)} DATUM**.`);
-  out.push(`Cap status: ${asymptotic <= settlementCap ? `asymptotic < cap → **${fmt(settlementCap - asymptotic)} DATUM permanently un-emittable** (monetary sink)` : `asymptotic > cap → cap is hit at **year ~${capYear < 0 ? "n/a" : fmt(capYear)}**; governance must lengthen the halving interval or lower the initial rate`}.\n`);
-
-  out.push(`### DATUM mint as a user-side subsidy\n`);
-  out.push(`The user receives **55% of every DATUM mint**. In DOT-equivalent (at DATUM/DOT spot P),`);
-  out.push(`the user's effective revenue share per imp becomes:\n`);
-  out.push(`\`share_eff = 0.375 + 0.55 × mintRatePerDot × P\``);
-  out.push(`\`MinCPM = annual_user_gas / (share_eff × imps_yr / 1000)\``);
-  out.push("");
-  out.push(`Solving at 5 gwei, 3,650 imps/user/yr:\n`);
-  out.push(`| DATUM/DOT price (P) | Effective user share | Min DOT CPM to break even |`);
-  out.push(`|---:|---:|---:|`);
+  out.push(`Solving at 5 gwei, 3,650 imps/user/yr, **epoch 0 daily cap saturated** (1M users +),`);
+  out.push(`rate adapts to keep total daily mint = 18,591 DATUM. Per-user daily DATUM ≈ 0.01 (1M users):\n`);
+  out.push(`| DATUM/DOT price (P) | Effective rate (1M users, 0.20 CPM) | User share of cap (DATUM/yr) | DOT-eq subsidy per user/yr | User-side floor reduction |`);
+  out.push(`|---:|---:|---:|---:|---:|`);
   const datumPrices = [0, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 2];
+  // Compute effective rate at 1M-user steady state
+  const dailyDot_1M = 1_000_000 * impsPerYr / 365 * cpmDOT / 1000;
+  let effRate_1M: number;
+  {
+    const req = epoch0DailyCap / dailyDot_1M;
+    if (req > maxRate) effRate_1M = maxRate;
+    else if (req < minRate) effRate_1M = minRate;
+    else effRate_1M = req;
+  }
+  const userDailyMint_1M = epoch0DailyCap * userShare / 1_000_000;
+  const userAnnualMint_1M = userDailyMint_1M * 365;
   for (const P of datumPrices) {
-    const effectiveShare = 0.375 + 0.55 * baseMintRate * P;
-    const minCPM = gasPerYr * 1000 / (effectiveShare * impsPerYr);
-    out.push(`| ${fmt(P)} | ${fmt(effectiveShare)} | ${fmt(minCPM)} |`);
+    const userAnnualDOTeq = userAnnualMint_1M * P;
+    // Effective user share per imp = 0.375 DOT/1kimp DOT-share + DATUM bonus
+    // Annual user revenue per 1k imps = 0.375 × CPM + (annual DATUM/yr × P / imps_per_yr × 1000)
+    // For break-even calc: gasPerYr = 0.375 × CPM × impsPerYr/1000 + userAnnualDOTeq
+    // → CPM = (gasPerYr - userAnnualDOTeq) × 1000 / (0.375 × impsPerYr)
+    const cpmReq = (gasPerYr - userAnnualDOTeq) * 1000 / (0.375 * impsPerYr);
+    const cpmDisplay = cpmReq <= 0 ? "**0 (DATUM covers fees)**" : fmt(cpmReq);
+    out.push(`| ${fmt(P)} | ${fmt(effRate_1M)} | ${fmt(userAnnualMint_1M)} | ${fmt(userAnnualDOTeq)} | ${cpmDisplay} |`);
   }
   out.push("");
-  const shareAt10pct = 0.375 + 0.55 * baseMintRate * 0.1;
-  const cpmAt10pct = gasPerYr * 1000 / (shareAt10pct * impsPerYr);
-  out.push(`At DATUM/DOT = 0.10 (DATUM trades at 10% of DOT), the user's effective share leaps`);
-  out.push(`from 0.375 to ${fmt(shareAt10pct)}, and the break-even CPM drops from ${fmt(userMinCPM)} DOT to`);
-  out.push(`${fmt(cpmAt10pct)} DOT — a ${fmt(userMinCPM / cpmAt10pct)}× reduction. The DATUM mint **directly`);
-  out.push(`subsidises the user-side floor** and scales linearly with DATUM/DOT spot price.\n`);
+  const subsidyCrossover = gasPerYr / userAnnualMint_1M;
+  out.push(`**Crossover at DATUM/DOT = ${fmt(subsidyCrossover)}**: at this spot ratio the DATUM mint`);
+  out.push(`subsidy alone covers the user's annual gas cost — any positive DOT CPM is pure upside.\n`);
+  out.push(`Note: the dynamic-rate dilution means **early-network users get much higher DATUM/imp**`);
+  out.push(`than late-network users — the daily cap is fixed but the divisor (user count) grows.\n`);
 
-  out.push(`### Combined revenue lens (DOT split + DATUM mint)\n`);
+  out.push(`### Combined revenue lens (epoch 0, daily cap saturated, 1M users)\n`);
   out.push(`Three regimes for the user's net per-1k-imps compensation at conservative Hub pricing:\n`);
-  out.push(`| Regime | DOT CPM needed | DATUM mint per 1k imps | Notes |`);
+  out.push(`| Regime | DOT CPM needed | DATUM revenue per user/yr | Notes |`);
   out.push(`|---|---|---|---|`);
-  out.push(`| **DATUM at $0 (worthless token)** | ≥ ${fmt(userMinCPM)} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM (no spot value) | Today's break-even floor; DATUM is upside |`);
-  out.push(`| **DATUM at 10% of DOT** | ≥ ${fmt(cpmAt10pct)} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM = ${fmt(baseMintRate * cpmDOT * 0.1)} DOT-eq | Healthy floor reduction |`);
-  out.push(`| **DATUM at parity with DOT** | ≥ ${fmt(gasPerYr * 1000 / ((0.375 + 0.55 * baseMintRate * 1) * impsPerYr))} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM = ${fmt(baseMintRate * cpmDOT)} DOT-eq | DATUM mint dominates compensation |`);
+  const cpmAt0 = userMinCPM;
+  const cpmAt10pct = Math.max(0, (gasPerYr - userAnnualMint_1M * 0.1) * 1000 / (0.375 * impsPerYr));
+  const cpmAtParity = Math.max(0, (gasPerYr - userAnnualMint_1M * 1.0) * 1000 / (0.375 * impsPerYr));
+  out.push(`| **DATUM at $0 (worthless token)** | ≥ ${fmt(cpmAt0)} DOT | ${fmt(userAnnualMint_1M)} DATUM (no spot value) | Pure DOT economics; DATUM is upside |`);
+  out.push(`| **DATUM at 10% of DOT** | ≥ ${fmt(cpmAt10pct)} DOT | ${fmt(userAnnualMint_1M * 0.1)} DOT-eq/yr | Subsidy reduces floor |`);
+  out.push(`| **DATUM at parity with DOT** | ≥ ${fmt(cpmAtParity)} DOT | ${fmt(userAnnualMint_1M)} DOT-eq/yr | DATUM dominates compensation |`);
   out.push("");
 
   // ─── Advertiser ROI break-even ──────────────────────────────────────────
@@ -1364,87 +1411,100 @@ function emitMarkdown(): string {
   out.push(`and macro forces this exercise can't predict.\n`);
 
   out.push(`**Assumptions:**`);
-  out.push(`- Halving interval: 4 years (Bitcoin-style cadence; configurable).`);
-  out.push(`- DOT/USD growth per halving: 2× (DOT-side scarcity tightens issuance).`);
-  out.push(`- \`mintRatePerDot\` halves every 4 years (governance-driven via \`setMintRate\`).`);
-  out.push(`- DATUM/DOT spot price grows 2× per halving (DATUM's own scarcity-driven appreciation).`);
-  out.push(`- Baseline DOT = $5; baseline DATUM/DOT = 0.10 (so DATUM ≈ $0.50 at year 0).`);
-  out.push(`- Baseline \`mintRatePerDot\` = 19.`);
+  out.push(`- DATUM emission follows Path H: **7-year epoch halvings** with daily-cap-driven adaptive rate.`);
+  out.push(`- 10 epochs span exactly 70 years; epoch n daily cap = ${epoch0DailyCap.toFixed(0)} / 2^n DATUM/day.`);
+  out.push(`- DOT/USD growth: 2× per **DOT halving cycle** (assumed 4-yr — Polkadot's actual cadence).`);
+  out.push(`- DATUM/USD growth: 2× per DATUM halving (7-yr) on supply scarcity alone.`);
+  out.push(`- Baseline DOT = $5; baseline DATUM/DOT spot ratio = 0.10 (so DATUM ≈ $0.50 at year 0).`);
   out.push(`- Steady-state 1M-user network, 0.20 DOT CPM, monthly user batching, 3,650 imps/user/yr.`);
-  out.push(`- Gas price held at 5 gwei throughout (no on-chain repricing modelled).\n`);
+  out.push(`- Gas held at 5 gwei (no on-chain repricing modelled).\n`);
 
-  const HALVING_INTERVAL = 4;
-  const HALVINGS = 17; // 0..17 covers years 0..72
   const DOT_BASE_USD = 5;
-  const DATUM_DOT_RATIO_BASE = 0.10;  // DATUM/DOT spot ratio at year 0
-  const DOT_GROWTH_PER_HALVING = 2;
-  const DATUM_DOT_GROWTH_PER_HALVING = 2;
-  const programmaticVPI = 0.001;       // USD/imp
-  const annualSettleDOT_steady = 1_000_000 * impsPerYr * cpmDOT / 1000;
+  const DATUM_DOT_RATIO_BASE = 0.10;
+  const DOT_HALVING = 4;          // years
+  const DATUM_HALVING = halvingYears; // 7 years from Path H
+  const programmaticVPI = 0.001;  // USD/imp
 
-  out.push(`**Trajectory under conservative growth (2× per halving for DOT and DATUM/DOT):**\n`);
-  out.push(`| Year | DOT/USD | DATUM/DOT | DATUM/USD | mintRate | Annual DATUM mint | User eff. share | User min CPM (DOT) | User min CPM (USD) | Adv max CPM (USD) | Programmatic viable? |`);
+  out.push(`**Conservative trajectory (DOT 2× per 4yr, DATUM/DOT 2× per 7yr):**\n`);
+  out.push(`The DATUM mint rate adapts to the daily cap, so total DATUM per year = epoch_budget / 7yrs.`);
+  out.push(`Per-user DATUM share = (epoch_budget × 55%) / (7yrs × users).\n`);
+  out.push(`| Year | Epoch | DOT/USD | DATUM/DOT | Daily cap | Annual mint | User DATUM/yr | DOT-eq subsidy | User min CPM USD | Adv max CPM USD | Viable? |`);
   out.push(`|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|`);
-  let cumMintProj = 0;
-  for (let h = 0; h <= HALVINGS; h++) {
-    const year = h * HALVING_INTERVAL;
-    const dotUSD = DOT_BASE_USD * Math.pow(DOT_GROWTH_PER_HALVING, h);
-    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(DATUM_DOT_GROWTH_PER_HALVING, h);
-    const datumUSD = dotUSD * datumDotRatio;
-    const mintRate = baseMintRate / Math.pow(2, h);
-    const annualMint = annualSettleDOT_steady * mintRate;
-    cumMintProj += annualMint * HALVING_INTERVAL;
-    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
-    const userMinCPM_DOT = gasPerYr * 1000 / (effShare * impsPerYr);
-    const userMinCPM_USD = userMinCPM_DOT * dotUSD;
-    // Advertiser max CPM at $0.001 VPI, 10k-imp campaign
-    const vpiDOT = programmaticVPI / dotUSD;
-    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
-    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
-    const maxCPM_USD = maxCPM_DOT * dotUSD;
-    const viable = maxCPM_USD > userMinCPM_USD;
-    out.push(`| ${year} | $${fmt(dotUSD)} | ${fmt(datumDotRatio)} | $${fmt(datumUSD)} | ${fmt(mintRate)} | ${fmt(annualMint)} | ${fmt(effShare)} | ${fmt(userMinCPM_DOT)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} |`);
-  }
-  out.push("");
-  out.push(`Cumulative DATUM minted over 70 years (this trajectory): **${fmt(cumMintProj)}** —`);
-  out.push(`compare to the **${fmt(settlementCap)}** settlement cap. Cap ${cumMintProj < settlementCap ? "is NOT" : "is"} reached`);
-  out.push(`within the projection horizon.\n`);
-
-  // Find first year programmatic becomes unviable
-  let firstUnviableYear = -1;
-  for (let h = 0; h <= HALVINGS; h++) {
-    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
-    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, h);
-    const mintRate = baseMintRate / Math.pow(2, h);
-    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
-    const userMinCPM_DOT = gasPerYr * 1000 / (effShare * impsPerYr);
-    const userMinCPM_USD = userMinCPM_DOT * dotUSD;
+  let cumMintActual = 0;
+  for (let yr = 0; yr <= 70; yr += 7) {
+    const epoch = Math.floor(yr / DATUM_HALVING);
+    const dotHalvingsPassed = Math.floor(yr / DOT_HALVING);
+    const datumHalvingsPassed = Math.floor(yr / DATUM_HALVING);
+    const dotUSD = DOT_BASE_USD * Math.pow(2, dotHalvingsPassed);
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, datumHalvingsPassed);
+    const epochBudget = epoch0Budget / Math.pow(2, epoch);
+    const dailyCap = epochBudget / daysPerEpoch;
+    const annualMintCap = dailyCap * 365;
+    cumMintActual += annualMintCap * (yr === 0 ? 7 : 7);
+    // Per-user DATUM share (assumes 1M users, cap saturated)
+    const userAnnualDATUM = annualMintCap * userShare / 1_000_000;
+    const userAnnualDOTeq = userAnnualDATUM * datumDotRatio;
+    // User effective per-imp share: DOT 0.375 + DATUM subsidy
+    // Break-even CPM: (gasPerYr − userAnnualDOTeq) / (0.375 × impsPerYr/1000)
+    const cpmReqDOT = Math.max(0, (gasPerYr - userAnnualDOTeq) * 1000 / (0.375 * impsPerYr));
+    const userMinCPM_USD = cpmReqDOT * dotUSD;
+    // Advertiser max CPM at $0.001 VPI, 10k campaign
     const vpiDOT = programmaticVPI / dotUSD;
     const setupPerKimpDOT = setupDOT * 1000 / 10_000;
     const maxCPM_USD = (1000 * vpiDOT - setupPerKimpDOT) * dotUSD;
-    if (firstUnviableYear < 0 && maxCPM_USD < userMinCPM_USD) firstUnviableYear = h * HALVING_INTERVAL;
+    const viable = maxCPM_USD > userMinCPM_USD;
+    out.push(`| ${yr} | ${epoch} | $${fmt(dotUSD)} | ${fmt(datumDotRatio)} | ${fmt(dailyCap)} | ${fmt(annualMintCap)} | ${fmt(userAnnualDATUM)} | ${fmt(userAnnualDOTeq)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} |`);
+  }
+  out.push("");
+  out.push(`Total emission over 70 years (geometric series of 7-yr epoch budgets): converges to`);
+  out.push(`**${fmt(totalEmittable - 92_773)} DATUM** (≈ 95M, with tiny remainder rolling forward).`);
+  out.push(`Cap is **never** breached because the emission curve is geometrically bounded by design.\n`);
+
+  // Find first year programmatic becomes unviable
+  let firstUnviableYear = -1;
+  for (let yr = 0; yr <= 70; yr++) {
+    const epoch = Math.floor(yr / DATUM_HALVING);
+    const dotHalvingsPassed = Math.floor(yr / DOT_HALVING);
+    const datumHalvingsPassed = Math.floor(yr / DATUM_HALVING);
+    const dotUSD = DOT_BASE_USD * Math.pow(2, dotHalvingsPassed);
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, datumHalvingsPassed);
+    const epochBudget = epoch0Budget / Math.pow(2, epoch);
+    const annualMintCap = (epochBudget / daysPerEpoch) * 365;
+    const userAnnualDOTeq = annualMintCap * userShare / 1_000_000 * datumDotRatio;
+    const cpmReqDOT = Math.max(0, (gasPerYr - userAnnualDOTeq) * 1000 / (0.375 * impsPerYr));
+    const userMinCPM_USD = cpmReqDOT * dotUSD;
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_USD = (1000 * vpiDOT - setupPerKimpDOT) * dotUSD;
+    if (firstUnviableYear < 0 && maxCPM_USD < userMinCPM_USD) firstUnviableYear = yr;
   }
 
-  out.push(`**Trajectory under aggressive DOT growth (4× DOT, 2× DATUM/DOT per halving):**\n`);
-  out.push(`Stress test: if DOT outruns DATUM in USD terms, when does the chain hit a viability cliff?\n`);
-  out.push(`| Year | DOT/USD | mintRate | User eff. share | User min CPM (USD) | Adv max CPM (USD) | Viable? | Notes |`);
-  out.push(`|---:|---:|---:|---:|---:|---:|:---:|---|`);
-  for (let h = 0; h <= 8; h++) {
-    const year = h * HALVING_INTERVAL;
-    const dotUSD = DOT_BASE_USD * Math.pow(4, h);
-    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, h);
-    const mintRate = baseMintRate / Math.pow(2, h);
-    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
-    const userMinCPM_USD = (gasPerYr * 1000 / (effShare * impsPerYr)) * dotUSD;
+  out.push(`**Aggressive DOT growth (4× per 4yr, DATUM/DOT 2× per 7yr):**\n`);
+  out.push(`Stress-test: DOT outruns DATUM in USD terms; when does the chain hit a viability cliff?\n`);
+  out.push(`| Year | DOT/USD | Daily cap | User DATUM/yr | DOT-eq subsidy | User min CPM USD | Adv max CPM USD | Viable? | Notes |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|---:|:---:|---|`);
+  for (let yr = 0; yr <= 32; yr += 4) {
+    const epoch = Math.floor(yr / DATUM_HALVING);
+    const dotHalvingsPassed = Math.floor(yr / DOT_HALVING);
+    const datumHalvingsPassed = Math.floor(yr / DATUM_HALVING);
+    const dotUSD = DOT_BASE_USD * Math.pow(4, dotHalvingsPassed);
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, datumHalvingsPassed);
+    const epochBudget = epoch0Budget / Math.pow(2, epoch);
+    const dailyCap = epochBudget / daysPerEpoch;
+    const annualMintCap = dailyCap * 365;
+    const userAnnualDATUM = annualMintCap * userShare / 1_000_000;
+    const userAnnualDOTeq = userAnnualDATUM * datumDotRatio;
+    const cpmReqDOT = Math.max(0, (gasPerYr - userAnnualDOTeq) * 1000 / (0.375 * impsPerYr));
+    const userMinCPM_USD = cpmReqDOT * dotUSD;
     const vpiDOT = programmaticVPI / dotUSD;
     const setupPerKimpDOT = setupDOT * 1000 / 10_000;
     const maxCPM_USD = (1000 * vpiDOT - setupPerKimpDOT) * dotUSD;
     const viable = maxCPM_USD > userMinCPM_USD;
     let notes = "";
-    if (h === 0) notes = "Baseline";
+    if (yr === 0) notes = "Baseline";
     else if (!viable) notes = "Gas repricing required";
     else if (maxCPM_USD < 2 * userMinCPM_USD) notes = "Margin tight (<2×)";
-    out.push(`| ${year} | $${fmt(dotUSD)} | ${fmt(mintRate)} | ${fmt(effShare)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} | ${notes} |`);
+    out.push(`| ${yr} | $${fmt(dotUSD)} | ${fmt(dailyCap)} | ${fmt(userAnnualDATUM)} | ${fmt(userAnnualDOTeq)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} | ${notes} |`);
   }
   out.push("");
 
