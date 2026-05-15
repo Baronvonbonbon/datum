@@ -172,6 +172,41 @@ const PUBLISHER_TIERS: ActorTier[] = [
   },
 ];
 
+// Relay tiers: a relay operator submitting batches throughout the day.
+// Frequencies are PER-RELAY (not network-wide). Each tier expresses a
+// combination of batch cadence × batch size; the report's per-op gas figures
+// already absorb the per-claim marginal cost.
+const RELAY_TIERS: ActorTier[] = [
+  {
+    label: "Hobby",
+    description: "1 batch/hour, 1 claim/batch (single-user side-relay).",
+    ops: {
+      "settleClaims (1 claim × 100 imps)":  24,
+    },
+  },
+  {
+    label: "Standard",
+    description: "1 batch/hour, 5 claims/batch (typical commercial relay).",
+    ops: {
+      "settleClaims (5 claims × 100 imps)": 24,
+    },
+  },
+  {
+    label: "Heavy",
+    description: "10 batches/hour, 10 claims/batch (large publisher network).",
+    ops: {
+      "settleClaims (10 claims × 100 imps)": 240,
+    },
+  },
+  {
+    label: "Hyper",
+    description: "1 batch/minute, 10 claims/batch (programmatic settlement).",
+    ops: {
+      "settleClaims (10 claims × 100 imps)": 1440,
+    },
+  },
+];
+
 const ADVERTISER_TIERS: ActorTier[] = [
   {
     label: "Occasional",
@@ -478,6 +513,10 @@ async function measureAll(ctx: any) {
   const sc5 = buildClaimChain(cidR5, ctx.publisher.address, ctx.user.address, CPM, 5, 100n);
   await measure("Relay", "settleClaims (5 claims × 100 imps)",
     ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR5, claims: sc5 }]));
+  const cidR10 = await activateCampaign(ctx, BUDGET, parseDOT("20"), CPM);
+  const sc10 = buildClaimChain(cidR10, ctx.publisher.address, ctx.user.address, CPM, 10, 100n);
+  await measure("Relay", "settleClaims (10 claims × 100 imps)",
+    ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR10, claims: sc10 }]));
 
   // Now publisher and user have balances; withdraw measurements work.
   console.log("\n[Publisher withdraws]");
@@ -804,6 +843,15 @@ function emitMarkdown(): string {
     "Regular",
   );
 
+  emitActorSection(
+    "relay",
+    "Per-relay fee burn (annual)",
+    "Annual fee cost for a single relay operator submitting settlement batches. Heavier tiers amortise the ~510k tx overhead across more claims (~30k marginal gas/claim measured from 1- vs 5-claim batches).",
+    "Relay",
+    RELAY_TIERS,
+    "Standard",
+  );
+
   // Combined network economy view ───────────────────────────────────────────
   out.push(`## Combined network economy (annual fee burn)\n`);
   out.push(`Three sample networks at conservative Hub pricing (5 gwei). Sum across`);
@@ -857,6 +905,124 @@ function emitMarkdown(): string {
   }
   out.push("");
 
+  // ─── Minimum viable CPM (when users self-settle) ─────────────────────────
+  out.push(`## Minimum viable CPM — economics by batching cadence\n`);
+  out.push(`When users batch their own impressions and settle directly (no commercial relay`);
+  out.push(`taking a margin), the binding economic constraint is the user's own settlement-tx`);
+  out.push(`gas cost. This section derives the minimum CPM (DOT per 1,000 impressions) at`);
+  out.push(`which a user breaks even on a self-settle workflow at various batching cadences.\n`);
+
+  out.push(`**Revenue split assumption:** publisher 50% / user 37.5% / protocol 12.5%`);
+  out.push(`(per the BM-ECO benchmark suite). Users earn 37.5% of CPM × imps_settled.\n`);
+
+  // Gas model: per-tx overhead + per-claim marginal. Derived from measurements.
+  const gas1  = Number(rows.find(r => r.role === "Relay" && r.op === "settleClaims (1 claim × 100 imps)")?.gas ?? 0n);
+  const gas5  = Number(rows.find(r => r.role === "Relay" && r.op === "settleClaims (5 claims × 100 imps)")?.gas ?? 0n);
+  const gas10 = Number(rows.find(r => r.role === "Relay" && r.op === "settleClaims (10 claims × 100 imps)")?.gas ?? 0n);
+  // Two-point fit from 1 and 5: marginalPerClaim = (gas5 - gas1)/4, base = gas1 - marginalPerClaim
+  const marginalPerClaim = (gas5 - gas1) / 4;
+  const txOverhead = gas1 - marginalPerClaim;
+
+  out.push(`**Gas model (linear fit from measurements):**`);
+  out.push(`- 1-claim batch: ${gas1.toLocaleString()} gas`);
+  out.push(`- 5-claim batch: ${gas5.toLocaleString()} gas`);
+  out.push(`- 10-claim batch: ${gas10.toLocaleString()} gas`);
+  out.push(`- Fitted: \`gas(n) = ${Math.round(txOverhead).toLocaleString()} + ${Math.round(marginalPerClaim).toLocaleString()} × n\`\n`);
+
+  // Each user-settle tx contains 1 claim (one user's own batch of imps).
+  // imps_per_tx = how many impressions the user packs into a single eventCount.
+  // batches_per_yr = settles per user per year.
+  // user pays gas: gas1 × batches_per_yr (single claim, but variable eventCount)
+  // user earns: 0.375 × CPM × imps_per_yr
+  // imps_per_yr ≈ batches_per_yr × imps_per_tx
+  // Break-even: 0.375 × CPM × imps_per_yr ≥ gas_cost × gas_price + user_overhead_cost
+  // → CPM ≥ (gas_cost × gas_price + user_overhead_cost) / (0.375 × imps_per_yr)
+
+  out.push(`### Break-even CPM by user batching cadence\n`);
+  out.push(`Assumes each user receives **10 impressions/day on average** (3,650/yr).`);
+  out.push(`Higher-traffic users hit break-even at proportionally lower CPMs.\n`);
+
+  // User overhead per year (non-settle ops): zkStake setup + 12 reports + 12 withdraws
+  const userOverheadGas = Number(rows.find(r => r.role === "User" && r.op === "zkStake.depositWith")?.gas ?? 0n) * (1/365) * 365
+                       + Number(rows.find(r => r.role === "User" && r.op === "zkStake.requestWithdrawal")?.gas ?? 0n) * (1/365) * 365
+                       + Number(rows.find(r => r.role === "User" && r.op === "reportPage (reason 1)")?.gas ?? 0n) * (1/30) * 365
+                       + Number(rows.find(r => r.role === "User" && r.op === "vault.withdrawUser")?.gas ?? 0n) * (1/30) * 365;
+
+  const impsPerYr = 3650;
+
+  const cadences: Array<{ label: string; batchesPerYr: number }> = [
+    { label: "Daily",       batchesPerYr: 365 },
+    { label: "Weekly",      batchesPerYr: 52 },
+    { label: "Bi-weekly",   batchesPerYr: 26 },
+    { label: "Monthly",     batchesPerYr: 12 },
+    { label: "Quarterly",   batchesPerYr: 4 },
+    { label: "Yearly",      batchesPerYr: 1 },
+  ];
+
+  out.push(`| Cadence | Settles/yr | Settle gas/yr | User overhead gas/yr | Total gas/yr | Min CPM @ 1 gwei | Min CPM @ 5 gwei | Min CPM @ 50 gwei |`);
+  out.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
+  for (const c of cadences) {
+    // Each settle is 1 claim × eventCount imps. We measured gas1 with eventCount=100; gas is roughly fixed
+    // regardless of eventCount (just bigger numbers, same storage writes), so use gas1 per settle.
+    const settleGasYr = gas1 * c.batchesPerYr;
+    const totalGas = settleGasYr + userOverheadGas;
+    const cells = GAS_PRICE_SCENARIOS.map(s => {
+      const annualFeeDOT = totalGas * s.gwei * 1e-9;
+      // Break-even: 0.375 × CPM × (impsPerYr/1000) = annualFeeDOT
+      // CPM = annualFeeDOT / (0.375 × impsPerYr / 1000) = annualFeeDOT × 1000 / (0.375 × impsPerYr)
+      const minCPM = annualFeeDOT * 1000 / (0.375 * impsPerYr);
+      return minCPM.toExponential(2);
+    });
+    out.push(`| ${c.label} | ${c.batchesPerYr} | ${Math.round(settleGasYr).toLocaleString()} | ${Math.round(userOverheadGas).toLocaleString()} | ${Math.round(totalGas).toLocaleString()} | ${cells[0]} | ${cells[1]} | ${cells[2]} |`);
+  }
+  out.push("");
+
+  out.push(`### Sensitivity to user traffic\n`);
+  out.push(`At 5 gwei (Hub conservative), monthly batching, with **N impressions/year per user**:\n`);
+  out.push(`| Imps/yr | Min CPM | Annual user fee | Annual user revenue (at min CPM) |`);
+  out.push(`|---:|---:|---:|---:|`);
+  for (const impsYr of [365, 1000, 3650, 10000, 36500, 100000]) {
+    const settleGasYr = gas1 * 12;
+    const totalGas = settleGasYr + userOverheadGas;
+    const annualFeeDOT = totalGas * 5 * 1e-9;
+    const minCPM = annualFeeDOT * 1000 / (0.375 * impsYr);
+    const revenueAtMin = 0.375 * minCPM * impsYr / 1000;
+    out.push(`| ${impsYr.toLocaleString()} | ${minCPM.toExponential(2)} | ${annualFeeDOT.toExponential(2)} | ${revenueAtMin.toExponential(2)} |`);
+  }
+  out.push("");
+
+  out.push(`### What "viable for all" looks like\n`);
+  out.push(`Each party's economics at 5 gwei, **monthly user-batching cadence, 3,650 imps/user/yr**:\n`);
+  const monthlySettleGas = gas1 * 12;
+  const userAnnualGas = monthlySettleGas + userOverheadGas;
+  const userAnnualFee = userAnnualGas * 5e-9;
+  const userMinCPM = userAnnualFee * 1000 / (0.375 * impsPerYr);
+
+  // Publisher: aggregate across many users. Assume 100 users/publisher, 365 imps/user/yr settled = 36,500 imps/yr
+  const pubActiveGas = tierGasFor("Publisher", PUBLISHER_TIERS, "Active");
+  const pubAnnualFee = pubActiveGas * 5e-9;
+  const pubImpsYr = 100 * impsPerYr;       // 100-user publisher
+  const pubMinCPM = pubAnnualFee * 1000 / (0.5 * pubImpsYr);
+
+  // Advertiser: pays full CPM. Fees are setup, not per-imp. Their viability is ROI on the ad.
+  const advRegularGas = tierGasFor("Advertiser", ADVERTISER_TIERS, "Regular");
+  const advAnnualFee = advRegularGas * 5e-9;
+
+  out.push(`| Party | Assumptions | Annual fee (DOT) | Min CPM to break even (DOT) |`);
+  out.push(`|---|---|---:|---:|`);
+  out.push(`| User | Monthly settle, 3,650 imps/yr | ${userAnnualFee.toExponential(2)} | ${userMinCPM.toExponential(2)} |`);
+  out.push(`| Publisher (Active) | 100 users × 3,650 imps/yr = 365k imps/yr | ${pubAnnualFee.toExponential(2)} | ${pubMinCPM.toExponential(2)} |`);
+  out.push(`| Advertiser (Regular) | Fees independent of imps; need ROI > CPM | ${advAnnualFee.toExponential(2)} | n/a (volume-independent) |`);
+  out.push(`| Relay (Standard) | If used; otherwise users self-settle | ${(roleAnnual_DOT("Relay")).toExponential(2)} | n/a (operator margin model) |`);
+  out.push("");
+
+  out.push(`**Headline:** at conservative Hub pricing with monthly user-batching, the binding`);
+  out.push(`constraint is the user side. Minimum CPM for a user receiving 3,650 imps/year to`);
+  out.push(`break even on fees alone is **${userMinCPM.toExponential(2)} DOT** per 1,000 impressions.`);
+  out.push(`Above that, every party in the chain is net-positive on fees alone (revenue redistribution`);
+  out.push(`and DATUM rewards are upside on top).\n`);
+
+  // Combined network economy view ───────────────────────────────────────────
   return out.join("\n");
 }
 
