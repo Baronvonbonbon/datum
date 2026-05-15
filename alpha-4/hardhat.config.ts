@@ -25,6 +25,19 @@ const config: HardhatUserConfig = {
       // 24KB cap, so we relax it locally; production deploys still measure
       // bytecode size via the gas benchmark in scripts/benchmark-gas.ts.
       allowUnlimitedContractSize: true,
+      // deploy.ts hardcodes gasLimit: 500_000_000n for the Paseo workaround;
+      // raise the block cap so `npx hardhat node` accepts those txs locally.
+      blockGasLimit: 1_000_000_000,
+    },
+    localhost: {
+      // Local hardhat node for end-to-end deploy testing.
+      url: "http://127.0.0.1:8545",
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [
+            process.env.DEPLOYER_PRIVATE_KEY,
+            ...(process.env.LOCALHOST_ACCOUNTS ?? "").split(",").filter(Boolean),
+          ]
+        : [],
     },
     polkadotTestnet: {
       // Paseo testnet — EVM bytecode on pallet-revive

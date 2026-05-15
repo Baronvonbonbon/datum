@@ -135,6 +135,7 @@ const PUB_GOV_QUORUM = parseDOT("100");              // 100 DOT conviction-weigh
 const PUB_GOV_SLASH_BPS = 5000n;                     // 50% slash of publisher stake on fraud upheld
 const PUB_GOV_BOND_BONUS_BPS = 2000n;                // 20% of slash forwarded to ChallengeBonds pool
 const PUB_GOV_GRACE_BLOCKS = 14400n;                 // ~24h grace period after first nay vote
+const PUB_GOV_PROPOSE_BOND = parseDOT("1");          // 1 DOT bond to open a fraud proposal
 
 // T1-B parameter governance deployment parameters
 const PARAM_GOV_VOTING_PERIOD = 50400n;              // ~7d at 6s/block
@@ -240,6 +241,14 @@ async function main() {
   const balance = await rawProvider.getBalance(deployer.address);
   console.log("Deployer balance:", balance.toString(), "planck");
 
+  // Paseo's eth-rpc uses pallet-revive weight units, so deploy.ts pins very
+  // high gasLimit/gasPrice values to make sure any tx fits. On a plain EVM
+  // node (hardhat local) those numbers trip the per-tx gas cap, so dial
+  // them back when off Paseo.
+  const isPaseo = network.name === "polkadotTestnet";
+  const TX_GAS_LIMIT = isPaseo ? 500000000n : 15000000n;
+  const TX_GAS_PRICE = isPaseo ? 1000000000000n : 1000000000n;
+
   // Load existing addresses for re-run safety (B2)
   let addresses: Record<string, string> = {};
   if (fs.existsSync(ADDR_FILE)) {
@@ -284,9 +293,9 @@ async function main() {
     // Send via raw provider (bypasses hardhat-polkadot receipt wait)
     const tx = await deployer.sendTransaction({
       data: deployTx.data,
-      gasLimit: 500000000n,
+      gasLimit: TX_GAS_LIMIT,
       type: 0,
-      gasPrice: 1000000000000n,
+      gasPrice: TX_GAS_PRICE,
     });
     console.log(`  ${contractName}: tx ${tx.hash} (nonce ${nonce})`);
 
@@ -321,9 +330,9 @@ async function main() {
     const tx = await deployer.sendTransaction({
       to: contractAddr,
       data,
-      gasLimit: 500000000n,
+      gasLimit: TX_GAS_LIMIT,
       type: 0,
-      gasPrice: 1000000000000n,
+      gasPrice: TX_GAS_PRICE,
     });
     await waitForNonce(rawProvider, deployer.address, nonce);
   }
@@ -510,6 +519,7 @@ async function main() {
       PUB_GOV_SLASH_BPS,
       PUB_GOV_BOND_BONUS_BPS,
       PUB_GOV_GRACE_BLOCKS,
+      PUB_GOV_PROPOSE_BOND,
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumPublisherGovernance — ${err}`);
@@ -547,12 +557,30 @@ async function main() {
 
   try {
     logStep("Deploying DatumCouncil (Phase 1: N-of-M trusted council)");
-    // Testnet: deployer is the sole initial council member. Threshold = 1.
-    // Production: pass a list of Gnosis Safe / hardware wallet addresses.
+    // Council enforces ≥3 distinct members, threshold ≥2, guardian must
+    // not be a member. For local hardhat runs, use the next-three hardhat
+    // default accounts as members + a fourth as guardian; for Paseo, use
+    // the deployer + 2 deterministic placeholders to satisfy the floor
+    // until real Gnosis Safe / hardware wallet addresses are wired in.
+    const councilMembers: string[] = isPaseo
+      ? [
+          deployer.address,
+          "0x1111111111111111111111111111111111111111",
+          "0x2222222222222222222222222222222222222222",
+        ]
+      : [
+          // hardhat node accounts 1–3 (well-known mnemonic)
+          "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+          "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+        ];
+    const councilGuardian = isPaseo
+      ? "0x3333333333333333333333333333333333333333"
+      : "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"; // hardhat account 4
     await deployOrReuse("council", "DatumCouncil", [
-      [deployer.address],            // initialMembers
-      COUNCIL_THRESHOLD,
-      deployer.address,              // guardian (deployer can veto during alpha)
+      councilMembers,
+      2n,                             // threshold = 2-of-3 (MIN_THRESHOLD)
+      councilGuardian,
       COUNCIL_VOTING_PERIOD,
       COUNCIL_EXECUTION_DELAY,
       COUNCIL_VETO_WINDOW,
