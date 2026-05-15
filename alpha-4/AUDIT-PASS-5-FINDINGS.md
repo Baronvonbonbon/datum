@@ -35,44 +35,93 @@ Severity rubric:
 
 | Contract | Status | Findings |
 |---|---|---|
-| DatumOwnable | _pending_ | |
-| DatumPauseRegistry | _pending_ | |
-| DatumTimelock | _pending_ | |
-| DatumZKVerifier | _pending_ | |
-| PaseoSafeSender | _pending_ | |
-| DatumPublishers | _pending_ | |
-| DatumBudgetLedger | _pending_ | |
-| DatumPaymentVault | _pending_ | |
-| DatumCampaigns | _pending_ | |
-| DatumCampaignLifecycle | _pending_ | |
-| DatumSettlement | _pending_ | |
-| DatumClaimValidator | _pending_ | |
-| DatumGovernanceV2 | _pending_ | |
-| DatumRelay | _pending_ | |
-| DatumAttestationVerifier | _pending_ | |
-| DatumTokenRewardVault | _pending_ | |
-| DatumPublisherStake | _pending_ | |
-| DatumChallengeBonds | _pending_ | |
-| DatumPublisherGovernance | _pending_ | |
-| DatumAdvertiserGovernance | _pending_ | |
-| DatumAdvertiserStake | _pending_ | |
-| DatumParameterGovernance | _pending_ | |
-| DatumGovernanceRouter | _pending_ | |
-| DatumCouncil | _pending_ | |
-| DatumCouncilBlocklistCurator | _pending_ | |
-| DatumClickRegistry | _pending_ | |
-| DatumTagCurator | _pending_ | |
-| DatumTagRegistry | _pending_ | |
-| DatumActivationBonds | _pending_ | |
-| DatumStakeRootV2 | _pending_ | |
-| DatumIdentityVerifier | _pending_ | |
-| DatumInterestCommitments | _pending_ | |
-| DatumZKStake | _pending_ | |
-| DatumStakeRoot (V1) | _pending_ | |
+| DatumActivationBonds | **reviewed** | H1, H2, M1, M3, L1, L3 (3 HIGH fixed) |
+| DatumStakeRootV2 | **reviewed** | H3, L3, L4, L5 (1 HIGH fixed) |
+| DatumIdentityVerifier | **reviewed** | (covered with V2) |
+| DatumGovernanceV2 | _next_ | commit-reveal additions are highest-priority remaining |
+| DatumTagRegistry | _pending_ | Schelling jury + bonds + expiry GC |
+| DatumCampaigns | _pending_ | caps refactor + batch entrypoints; pre-existing surface |
+| DatumChallengeBonds | _pending_ | maxBondedPublishers refactor; pre-existing surface |
+| DatumPublishers | _pending_ | setAllowedAdvertisers batch + tag mode |
+| DatumCouncil | _pending_ | addMembers/removeMembers batch |
+| DatumSettlement | _pending_ | maxBatchSize refactor; pre-existing surface |
+| DatumRelay | _pending_ | maxBatchSize refactor |
+| DatumClaimValidator | _pending_ | stakeRoot2 + activationBonds wiring |
+| DatumStakeRoot (V1) | _pending_ | deprecation flag added; mostly pre-existing |
+| DatumCampaignLifecycle | _pending_ | pre-existing surface |
+| DatumPaymentVault | _pending_ | pre-existing surface |
+| DatumBudgetLedger | _pending_ | pre-existing surface |
+| DatumGovernanceRouter | _pending_ | pre-existing surface |
+| DatumTimelock | _pending_ | pre-existing surface |
+| DatumPauseRegistry | _pending_ | pre-existing surface |
+| DatumZKVerifier | _pending_ | pre-existing surface |
+| DatumPublisherStake | _pending_ | pre-existing surface |
+| DatumPublisherGovernance | _pending_ | pre-existing surface |
+| DatumAdvertiserGovernance | _pending_ | pre-existing surface |
+| DatumAdvertiserStake | _pending_ | pre-existing surface |
+| DatumParameterGovernance | _pending_ | pre-existing surface |
+| DatumCouncilBlocklistCurator | _pending_ | pre-existing surface |
+| DatumClickRegistry | _pending_ | pre-existing surface |
+| DatumTagCurator | _pending_ | pre-existing surface |
+| DatumTokenRewardVault | _pending_ | pre-existing surface |
+| DatumAttestationVerifier | _pending_ | pre-existing surface |
+| DatumInterestCommitments | _pending_ | pre-existing surface |
+| DatumZKStake | _pending_ | pre-existing surface |
+| PaseoSafeSender | _pending_ | base utility |
+| DatumOwnable | _pending_ | base utility |
 | MockCampaigns | _NA_ | test-only |
 | Mock* (other) | _NA_ | test-only |
 
-Status values: _pending_, _reviewed_, _findings_ (number), _NA_.
+Status values: _pending_, **reviewed**, _next_, _NA_.
+
+## Resume point for next session
+
+Last commit: `7294243` (Audit pass 5 — kickoff + H1/H2/H3 fixes).
+
+**Start here:** `DatumGovernanceV2` commit-reveal additions
+(`commitVote` / `revealVote` / `sweepUnrevealed` / `CommitRevealWindow`
+struct). This is the highest-risk remaining contract because:
+1. It touches voting state which has economic value
+2. The commit-reveal mechanism is novel for this codebase
+3. Non-revealer slashing has potential griefing dynamics worth probing
+
+**Specific checks for GovernanceV2 commit-reveal:**
+- `commitVote` requires `activationBonds.isContested(cid)`. What happens
+  if activationBonds setter is later changed (it's lock-once on
+  GovernanceV2, but verify) or if isContested view reverts?
+- `revealVote` hash binding — verify `_hashCommit(cid, voter, aye, conviction, salt)`
+  uses ALL fields. Any missing field would let a voter reveal differently.
+- `sweepUnrevealed` reads `v.lockAmount`. Verify it's zero-out-before-
+  use (it is — see line 547-548). Verify no reentrancy via `slashCollected`.
+- `evaluateCampaign` gating: `if (w.opened) require(block.number > w.revealDeadline)`.
+  If a campaign is contested but no one commits (window.opened stays false),
+  what happens? Probably stuck Pending forever until someone commits or
+  challenge bond expires.
+- Window lazy-open: race between two voters committing in same block.
+  Only first opens the window; second's commitDeadline check uses the
+  same window. Safe.
+
+**Then proceed in this order:**
+1. DatumTagRegistry (most novel contract after GovernanceV2)
+2. DatumCampaigns (largest pre-existing surface; new caps + addAllowedPublishers batch)
+3. DatumChallengeBonds (touched by caps refactor)
+4. DatumPublishers (touched by batch + tag mode additions)
+5. DatumCouncil (touched by addMembers/removeMembers batch)
+6. DatumSettlement (huge surface; rate-limiter + ZK paths + multi-batch)
+7. Remaining pre-existing contracts (likely-clean re-pass)
+
+## Methodology reminder (for next session)
+
+For each contract:
+1. Identify external/public function surface
+2. Walk every external state mutation for: access control, reentrancy,
+   math overflow, ETH/token flow accounting, lock-once consistency
+3. Cross-reference against caller graph (who can reach this state?)
+4. Compare against documented invariants
+5. Note any drift from prior audit-pass conclusions
+6. For HIGH/CRITICAL findings: fix + regression test in the same
+   commit. For MEDIUM: fix if quick; note if not. For LOW/INFO:
+   document only.
 
 # Findings
 
