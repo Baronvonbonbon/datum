@@ -1187,6 +1187,110 @@ function emitMarkdown(): string {
   out.push(`above the user-side floor. Campaigns with VPI < $0.0001/imp (pure brand-awareness on`);
   out.push(`small audiences) struggle; everyone else has comfortable margins.\n`);
 
+  // ─── DOT/USD price sensitivity ──────────────────────────────────────────
+  out.push(`### DOT/USD price sensitivity\n`);
+  out.push(`All previous numbers are DOT-denominated at a baseline of $5/DOT for the USD-side`);
+  out.push(`narrative. Gas prices on the chain are denominated in gwei (1e-9 DOT), so as DOT`);
+  out.push(`price moves, the DOT-denominated costs stay constant but USD costs scale linearly.`);
+  out.push(`Below: headline economics at common DOT price points. **Gas-market repricing is not`);
+  out.push(`modelled** — in reality, a long-term DOT spike would likely see the network reprice`);
+  out.push(`gas downward to keep real-world fees stable.\n`);
+
+  const DOT_PRICES = [1, 2, 5, 10, 20, 50, 100];
+
+  // 1. User min CPM
+  out.push(`**1. User minimum CPM (monthly batching, 3,650 imps/yr, 5 gwei)** — constant in DOT, varies in USD:\n`);
+  out.push(`| DOT price | User min CPM (DOT) | User min CPM (USD) | $/1k imps |`);
+  out.push(`|---:|---:|---:|---:|`);
+  for (const p of DOT_PRICES) {
+    out.push(`| $${p} | ${userMinCPM.toFixed(4)} | $${(userMinCPM * p).toFixed(4)} | $${(userMinCPM * p).toFixed(4)} |`);
+  }
+  out.push("");
+
+  // 2. Advertiser max CPM at programmatic-display VPI ($0.001/imp)
+  out.push(`**2. Advertiser max CPM at programmatic-display VPI ($0.001/imp), 10k-imp campaign:**\n`);
+  out.push(`Note: VPI is USD-denominated (advertiser's value per impression doesn't depend on DOT`);
+  out.push(`price). Max CPM in DOT depends on VPI ÷ DOT_price. Bigger DOT = lower max CPM in DOT,`);
+  out.push(`but USD compensation stays constant.\n`);
+  out.push(`| DOT price | VPI (DOT/imp) | Max CPM (DOT) | Max CPM (USD) | Viability margin vs user floor (DOT) |`);
+  out.push(`|---:|---:|---:|---:|---:|`);
+  const programmaticVPI_USD = 0.001;
+  const campaignSize10k = 10_000;
+  const setupPerKimp10k = setupDOT * 1000 / campaignSize10k;
+  for (const p of DOT_PRICES) {
+    const vpiDOT = programmaticVPI_USD / p;
+    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimp10k;
+    const margin = maxCPM_DOT - userMinCPM;
+    const marginCell = margin > 0 ? `${margin.toFixed(4)} (${(maxCPM_DOT/userMinCPM).toFixed(1)}×)` : "**no market**";
+    out.push(`| $${p} | ${vpiDOT.toExponential(2)} | ${maxCPM_DOT.toFixed(4)} | $${(maxCPM_DOT * p).toFixed(4)} | ${marginCell} |`);
+  }
+  out.push("");
+  out.push(`At **$50+/DOT** with no gas-market repricing, programmatic display starts to fail to`);
+  out.push(`clear the user-side floor — gas costs (constant in DOT) consume the entire VPI in USD terms.`);
+  out.push(`Either the chain reprices gas (validators lower base fee) or higher-VPI campaigns dominate.\n`);
+
+  // 3. Network annual fee burn in USD
+  out.push(`**3. Network annual fee burn — USD across DOT prices (5 gwei, conservative Hub):**\n`);
+  out.push(`Same DOT figures from the Combined-network-economy section, multiplied by DOT price.\n`);
+  const networkScenarios: Array<{ label: string; dotTotal: number }> = [
+    { label: "Small (community)",   dotTotal: 68.45    },
+    { label: "Medium (growth)",     dotTotal: 301.72   },
+    { label: "Large (at-scale)",    dotTotal: 10549.85 },
+  ];
+  out.push(`| Network | DOT/yr | ${DOT_PRICES.map(p => `$${p}/DOT`).join(" | ")} |`);
+  out.push(`|---|---:|${DOT_PRICES.map(() => "---:").join("|")}|`);
+  for (const s of networkScenarios) {
+    const cells = DOT_PRICES.map(p => `$${(s.dotTotal * p).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+    out.push(`| ${s.label} | ${s.dotTotal.toFixed(0)} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
+  out.push(`At million-user scale, network gas spend ranges from **~$10k/year** (at $1 DOT) to`);
+  out.push(`**~$1M/year** (at $100 DOT) before any gas-market repricing. The 100× spread is the`);
+  out.push(`scenario uncertainty operators should plan around.\n`);
+
+  // 4. DATUM crossover threshold + emission cost
+  out.push(`**4. DATUM crossover-subsidy emission cost in USD:**\n`);
+  out.push(`Total DATUM emission required to fully cover user gas via subsidy alone, valued in USD:\n`);
+  out.push(`| Users | DATUM emission (DOT-eq/yr) | ${DOT_PRICES.map(p => `$${p}/DOT`).join(" | ")} |`);
+  out.push(`|---:|---:|${DOT_PRICES.map(() => "---:").join("|")}|`);
+  for (const n of [10_000, 100_000, 1_000_000]) {
+    const emission = n * impsPerYr * crossoverPerImp;
+    const cells = DOT_PRICES.map(p => `$${(emission * p).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+    out.push(`| ${n.toLocaleString()} | ${emission.toFixed(0)} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
+  out.push(`The protocol's DATUM emission policy must scale with DOT price if it wants to keep`);
+  out.push(`real-world subsidy purchasing power constant. Alternatively, peg the DATUM-per-imp`);
+  out.push(`reward to a USD value (re-priced via oracle), which automates this.\n`);
+
+  // 5. Minimum viable campaign size in USD
+  out.push(`**5. Minimum viable campaign size in USD:**\n`);
+  out.push(`Setup gas (~${setupGasAdv.toLocaleString()} gas = ${setupDOT.toFixed(5)} DOT at 5 gwei) translated to`);
+  out.push(`minimum advertiser budget at $1 CPM (where overhead is ≤ 5% of CPM):\n`);
+  out.push(`| DOT price | Setup (USD) | Min campaign budget at $1 CPM | Min budget at $0.10 CPM |`);
+  out.push(`|---:|---:|---:|---:|`);
+  for (const p of DOT_PRICES) {
+    const setupUSD = setupDOT * p;
+    // Min imps where setup ≤ 5% of CPM (at $1 CPM USD): setup_USD × 1000 / imps ≤ 0.05 × 1
+    // → imps ≥ setup_USD × 1000 / 0.05 = setup_USD × 20000
+    // → budget = imps × 1USD/1000 = setup_USD × 20
+    const minBudget_1CPM = setupUSD * 20;
+    const minBudget_10cents = setupUSD * 200;
+    out.push(`| $${p} | $${setupUSD.toFixed(5)} | $${minBudget_1CPM.toFixed(2)} | $${minBudget_10cents.toFixed(2)} |`);
+  }
+  out.push("");
+  out.push(`Setup overhead scales linearly with DOT price. At $100/DOT, even tiny campaigns ($66 budget`);
+  out.push(`at $1 CPM) clear the overhead threshold — at $1/DOT it's well under a dollar.\n`);
+
+  out.push(`### DOT-price decision summary\n`);
+  out.push(`- **$1–$5/DOT** (current): all campaign types viable, generous margins everywhere.`);
+  out.push(`- **$10–$20/DOT**: programmatic display still clears with 1–3× margin; brand awareness`);
+  out.push(`  remains uneconomical; everything direct-response and above is comfortable.`);
+  out.push(`- **$50+/DOT** (bull case, no gas repricing): programmatic display crowds out, only`);
+  out.push(`  retargeting+ stays viable. This is the regime where the gas-market would need to`);
+  out.push(`  reprice (validators set lower base fee) OR a Hub upgrade lowers fees.`);
+  out.push(`- **DATUM peg to USD** is recommended early — auto-rebases the subsidy as DOT moves.\n`);
+
   // ─── Practical implications / interpretation ─────────────────────────────
   out.push(`## Interpretation\n`);
 
