@@ -1,4 +1,4 @@
-// deploy.ts — Full 25-contract Alpha-4 deployment + wiring + ownership transfer
+// deploy.ts — Full 26-contract Alpha-4 deployment + wiring + ownership transfer
 //
 // Alpha-4 consolidation: 9 satellite contracts merged into parents (29 → 20):
 //   GovernanceHelper + GovernanceSlash → GovernanceV2
@@ -18,10 +18,13 @@
 //                                Active campaigns)
 //
 // Path A oracle (2026-05-14):
-//   - DatumStakeRootV2          (permissionless bonded reporter set + phantom-
-//                                leaf fraud proof; replaces V1's owner-managed
-//                                N-of-M trusted set; V1 retained as fallback
-//                                during migration)
+//   - DatumStakeRoot V1         (PRIMARY: owner-managed N-of-M reporter set;
+//                                production oracle for current phase)
+//   - DatumStakeRootV2          (SHADOW: permissionless bonded reporter set
+//                                + phantom-leaf fraud proof; runs in parallel
+//                                but NOT wired into ClaimValidator until
+//                                STAKE_ROOT_V2_SHADOW_MODE is flipped to
+//                                false. See stakeroot-shadow-mode.md.)
 //
 // Governance ladder (Phase 0 → 2):
 //   - DatumGovernanceRouter     (stable proxy with inline admin functions)
@@ -107,7 +110,9 @@ const REQUIRED_KEYS = [
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
   "activationBonds",
-  // Permissionless bonded StakeRoot V2 (Path A oracle, 2026-05-14)
+  // Path A oracle — V1 (PRIMARY, owner-managed N-of-M reporter set)
+  "stakeRoot",
+  // Path A oracle — V2 (SHADOW, permissionless bonded reporter set, 2026-05-14)
   "stakeRootV2",
   // ZK identity verifier (enables balance-fraud challenges on V2)
   "identityVerifier",
@@ -159,6 +164,19 @@ const ACTIVATION_TREASURY_BPS = 0n;                  // 0% to treasury (start co
 // re-applied here for clarity and to allow per-deploy overrides).
 const GOV_COMMIT_BLOCKS = 14400n;                    // ~24h commit window
 const GOV_REVEAL_BLOCKS = 14400n;                    // ~24h reveal window
+
+// DatumStakeRoot — V1 (PRIMARY ORACLE in production). Owner-managed
+// N-of-M reporter set. Simple, well-understood; matches the production
+// oracle pattern (Chainlink/Pyth/etc.). Reporter set is bootstrapped
+// in setup-testnet.ts; mainnet adds external parties before launch.
+const SR_V1_THRESHOLD = 1n;  // testnet: 1-of-1 (deployer). Mainnet: 3-of-5.
+
+// SHADOW MODE: when true, ClaimValidator.setStakeRoot2 is NOT wired,
+// so V2-committed roots are NOT accepted by claim validation. V2 still
+// runs in parallel for divergence monitoring + cypherpunk-runway
+// preparation. Flip to false to promote V2 to dual-source.
+// See narrative-analysis/stakeroot-shadow-mode.md.
+const STAKE_ROOT_V2_SHADOW_MODE = true;
 
 // DatumStakeRootV2 — permissionless bonded reporter set (Path A oracle).
 // Off-chain tree builder commits roots; phantom-leaf fraud catchable by
@@ -578,7 +596,18 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumActivationBonds — ${err}`);
   }
 
-  // --- DatumStakeRootV2: 23rd contract (Path A oracle, permissionless) ---
+  // --- DatumStakeRoot V1: PRIMARY Path A oracle (owner-managed N-of-M) ---
+  // Production oracle for current deployment phase. Simpler, smaller code
+  // surface, matches mainstream oracle topology. Reporter set bootstrapped
+  // in setup-testnet.ts.
+  try {
+    logStep("Deploying DatumStakeRoot V1 (primary Path A oracle, owner-managed reporter set)");
+    await deployOrReuse("stakeRoot", "DatumStakeRoot", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumStakeRoot — ${err}`);
+  }
+
+  // --- DatumStakeRootV2: 24th contract (Path A oracle, permissionless) ---
   // datumToken is wired as address(0) for testnet — no DATUM ERC20 deployed
   // on testnet yet. Balance-fraud challenges revert E00 until the token is
   // wired post-deploy via a redeploy with the real address.
@@ -612,7 +641,7 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumIdentityVerifier — ${err}`);
   }
 
-  console.log("\n=== All 25 contracts deployed ===\n");
+  console.log("\n=== All 26 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -756,16 +785,63 @@ async function main() {
     addresses.zkVerifier,
   );
 
-  // ── ClaimValidator.setStakeRoot2(stakeRootV2) — Path A oracle ──
-  // Plumbing-gated, not per-call lock-once. Stays in soft wiring so a
-  // future v3 stake-root can swap it in without redeploying ClaimValidator
-  // (provided plumbing isn't locked yet).
+  // ── ClaimValidator.setStakeRoot(stakeRoot) — V1 PRIMARY oracle ──
+  // Settable by owner pre-plumbing-lock; production oracle for the
+  // current deployment phase.
   await wireIfNeeded(
-    "ClaimValidator.stakeRoot2",
+    "ClaimValidator.stakeRoot",
     "DatumClaimValidator", addresses.claimValidator,
-    "stakeRoot2", "setStakeRoot2",
-    addresses.stakeRootV2,
+    "stakeRoot", "setStakeRoot",
+    addresses.stakeRoot,
   );
+
+  // ── ClaimValidator.setStakeRoot2(stakeRootV2) — V2 SECONDARY oracle ──
+  // Wired only when STAKE_ROOT_V2_SHADOW_MODE is false (V2 promoted to
+  // dual-source). In shadow mode, V2 still produces roots but proofs
+  // against V2 roots are NOT accepted by claim validation — V2 runs
+  // for divergence monitoring only. See stakeroot-shadow-mode.md.
+  if (!STAKE_ROOT_V2_SHADOW_MODE) {
+    await wireIfNeeded(
+      "ClaimValidator.stakeRoot2",
+      "DatumClaimValidator", addresses.claimValidator,
+      "stakeRoot2", "setStakeRoot2",
+      addresses.stakeRootV2,
+    );
+  } else {
+    console.log("  SKIP: ClaimValidator.stakeRoot2 wiring — V2 is in SHADOW MODE");
+    console.log("        Flip STAKE_ROOT_V2_SHADOW_MODE = false in deploy.ts to promote.");
+  }
+
+  // ── V1 StakeRoot reporter bootstrap ──
+  // For testnet: deployer is the sole reporter, threshold = 1. Mainnet
+  // adds external parties via addReporter before launch, then setThreshold
+  // to a real N-of-M (e.g., 3-of-5).
+  {
+    const v1Iface = new ethers.Interface([
+      "function isReporter(address) view returns (bool)",
+      "function threshold() view returns (uint256)",
+      "function addReporter(address)",
+      "function setThreshold(uint256)",
+    ]);
+    const alreadyReporter = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
+      await rawProvider.call({ to: addresses.stakeRoot, data: v1Iface.encodeFunctionData("isReporter", [deployer.address]) })
+    )[0];
+    if (alreadyReporter) {
+      console.log(`  OK (already set): StakeRoot.isReporter[deployer]`);
+    } else {
+      await sendCall(addresses.stakeRoot, ["function addReporter(address)"], "addReporter", [deployer.address]);
+      console.log(`  SET: StakeRoot.addReporter(${deployer.address})`);
+    }
+    const curThreshold = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"],
+      await rawProvider.call({ to: addresses.stakeRoot, data: v1Iface.encodeFunctionData("threshold") })
+    )[0] as bigint;
+    if (curThreshold === SR_V1_THRESHOLD) {
+      console.log(`  OK (already set): StakeRoot.threshold = ${SR_V1_THRESHOLD}`);
+    } else {
+      await sendCall(addresses.stakeRoot, ["function setThreshold(uint256)"], "setThreshold", [SR_V1_THRESHOLD]);
+      console.log(`  SET: StakeRoot.setThreshold(${SR_V1_THRESHOLD})`);
+    }
+  }
 
   // ── StakeRootV2.setIdentityVerifier(identityVerifier) ──
   // Plumbing-gated (StakeRootV2.lockPlumbing finalises). Allows operator
