@@ -1022,6 +1022,81 @@ function emitMarkdown(): string {
   out.push(`Above that, every party in the chain is net-positive on fees alone (revenue redistribution`);
   out.push(`and DATUM rewards are upside on top).\n`);
 
+  // ─── DATUM token reward subsidy ─────────────────────────────────────────
+  out.push(`### DATUM token reward subsidy\n`);
+  out.push(`Campaigns may pay a per-impression DATUM token reward on top of the DOT split`);
+  out.push(`(via \`DatumTokenRewardVault\`). The reward credits the user pull-payment style`);
+  out.push(`and is non-critical — it doesn't revert settlement if the token budget runs out.`);
+  out.push(`Modelling reward-per-impression in **DOT-equivalent** (i.e., reward × DATUM/DOT spot price):\n`);
+
+  out.push(`User's revised break-even condition:`);
+  out.push(`\`0.375 × CPM_DOT + reward_per_imp_DOT × 1000 ≥ annual_gas_DOT / (imps_yr / 1000)\``);
+  out.push("");
+  out.push(`Solving for CPM with a DATUM reward subsidy at 5 gwei, 3,650 imps/user/yr, monthly batching:\n`);
+
+  const gasPerKimp = (gas1 * 12 + userOverheadGas) * 5e-9 * 1000 / impsPerYr; // DOT/1000 imps user must net
+  // reward_per_imp_DOT in DOT
+  const rewardLevels = [
+    { label: "0",       perImp: 0           },
+    { label: "1e-9",    perImp: 1e-9        },  // 1 nDOT/imp = 1e-6 DOT/kimp
+    { label: "1e-8",    perImp: 1e-8        },  // 10 nDOT/imp = 1e-5 DOT/kimp
+    { label: "1e-7",    perImp: 1e-7        },  // ~equal to gas at high volume
+    { label: "1e-6",    perImp: 1e-6        },  // 1 µDOT/imp = 0.001 DOT/kimp
+    { label: "1e-5",    perImp: 1e-5        },  // covers most user fees
+    { label: "1e-4",    perImp: 1e-4        },  // 100 µDOT/imp = 0.1 DOT/kimp
+  ];
+
+  out.push(`| Reward (DOT-eq /imp) | Reward (DOT-eq /1000 imps) | User net per 1k imps from reward | Min DOT CPM to break even |`);
+  out.push(`|---|---:|---:|---:|`);
+  for (const r of rewardLevels) {
+    const rewardPerKimp = r.perImp * 1000;
+    const requiredDOTPerKimp = gasPerKimp - rewardPerKimp; // user share must cover this
+    const minCPM = requiredDOTPerKimp / 0.375;
+    const label = minCPM <= 0
+      ? "**0 (DATUM alone covers fees)**"
+      : minCPM.toExponential(2);
+    out.push(`| ${r.label} | ${rewardPerKimp.toExponential(2)} | ${rewardPerKimp.toExponential(2)} | ${label} |`);
+  }
+  out.push("");
+
+  // Find the crossover: DATUM reward level at which CPM_breakeven = 0
+  const crossoverPerImp = gasPerKimp / 1000;  // DOT/imp where reward fully covers
+  out.push(`**Crossover threshold:** at a DATUM reward of **${crossoverPerImp.toExponential(2)} DOT-equivalent`);
+  out.push(`per impression** (${(crossoverPerImp * 1000).toExponential(2)} per 1,000 imps), the DATUM payout alone covers`);
+  out.push(`the user's gas fees and the campaign can pay **any** DOT CPM — including zero — while keeping`);
+  out.push(`the user net-positive.\n`);
+
+  // Protocol-side cost of subsidy
+  out.push(`### Protocol-side emission cost of the subsidy\n`);
+  out.push(`Total DATUM-equivalent emitted per year at the crossover threshold, assuming each user`);
+  out.push(`receives 3,650 impressions/yr:\n`);
+  out.push(`| Users | Annual impressions | DATUM emission (DOT-eq) |`);
+  out.push(`|---:|---:|---:|`);
+  for (const n of [1_000, 10_000, 100_000, 1_000_000]) {
+    const totalImps = n * impsPerYr;
+    const emission = totalImps * crossoverPerImp;
+    out.push(`| ${n.toLocaleString()} | ${totalImps.toLocaleString()} | ${emission.toFixed(2)} |`);
+  }
+  out.push("");
+  out.push(`Interpretation: at 1M users the protocol would need to mint/distribute ~${(1_000_000 * impsPerYr * crossoverPerImp).toFixed(0)} DOT-equivalent`);
+  out.push(`worth of DATUM per year to fully cover user gas fees via subsidy alone — well within`);
+  out.push(`the bounds of a typical token-emission schedule (e.g., 1–5% of supply/yr at a `);
+  out.push(`$10M FDV token).\n`);
+
+  out.push(`### Combined revenue lens\n`);
+  out.push(`At conservative Hub pricing + monthly batching + 3,650 imps/user/yr, **total user`);
+  out.push(`compensation per 1,000 impressions** for net-positive economics:\n`);
+  out.push(`| Path | DOT side | DATUM side | Notes |`);
+  out.push(`|---|---|---|---|`);
+  out.push(`| Pure DOT (no DATUM reward) | ≥ ${userMinCPM.toFixed(3)} DOT CPM | — | Today's break-even floor |`);
+  out.push(`| Mixed (half each) | ≥ ${(userMinCPM / 2).toFixed(3)} DOT CPM | + ${(gasPerKimp / 2).toExponential(2)} DOT-eq/1k imps | Sustainable; small DATUM commitment |`);
+  out.push(`| Pure DATUM | 0 (free for advertisers) | ≥ ${gasPerKimp.toExponential(2)} DOT-eq/1k imps | Maximum user-acquisition mode |`);
+  out.push("");
+  out.push(`The economic design lever: campaigns that want to operate **below break-even in DOT**`);
+  out.push(`can backfill with DATUM token rewards. This unlocks loss-leader pricing, free trials,`);
+  out.push(`and the bootstrap-an-audience subsidy without changing contract logic — the lever is`);
+  out.push(`already plumbed via \`Campaigns.rewardToken\` + \`Campaigns.rewardPerImpression\`.\n`);
+
   // ─── Practical implications / interpretation ─────────────────────────────
   out.push(`## Interpretation\n`);
 
