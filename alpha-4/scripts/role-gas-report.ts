@@ -82,12 +82,12 @@ const FREQUENCY_ASSUMPTIONS: FrequencyAssumption[] = [
 // Per-user engagement tiers — what an end user spends in gas fees per year.
 // `ops` keys must match measurement labels exactly; daily is ops/day for that user.
 // ─────────────────────────────────────────────────────────────────────────────
-interface UserTier {
+interface ActorTier {
   label: string;
   description: string;
   ops: Record<string, number>;  // op -> daily frequency
 }
-const USER_TIERS: UserTier[] = [
+const USER_TIERS: ActorTier[] = [
   {
     label: "Minimal",
     description: "Signs up once, never reports, withdraws once per year.",
@@ -125,6 +125,84 @@ const USER_TIERS: UserTier[] = [
       "zkStake.requestWithdrawal": 1/14,
       "reportPage (reason 1)":   1,
       "vault.withdrawUser":      1/7,
+    },
+  },
+];
+
+const PUBLISHER_TIERS: ActorTier[] = [
+  {
+    label: "Hobbyist",
+    description: "Signs up once. Withdraws monthly. No further setup churn.",
+    ops: {
+      "registerPublisher":        1/365,
+      "vault.withdrawPublisher":  1/30,
+    },
+  },
+  {
+    label: "Casual",
+    description: "Signs up + quarterly relay-key rotation + monthly profile + monthly withdraw.",
+    ops: {
+      "registerPublisher":        1/365,
+      "setRelaySigner":           1/90,
+      "setProfile":               1/30,
+      "vault.withdrawPublisher":  1/30,
+    },
+  },
+  {
+    label: "Active",
+    description: "Monthly stake top-up, monthly key rotation + profile, weekly withdraw.",
+    ops: {
+      "registerPublisher":        1/365,
+      "setRelaySigner":           1/30,
+      "setProfile":               1/30,
+      "publisherStake.stake":     1/30,
+      "vault.withdrawPublisher":  1/7,
+    },
+  },
+  {
+    label: "Heavy",
+    description: "Weekly stake top-up, weekly profile, weekly key rotation, daily withdraw.",
+    ops: {
+      "registerPublisher":        1/365,
+      "setRelaySigner":           1/7,
+      "setProfile":               1/7,
+      "publisherStake.stake":     1/7,
+      "vault.withdrawPublisher":  1,
+    },
+  },
+];
+
+const ADVERTISER_TIERS: ActorTier[] = [
+  {
+    label: "Occasional",
+    description: "1 campaign per quarter; self-votes each.",
+    ops: {
+      "createCampaign":            4/365,
+      "vote (own campaign, aye)":  4/365,
+    },
+  },
+  {
+    label: "Regular",
+    description: "1 campaign per month + self-vote.",
+    ops: {
+      "createCampaign":            1/30,
+      "vote (own campaign, aye)":  1/30,
+    },
+  },
+  {
+    label: "Active",
+    description: "1 campaign per week + self-vote.",
+    ops: {
+      "createCampaign":            1/7,
+      "vote (own campaign, aye)":  1/7,
+    },
+  },
+  {
+    label: "Heavy",
+    description: "1 campaign per day + self-vote (e.g., automated programmatic buyer).",
+    ops: {
+      "createCampaign":            1,
+      "vote (own campaign, aye)":  1,
     },
   },
 ];
@@ -638,64 +716,144 @@ function emitMarkdown(): string {
     out.push("");
   }
 
-  // ─── Per-user fee burn (annual, by engagement tier) ───────────────────────
-  out.push(`## Per-user fee burn (annual)\n`);
-  out.push(`Annual transaction-fee cost (DOT/PAS) for a single end user across four`);
-  out.push(`engagement tiers. Excludes posted bonds, locked stake, and DATUM token movement —`);
-  out.push(`pure gas spend. Calculation: \`Σ ops × gas[op] × 365 × gas_price\`.\n`);
+  // ─── Per-actor fee burn sections ─────────────────────────────────────────
+  function emitActorSection(actorLabel: string, sectionTitle: string, lead: string, role: string, tiers: ActorTier[], aggregateBaselineTier: string) {
+    out.push(`## ${sectionTitle}\n`);
+    out.push(lead + "\n");
 
-  out.push(`### Tier definitions\n`);
-  out.push(`| Tier | Description | Onboard/yr | Reports/yr | Withdrawals/yr |`);
-  out.push(`|---|---|---:|---:|---:|`);
-  for (const t of USER_TIERS) {
-    const onboard = (t.ops["zkStake.depositWith"] ?? 0) * 365;
-    const reports = (t.ops["reportPage (reason 1)"] ?? 0) * 365;
-    const withdraws = (t.ops["vault.withdrawUser"] ?? 0) * 365;
-    out.push(`| ${t.label} | ${t.description} | ${onboard.toFixed(1)} | ${reports.toFixed(0)} | ${withdraws.toFixed(0)} |`);
-  }
-  out.push("");
-
-  // Compute gas for one user-year per tier
-  const userOpGas = new Map<string, bigint>();
-  for (const r of rows.filter(r => r.role === "User")) userOpGas.set(r.op, r.gas);
-
-  out.push(`### Annual gas per user (units)\n`);
-  out.push(`| Tier | Gas/user/year |`);
-  out.push(`|---|---:|`);
-  const tierGas = new Map<string, bigint>();
-  for (const t of USER_TIERS) {
-    let total = 0n;
-    for (const [op, daily] of Object.entries(t.ops)) {
-      const gas = userOpGas.get(op) ?? 0n;
-      // gas × daily × 365 — but daily is fractional, so use big-number-safe math via Number for the multiplier
-      total += BigInt(Math.round(Number(gas) * daily * 365));
+    out.push(`### Tier definitions\n`);
+    // Build dynamic columns from union of op keys
+    const allOps = Array.from(new Set(tiers.flatMap(t => Object.keys(t.ops))));
+    out.push(`| Tier | Description | ${allOps.map(o => `${o} /yr`).join(" | ")} |`);
+    out.push(`|---|---|${allOps.map(() => "---:").join("|")}|`);
+    for (const t of tiers) {
+      const cells = allOps.map(o => {
+        const v = (t.ops[o] ?? 0) * 365;
+        return v < 1 ? v.toFixed(2) : v.toFixed(0);
+      });
+      out.push(`| ${t.label} | ${t.description} | ${cells.join(" | ")} |`);
     }
-    tierGas.set(t.label, total);
-    out.push(`| ${t.label} | ${total.toString()} |`);
-  }
-  out.push("");
+    out.push("");
 
-  out.push(`### Annual cost per user (DOT/PAS)\n`);
-  out.push(`| Tier | ${GAS_PRICE_SCENARIOS.map(s => `${s.label} (${s.gwei} gwei)`).join(" | ")} |`);
-  out.push(`|---|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
-  for (const t of USER_TIERS) {
-    const gas = Number(tierGas.get(t.label) ?? 0n);
-    const cells = GAS_PRICE_SCENARIOS.map(s => (gas * s.gwei * 1e-9).toExponential(2));
-    out.push(`| ${t.label} | ${cells.join(" | ")} |`);
-  }
-  out.push("");
+    // Per-op gas for this role
+    const opGas = new Map<string, bigint>();
+    for (const r of rows.filter(r => r.role === role)) opGas.set(r.op, r.gas);
 
-  // Network-scale aggregate: per-user cost × user count examples
-  out.push(`### Network-aggregate at common user counts (annual DOT, Typical tier)\n`);
-  out.push(`Multiplies the Typical-tier per-user cost by example user counts.`);
-  out.push(`Linear in user count — divide by 1000 for any other base.\n`);
-  const typicalGas = Number(tierGas.get("Typical") ?? 0n);
-  const counts = [100, 1_000, 10_000, 100_000, 1_000_000];
-  out.push(`| Users | ${GAS_PRICE_SCENARIOS.map(s => `${s.gwei} gwei`).join(" | ")} |`);
-  out.push(`|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
-  for (const n of counts) {
-    const cells = GAS_PRICE_SCENARIOS.map(s => (typicalGas * n * s.gwei * 1e-9).toExponential(2));
-    out.push(`| ${n.toLocaleString()} | ${cells.join(" | ")} |`);
+    out.push(`### Annual gas per ${actorLabel} (units)\n`);
+    out.push(`| Tier | Gas/yr |`);
+    out.push(`|---|---:|`);
+    const tierGas = new Map<string, number>();
+    for (const t of tiers) {
+      let total = 0;
+      for (const [op, daily] of Object.entries(t.ops)) {
+        const gas = Number(opGas.get(op) ?? 0n);
+        total += gas * daily * 365;
+      }
+      tierGas.set(t.label, total);
+      out.push(`| ${t.label} | ${Math.round(total).toLocaleString()} |`);
+    }
+    out.push("");
+
+    out.push(`### Annual cost per ${actorLabel} (DOT/PAS)\n`);
+    out.push(`| Tier | ${GAS_PRICE_SCENARIOS.map(s => `${s.label} (${s.gwei} gwei)`).join(" | ")} |`);
+    out.push(`|---|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
+    for (const t of tiers) {
+      const gas = tierGas.get(t.label) ?? 0;
+      const cells = GAS_PRICE_SCENARIOS.map(s => (gas * s.gwei * 1e-9).toExponential(2));
+      out.push(`| ${t.label} | ${cells.join(" | ")} |`);
+    }
+    out.push("");
+
+    out.push(`### Network-aggregate at common ${actorLabel} counts (annual DOT, ${aggregateBaselineTier} tier)\n`);
+    out.push(`Linear in count × linear in gas price.\n`);
+    const baseGas = tierGas.get(aggregateBaselineTier) ?? 0;
+    const counts = [10, 100, 1_000, 10_000, 100_000];
+    out.push(`| ${actorLabel}s | ${GAS_PRICE_SCENARIOS.map(s => `${s.gwei} gwei`).join(" | ")} |`);
+    out.push(`|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
+    for (const n of counts) {
+      const cells = GAS_PRICE_SCENARIOS.map(s => (baseGas * n * s.gwei * 1e-9).toExponential(2));
+      out.push(`| ${n.toLocaleString()} | ${cells.join(" | ")} |`);
+    }
+    out.push("");
+  }
+
+  emitActorSection(
+    "user",
+    "Per-user fee burn (annual)",
+    "Annual transaction-fee cost (DOT/PAS) for a single end user across four engagement tiers. Excludes posted bonds, locked stake, and DATUM token movement — pure gas spend. Calculation: `Σ ops × gas[op] × 365 × gas_price`.",
+    "User",
+    USER_TIERS,
+    "Typical",
+  );
+
+  emitActorSection(
+    "publisher",
+    "Per-publisher fee burn (annual)",
+    "Annual fee cost for a publisher across four engagement tiers. Registration is a one-time cost amortised over the year (one twelve-and-a-half thousandth per day). Withdrawals dominate for active sites.",
+    "Publisher",
+    PUBLISHER_TIERS,
+    "Active",
+  );
+
+  emitActorSection(
+    "advertiser",
+    "Per-advertiser fee burn (annual)",
+    "Annual fee cost for an advertiser across four campaign-volume tiers. `createCampaign` is the dominant op (450k gas — ActionPotConfig storage + budget escrow). Self-vote at creation is paired 1:1.",
+    "Advertiser",
+    ADVERTISER_TIERS,
+    "Regular",
+  );
+
+  // Combined network economy view ───────────────────────────────────────────
+  out.push(`## Combined network economy (annual fee burn)\n`);
+  out.push(`Three sample networks at conservative Hub pricing (5 gwei). Sum across`);
+  out.push(`all actor classes at the baseline tier for each. The hot path (relays +`);
+  out.push(`stake-root reporters) is included from the per-role projection above.\n`);
+
+  function tierGasFor(role: string, tiers: ActorTier[], tier: string): number {
+    const opGas = new Map<string, bigint>();
+    for (const r of rows.filter(r => r.role === role)) opGas.set(r.op, r.gas);
+    const t = tiers.find(t => t.label === tier);
+    if (!t) return 0;
+    let total = 0;
+    for (const [op, daily] of Object.entries(t.ops)) {
+      total += Number(opGas.get(op) ?? 0n) * daily * 365;
+    }
+    return total;
+  }
+
+  // Per-actor annual DOT @ 5 gwei
+  const userTypical_DOT      = tierGasFor("User",       USER_TIERS,       "Typical")    * 5e-9;
+  const pubActive_DOT        = tierGasFor("Publisher",  PUBLISHER_TIERS,  "Active")     * 5e-9;
+  const advRegular_DOT       = tierGasFor("Advertiser", ADVERTISER_TIERS, "Regular")    * 5e-9;
+  // Reporter & relay annual: pull from the per-role projection (sum of daily ops × gas × 365 × 5e-9)
+  function roleAnnual_DOT(role: string): number {
+    let g = 0;
+    for (const f of FREQUENCY_ASSUMPTIONS.filter(f => f.role === role)) {
+      const r = rows.find(r => r.role === f.role && r.op === f.op);
+      if (r) g += Number(r.gas) * f.daily * 365;
+    }
+    return g * 5e-9;
+  }
+  const relay_DOT     = roleAnnual_DOT("Relay");
+  const reporterV1_DOT = roleAnnual_DOT("Reporter V1");
+  const reporterV2_DOT = roleAnnual_DOT("Reporter V2");
+
+  const scenarios: Array<{ label: string; users: number; pubs: number; advs: number; relays: number; v1: number; v2: number }> = [
+    { label: "Small (community)",   users: 100,      pubs: 10,   advs: 5,   relays: 1,  v1: 1, v2: 1 },
+    { label: "Medium (growth)",     users: 10_000,   pubs: 200,  advs: 50,  relays: 2,  v1: 3, v2: 5 },
+    { label: "Large (at-scale)",    users: 1_000_000,pubs: 2_000,advs: 500, relays: 10, v1: 5, v2: 20 },
+  ];
+  out.push(`| Network | Users | Publishers | Advertisers | Relays | V1 Reporters | V2 Reporters | Users DOT | Pubs DOT | Advs DOT | Relays DOT | Reporters DOT | **Total DOT/yr** |`);
+  out.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+  for (const s of scenarios) {
+    const uDOT  = userTypical_DOT * s.users;
+    const pDOT  = pubActive_DOT * s.pubs;
+    const aDOT  = advRegular_DOT * s.advs;
+    const rDOT  = relay_DOT * s.relays;
+    const rpDOT = reporterV1_DOT * s.v1 + reporterV2_DOT * s.v2;
+    const tot   = uDOT + pDOT + aDOT + rDOT + rpDOT;
+    out.push(`| ${s.label} | ${s.users.toLocaleString()} | ${s.pubs} | ${s.advs} | ${s.relays} | ${s.v1} | ${s.v2} | ${uDOT.toFixed(2)} | ${pDOT.toFixed(2)} | ${aDOT.toFixed(2)} | ${rDOT.toFixed(2)} | ${rpDOT.toFixed(2)} | **${tot.toFixed(2)}** |`);
   }
   out.push("");
 
