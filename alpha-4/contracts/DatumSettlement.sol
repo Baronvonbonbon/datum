@@ -29,6 +29,13 @@ interface IDatumMintAuthority_Settle {
     ) external;
 }
 
+/// @dev Path H emission engine — adapts the per-DOT rate, enforces the daily
+///      cap, and clips per-claim mint against epoch + daily budgets. See
+///      DatumEmissionEngine.sol and TOKENOMICS.md §3.3.
+interface IDatumEmissionEngine {
+    function computeAndClipMint(uint256 dotPaid) external returns (uint256 effective);
+}
+
 /// @dev #1 (2026-05-12): minimal Campaigns view for the per-user per-campaign
 ///      cap. Inline to avoid touching the IDatumCampaigns interface during
 ///      staged migration. Older deployments without these getters simply
@@ -91,18 +98,24 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         the mint flow is dormant until wired post-deploy.
     address public mintAuthority;
 
-    /// @notice DATUM per 1 DOT settled, in 10-decimal units.
-    /// @dev    This is the §3.3 `currentRate` (bootstrap value 19e10 = 19 DATUM/DOT).
-    ///         For scaffold integration this is held here as a governance-tunable
-    ///         value. The full Path H adaptive-rate machinery will move to a
-    ///         dedicated DatumMintCurve contract in a follow-up.
+    /// @notice Path H emission engine. When set, every settled claim's DATUM
+    ///         mint amount is computed by the engine — including dynamic-rate
+    ///         adaptation, daily cap clipping, and epoch budget enforcement.
+    /// @dev    Set once via `setEmissionEngine(addr)`. Cannot be unset (would
+    ///         require redeploying settlement). Zero address keeps the legacy
+    ///         flat-rate fallback active during early bootstrap; once flipped
+    ///         to a real engine the legacy path is dormant.
+    address public emissionEngine;
+
+    /// @notice Legacy flat-rate fallback used until `emissionEngine` is wired.
+    ///         The current value remains useful for tests and early bootstrap
+    ///         deployments; once the engine is live it is unused.
+    /// @dev    Bootstrap value 19 DATUM/DOT, in 10-decimal base. Owner-tunable
+    ///         within MAX_LEGACY_MINT_RATE.
     uint256 public mintRatePerDot = 19 * 10**10;
 
-    /// @notice A3/B4-fix (2026-05-12): hard ceiling on `mintRatePerDot`. Caps the
-    ///         per-settlement DATUM emission an owner can dial in via setMintRate.
-    ///         100 DATUM/DOT — ~5× the bootstrap rate. MintAuthority enforces the
-    ///         95M cap separately; this just prevents a hostile owner from
-    ///         burning the entire mintable supply on a single large batch.
+    /// @notice Hard ceiling on legacy flat-rate `mintRatePerDot`. Engine path
+    ///         enforces its own ceiling (MAX_RATE = 200).
     uint256 public constant MAX_MINT_RATE = 100 * 10**10;
 
     /// @notice Skip the DATUM mint entirely when totalMint < threshold.
@@ -579,6 +592,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         require(mintAuthority == address(0), "already set");
         mintAuthority = _mintAuthority;
         emit MintAuthoritySet(_mintAuthority);
+    }
+
+    event EmissionEngineSet(address indexed engine);
+    /// @notice Wire the Path H emission engine (lock-once). Once set, the
+    ///         per-batch DATUM mint amount is computed by the engine
+    ///         (dynamic rate × clipping against daily + epoch budgets)
+    ///         instead of the legacy flat-rate path.
+    function setEmissionEngine(address engine) external onlyOwner {
+        require(engine != address(0), "E00");
+        require(emissionEngine == address(0), "already set");
+        emissionEngine = engine;
+        emit EmissionEngineSet(engine);
     }
 
     /// @notice Update the per-DOT DATUM mint rate. Scaffold path for §3.3 currentRate.
@@ -1266,13 +1291,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         }
 
         // ── DATUM token mint (optional; gated on mintAuthority being set) ──
-        // Per §3.3: mint = payoutDOT × currentRate, split 55/40/5 user/publisher/advertiser.
+        // Per §3.3 Path H: emission engine computes the per-batch mint with
+        // dynamic-rate adaptation + daily-cap and epoch-budget clipping.
+        // Legacy fallback path: when emissionEngine is unset, use the flat
+        // `mintRatePerDot` scaffold (early bootstrap).
         // Skipped entirely if mintAuthority is unset (deferred wiring).
         // Skipped per-batch if total mint would be below dust threshold.
         if (mintAuthority != address(0) && agg.total > 0) {
-            // mintRate stored in 10-decimal base units (e.g. 19e10 = 19 DATUM/DOT).
-            // Both DOT planck and DATUM base units use 10 decimals; divide by 1e10 once.
-            uint256 totalMint = (agg.total * mintRatePerDot) / (10**10);
+            uint256 totalMint;
+            if (emissionEngine != address(0)) {
+                // Path H: delegate mint amount to the engine. The engine clips
+                // against remaining daily + epoch budgets and updates its
+                // accumulators. If the daily cap is exhausted it returns 0
+                // and the dust gate below silently skips the mint.
+                try IDatumEmissionEngine(emissionEngine).computeAndClipMint(agg.total) returns (uint256 minted) {
+                    totalMint = minted;
+                } catch {
+                    // Engine reverted (misconfigured); fail soft — skip mint.
+                    totalMint = 0;
+                }
+            } else {
+                // Legacy flat-rate path.
+                totalMint = (agg.total * mintRatePerDot) / (10**10);
+            }
             if (totalMint >= dustMintThreshold) {
                 uint256 userMint        = (totalMint * uint256(datumRewardUserBps))      / 10000;
                 uint256 publisherMint   = (totalMint * uint256(datumRewardPublisherBps)) / 10000;
