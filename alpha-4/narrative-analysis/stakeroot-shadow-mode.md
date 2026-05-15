@@ -82,27 +82,59 @@ each finalised epoch and alerts on any divergence.
 
 ## Configuration switch
 
-`deploy.ts` has a top-level constant:
+There are two layers — the deploy-time default and the runtime override.
+
+### Deploy-time default (`deploy.ts`)
 
 ```typescript
 const STAKE_ROOT_V2_SHADOW_MODE = true;
 ```
 
-When `true` (default):
-- `ClaimValidator.setStakeRoot2(v2)` is NOT called.
-- `ClaimValidator.stakeRoot2` remains `address(0)`.
-- `validateClaim` accepts only V1 roots.
-- V2 still produces roots permissionlessly.
+When `true` (default), `deploy.ts` skips the `setStakeRoot2` call so
+`ClaimValidator.stakeRoot2` is left at `address(0)` after a fresh deploy.
+When `false`, `deploy.ts` wires V2 as the secondary as part of normal
+plumbing. This only affects fresh deploys.
 
-When `false` (promotion to dual-source):
-- `ClaimValidator.setStakeRoot2(v2)` runs in soft wiring.
-- `validateClaim` accepts EITHER V1 or V2 roots.
-- Operationally, V2-produced roots become "real."
+### Runtime toggle (`scripts/toggle-stakeroot-mode.ts`)
 
-To promote: flip the constant, redeploy (or call
-`validator.setStakeRoot2(v2)` directly from owner via governance).
-Reversal is symmetric: flip back, call
-`validator.setStakeRoot2(address(0))`.
+For a live deployment, do not redeploy — flip the wiring on the existing
+ClaimValidator owner-side:
+
+```bash
+MODE=dual    npx hardhat run scripts/toggle-stakeroot-mode.ts --network polkadotTestnet
+MODE=shadow  npx hardhat run scripts/toggle-stakeroot-mode.ts --network polkadotTestnet
+MODE=v2-sole npx hardhat run scripts/toggle-stakeroot-mode.ts --network polkadotTestnet
+```
+
+Each mode resolves to a concrete wiring on `DatumClaimValidator`:
+
+| mode    | `stakeRoot`     | `stakeRoot2`    | semantics                                |
+|---------|-----------------|-----------------|------------------------------------------|
+| shadow  | V1              | `address(0)`    | V1 sole-source; V2 observational only    |
+| dual    | V1              | V2              | EITHER oracle's recent root is accepted  |
+| v2-sole | V2              | `address(0)`    | V2 sole-source; V1 also `setDeprecated`  |
+
+The script is idempotent (no-op if already in the requested mode) and
+aborts cleanly if `ClaimValidator.plumbingLocked` is true. Reversal is
+symmetric — `MODE=shadow` collapses back to single-source V1 and clears
+V1's deprecated flag.
+
+### Off-chain dual-write
+
+`scripts/build-stake-root.ts` honours `WRITE_MODE=v1-only|dual|v2-only`
+(default `dual`). In `dual` it commits to V1 (`commitStakeRoot`), then
+either proposes or co-signs on V2 (`proposeRoot` / `approveRoot`),
+opportunistically finalising earlier pending epochs whose challenge
+windows have lapsed. If the V2 pending root for an epoch disagrees with
+the locally-built root, the reporter ABSTAINS and logs a divergence
+warning — the watcher / fraud-proof path handles it from there.
+
+### Divergence watcher
+
+`scripts/watch-stakeroot-divergence.ts` compares `v1.rootAt(e)` against
+`v2.rootAt(e)` over the lookback window. One-shot exit codes: `0` agree,
+`1` diverged, `2` config/RPC error. Pass `--watch` to poll every
+`POLL_SECONDS` (default 60).
 
 ## Reporter sets
 
@@ -128,32 +160,10 @@ Reversal is symmetric: flip back, call
 
 ## Off-chain tree builder dual-write
 
-The current `scripts/build-stake-root.ts` only writes to V1. Shadow
-mode requires writing to both. **This update is the open
-follow-up task** (~150 LOC) — sub-task of the StakeRoot V2 work.
+Shipped in `scripts/build-stake-root.ts` — see the **Off-chain dual-write**
+subsection of the Configuration switch above.
 
-Plan (for the next session that picks this up):
-
-```typescript
-// In build-stake-root.ts after computing root:
-
-// 1. V1 — commitStakeRoot
-await v1.connect(reporter).commitStakeRoot(epoch, root);
-
-// 2. V2 — proposeRoot (first reporter) or approveRoot (subsequent)
-const v2Pending = await v2.pendingRoot(epoch);
-if (v2Pending.proposer === ethers.ZeroAddress) {
-    const snap = currentBlock - 20; // within [MIN_AGE, MAX_AGE]
-    await v2.connect(reporter).proposeRoot(epoch, snap, root, { value: V2_PROPOSER_BOND });
-} else if (!v2Pending.approved[reporter.address]) {
-    await v2.connect(reporter).approveRoot(epoch);
-}
-
-// 3. After challengeWindow elapsed:
-await v2.connect(anyone).finalizeRoot(epoch);
-```
-
-## Divergence monitoring
+## Divergence monitoring (background)
 
 A watcher service queries `v1.rootAt(e)` and `v2.rootAt(e)` for each
 recently-finalised epoch. Any mismatch is one of three events:
