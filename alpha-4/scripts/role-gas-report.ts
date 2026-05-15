@@ -1291,6 +1291,142 @@ function emitMarkdown(): string {
   out.push(`  reprice (validators set lower base fee) OR a Hub upgrade lowers fees.`);
   out.push(`- **DATUM peg to USD** is recommended early — auto-rebases the subsidy as DOT moves.\n`);
 
+  // ─── 70-year halving projection ─────────────────────────────────────────
+  out.push(`### 70-year halving projection\n`);
+  out.push(`Long-horizon model accounting for periodic halvings of both DOT issuance and DATUM`);
+  out.push(`emission. Each halving compresses circulating-supply growth, which (under standard`);
+  out.push(`monetary scarcity assumptions) tends to push price upward. The model is illustrative —`);
+  out.push(`actual price paths are subject to demand-side dynamics, gas-market re-pricing,`);
+  out.push(`and macro forces this exercise can't predict.\n`);
+
+  out.push(`**Assumptions:**`);
+  out.push(`- Halving interval: 4 years (Bitcoin-style cadence; configurable).`);
+  out.push(`- DOT price growth per halving: 2× (conservative; flat-priced and aggressive bands shown for comparison).`);
+  out.push(`- DATUM emission halves every 4 years (Bitcoin-style cadence).`);
+  out.push(`- DATUM price growth per halving: 2× (same scarcity logic as DOT).`);
+  out.push(`- Baseline DOT = $5; baseline DATUM = $0.10 (illustrative).`);
+  out.push(`- Baseline DATUM emission = enough to cover subsidy at 1M users = ~42,143 DOT-eq/yr.`);
+  out.push(`- User behaviour (3,650 imps/yr, monthly batching) and gas price (5 gwei) held constant.`);
+  out.push(`- No on-chain gas repricing modelled — pure exogenous price shifts.\n`);
+
+  const HALVING_INTERVAL = 4;
+  const HALVINGS = 17; // 0..17 covers years 0..72
+  const DOT_BASE_USD = 5;
+  const DATUM_BASE_USD = 0.10;
+  const DATUM_BASE_EMISSION = 42143; // DOT-eq/yr at year 0 (1M user crossover subsidy)
+  const DOT_GROWTH_PER_HALVING = 2;
+  const DATUM_GROWTH_PER_HALVING = 2;
+  const programmaticVPI = 0.001; // USD/imp
+
+  out.push(`**Trajectory under conservative growth (2× per halving):**\n`);
+  out.push(`| Year | Halvings | DOT/USD | DATUM/USD | User min CPM (USD) | Advertiser max CPM (USD, programmatic VPI) | Margin USD | Viable? | DATUM emission (DATUM/yr) | DATUM emission (USD/yr) |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|---:|:---:|---:|---:|`);
+  for (let h = 0; h <= HALVINGS; h++) {
+    const year = h * HALVING_INTERVAL;
+    const dotUSD = DOT_BASE_USD * Math.pow(DOT_GROWTH_PER_HALVING, h);
+    const datumUSD = DATUM_BASE_USD * Math.pow(DATUM_GROWTH_PER_HALVING, h);
+    const userMinCPM_USD = userMinCPM * dotUSD;
+    // Advertiser max CPM in DOT for $0.001/imp at 10k campaign:
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
+    const maxCPM_USD = maxCPM_DOT * dotUSD;
+    const marginUSD = maxCPM_USD - userMinCPM_USD;
+    const viable = marginUSD > 0;
+    // DATUM emission halves each period (token-units per year)
+    // Base token-units/yr = base USD emission / base price = DATUM_BASE_EMISSION / DATUM_BASE_USD
+    // But the DOT-eq emission also halves
+    const datumEmissionDOTeq = DATUM_BASE_EMISSION / Math.pow(2, h);
+    // In token count, baseline = DATUM_BASE_EMISSION / DATUM_BASE_USD × DOT_BASE_USD  (since DOT-eq is in DOT)
+    const datumTokensPerYr_base = (DATUM_BASE_EMISSION * DOT_BASE_USD) / DATUM_BASE_USD;  // tokens at year 0
+    const datumTokensPerYr = datumTokensPerYr_base / Math.pow(2, h);
+    const datumEmissionUSD = datumTokensPerYr * datumUSD;
+    out.push(`| ${year} | ${h} | $${dotUSD.toFixed(2)} | $${datumUSD.toFixed(2)} | $${userMinCPM_USD.toFixed(3)} | $${maxCPM_USD.toFixed(3)} | $${marginUSD.toFixed(3)} | ${viable ? "✓" : "✗"} | ${datumTokensPerYr.toExponential(2)} | $${datumEmissionUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} |`);
+  }
+  out.push("");
+
+  out.push(`**Trajectory under aggressive DOT growth (4× per halving):**\n`);
+  out.push(`Same model, but DOT price quadruples per halving while DATUM doubles. Stress-test:`);
+  out.push(`when does the chain hit a viability cliff?\n`);
+  out.push(`| Year | DOT/USD | User min CPM (USD) | Advertiser max CPM (USD, programmatic VPI) | Viable? | Notes |`);
+  out.push(`|---:|---:|---:|---:|:---:|---|`);
+  for (let h = 0; h <= 8; h++) {
+    const year = h * HALVING_INTERVAL;
+    const dotUSD = DOT_BASE_USD * Math.pow(4, h);
+    const userMinCPM_USD = userMinCPM * dotUSD;
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
+    const maxCPM_USD = maxCPM_DOT * dotUSD;
+    const viable = maxCPM_USD > userMinCPM_USD;
+    let notes = "";
+    if (h === 0) notes = "Baseline";
+    else if (!viable && h > 0) notes = "Gas repricing required";
+    else if (maxCPM_USD < 2 * userMinCPM_USD) notes = "Margin tight (<2×)";
+    out.push(`| ${year} | $${dotUSD.toFixed(0)} | $${userMinCPM_USD.toFixed(2)} | $${maxCPM_USD.toFixed(2)} | ${viable ? "✓" : "✗"} | ${notes} |`);
+  }
+  out.push("");
+
+  // Find the year at which conservative growth makes programmatic no-longer-viable
+  let firstUnviableYear = -1;
+  let datumSubsidyCrossover = -1;
+  for (let h = 0; h <= HALVINGS; h++) {
+    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
+    const userMinCPM_USD = userMinCPM * dotUSD;
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
+    const maxCPM_USD = maxCPM_DOT * dotUSD;
+    if (firstUnviableYear < 0 && maxCPM_USD < userMinCPM_USD) firstUnviableYear = h * HALVING_INTERVAL;
+  }
+  // DATUM purchasing power: emission_DOTeq × DOT_price_USD (in original DOT-eq terms)
+  // Crossover threshold: DATUM emission USD value can still cover gas for 1M users?
+  for (let h = 0; h <= HALVINGS; h++) {
+    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
+    const datumUSD = DATUM_BASE_USD * Math.pow(2, h);
+    const datumTokens = (DATUM_BASE_EMISSION * DOT_BASE_USD / DATUM_BASE_USD) / Math.pow(2, h);
+    const datumEmissionUSD = datumTokens * datumUSD;
+    // 1M-user subsidy needs (in USD): 42,143 DOT-eq × current DOT price
+    const subsidyNeededUSD = 42143 * dotUSD;
+    if (datumSubsidyCrossover < 0 && datumEmissionUSD < subsidyNeededUSD) datumSubsidyCrossover = h * HALVING_INTERVAL;
+  }
+
+  out.push(`### Halving-projection findings\n`);
+  out.push(`- **Programmatic-display first hits no-market under conservative growth**: ${firstUnviableYear < 0 ? "never within 70 years" : `year ${firstUnviableYear}`}.`);
+  out.push(`  Higher-VPI campaigns (retargeting and above) stay viable longer.`);
+  out.push(`- **DATUM subsidy purchasing power crosses below 1M-user need**: ${datumSubsidyCrossover < 0 ? "never within 70 years (token grows fast enough)" : `year ${datumSubsidyCrossover}`}.`);
+  out.push(`  Beyond this, the protocol must mint more DATUM, raise the per-imp reward, or rely on`);
+  out.push(`  organic gas-market repricing.`);
+  out.push(`- **Under aggressive DOT growth (4×/halving)**, even programmatic display fails within ~8`);
+  out.push(`  years without gas repricing. This is the strongest argument for an on-chain gas-fee`);
+  out.push(`  governor or DOT-pegged fee market (Hub-level upgrade).`);
+  out.push(`- **DATUM emission halves but its DOT-equivalent value grows**: if DATUM price grows`);
+  out.push(`  ≥ 2× per halving, the per-imp subsidy maintains DOT-equivalent purchasing power.`);
+  out.push(`  If it grows slower, subsidy weakens — argues for DATUM peg-to-USD via oracle.\n`);
+
+  out.push(`### Long-run structural picture\n`);
+  out.push(`Three forces compete on a 70-year horizon:`);
+  out.push("");
+  out.push(`1. **DOT halvings** push DOT price up, increasing USD-denominated transaction fees`);
+  out.push(`   (without on-chain repricing). This compresses the advertiser's USD margin.`);
+  out.push(`2. **DATUM halvings** make each emitted token scarcer. If DATUM price tracks scarcity,`);
+  out.push(`   token-unit emission halving doesn't reduce USD subsidy. If DATUM lags, subsidy weakens.`);
+  out.push(`3. **Gas-market repricing** is the natural release valve: validators on Polkadot Hub`);
+  out.push(`   could lower base fee (in DOT) as DOT price spikes, keeping real-world USD costs stable.`);
+  out.push("");
+  out.push(`The dominant variable is whether **the Hub re-prices its gas fee curve**. If yes, DOT`);
+  out.push(`halvings are absorbed by the chain and the user-side floor stays near today's level in`);
+  out.push(`USD. If no, the chain becomes increasingly expensive over time and programmatic display`);
+  out.push(`is the first ad category squeezed out.\n`);
+
+  out.push(`**Strategic implications:**`);
+  out.push(`- Bake gas-fee governance into the protocol roadmap (oracle-fed fee adjustments).`);
+  out.push(`- Index DATUM rewards to USD via oracle so subsidy purchasing power is stable.`);
+  out.push(`- Encourage longer user-batching cadence (quarterly+) as DOT price climbs to preserve`);
+  out.push(`  the user-side margin without protocol intervention.`);
+  out.push(`- Target high-VPI advertiser categories first; brand-awareness/low-VPI campaigns are`);
+  out.push(`  the most fragile under DOT appreciation.\n`);
+
   // ─── Practical implications / interpretation ─────────────────────────────
   out.push(`## Interpretation\n`);
 
