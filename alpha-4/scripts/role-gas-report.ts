@@ -243,6 +243,40 @@ const ADVERTISER_TIERS: ActorTier[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Number formatting helpers — replace scientific notation with decimal form.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Format a number as a decimal string with adaptive precision.
+ *  Very small numbers get more decimals; round numbers don't get trailing zeros.
+ *  Negatives are preserved. NaN/Infinity falls through to native toString. */
+function fmt(n: number): string {
+  if (!isFinite(n) || isNaN(n)) return String(n);
+  if (n === 0) return "0";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (abs >= 1000)     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (abs >= 1)        return n.toFixed(2).replace(/\.?0+$/, "");
+  if (abs >= 0.01)     return n.toFixed(4).replace(/\.?0+$/, "");
+  if (abs >= 0.0001)   return n.toFixed(6).replace(/\.?0+$/, "");
+  if (abs >= 0.000001) return n.toFixed(8).replace(/\.?0+$/, "");
+  // Below 1e-6: keep meaningful digits but stay decimal
+  return n.toFixed(12).replace(/\.?0+$/, "");
+}
+
+/** Format DOT amounts with a "DOT" suffix for clarity in narratives. */
+function fmtDOT(n: number): string { return `${fmt(n)} DOT`; }
+
+/** Format USD amounts with $ prefix and currency-style rounding. */
+function fmtUSD(n: number): string {
+  if (!isFinite(n) || isNaN(n)) return String(n);
+  const abs = Math.abs(n);
+  if (abs >= 1)       return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  if (abs >= 0.01)    return `$${n.toFixed(4).replace(/\.?0+$/, "")}`;
+  if (abs >= 0.0001)  return `$${n.toFixed(6).replace(/\.?0+$/, "")}`;
+  return `$${n.toFixed(8).replace(/\.?0+$/, "")}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Measurement infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -743,14 +777,14 @@ function emitMarkdown(): string {
       const daily = costPerOp * f.daily;
       const monthly = daily * 30;
       dailyTotalByRole.set(f.role, (dailyTotalByRole.get(f.role) ?? 0) + daily);
-      out.push(`| ${f.role} | ${f.op} | ${gas} | ${costPerOp.toExponential(2)} | ${daily.toExponential(2)} | ${monthly.toExponential(2)} |`);
+      out.push(`| ${f.role} | ${f.op} | ${gas} | ${fmt(costPerOp)} | ${fmt(daily)} | ${fmt(monthly)} |`);
     }
     out.push("");
     out.push(`**Per-role daily totals (${scenario.label})**\n`);
     out.push(`| Role | DOT/day | DOT/month |`);
     out.push(`|---|---:|---:|`);
     for (const [role, total] of dailyTotalByRole) {
-      out.push(`| ${role} | ${total.toExponential(2)} | ${(total * 30).toExponential(2)} |`);
+      out.push(`| ${role} | ${fmt(total)} | ${fmt(total * 30)} |`);
     }
     out.push("");
   }
@@ -798,7 +832,7 @@ function emitMarkdown(): string {
     out.push(`|---|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
     for (const t of tiers) {
       const gas = tierGas.get(t.label) ?? 0;
-      const cells = GAS_PRICE_SCENARIOS.map(s => (gas * s.gwei * 1e-9).toExponential(2));
+      const cells = GAS_PRICE_SCENARIOS.map(s => fmt(gas * s.gwei * 1e-9));
       out.push(`| ${t.label} | ${cells.join(" | ")} |`);
     }
     out.push("");
@@ -810,7 +844,7 @@ function emitMarkdown(): string {
     out.push(`| ${actorLabel}s | ${GAS_PRICE_SCENARIOS.map(s => `${s.gwei} gwei`).join(" | ")} |`);
     out.push(`|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
     for (const n of counts) {
-      const cells = GAS_PRICE_SCENARIOS.map(s => (baseGas * n * s.gwei * 1e-9).toExponential(2));
+      const cells = GAS_PRICE_SCENARIOS.map(s => fmt(baseGas * n * s.gwei * 1e-9));
       out.push(`| ${n.toLocaleString()} | ${cells.join(" | ")} |`);
     }
     out.push("");
@@ -971,7 +1005,7 @@ function emitMarkdown(): string {
       // Break-even: 0.375 × CPM × (impsPerYr/1000) = annualFeeDOT
       // CPM = annualFeeDOT / (0.375 × impsPerYr / 1000) = annualFeeDOT × 1000 / (0.375 × impsPerYr)
       const minCPM = annualFeeDOT * 1000 / (0.375 * impsPerYr);
-      return minCPM.toExponential(2);
+      return fmt(minCPM);
     });
     out.push(`| ${c.label} | ${c.batchesPerYr} | ${Math.round(settleGasYr).toLocaleString()} | ${Math.round(userOverheadGas).toLocaleString()} | ${Math.round(totalGas).toLocaleString()} | ${cells[0]} | ${cells[1]} | ${cells[2]} |`);
   }
@@ -987,7 +1021,7 @@ function emitMarkdown(): string {
     const annualFeeDOT = totalGas * 5 * 1e-9;
     const minCPM = annualFeeDOT * 1000 / (0.375 * impsYr);
     const revenueAtMin = 0.375 * minCPM * impsYr / 1000;
-    out.push(`| ${impsYr.toLocaleString()} | ${minCPM.toExponential(2)} | ${annualFeeDOT.toExponential(2)} | ${revenueAtMin.toExponential(2)} |`);
+    out.push(`| ${impsYr.toLocaleString()} | ${fmt(minCPM)} | ${fmt(annualFeeDOT)} | ${fmt(revenueAtMin)} |`);
   }
   out.push("");
 
@@ -1010,92 +1044,124 @@ function emitMarkdown(): string {
 
   out.push(`| Party | Assumptions | Annual fee (DOT) | Min CPM to break even (DOT) |`);
   out.push(`|---|---|---:|---:|`);
-  out.push(`| User | Monthly settle, 3,650 imps/yr | ${userAnnualFee.toExponential(2)} | ${userMinCPM.toExponential(2)} |`);
-  out.push(`| Publisher (Active) | 100 users × 3,650 imps/yr = 365k imps/yr | ${pubAnnualFee.toExponential(2)} | ${pubMinCPM.toExponential(2)} |`);
-  out.push(`| Advertiser (Regular) | Fees independent of imps; need ROI > CPM | ${advAnnualFee.toExponential(2)} | n/a (volume-independent) |`);
-  out.push(`| Relay (Standard) | If used; otherwise users self-settle | ${(roleAnnual_DOT("Relay")).toExponential(2)} | n/a (operator margin model) |`);
+  out.push(`| User | Monthly settle, 3,650 imps/yr | ${fmt(userAnnualFee)} | ${fmt(userMinCPM)} |`);
+  out.push(`| Publisher (Active) | 100 users × 3,650 imps/yr = 365k imps/yr | ${fmt(pubAnnualFee)} | ${fmt(pubMinCPM)} |`);
+  out.push(`| Advertiser (Regular) | Fees independent of imps; need ROI > CPM | ${fmt(advAnnualFee)} | n/a (volume-independent) |`);
+  out.push(`| Relay (Standard) | If used; otherwise users self-settle | ${fmt(roleAnnual_DOT("Relay"))} | n/a (operator margin model) |`);
   out.push("");
 
   out.push(`**Headline:** at conservative Hub pricing with monthly user-batching, the binding`);
   out.push(`constraint is the user side. Minimum CPM for a user receiving 3,650 imps/year to`);
-  out.push(`break even on fees alone is **${userMinCPM.toExponential(2)} DOT** per 1,000 impressions.`);
+  out.push(`break even on fees alone is **${fmt(userMinCPM)} DOT** per 1,000 impressions.`);
   out.push(`Above that, every party in the chain is net-positive on fees alone (revenue redistribution`);
   out.push(`and DATUM rewards are upside on top).\n`);
 
-  // ─── DATUM token reward subsidy ─────────────────────────────────────────
-  out.push(`### DATUM token reward subsidy\n`);
-  out.push(`Campaigns may pay a per-impression DATUM token reward on top of the DOT split`);
-  out.push(`(via \`DatumTokenRewardVault\`). The reward credits the user pull-payment style`);
-  out.push(`and is non-critical — it doesn't revert settlement if the token budget runs out.`);
-  out.push(`Modelling reward-per-impression in **DOT-equivalent** (i.e., reward × DATUM/DOT spot price):\n`);
-
-  out.push(`User's revised break-even condition:`);
-  out.push(`\`0.375 × CPM_DOT + reward_per_imp_DOT × 1000 ≥ annual_gas_DOT / (imps_yr / 1000)\``);
-  out.push("");
-  out.push(`Solving for CPM with a DATUM reward subsidy at 5 gwei, 3,650 imps/user/yr, monthly batching:\n`);
-
+  // ─── DATUM token monetary policy (DatumMintAuthority) ───────────────────
   const gasPerKimp = (gas1 * 12 + userOverheadGas) * 5e-9 * 1000 / impsPerYr; // DOT/1000 imps user must net
-  // reward_per_imp_DOT in DOT
-  const rewardLevels = [
-    { label: "0",       perImp: 0           },
-    { label: "1e-9",    perImp: 1e-9        },  // 1 nDOT/imp = 1e-6 DOT/kimp
-    { label: "1e-8",    perImp: 1e-8        },  // 10 nDOT/imp = 1e-5 DOT/kimp
-    { label: "1e-7",    perImp: 1e-7        },  // ~equal to gas at high volume
-    { label: "1e-6",    perImp: 1e-6        },  // 1 µDOT/imp = 0.001 DOT/kimp
-    { label: "1e-5",    perImp: 1e-5        },  // covers most user fees
-    { label: "1e-4",    perImp: 1e-4        },  // 100 µDOT/imp = 0.1 DOT/kimp
-  ];
+  const gasPerYr = (gas1 * 12 + userOverheadGas) * 5e-9; // DOT/yr at 5 gwei
+  const baseMintRate = 19;            // mintRatePerDot default (DATUM per DOT settled)
+  const maxMintRate = 100;            // MAX_MINT_RATE ceiling
+  const settlementCap = 89_000_000;   // 89M DATUM reserved for settlement mints
+  const cpmDOT = 0.20;                // illustrative CPM assumption
 
-  out.push(`| Reward (DOT-eq /imp) | Reward (DOT-eq /1000 imps) | User net per 1k imps from reward | Min DOT CPM to break even |`);
-  out.push(`|---|---:|---:|---:|`);
-  for (const r of rewardLevels) {
-    const rewardPerKimp = r.perImp * 1000;
-    const requiredDOTPerKimp = gasPerKimp - rewardPerKimp; // user share must cover this
-    const minCPM = requiredDOTPerKimp / 0.375;
-    const label = minCPM <= 0
-      ? "**0 (DATUM alone covers fees)**"
-      : minCPM.toExponential(2);
-    out.push(`| ${r.label} | ${rewardPerKimp.toExponential(2)} | ${rewardPerKimp.toExponential(2)} | ${label} |`);
+  out.push(`### DATUM token mint emission (protocol-minted)\n`);
+  out.push(`DATUM is the protocol's native token. It is **minted by the protocol** via`);
+  out.push(`\`DatumMintAuthority\` on every settled batch, using:\n`);
+  out.push(`\`totalMint = DOT_paid × mintRatePerDot\``);
+  out.push(`split user 55% / publisher 40% / advertiser 5%.\n`);
+  out.push(`Default \`mintRatePerDot = ${baseMintRate}\` (capped at ${maxMintRate} by \`MAX_MINT_RATE\`).`);
+  out.push(`Settlement-mintable supply caps at **${settlementCap.toLocaleString()} DATUM** (89M slice of the`);
+  out.push(`95M MINTABLE_CAP; the other 6M reserves bootstrap + vesting).\n`);
+  out.push(`*Note: this is the **protocol mint** path, completely separate from*`);
+  out.push(`*\`DatumTokenRewardVault\` (advertiser-supplied sidecar tokens — does not draw on the cap).*\n`);
+
+  out.push(`### DATUM emission under usage growth (mintRatePerDot = ${baseMintRate})\n`);
+  out.push(`Assuming monthly user-batching, 3,650 imps/user/yr, and 0.20 DOT CPM:\n`);
+  out.push(`| Users | Annual imps | Annual DOT settled | DATUM minted/yr | Cumulative after 10 yrs | % of 89M cap | Years to cap |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|---:|`);
+  for (const n of [1_000, 10_000, 100_000, 1_000_000, 10_000_000]) {
+    const annualImps = n * impsPerYr;
+    const annualSettleDOT = annualImps * cpmDOT / 1000;
+    const annualMint = annualSettleDOT * baseMintRate;
+    const tenYearMint = annualMint * 10;
+    const pctCap10y = (tenYearMint / settlementCap) * 100;
+    const yearsToCap = settlementCap / annualMint;
+    out.push(`| ${n.toLocaleString()} | ${annualImps.toLocaleString()} | ${fmt(annualSettleDOT)} | ${fmt(annualMint)} | ${fmt(tenYearMint)} | ${fmt(pctCap10y)}% | ${fmt(yearsToCap)} |`);
   }
   out.push("");
+  out.push(`At 1M users (the headline network scale), default rate exhausts the 89M cap in`);
+  out.push(`**${fmt(settlementCap / (1_000_000 * impsPerYr * cpmDOT / 1000 * baseMintRate))} years** — too fast.`);
+  out.push(`Governance has two levers: halve \`mintRatePerDot\` periodically, or accept faster cap depletion.\n`);
 
-  // Find the crossover: DATUM reward level at which CPM_breakeven = 0
-  const crossoverPerImp = gasPerKimp / 1000;  // DOT/imp where reward fully covers
-  out.push(`**Crossover threshold:** at a DATUM reward of **${crossoverPerImp.toExponential(2)} DOT-equivalent`);
-  out.push(`per impression** (${(crossoverPerImp * 1000).toExponential(2)} per 1,000 imps), the DATUM payout alone covers`);
-  out.push(`the user's gas fees and the campaign can pay **any** DOT CPM — including zero — while keeping`);
-  out.push(`the user net-positive.\n`);
+  out.push(`### Mint-rate halving curve (governance-driven)\n`);
+  out.push(`No automatic halving in code — \`mintRatePerDot\` is set via \`setMintRate\` (owner / governance).`);
+  out.push(`A Bitcoin-style halving every 4 years stretches emission while keeping monetary scarcity`);
+  out.push(`predictable. Per-period mint at each halving level, **steady-state 1M users + 0.20 DOT CPM**:\n`);
+  const steadyAnnualSettleDOT = 1_000_000 * impsPerYr * cpmDOT / 1000;
+  out.push(`| Halving | Year | mintRatePerDot | Annual mint | 4-yr period mint | Cumulative | % of 89M cap |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|---:|`);
+  let cumMint = 0;
+  let capYear = -1;
+  for (let h = 0; h <= 12; h++) {
+    const year = h * 4;
+    const rate = baseMintRate / Math.pow(2, h);
+    const annualMint = steadyAnnualSettleDOT * rate;
+    const periodMint = annualMint * 4;
+    const preCum = cumMint;
+    cumMint += periodMint;
+    let displayCum = cumMint;
+    let pctCap = (cumMint / settlementCap) * 100;
+    let note = "";
+    if (cumMint >= settlementCap && capYear < 0) {
+      // The cap is hit somewhere inside this 4-year window. Linear-interp the exact year.
+      const headroom = settlementCap - preCum;
+      capYear = (h - 1) * 4 + headroom / annualMint;
+      displayCum = settlementCap;
+      pctCap = 100;
+      note = ` **← CAP HIT at year ~${fmt(capYear)}**`;
+    } else if (capYear >= 0) {
+      displayCum = settlementCap;
+      pctCap = 100;
+      note = ` (cap reached)`;
+    }
+    out.push(`| ${h} | ${year} | ${fmt(rate)} | ${fmt(annualMint)} | ${fmt(periodMint)} | ${fmt(displayCum)} | ${fmt(pctCap)}%${note} |`);
+  }
+  out.push("");
+  const asymptotic = 2 * steadyAnnualSettleDOT * baseMintRate * 4;
+  out.push(`Asymptotic total under perpetual halving (geometric series, 4-yr cadence): **${fmt(asymptotic)} DATUM**.`);
+  out.push(`Cap status: ${asymptotic <= settlementCap ? `asymptotic < cap → **${fmt(settlementCap - asymptotic)} DATUM permanently un-emittable** (monetary sink)` : `asymptotic > cap → cap is hit at **year ~${capYear < 0 ? "n/a" : fmt(capYear)}**; governance must lengthen the halving interval or lower the initial rate`}.\n`);
 
-  // Protocol-side cost of subsidy
-  out.push(`### Protocol-side emission cost of the subsidy\n`);
-  out.push(`Total DATUM-equivalent emitted per year at the crossover threshold, assuming each user`);
-  out.push(`receives 3,650 impressions/yr:\n`);
-  out.push(`| Users | Annual impressions | DATUM emission (DOT-eq) |`);
+  out.push(`### DATUM mint as a user-side subsidy\n`);
+  out.push(`The user receives **55% of every DATUM mint**. In DOT-equivalent (at DATUM/DOT spot P),`);
+  out.push(`the user's effective revenue share per imp becomes:\n`);
+  out.push(`\`share_eff = 0.375 + 0.55 × mintRatePerDot × P\``);
+  out.push(`\`MinCPM = annual_user_gas / (share_eff × imps_yr / 1000)\``);
+  out.push("");
+  out.push(`Solving at 5 gwei, 3,650 imps/user/yr:\n`);
+  out.push(`| DATUM/DOT price (P) | Effective user share | Min DOT CPM to break even |`);
   out.push(`|---:|---:|---:|`);
-  for (const n of [1_000, 10_000, 100_000, 1_000_000]) {
-    const totalImps = n * impsPerYr;
-    const emission = totalImps * crossoverPerImp;
-    out.push(`| ${n.toLocaleString()} | ${totalImps.toLocaleString()} | ${emission.toFixed(2)} |`);
+  const datumPrices = [0, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 2];
+  for (const P of datumPrices) {
+    const effectiveShare = 0.375 + 0.55 * baseMintRate * P;
+    const minCPM = gasPerYr * 1000 / (effectiveShare * impsPerYr);
+    out.push(`| ${fmt(P)} | ${fmt(effectiveShare)} | ${fmt(minCPM)} |`);
   }
   out.push("");
-  out.push(`Interpretation: at 1M users the protocol would need to mint/distribute ~${(1_000_000 * impsPerYr * crossoverPerImp).toFixed(0)} DOT-equivalent`);
-  out.push(`worth of DATUM per year to fully cover user gas fees via subsidy alone — well within`);
-  out.push(`the bounds of a typical token-emission schedule (e.g., 1–5% of supply/yr at a `);
-  out.push(`$10M FDV token).\n`);
+  const shareAt10pct = 0.375 + 0.55 * baseMintRate * 0.1;
+  const cpmAt10pct = gasPerYr * 1000 / (shareAt10pct * impsPerYr);
+  out.push(`At DATUM/DOT = 0.10 (DATUM trades at 10% of DOT), the user's effective share leaps`);
+  out.push(`from 0.375 to ${fmt(shareAt10pct)}, and the break-even CPM drops from ${fmt(userMinCPM)} DOT to`);
+  out.push(`${fmt(cpmAt10pct)} DOT — a ${fmt(userMinCPM / cpmAt10pct)}× reduction. The DATUM mint **directly`);
+  out.push(`subsidises the user-side floor** and scales linearly with DATUM/DOT spot price.\n`);
 
-  out.push(`### Combined revenue lens\n`);
-  out.push(`At conservative Hub pricing + monthly batching + 3,650 imps/user/yr, **total user`);
-  out.push(`compensation per 1,000 impressions** for net-positive economics:\n`);
-  out.push(`| Path | DOT side | DATUM side | Notes |`);
+  out.push(`### Combined revenue lens (DOT split + DATUM mint)\n`);
+  out.push(`Three regimes for the user's net per-1k-imps compensation at conservative Hub pricing:\n`);
+  out.push(`| Regime | DOT CPM needed | DATUM mint per 1k imps | Notes |`);
   out.push(`|---|---|---|---|`);
-  out.push(`| Pure DOT (no DATUM reward) | ≥ ${userMinCPM.toFixed(3)} DOT CPM | — | Today's break-even floor |`);
-  out.push(`| Mixed (half each) | ≥ ${(userMinCPM / 2).toFixed(3)} DOT CPM | + ${(gasPerKimp / 2).toExponential(2)} DOT-eq/1k imps | Sustainable; small DATUM commitment |`);
-  out.push(`| Pure DATUM | 0 (free for advertisers) | ≥ ${gasPerKimp.toExponential(2)} DOT-eq/1k imps | Maximum user-acquisition mode |`);
+  out.push(`| **DATUM at $0 (worthless token)** | ≥ ${fmt(userMinCPM)} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM (no spot value) | Today's break-even floor; DATUM is upside |`);
+  out.push(`| **DATUM at 10% of DOT** | ≥ ${fmt(cpmAt10pct)} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM = ${fmt(baseMintRate * cpmDOT * 0.1)} DOT-eq | Healthy floor reduction |`);
+  out.push(`| **DATUM at parity with DOT** | ≥ ${fmt(gasPerYr * 1000 / ((0.375 + 0.55 * baseMintRate * 1) * impsPerYr))} DOT | ${fmt(baseMintRate * cpmDOT)} DATUM = ${fmt(baseMintRate * cpmDOT)} DOT-eq | DATUM mint dominates compensation |`);
   out.push("");
-  out.push(`The economic design lever: campaigns that want to operate **below break-even in DOT**`);
-  out.push(`can backfill with DATUM token rewards. This unlocks loss-leader pricing, free trials,`);
-  out.push(`and the bootstrap-an-audience subsidy without changing contract logic — the lever is`);
-  out.push(`already plumbed via \`Campaigns.rewardToken\` + \`Campaigns.rewardPerImpression\`.\n`);
 
   // ─── Advertiser ROI break-even ──────────────────────────────────────────
   out.push(`### Advertiser ROI break-even\n`);
@@ -1134,9 +1200,9 @@ function emitMarkdown(): string {
     const cells = campaignSizes.map(n => {
       const setupPerKimp = setupDOT * 1000 / n;
       const maxCPM = 1000 * vpiDOT - setupPerKimp;
-      return maxCPM > 0 ? maxCPM.toExponential(2) : `**neg**`;
+      return maxCPM > 0 ? fmt(maxCPM) : `**neg**`;
     });
-    out.push(`| ${v.label} | $${v.usd.toFixed(4)} | ${vpiDOT.toExponential(2)} | ${cells.join(" | ")} |`);
+    out.push(`| ${v.label} | $${v.usd.toFixed(4)} | ${fmt(vpiDOT)} | ${cells.join(" | ")} |`);
   }
   out.push("");
 
@@ -1154,7 +1220,7 @@ function emitMarkdown(): string {
       const margin = maxCPM - userMinCPM;
       if (margin <= 0) return `**no market**`;
       const ratio = maxCPM / userMinCPM;
-      return `${margin.toExponential(2)} (${ratio.toFixed(0)}×)`;
+      return `${fmt(margin)} (${ratio.toFixed(0)}×)`;
     });
     out.push(`| ${v.label} | ${cells.join(" | ")} |`);
   }
@@ -1222,7 +1288,7 @@ function emitMarkdown(): string {
     const maxCPM_DOT = 1000 * vpiDOT - setupPerKimp10k;
     const margin = maxCPM_DOT - userMinCPM;
     const marginCell = margin > 0 ? `${margin.toFixed(4)} (${(maxCPM_DOT/userMinCPM).toFixed(1)}×)` : "**no market**";
-    out.push(`| $${p} | ${vpiDOT.toExponential(2)} | ${maxCPM_DOT.toFixed(4)} | $${(maxCPM_DOT * p).toFixed(4)} | ${marginCell} |`);
+    out.push(`| $${p} | ${fmt(vpiDOT)} | ${fmt(maxCPM_DOT)} | $${fmt(maxCPM_DOT * p)} | ${marginCell} |`);
   }
   out.push("");
   out.push(`At **$50+/DOT** with no gas-market repricing, programmatic display starts to fail to`);
@@ -1248,20 +1314,18 @@ function emitMarkdown(): string {
   out.push(`**~$1M/year** (at $100 DOT) before any gas-market repricing. The 100× spread is the`);
   out.push(`scenario uncertainty operators should plan around.\n`);
 
-  // 4. DATUM crossover threshold + emission cost
-  out.push(`**4. DATUM crossover-subsidy emission cost in USD:**\n`);
-  out.push(`Total DATUM emission required to fully cover user gas via subsidy alone, valued in USD:\n`);
-  out.push(`| Users | DATUM emission (DOT-eq/yr) | ${DOT_PRICES.map(p => `$${p}/DOT`).join(" | ")} |`);
-  out.push(`|---:|---:|${DOT_PRICES.map(() => "---:").join("|")}|`);
+  // 4. DATUM mint emission volume (protocol-side) across user counts
+  out.push(`**4. DATUM mint per year at default rate (mintRatePerDot = 19, 0.20 DOT CPM):**\n`);
+  out.push(`Token-volume emitted by the protocol on every settled batch. Independent of DOT price`);
+  out.push(`since the rate is DATUM-per-DOT-settled.\n`);
+  out.push(`| Users | DOT settled/yr | DATUM minted/yr |`);
+  out.push(`|---:|---:|---:|`);
   for (const n of [10_000, 100_000, 1_000_000]) {
-    const emission = n * impsPerYr * crossoverPerImp;
-    const cells = DOT_PRICES.map(p => `$${(emission * p).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
-    out.push(`| ${n.toLocaleString()} | ${emission.toFixed(0)} | ${cells.join(" | ")} |`);
+    const annualSettleDOT = n * impsPerYr * cpmDOT / 1000;
+    const annualMint = annualSettleDOT * baseMintRate;
+    out.push(`| ${n.toLocaleString()} | ${fmt(annualSettleDOT)} | ${fmt(annualMint)} |`);
   }
   out.push("");
-  out.push(`The protocol's DATUM emission policy must scale with DOT price if it wants to keep`);
-  out.push(`real-world subsidy purchasing power constant. Alternatively, peg the DATUM-per-imp`);
-  out.push(`reward to a USD value (re-priced via oracle), which automates this.\n`);
 
   // 5. Minimum viable campaign size in USD
   out.push(`**5. Minimum viable campaign size in USD:**\n`);
@@ -1301,108 +1365,105 @@ function emitMarkdown(): string {
 
   out.push(`**Assumptions:**`);
   out.push(`- Halving interval: 4 years (Bitcoin-style cadence; configurable).`);
-  out.push(`- DOT price growth per halving: 2× (conservative; flat-priced and aggressive bands shown for comparison).`);
-  out.push(`- DATUM emission halves every 4 years (Bitcoin-style cadence).`);
-  out.push(`- DATUM price growth per halving: 2× (same scarcity logic as DOT).`);
-  out.push(`- Baseline DOT = $5; baseline DATUM = $0.10 (illustrative).`);
-  out.push(`- Baseline DATUM emission = enough to cover subsidy at 1M users = ~42,143 DOT-eq/yr.`);
-  out.push(`- User behaviour (3,650 imps/yr, monthly batching) and gas price (5 gwei) held constant.`);
-  out.push(`- No on-chain gas repricing modelled — pure exogenous price shifts.\n`);
+  out.push(`- DOT/USD growth per halving: 2× (DOT-side scarcity tightens issuance).`);
+  out.push(`- \`mintRatePerDot\` halves every 4 years (governance-driven via \`setMintRate\`).`);
+  out.push(`- DATUM/DOT spot price grows 2× per halving (DATUM's own scarcity-driven appreciation).`);
+  out.push(`- Baseline DOT = $5; baseline DATUM/DOT = 0.10 (so DATUM ≈ $0.50 at year 0).`);
+  out.push(`- Baseline \`mintRatePerDot\` = 19.`);
+  out.push(`- Steady-state 1M-user network, 0.20 DOT CPM, monthly user batching, 3,650 imps/user/yr.`);
+  out.push(`- Gas price held at 5 gwei throughout (no on-chain repricing modelled).\n`);
 
   const HALVING_INTERVAL = 4;
   const HALVINGS = 17; // 0..17 covers years 0..72
   const DOT_BASE_USD = 5;
-  const DATUM_BASE_USD = 0.10;
-  const DATUM_BASE_EMISSION = 42143; // DOT-eq/yr at year 0 (1M user crossover subsidy)
+  const DATUM_DOT_RATIO_BASE = 0.10;  // DATUM/DOT spot ratio at year 0
   const DOT_GROWTH_PER_HALVING = 2;
-  const DATUM_GROWTH_PER_HALVING = 2;
-  const programmaticVPI = 0.001; // USD/imp
+  const DATUM_DOT_GROWTH_PER_HALVING = 2;
+  const programmaticVPI = 0.001;       // USD/imp
+  const annualSettleDOT_steady = 1_000_000 * impsPerYr * cpmDOT / 1000;
 
-  out.push(`**Trajectory under conservative growth (2× per halving):**\n`);
-  out.push(`| Year | Halvings | DOT/USD | DATUM/USD | User min CPM (USD) | Advertiser max CPM (USD, programmatic VPI) | Margin USD | Viable? | DATUM emission (DATUM/yr) | DATUM emission (USD/yr) |`);
-  out.push(`|---:|---:|---:|---:|---:|---:|---:|:---:|---:|---:|`);
+  out.push(`**Trajectory under conservative growth (2× per halving for DOT and DATUM/DOT):**\n`);
+  out.push(`| Year | DOT/USD | DATUM/DOT | DATUM/USD | mintRate | Annual DATUM mint | User eff. share | User min CPM (DOT) | User min CPM (USD) | Adv max CPM (USD) | Programmatic viable? |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|`);
+  let cumMintProj = 0;
   for (let h = 0; h <= HALVINGS; h++) {
     const year = h * HALVING_INTERVAL;
     const dotUSD = DOT_BASE_USD * Math.pow(DOT_GROWTH_PER_HALVING, h);
-    const datumUSD = DATUM_BASE_USD * Math.pow(DATUM_GROWTH_PER_HALVING, h);
-    const userMinCPM_USD = userMinCPM * dotUSD;
-    // Advertiser max CPM in DOT for $0.001/imp at 10k campaign:
-    const vpiDOT = programmaticVPI / dotUSD;
-    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
-    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
-    const maxCPM_USD = maxCPM_DOT * dotUSD;
-    const marginUSD = maxCPM_USD - userMinCPM_USD;
-    const viable = marginUSD > 0;
-    // DATUM emission halves each period (token-units per year)
-    // Base token-units/yr = base USD emission / base price = DATUM_BASE_EMISSION / DATUM_BASE_USD
-    // But the DOT-eq emission also halves
-    const datumEmissionDOTeq = DATUM_BASE_EMISSION / Math.pow(2, h);
-    // In token count, baseline = DATUM_BASE_EMISSION / DATUM_BASE_USD × DOT_BASE_USD  (since DOT-eq is in DOT)
-    const datumTokensPerYr_base = (DATUM_BASE_EMISSION * DOT_BASE_USD) / DATUM_BASE_USD;  // tokens at year 0
-    const datumTokensPerYr = datumTokensPerYr_base / Math.pow(2, h);
-    const datumEmissionUSD = datumTokensPerYr * datumUSD;
-    out.push(`| ${year} | ${h} | $${dotUSD.toFixed(2)} | $${datumUSD.toFixed(2)} | $${userMinCPM_USD.toFixed(3)} | $${maxCPM_USD.toFixed(3)} | $${marginUSD.toFixed(3)} | ${viable ? "✓" : "✗"} | ${datumTokensPerYr.toExponential(2)} | $${datumEmissionUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} |`);
-  }
-  out.push("");
-
-  out.push(`**Trajectory under aggressive DOT growth (4× per halving):**\n`);
-  out.push(`Same model, but DOT price quadruples per halving while DATUM doubles. Stress-test:`);
-  out.push(`when does the chain hit a viability cliff?\n`);
-  out.push(`| Year | DOT/USD | User min CPM (USD) | Advertiser max CPM (USD, programmatic VPI) | Viable? | Notes |`);
-  out.push(`|---:|---:|---:|---:|:---:|---|`);
-  for (let h = 0; h <= 8; h++) {
-    const year = h * HALVING_INTERVAL;
-    const dotUSD = DOT_BASE_USD * Math.pow(4, h);
-    const userMinCPM_USD = userMinCPM * dotUSD;
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(DATUM_DOT_GROWTH_PER_HALVING, h);
+    const datumUSD = dotUSD * datumDotRatio;
+    const mintRate = baseMintRate / Math.pow(2, h);
+    const annualMint = annualSettleDOT_steady * mintRate;
+    cumMintProj += annualMint * HALVING_INTERVAL;
+    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
+    const userMinCPM_DOT = gasPerYr * 1000 / (effShare * impsPerYr);
+    const userMinCPM_USD = userMinCPM_DOT * dotUSD;
+    // Advertiser max CPM at $0.001 VPI, 10k-imp campaign
     const vpiDOT = programmaticVPI / dotUSD;
     const setupPerKimpDOT = setupDOT * 1000 / 10_000;
     const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
     const maxCPM_USD = maxCPM_DOT * dotUSD;
     const viable = maxCPM_USD > userMinCPM_USD;
+    out.push(`| ${year} | $${fmt(dotUSD)} | ${fmt(datumDotRatio)} | $${fmt(datumUSD)} | ${fmt(mintRate)} | ${fmt(annualMint)} | ${fmt(effShare)} | ${fmt(userMinCPM_DOT)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} |`);
+  }
+  out.push("");
+  out.push(`Cumulative DATUM minted over 70 years (this trajectory): **${fmt(cumMintProj)}** —`);
+  out.push(`compare to the **${fmt(settlementCap)}** settlement cap. Cap ${cumMintProj < settlementCap ? "is NOT" : "is"} reached`);
+  out.push(`within the projection horizon.\n`);
+
+  // Find first year programmatic becomes unviable
+  let firstUnviableYear = -1;
+  for (let h = 0; h <= HALVINGS; h++) {
+    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, h);
+    const mintRate = baseMintRate / Math.pow(2, h);
+    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
+    const userMinCPM_DOT = gasPerYr * 1000 / (effShare * impsPerYr);
+    const userMinCPM_USD = userMinCPM_DOT * dotUSD;
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_USD = (1000 * vpiDOT - setupPerKimpDOT) * dotUSD;
+    if (firstUnviableYear < 0 && maxCPM_USD < userMinCPM_USD) firstUnviableYear = h * HALVING_INTERVAL;
+  }
+
+  out.push(`**Trajectory under aggressive DOT growth (4× DOT, 2× DATUM/DOT per halving):**\n`);
+  out.push(`Stress test: if DOT outruns DATUM in USD terms, when does the chain hit a viability cliff?\n`);
+  out.push(`| Year | DOT/USD | mintRate | User eff. share | User min CPM (USD) | Adv max CPM (USD) | Viable? | Notes |`);
+  out.push(`|---:|---:|---:|---:|---:|---:|:---:|---|`);
+  for (let h = 0; h <= 8; h++) {
+    const year = h * HALVING_INTERVAL;
+    const dotUSD = DOT_BASE_USD * Math.pow(4, h);
+    const datumDotRatio = DATUM_DOT_RATIO_BASE * Math.pow(2, h);
+    const mintRate = baseMintRate / Math.pow(2, h);
+    const effShare = 0.375 + 0.55 * mintRate * datumDotRatio;
+    const userMinCPM_USD = (gasPerYr * 1000 / (effShare * impsPerYr)) * dotUSD;
+    const vpiDOT = programmaticVPI / dotUSD;
+    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
+    const maxCPM_USD = (1000 * vpiDOT - setupPerKimpDOT) * dotUSD;
+    const viable = maxCPM_USD > userMinCPM_USD;
     let notes = "";
     if (h === 0) notes = "Baseline";
-    else if (!viable && h > 0) notes = "Gas repricing required";
+    else if (!viable) notes = "Gas repricing required";
     else if (maxCPM_USD < 2 * userMinCPM_USD) notes = "Margin tight (<2×)";
-    out.push(`| ${year} | $${dotUSD.toFixed(0)} | $${userMinCPM_USD.toFixed(2)} | $${maxCPM_USD.toFixed(2)} | ${viable ? "✓" : "✗"} | ${notes} |`);
+    out.push(`| ${year} | $${fmt(dotUSD)} | ${fmt(mintRate)} | ${fmt(effShare)} | $${fmt(userMinCPM_USD)} | $${fmt(maxCPM_USD)} | ${viable ? "✓" : "✗"} | ${notes} |`);
   }
   out.push("");
 
-  // Find the year at which conservative growth makes programmatic no-longer-viable
-  let firstUnviableYear = -1;
-  let datumSubsidyCrossover = -1;
-  for (let h = 0; h <= HALVINGS; h++) {
-    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
-    const userMinCPM_USD = userMinCPM * dotUSD;
-    const vpiDOT = programmaticVPI / dotUSD;
-    const setupPerKimpDOT = setupDOT * 1000 / 10_000;
-    const maxCPM_DOT = 1000 * vpiDOT - setupPerKimpDOT;
-    const maxCPM_USD = maxCPM_DOT * dotUSD;
-    if (firstUnviableYear < 0 && maxCPM_USD < userMinCPM_USD) firstUnviableYear = h * HALVING_INTERVAL;
-  }
-  // DATUM purchasing power: emission_DOTeq × DOT_price_USD (in original DOT-eq terms)
-  // Crossover threshold: DATUM emission USD value can still cover gas for 1M users?
-  for (let h = 0; h <= HALVINGS; h++) {
-    const dotUSD = DOT_BASE_USD * Math.pow(2, h);
-    const datumUSD = DATUM_BASE_USD * Math.pow(2, h);
-    const datumTokens = (DATUM_BASE_EMISSION * DOT_BASE_USD / DATUM_BASE_USD) / Math.pow(2, h);
-    const datumEmissionUSD = datumTokens * datumUSD;
-    // 1M-user subsidy needs (in USD): 42,143 DOT-eq × current DOT price
-    const subsidyNeededUSD = 42143 * dotUSD;
-    if (datumSubsidyCrossover < 0 && datumEmissionUSD < subsidyNeededUSD) datumSubsidyCrossover = h * HALVING_INTERVAL;
-  }
-
   out.push(`### Halving-projection findings\n`);
   out.push(`- **Programmatic-display first hits no-market under conservative growth**: ${firstUnviableYear < 0 ? "never within 70 years" : `year ${firstUnviableYear}`}.`);
-  out.push(`  Higher-VPI campaigns (retargeting and above) stay viable longer.`);
-  out.push(`- **DATUM subsidy purchasing power crosses below 1M-user need**: ${datumSubsidyCrossover < 0 ? "never within 70 years (token grows fast enough)" : `year ${datumSubsidyCrossover}`}.`);
-  out.push(`  Beyond this, the protocol must mint more DATUM, raise the per-imp reward, or rely on`);
-  out.push(`  organic gas-market repricing.`);
-  out.push(`- **Under aggressive DOT growth (4×/halving)**, even programmatic display fails within ~8`);
-  out.push(`  years without gas repricing. This is the strongest argument for an on-chain gas-fee`);
-  out.push(`  governor or DOT-pegged fee market (Hub-level upgrade).`);
-  out.push(`- **DATUM emission halves but its DOT-equivalent value grows**: if DATUM price grows`);
-  out.push(`  ≥ 2× per halving, the per-imp subsidy maintains DOT-equivalent purchasing power.`);
-  out.push(`  If it grows slower, subsidy weakens — argues for DATUM peg-to-USD via oracle.\n`);
+  out.push(`  Higher-VPI campaigns (retargeting and above) stay viable longer because their per-imp value`);
+  out.push(`  is 10×–1000× higher.`);
+  out.push(`- **Cap-depletion risk**: at default mintRate of 19 and 1M users, the 89M cap is hit in ~9 years.`);
+  out.push(`  Halving extends this to perpetuity if asymptotic mint < cap.`);
+  out.push(`- **DATUM mint subsidy stays constant in DOT-equivalent terms** under symmetric halving`);
+  out.push(`  (mintRate halves, DATUM/DOT doubles → \`mintRate × ratio\` is invariant). The user's`);
+  out.push(`  effective share stays at ${fmt(0.375 + 0.55 * baseMintRate * DATUM_DOT_RATIO_BASE)} for all 17 halvings.`);
+  out.push(`  If DATUM/DOT grows **slower** than mintRate halves, the subsidy shrinks and the user-side`);
+  out.push(`  floor rises; if **faster**, the subsidy expands and the floor falls.`);
+  out.push(`- **Under aggressive DOT growth (4×/halving)**, programmatic display fails within ~8 years`);
+  out.push(`  without gas repricing — the strongest argument for an on-chain gas-fee governor.`);
+  out.push(`- **Optimal halving cadence trades off** scarcity narrative vs. user-side subsidy. Slower`);
+  out.push(`  halvings (8-yr instead of 4-yr) preserve user subsidy longer; faster halvings amplify`);
+  out.push(`  token scarcity. Governance lever via \`setMintRate\`.\n`);
 
   out.push(`### Long-run structural picture\n`);
   out.push(`Three forces compete on a 70-year horizon:`);
