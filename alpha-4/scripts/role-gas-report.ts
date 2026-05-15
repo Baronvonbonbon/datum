@@ -1097,6 +1097,96 @@ function emitMarkdown(): string {
   out.push(`and the bootstrap-an-audience subsidy without changing contract logic — the lever is`);
   out.push(`already plumbed via \`Campaigns.rewardToken\` + \`Campaigns.rewardPerImpression\`.\n`);
 
+  // ─── Advertiser ROI break-even ──────────────────────────────────────────
+  out.push(`### Advertiser ROI break-even\n`);
+  out.push(`An advertiser pays CPM (cost per 1,000 impressions) and extracts value via clicks /`);
+  out.push(`conversions / brand lift / attribution. Per-impression value (**VPI**) is the`);
+  out.push(`fundamental economic input. Their break-even condition:\n`);
+  out.push(`\`VPI × imps_settled ≥ CPM × (imps_settled/1000) + setup_gas_DOT\`\n`);
+  out.push(`Solving for the maximum CPM they can pay while ROI ≥ 0:`);
+  out.push(`\`MaxCPM = 1000 × VPI − (setup_gas_DOT × 1000 / imps_settled)\``);
+  out.push("");
+
+  const setupGasAdv = Number(rows.find(r => r.role === "Advertiser" && r.op === "createCampaign")?.gas ?? 0n)
+                    + Number(rows.find(r => r.role === "Advertiser" && r.op === "vote (own campaign, aye)")?.gas ?? 0n);
+  const setupGwei = 5;
+  const setupDOT = setupGasAdv * setupGwei * 1e-9;
+  out.push(`Measured setup gas per campaign: \`createCampaign + vote = ${setupGasAdv.toLocaleString()} gas\``);
+  out.push(`= **${setupDOT.toFixed(5)} DOT** at 5 gwei. Amortises linearly across the campaign's settled imps.\n`);
+
+  out.push(`### Maximum CPM by value-per-impression × campaign size (5 gwei)\n`);
+  out.push(`VPI scenarios are stated in DOT-equivalent at $5/DOT for intuition. Web2 reference points:`);
+  out.push(`brand awareness ~$0.10 CPM value, programmatic display ~$1, retargeting ~$10,`);
+  out.push(`direct-response ~$100, high-intent search ~$1,000.\n`);
+  const VPI_SCENARIOS = [
+    { label: "Brand awareness", usd: 0.0001 },  // $0.10 CPM
+    { label: "Programmatic display", usd: 0.001 },  // $1 CPM
+    { label: "Retargeting", usd: 0.01 },  // $10 CPM
+    { label: "Direct-response", usd: 0.1 },  // $100 CPM
+    { label: "High-intent search", usd: 1.0 },  // $1000 CPM
+  ];
+  const dotPriceUSD = 5;
+  const campaignSizes = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
+  out.push(`| VPI scenario | VPI (USD/imp) | VPI (DOT/imp) | ${campaignSizes.map(n => `Max CPM @ ${n.toLocaleString()} imps`).join(" | ")} |`);
+  out.push(`|---|---:|---:|${campaignSizes.map(() => "---:").join("|")}|`);
+  for (const v of VPI_SCENARIOS) {
+    const vpiDOT = v.usd / dotPriceUSD;
+    const cells = campaignSizes.map(n => {
+      const setupPerKimp = setupDOT * 1000 / n;
+      const maxCPM = 1000 * vpiDOT - setupPerKimp;
+      return maxCPM > 0 ? maxCPM.toExponential(2) : `**neg**`;
+    });
+    out.push(`| ${v.label} | $${v.usd.toFixed(4)} | ${vpiDOT.toExponential(2)} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
+
+  out.push(`### Viability window (advertiser max CPM − user min CPM)\n`);
+  out.push(`The market only clears where advertiser MaxCPM ≥ user MinCPM. With user MinCPM`);
+  out.push(`= ${userMinCPM.toFixed(3)} DOT at monthly batching + 3,650 imps/user/yr, computing the`);
+  out.push(`viability margin (positive = market clears with that much headroom):\n`);
+  out.push(`| VPI scenario | ${campaignSizes.map(n => `Margin @ ${n.toLocaleString()} imps`).join(" | ")} |`);
+  out.push(`|---|${campaignSizes.map(() => "---:").join("|")}|`);
+  for (const v of VPI_SCENARIOS) {
+    const vpiDOT = v.usd / dotPriceUSD;
+    const cells = campaignSizes.map(n => {
+      const setupPerKimp = setupDOT * 1000 / n;
+      const maxCPM = 1000 * vpiDOT - setupPerKimp;
+      const margin = maxCPM - userMinCPM;
+      if (margin <= 0) return `**no market**`;
+      const ratio = maxCPM / userMinCPM;
+      return `${margin.toExponential(2)} (${ratio.toFixed(0)}×)`;
+    });
+    out.push(`| ${v.label} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
+
+  // Minimum viable campaign size — where setup amortization < 5% of user min CPM
+  const minViableImps = setupDOT * 1000 / (0.05 * userMinCPM);
+  out.push(`### Minimum viable campaign size\n`);
+  out.push(`Setup gas amortises over the campaign's settled imps. For the setup fee to be ≤ 5%`);
+  out.push(`of the user-side minimum CPM at 5 gwei:\n`);
+  out.push(`\`setup_DOT × 1000 / N ≤ 0.05 × MinCPM_user\` → **N ≥ ${Math.round(minViableImps).toLocaleString()} impressions**\n`);
+  out.push(`Below this size, setup overhead becomes a meaningful share of the campaign's cost.`);
+  out.push(`Above it, setup is structural rounding error. The recommended minimum campaign size`);
+  out.push(`is therefore ~${Math.round(minViableImps / 1000)}k impressions — at $1 CPM that's a $${(minViableImps * 0.001 * dotPriceUSD).toFixed(0)}+ campaign budget.\n`);
+
+  // DATUM-subsidized advertiser economics
+  out.push(`### Advertiser economics with DATUM subsidy\n`);
+  out.push(`When the advertiser routes part of their per-imp budget through DATUM rewards`);
+  out.push(`(via \`Campaigns.rewardPerImpression\`), the cost accounting becomes:\n`);
+  out.push(`\`Total cost per imp = DOT_CPM/1000 + DATUM_reward_DOT_eq + setup/imps\``);
+  out.push(`\`ROI break-even: VPI ≥ Total cost per imp\`\n`);
+  out.push(`Whether the advertiser pays a unit of value in DOT or DATUM is a routing choice —`);
+  out.push(`the **total per-impression compensation** is what matters. The economic floor is set`);
+  out.push(`by VPI; the mix of DOT vs DATUM lets the advertiser shape the user-acquisition profile`);
+  out.push(`(higher DATUM share = stronger network growth incentive; higher DOT share = clearer`);
+  out.push(`market price signal).\n`);
+
+  out.push(`**Key takeaway:** at any reasonable VPI ($0.001/imp and up — basically any campaign`);
+  out.push(`with measurable conversion intent), the advertiser has 6×–60,000× of CPM headroom`);
+  out.push(`above the user-side floor. Campaigns with VPI < $0.0001/imp (pure brand-awareness on`);
+  out.push(`small audiences) struggle; everyone else has comfortable margins.\n`);
+
   // ─── Practical implications / interpretation ─────────────────────────────
   out.push(`## Interpretation\n`);
 
