@@ -644,10 +644,41 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
             // Terminated -> mark resolved (e.g., terminated via lifecycle directly)
             resolved[campaignId] = true;
             resolvedWinningWeight[campaignId] = nayWeighted[campaignId];
+            // Audit-5 H4: if terminated via a direct high-tier proposal
+            // (bypassing the aye/nay vote), nayWeighted is 0 and the
+            // slashCollected pool would otherwise be unclaimable.
+            // Route it to ownerSweep so it doesn't strand.
+            if (nayWeighted[campaignId] == 0) {
+                _routeStuckPoolToOwnerSweep(campaignId);
+            }
             emit CampaignEvaluated(campaignId, 4);
+        } else if (status == 5 && !resolved[campaignId]) {
+            // Audit-5 H4: Expired — campaign timed out without a vote
+            // resolution. Revealed voters recover their stake via
+            // withdraw() at lockup expiry. Non-revealer forfeits (in
+            // slashCollected) have no winning side to distribute to;
+            // route them to ownerSweep so the pool doesn't permanently
+            // strand.
+            resolved[campaignId] = true;
+            _routeStuckPoolToOwnerSweep(campaignId);
+            emit CampaignEvaluated(campaignId, 6); // result 6 = expired
         } else {
             revert("E50");
         }
+    }
+
+    /// @dev Audit-5 H4 helper: marks slashCollected as fully consumed and
+    ///      queues the residue for owner pull. Used by resolution paths
+    ///      that have no winning side to distribute the pool to.
+    function _routeStuckPoolToOwnerSweep(uint256 campaignId) internal {
+        uint256 pool = slashCollected[campaignId];
+        if (pool == 0) return;
+        uint256 already = totalSlashClaimed[campaignId];
+        if (already >= pool) return;
+        uint256 remaining = pool - already;
+        totalSlashClaimed[campaignId] = pool;
+        pendingOwnerSweep += remaining;
+        emit OwnerSweepQueued(campaignId, remaining);
     }
 
     // -------------------------------------------------------------------------

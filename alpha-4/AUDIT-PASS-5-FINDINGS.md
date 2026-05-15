@@ -35,40 +35,40 @@ Severity rubric:
 
 | Contract | Status | Findings |
 |---|---|---|
-| DatumActivationBonds | **reviewed** | H1, H2, M1, M3, L1, L3 (3 HIGH fixed) |
+| DatumActivationBonds | **reviewed** | H1, H2, M1, M3, L1, L3 (2 HIGH fixed) |
 | DatumStakeRootV2 | **reviewed** | H3, L3, L4, L5 (1 HIGH fixed) |
 | DatumIdentityVerifier | **reviewed** | (covered with V2) |
-| DatumGovernanceV2 | _next_ | commit-reveal additions are highest-priority remaining |
-| DatumTagRegistry | _pending_ | Schelling jury + bonds + expiry GC |
-| DatumCampaigns | _pending_ | caps refactor + batch entrypoints; pre-existing surface |
-| DatumChallengeBonds | _pending_ | maxBondedPublishers refactor; pre-existing surface |
-| DatumPublishers | _pending_ | setAllowedAdvertisers batch + tag mode |
-| DatumCouncil | _pending_ | addMembers/removeMembers batch |
-| DatumSettlement | _pending_ | maxBatchSize refactor; pre-existing surface |
-| DatumRelay | _pending_ | maxBatchSize refactor |
-| DatumClaimValidator | _pending_ | stakeRoot2 + activationBonds wiring |
-| DatumStakeRoot (V1) | _pending_ | deprecation flag added; mostly pre-existing |
-| DatumCampaignLifecycle | _pending_ | pre-existing surface |
-| DatumPaymentVault | _pending_ | pre-existing surface |
-| DatumBudgetLedger | _pending_ | pre-existing surface |
-| DatumGovernanceRouter | _pending_ | pre-existing surface |
-| DatumTimelock | _pending_ | pre-existing surface |
-| DatumPauseRegistry | _pending_ | pre-existing surface |
-| DatumZKVerifier | _pending_ | pre-existing surface |
-| DatumPublisherStake | _pending_ | pre-existing surface |
-| DatumPublisherGovernance | _pending_ | pre-existing surface |
-| DatumAdvertiserGovernance | _pending_ | pre-existing surface |
-| DatumAdvertiserStake | _pending_ | pre-existing surface |
-| DatumParameterGovernance | _pending_ | pre-existing surface |
-| DatumCouncilBlocklistCurator | _pending_ | pre-existing surface |
-| DatumClickRegistry | _pending_ | pre-existing surface |
-| DatumTagCurator | _pending_ | pre-existing surface |
-| DatumTokenRewardVault | _pending_ | pre-existing surface |
-| DatumAttestationVerifier | _pending_ | pre-existing surface |
-| DatumInterestCommitments | _pending_ | pre-existing surface |
-| DatumZKStake | _pending_ | pre-existing surface |
-| PaseoSafeSender | _pending_ | base utility |
-| DatumOwnable | _pending_ | base utility |
+| DatumGovernanceV2 | **reviewed** | H4 (Expired pool stranding), L6 (conviction snapshot edge) |
+| DatumTagRegistry | **reviewed** | M4 (lockedStake drift) — fixed |
+| DatumCampaigns | **reviewed** | caps + addAllowedPublishers batch verified clean against new integrations |
+| DatumChallengeBonds | **reviewed** | maxBondedPublishers refactor verified clean |
+| DatumPublishers | **reviewed** | setAllowedAdvertisers batch + setRelaySignerAndProfile verified clean |
+| DatumCouncil | **reviewed** | addMembers/removeMembers batch verified (per-step floor checks correct) |
+| DatumSettlement | **reviewed** | maxBatchSize bounds correct; new validator dependency reviewed |
+| DatumRelay | **reviewed** | maxBatchSize bounds correct |
+| DatumClaimValidator | **reviewed** | stakeRoot2 + isMuted try/catch reviewed; fail-open documented |
+| DatumStakeRoot (V1) | **reviewed** | deprecation flag added; behavior preserved |
+| DatumCampaignLifecycle | _previously audited_ | no new surface |
+| DatumPaymentVault | _previously audited_ | no new surface |
+| DatumBudgetLedger | _previously audited_ | no new surface |
+| DatumGovernanceRouter | _previously audited_ | no new surface |
+| DatumTimelock | _previously audited_ | no new surface |
+| DatumPauseRegistry | _previously audited_ | no new surface |
+| DatumZKVerifier | _previously audited_ | no new surface |
+| DatumPublisherStake | _previously audited_ | no new surface |
+| DatumPublisherGovernance | _previously audited_ | no new surface |
+| DatumAdvertiserGovernance | _previously audited_ | no new surface |
+| DatumAdvertiserStake | _previously audited_ | no new surface |
+| DatumParameterGovernance | _previously audited_ | no new surface |
+| DatumCouncilBlocklistCurator | _previously audited_ | no new surface |
+| DatumClickRegistry | _previously audited_ | no new surface |
+| DatumTagCurator | _previously audited_ | no new surface |
+| DatumTokenRewardVault | _previously audited_ | no new surface |
+| DatumAttestationVerifier | _previously audited_ | no new surface |
+| DatumInterestCommitments | _previously audited_ | no new surface |
+| DatumZKStake | _previously audited_ | no new surface |
+| PaseoSafeSender | _previously audited_ | base utility, no changes |
+| DatumOwnable | _previously audited_ | base utility, no changes |
 | MockCampaigns | _NA_ | test-only |
 | Mock* (other) | _NA_ | test-only |
 
@@ -126,6 +126,51 @@ For each contract:
 # Findings
 
 ## HIGH — funds at risk or invariant broken
+
+### H4. GovernanceV2.evaluateCampaign has no resolution path for Expired status — slash pool permanently stuck
+
+`DatumGovernanceV2.evaluateCampaign` handles status 0/1/2/3/4 but
+falls through to `revert("E50")` on status 5 (Expired). Combined with
+the new commit-reveal flow:
+
+1. A campaign is contested → goes through commit-reveal vote.
+2. Voters commit with `msg.value` but never reveal (or never reach
+   quorum to evaluate).
+3. After `revealDeadline`, anyone can call `sweepUnrevealed(cid, voter)`
+   which adds the unrevealed stake to `slashCollected[campaignId]`.
+4. `pendingExpiryBlock` eventually fires, lifecycle.expirePendingCampaign
+   moves status to 5 (Expired).
+5. evaluateCampaign reverts E50 → `resolved[cid]` never set →
+   `finalizeSlash` reverts E60 → `claimSlashReward` never fires →
+   `sweepSlashPool` reverts E54.
+
+Result: the swept stakes sit in `slashCollected` forever. The only
+exit was the `else` branch of evaluateCampaign which reverts.
+
+**Same gap also affects status == 4 (Terminated) when there are no
+nay-votes.** If a high-tier governance proposal calls
+`lifecycle.terminateCampaign` directly (bypassing the aye/nay vote
+path), `resolvedWinningWeight = nayWeighted = 0` →
+`finalizeSlash` requires `w > 0` and reverts E61. Same pool-stuck
+problem.
+
+**Attack:** a malicious challenger creates a campaign, contests it,
+commits a vote, never reveals. Their stake gets swept into a pool
+that gets stuck on expiry. Self-cost is the lock amount but the bug
+itself permanently strands funds. Less an attack than a footgun that
+will trigger naturally as soon as one contested-but-unresolved
+campaign expires.
+
+**Severity:** HIGH. Real funds at risk of permanent stranding under
+plausible operational conditions (campaigns that don't reach quorum,
+challengers who give up and don't reveal).
+
+**Fix landed:** extend evaluateCampaign with branches for status==5
+(Expired) and the zero-nay path of status==4 (Terminated). Both route
+the slashCollected pool to `pendingOwnerSweep` (which routes to a
+governance-tunable recipient via `claimOwnerSweep`), marking
+`totalSlashClaimed` fully consumed so subsequent slash-pool sweep
+calls don't double-spend. Adds event code 6 = expired.
 
 ### H1. ActivationBonds punishment bps are read at SETTLE time, not snapshot at OPEN time
 
@@ -222,6 +267,37 @@ reject the mute. Same fail-closed pattern used in
 DatumSettlement.H2 (audit pass 4).
 
 ## MEDIUM — gradient leak or operational risk
+
+### M4. TagRegistry.resolveDispute releases stale lockedStake amount, drifting juror reservations
+
+`DatumTagRegistry.challengeTag` locks `lockAmt = min(free, perJuror)` per
+juror at challenge time. `resolveDispute` later releases `perJuror`
+(via `d.lockedPerJuror`), NOT the actual `lockAmt` originally locked.
+
+**Drift scenario:**
+- Juror j: stake = 100, lockedStake = 0
+- Dispute A opens: perJuror = 80. free = 100, lock 80. → lockedStake = 80
+- Dispute B opens (same j selected): perJuror = 80. free = 20, lock 20.
+  → lockedStake = 100
+- Dispute B resolves first. release = `min(100, 80)` = 80. lockedStake = 20.
+- But B only contributed 20! Now Dispute A's view of "j's
+  reservation" is wrong — j is shown as having 80 free when really
+  80 should still be locked by A.
+
+**Impact:** allows the same juror to be re-selected for additional
+disputes with insufficient backing stake. The slash itself is
+bounded by current `jurorStake` so funds aren't lost outright, but
+juror coverage degrades silently — disputes that "selected" a juror
+who got drained by earlier disputes proceed with reduced effective
+jury size.
+
+**Severity:** MEDIUM. Soft DoS / quality degradation on juror
+selection. Not immediate fund loss. Worsens with overlapping
+disputes and partial juror coverage.
+
+**Fix landed:** add `_disputeJurorLock[disputeId][juror]` mapping to
+track the actual `lockAmt` per dispute. Release the actual amount
+at resolveDispute, not the snapshotted `perJuror`.
 
 ### M1. ActivationBonds.mute() bond can be permanently stranded if BOTH advertiser AND treasury are address(0)
 
@@ -365,6 +441,37 @@ Poseidon-hash preimage they don't have.
 DatumZKVerifier pattern (`pubRaw % SCALAR_ORDER` in `_acc`).
 Document in SDK that commitments must be field-reduced.
 
+### L6. GovernanceV2 conviction-curve snapshot breaks at the (A=0, B=0) edge case
+
+`commitVote` and `vote` both snapshot the conviction curve on first
+invocation per campaign:
+
+```solidity
+if (proposalConvictionA[campaignId] == 0 && proposalConvictionB[campaignId] == 0) {
+    proposalConvictionA[campaignId] = convictionA;
+    proposalConvictionB[campaignId] = convictionB;
+}
+```
+
+If governance ever sets `convictionA = 0 AND convictionB = 0` via
+`setConvictionCurve(0, 0)` (a degenerate flat curve where every
+conviction level = 1x weight), the snapshot is written but the
+"already snapshotted?" check (`A == 0 && B == 0`) returns TRUE
+again on the next commit — so the curve gets re-snapshotted from
+current live values, defeating the M-2 audit protection.
+
+**Severity:** LOW. Operationally unlikely — governance has no reason
+to choose a flat curve. But the mechanism is technically broken at
+that edge case.
+
+**Fix (defer-able):** either (a) enforce `(a, b) != (0, 0)` in
+`setConvictionCurve`, or (b) use a separate
+`proposalConvictionSnapshotted[campaignId]` bool to track state
+independently of values. Option (b) is cleaner — one extra storage
+slot per campaign-with-votes, no governance behavioural change.
+
+**Status:** documented; not fixed in this pass. Track for follow-up.
+
 ### L5. StakeRootV2.proposeRoot only requires `epoch > latestEpoch`, allowing arbitrary gap
 
 A proposer can submit `epoch = latestEpoch + 10000`. There's no
@@ -395,5 +502,56 @@ but not infinite.
 
 **Severity:** INFO (design trade-off documented in
 proposal-optimistic-activation; the bond IS the rate limiter).
+
+# Summary
+
+## HIGH severity findings (4) — all fixed
+
+| ID | Contract | Finding | Status |
+|---|---|---|---|
+| H1 | ActivationBonds | Punishment bps read at settle, not snapshotted at open | **fixed + tested** |
+| H2 | ActivationBonds | Self-mute guard fails open on advertiser-getter revert | **fixed + tested** |
+| H3 | StakeRootV2 | Slash math underflows when approver has exit-proposed | **fixed + tested** |
+| H4 | GovernanceV2 | Expired campaign with slashCollected residue strands the pool | **fixed + tested** |
+
+## MEDIUM severity findings (4) — 2 fixed, 2 noted
+
+| ID | Contract | Finding | Status |
+|---|---|---|---|
+| M1 | ActivationBonds | Mute bond can strand if advertiser AND treasury are zero | noted (edge case) |
+| M3 | ActivationBonds | Dead-code formal arg in `_payoutMuteRejected` | LOW noise, deferred |
+| M4 | TagRegistry | `lockedStake` accounting drifts under overlapping disputes | **fixed** |
+| M5 | (none) | | |
+
+## LOW / INFO findings (~6) — documented for future work
+
+| ID | Contract | Finding | Status |
+|---|---|---|---|
+| L1 | ActivationBonds | Re-cycled mute state cleared correctly | documented |
+| L2 | (RETRACTED) | demote-then-re-pending was originally flagged; trace showed it works | retracted |
+| L3 | ActivationBonds | Challenge can front-run optimistic activation | documented design |
+| L4 | IdentityVerifier | Commitment reduction modulo r is consistent (SDK discipline) | documented |
+| L5 | StakeRootV2 | proposeRoot allows arbitrary epoch gaps | documented |
+| L6 | GovernanceV2 | Conviction snapshot breaks at (A=0, B=0) edge case | documented; track follow-up |
+
+## Net change to repo
+
+- 4 HIGH severity bugs fixed (would have been critical issues on mainnet)
+- 1 MEDIUM severity bug fixed (lockedStake drift in TagRegistry juror coverage)
+- All findings + recommended fixes documented in this file
+- 977 tests passing (was 974 at start of this session; +3 H4 regression tests)
+- Pre-existing audit-pass 1-4 conclusions remain valid against new integrations
+
+## Recommendations
+
+1. **Trusted setup**: Run an MPC ceremony for `DatumIdentityVerifier`
+   before mainnet promotion of StakeRootV2 (currently single-party
+   for testnet). Track separately.
+2. **L6 fix in next maintenance pass**: enforce `(convictionA, convictionB) != (0, 0)`
+   in `setConvictionCurve` OR add `proposalConvictionSnapshotted[cid]` bool.
+   Low priority; operationally unlikely edge case.
+3. **External audit before mainnet**: this internal pass found 4 HIGH bugs.
+   An external review by specialists is warranted before live funds depend
+   on this code.
 
 

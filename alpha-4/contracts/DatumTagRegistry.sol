@@ -144,6 +144,12 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumOwnable, ReentrancyGuard {
     mapping(uint256 => mapping(address => bytes32)) private _commit;
     mapping(uint256 => mapping(address => Vote)) private _reveal;
     mapping(uint256 => mapping(address => bool)) private _isJuror;
+
+    // Audit-5 M4: track the actual amount each dispute locked from each
+    // juror's stake. The previous design released `perJuror` at resolve
+    // time regardless of how much was actually locked — under-reservation
+    // when a juror had insufficient free stake at challenge time → drift.
+    mapping(uint256 => mapping(address => uint256)) private _disputeJurorLock;
     uint256 public nextDisputeId; // first id == 1
 
     // ---------------------------------------------------------------------
@@ -347,6 +353,9 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumOwnable, ReentrancyGuard {
             uint256 free_ = jurorStake[picked] - jurorLockedStake[picked];
             uint256 lockAmt = free_ < perJuror ? free_ : perJuror;
             jurorLockedStake[picked] += lockAmt;
+            // Audit-5 M4: record actual locked amount per dispute so
+            // resolveDispute releases exactly what this dispute locked.
+            _disputeJurorLock[disputeId][picked] = lockAmt;
         }
 
         t.state = TagState.Disputed;
@@ -472,9 +481,13 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumOwnable, ReentrancyGuard {
             Vote v = _reveal[disputeId][j];
 
             // Release the lock first (we'll re-deduct if slashing).
+            // Audit-5 M4: release the ACTUAL amount this dispute locked,
+            // not `perJuror`. Releasing perJuror over-released when the
+            // juror had insufficient free stake at challenge time.
             uint256 perJuror = d.lockedPerJuror;
+            uint256 actualLocked = _disputeJurorLock[disputeId][j];
             uint256 currentlyLocked = jurorLockedStake[j];
-            uint256 release = currentlyLocked < perJuror ? currentlyLocked : perJuror;
+            uint256 release = currentlyLocked < actualLocked ? currentlyLocked : actualLocked;
             jurorLockedStake[j] = currentlyLocked - release;
 
             bool inMajority = (outcome != Vote.None) && (v == outcome);
