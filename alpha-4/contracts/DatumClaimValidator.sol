@@ -156,6 +156,22 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         stakeRoot = IDatumStakeRoot(addr);
     }
 
+    /// @notice Optional secondary stake-root contract. Used for migration
+    ///         from a V1 reporter-set oracle to a V2 bonded-reporter oracle:
+    ///         during the transition, validateClaim accepts a recent root
+    ///         from EITHER `stakeRoot` OR `stakeRoot2`. Address(0) leaves
+    ///         the secondary off (default; behaves like single-source V1).
+    IDatumStakeRoot public stakeRoot2;
+    event StakeRoot2Set(address indexed addr);
+    function setStakeRoot2(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        // address(0) is permitted here (disabling the secondary). Setter is
+        // re-callable until plumbingLocked so operators can swap V2 versions
+        // during a multi-stage migration.
+        stakeRoot2 = IDatumStakeRoot(addr);
+        emit StakeRoot2Set(addr);
+    }
+
     /// @notice Path A: wire the per-user interest-commitment contract.
     function setInterestCommitments(address addr) external onlyOwner {
         require(!plumbingLocked, "locked");
@@ -436,8 +452,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
         if (sRoot != bytes32(0)) {
             // require recency only when a non-zero root is asserted; otherwise
             // the campaign's minStake==0 path treats this as "no gate"
-            if (address(stakeRoot) == address(0)) return false;
-            if (!stakeRoot.isRecent(sRoot)) return false;
+            bool ok = false;
+            if (address(stakeRoot) != address(0) && stakeRoot.isRecent(sRoot)) {
+                ok = true;
+            } else if (address(stakeRoot2) != address(0) && stakeRoot2.isRecent(sRoot)) {
+                ok = true;
+            }
+            if (!ok) return false;
         }
 
         // Pub 4: min stake — campaign-set threshold (0 = no stake floor).

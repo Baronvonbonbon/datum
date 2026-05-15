@@ -496,6 +496,29 @@ async function main() {
     log("INIT", "Optimistic activation not deployed — falling back to legacy AdminGovernance activate path");
   }
 
+  // StakeRootV2 present? Bootstrap deployer as the first bonded reporter
+  // so the V2 oracle can produce roots during the seed run. The off-chain
+  // tree builder (scripts/build-stake-root.ts) needs to be updated for V2
+  // separately — see proposal-stakeroot-optimistic.md.
+  if (addrs.stakeRootV2) {
+    const v2Iface = new Interface([
+      "function isActiveReporter(address) view returns (bool)",
+      "function reporterMinStake() view returns (uint256)",
+      "function joinReporters() payable",
+    ]);
+    const already = await readCall(rawProvider, addrs.stakeRootV2, v2Iface, "isActiveReporter", [alice.address]);
+    if (Boolean(already)) {
+      log("INIT", `StakeRootV2: deployer already an active reporter`);
+    } else {
+      const minStakeRaw = await readCall(rawProvider, addrs.stakeRootV2, v2Iface, "reporterMinStake", []);
+      const minStake = BigInt(minStakeRaw);
+      log("INIT", `StakeRootV2: bootstrapping deployer as bonded reporter with ${formatDOT(minStake)} PAS`);
+      await sendCall(alice, rawProvider, addrs.stakeRootV2, v2Iface, "joinReporters", [], minStake);
+    }
+  } else {
+    log("INIT", "StakeRootV2 not deployed — skipping reporter bootstrap");
+  }
+
   // ─── Check Alice's balance ───────────────────────────────────────────────
   const aliceBal = await rawProvider.getBalance(alice.address);
   log("INIT", `Alice balance: ${formatDOT(aliceBal)} PAS`);

@@ -1,4 +1,4 @@
-// deploy.ts — Full 22-contract Alpha-4 deployment + wiring + ownership transfer
+// deploy.ts — Full 24-contract Alpha-4 deployment + wiring + ownership transfer
 //
 // Alpha-4 consolidation: 9 satellite contracts merged into parents (29 → 20):
 //   GovernanceHelper + GovernanceSlash → GovernanceV2
@@ -16,6 +16,12 @@
 //                                timelock unless contested; commit-reveal vote
 //                                on contested Pending; emergency mute bond on
 //                                Active campaigns)
+//
+// Path A oracle (2026-05-14):
+//   - DatumStakeRootV2          (permissionless bonded reporter set + phantom-
+//                                leaf fraud proof; replaces V1's owner-managed
+//                                N-of-M trusted set; V1 retained as fallback
+//                                during migration)
 //
 // Governance ladder (Phase 0 → 2):
 //   - DatumGovernanceRouter     (stable proxy with inline admin functions)
@@ -101,6 +107,8 @@ const REQUIRED_KEYS = [
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
   "activationBonds",
+  // Permissionless bonded StakeRoot V2 (Path A oracle, 2026-05-14)
+  "stakeRootV2",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -149,6 +157,20 @@ const ACTIVATION_TREASURY_BPS = 0n;                  // 0% to treasury (start co
 // re-applied here for clarity and to allow per-deploy overrides).
 const GOV_COMMIT_BLOCKS = 14400n;                    // ~24h commit window
 const GOV_REVEAL_BLOCKS = 14400n;                    // ~24h reveal window
+
+// DatumStakeRootV2 — permissionless bonded reporter set (Path A oracle).
+// Off-chain tree builder commits roots; phantom-leaf fraud catchable by
+// anyone via challengePhantomLeaf. See proposal-stakeroot-optimistic.md +
+// task-stakeroot-v2-implementation.md.
+const SR_V2_MIN_STAKE              = parseDOT("1");       // 1 DOT to become a reporter
+const SR_V2_EXIT_DELAY             = 14400n;              // ~24h between exit proposal + claim
+const SR_V2_APPROVAL_BPS           = 5100n;               // 51% of bonded stake to finalize
+const SR_V2_CHALLENGE_WINDOW       = 14400n;              // ~24h challenge window
+const SR_V2_PROPOSER_BOND          = parseDOT("0.1");
+const SR_V2_CHALLENGER_BOND        = parseDOT("0.05");
+const SR_V2_SLASHED_TO_CHAL_BPS    = 8000n;               // 80% of slashed total
+const SR_V2_SLASH_APPROVER_BPS     = 1000n;               // 10% of approver's stake
+const SR_V2_COMMITMENT_BOND        = parseDOT("0.01");
 // For mainnet, set initial members to Gnosis Safe addresses of council members.
 // Council members and threshold can be changed later via council self-governance proposals.
 
@@ -554,7 +576,26 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumActivationBonds — ${err}`);
   }
 
-  console.log("\n=== All 23 contracts deployed ===\n");
+  // --- DatumStakeRootV2: 23rd contract (Path A oracle, permissionless) ---
+  try {
+    logStep("Deploying DatumStakeRootV2 (permissionless bonded reporter set)");
+    await deployOrReuse("stakeRootV2", "DatumStakeRootV2", [
+      deployer.address,                  // treasury (testnet); rotate before mainnet
+      SR_V2_MIN_STAKE,
+      SR_V2_EXIT_DELAY,
+      SR_V2_APPROVAL_BPS,
+      SR_V2_CHALLENGE_WINDOW,
+      SR_V2_PROPOSER_BOND,
+      SR_V2_CHALLENGER_BOND,
+      SR_V2_SLASHED_TO_CHAL_BPS,
+      SR_V2_SLASH_APPROVER_BPS,
+      SR_V2_COMMITMENT_BOND,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumStakeRootV2 — ${err}`);
+  }
+
+  console.log("\n=== All 24 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -696,6 +737,17 @@ async function main() {
     "DatumClaimValidator", addresses.claimValidator,
     "zkVerifier", "setZKVerifier",
     addresses.zkVerifier,
+  );
+
+  // ── ClaimValidator.setStakeRoot2(stakeRootV2) — Path A oracle ──
+  // Plumbing-gated, not per-call lock-once. Stays in soft wiring so a
+  // future v3 stake-root can swap it in without redeploying ClaimValidator
+  // (provided plumbing isn't locked yet).
+  await wireIfNeeded(
+    "ClaimValidator.stakeRoot2",
+    "DatumClaimValidator", addresses.claimValidator,
+    "stakeRoot2", "setStakeRoot2",
+    addresses.stakeRootV2,
   );
 
   // ── ZKVerifier: setVerifyingKey (Groth16 VK from trusted setup) ──

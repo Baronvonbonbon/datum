@@ -19,6 +19,20 @@ import "./DatumOwnable.sol";
 ///         witnesses can still prove. Beyond that, the root expires and a
 ///         fresh witness must be generated.
 contract DatumStakeRoot is DatumOwnable {
+    // ── Deprecation flag ─────────────────────────────────────────────────
+    /// @notice When true, commitStakeRoot emits a deprecation warning event
+    ///         but still functions. Set via setDeprecated when DatumStakeRootV2
+    ///         is the canonical source and V1 is on its way out. Does NOT
+    ///         break in-flight proofs against finalized v1 roots — those
+    ///         remain queryable via rootAt / isRecent.
+    bool public deprecated;
+    event DeprecationFlagSet(bool deprecated);
+    event DeprecatedCommitAttempt(address indexed reporter, uint256 indexed epoch);
+    function setDeprecated(bool v) external onlyOwner {
+        deprecated = v;
+        emit DeprecationFlagSet(v);
+    }
+
     // ── Storage ──────────────────────────────────────────────────────────
     /// @notice Authoritative root for each epoch.
     mapping(uint256 => bytes32) public rootAt;
@@ -109,6 +123,11 @@ contract DatumStakeRoot is DatumOwnable {
         require(isReporter[msg.sender], "E01");
         require(epoch >= latestEpoch, "E64");
         require(root != bytes32(0), "E11");
+
+        // Soft deprecation: warn off-chain watchers that V1 is on its way out,
+        // but keep accepting commits so in-flight reporter infrastructure
+        // doesn't break mid-cutover.
+        if (deprecated) emit DeprecatedCommitAttempt(msg.sender, epoch);
 
         // M-1 audit fix: first-finalised-wins per epoch. Reject any further
         //   proposals once an epoch's root is set. Off-chain reporters must
