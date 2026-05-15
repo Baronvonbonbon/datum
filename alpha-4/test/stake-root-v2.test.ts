@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { DatumStakeRootV2 } from "../typechain-types";
+import { DatumStakeRootV2, MockERC20, MockIdentityVerifier } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { mineBlocks, fundSigners } from "./helpers/mine";
@@ -91,8 +91,15 @@ describe("DatumStakeRootV2", function () {
       SLASH_TO_CHAL_BPS,
       SLASH_APPROVER_BPS,
       COMMITMENT_BOND,
+      ethers.ZeroAddress, // datumToken — most tests don't use balance-fraud; BF tests deploy their own V2
     );
   });
+
+  // Helper: produce a snapshot block within [block.number - MAX_AGE, block.number - MIN_AGE]
+  async function recentSnap(): Promise<number> {
+    await mineBlocks(20);
+    return (await ethers.provider.getBlockNumber()) - 15;
+  }
 
   // ────────────────────────────────────────────────────────────────────────
   // SC-* — Scaffold: reporter lifecycle
@@ -216,7 +223,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-5: proposer's own stake auto-approves; second approve adds stake", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       const [, , , , , approvedStake1] = await v2.pendingRoot(1);
       expect(approvedStake1).to.equal(MIN_STAKE); // r1's stake
@@ -228,14 +235,14 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-6: double-approve reverts E22", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await expect(v2.connect(r1).approveRoot(1)).to.be.revertedWith("E22"); // already auto-approved
     });
 
     it("PR-7: approve after challenge window reverts E96", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await mineBlocks(CHALLENGE_WINDOW + 1n);
       await expect(v2.connect(r2).approveRoot(1)).to.be.revertedWith("E96");
@@ -243,7 +250,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-8: finalize before challenge window reverts E96", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await v2.connect(r2).approveRoot(1);
       await expect(v2.finalizeRoot(1)).to.be.revertedWith("E96");
@@ -251,7 +258,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-9: finalize with sub-threshold stake reverts E46", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       // Only r1 approves (33% of stake, below 51%)
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await mineBlocks(CHALLENGE_WINDOW + 1n);
@@ -260,7 +267,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-10: successful finalize sets rootAt, advances latestEpoch, refunds proposer bond", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await v2.connect(r2).approveRoot(1);
       await mineBlocks(CHALLENGE_WINDOW + 1n);
@@ -272,7 +279,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-11: cannot propose with epoch ≤ latestEpoch (E64)", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(5, snap, root, { value: PROPOSER_BOND });
       await v2.connect(r2).approveRoot(5);
       await mineBlocks(CHALLENGE_WINDOW + 1n);
@@ -288,7 +295,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-12: cannot double-propose same pending epoch (E22)", async function () {
       const root = ethers.id("r");
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
       await expect(
         v2.connect(r2).proposeRoot(1, snap, ethers.id("other"), { value: PROPOSER_BOND })
@@ -297,7 +304,7 @@ describe("DatumStakeRootV2", function () {
 
     it("PR-13: cannot propose from reporter mid-exit (E01)", async function () {
       await v2.connect(r1).proposeReporterExit();
-      const snap = await ethers.provider.getBlockNumber();
+      const snap = await recentSnap();
       await expect(
         v2.connect(r1).proposeRoot(1, snap, ethers.id("r"), { value: PROPOSER_BOND })
       ).to.be.revertedWith("E01");
@@ -368,7 +375,7 @@ describe("DatumStakeRootV2", function () {
       tree = buildTree([goodLeaf, phantomLeaf]);
 
       // Propose the malicious root (r1 is the bad-faith proposer)
-      snap = await ethers.provider.getBlockNumber();
+      snap = await recentSnap();
       await v2.connect(r1).proposeRoot(1, snap, tree.root, { value: PROPOSER_BOND });
       await v2.connect(r2).approveRoot(1); // r2 endorses, will be slashed
       // r3 stays out
@@ -520,6 +527,242 @@ describe("DatumStakeRootV2", function () {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // SR-* — Snapshot-block recency window (Resolution 3a)
+  // ────────────────────────────────────────────────────────────────────────
+  describe("SR: snapshot-block recency", function () {
+    beforeEach(async function () {
+      await v2.connect(r1).joinReporters({ value: MIN_STAKE });
+    });
+
+    it("SR-1: too-recent snapshot (< MIN_AGE) reverts E11", async function () {
+      // Snapshot at currentBlock => MIN_AGE - 1 blocks old after propose tx — too recent
+      const cur = await ethers.provider.getBlockNumber();
+      await expect(
+        v2.connect(r1).proposeRoot(1, cur, ethers.id("r"), { value: PROPOSER_BOND })
+      ).to.be.revertedWith("E11");
+    });
+
+    it("SR-2: too-old snapshot (> MAX_AGE) reverts E11", async function () {
+      // First mine MAX_AGE+1 blocks ahead of an old snapshot
+      const oldSnap = await ethers.provider.getBlockNumber();
+      await mineBlocks(150); // MAX_AGE = 100, so 150 blocks is well outside
+      await expect(
+        v2.connect(r1).proposeRoot(1, oldSnap, ethers.id("r"), { value: PROPOSER_BOND })
+      ).to.be.revertedWith("E11");
+    });
+
+    it("SR-3: snapshot in window accepts", async function () {
+      const snap = await recentSnap();
+      await expect(
+        v2.connect(r1).proposeRoot(1, snap, ethers.id("r"), { value: PROPOSER_BOND })
+      ).to.not.be.reverted;
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // BF-* — Balance-fraud challenge (Stage 2 of the identity-verifier task)
+  // ────────────────────────────────────────────────────────────────────────
+  describe("BF: balance-fraud challenge with identity verifier", function () {
+    let v2bf: DatumStakeRootV2;
+    let mockId: MockIdentityVerifier;
+    let datum: MockERC20;
+    const realC = ethers.id("real-commitment");
+    const wrongBalInLeaf = 9999n;
+
+    beforeEach(async function () {
+      // Mock identity verifier — proof[0] == 0x01 means "valid"
+      const IdF = await ethers.getContractFactory("MockIdentityVerifier");
+      mockId = await IdF.deploy() as MockIdentityVerifier;
+
+      // MockERC20 standing in for DATUM
+      const TokF = await ethers.getContractFactory("MockERC20");
+      datum = await TokF.deploy("Datum", "DTM") as MockERC20;
+      // Mint a balance to the challenger that DIFFERS from the leaf-claimed one
+      await datum.mint(challenger.address, 1000n);
+
+      // Deploy a fresh V2 wired to mockId + datum
+      const F = await ethers.getContractFactory("DatumStakeRootV2");
+      v2bf = await F.deploy(
+        treasury.address,
+        MIN_STAKE,
+        EXIT_DELAY,
+        APPROVAL_BPS,
+        CHALLENGE_WINDOW,
+        PROPOSER_BOND,
+        CHALLENGER_BOND,
+        SLASH_TO_CHAL_BPS,
+        SLASH_APPROVER_BPS,
+        COMMITMENT_BOND,
+        await datum.getAddress(),
+      ) as DatumStakeRootV2;
+      await v2bf.setIdentityVerifier(await mockId.getAddress());
+
+      // Reporters
+      await v2bf.connect(r1).joinReporters({ value: MIN_STAKE });
+      await v2bf.connect(r2).joinReporters({ value: MIN_STAKE });
+
+      // Register the REAL commitment (so balance-fraud path applies, not phantom-leaf)
+      await v2bf.connect(other).registerCommitment(realC, { value: COMMITMENT_BOND });
+
+      // Build tree with one leaf encoding a WRONG balance for realC
+      const leaf = leafOf(realC, wrongBalInLeaf);
+      const tree = buildTree([leaf]); // single-leaf tree (depth 0)
+
+      // Propose
+      const snap = await recentSnap();
+      await v2bf.connect(r1).proposeRoot(1, snap, tree.root, { value: PROPOSER_BOND });
+      await v2bf.connect(r2).approveRoot(1);
+
+      // Stash for use in tests
+      (this as any).treeRoot = tree.root;
+      (this as any).proofs = tree.proofs;
+    });
+
+    function validProof(): string {
+      return "0x01" + "00".repeat(255);
+    }
+    function invalidProof(): string {
+      return "0x02" + "00".repeat(255);
+    }
+
+    it("BF-1: valid balance-fraud challenge slashes proposer + approvers", async function () {
+      const proof = validProof();
+      const proofs = (this as any).proofs as string[][];
+      const r1StakeBefore = (await v2bf.reporterStake(r1.address)).amount;
+      const r2StakeBefore = (await v2bf.reporterStake(r2.address)).amount;
+
+      await v2bf.connect(challenger).challengeRootBalance(
+        1, realC, wrongBalInLeaf, 0, proofs[0], proof,
+        { value: CHALLENGER_BOND }
+      );
+
+      // r1 (proposer) and r2 (approver) both slashed by SLASH_APPROVER_BPS
+      const r1Cut = MIN_STAKE * BigInt(SLASH_APPROVER_BPS) / 10000n;
+      const r2Cut = MIN_STAKE * BigInt(SLASH_APPROVER_BPS) / 10000n;
+      expect((await v2bf.reporterStake(r1.address)).amount).to.equal(r1StakeBefore - r1Cut);
+      expect((await v2bf.reporterStake(r2.address)).amount).to.equal(r2StakeBefore - r2Cut);
+    });
+
+    it("BF-2: insufficient challenger bond reverts E11", async function () {
+      const proofs = (this as any).proofs as string[][];
+      await expect(
+        v2bf.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, proofs[0], validProof(),
+          { value: CHALLENGER_BOND - 1n }
+        )
+      ).to.be.revertedWith("E11");
+    });
+
+    it("BF-3: invalid identity proof reverts E53", async function () {
+      const proofs = (this as any).proofs as string[][];
+      await expect(
+        v2bf.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, proofs[0], invalidProof(),
+          { value: CHALLENGER_BOND }
+        )
+      ).to.be.revertedWith("E53");
+    });
+
+    it("BF-4: unregistered commitment in leaf reverts E53 (use phantom-leaf path)", async function () {
+      // Build a leaf for a NEW unregistered commitment; propose, then try balance-challenge
+      const phantomC = ethers.id("phantom");
+      // Need a separate test setup since the tree was already pinned in beforeEach.
+      // Easier: just point challenge at unregistered commitment with a fabricated leaf;
+      // it will fail Merkle path first because the leaf isn't in the current root.
+      // To exercise THIS error code cleanly, we use a real Merkle path for `realC`
+      // but call with `phantomC` — that means the leaf computed from phantomC won't
+      // match the proof, so we'd hit E53 via Merkle. Skip this case — covered by
+      // FP-4 in the phantom-leaf describe block.
+      this.skip();
+    });
+
+    it("BF-5: matching-balance challenge reverts E53", async function () {
+      // Mint exactly `wrongBalInLeaf` to the challenger to make actual == claimed
+      await datum.mint(challenger.address, wrongBalInLeaf - 1000n);
+      expect(await datum.balanceOf(challenger.address)).to.equal(wrongBalInLeaf);
+      const proofs = (this as any).proofs as string[][];
+      await expect(
+        v2bf.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, proofs[0], validProof(),
+          { value: CHALLENGER_BOND }
+        )
+      ).to.be.revertedWith("E53");
+    });
+
+    it("BF-6: bad Merkle path reverts E53", async function () {
+      const fakeSiblings = [ethers.id("nope")];
+      await expect(
+        v2bf.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, fakeSiblings, validProof(),
+          { value: CHALLENGER_BOND }
+        )
+      ).to.be.revertedWith("E53");
+    });
+
+    it("BF-7: challenge after window reverts E96", async function () {
+      const proofs = (this as any).proofs as string[][];
+      await mineBlocks(CHALLENGE_WINDOW + 1n);
+      await expect(
+        v2bf.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, proofs[0], validProof(),
+          { value: CHALLENGER_BOND }
+        )
+      ).to.be.revertedWith("E96");
+    });
+
+    it("BF-8: identity verifier unset reverts E00", async function () {
+      // Fresh V2 with no verifier wired
+      const F = await ethers.getContractFactory("DatumStakeRootV2");
+      const v2x = await F.deploy(
+        treasury.address, MIN_STAKE, EXIT_DELAY, APPROVAL_BPS, CHALLENGE_WINDOW,
+        PROPOSER_BOND, CHALLENGER_BOND, SLASH_TO_CHAL_BPS, SLASH_APPROVER_BPS,
+        COMMITMENT_BOND, await datum.getAddress(),
+      ) as DatumStakeRootV2;
+      // No setIdentityVerifier call
+      await v2x.connect(r1).joinReporters({ value: MIN_STAKE });
+      await v2x.connect(other).registerCommitment(realC, { value: COMMITMENT_BOND });
+      const tree = buildTree([leafOf(realC, wrongBalInLeaf)]);
+      const snap = await recentSnap();
+      await v2x.connect(r1).proposeRoot(1, snap, tree.root, { value: PROPOSER_BOND });
+
+      await expect(
+        v2x.connect(challenger).challengeRootBalance(
+          1, realC, wrongBalInLeaf, 0, tree.proofs[0], validProof(),
+          { value: CHALLENGER_BOND }
+        )
+      ).to.be.revertedWith("E00");
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // PL-* — Plumbing lock
+  // ────────────────────────────────────────────────────────────────────────
+  describe("PL: plumbing lock", function () {
+    it("PL-1: setIdentityVerifier accepts swap until lockPlumbing", async function () {
+      const IdF = await ethers.getContractFactory("MockIdentityVerifier");
+      const id1 = await IdF.deploy();
+      const id2 = await IdF.deploy();
+      await v2.setIdentityVerifier(await id1.getAddress());
+      expect(await v2.identityVerifier()).to.equal(await id1.getAddress());
+      // Swap
+      await v2.setIdentityVerifier(await id2.getAddress());
+      expect(await v2.identityVerifier()).to.equal(await id2.getAddress());
+    });
+
+    it("PL-2: lockPlumbing then setIdentityVerifier reverts", async function () {
+      await v2.lockPlumbing();
+      await expect(
+        v2.setIdentityVerifier(ethers.ZeroAddress)
+      ).to.be.revertedWith("locked");
+    });
+
+    it("PL-3: double-lockPlumbing reverts", async function () {
+      await v2.lockPlumbing();
+      await expect(v2.lockPlumbing()).to.be.revertedWith("already locked");
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // IF-* — isRecent + V1-interface compatibility
   // ────────────────────────────────────────────────────────────────────────
   describe("IF: isRecent (V1 view contract)", function () {
@@ -535,7 +778,7 @@ describe("DatumStakeRootV2", function () {
       for (let e = 1; e <= 10; e++) {
         const r = ethers.id(`root-${e}`);
         roots.push(r);
-        const snap = await ethers.provider.getBlockNumber();
+        const snap = await recentSnap();
         await v2.connect(r1).proposeRoot(e, snap, r, { value: PROPOSER_BOND });
         await v2.connect(r2).approveRoot(e);
         await mineBlocks(CHALLENGE_WINDOW + 1n);

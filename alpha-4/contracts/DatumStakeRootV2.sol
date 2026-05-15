@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import "./DatumOwnable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumStakeRoot.sol";
+import "./interfaces/IDatumIdentityVerifier.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title DatumStakeRootV2
 /// @notice Permissionless bonded-reporter Merkle root oracle for ZK Path A.
@@ -41,6 +43,17 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     uint16  public constant MAX_SLASH_APPROVER_BPS = 5000;     // 50% cap
     uint256 public constant LOOKBACK_EPOCHS = 8;
 
+    /// @notice Snapshot-block recency constraints (Resolution 3a in
+    ///         task-zk-identity-verifier.md). proposeRoot requires the
+    ///         snapshot block to fall in
+    ///         [block.number - SNAPSHOT_MAX_AGE, block.number - SNAPSHOT_MIN_AGE].
+    ///         Rationale: balance-fraud challenger compares the leaf's claimed
+    ///         balance to their CURRENT DATUM balance. The recency window
+    ///         narrows the drift between snapshot and challenge time so the
+    ///         comparison is meaningful without on-chain historical state.
+    uint64 public constant SNAPSHOT_MIN_AGE = 10;
+    uint64 public constant SNAPSHOT_MAX_AGE = 100;
+
     // ── Reporter set (stake-bonded, permissionless) ───────────────────────────
     struct ReporterStake {
         uint256 amount;
@@ -64,6 +77,18 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     uint256 public commitmentBond;
 
     address public treasury;
+
+    /// @notice ZK identity verifier (DatumIdentityVerifier). Enables
+    ///         balance-fraud challenges. Address(0) leaves balance-fraud
+    ///         challenge disabled; phantom-leaf challenge remains available.
+    ///         Plumbing-gated (not per-call lock-once) so a circuit-bug
+    ///         verifier can be swapped before plumbingLocked is set.
+    IDatumIdentityVerifier public identityVerifier;
+    bool public plumbingLocked;
+
+    /// @notice DATUM token used for the balance comparison in
+    ///         challengeRootBalance. Set in constructor (0 = not gated yet).
+    IERC20 public immutable datumToken;
 
     // ── Per-pending-root state ────────────────────────────────────────────────
     struct PendingRoot {
@@ -134,7 +159,8 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         uint256  _challengerBond,
         uint16   _slashedToChallengerBps,
         uint16   _slashApproverBps,
-        uint256  _commitmentBond
+        uint256  _commitmentBond,
+        address  _datumToken
     ) DatumOwnable() {
         require(_treasury != address(0), "E00");
         require(_reporterMinStake > 0, "E11");
@@ -143,6 +169,9 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         require(_challengeWindow > 0 && _challengeWindow <= MAX_CHALLENGE_WINDOW, "E11");
         require(_slashedToChallengerBps <= MAX_SLASHED_TO_CHALLENGER_BPS, "E11");
         require(_slashApproverBps <= MAX_SLASH_APPROVER_BPS, "E11");
+        // _datumToken == address(0) is permitted — challengeRootBalance will
+        // revert until the token is later wired (or fork-deployed). Phantom-
+        // leaf challenge works without it.
 
         treasury = _treasury;
         reporterMinStake = _reporterMinStake;
@@ -154,6 +183,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         slashedToChallengerBps = _slashedToChallengerBps;
         slashApproverBps = _slashApproverBps;
         commitmentBond = _commitmentBond;
+        datumToken = IERC20(_datumToken);
     }
 
     /// @dev Accept contract-originated transfers (slash residuals).
@@ -206,6 +236,28 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     function setCommitmentBond(uint256 v) external onlyOwner {
         commitmentBond = v;
         emit CommitmentBondSet(v);
+    }
+
+    /// @notice Wire the ZK identity verifier used by challengeRootBalance.
+    ///         Plumbing-gated (not per-call lock-once) so a buggy verifier
+    ///         can be swapped before lockPlumbing fires. address(0) re-
+    ///         disables the balance-fraud path.
+    event IdentityVerifierSet(address indexed addr);
+    function setIdentityVerifier(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        identityVerifier = IDatumIdentityVerifier(addr);
+        emit IdentityVerifierSet(addr);
+    }
+
+    /// @notice Lock identity-verifier swappability forever. After this,
+    ///         setIdentityVerifier reverts; a buggy verifier requires a
+    ///         full v2 redeploy. Called when the protocol is confident
+    ///         in the verifier's correctness.
+    event PlumbingLocked();
+    function lockPlumbing() external onlyOwner {
+        require(!plumbingLocked, "already locked");
+        plumbingLocked = true;
+        emit PlumbingLocked();
     }
 
     // ── Reporter lifecycle (permissionless) ───────────────────────────────────
@@ -305,7 +357,13 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         require(msg.value >= proposerBond, "E11");
         require(epoch > latestEpoch, "E64");
         require(root != bytes32(0), "E11");
-        require(snapshotBlock <= block.number, "E11");
+        // Snapshot-block recency window (Resolution 3a from
+        // task-zk-identity-verifier.md). snapshotBlock must be old enough
+        // that balances are stable (≥ SNAPSHOT_MIN_AGE behind) AND fresh
+        // enough that a challenger's CURRENT balance is a usable proxy for
+        // the snapshot balance (≤ SNAPSHOT_MAX_AGE old).
+        require(snapshotBlock + SNAPSHOT_MIN_AGE <= uint64(block.number), "E11");
+        require(uint64(block.number) <= snapshotBlock + SNAPSHOT_MAX_AGE, "E11");
         require(_pending[epoch].proposer == address(0), "E22"); // first-finalised-wins
         require(rootAt[epoch] == bytes32(0), "E22");
 
@@ -403,6 +461,72 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         // Refund challenger their bond before slashing accounting
         _pendingPayout[msg.sender] += msg.value;
 
+        _slashProposer(epoch, msg.sender);
+    }
+
+    /// @notice Balance-fraud challenge: prove the leaf for a registered
+    ///         commitment encodes a balance that doesn't match the caller's
+    ///         actual DATUM balance. Caller proves ownership of the
+    ///         commitment via the ZK identity verifier.
+    ///
+    ///         Snapshot-block recency (proposeRoot enforces
+    ///         block.number - snapshot ∈ [MIN_AGE, MAX_AGE]) ensures the
+    ///         caller's current balance is a usable proxy for the snapshot
+    ///         balance. If the proposer is honest, claimedBalance was the
+    ///         caller's balance at snapshot; if it doesn't match current
+    ///         within MAX_AGE blocks (~10 min at 6s), and we exclude the
+    ///         possibility that the caller transferred in/out during the
+    ///         window… well, we don't — the recency constraint just bounds
+    ///         the drift to a few minutes. For long-tail stable holders
+    ///         this is fine; for active traders, false positives are
+    ///         possible. See task-zk-identity-verifier.md §3a for the
+    ///         trade-off discussion and the path to ERC20Snapshot or
+    ///         storage-proof historical balances if needed.
+    ///
+    /// @param epoch             pending root epoch
+    /// @param commitment        the commitment encoded in the disputed leaf
+    /// @param claimedBalance    the balance encoded in the disputed leaf
+    /// @param leafIndex         Merkle leaf index
+    /// @param siblings          Merkle path siblings
+    /// @param identityProof     ZK proof of Poseidon(secret) == commitment;
+    ///                          256 bytes per the verifier's convention
+    function challengeRootBalance(
+        uint256 epoch,
+        bytes32 commitment,
+        uint256 claimedBalance,
+        uint256 leafIndex,
+        bytes32[] calldata siblings,
+        bytes calldata identityProof
+    ) external payable nonReentrant {
+        require(msg.value >= challengerBond, "E11");
+        require(address(identityVerifier) != address(0), "E00");
+        require(address(datumToken) != address(0), "E00");
+
+        PendingRoot storage p = _pending[epoch];
+        require(p.proposer != address(0), "E01");
+        require(!p.slashed, "E22");
+        require(block.number <= uint256(p.proposedAtBlock) + uint256(challengeWindow), "E96");
+
+        // 1. Leaf must actually be in the proposed root
+        bytes32 leaf = keccak256(abi.encodePacked(commitment, claimedBalance));
+        require(_verifyMerkle(p.root, leaf, leafIndex, siblings), "E53");
+
+        // 2. Commitment must be REGISTERED (otherwise this is a phantom-leaf
+        //    case — caller should use challengePhantomLeaf instead). Mutually
+        //    exclusive challenge paths so we don't double-slash.
+        require(registeredCommitments[commitment], "E53");
+
+        // 3. Caller must prove ownership of the commitment in ZK.
+        require(identityVerifier.verifyIdentity(identityProof, commitment), "E53");
+
+        // 4. Caller's current DATUM balance must differ from the leaf-claimed
+        //    balance. Recency constraint on snapshotBlock (enforced at
+        //    proposeRoot) bounds the drift.
+        uint256 actualBalance = datumToken.balanceOf(msg.sender);
+        require(actualBalance != claimedBalance, "E53");
+
+        // Refund challenger bond, then slash proposer + approvers.
+        _pendingPayout[msg.sender] += msg.value;
         _slashProposer(epoch, msg.sender);
     }
 

@@ -1,4 +1,4 @@
-// deploy.ts — Full 24-contract Alpha-4 deployment + wiring + ownership transfer
+// deploy.ts — Full 25-contract Alpha-4 deployment + wiring + ownership transfer
 //
 // Alpha-4 consolidation: 9 satellite contracts merged into parents (29 → 20):
 //   GovernanceHelper + GovernanceSlash → GovernanceV2
@@ -109,6 +109,8 @@ const REQUIRED_KEYS = [
   "activationBonds",
   // Permissionless bonded StakeRoot V2 (Path A oracle, 2026-05-14)
   "stakeRootV2",
+  // ZK identity verifier (enables balance-fraud challenges on V2)
+  "identityVerifier",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -577,6 +579,10 @@ async function main() {
   }
 
   // --- DatumStakeRootV2: 23rd contract (Path A oracle, permissionless) ---
+  // datumToken is wired as address(0) for testnet — no DATUM ERC20 deployed
+  // on testnet yet. Balance-fraud challenges revert E00 until the token is
+  // wired post-deploy via a redeploy with the real address.
+  // TODO mainnet: pass real DATUM address before deploy.
   try {
     logStep("Deploying DatumStakeRootV2 (permissionless bonded reporter set)");
     await deployOrReuse("stakeRootV2", "DatumStakeRootV2", [
@@ -590,12 +596,23 @@ async function main() {
       SR_V2_SLASHED_TO_CHAL_BPS,
       SR_V2_SLASH_APPROVER_BPS,
       SR_V2_COMMITMENT_BOND,
+      ethers.ZeroAddress,                // datumToken — wire to real DATUM for mainnet
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumStakeRootV2 — ${err}`);
   }
 
-  console.log("\n=== All 24 contracts deployed ===\n");
+  // --- DatumIdentityVerifier: 25th contract (ZK identity proofs) ---
+  // Empty constructor; VK is set below via setVerifyingKey if the
+  // identity-setVK-calldata.json artifact from setup-zk-identity.mjs exists.
+  try {
+    logStep("Deploying DatumIdentityVerifier (ZK identity proof verifier)");
+    await deployOrReuse("identityVerifier", "DatumIdentityVerifier", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumIdentityVerifier — ${err}`);
+  }
+
+  console.log("\n=== All 25 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -749,6 +766,46 @@ async function main() {
     "stakeRoot2", "setStakeRoot2",
     addresses.stakeRootV2,
   );
+
+  // ── StakeRootV2.setIdentityVerifier(identityVerifier) ──
+  // Plumbing-gated (StakeRootV2.lockPlumbing finalises). Allows operator
+  // to swap a buggy verifier before locking.
+  await wireIfNeeded(
+    "StakeRootV2.identityVerifier",
+    "DatumStakeRootV2", addresses.stakeRootV2,
+    "identityVerifier", "setIdentityVerifier",
+    addresses.identityVerifier,
+  );
+
+  // ── DatumIdentityVerifier.setVerifyingKey from trusted setup output ──
+  // Reads circuits/identity-setVK-calldata.json produced by
+  // scripts/setup-zk-identity.mjs. Skips with WARNING if absent or if VK
+  // already set (lock-once).
+  {
+    const vkCalldataPath = path.join(__dirname, "..", "circuits", "identity-setVK-calldata.json");
+    const idIface = new ethers.Interface([
+      "function vkSet() view returns (bool)",
+      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)",
+    ]);
+    const vkSetData = idIface.encodeFunctionData("vkSet");
+    const vkSetRaw = await rawProvider.call({ to: addresses.identityVerifier, data: vkSetData });
+    const alreadySet = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], vkSetRaw)[0];
+    if (alreadySet) {
+      console.log("  OK (already set): IdentityVerifier.vk");
+    } else if (!fs.existsSync(vkCalldataPath)) {
+      console.warn("  SKIP: IdentityVerifier.setVerifyingKey — circuits/identity-setVK-calldata.json not found");
+      console.warn("        Run `node scripts/setup-zk-identity.mjs` to generate it, then re-run deploy.ts.");
+    } else {
+      const vkCalldata = JSON.parse(fs.readFileSync(vkCalldataPath, "utf-8"));
+      await sendCall(
+        addresses.identityVerifier,
+        ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1)"],
+        "setVerifyingKey",
+        [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1],
+      );
+      console.log("  SET: IdentityVerifier.vk (Groth16, 1 public input: commitment)");
+    }
+  }
 
   // ── ZKVerifier: setVerifyingKey (Groth16 VK from trusted setup) ──
   // Reads circuits/setVK-calldata.json produced by `node scripts/setup-zk.mjs`.

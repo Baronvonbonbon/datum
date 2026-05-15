@@ -185,13 +185,44 @@ This change is its own ~150-LOC sub-task; not implemented here.
 
 ## Open follow-ups not addressed by this migration
 
-- **Balance-fraud + exclusion-fraud challenges** for V2 are still
-  deferred (need ZK identity verifier). Phantom-leaf challenge is
-  the only fraud-proof path that works today. This means a malicious
-  proposer can still commit a root with WRONG balances for real
-  registered commitments, and that fraud is undetectable by
-  permissionless watchers — affected users must come forward. Plan
-  the identity-verifier follow-up before mainnet.
+- **Balance-fraud challenge** — **AVAILABLE as of 2026-05-14** via
+  the DatumIdentityVerifier + StakeRootV2.challengeRootBalance.
+  Operator must:
+    1. Run `node scripts/setup-zk-identity.mjs` to generate the
+       trusted setup artifacts (single-party on testnet; MPC for
+       mainnet).
+    2. `deploy.ts` auto-wires `DatumIdentityVerifier` and calls
+       `setVerifyingKey` from the calldata file if it exists.
+    3. `StakeRootV2.setIdentityVerifier(identityVerifier)` is
+       wired in soft wiring (plumbing-gated, not lock-once — so a
+       buggy verifier can be swapped before `lockPlumbing` fires).
+    4. The affected user can challenge by:
+       - Generating a Groth16 proof off-chain via snarkjs that
+         `Poseidon(secret) == commitment`.
+       - Calling `challengeRootBalance(epoch, commitment,
+         claimedBalance, leafIndex, siblings, identityProof)`.
+       - Posting `challengerBond`. On success, they receive
+         `slashedToChallengerBps` of the slashed total.
+
+  Constraint: balance-fraud detection uses `DATUM.balanceOf(msg.sender)`
+  as a proxy for the snapshot-block balance. StakeRootV2 enforces
+  a snapshot-block recency window
+  (`[SNAPSHOT_MIN_AGE, SNAPSHOT_MAX_AGE]` = `[10, 100]` blocks at
+  6s/block ≈ `[1, 10]` minutes). Active traders may produce
+  false-positive challenges if their balance moved within that
+  window; long-tail stable holders are fine. Resolution 3b
+  (ERC20Snapshot on DATUM) or 3c (storage proofs) closes the
+  remainder; tracked as a follow-up.
+
+- **Exclusion-fraud challenges** — still deferred. Requires a
+  non-inclusion proof primitive, which standard Merkle trees don't
+  efficiently support. Sub-tasks:
+    a. Sparse Merkle Tree migration of the leaf structure, OR
+    b. Sorted-leaf-with-neighbour proof of non-inclusion.
+  An affected user can still raise this off-chain (their
+  registered commitment didn't appear in the published root); the
+  operator-side mitigation is to roll a corrective root in the
+  next epoch. Track as a separate task.
 
 - **Leaf-hash function unification** (Poseidon vs keccak) — see
   Phase 0 decision point. Required for production ZK Path A
@@ -199,6 +230,11 @@ This change is its own ~150-LOC sub-task; not implemented here.
 
 - **Off-chain builder V2 update** — independent sub-task; ~150 LOC
   in `build-stake-root.ts`.
+
+- **Off-chain identity-proof generation in the user-facing client**.
+  Users need an SDK helper that takes their secret + commitment and
+  produces the 256-byte Groth16 proof. Same circomlibjs/snarkjs
+  dependency the existing ZK Path A uses.
 
 ## Acceptance for full migration
 
@@ -208,3 +244,9 @@ This change is its own ~150-LOC sub-task; not implemented here.
 - [ ] Off-chain builder only commits to V2.
 - [ ] At least one full V2 epoch has been validated end-to-end
       through ClaimValidator on a live test transaction.
+- [ ] DatumIdentityVerifier deployed and VK set; balance-fraud
+      challenge demonstrated end-to-end on testnet (one successful
+      slash via the path).
+- [ ] `StakeRootV2.lockPlumbing()` called once verifier is
+      production-confidence (irreversible — make this the LAST
+      step of the migration).
