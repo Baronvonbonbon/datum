@@ -555,6 +555,13 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         p.slashed = true;
 
         uint256 totalSlash = uint256(p.proposerBond);
+        // Audit-5 H3: skip the `totalReporterStake -= cut` for exit-proposed
+        // reporters. Their stake was ALREADY subtracted from totalReporterStake
+        // at proposeReporterExit time; subtracting again would underflow.
+        // Still slash their per-reporter `amount` — the bond is at risk
+        // regardless of exit status (must remain so or exit-propose becomes
+        // a slash-immunity gambit).
+
         // Also slash slashApproverBps% of every approver's bonded stake
         for (uint256 i = 0; i < reporterList.length; i++) {
             address r = reporterList[i];
@@ -562,7 +569,9 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
                 uint256 cut = reporterStake[r].amount * uint256(slashApproverBps) / 10000;
                 if (cut > 0) {
                     reporterStake[r].amount -= cut;
-                    totalReporterStake -= cut;
+                    if (reporterStake[r].exitProposedBlock == 0) {
+                        totalReporterStake -= cut;
+                    }
                     totalSlash += cut;
                     emit ApproverSlashed(epoch, r, cut);
                 }
@@ -574,7 +583,9 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
             uint256 cut = reporterStake[p.proposer].amount * uint256(slashApproverBps) / 10000;
             if (cut > 0) {
                 reporterStake[p.proposer].amount -= cut;
-                totalReporterStake -= cut;
+                if (reporterStake[p.proposer].exitProposedBlock == 0) {
+                    totalReporterStake -= cut;
+                }
                 totalSlash += cut;
                 emit ApproverSlashed(epoch, p.proposer, cut);
             }

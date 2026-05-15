@@ -763,6 +763,41 @@ describe("DatumStakeRootV2", function () {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // AUDIT-5 — regression coverage
+  // ────────────────────────────────────────────────────────────────────────
+  describe("AUDIT-5: regression", function () {
+    it("H3: slash succeeds even when an approver has proposeReporterExit'd between approval and challenge", async function () {
+      // r1 proposes, r2 approves, r2 then exit-proposes (which subtracts
+      // their stake from totalReporterStake). Phantom-leaf challenge fires.
+      // Pre-fix: _slashProposer would double-subtract r2's stake from
+      // totalReporterStake and revert with arithmetic underflow.
+      await v2.connect(r1).joinReporters({ value: MIN_STAKE });
+      await v2.connect(r2).joinReporters({ value: MIN_STAKE });
+      // Phantom leaf — commitment is NOT registered
+      const phantomC = ethers.id("phantom");
+      const tree = buildTree([leafOf(phantomC, 999n)]);
+      const snap = await recentSnap();
+      await v2.connect(r1).proposeRoot(1, snap, tree.root, { value: PROPOSER_BOND });
+      await v2.connect(r2).approveRoot(1);
+
+      // r2 exits AFTER approving
+      await v2.connect(r2).proposeReporterExit();
+
+      // Challenger proves phantom-leaf — must NOT revert
+      await expect(
+        v2.connect(challenger).challengePhantomLeaf(
+          1, phantomC, 999n, 0, tree.proofs[0],
+          { value: CHALLENGER_BOND }
+        )
+      ).to.not.be.reverted;
+
+      // r2's stake should still be slashed (exit doesn't grant slash immunity)
+      const r2Cut = MIN_STAKE * BigInt(SLASH_APPROVER_BPS) / 10000n;
+      expect((await v2.reporterStake(r2.address)).amount).to.equal(MIN_STAKE - r2Cut);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // IF-* — isRecent + V1-interface compatibility
   // ────────────────────────────────────────────────────────────────────────
   describe("IF: isRecent (V1 view contract)", function () {

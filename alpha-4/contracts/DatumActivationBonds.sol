@@ -57,6 +57,10 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         uint128  creatorBond;
         address  challenger;
         uint128  challengerBond;
+        // Audit-5 H1: snapshot punishment bps at OPEN time so governance
+        // can't move them mid-flight to affect already-bonded campaigns.
+        uint16   winnerBonusBpsSnapshot;
+        uint16   treasuryBpsSnapshot;
     }
     mapping(uint256 => State) private _state;
 
@@ -182,6 +186,10 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         s.creator = creator;
         s.creatorBond = uint128(msg.value);
         s.timelockExpiry = uint64(block.number) + _timelockBlocks;
+        // Audit-5 H1: snapshot the current bps. Settlement reads these,
+        // not the live values, so governance can't move them mid-flight.
+        s.winnerBonusBpsSnapshot = _winnerBonusBps;
+        s.treasuryBpsSnapshot = _treasuryBps;
 
         emit BondOpened(campaignId, creator, msg.value, s.timelockExpiry);
     }
@@ -297,12 +305,16 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
             .getCampaignForSettlement(campaignId);
         require(status == 1, "E20"); // must be Active
 
-        // Self-mute: muter cannot be the advertiser. Best-effort read; if
-        // the campaigns implementation doesn't expose the advertiser, skip
-        // the self-mute guard rather than reverting (forward-compat).
+        // Self-mute: muter cannot be the advertiser. Audit-5 H2: fail
+        // CLOSED on read revert. A campaigns implementation lacking the
+        // advertiser getter must not enable self-mute griefing — reject the
+        // call instead. Operators upgrading Campaigns must preserve the
+        // getter.
         try IDatumCampaignsForMute(campaignsContract).getCampaignAdvertiser(campaignId) returns (address adv) {
             require(adv != msg.sender, "E97");
-        } catch { /* leave guard off if getter unavailable */ }
+        } catch {
+            revert("E97");
+        }
 
         m.active = true;
         m.muter = msg.sender;
@@ -390,9 +402,10 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
         uint256 toTreasury;
         uint256 challengerRefund;
 
+        // Audit-5 H1: read snapshotted bps from openBond time, not live values
         if (challengerBond_ > 0) {
-            bonus = challengerBond_ * _winnerBonusBps / 10000;
-            toTreasury = challengerBond_ * _treasuryBps / 10000;
+            bonus = challengerBond_ * uint256(s.winnerBonusBpsSnapshot) / 10000;
+            toTreasury = challengerBond_ * uint256(s.treasuryBpsSnapshot) / 10000;
             challengerRefund = challengerBond_ - bonus - toTreasury;
         }
 
@@ -410,8 +423,9 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
     function _payoutChallengerWin(uint256 campaignId, State storage s) internal {
         uint256 challengerAmt = s.challengerBond;
         uint256 creatorBond_ = s.creatorBond;
-        uint256 bonus = creatorBond_ * _winnerBonusBps / 10000;
-        uint256 toTreasury = creatorBond_ * _treasuryBps / 10000;
+        // Audit-5 H1: read snapshotted bps from openBond time
+        uint256 bonus = creatorBond_ * uint256(s.winnerBonusBpsSnapshot) / 10000;
+        uint256 toTreasury = creatorBond_ * uint256(s.treasuryBpsSnapshot) / 10000;
         uint256 creatorRefund = creatorBond_ - bonus - toTreasury;
 
         s.phase = Phase.Resolved;
