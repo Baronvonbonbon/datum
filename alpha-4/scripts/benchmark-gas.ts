@@ -229,9 +229,9 @@ async function main() {
   await (await lifecycle.setGovernanceContract(await governance.getAddress())).wait();
   await (await lifecycle.setSettlementContract(await settlement.getAddress())).wait();
 
-  // GovernanceV2: 2 setters (slash + helper now inline)
+  // GovernanceV2: lifecycle only (campaigns is wired in the constructor and
+  // setCampaigns is lock-once "already set" if called again)
   await (await governance.setLifecycle(await lifecycle.getAddress())).wait();
-  await (await governance.setCampaigns(await campaigns.getAddress())).wait();
 
   // Register publisher
   await (await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS)).wait();
