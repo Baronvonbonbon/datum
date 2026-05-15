@@ -79,6 +79,57 @@ const FREQUENCY_ASSUMPTIONS: FrequencyAssumption[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-user engagement tiers — what an end user spends in gas fees per year.
+// `ops` keys must match measurement labels exactly; daily is ops/day for that user.
+// ─────────────────────────────────────────────────────────────────────────────
+interface UserTier {
+  label: string;
+  description: string;
+  ops: Record<string, number>;  // op -> daily frequency
+}
+const USER_TIERS: UserTier[] = [
+  {
+    label: "Minimal",
+    description: "Signs up once, never reports, withdraws once per year.",
+    ops: {
+      "zkStake.depositWith":     1/365,
+      "zkStake.requestWithdrawal": 1/365,
+      "vault.withdrawUser":      1/365,
+    },
+  },
+  {
+    label: "Typical",
+    description: "Default engagement: yearly onboarding, monthly report + withdraw.",
+    ops: {
+      "zkStake.depositWith":     1/365,
+      "zkStake.requestWithdrawal": 1/365,
+      "reportPage (reason 1)":   1/30,
+      "vault.withdrawUser":      1/30,
+    },
+  },
+  {
+    label: "Active",
+    description: "Engaged user: weekly report, fortnightly withdraw.",
+    ops: {
+      "zkStake.depositWith":     1/365,
+      "zkStake.requestWithdrawal": 1/365,
+      "reportPage (reason 1)":   1/7,
+      "vault.withdrawUser":      2/30,
+    },
+  },
+  {
+    label: "Power",
+    description: "Heavy user: bi-weekly stake adjustments, daily reports, weekly withdraw.",
+    ops: {
+      "zkStake.depositWith":     1/14,
+      "zkStake.requestWithdrawal": 1/14,
+      "reportPage (reason 1)":   1,
+      "vault.withdrawUser":      1/7,
+    },
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Measurement infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -586,6 +637,67 @@ function emitMarkdown(): string {
     }
     out.push("");
   }
+
+  // ─── Per-user fee burn (annual, by engagement tier) ───────────────────────
+  out.push(`## Per-user fee burn (annual)\n`);
+  out.push(`Annual transaction-fee cost (DOT/PAS) for a single end user across four`);
+  out.push(`engagement tiers. Excludes posted bonds, locked stake, and DATUM token movement —`);
+  out.push(`pure gas spend. Calculation: \`Σ ops × gas[op] × 365 × gas_price\`.\n`);
+
+  out.push(`### Tier definitions\n`);
+  out.push(`| Tier | Description | Onboard/yr | Reports/yr | Withdrawals/yr |`);
+  out.push(`|---|---|---:|---:|---:|`);
+  for (const t of USER_TIERS) {
+    const onboard = (t.ops["zkStake.depositWith"] ?? 0) * 365;
+    const reports = (t.ops["reportPage (reason 1)"] ?? 0) * 365;
+    const withdraws = (t.ops["vault.withdrawUser"] ?? 0) * 365;
+    out.push(`| ${t.label} | ${t.description} | ${onboard.toFixed(1)} | ${reports.toFixed(0)} | ${withdraws.toFixed(0)} |`);
+  }
+  out.push("");
+
+  // Compute gas for one user-year per tier
+  const userOpGas = new Map<string, bigint>();
+  for (const r of rows.filter(r => r.role === "User")) userOpGas.set(r.op, r.gas);
+
+  out.push(`### Annual gas per user (units)\n`);
+  out.push(`| Tier | Gas/user/year |`);
+  out.push(`|---|---:|`);
+  const tierGas = new Map<string, bigint>();
+  for (const t of USER_TIERS) {
+    let total = 0n;
+    for (const [op, daily] of Object.entries(t.ops)) {
+      const gas = userOpGas.get(op) ?? 0n;
+      // gas × daily × 365 — but daily is fractional, so use big-number-safe math via Number for the multiplier
+      total += BigInt(Math.round(Number(gas) * daily * 365));
+    }
+    tierGas.set(t.label, total);
+    out.push(`| ${t.label} | ${total.toString()} |`);
+  }
+  out.push("");
+
+  out.push(`### Annual cost per user (DOT/PAS)\n`);
+  out.push(`| Tier | ${GAS_PRICE_SCENARIOS.map(s => `${s.label} (${s.gwei} gwei)`).join(" | ")} |`);
+  out.push(`|---|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
+  for (const t of USER_TIERS) {
+    const gas = Number(tierGas.get(t.label) ?? 0n);
+    const cells = GAS_PRICE_SCENARIOS.map(s => (gas * s.gwei * 1e-9).toExponential(2));
+    out.push(`| ${t.label} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
+
+  // Network-scale aggregate: per-user cost × user count examples
+  out.push(`### Network-aggregate at common user counts (annual DOT, Typical tier)\n`);
+  out.push(`Multiplies the Typical-tier per-user cost by example user counts.`);
+  out.push(`Linear in user count — divide by 1000 for any other base.\n`);
+  const typicalGas = Number(tierGas.get("Typical") ?? 0n);
+  const counts = [100, 1_000, 10_000, 100_000, 1_000_000];
+  out.push(`| Users | ${GAS_PRICE_SCENARIOS.map(s => `${s.gwei} gwei`).join(" | ")} |`);
+  out.push(`|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
+  for (const n of counts) {
+    const cells = GAS_PRICE_SCENARIOS.map(s => (typicalGas * n * s.gwei * 1e-9).toExponential(2));
+    out.push(`| ${n.toLocaleString()} | ${cells.join(" | ")} |`);
+  }
+  out.push("");
 
   return out.join("\n");
 }
