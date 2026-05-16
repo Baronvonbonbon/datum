@@ -335,6 +335,7 @@ async function main() {
       gasLimit: TX_GAS_LIMIT,
       type: 0,
       gasPrice: TX_GAS_PRICE,
+      nonce,                  // pin nonce so signer can't cache stale value
     });
     await waitForNonce(rawProvider, deployer.address, nonce);
   }
@@ -1520,6 +1521,9 @@ async function main() {
   // Each entry whitelists (target, selector) on ParameterGovernance and
   // (eventually) lets a passed proposal call it via PG.execute().
   interface GovernableSetter { contractKey: keyof typeof addresses; sig: string; }
+  // IMPORTANT: parameterGovernance MUST be last. Once PG bootstraps ownership of
+  // itself the deployer is no longer PG's owner, so any later
+  // bootstrapAcceptOwnership(*) call would revert with E18.
   const PARAM_SETTERS: GovernableSetter[] = [
     // PublisherStake — base/perImp/delay + max-required cap
     { contractKey: "publisherStake",       sig: "setParams(uint256,uint256,uint256)" },
@@ -1527,10 +1531,10 @@ async function main() {
     // PublisherGovernance — fraud governance tunables
     { contractKey: "publisherGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
     { contractKey: "publisherGovernance",  sig: "setProposeBond(uint256)" },
-    // ParameterGovernance self-governance — voting/timelock/quorum/bond
-    { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
     // DatumEmissionEngine — Path H adjustment cadence (within baked [1d, 90d] bounds)
     { contractKey: "emissionEngine",       sig: "setAdjustmentPeriod(uint64)" },
+    // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST.
+    { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];
 
   // Group target addresses we need to whitelist + transfer
