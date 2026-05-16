@@ -53,7 +53,53 @@ interface ICampaignsZkKnobs {
 ///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
 contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
     // BM-2: Matches Settlement.MAX_USER_EVENTS — prevents overflow in payment calc
-    uint256 private constant MAX_CLAIM_EVENTS = 100000;
+    /// @notice Baked absolute ceiling on `maxClaimEvents`. Governance cannot
+    ///         raise the per-claim event count above this — protects against
+    ///         a captured owner/PG allowing a single claim to assert a year's
+    ///         worth of fake impressions in one mining job.
+    /// @dev    10× the default tunable value. Mining cost at base difficulty
+    ///         (shift=8) for a 1M-event claim is ~256M attempts ≈ minutes in
+    ///         browser JS — still mineable, but the bucket dynamics carry the
+    ///         actual rate limit.
+    uint256 public constant ABSOLUTE_MAX_CLAIM_EVENTS = 1_000_000;
+
+    /// @notice Governance-tunable per-claim event-count ceiling. Default
+    ///         matches the historical baked constant (100,000). Set via
+    ///         `setMaxClaimEvents`, bounded above by ABSOLUTE_MAX_CLAIM_EVENTS.
+    uint256 public maxClaimEvents = 100_000;
+    event MaxClaimEventsSet(uint256 oldValue, uint256 newValue);
+
+    /// @notice Address of the parallel governance hook authorized to call
+    ///         param setters alongside the owner. Lock-once; intended to
+    ///         be set to `DatumParameterGovernance`.
+    /// @dev    Avoids a full ownership transfer to PG (ClaimValidator has
+    ///         many other owner-only setters that need to stay with the
+    ///         deployer / timelock for emergency response).
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @dev Owner OR parameterGovernance — used by setters that should be
+    ///      conviction-vote tunable in addition to the emergency-owner path.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    /// @notice Tune the per-claim event-count ceiling. Bounded [1, ABSOLUTE_MAX].
+    /// @dev    Callable by owner OR `parameterGovernance` (via PG.execute()).
+    function setMaxClaimEvents(uint256 newMax) external onlyOwnerOrPG {
+        require(newMax > 0 && newMax <= ABSOLUTE_MAX_CLAIM_EVENTS, "E11");
+        uint256 old = maxClaimEvents;
+        maxClaimEvents = newMax;
+        emit MaxClaimEventsSet(old, newMax);
+    }
 
     IDatumCampaigns public campaigns;
     IDatumPublishers public publishers;
@@ -209,7 +255,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
 
         // Check 1: non-zero events within allowed range
         if (claim.eventCount == 0) return (false, 2, 0, bytes32(0));
-        if (claim.eventCount > MAX_CLAIM_EVENTS) return (false, 17, 0, bytes32(0));
+        if (claim.eventCount > maxClaimEvents) return (false, 17, 0, bytes32(0));
 
         // Check 2: campaign exists and is active; get the legacy single-publisher
         // hint + the open-mode default take rate.

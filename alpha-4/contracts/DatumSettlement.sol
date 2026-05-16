@@ -238,7 +238,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     /// @notice bucket / quadDivisor, squared = extra bits (quadratic abuse term). Larger = quadratic kicks in later.
     uint32 public powQuadDivisor = 100;
     /// @notice Blocks per 1 unit of bucket drainage. Larger = slower forgetting (more punitive memory).
-    uint32 public powBucketLeakPerN = 10;
+    /// @dev    Default 1440 (= 8,640s / 6s-blocks ≈ 2.4 hours per unit). For a
+    ///         typical 300-event monthly batch, full bucket drain takes
+    ///         300 × 1440 × 6s = 30 days — matching the economics-paper
+    ///         monthly-batching assumption (see docs/gas-by-role.md).
+    ///         Heavy abusers still hit MAX_SHIFT within minutes because their
+    ///         bucket grows much faster than the (slower) drain.
+    uint32 public powBucketLeakPerN = 1440;
     /// @notice Hard cap on shift_bits so contract math can't run away — 64 bits
     ///         is already 2^64 ≈ 18 quintillion hashes per impression (impossible).
     uint8 public constant POW_MAX_SHIFT = 64;
@@ -515,9 +521,32 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
         emit PowEnforcementSet(enforced);
     }
 
+    /// @notice Parallel governance hook authorized to tune specific param
+    ///         setters alongside the owner. Lock-once; intended to be set
+    ///         to `DatumParameterGovernance`.
+    /// @dev    Avoids a full ownership transfer to PG (Settlement has 22
+    ///         owner-only setters, many lock-once or emergency-grade).
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @dev Owner OR parameterGovernance — for setters that should be both
+    ///      conviction-vote tunable and emergency-deployer tunable.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
     /// @notice Update the PoW difficulty curve. All four params bounded to
     ///         prevent footguns: baseShift in [1, 32], divisors > 0, leak > 0.
-    function setPowDifficultyCurve(uint8 baseShift, uint32 linearDivisor, uint32 quadDivisor, uint32 bucketLeakPerN) external onlyOwner {
+    /// @dev    Callable by owner OR `parameterGovernance` (via PG.execute()).
+    function setPowDifficultyCurve(uint8 baseShift, uint32 linearDivisor, uint32 quadDivisor, uint32 bucketLeakPerN) external onlyOwnerOrPG {
         require(baseShift >= 1 && baseShift <= 32, "E11");
         require(linearDivisor > 0, "E11");
         require(quadDivisor > 0, "E11");

@@ -1520,10 +1520,21 @@ async function main() {
   // webapp's parameterCatalog.ts so the UI can render structured propose forms.
   // Each entry whitelists (target, selector) on ParameterGovernance and
   // (eventually) lets a passed proposal call it via PG.execute().
-  interface GovernableSetter { contractKey: keyof typeof addresses; sig: string; }
-  // IMPORTANT: parameterGovernance MUST be last. Once PG bootstraps ownership of
-  // itself the deployer is no longer PG's owner, so any later
-  // bootstrapAcceptOwnership(*) call would revert with E18.
+  interface GovernableSetter {
+    contractKey: keyof typeof addresses;
+    sig: string;
+    // If true: contract is NOT owned by PG; instead it exposes a
+    // `setParameterGovernance(address)` lock-once setter and uses
+    // an `onlyOwnerOrPG` modifier on the listed setter. Cleaner than
+    // full ownership transfer for contracts with many critical
+    // emergency setters (Settlement, ClaimValidator).
+    viaParamGovernanceField?: boolean;
+  }
+  // IMPORTANT: parameterGovernance MUST be last for the ownership-transfer
+  // ordering bug — once PG bootstraps ownership of itself the deployer is no
+  // longer PG's owner, so any later bootstrapAcceptOwnership(*) call would
+  // revert with E18. (Items marked viaParamGovernanceField don't transfer
+  // ownership at all and can sit anywhere.)
   const PARAM_SETTERS: GovernableSetter[] = [
     // PublisherStake — base/perImp/delay + max-required cap
     { contractKey: "publisherStake",       sig: "setParams(uint256,uint256,uint256)" },
@@ -1533,12 +1544,23 @@ async function main() {
     { contractKey: "publisherGovernance",  sig: "setProposeBond(uint256)" },
     // DatumEmissionEngine — Path H adjustment cadence (within baked [1d, 90d] bounds)
     { contractKey: "emissionEngine",       sig: "setAdjustmentPeriod(uint64)" },
-    // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST.
+    // DatumSettlement — PoW curve tunables (dual-permission, NOT owned by PG)
+    { contractKey: "settlement",           sig: "setPowDifficultyCurve(uint8,uint32,uint32,uint32)", viaParamGovernanceField: true },
+    // DatumClaimValidator — per-claim event cap (dual-permission, NOT owned by PG)
+    { contractKey: "claimValidator",       sig: "setMaxClaimEvents(uint256)", viaParamGovernanceField: true },
+    // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST among ownership-transfer entries.
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];
 
   // Group target addresses we need to whitelist + transfer
   const PG_TARGETS = Array.from(new Set(PARAM_SETTERS.map((s) => s.contractKey)));
+  // Split: contracts that transfer ownership to PG vs contracts that use the
+  // `parameterGovernance` field (dual-permission). A contract is field-only
+  // if EVERY one of its PARAM_SETTERS entries is marked viaParamGovernanceField.
+  const PG_FIELD_TARGETS = PG_TARGETS.filter((k) =>
+    PARAM_SETTERS.filter((s) => s.contractKey === k).every((s) => s.viaParamGovernanceField === true)
+  );
+  const PG_OWNERSHIP_TARGETS = PG_TARGETS.filter((k) => !PG_FIELD_TARGETS.includes(k));
 
   function selectorOf(sig: string): string {
     return ethers.id(sig).slice(0, 10);
@@ -1581,9 +1603,27 @@ async function main() {
     await pgSetSelector(addresses[setter.contractKey], selectorOf(setter.sig), true);
   }
 
-  // 3b.2: Transfer ownership of each governed contract (and PG itself) → PG.
-  //       Then bootstrap-accept on PG to finish the 2-step migration.
-  for (const targetKey of PG_TARGETS) {
+  // 3b.2a: For contracts using the parameterGovernance FIELD (dual-permission),
+  //        call setParameterGovernance(PG). Lock-once, owner-only.
+  for (const targetKey of PG_FIELD_TARGETS) {
+    const targetAddr = addresses[targetKey];
+    let currentPG = "";
+    try { currentPG = await readAddr(targetAddr, "parameterGovernance"); } catch { /* */ }
+    if (currentPG === addresses.parameterGovernance.toLowerCase()) {
+      console.log(`  OK (already): ${targetKey}.parameterGovernance = PG`);
+      continue;
+    }
+    if (currentPG !== "" && currentPG !== ZERO_ADDRESS) {
+      console.warn(`  WARNING: ${targetKey}.parameterGovernance = ${currentPG}, NOT ${addresses.parameterGovernance} — lock-once, cannot rewire`);
+      continue;
+    }
+    await sendCall(targetAddr, ["function setParameterGovernance(address)"], "setParameterGovernance", [addresses.parameterGovernance]);
+    console.log(`  SET: ${targetKey}.setParameterGovernance(${addresses.parameterGovernance})`);
+  }
+
+  // 3b.2b: For contracts that transfer ownership to PG, do the transferOwnership
+  //        + bootstrapAcceptOwnership pair.
+  for (const targetKey of PG_OWNERSHIP_TARGETS) {
     const targetAddr = addresses[targetKey];
     const owner = await readAddr(targetAddr, "owner");
     if (owner === addresses.parameterGovernance.toLowerCase()) {
