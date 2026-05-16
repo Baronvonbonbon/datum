@@ -116,6 +116,8 @@ const REQUIRED_KEYS = [
   "stakeRootV2",
   // ZK identity verifier (enables balance-fraud challenges on V2)
   "identityVerifier",
+  // Path H DATUM emission engine (TOKENOMICS §3.3 — daily cap + dynamic rate)
+  "emissionEngine",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -195,7 +197,7 @@ const SR_V2_COMMITMENT_BOND        = parseDOT("0.01");
 // For mainnet, set initial members to Gnosis Safe addresses of council members.
 // Council members and threshold can be changed later via council self-governance proposals.
 
-const TOTAL_STEPS = 26; // 21 deploy + 5 wiring/validation sections
+const TOTAL_STEPS = 27; // 22 deploy + 5 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -669,7 +671,16 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumIdentityVerifier — ${err}`);
   }
 
-  console.log("\n=== All 26 contracts deployed ===\n");
+  // --- DatumEmissionEngine: Path H emission curve (TOKENOMICS §3.3) ---
+  // No constructor args; epoch 0 starts at deploy timestamp.
+  try {
+    logStep("Deploying DatumEmissionEngine (Path H — daily cap + dynamic rate)");
+    await deployOrReuse("emissionEngine", "DatumEmissionEngine", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumEmissionEngine — ${err}`);
+  }
+
+  console.log("\n=== All 27 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -1060,6 +1071,20 @@ async function main() {
   }
 
   // Alpha-4: Reputation is inline in Settlement (auto-accumulated, no separate wiring needed)
+
+  // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
+  await wireIfNeeded(
+    "EmissionEngine.settlement",
+    "DatumEmissionEngine", addresses.emissionEngine,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.emissionEngine",
+    "DatumSettlement", addresses.settlement,
+    "emissionEngine", "setEmissionEngine",
+    addresses.emissionEngine,
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Audit pass 2 wiring (2026-05-12)
