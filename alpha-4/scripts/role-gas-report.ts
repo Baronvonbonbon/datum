@@ -1089,10 +1089,10 @@ function emitMarkdown(): string {
   out.push(`- Bootstrap rate: 19 DATUM/DOT; adapts on first adjustment.\n`);
   out.push(`**Per-claim mint:** \`totalMint = DOT_paid × currentRate\`, capped by remaining daily +`);
   out.push(`epoch budgets. Split user 55% / publisher 40% / advertiser 5% (baked, not governable).\n`);
-  out.push(`> **Implementation gap:** The current alpha-4 \`DatumSettlement.mintRatePerDot\` is a flat`);
-  out.push(`> storage variable with an owner setter (\`setMintRate\`). It is a **placeholder** for the`);
-  out.push(`> Path H mechanism — no on-chain epoch tracking, no daily cap clipping, no \`adjustRate()\``);
-  out.push(`> function. Projections below model the spec; the contract will need to grow into it.\n`);
+  out.push(`> **Implementation status:** Path H is **implemented** in \`DatumEmissionEngine.sol\``);
+  out.push(`> (commit de9a4a6+). \`DatumSettlement\` delegates the mint amount to the engine when wired;`);
+  out.push(`> the legacy flat-rate path remains as a bootstrap fallback. Engine state, \`rollEpoch()\`,`);
+  out.push(`> \`adjustRate()\`, and the per-batch cap clipping all match the spec.\n`);
 
   out.push(`### Per-epoch emission curve (baked schedule)\n`);
   out.push(`Hardwired geometric halving over 70 years (10 epochs):\n`);

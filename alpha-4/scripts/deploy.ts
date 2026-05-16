@@ -1529,6 +1529,8 @@ async function main() {
     { contractKey: "publisherGovernance",  sig: "setProposeBond(uint256)" },
     // ParameterGovernance self-governance — voting/timelock/quorum/bond
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
+    // DatumEmissionEngine — Path H adjustment cadence (within baked [1d, 90d] bounds)
+    { contractKey: "emissionEngine",       sig: "setAdjustmentPeriod(uint64)" },
   ];
 
   // Group target addresses we need to whitelist + transfer
