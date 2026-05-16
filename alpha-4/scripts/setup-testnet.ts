@@ -58,11 +58,20 @@ const FUND_AMOUNTS: Record<string, bigint> = {
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
 
+// Paseo's eth-rpc uses pallet-revive weight units so this script pins
+// gasLimit/gasPrice high enough to fit pretty much any tx. On a plain
+// EVM node (hardhat local) those numbers blow past the per-tx gas cap.
+const _IS_PASEO = (network.name === "polkadotTestnet");
 const TX_OPTS = {
-  gasLimit: 500000000n,
+  gasLimit: _IS_PASEO ? 500000000n : 15000000n,
   type: 0,
-  gasPrice: 1000000000000n,
+  gasPrice: _IS_PASEO ? 1000000000000n : 1000000000n,
 };
+// EVM-decimal scale-up: PAS uses 10-decimal, EVM 18-decimal. parseDOT() returns
+// 10-decimal base units which would be vanishingly small on hardhat local
+// (gas would eat them in one tx). Multiply fund amounts by 10^8 locally so
+// every account has enough for hundreds of gas-using calls.
+const LOCAL_DECIMAL_SCALE = _IS_PASEO ? 1n : 10n ** 7n;
 
 function log(section: string, msg: string) {
   console.log(`[${section}] ${msg}`);
@@ -95,6 +104,17 @@ async function waitForBlock(
   targetBlock: number,
   maxWait = 300,
 ): Promise<void> {
+  // Local hardhat only mines on tx — fast-forward by calling hardhat_mine.
+  if (!_IS_PASEO) {
+    const hex = await provider.send("eth_blockNumber", []);
+    const current = parseInt(hex, 16);
+    if (current < targetBlock) {
+      const delta = targetBlock - current;
+      // hardhat_mine takes a hex string for the count
+      await provider.send("hardhat_mine", ["0x" + delta.toString(16)]);
+    }
+    return;
+  }
   for (let i = 0; i < maxWait; i++) {
     const hex = await provider.send("eth_blockNumber", []);
     if (parseInt(hex, 16) >= targetBlock) return;
@@ -544,7 +564,7 @@ async function main() {
       continue;
     }
     try {
-      await sendTransfer(alice, rawProvider, w.address, target);
+      await sendTransfer(alice, rawProvider, w.address, target * LOCAL_DECIMAL_SCALE);
       const newBal = await rawProvider.getBalance(w.address);
       log("1", `  ${name} funded: ${formatDOT(newBal)} PAS`);
     } catch (err) {
