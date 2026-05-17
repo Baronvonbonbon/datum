@@ -125,6 +125,14 @@ const REQUIRED_KEYS = [
   // identity refresh that lands People Chain attestations into the cache
   // via the IXcm precompile. Wired as cache.xcmDispatcher.
   "peopleChainXcmBridge",
+  // Bonded multi-reporter set (2026-05-17): permissionless attestation
+  // source that supplements/replaces single-Diana trust. Deployed
+  // alongside the bridge but NOT wired as cache.xcmDispatcher on Paseo
+  // — the bridge remains the sole writer during Phase D validation.
+  // Production wiring decision (add 3rd cache slot vs swap dispatcher)
+  // is deferred to mainnet prep; see
+  // narrative-analysis/bonded-reporter-identity.md.
+  "peopleChainBondedReporter",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -201,6 +209,21 @@ const SR_V2_CHALLENGER_BOND        = parseDOT("0.05");
 const SR_V2_SLASHED_TO_CHAL_BPS    = 8000n;               // 80% of slashed total
 const SR_V2_SLASH_APPROVER_BPS     = 1000n;               // 10% of approver's stake
 const SR_V2_COMMITMENT_BOND        = parseDOT("0.01");
+
+// ── DatumBondedIdentityReporter parameters (Phase D prep) ──────────────────
+// Permissionless bonded reporters for identity attestations. Mirrors
+// SR_V2's economic shape but tuned for testnet UX (shorter windows, smaller
+// bonds). Production values are governance-tunable post-deploy. Design:
+// narrative-analysis/bonded-reporter-identity.md.
+const BIR_MIN_STAKE               = parseDOT("1");       // 1 PAS to become an identity reporter
+const BIR_EXIT_DELAY              = 14400n;              // ~24h between exit proposal + claim
+const BIR_APPROVAL_BPS            = 5100n;               // 51% of bonded stake to fast-finalize
+const BIR_CHALLENGE_WINDOW        = 600n;                // ~1h challenge window (short for testnet UX)
+const BIR_PROPOSER_BOND           = parseDOT("0.01");
+const BIR_CHALLENGER_BOND         = parseDOT("0.01");
+const BIR_SLASHED_TO_CHAL_BPS     = 5000n;               // 50% of slashed total to challenger
+const BIR_SLASH_APPROVER_BPS      = 2500n;               // 25% of approver's stake on slash
+
 // For mainnet, set initial members to Gnosis Safe addresses of council members.
 // Council members and threshold can be changed later via council self-governance proposals.
 
@@ -715,7 +738,29 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumPeopleChainXcmBridge — ${err}`);
   }
 
-  console.log("\n=== All 29 contracts deployed ===\n");
+  // --- DatumBondedIdentityReporter: permissionless bonded reporter set ---
+  // Deployed alongside the bridge but NOT wired as cache.xcmDispatcher
+  // during Phase D — the bridge stays the sole writer until the bonded
+  // reporter is validated on testnet. Wiring decision (3rd cache slot vs
+  // dispatcher swap) is deferred. See bonded-reporter-identity.md.
+  try {
+    logStep("Deploying DatumBondedIdentityReporter (bonded multi-reporter set, v1)");
+    await deployOrReuse("peopleChainBondedReporter", "DatumBondedIdentityReporter", [
+      deployer.address,            // treasury (testnet); rotate before mainnet
+      BIR_MIN_STAKE,
+      BIR_EXIT_DELAY,
+      BIR_APPROVAL_BPS,
+      BIR_CHALLENGE_WINDOW,
+      BIR_PROPOSER_BOND,
+      BIR_CHALLENGER_BOND,
+      BIR_SLASHED_TO_CHAL_BPS,
+      BIR_SLASH_APPROVER_BPS,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumBondedIdentityReporter — ${err}`);
+  }
+
+  console.log("\n=== All 30 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -1396,6 +1441,19 @@ async function main() {
     deployer.address,
   );
 
+  // ── BondedIdentityReporter wiring (Phase D prep) ──
+  // The reporter needs to know the cache so its finalizeAttestation can
+  // write through. We do NOT wire cache.xcmDispatcher to the reporter
+  // here — the bridge stays the sole writer during Phase D validation.
+  // Mainnet flip (once the reporter is validated) is documented in
+  // narrative-analysis/bonded-reporter-identity.md §4.
+  await wireIfNeeded(
+    "PeopleChainBondedReporter.cache",
+    "DatumBondedIdentityReporter", addresses.peopleChainBondedReporter,
+    "cache", "setCache",
+    addresses.peopleChainIdentity,
+  );
+
   // ── FP-2: ChallengeBonds wiring (all three setters lock-once) ──
   await wireIfNeeded(
     "ChallengeBonds.campaignsContract",
@@ -1601,6 +1659,14 @@ async function main() {
   // commitments can't be made unilaterally.
   await transferOwnershipIfNeeded(
     "PeopleChainXcmBridge", "DatumPeopleChainXcmBridge", addresses.peopleChainXcmBridge,
+  );
+  // BondedIdentityReporter: slashAttestation + dismissChallenge are
+  // owner-arbitrated in v1 (Option γ). Routing ownership through
+  // Timelock makes each slash/dismiss a 48h-delayed governance action
+  // until v2 swaps to on-chain counter-evidence verification.
+  await transferOwnershipIfNeeded(
+    "PeopleChainBondedReporter", "DatumBondedIdentityReporter",
+    addresses.peopleChainBondedReporter,
   );
 
   console.log("\n  Future admin changes go through:");

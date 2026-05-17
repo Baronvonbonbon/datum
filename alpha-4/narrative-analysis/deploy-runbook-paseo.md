@@ -82,14 +82,15 @@ npx hardhat run scripts/deploy.ts --network polkadotTestnet
 Expected output ends with:
 
 ```
-=== All 29 contracts deployed ===
+=== All 30 contracts deployed ===
 ```
 
 then phase 2-3 wiring logs, then ownership transfers.
 
-`deployed-addresses.json` should now have both:
+`deployed-addresses.json` should now have all three:
 - `peopleChainIdentity`: 0x...
 - `peopleChainXcmBridge`: 0x...
+- `peopleChainBondedReporter`: 0x... (deployed but NOT wired as cache writer — see §11)
 
 The wiring section should log:
 ```
@@ -444,3 +445,56 @@ When ANY of those mature, the migration is:
 
 After step 5, the system is fully trustless under whichever Option
 matured first. No web changes required — bridge ABI is stable.
+
+---
+
+## 11. Bonded reporter — deployed but not wired
+
+`DatumBondedIdentityReporter` ships in the 30-contract deploy
+(commit landing this section) but is deliberately NOT wired as a
+cache writer during Phase D.
+
+**Current wiring at deploy time:**
+- `cache.xcmDispatcher = bridge` (bridge writes attestations from
+  Diana's xcmCallback)
+- `cache.oracleReporter = deployer` (Diana fallback)
+- `bondedReporter.cache = cache` (reporter knows where to finalize)
+- `bondedReporter.owner = Timelock` (ownership routed for governance
+  arbitration of slash/dismiss)
+- **NOT WIRED:** `cache.setXcmDispatcher(bondedReporter)`. The
+  reporter cannot write to the cache yet — `finalizeAttestation`
+  reverts E18 from the cache.
+
+**Why not wire on Paseo:** the reporter introduces an additional
+trust surface (challenge-window UX, multi-reporter coordination, owner-
+arbitrated slashing). Validate it in isolation first, then decide
+which of two wiring options to deploy:
+
+1. **3rd cache writer slot (additive).** Modify
+   `DatumPeopleChainIdentity` to accept writes from a new
+   `bondedReporter` slot alongside `xcmDispatcher` (bridge) and
+   `oracleReporter` (Diana). Both the bridge and bonded reporter
+   become parallel writer paths. Bridge stays for fast user-triggered
+   refresh; bonded reporter becomes the trustless attestation source.
+
+2. **Dispatcher swap.** `cache.setXcmDispatcher(bondedReporter)`,
+   `cache.lockXcmDispatcher()`. Bridge writes are now routed THROUGH
+   the bonded reporter (bridge submits an attestation, fast-finalizes
+   via its own authority). More complex; tighter trust binding.
+
+Tracked in `narrative-analysis/bonded-reporter-identity.md` §4.
+
+**To exercise the reporter on Paseo without wiring** (smoke its
+internal flow): deploy a separate test cache, wire the reporter to
+that cache only, run join → submit → approve → finalize → claim
+through the testnet. No effect on the production cache.
+
+**To wire it for real** (post-Phase D validation):
+```bash
+# Option 1 (additive):
+#   needs a cache contract update + redeploy
+# Option 2 (dispatcher swap):
+#   from Timelock:
+#     cache.setXcmDispatcher(addresses.peopleChainBondedReporter)
+#   ...then ratify with cache.lockXcmDispatcher() after stable operation.
+```
