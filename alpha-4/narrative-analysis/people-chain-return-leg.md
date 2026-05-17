@@ -328,7 +328,18 @@ this changes the picture significantly. Concrete tasks:
 - **Don't call `lockOracleReporter()` on Paseo.** Keep Diana's direct
   path as fallback during validation.
 
-## 6. Updates needed elsewhere
+## 6. Companion: pre-mainnet single-oracle hardening
+
+`bonded-reporter-identity.md` (2026-05-17) — design doc for the
+multi-reporter pattern that replaces single-Diana before mainnet.
+Mirrors `DatumStakeRootV2` (permissionless bonded reporters,
+optimistic resolution, slashing). The bonded reporter pattern is
+**complementary** to whichever trustless return-leg matures first
+(Options 1, 4, or 5 above): the bonded set covers the operational
+trust gap *today*, the runtime / pallet / proof path covers the
+architectural trust gap *eventually*.
+
+## 7. Updates needed elsewhere
 
 - `MAINNET-DEFERRED-ITEMS.md` §2 People Chain entry — reflect that the
   pallet is research-blocked, not just "future work."
