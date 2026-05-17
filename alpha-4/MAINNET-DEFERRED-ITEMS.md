@@ -46,6 +46,18 @@ After vetting production parties, call:
 - **DatumPeopleChainIdentity**: replace deployer-as-oracle-reporter with
   dedicated bridge EOA, then `lockOracleReporter()` once the XCM
   dispatcher is wired and proven on mainnet.
+  - **Return-leg research (2026-05-17):**
+    `narrative-analysis/people-chain-return-leg.md` — the People Chain
+    runtime has no `pallet-revive` and XCM is write-only; the trustless
+    return path requires either (a) a custom FRAME pallet via OpenGov
+    (Track B, months-scale), (b) XCQ when it ships (Track A risk: 6-18
+    months, unmaintained dependency), or (c) relay-chain state proofs
+    (Track C, research-blocked).
+  - **Phase D posture (current):** Diana stand-in as
+    `peopleChainSovereign`. Bridge code path is identical to the
+    trustless future-state; flipping is a single `setSovereign(...)`
+    call. **Do NOT call `lockOracleReporter()` until the trustless
+    path is proven** — Diana's direct path stays as fallback.
 
 ## 3. Token plane sunset (PRE-MAINNET-CHECKLIST §5.5)
 
