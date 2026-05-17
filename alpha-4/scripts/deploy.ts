@@ -1508,6 +1508,12 @@ async function main() {
   // (punishment bps, timelock blocks, treasury) need to route through
   // Timelock on mainnet, same as the rest of the governance surface.
   await transferOwnershipIfNeeded("ActivationBonds", "DatumActivationBonds", addresses.activationBonds);
+  // StakeRoot V1 + V2 ownership (reporter-set management, treasury rotation,
+  // governable parameters) also route through Timelock for mainnet
+  // transparency. Reporter rotation in particular is high-impact and
+  // belongs on the same 48h delay as the other governance surface.
+  await transferOwnershipIfNeeded("StakeRoot",   "DatumStakeRoot",   addresses.stakeRoot);
+  await transferOwnershipIfNeeded("StakeRootV2", "DatumStakeRootV2", addresses.stakeRootV2);
 
   console.log("\n  Future admin changes go through:");
   console.log("    timelock.propose(target, abi.encodeCall(...)) -> 48h -> timelock.execute()");

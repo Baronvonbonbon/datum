@@ -306,4 +306,38 @@ describe("DatumActivationBonds: emergency mute (Phase 2b)", function () {
       expect(await bonds.pending(treasury.address)).to.equal(floor);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // MUTE-6: AUDIT-PASS-5 M1 — both advertiser AND treasury unset
+  //
+  // The audit-pass-5 finding: if `getCampaignAdvertiser` reverts/returns 0
+  // AND treasury is also address(0), the rejected-mute payout used to
+  // revert E00. Reverting strands the mute state (m.active stays true →
+  // ClaimValidator rejects every claim for that campaign forever).
+  //
+  // Fix: refund the muter rather than revert. The slash is forgone in
+  // this edge so the mute state can be cleared. Emits
+  // MuteBondReroutedToMuter for observability.
+  // ---------------------------------------------------------------------------
+  describe("MUTE-6: M1 strand fallback (advertiser AND treasury both zero)", function () {
+    it("refunds muter when no valid recipient exists, instead of stranding", async function () {
+      // Synthetic worst case: clear treasury then mute a zero-advertiser
+      // campaign. Setting treasury to 0 is permitted iff treasuryBps == 0,
+      // which is the testnet default.
+      await bonds.connect(owner).setTreasury(ethers.ZeroAddress);
+      const cid = nextCid++;
+      await mock.setCampaign(cid, ethers.ZeroAddress, ethers.ZeroAddress, 0n, 5000, 1);
+      const floor = await bonds.muteMinBond();
+      const muterPendingBefore = await bonds.pending(muter.address);
+      await bonds.connect(muter).mute(cid, { value: floor });
+      await mineBlocks(MUTE_MAX_BLOCKS);
+      // settleMute must succeed and emit MuteBondReroutedToMuter.
+      await expect(bonds.settleMute(cid))
+        .to.emit(bonds, "MuteBondReroutedToMuter").withArgs(cid, muter.address, floor);
+      // Bond shows up in muter's pending balance.
+      expect(await bonds.pending(muter.address)).to.equal(muterPendingBefore + floor);
+      // Mute state cleared — isMuted false, no double-strand.
+      expect(await bonds.isMuted(cid)).to.equal(false);
+    });
+  });
 });

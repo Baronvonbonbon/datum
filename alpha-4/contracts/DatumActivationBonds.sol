@@ -387,10 +387,19 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOw
             advertiser = address(0);
         }
         address recipient = advertiser != address(0) ? advertiser : treasury;
-        require(recipient != address(0), "E00"); // both unset — refuse to strand
+        // AUDIT-PASS-5 M1: if neither advertiser nor treasury exists, refund
+        // the muter rather than revert. Reverting would leave m.active = true
+        // → isMuted(cid) returns true forever → ClaimValidator rejects every
+        // claim for that campaign. Refunding muter undoes the slash in this
+        // edge but preserves the protocol invariant that settleMute always
+        // clears mute state.
+        if (recipient == address(0)) {
+            recipient = muter;
+            emit MuteBondReroutedToMuter(campaignId, muter, bond);
+        }
         _pending[recipient] += bond;
-        // Silence unused-var warnings for non-touched fields.
-        (muter, m);
+        // Silence unused-var warning for storage struct (touched by caller).
+        m;
     }
 
     // ── Internal payout maths ─────────────────────────────────────────────────

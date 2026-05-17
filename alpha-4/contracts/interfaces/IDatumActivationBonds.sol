@@ -33,6 +33,12 @@ interface IDatumActivationBonds {
     ///         if campaign remained Active (mute rejected) or auto-resolved
     ///         at muteMaxBlocks timeout.
     event MuteResolved(uint256 indexed campaignId, bool upheld, uint256 refundOrPenalty);
+    /// @notice AUDIT-PASS-5 M1: emitted when a rejected mute's bond would have
+    ///         been stranded (advertiser and treasury both unset). Bond is
+    ///         refunded to the muter so the mute state can be cleared. This
+    ///         is a defensive fallback — under normal operation the
+    ///         advertiser path is always populated.
+    event MuteBondReroutedToMuter(uint256 indexed campaignId, address indexed muter, uint256 bond);
 
     // ── Write ─────────────────────────────────────────────────────────────────
 

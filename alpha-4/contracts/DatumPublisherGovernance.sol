@@ -225,6 +225,10 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     function setProposeBond(uint256 v) external onlyOwner { proposeBond = v; emit ProposeBondSet(v); }
 
     function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+        // Mirrors the AUDIT-PASS-5 L6 guard in DatumGovernanceV2: keep the
+        // (0, 0) pair reserved as a "not yet set" sentinel even though this
+        // contract does not currently use per-proposal snapshots.
+        require(a != 0 || b != 0, "E11");
         uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
         require(maxWeight <= 1000, "E11");
         convictionA = a; convictionB = b;

@@ -125,16 +125,13 @@ is set. (AUDIT-PASS-5 recommendation #1;
   The `(A == 0 && B == 0)` sentinel for "not yet snapshotted" is now
   safe to use. Regression test in `test/governance-params.test.ts`
   ("AUDIT-PASS-5 L6: setConvictionCurve rejects (0, 0)").
-- **M1 (MEDIUM, partially mitigated — edge still open).** Current
-  `_payoutMuteRejected` (`DatumActivationBonds.sol:374-394`) already
-  catches a reverting `getCampaignAdvertiser` and falls back to
-  `treasury`, then reverts with `E00` only if both are zero
-  (`require(recipient != address(0), "E00")`). This closes the
-  getter-missing path. The double-zero strand case is still real:
-  if `setTreasury(0)` is ever called AND advertiser resolves to zero,
-  `settleMute` reverts → mute state stuck. Either reject
-  `setTreasury(0)` in the setter, or add an emergency-treasury
-  immutable, or refund-to-muter on the failure branch.
+- ✅ **COMPLETE — M1 (MEDIUM).** `_payoutMuteRejected`
+  (`DatumActivationBonds.sol:374-402`) now refunds the muter when
+  both advertiser and treasury are zero, emitting
+  `MuteBondReroutedToMuter` for observability. The slash is forgone
+  in this edge so the mute state can always be cleared and never
+  strands. Regression test in `test/emergency-mute.test.ts` →
+  "MUTE-6: M1 strand fallback".
 - **External audit before mainnet.** Internal pass found 4 HIGH bugs;
   an external specialist review is warranted before live funds depend
   on this code.
@@ -251,8 +248,8 @@ Blocking (must run / replace / decide):
 - [x] ~~ActivationBonds ownership transferred to Timelock~~ — wired in
       deploy.ts (`transferOwnershipIfNeeded("ActivationBonds", ...)`).
 - [ ] External audit completed.
-- [x] ~~AUDIT-PASS-5 L6~~ fixed (rejects `(0, 0)` in setConvictionCurve).
-      M1 still partially open (double-zero strand case).
+- [x] ~~AUDIT-PASS-5 L6 + M1~~ both fixed. L6 mirrored on
+      PublisherGovernance + AdvertiserGovernance for consistency.
 
 Required around the parachain sunset (separately):
 
@@ -406,11 +403,18 @@ source. Summary of state changes since the doc was first written:
   `DatumMintAuthority`, shared `_requireNotPaused` on all three mint
   paths. Test: `test/token/mint-flow.test.ts` →
   "CB6-extension: CAT_TOKEN_MINT pause wiring".
-- ✅ §5 ActivationBonds ownership transfer added to deploy.ts.
-- ✅ §7 L6 fix — `setConvictionCurve(0, 0)` rejected with E11. Test:
+- ✅ §5 ActivationBonds + StakeRoot V1 + StakeRootV2 ownership
+  transfers added to deploy.ts.
+- ✅ §7 L6 fix — `setConvictionCurve(0, 0)` rejected with E11 in
+  DatumGovernanceV2, DatumPublisherGovernance, DatumAdvertiserGovernance
+  (the latter two for consistency even though they don't carry the
+  per-proposal snapshot). Test:
   `test/governance-params.test.ts` → "AUDIT-PASS-5 L6".
-- Test suite: 1089 passing (was 1086 before changes; +3 from this
-  pass).
+- ✅ §7 M1 fix — `_payoutMuteRejected` refunds muter when both
+  advertiser and treasury are unset, emits `MuteBondReroutedToMuter`.
+  Test: `test/emergency-mute.test.ts` → "MUTE-6".
+- Test suite: 1090 passing (was 1086 before this work; +4 from the
+  two passes).
 
 **Re-verified as still open:**
 - §1 lockRelayerOpen, curator locks, phaseFloor ratchet — operational
