@@ -302,6 +302,12 @@ export interface ContractAddresses {
   council: string;
   // Curator (B2-fix delegated blocklist curator; optional)
   councilBlocklistCurator?: string;
+  // People Chain identity cache (optional — when absent, identity gate UI hidden)
+  peopleChainIdentity?: string;
+  // Trustless XCM-dispatched identity refresh bridge (optional). When set,
+  // the /me/identity Refresh button dispatches real XCM via the bridge;
+  // when absent, the legacy event-only requestIdentityRefresh() is used.
+  peopleChainXcmBridge?: string;
   // DATUM token system (optional — not yet on Paseo testnet deploy).
   // When any of these is empty / zero, the corresponding UI surface is
   // rendered in a disabled state with a "feature unavailable on this

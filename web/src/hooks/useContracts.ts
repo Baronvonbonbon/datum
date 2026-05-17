@@ -25,6 +25,8 @@ import {
   getGovernanceRouterContract,
   getCouncilContract,
   getZKVerifierContract,
+  getPeopleChainIdentityContract,
+  getPeopleChainXcmBridgeContract,
   getProvider,
   getPineProvider,
   subscribePineSyncStep,
@@ -107,6 +109,8 @@ export function useContracts() {
       governanceRouter: getGovernanceRouterContract(addrs, provider),
       council: getCouncilContract(addrs, provider),
       zkVerifier: getZKVerifierContract(addrs, provider),
+      peopleChainIdentity: getPeopleChainIdentityContract(addrs, provider),
+      peopleChainXcmBridge: getPeopleChainXcmBridgeContract(addrs, provider),
       readProvider,
       /** True when Pine light client is active */
       usingPine: !!pineProvider,

@@ -28,6 +28,8 @@ import DatumBootstrapPoolAbi from "./abis/DatumBootstrapPool.json";
 import DatumVestingAbi from "./abis/DatumVesting.json";
 import DatumFeeShareAbi from "./abis/DatumFeeShare.json";
 import DatumCouncilBlocklistCuratorAbi from "./abis/DatumCouncilBlocklistCurator.json";
+import DatumPeopleChainIdentityAbi from "./abis/DatumPeopleChainIdentity.json";
+import DatumPeopleChainXcmBridgeAbi from "./abis/DatumPeopleChainXcmBridge.json";
 import { ContractAddresses } from "./types";
 
 type Provider = JsonRpcProvider | JsonRpcApiProvider;
@@ -328,4 +330,14 @@ export function getFeeShareContract(addresses: ContractAddresses, provider: Prov
 export function getCouncilBlocklistCuratorContract(addresses: ContractAddresses, provider: Provider | Signer) {
   if (!addresses.councilBlocklistCurator) return null;
   return make(addresses.councilBlocklistCurator, abi(DatumCouncilBlocklistCuratorAbi), provider);
+}
+
+export function getPeopleChainIdentityContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.peopleChainIdentity) return null;
+  return make(addresses.peopleChainIdentity, abi(DatumPeopleChainIdentityAbi), provider);
+}
+
+export function getPeopleChainXcmBridgeContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.peopleChainXcmBridge) return null;
+  return make(addresses.peopleChainXcmBridge, abi(DatumPeopleChainXcmBridgeAbi), provider);
 }

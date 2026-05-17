@@ -118,6 +118,13 @@ const REQUIRED_KEYS = [
   "identityVerifier",
   // Path H DATUM emission engine (TOKENOMICS §3.3 — daily cap + dynamic rate)
   "emissionEngine",
+  // People Chain identity gate (2026-05-16): cached attestation cache;
+  // Settlement reads isVerified(user, minLevel) when a campaign or user opts in
+  "peopleChainIdentity",
+  // Trustless XCM dispatch bridge (Phase B, 2026-05-17): user-triggered
+  // identity refresh that lands People Chain attestations into the cache
+  // via the IXcm precompile. Wired as cache.xcmDispatcher.
+  "peopleChainXcmBridge",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -681,7 +688,34 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumEmissionEngine — ${err}`);
   }
 
-  console.log("\n=== All 27 contracts deployed ===\n");
+  // --- DatumPeopleChainIdentity: cached People Chain identity attestations ---
+  // No constructor args. Wired into Settlement via setIdentityRegistry below.
+  // Oracle reporter (Diana on testnet) granted via setOracleReporter in STAGE 3.
+  try {
+    logStep("Deploying DatumPeopleChainIdentity (People Chain identity cache)");
+    await deployOrReuse("peopleChainIdentity", "DatumPeopleChainIdentity", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPeopleChainIdentity — ${err}`);
+  }
+
+  // --- DatumPeopleChainXcmBridge: trustless XCM-dispatched identity refresh
+  // Constructor: (xcmPrecompile, cache). On Paseo, IXcm precompile lives at
+  // 0x0000000000000000000000000000000000000a00. Bridge writes to the cache
+  // via submitAttestation; cache.setXcmDispatcher(bridge) wired below.
+  // peopleChainSovereign is set post-deploy to Diana as a stand-in until
+  // the People Chain pallet is real on mainnet.
+  const IXCM_PRECOMPILE = "0x00000000000000000000000000000000000A0000";
+  try {
+    logStep("Deploying DatumPeopleChainXcmBridge (trustless XCM-dispatched refresh)");
+    await deployOrReuse("peopleChainXcmBridge", "DatumPeopleChainXcmBridge", [
+      IXCM_PRECOMPILE,
+      addresses.peopleChainIdentity,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPeopleChainXcmBridge — ${err}`);
+  }
+
+  console.log("\n=== All 29 contracts deployed ===\n");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2: Wire cross-contract references (with re-run safety)
@@ -1314,6 +1348,54 @@ async function main() {
     addresses.publisherStake,
   );
 
+  // ── People Chain identity gate wiring ──
+  // Settlement.setIdentityRegistry is LOCK-ONCE: rotation would let an
+  // attacker swap in a permissive cache mid-flight. Idempotent.
+  await wireIfNeeded(
+    "Settlement.identityRegistry",
+    "DatumSettlement", addresses.settlement,
+    "identityRegistry", "setIdentityRegistry",
+    addresses.peopleChainIdentity,
+  );
+  // Grant the deployer the oracle-reporter role on the cache (off-chain bridge
+  // to People Chain). Pre-XCM-precompile; once a permissionless XCM-Response
+  // dispatcher exists on pallet-revive, run lockOracleReporter() to demote
+  // this writer permanently. Mainnet replaces deployer with a dedicated
+  // bridge EOA before transferring ownership.
+  await wireIfNeeded(
+    "PeopleChainIdentity.oracleReporter",
+    "DatumPeopleChainIdentity", addresses.peopleChainIdentity,
+    "oracleReporter", "setOracleReporter",
+    deployer.address,
+  );
+
+  // ── People Chain XCM bridge wiring ──
+  // Bridge becomes the cache's xcmDispatcher so its xcmCallback can write
+  // attestations. Diana (deployer) is kept active as oracleReporter for
+  // fallback during Paseo validation — see PRE-MAINNET-CHECKLIST §2.
+  await wireIfNeeded(
+    "PeopleChainIdentity.xcmDispatcher",
+    "DatumPeopleChainIdentity", addresses.peopleChainIdentity,
+    "xcmDispatcher", "setXcmDispatcher",
+    addresses.peopleChainXcmBridge,
+  );
+  // Bridge needs Campaigns reference for advertiser auth on escrow withdraw.
+  await wireIfNeeded(
+    "PeopleChainXcmBridge.campaignsContract",
+    "DatumPeopleChainXcmBridge", addresses.peopleChainXcmBridge,
+    "campaignsContract", "setCampaignsContract",
+    addresses.campaigns,
+  );
+  // peopleChainSovereign = deployer on Paseo (Diana stand-in). Off-chain
+  // Diana daemon picks up RefreshInFlight events and calls bridge.xcmCallback.
+  // Mainnet: flip to the real People Chain XCM origin and bridge.lockSovereign().
+  await wireIfNeeded(
+    "PeopleChainXcmBridge.peopleChainSovereign",
+    "DatumPeopleChainXcmBridge", addresses.peopleChainXcmBridge,
+    "peopleChainSovereign", "setSovereign",
+    deployer.address,
+  );
+
   // ── FP-2: ChallengeBonds wiring (all three setters lock-once) ──
   await wireIfNeeded(
     "ChallengeBonds.campaignsContract",
@@ -1514,6 +1596,12 @@ async function main() {
   // belongs on the same 48h delay as the other governance surface.
   await transferOwnershipIfNeeded("StakeRoot",   "DatumStakeRoot",   addresses.stakeRoot);
   await transferOwnershipIfNeeded("StakeRootV2", "DatumStakeRootV2", addresses.stakeRootV2);
+  // PeopleChain XCM bridge: lockSovereign + lockPalletCallIndices fire from
+  // owner post-Paseo-validation. Route through Timelock so those one-way
+  // commitments can't be made unilaterally.
+  await transferOwnershipIfNeeded(
+    "PeopleChainXcmBridge", "DatumPeopleChainXcmBridge", addresses.peopleChainXcmBridge,
+  );
 
   console.log("\n  Future admin changes go through:");
   console.log("    timelock.propose(target, abi.encodeCall(...)) -> 48h -> timelock.execute()");

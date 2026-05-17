@@ -57,6 +57,12 @@ export function CreateCampaign() {
 
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [requireZkProof, setRequireZkProof] = useState(false);
+  // People Chain identity gate (0=off, 1=Reasonable, 2=KnownGood).
+  const [minIdentityLevel, setMinIdentityLevel] = useState<number>(0);
+  // Optional: subsidize identity refresh for users engaging with this
+  // campaign. Funds bridge.fundXcmRefreshEscrow(cid) post-creation.
+  // "" = no subsidy. Otherwise a planck amount per the bridge's fee.
+  const [identitySubsidyPlanck, setIdentitySubsidyPlanck] = useState<string>("");
   const [bondAmount, setBondAmount] = useState("");
   const [tokenSource, setTokenSource] = useState<"erc20" | "native">("erc20");
   const [selectedNativeAsset, setSelectedNativeAsset] = useState<NativeAsset | null>(null);
@@ -275,6 +281,35 @@ export function CreateCampaign() {
         try {
           newId = Number(await contracts.campaigns.nextCampaignId()) - 1;
         } catch { /* fallback failed */ }
+      }
+
+      // People Chain identity gate (optional). Apply after creation since
+      // createCampaign does not take this param — the setter targets the
+      // newly-created campaign id once we know it.
+      if (newId !== null && minIdentityLevel > 0) {
+        try {
+          const tx2 = await c.setCampaignMinIdentityLevel(newId, minIdentityLevel);
+          await confirmTx(tx2);
+        } catch (err) {
+          // Non-fatal: campaign exists, identity gate just wasn't set.
+          push(`Campaign created but identity gate setter failed: ${humanizeError(err)}`, "error");
+        }
+      }
+
+      // Optional identity-refresh subsidy. Funds the bridge's per-campaign
+      // escrow so users on this campaign can refresh their People Chain
+      // attestation without paying themselves. Non-fatal if it fails.
+      if (newId !== null && identitySubsidyPlanck && contracts.peopleChainXcmBridge && signer) {
+        try {
+          const amt = BigInt(identitySubsidyPlanck);
+          if (amt > 0n) {
+            const b = contracts.peopleChainXcmBridge.connect(signer);
+            const tx3 = await b.fundXcmRefreshEscrow(newId, { value: amt });
+            await confirmTx(tx3);
+          }
+        } catch (err) {
+          push(`Campaign created but identity-refresh subsidy failed: ${humanizeError(err)}`, "error");
+        }
       }
 
       setCreatedId(newId);
@@ -956,6 +991,46 @@ export function CreateCampaign() {
               </div>
             </div>
           </div>
+
+          {/* People Chain identity gate (optional) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>People Chain Identity Requirement</label>
+            <select
+              value={minIdentityLevel}
+              onChange={(e) => setMinIdentityLevel(Number(e.target.value))}
+              className="nano-input"
+              style={{ padding: "6px 10px" }}
+            >
+              <option value={0}>Off — anyone can claim</option>
+              <option value={1}>Reasonable — basic registrar judgment</option>
+              <option value={2}>KnownGood — verified registrar judgment</option>
+            </select>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+              Restrict settlement to users with a verified Polkadot People Chain identity at the chosen level. Strong sybil resistance; raises the bar so attackers can't farm impressions from anonymous wallets. Tightening locked once the campaign goes Active.
+            </div>
+          </div>
+
+          {/* Identity-refresh subsidy (optional; bridge required) */}
+          {contracts.peopleChainXcmBridge && minIdentityLevel > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>
+                Identity-refresh subsidy (optional, planck)
+              </label>
+              <input
+                type="number"
+                value={identitySubsidyPlanck}
+                onChange={(e) => setIdentitySubsidyPlanck(e.target.value)}
+                min="0"
+                step="1"
+                placeholder="0 — users pay their own refresh"
+                className="nano-input"
+                style={{ padding: "6px 10px" }}
+              />
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                Pre-funds the per-campaign refresh escrow so users on this campaign can refresh their People Chain attestation for free. Drawn at ~0.1 DOT per refresh. Unused balance is withdrawable by you at any time. Only meaningful when an identity requirement is set above.
+              </div>
+            </div>
+          )}
 
           {/* Challenge bond (optional — FP-2) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
