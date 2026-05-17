@@ -309,6 +309,10 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     /// @notice Update the quadratic conviction curve coefficients.
     ///         weight(c) = (a*c² + b*c) / CONVICTION_SCALE + 1
     function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+        // AUDIT-PASS-5 L6: reject (0, 0) so the per-campaign snapshot guard
+        // in commitVote/vote can use "(A == 0 && B == 0)" as a sentinel for
+        // "not yet snapshotted" without colliding with a legitimate curve.
+        require(a != 0 || b != 0, "E11");
         // Sanity: at MAX_CONVICTION the weight should fit in a reasonable
         // value. Cap at 1000x effective weight to prevent governance setting
         // an absurd coefficient that makes a single super-conviction vote

@@ -44,6 +44,16 @@ describe("Governance-tunable params: DatumGovernanceV2", function () {
     await expect(v2.setConvictionCurve(10_000n, 0n)).to.be.revertedWith("E11");
   });
 
+  it("AUDIT-PASS-5 L6: setConvictionCurve rejects (0, 0)", async function () {
+    // (A == 0 && B == 0) is the sentinel for "not yet snapshotted" in
+    // per-proposal conviction tracking. Allowing the curve to be set
+    // to that value would defeat the snapshot guard.
+    await expect(v2.setConvictionCurve(0n, 0n)).to.be.revertedWith("E11");
+    // Boundary: (0, 1) and (1, 0) are still accepted.
+    await v2.setConvictionCurve(0n, 1n);
+    await v2.setConvictionCurve(1n, 0n);
+  });
+
   it("setSlashBps rejects >= 10000", async function () {
     await expect(v2.setSlashBps(10000n)).to.be.revertedWith("E11");
     await v2.setSlashBps(9999n);

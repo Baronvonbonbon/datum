@@ -381,4 +381,72 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
       expect(minted).to.be.lessThanOrEqual(cap);
     });
   });
+
+  describe("CB6-extension: CAT_TOKEN_MINT pause wiring", function () {
+
+    it("setPauseRegistry is lock-once and gates all three mint paths", async function () {
+      // Fresh scaffold so we don't disturb the running fixture above.
+      const PrecompileF = await ethers.getContractFactory("AssetHubPrecompileMock");
+      const localPrecompile = await PrecompileF.deploy();
+
+      const AuthorityF = await ethers.getContractFactory("DatumMintAuthority");
+      const localAuth = await AuthorityF.deploy(await localPrecompile.getAddress(), ASSET_ID);
+
+      await localPrecompile.registerAsset(
+        ASSET_ID, await localAuth.getAddress(), "DATUM", "DATUM", Number(DECIMALS)
+      );
+
+      const WrapperF = await ethers.getContractFactory("DatumWrapper");
+      const localWrapper = await WrapperF.deploy(
+        await localAuth.getAddress(), await localPrecompile.getAddress(), ASSET_ID, true
+      );
+      await localAuth.setWrapper(await localWrapper.getAddress());
+      await localAuth.setSettlement(settlement.address);
+
+      const PauseF = await ethers.getContractFactory("DatumPauseRegistry");
+      // deployer is guardian1 so it can call pauseFastCategories.
+      const pauseReg = await PauseF.deploy(deployer.address, founder.address, alice.address);
+
+      // Lock-once + zero-address rejections.
+      await expect(localAuth.setPauseRegistry(ethers.ZeroAddress)).to.be.revertedWith("E00");
+      await localAuth.setPauseRegistry(await pauseReg.getAddress());
+      await expect(localAuth.setPauseRegistry(await pauseReg.getAddress()))
+        .to.be.revertedWith("already set");
+
+      // Pre-pause: mintForSettlement succeeds.
+      await localAuth.connect(settlement).mintForSettlement(
+        alice.address, UNIT, bob.address, 0n, carol.address, 0n
+      );
+
+      // Engage CAT_TOKEN_MINT (1 << 3 == 8).
+      await pauseReg.connect(deployer).pauseFastCategories(8);
+      expect(await pauseReg.pausedTokenMint()).to.equal(true);
+
+      // All three mint paths revert E62 while paused.
+      await expect(
+        localAuth.connect(settlement).mintForSettlement(
+          alice.address, UNIT, bob.address, 0n, carol.address, 0n
+        )
+      ).to.be.revertedWith("E62");
+
+      // mintForBootstrap path — wire a stand-in pool address to assert revert.
+      await localAuth.setBootstrapPool(dave.address);
+      await expect(
+        localAuth.connect(dave).mintForBootstrap(alice.address, UNIT)
+      ).to.be.revertedWith("E62");
+
+      // mintForVesting path — same.
+      await localAuth.setVesting(carol.address);
+      await expect(
+        localAuth.connect(carol).mintForVesting(alice.address, UNIT)
+      ).to.be.revertedWith("E62");
+    });
+
+    it("zero-address pauseRegistry leaves all paths un-gated", async function () {
+      // Re-uses the top-level `authority` fixture which never had a pause
+      // registry wired. Settlement-driven mints in the earlier suite
+      // already proved this implicitly; restate as a direct check.
+      expect(await authority.pauseRegistry()).to.equal(ethers.ZeroAddress);
+    });
+  });
 });

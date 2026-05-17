@@ -12,6 +12,10 @@ interface IDatumWrapper {
     function mintTo(address recipient, uint256 amount) external;
 }
 
+interface IDatumPauseRegistry_Mint {
+    function pausedTokenMint() external view returns (bool);
+}
+
 /// @title DatumMintAuthority
 /// @notice Single bridge contract between EVM-side protocol contracts and the
 ///         canonical DATUM asset on Asset Hub.
@@ -59,6 +63,11 @@ contract DatumMintAuthority is DatumOwnable {
     /// @notice Vesting contract — only address that may invoke mintForVesting.
     address public vesting;
 
+    /// @notice CB6-extension: pause registry consumed by the CAT_TOKEN_MINT
+    ///         category. Zero address skips the check (testnet / pre-wire).
+    ///         Set once via setPauseRegistry; cannot be cleared once set.
+    IDatumPauseRegistry_Mint public pauseRegistry;
+
     /// @notice Total DATUM minted via this authority. Capped at MINTABLE_CAP.
     uint256 public totalMinted;
 
@@ -66,6 +75,7 @@ contract DatumMintAuthority is DatumOwnable {
     event SettlementSet(address indexed settlement);
     event BootstrapPoolSet(address indexed pool);
     event VestingSet(address indexed vesting);
+    event PauseRegistrySet(address indexed pauseRegistry);
     event MintedForSettlement(address indexed user, address indexed publisher, address indexed advertiser, uint256 total);
     event MintedForBootstrap(address indexed user, uint256 amount);
     event MintedForVesting(address indexed recipient, uint256 amount);
@@ -125,6 +135,24 @@ contract DatumMintAuthority is DatumOwnable {
         emit VestingSet(_vesting);
     }
 
+    /// @notice CB6-extension: wire the pause registry so CAT_TOKEN_MINT
+    ///         pauses block all three mint paths. Lock-once. Required
+    ///         before parachain sunset; optional on testnet (defaults
+    ///         to zero-address skip).
+    function setPauseRegistry(address _pauseRegistry) external onlyOwner {
+        require(_pauseRegistry != address(0), "E00");
+        require(address(pauseRegistry) == address(0), "already set");
+        pauseRegistry = IDatumPauseRegistry_Mint(_pauseRegistry);
+        emit PauseRegistrySet(_pauseRegistry);
+    }
+
+    /// @dev CB6-extension: shared pause check. Zero-address registry skips.
+    function _requireNotPaused() internal view {
+        if (address(pauseRegistry) != address(0)) {
+            require(!pauseRegistry.pausedTokenMint(), "E62");
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Mint operations (gated to specific upstream contracts)
     // -------------------------------------------------------------------------
@@ -137,6 +165,7 @@ contract DatumMintAuthority is DatumOwnable {
         address advertiser, uint256 advertiserAmt
     ) external {
         require(msg.sender == settlement, "E18");
+        _requireNotPaused();
         uint256 total = userAmt + publisherAmt + advertiserAmt;
         require(totalMinted + total <= MINTABLE_CAP, "cap");
 
@@ -159,6 +188,7 @@ contract DatumMintAuthority is DatumOwnable {
     /// @dev    Identical bridging shape — canonical to wrapper, WDATUM to user.
     function mintForBootstrap(address user, uint256 amount) external {
         require(msg.sender == bootstrapPool, "E18");
+        _requireNotPaused();
         require(totalMinted + amount <= MINTABLE_CAP, "cap");
         if (amount == 0) return;
         totalMinted += amount;
@@ -171,6 +201,7 @@ contract DatumMintAuthority is DatumOwnable {
     /// @dev    Same bridging shape as settlement.
     function mintForVesting(address recipient, uint256 amount) external {
         require(msg.sender == vesting, "E18");
+        _requireNotPaused();
         require(totalMinted + amount <= MINTABLE_CAP, "cap");
         if (amount == 0) return;
         totalMinted += amount;

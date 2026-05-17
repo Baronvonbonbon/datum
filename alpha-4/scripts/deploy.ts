@@ -1498,10 +1498,16 @@ async function main() {
 
   await transferOwnershipIfNeeded("Campaigns", "DatumCampaigns", addresses.campaigns);
   await transferOwnershipIfNeeded("Settlement", "DatumSettlement", addresses.settlement);
-  // S12: Blocklist admin (blockAddress/unblockAddress) must go through 48h timelock for mainnet transparency
+  // S12 (now via DatumCouncilBlocklistCurator at Phase 1+): Publishers
+  // ownership routes through Timelock so any future curator swap goes
+  // through the 48h window.
   await transferOwnershipIfNeeded("Publishers", "DatumPublishers", addresses.publishers);
   // Governance ladder: phase transitions (setGovernor) must go through 48h timelock
   await transferOwnershipIfNeeded("GovernanceRouter", "DatumGovernanceRouter", addresses.governanceRouter);
+  // Pre-redeploy checklist (2026-05-14): ActivationBonds tunables
+  // (punishment bps, timelock blocks, treasury) need to route through
+  // Timelock on mainnet, same as the rest of the governance surface.
+  await transferOwnershipIfNeeded("ActivationBonds", "DatumActivationBonds", addresses.activationBonds);
 
   console.log("\n  Future admin changes go through:");
   console.log("    timelock.propose(target, abi.encodeCall(...)) -> 48h -> timelock.execute()");
