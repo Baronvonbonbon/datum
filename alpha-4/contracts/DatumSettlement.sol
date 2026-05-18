@@ -18,6 +18,7 @@ import "./interfaces/IDatumTokenRewardVault.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumPeopleChainIdentity.sol";
 import "./interfaces/IDatumPowEngine.sol";
+import "./interfaces/IDatumPublisherReputation.sol";
 
 /// @dev Minimal interface to DatumMintAuthority for the DATUM-token integration.
 ///      Kept inline (rather than a full interface file) because Settlement only
@@ -169,20 +170,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     /// @dev campaignId => nullifier => used
     mapping(uint256 => mapping(bytes32 => bool)) private _nullifierUsed;
 
-    // ── BM-8/BM-9: Publisher reputation (merged from DatumPublisherReputation) ──
-    // Threat-model #4: counters are updated **only** by the inline _processBatch
-    // path. The previous external `recordSettlement(reporter)` entry point was
-    // removed so a single compromised reporter EOA can no longer poison every
-    // publisher's reputation arbitrarily. All settlement paths flow through
-    // _processBatch, so reputation tracking remains complete.
-    uint256 public constant REP_MIN_SAMPLE = 10;
-    uint256 public constant REP_ANOMALY_FACTOR = 2;
-    mapping(address => uint256) public repTotalSettled;
-    mapping(address => uint256) public repTotalRejected;
-    mapping(address => mapping(uint256 => uint256)) public repCampaignSettled;
-    mapping(address => mapping(uint256 => uint256)) public repCampaignRejected;
-    // Safe rollout: minimum reputation score to settle (0 = disabled, in bps)
-    uint16 public minReputationScore;
+    // ── BM-8/BM-9: Publisher reputation — carved out to DatumPublisherReputation
+    // Reputation state, the per-publisher acceptance counters, and the
+    // anomaly views moved to DatumPublisherReputation so the module can be
+    // upgraded independently. Settlement calls canSettle() before
+    // processing a batch and recordSettlement() at the end. The pointer is
+    // lock-once; address(0) disables the gate (and recording) entirely.
+    IDatumPublisherReputation public reputation;
+    event ReputationContractSet(address indexed reputation);
 
     // ── Settlement batch size (governable, was hard-coded 10 in alpha-3) ──
     // Original cap was 10 due to PVM cross-contract staticcall weight pressure.
@@ -256,7 +251,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     event RateLimitsUpdated(uint256 windowBlocks, uint256 maxEventsPerWindow);
     event NullifierSubmitted(uint256 indexed campaignId, bytes32 indexed nullifier);
     event NullifierWindowBlocksUpdated(uint256 oldValue, uint256 newValue);
-    event SettlementRecorded(address indexed publisher, uint256 indexed campaignId, uint256 settled, uint256 rejected);
     /// @notice L-4: Emitted when the non-critical token-reward credit reverts so off-chain
     ///         monitors can flag mis-wired or under-funded reward configs.
     event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
@@ -464,8 +458,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         emit MaxBatchSizeSet(v);
     }
 
-    function setMinReputationScore(uint16 score) external onlyOwner {
-        minReputationScore = score;
+    /// @notice Wire the carved-out reputation module. Lock-once.
+    function setReputationContract(address rep) external onlyOwner {
+        if (rep == address(0)) revert E00();
+        if (address(reputation) != address(0)) revert AlreadySet();
+        reputation = IDatumPublisherReputation(rep);
+        emit ReputationContractSet(rep);
     }
 
     /// @notice B5-fix + M1-fix: user sets their own minimum AssuranceLevel
@@ -1006,11 +1004,9 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             }
         }
 
-        // Safe rollout: reputation gate (inline — merged from DatumPublisherReputation)
-        uint16 minRepScore = minReputationScore;
-        if (minRepScore > 0 && claims.length > 0) {
-            uint16 score = _getReputationScore(claims[0].publisher);
-            if (score < minRepScore) {
+        // Safe rollout: reputation gate (delegated to DatumPublisherReputation)
+        if (address(reputation) != address(0) && claims.length > 0) {
+            if (!reputation.canSettle(claims[0].publisher)) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
                     emit ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 20);
@@ -1365,16 +1361,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             }
         }
 
-        // FP-16: Record reputation stats (inline)
-        if (agg.publisher != address(0)) {
+        // FP-16: Record reputation stats via the carved-out module.
+        if (address(reputation) != address(0) && agg.publisher != address(0)) {
             uint256 batchSettled  = result.settledCount  - prevSettledCount;
             uint256 batchRejected = result.rejectedCount - prevRejectedCount;
             if (batchSettled > 0 || batchRejected > 0) {
-                repTotalSettled[agg.publisher] += batchSettled;
-                repTotalRejected[agg.publisher] += batchRejected;
-                repCampaignSettled[agg.publisher][campaignId] += batchSettled;
-                repCampaignRejected[agg.publisher][campaignId] += batchRejected;
-                emit SettlementRecorded(agg.publisher, campaignId, batchSettled, batchRejected);
+                reputation.recordSettlement(agg.publisher, campaignId, batchSettled, batchRejected);
             }
         }
 
@@ -1414,62 +1406,5 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         return _nullifierUsed[campaignId][nullifier];
     }
 
-    // -------------------------------------------------------------------------
-    // Views: Publisher reputation
-    // -------------------------------------------------------------------------
-
-    /// @notice Returns the publisher's global acceptance score in bps (0–10000).
-    ///         Returns 10000 (perfect) if no data yet.
-    function getReputationScore(address publisher) external view returns (uint16) {
-        return _getReputationScore(publisher);
-    }
-
-    /// @notice BM-9: Returns true if the publisher's per-campaign rejection rate exceeds
-    ///         2× their global rejection rate with a minimum sample of 10 claims.
-    function isAnomaly(address publisher, uint256 campaignId) external view returns (bool) {
-        uint256 cs = repCampaignSettled[publisher][campaignId];
-        uint256 cr = repCampaignRejected[publisher][campaignId];
-        uint256 cTotal = cs + cr;
-        if (cTotal < REP_MIN_SAMPLE) return false;
-
-        uint256 gs = repTotalSettled[publisher];
-        uint256 gr = repTotalRejected[publisher];
-
-        if (gr == 0) return cr > 0;
-        return cr * (gs + gr) > REP_ANOMALY_FACTOR * gr * cTotal;
-    }
-
-    /// @notice Global reputation stats for a publisher.
-    function getPublisherStats(address publisher)
-        external
-        view
-        returns (uint256 settled, uint256 rejected, uint16 score)
-    {
-        settled = repTotalSettled[publisher];
-        rejected = repTotalRejected[publisher];
-        uint256 total = settled + rejected;
-        score = total == 0 ? 10000 : uint16((settled * 10000) / total);
-    }
-
-    /// @notice Per-campaign reputation stats for a publisher.
-    function getCampaignRepStats(address publisher, uint256 campaignId)
-        external
-        view
-        returns (uint256 settled, uint256 rejected)
-    {
-        settled = repCampaignSettled[publisher][campaignId];
-        rejected = repCampaignRejected[publisher][campaignId];
-    }
-
-    // -------------------------------------------------------------------------
-    // Internal
-    // -------------------------------------------------------------------------
-
-    function _getReputationScore(address publisher) internal view returns (uint16) {
-        uint256 s = repTotalSettled[publisher];
-        uint256 r = repTotalRejected[publisher];
-        uint256 total = s + r;
-        if (total == 0) return 10000;
-        return uint16((s * 10000) / total);
-    }
+    // Reputation views moved to DatumPublisherReputation (carve-out).
 }

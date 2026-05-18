@@ -360,12 +360,12 @@ async function main() {
   view("Settlement", "rlMaxEventsPerWindow() → uint256");
   view("Settlement", "currentWindowUsage(address) → (uint256,uint256,uint256)");
 
-  // ── Settlement: Inline Reputation (was DatumPublisherReputation) ──────────
-  // External recordSettlement() removed in the threat-model #4 fix; reputation
-  // updates inline via _processBatch on every settle.
-  view("Settlement", "getReputationScore(address) → uint16");
-  view("Settlement", "isAnomaly(address, uint256) → bool");
-  view("Settlement", "getPublisherStats(address) → (uint256,uint256)");
+  // ── DatumPublisherReputation (carved out of Settlement, alpha-4) ─────────
+  // External recordSettlement still callable by Settlement only (threat-model
+  // #4: no external reporter EOA). Reads are unrestricted.
+  view("PublisherReputation", "getReputationScore(address) → uint16");
+  view("PublisherReputation", "isAnomaly(address, uint256) → bool");
+  view("PublisherReputation", "getPublisherStats(address) → (uint256,uint256)");
 
   // ── Campaigns: Inline Reports (was DatumReports) ─────────────────────────
   await est("Campaigns", ADDR.campaigns,

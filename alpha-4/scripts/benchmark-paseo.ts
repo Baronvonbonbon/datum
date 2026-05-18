@@ -338,15 +338,6 @@ const settlementAbi = [
   `function settleClaimsMulti((address user, (uint256 campaignId, (${CLAIM_T})[] claims)[] campaigns)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
   "function lastNonce(address user, uint256 campaignId, uint8 actionType) view returns (uint256)",
   "function lastClaimHash(address user, uint256 campaignId, uint8 actionType) view returns (bytes32)",
-  // Inline reputation (merged from DatumPublisherReputation; external
-  // recordSettlement removed in threat-model #4 — reputation updates only
-  // inline via _processBatch).
-  "function getReputationScore(address publisher) view returns (uint16)",
-  "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
-  "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
-  "function repTotalSettled(address) view returns (uint256)",
-  "function repTotalRejected(address) view returns (uint256)",
-  "function authorizedReporters(address) view returns (bool)",
   // Inline rate limiter (merged from DatumSettlementRateLimiter)
   "function currentWindowUsage(address publisher) view returns (uint256 windowId, uint256 events, uint256 limit)",
   "function rlWindowBlocks() view returns (uint256)",
@@ -437,6 +428,7 @@ async function main() {
     "settlement", "paymentVault",
     "zkVerifier", "pauseRegistry", "publisherStake",
     "tokenRewardVault", "parameterGovernance",
+    "publisherReputation",
   ];
   const missing = requiredKeys.filter(k => !A[k]);
   if (missing.length > 0) {
@@ -453,9 +445,18 @@ async function main() {
   const settleIface    = new Interface(settlementAbi);
   const vaultIface     = new Interface(vaultAbi);
   const tvaultIface    = new Interface(tokenVaultAbi);
-  // Reports → campIface (inline on Campaigns); Reputation + RateLimiter → settleIface (inline on Settlement)
+  // Reports → campIface (inline on Campaigns); RateLimiter → settleIface (inline on Settlement)
+  // Reputation moved back out to DatumPublisherReputation (alpha-4 EIP-170 carve-out).
   const reportsIface   = campIface;  // reportPage/reportAd/pageReports/adReports are on Campaigns
-  const repIface       = settleIface;  // reputation + rate limiter inline on Settlement
+  const repIface       = new Interface([
+    "function getReputationScore(address publisher) view returns (uint16)",
+    "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
+    "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
+    "function repTotalSettled(address) view returns (uint256)",
+    "function repTotalRejected(address) view returns (uint256)",
+    "function minReputationScore() view returns (uint16)",
+    "function canSettle(address) view returns (bool)",
+  ]);
   const rlIface        = settleIface;
   const zkIface        = new Interface(zkVerifierAbi);
   const pauseIface     = new Interface(pauseRegistryAbi);
@@ -559,7 +560,7 @@ async function main() {
   {
     const t0 = Date.now();
     try {
-      await readCall(rawProvider, A.settlement, repIface, "getReputationScore", [alice.address]);
+      await readCall(rawProvider, A.publisherReputation, repIface, "getReputationScore", [alice.address]);
       const ms = Date.now() - t0;
       pass("SETUP-3", "Settlement.getReputationScore() callable (inline reputation)", ms);
     } catch (err: any) {
@@ -998,7 +999,7 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const res  = await readCall(rawProvider, A.settlement, repIface, "getPublisherStats", [diana.address]);
+        const res  = await readCall(rawProvider, A.publisherReputation, repIface, "getPublisherStats", [diana.address]);
         const [settled, rejected, score] = [BigInt(res[0]), BigInt(res[1]), BigInt(res[2])];
         const ms = Date.now() - t0;
         pass("REP-1", "getPublisherStats readable", ms,
@@ -1008,22 +1009,24 @@ async function main() {
       }
     }
 
-    // REP-2: L-5 — authorizedReporters check (not just reporters mapping)
+    // REP-2: gate-read sanity. canSettle(publisher) should return true for a
+    // publisher with no recorded rejections (or when minReputationScore == 0).
+    // Replaces the alpha-3 authorizedReporters check — the external reporter
+    // pattern was removed in threat-model #4 and the EIP-170 carve-out keeps
+    // Settlement as the sole writer.
     {
       const t0 = Date.now();
       try {
-        // Diana should be an authorized reporter if setup-testnet.ts ran step 5.7
-        const isAuth = Boolean((await readCall(rawProvider, A.settlement, repIface, "authorizedReporters", [diana.address]))[0]);
+        const ok = Boolean((await readCall(rawProvider, A.publisherReputation, repIface, "canSettle", [diana.address]))[0]);
         const ms = Date.now() - t0;
-        if (isAuth) {
-          pass("REP-2", "Diana is an authorized reporter (L-5)", ms);
+        if (ok) {
+          pass("REP-2", "Reputation gate open for Diana (canSettle = true)", ms);
         } else {
-          // Settlement is the primary reporter; relay-bot diana is optional
-          pass("REP-2", "Diana not in authorizedReporters (settlement is primary reporter)", ms,
-            "WARN: run setup-testnet.ts step 5.7 to add Diana as supplemental reporter");
+          pass("REP-2", "Reputation gate currently blocks Diana", ms,
+            "WARN: minReputationScore is non-zero and Diana is below floor");
         }
       } catch (err: any) {
-        fail("REP-2", "authorizedReporters check", Date.now() - t0, String(err).slice(0, 100));
+        fail("REP-2", "canSettle read", Date.now() - t0, String(err).slice(0, 100));
       }
     }
 
@@ -1032,7 +1035,7 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const settledBefore = BigInt((await readCall(rawProvider, A.settlement, repIface, "repTotalSettled", [diana.address]))[0]);
+        const settledBefore = BigInt((await readCall(rawProvider, A.publisherReputation, repIface, "repTotalSettled", [diana.address]))[0]);
 
         // Small campaign + 1 claim → settlement emits reputation record automatically
         const repCid = await deployBenchmarkCampaign(
@@ -1040,8 +1043,8 @@ async function main() {
         );
         await doSettle(eve, repCid, diana.address, 1, parseDOT("0.1"), 20n);
 
-        const settledAfter = BigInt((await readCall(rawProvider, A.settlement, repIface, "repTotalSettled", [diana.address]))[0]);
-        const score = BigInt((await readCall(rawProvider, A.settlement, repIface, "getReputationScore", [diana.address]))[0]);
+        const settledAfter = BigInt((await readCall(rawProvider, A.publisherReputation, repIface, "repTotalSettled", [diana.address]))[0]);
+        const score = BigInt((await readCall(rawProvider, A.publisherReputation, repIface, "getReputationScore", [diana.address]))[0]);
         const ms = Date.now() - t0;
 
         if (settledAfter > settledBefore) {
@@ -1061,7 +1064,7 @@ async function main() {
       const t0 = Date.now();
       try {
         // Use dummy campaign ID — checks if call succeeds
-        const anomaly = Boolean((await readCall(rawProvider, A.settlement, repIface, "isAnomaly",
+        const anomaly = Boolean((await readCall(rawProvider, A.publisherReputation, repIface, "isAnomaly",
           [diana.address, 9998n]))[0]);
         const ms = Date.now() - t0;
         pass("REP-4", "isAnomaly call succeeds (BM-9)", ms, `isAnomaly(diana, 9998)=${anomaly}`);

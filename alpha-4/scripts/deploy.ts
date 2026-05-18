@@ -116,6 +116,10 @@ const REQUIRED_KEYS = [
   // difficulty + per-impression target now lives here so the module is
   // independently upgradable via the governance router).
   "powEngine",
+  // Publisher reputation (carved out of DatumSettlement for EIP-170; BM-8/BM-9
+  // acceptance-rate counters, anomaly detection, and the minReputationScore
+  // gate now live here).
+  "publisherReputation",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -651,6 +655,13 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumPowEngine — ${err}`);
   }
 
+  try {
+    logStep("Deploying DatumPublisherReputation (BM-8/BM-9 acceptance + anomaly)");
+    await deployOrReuse("publisherReputation", "DatumPublisherReputation", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPublisherReputation — ${err}`);
+  }
+
   // --- B2: Council-driven blocklist curator ---
   try {
     logStep("Deploying DatumCouncilBlocklistCurator (B2)");
@@ -1159,6 +1170,21 @@ async function main() {
     "DatumClaimValidator", addresses.claimValidator,
     "powEngine", "setPowEngine",
     addresses.powEngine,
+  );
+
+  // ── Reputation: setSettlement (allows recordSettlement) ──
+  // ── Settlement: setReputationContract (lock-once) ──
+  await wireIfNeeded(
+    "Reputation.settlement",
+    "DatumPublisherReputation", addresses.publisherReputation,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.reputation",
+    "DatumSettlement", addresses.settlement,
+    "reputation", "setReputationContract",
+    addresses.publisherReputation,
   );
 
   // ── Alpha-4 inline: Settlement rate limiter + nullifier window ──
@@ -1706,6 +1732,7 @@ async function main() {
     "council",
     "clickRegistry",
     "powEngine",
+    "publisherReputation",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",
