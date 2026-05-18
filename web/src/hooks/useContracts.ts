@@ -27,6 +27,7 @@ import {
   getZKVerifierContract,
   getPeopleChainIdentityContract,
   getPeopleChainXcmBridgeContract,
+  resolveAddressesFromRouter,
   getProvider,
   getPineProvider,
   subscribePineSyncStep,
@@ -45,6 +46,9 @@ export function useContracts() {
   const [pineStatus, setPineStatus] = useState<PineStatus>("off");
   const [syncStep, setSyncStep] = useState<SyncStep | null>(null);
   const [pineRpcTest, setPineRpcTest] = useState<PineRpcTest>(null);
+  // Stage 5b: live addresses resolved via DatumGovernanceRouter.contractAddr.
+  // Null until the first router lookup completes; falls back to JSON until then.
+  const [liveAddrs, setLiveAddrs] = useState<typeof settings.contractAddresses | null>(null);
 
   // Subscribe to module-level sync step and RPC test (shared across all useContracts instances)
   useEffect(() => subscribePineSyncStep(setSyncStep), []);
@@ -83,10 +87,24 @@ export function useContracts() {
     return () => { cancelled = true; };
   }, [pineChain]);
 
+  // Stage 5b: once a read provider is available, ask the router for the live
+  // address of every registered contract. Falls back to JSON until then.
+  // Re-runs when the network or router address changes (typically once per
+  // app session).
+  const routerAddr = settings.contractAddresses.governanceRouter;
+  useEffect(() => {
+    let cancelled = false;
+    const rp = pineProvider ?? getProvider(settings.rpcUrl);
+    resolveAddressesFromRouter(settings.contractAddresses, rp)
+      .then((resolved) => { if (!cancelled) setLiveAddrs(resolved); })
+      .catch(() => {/* keep fallback */});
+    return () => { cancelled = true; };
+  }, [routerAddr, settings.rpcUrl, pineProvider]);
+
   return useMemo(() => {
     const provider = signer ?? pineProvider ?? getProvider(settings.rpcUrl);
     const readProvider = pineProvider ?? getProvider(settings.rpcUrl);
-    const addrs = settings.contractAddresses;
+    const addrs = liveAddrs ?? settings.contractAddresses;
     return {
       campaigns: getCampaignsContract(addrs, provider),
       publishers: getPublishersContract(addrs, provider),
@@ -121,5 +139,5 @@ export function useContracts() {
       /** Result of the ethers↔Pine smoke test (null until attempted) */
       pineRpcTest,
     };
-  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus, syncStep, pineRpcTest]);
+  }, [settings.contractAddresses, settings.rpcUrl, signer, pineProvider, pineStatus, syncStep, pineRpcTest, liveAddrs]);
 }

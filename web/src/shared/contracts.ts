@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { Contract, JsonRpcApiProvider, JsonRpcProvider, Network, Signer } from "ethers";
+import { Contract, JsonRpcApiProvider, JsonRpcProvider, Network, Signer, keccak256, toUtf8Bytes } from "ethers";
 import type { JsonRpcPayload, JsonRpcResult, JsonRpcError } from "ethers";
 import DatumCampaignsAbi from "./abis/DatumCampaigns.json";
 import DatumPublishersAbi from "./abis/DatumPublishers.json";
@@ -340,4 +340,84 @@ export function getPeopleChainIdentityContract(addresses: ContractAddresses, pro
 export function getPeopleChainXcmBridgeContract(addresses: ContractAddresses, provider: Provider | Signer) {
   if (!addresses.peopleChainXcmBridge) return null;
   return make(addresses.peopleChainXcmBridge, abi(DatumPeopleChainXcmBridgeAbi), provider);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 5b: live address resolution via DatumGovernanceRouter.contractAddr().
+//
+// Reads each contract's current address from the on-chain registry and returns
+// a merged ContractAddresses object. Slots not populated in the router (e.g.,
+// fresh deployments before register() ran) fall back to the JSON addresses
+// in `fallback`.
+//
+// The router itself is read from the JSON address — it's the trust root, so
+// we never resolve its own address through itself.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Contract names matched against router slots. Must mirror the
+/// UPGRADABLE_KEYS list in alpha-4/scripts/deploy.ts.
+const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
+  "pauseRegistry",
+  "publishers",
+  "campaignLifecycle",
+  "budgetLedger",
+  "paymentVault",
+  "relay",
+  "zkVerifier",
+  "claimValidator",
+  "tokenRewardVault",
+  "publisherStake",
+  "challengeBonds",
+  "publisherGovernance",
+  "parameterGovernance",
+  "council",
+  "clickRegistry",
+  "councilBlocklistCurator",   // registered name = "blocklistCurator" — see fallback
+  "activationBonds",
+  "stakeRoot",
+  "stakeRootV2",
+  "identityVerifier",
+  "emissionEngine",
+  "peopleChainIdentity",
+  "peopleChainXcmBridge",
+  "peopleChainBondedReporter",
+  "governanceV2",
+  "timelock",
+];
+
+/// Maps a few keys whose JSON name in ContractAddresses differs from the
+/// router slot name (the deploy script registers them under a shorter key).
+const ROUTER_NAME_OVERRIDES: Record<string, string> = {
+  councilBlocklistCurator: "blocklistCurator",
+};
+
+/// Resolve the live registered address for each Upgradable contract via the
+/// router. Falls back to the JSON address when the slot is empty. Errors are
+/// non-fatal — any failed read keeps the JSON address.
+export async function resolveAddressesFromRouter(
+  fallback: ContractAddresses,
+  provider: Provider,
+): Promise<ContractAddresses> {
+  if (!fallback.governanceRouter) return fallback;
+  let router;
+  try {
+    router = make(fallback.governanceRouter, abi(DatumGovernanceRouterAbi), provider);
+  } catch {
+    return fallback;
+  }
+  const out: ContractAddresses = { ...fallback };
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  for (const key of ROUTER_SLOT_NAMES) {
+    const slotName = ROUTER_NAME_OVERRIDES[key as string] ?? (key as string);
+    const slotHash = keccak256(toUtf8Bytes(slotName));
+    try {
+      const live: string = await router.currentAddrOf(slotHash);
+      if (live && live.toLowerCase() !== ZERO) {
+        (out as any)[key] = live;
+      }
+    } catch {
+      // network or call error — keep fallback
+    }
+  }
+  return out;
 }
