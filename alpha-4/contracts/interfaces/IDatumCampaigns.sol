@@ -33,7 +33,8 @@ interface IDatumCampaigns {
         address actionVerifier;  // type-2 only: EOA whose ECDSA sig is required; address(0) for type-0/1
     }
 
-    /// @notice Core campaign state (budget fields live in DatumBudgetLedger).
+    /// @notice Core campaign state (budget fields live in DatumBudgetLedger,
+    ///         creative storage in DatumCampaignCreative).
     struct Campaign {
         address advertiser;
         address publisher;
@@ -44,7 +45,6 @@ interface IDatumCampaigns {
         // Consolidated scalar fields (formerly separate mappings)
         address relaySigner;        // publisher relay signer snapshot at creation
         bool    requiresZkProof;    // ZK proof required for view claims
-        bytes32 metadata;           // mutable metadata hash
         address rewardToken;        // optional ERC-20 reward token
         uint256 rewardPerImpression; // token reward per settled view event
         uint256 viewBid;            // ratePlanck from the view (type-0) pot
@@ -61,7 +61,6 @@ interface IDatumCampaigns {
         uint256 totalBudgetPlanck,
         uint16  snapshotTakeRateBps
     );
-    event CampaignMetadataSet(uint256 indexed campaignId, bytes32 metadataHash, uint64 version);
     /// @notice A3: AssuranceLevel changed for a campaign. Levels:
     ///   0 = Permissive (any registered publisher, any settle path)
     ///   1 = PublisherSigned (publisher cosig required on every batch)
@@ -122,8 +121,6 @@ interface IDatumCampaigns {
         uint256 activationBondAmount
     ) external payable returns (uint256 campaignId);
 
-    function setMetadata(uint256 campaignId, bytes32 metadataHash) external;
-
     function activateCampaign(uint256 campaignId) external;
 
     function togglePause(uint256 campaignId, bool pause) external;
@@ -157,7 +154,6 @@ interface IDatumCampaigns {
     function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8);
     /// @notice People Chain identity gate (0=disabled, 1=Reasonable, 2=KnownGood).
     function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8);
-    function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
 
     /// @notice Returns campaign settlement data (3-tuple — no bidCpmPlanck, pots handle rates).
     function getCampaignForSettlement(uint256 campaignId) external view returns (

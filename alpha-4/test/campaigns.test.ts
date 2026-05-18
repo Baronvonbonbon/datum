@@ -22,6 +22,7 @@ import { fundSigners, mineBlocks } from "./helpers/mine";
 
 describe("DatumCampaigns", function () {
   let campaigns: DatumCampaigns;
+  let creative: any;
   let publishers: DatumPublishers;
   let pauseReg: DatumPauseRegistry;
   let ledger: DatumBudgetLedger;
@@ -68,6 +69,10 @@ describe("DatumCampaigns", function () {
 
     // Wire lifecycle (use a signer as mock)
     await campaigns.setLifecycleContract(lifecycleMock.address);
+
+    creative = await (await ethers.getContractFactory("DatumCampaignCreative")).deploy();
+    await creative.setCampaigns(await campaigns.getAddress());
+    await creative.setPauseRegistry(await pauseReg.getAddress());
 
     // Register publisher
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
@@ -134,18 +139,18 @@ describe("DatumCampaigns", function () {
     ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
-  // L5: Metadata
+  // L5: Metadata (now lives on DatumCampaignCreative)
   it("L5: setMetadata emits event and only advertiser can call", async function () {
     const id = (await campaigns.nextCampaignId()) - 1n;
     const hash = ethers.keccak256(ethers.toUtf8Bytes("test-metadata"));
 
     await expect(
-      campaigns.connect(advertiser).setMetadata(id, hash)
-    ).to.emit(campaigns, "CampaignMetadataSet").withArgs(id, hash, 1n);
+      creative.connect(advertiser).setMetadata(id, hash)
+    ).to.emit(creative, "CampaignMetadataSet").withArgs(id, hash, 1n);
 
     await expect(
-      campaigns.connect(other).setMetadata(id, hash)
-    ).to.be.revertedWithCustomError(campaigns, "E21");
+      creative.connect(other).setMetadata(id, hash)
+    ).to.be.revertedWithCustomError(creative, "E21");
   });
 
   // L6: Pause/resume (advertiser only)

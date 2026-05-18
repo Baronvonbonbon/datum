@@ -187,7 +187,6 @@ const campaignsAbi = [
   // DatumActivationBonds at creation and skips the always-vote governance path.
   "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
-  "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
   // Inline targeting (merged from TargetingRegistry)
   "function setPublisherTags(bytes32[] tagHashes)",
@@ -486,6 +485,7 @@ async function main() {
     "settlement", "relay", "zkVerifier",
     "claimValidator", "tokenRewardVault",
     "governanceRouter", "council",
+    "campaignCreative",
   ];
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {
@@ -898,6 +898,10 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   log("5", "--- Setting metadata (real IPFS SHA-256 bytes32) ---");
 
+  // setMetadata is now on DatumCampaignCreative (carved out for EIP-170).
+  const creativeIface = new ethers.Interface([
+    "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
+  ]);
   let metaOk = 0;
   for (let i = 0; i < allCampaignIds.length; i++) {
     const cid = allCampaignIds[i];
@@ -906,7 +910,7 @@ async function main() {
     const metaHash = spec.metadataBytes32 || keccak256(toUtf8Bytes("wikipedia:" + spec.wikiArticle));
 
     try {
-      await sendCall(adv, rawProvider, addrs.campaigns, campIface, "setMetadata", [cid, metaHash]);
+      await sendCall(adv, rawProvider, addrs.campaignCreative, creativeIface, "setMetadata", [cid, metaHash]);
       metaOk++;
       if ((i + 1) % 20 === 0) log("5", `    metadata set for ${i + 1}/${allCampaignIds.length}...`);
     } catch (err) {

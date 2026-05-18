@@ -140,6 +140,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   let ledger:       DatumBudgetLedger;
   let vault:        DatumPaymentVault;
   let campaigns:    DatumCampaigns;
+  let creative:     any;
   let lifecycle:    DatumCampaignLifecycle;
   let v2:           DatumGovernanceV2;
   let claimVal:     DatumClaimValidator;
@@ -238,6 +239,10 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await campaigns.setSettlementContract(await settlement.getAddress());
     await campaigns.setLifecycleContract(await lifecycle.getAddress());
     await campaigns.setBudgetLedger(await ledger.getAddress());
+
+    creative = await (await ethers.getContractFactory("DatumCampaignCreative")).deploy();
+    await creative.setCampaigns(await campaigns.getAddress());
+    await creative.setPauseRegistry(await pauseReg.getAddress());
 
     await ledger.setCampaigns(await campaigns.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
@@ -905,35 +910,35 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-META-1: setMetadata stores bytes32 CID digest on-chain", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
-      const tx = await campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH);
+      const tx = await creative.connect(advertiser).setMetadata(cid, IPFS_HASH);
       const receipt = await tx.wait();
       console.log(`\n  [BM-META-1] setMetadata gas: ${receipt?.gasUsed}`);
 
-      expect(await campaigns.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
+      expect(await creative.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
     });
 
     it("BM-META-2: getCampaignMetadata returns zero for campaigns without metadata", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
-      expect(await campaigns.getCampaignMetadata(cid)).to.equal(ethers.ZeroHash);
+      expect(await creative.getCampaignMetadata(cid)).to.equal(ethers.ZeroHash);
     });
 
     it("BM-META-3: setMetadata emits CampaignMetadataSet event", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
-      await expect(campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH))
-        .to.emit(campaigns, "CampaignMetadataSet")
+      await expect(creative.connect(advertiser).setMetadata(cid, IPFS_HASH))
+        .to.emit(creative, "CampaignMetadataSet")
         .withArgs(cid, IPFS_HASH, 1n);
     });
 
     it("BM-META-4: metadata survives settlement (immutable tag data)", async function () {
       const cid = await newActiveCampaign(BUDGET, DAILY, CPM);
-      await campaigns.connect(advertiser).setMetadata(cid, IPFS_HASH);
+      await creative.connect(advertiser).setMetadata(cid, IPFS_HASH);
 
       // Settle 1 claim
       const claims = buildClaims(cid, publisher.address, user.address, 1, CPM, 100n);
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
 
       // Metadata unchanged
-      expect(await campaigns.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
+      expect(await creative.getCampaignMetadata(cid)).to.equal(IPFS_HASH);
     });
 
     it("BM-META-5: two campaigns with different IPFS hashes coexist independently", async function () {
@@ -941,16 +946,16 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const hash2 = "0x" + "cd".repeat(32);
       const cid1 = await newActiveCampaign(BUDGET, DAILY, CPM);
       const cid2 = await newActiveCampaign(BUDGET, DAILY, CPM);
-      await campaigns.connect(advertiser).setMetadata(cid1, hash1);
-      await campaigns.connect(advertiser).setMetadata(cid2, hash2);
-      expect(await campaigns.getCampaignMetadata(cid1)).to.equal(hash1);
-      expect(await campaigns.getCampaignMetadata(cid2)).to.equal(hash2);
+      await creative.connect(advertiser).setMetadata(cid1, hash1);
+      await creative.connect(advertiser).setMetadata(cid2, hash2);
+      expect(await creative.getCampaignMetadata(cid1)).to.equal(hash1);
+      expect(await creative.getCampaignMetadata(cid2)).to.equal(hash2);
     });
 
     it("BM-META-6: gas comparison — settle IPFS campaign vs. no-metadata campaign", async function () {
       // Campaign A: with metadata
       const cidA = await newActiveCampaign(BUDGET, DAILY, CPM);
-      await campaigns.connect(advertiser).setMetadata(cidA, IPFS_HASH);
+      await creative.connect(advertiser).setMetadata(cidA, IPFS_HASH);
       const claimsA = buildClaims(cidA, publisher.address, user.address, 1, CPM, 500n);
       const txA = await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cidA, claims: claimsA }]);
       const recA = await txA.wait();
@@ -1220,7 +1225,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       // Campaign A: has IPFS metadata
       const cidA = await newActiveCampaign(BUDGET, DAILY, CPM_MID);
       const IPFS_HASH = "0x" + "aa".repeat(32);
-      await campaigns.connect(advertiser).setMetadata(cidA, IPFS_HASH);
+      await creative.connect(advertiser).setMetadata(cidA, IPFS_HASH);
 
       // Campaign B: ERC-20 sidecar
       const rewardPerImp = 10n ** 15n; // 0.001 TUSD per impression (18 dec)
@@ -1259,7 +1264,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       console.log(`\n  [BM-COMP-3] mixed 3-campaign settle gas: ${receipt?.gasUsed}`);
 
       // IPFS campaign: metadata persisted
-      expect(await campaigns.getCampaignMetadata(cidA)).to.equal(IPFS_HASH);
+      expect(await creative.getCampaignMetadata(cidA)).to.equal(IPFS_HASH);
 
       // ERC-20 sidecar campaign: token credited
       const userTokenAfter = await tokenRewardVault.userTokenBalance(

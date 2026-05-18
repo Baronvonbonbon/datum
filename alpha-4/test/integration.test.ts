@@ -44,6 +44,7 @@ describe("Integration", function () {
   let tokenRewardVault: DatumTokenRewardVault;
   let mockERC20: MockERC20;
   let powEngine: any;
+  let creative: any;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -185,6 +186,10 @@ describe("Integration", function () {
     await campaigns.setSettlementContract(await settlement.getAddress());
     await campaigns.setLifecycleContract(await lifecycle.getAddress());
     await campaigns.setBudgetLedger(await ledger.getAddress());
+
+    creative = await (await ethers.getContractFactory("DatumCampaignCreative")).deploy();
+    await creative.setCampaigns(await campaigns.getAddress());
+    await creative.setPauseRegistry(await pauseReg.getAddress());
 
     await ledger.setCampaigns(await campaigns.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
@@ -788,21 +793,21 @@ describe("Integration", function () {
     expect(await campaigns.getCampaignStatus(campaignId)).to.equal(1);
 
     // Before setting metadata — should be zero
-    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(ethers.ZeroHash);
+    expect(await creative.getCampaignMetadata(campaignId)).to.equal(ethers.ZeroHash);
 
     // Set metadata (advertiser owns the campaign)
-    await expect(campaigns.connect(advertiser).setMetadata(campaignId, CID_SHA256))
-      .to.emit(campaigns, "CampaignMetadataSet")
+    await expect(creative.connect(advertiser).setMetadata(campaignId, CID_SHA256))
+      .to.emit(creative, "CampaignMetadataSet")
       .withArgs(campaignId, CID_SHA256, 1n);
 
     // Verify round-trip
-    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(CID_SHA256);
+    expect(await creative.getCampaignMetadata(campaignId)).to.equal(CID_SHA256);
 
     // Settle some impressions — metadata must survive
     const claims = buildClaims(campaignId, publisher.address, user.address, 1, BID_CPM, 100n);
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims }]);
 
-    expect(await campaigns.getCampaignMetadata(campaignId)).to.equal(CID_SHA256,
+    expect(await creative.getCampaignMetadata(campaignId)).to.equal(CID_SHA256,
       "metadata corrupted after settlement");
   });
 
