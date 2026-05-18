@@ -85,6 +85,25 @@ Expected output ends with:
 === All 30 contracts deployed ===
 ```
 
+Followed by **PHASE 2.5 (upgrade-ladder wiring)** logs:
+
+```
+[Upgrade-ladder wiring: register contracts + setRouter]
+  REGISTERED: governanceRouter -> 0x...
+  REGISTERED: pauseRegistry -> 0x...
+  setRouter: pauseRegistry
+  REGISTERED: publishers -> 0x...
+  setRouter: publishers
+  ... (one pair per Upgradable contract)
+  Upgrade-ladder wiring complete.
+```
+
+The registry is now populated. Cross-contract consumers can resolve
+live addresses via `router.contractAddr("name")` (lookup) and the
+phase gate on every `lock*` function activates: pre-OpenGov, locks
+revert `not-opengov`; deferred to `onlyOwner` if no router is wired
+(legacy / unit-test path).
+
 then phase 2-3 wiring logs, then ownership transfers.
 
 `deployed-addresses.json` should now have all three:

@@ -1594,6 +1594,138 @@ async function main() {
   console.log("\n  All wiring complete.");
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 2.5: Upgrade-ladder wiring (Stage 5 — registry + setRouter)
+  //
+  // Register every Upgradable contract in DatumGovernanceRouter and wire the
+  // router back into each contract's setRouter slot. Must run BEFORE Phase 3
+  // (ownership transfer) because:
+  //   - router.register is onlyOwner — needs deployer still as owner.
+  //   - contract.setRouter is onlyOwner — needs deployer still as owner.
+  //
+  // After this block:
+  //   - router.contractAddr(keccak256("name")) returns the live address of each
+  //     registered contract (read by web UI + cross-contract consumers).
+  //   - Each contract knows its router and can phase-gate lock* functions via
+  //     the whenOpenGovPhase modifier (Stage 4).
+  //
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  logStep("Upgrade-ladder wiring: register contracts + setRouter");
+
+  // Contract keys that inherit DatumUpgradable. Skips:
+  //   - governanceRouter: the registry itself; registers self separately
+  //   - attestationVerifier: intentionally ownerless (stateless EIP-712)
+  //   - campaigns, settlement: in-flight work; conversion follow-up
+  //
+  // Each entry has the same name in deployed-addresses.json as the key here;
+  // we hash the same string to get the bytes32 registry key.
+  const UPGRADABLE_KEYS: (keyof typeof addresses)[] = [
+    "pauseRegistry",
+    "publishers",
+    "campaignLifecycle",
+    "budgetLedger",
+    "paymentVault",
+    "relay",
+    "zkVerifier",
+    "claimValidator",
+    "tokenRewardVault",
+    "publisherStake",
+    "challengeBonds",
+    "publisherGovernance",
+    "parameterGovernance",
+    "council",
+    "clickRegistry",
+    "blocklistCurator",
+    "activationBonds",
+    "stakeRoot",
+    "stakeRootV2",
+    "identityVerifier",
+    "emissionEngine",
+    "peopleChainIdentity",
+    "peopleChainXcmBridge",
+    "peopleChainBondedReporter",
+    "governanceV2",
+    "timelock",
+  ];
+
+  function nameKey(name: string): string {
+    return ethers.keccak256(ethers.toUtf8Bytes(name));
+  }
+
+  // Read currentAddrOf via raw call to skip the receipt-bug roundtrip.
+  async function readCurrentAddr(name: string): Promise<string> {
+    const iface = new ethers.Interface([
+      "function currentAddrOf(bytes32) external view returns (address)",
+    ]);
+    const data = iface.encodeFunctionData("currentAddrOf", [nameKey(name)]);
+    const ret = await rawProvider.call({ to: addresses.governanceRouter, data });
+    return "0x" + ret.slice(-40);
+  }
+
+  async function readRouter(contractAddr: string): Promise<string> {
+    const iface = new ethers.Interface([
+      "function router() external view returns (address)",
+    ]);
+    const data = iface.encodeFunctionData("router", []);
+    const ret = await rawProvider.call({ to: contractAddr, data });
+    return "0x" + ret.slice(-40);
+  }
+
+  async function registerIfNeeded(name: string, addr: string) {
+    const current = await readCurrentAddr(name);
+    if (current.toLowerCase() === addr.toLowerCase()) {
+      console.log(`  OK (already registered): ${name}`);
+      return;
+    }
+    if (current !== "0x" + "0".repeat(40)) {
+      console.log(`  SKIP: ${name} registered at ${current} (not ${addr}); use upgradeContract`);
+      return;
+    }
+    await sendCall(
+      addresses.governanceRouter,
+      ["function register(bytes32 name, address addr) external"],
+      "register",
+      [nameKey(name), addr],
+    );
+    console.log(`  REGISTERED: ${name} -> ${addr}`);
+  }
+
+  async function setRouterIfNeeded(label: string, contractAddr: string) {
+    const current = await readRouter(contractAddr);
+    if (current.toLowerCase() === addresses.governanceRouter.toLowerCase()) {
+      console.log(`  OK (router already set): ${label}`);
+      return;
+    }
+    if (current !== "0x" + "0".repeat(40)) {
+      console.warn(`  WARN: ${label}.router is ${current}, not matching registry. Skipping (lock-once).`);
+      return;
+    }
+    await sendCall(
+      contractAddr,
+      ["function setRouter(address r) external"],
+      "setRouter",
+      [addresses.governanceRouter],
+    );
+    console.log(`  setRouter: ${label}`);
+  }
+
+  // Self-register the router under "governanceRouter" so consumers can resolve
+  // the canonical router address through the same registry surface.
+  await registerIfNeeded("governanceRouter", addresses.governanceRouter);
+
+  for (const key of UPGRADABLE_KEYS) {
+    const addr = addresses[key];
+    if (!addr) {
+      console.log(`  SKIP: ${key} (address not in deployed-addresses)`);
+      continue;
+    }
+    await registerIfNeeded(key, addr);
+    await setRouterIfNeeded(key, addr);
+  }
+
+  console.log("\n  Upgrade-ladder wiring complete. router.contractAddr(name) returns live addresses; setRouter activates whenOpenGovPhase guards on lock* functions.");
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 3: Ownership transfer to Timelock
   // ═══════════════════════════════════════════════════════════════════════════
 
