@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "../DatumUpgradable.sol";
 
 interface IAssetHubPrecompile {
     function mint(uint256 assetId, address to, uint256 amount) external;
@@ -18,9 +19,14 @@ interface IAssetHubPrecompile {
 ///         WDATUM to recipients. All EVM-side governance, staking, and
 ///         protocol utilities read WDATUM balances.
 ///
-/// @dev No admin key. No upgradeability. Mint is gated to the mint authority
-///      configured at construction. Burn is solely user-initiated via unwrap.
-contract DatumWrapper is ERC20 {
+/// @dev Mint is gated to the mint authority configured at construction.
+///      Burn is solely user-initiated via unwrap. Upgrade ladder applies:
+///      governance can freeze() and migrate() to a v2 if needed.
+contract DatumWrapper is ERC20, DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     /// @notice The single contract permitted to mint WDATUM.
     /// @dev    Settlement and bootstrap mints both flow through this address.
     ///         Set at construction; cannot be changed.
@@ -84,7 +90,7 @@ contract DatumWrapper is ERC20 {
     /// @dev    Callable only by `mintAuthority`. The authority is expected to
     ///         have minted matching canonical DATUM to this contract's address
     ///         before calling — otherwise the invariant check will revert.
-    function mintTo(address recipient, uint256 amount) external {
+    function mintTo(address recipient, uint256 amount) external whenNotFrozen {
         require(msg.sender == mintAuthority, "E18");
         _mint(recipient, amount);
         _checkInvariant();
@@ -99,7 +105,7 @@ contract DatumWrapper is ERC20 {
     ///         wrapper (via precompile.transfer from their own context), then
     ///         call wrap() to mint. Commitment reserves canonical against
     ///         simultaneous claims by other users.
-    function requestWrap(uint256 amount) external {
+    function requestWrap(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
         pendingWrap[msg.sender] += amount;
         totalCommittedCanonical += amount;
@@ -112,7 +118,7 @@ contract DatumWrapper is ERC20 {
     ///         by unwrap()ing the WDATUM they would otherwise mint, after
     ///         claiming via wrap(). Cancel exists so a user who over-committed
     ///         (e.g. RPC retry) can release the unfunded portion.
-    function cancelWrapRequest(uint256 amount) external {
+    function cancelWrapRequest(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
         require(pendingWrap[msg.sender] >= amount, "E03");
         pendingWrap[msg.sender] -= amount;
@@ -126,7 +132,7 @@ contract DatumWrapper is ERC20 {
     ///         all times — meaning every existing WDATUM plus every other
     ///         user's outstanding commitment is reserved first. The caller
     ///         can only mint against canonical THEY contributed.
-    function wrap(uint256 amount) external {
+    function wrap(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
         require(pendingWrap[msg.sender] >= amount, "E03");
 
@@ -146,7 +152,7 @@ contract DatumWrapper is ERC20 {
     /// @notice User-initiated unwrap: burns WDATUM, releases canonical to recipient.
     /// @param  amount Amount of WDATUM to burn.
     /// @param  assetHubRecipient 32-byte AccountId on Asset Hub to receive the canonical.
-    function unwrap(uint256 amount, bytes32 assetHubRecipient) external {
+    function unwrap(uint256 amount, bytes32 assetHubRecipient) external whenNotFrozen {
         require(amount > 0, "E11");
         require(assetHubRecipient != bytes32(0), "E00");
         // L3-fix: refuse the devnet shim path on production builds. The

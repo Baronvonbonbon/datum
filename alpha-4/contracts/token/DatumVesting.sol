@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
+import "../DatumUpgradable.sol";
+
 interface IDatumMintAuthority_Vesting {
     function mintForVesting(address recipient, uint256 amount) external;
 }
@@ -23,7 +25,11 @@ interface IDatumMintAuthority_Vesting {
 ///
 ///      Beneficiary may call `extendVesting(newEndTime)` to slow their own
 ///      unlock — extend only, never accelerate.
-contract DatumVesting {
+contract DatumVesting is DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     uint256 public constant TOTAL_ALLOCATION = 5_000_000 * 10**10;  // 5M DATUM (10 decimals)
     uint256 public constant CLIFF_DURATION   = 365 days;
     uint256 public constant TOTAL_DURATION   = 4 * 365 days;
@@ -53,7 +59,7 @@ contract DatumVesting {
     /// @notice Trigger release of vested-but-unreleased DATUM to the beneficiary.
     /// @dev    Permissionless — anyone can call. The beneficiary doesn't have
     ///         to wake up every month to claim.
-    function release() external {
+    function release() external whenNotFrozen {
         uint256 vested = vestedAmount();
         require(vested > released, "nothing to release");
         uint256 toRelease = vested - released;
@@ -72,7 +78,7 @@ contract DatumVesting {
     }
 
     /// @notice Slowable-only: beneficiary extends their own vesting end date.
-    function extendVesting(uint256 newEndTime) external {
+    function extendVesting(uint256 newEndTime) external whenNotFrozen {
         require(msg.sender == beneficiary, "E18");
         require(newEndTime > endTime, "can only extend");
         uint256 old = endTime;

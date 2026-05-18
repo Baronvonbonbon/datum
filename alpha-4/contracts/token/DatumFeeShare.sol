@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "../DatumOwnable.sol";
+import "../DatumUpgradable.sol";
 import "../PaseoSafeSender.sol";
 
 /// @title DatumFeeShare
@@ -35,7 +35,11 @@ import "../PaseoSafeSender.sol";
 ///         For the devnet scaffold, the PaymentVault integration is stubbed:
 ///         anyone can call `fund()` (payable) to simulate fee inflow without
 ///         requiring the full PaymentVault.
-contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
+contract DatumFeeShare is DatumUpgradable, PaseoSafeSender {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     using SafeERC20 for IERC20;
 
 
@@ -148,7 +152,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
     /// @dev    Anyone can call. PaymentVault must have `feeShareRecipient`
     ///         set to this contract's address; otherwise the call reverts on
     ///         the vault side.
-    function sweep() external {
+    function sweep() external whenNotFrozen {
         require(paymentVault != address(0), "E00");
         // Low-level call to avoid hard interface dependency. The vault's
         // sweepToFeeShare() reverts if no balance or no recipient — we
@@ -171,7 +175,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
 
     /// @notice Stake WDATUM to begin earning DOT.
     /// @dev    Caller must have approved this contract for `amount` WDATUM first.
-    function stake(uint256 amount) external nonReentrant {
+    function stake(uint256 amount) external nonReentrant whenNotFrozen {
         require(amount > 0, "E11");
         _settle(msg.sender);
         stakeToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -182,7 +186,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice Unstake WDATUM and claim any pending DOT.
-    function unstake(uint256 amount) external nonReentrant {
+    function unstake(uint256 amount) external nonReentrant whenNotFrozen {
         require(amount > 0, "E11");
         require(stakedBy[msg.sender] >= amount, "E03");
         _settle(msg.sender);
@@ -194,7 +198,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice Claim pending DOT without altering stake.
-    function claim() external nonReentrant {
+    function claim() external nonReentrant whenNotFrozen {
         _settle(msg.sender);
         _resetDebt(msg.sender);
     }
@@ -227,7 +231,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
     /// @notice Permissionless DOT inflow path. For devnet scaffold use this
     ///         to simulate PaymentVault sweeps; mainnet path is `sweep()`
     ///         pulling from `DatumPaymentVault.pendingFeeShare`.
-    function fund() external payable {
+    function fund() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         emit Funded(msg.sender, msg.value);
         _notifyFee(msg.value);
@@ -235,7 +239,7 @@ contract DatumFeeShare is DatumOwnable, PaseoSafeSender {
 
     /// @notice Accept any direct DOT transfer. Same effect as fund() — direct
     ///         transfers fold into the accumulator automatically.
-    receive() external payable {
+    receive() external payable whenNotFrozen {
         if (msg.value > 0) {
             emit Funded(msg.sender, msg.value);
             _notifyFee(msg.value);

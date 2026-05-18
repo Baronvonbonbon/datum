@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
-import "../DatumOwnable.sol";
+import "../DatumUpgradable.sol";
 
 interface IAssetHubPrecompile_Auth {
     function mint(uint256 assetId, address to, uint256 amount) external;
@@ -33,7 +33,9 @@ interface IDatumPauseRegistry_Mint {
 /// @dev    Owner: founder multisig at deploy → Council via timelock → eventual
 ///         parachain pallet via the sunset path. See §5.5 of the TOKENOMICS
 ///         spec for the full sunset roadmap.
-contract DatumMintAuthority is DatumOwnable {
+contract DatumMintAuthority is DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     // -------------------------------------------------------------------------
     // Configuration (immutable post-deploy)
@@ -163,7 +165,7 @@ contract DatumMintAuthority is DatumOwnable {
         address user, uint256 userAmt,
         address publisher, uint256 publisherAmt,
         address advertiser, uint256 advertiserAmt
-    ) external {
+    ) external whenNotFrozen {
         require(msg.sender == settlement, "E18");
         _requireNotPaused();
         uint256 total = userAmt + publisherAmt + advertiserAmt;
@@ -186,7 +188,7 @@ contract DatumMintAuthority is DatumOwnable {
 
     /// @notice Called by DatumBootstrapPool when dispensing the house-ad bonus.
     /// @dev    Identical bridging shape — canonical to wrapper, WDATUM to user.
-    function mintForBootstrap(address user, uint256 amount) external {
+    function mintForBootstrap(address user, uint256 amount) external whenNotFrozen {
         require(msg.sender == bootstrapPool, "E18");
         _requireNotPaused();
         require(totalMinted + amount <= MINTABLE_CAP, "cap");
@@ -199,7 +201,7 @@ contract DatumMintAuthority is DatumOwnable {
 
     /// @notice Called by DatumVesting on each release().
     /// @dev    Same bridging shape as settlement.
-    function mintForVesting(address recipient, uint256 amount) external {
+    function mintForVesting(address recipient, uint256 amount) external whenNotFrozen {
         require(msg.sender == vesting, "E18");
         _requireNotPaused();
         require(totalMinted + amount <= MINTABLE_CAP, "cap");
@@ -243,7 +245,7 @@ contract DatumMintAuthority is DatumOwnable {
     ///         contract supports is by design: parachain migration is the
     ///         one legitimate use, and after it the EVM-side authority must
     ///         not be able to reclaim issuance.
-    function acceptIssuerRole() external {
+    function acceptIssuerRole() external whenNotFrozen {
         require(!issuerLocked, "issuer-locked");
         address staged = pendingIssuer;
         require(staged != address(0), "none staged");

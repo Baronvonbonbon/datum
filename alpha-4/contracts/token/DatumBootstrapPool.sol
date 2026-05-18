@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
-import "../DatumOwnable.sol";
+import "../DatumUpgradable.sol";
 
 interface IDatumMintAuthority_Bootstrap {
     function mintForBootstrap(address user, uint256 amount) external;
@@ -27,7 +27,9 @@ interface IDatumCampaigns_BootstrapView {
 ///         DatumSettlement when a claim against the reserved house-ad
 ///         campaign settles. Owner is the founder multisig at deploy,
 ///         transitioning to Council via the standard sunset path.
-contract DatumBootstrapPool is DatumOwnable {
+contract DatumBootstrapPool is DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     /// @notice Total WDATUM reserved for the house-ad bootstrap.
     /// @dev    BAKED at deploy. No top-up function exists.
@@ -93,7 +95,7 @@ contract DatumBootstrapPool is DatumOwnable {
     /// @param  user        Bootstrap recipient.
     /// @param  campaignId  The house-ad campaign this bootstrap is settling against.
     /// @return paid The amount actually paid (0 if not eligible / depleted / under-assured).
-    function claim(address user, uint256 campaignId) external returns (uint256 paid) {
+    function claim(address user, uint256 campaignId) external whenNotFrozen returns (uint256 paid) {
         require(msg.sender == settlement, "E18");
         if (user == address(0))                  return 0;
         if (hasReceivedBootstrap[user])          return 0;
