@@ -103,7 +103,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     it("setting mint authority twice reverts", async function () {
       await expect(
         settlement.setMintAuthority(user.address)
-      ).to.be.revertedWith("already set");
+      ).to.be.revertedWithCustomError(settlement, "AlreadySet");
     });
 
     it("zero address mint authority reverts", async function () {
@@ -112,7 +112,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       const p = await PauseF.deploy(deployer.address, advertiser.address, user.address);
       const SettlementF = await ethers.getContractFactory("DatumSettlement");
       const s = await SettlementF.deploy(await p.getAddress());
-      await expect(s.setMintAuthority(ethers.ZeroAddress)).to.be.revertedWith("E00");
+      await expect(s.setMintAuthority(ethers.ZeroAddress)).to.be.revertedWithCustomError(s, "E00");
     });
 
     it("owner can update mint rate", async function () {
@@ -126,7 +126,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     it("dust threshold has upper bound at 1 DATUM", async function () {
       await expect(
         settlement.setDustMintThreshold(2n * UNIT)
-      ).to.be.revertedWith("above cap");
+      ).to.be.revertedWithCustomError(settlement, "AboveCap");
       // Set valid threshold
       await settlement.setDustMintThreshold(UNIT / 100n);
     });
@@ -140,7 +140,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     it("setDatumRewardSplit rejects non-10000 sum", async function () {
       await expect(
         settlement.setDatumRewardSplit(5000, 4000, 500)
-      ).to.be.revertedWith("E11");
+      ).to.be.revertedWithCustomError(settlement, "E11");
     });
 
     it("setDatumRewardSplit updates values when sum=10000", async function () {
@@ -153,8 +153,8 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     });
 
     it("setUserShareBps bounded to [MIN, MAX]", async function () {
-      await expect(settlement.setUserShareBps(4999)).to.be.revertedWith("E11");
-      await expect(settlement.setUserShareBps(9001)).to.be.revertedWith("E11");
+      await expect(settlement.setUserShareBps(4999)).to.be.revertedWithCustomError(settlement, "E11");
+      await expect(settlement.setUserShareBps(9001)).to.be.revertedWithCustomError(settlement, "E11");
       await settlement.setUserShareBps(8000);
       expect(await settlement.userShareBps()).to.equal(8000);
       await settlement.setUserShareBps(7500);  // restore default

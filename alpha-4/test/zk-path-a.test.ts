@@ -154,7 +154,7 @@ describe("Path A: DatumCampaigns minStake + requiredCategory", function () {
     const cid = await createPendingCampaign();
     await campaigns.connect(advertiser).setCampaignMinStake(cid, 1_000n);
     expect(await campaigns.getCampaignMinStake(cid)).to.equal(1_000n);
-    await expect(campaigns.connect(other).setCampaignMinStake(cid, 1n)).to.be.revertedWith("E21");
+    await expect(campaigns.connect(other).setCampaignMinStake(cid, 1n)).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   it("raising minStake locked once Active; lowering still allowed", async function () {
@@ -167,7 +167,7 @@ describe("Path A: DatumCampaigns minStake + requiredCategory", function () {
     // Raise reverts E22
     await expect(
       campaigns.connect(advertiser).setCampaignMinStake(cid, 200n)
-    ).to.be.revertedWith("E22");
+    ).to.be.revertedWithCustomError(campaigns, "E22");
   });
 
   it("requiredCategory locked once Active (raise OR lower)", async function () {
@@ -179,7 +179,7 @@ describe("Path A: DatumCampaigns minStake + requiredCategory", function () {
     await campaigns.activateCampaign(cid);
     await expect(
       campaigns.connect(advertiser).setCampaignRequiredCategory(cid, cat2)
-    ).to.be.revertedWith("E22");
+    ).to.be.revertedWithCustomError(campaigns, "E22");
   });
 });
 
@@ -436,7 +436,7 @@ describe("Path A: governance cap on campaignMinStake", function () {
     await campaigns.connect(advertiser).setCampaignMinStake(cid, 10_000n); // exact cap allowed
     await expect(
       campaigns.connect(advertiser).setCampaignMinStake(cid, 10_001n)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("non-owner cannot set cap (E18)", async function () {

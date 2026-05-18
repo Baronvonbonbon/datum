@@ -155,7 +155,7 @@ describe("Settlement Rate Limiter (inline)", function () {
     // Changing the window after first set must revert.
     await expect(
       settlement.setRateLimits(WINDOW_BLOCKS + 1n, 100000n)
-    ).to.be.revertedWith("windowBlocks frozen");
+    ).to.be.revertedWithCustomError(settlement, "IsFrozen");
     // Restore max
     await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
@@ -287,8 +287,8 @@ describe("Settlement Rate Limiter (inline)", function () {
   });
 
   it("RL9b: setRateLimits reverts when windowBlocks < MIN_RL_WINDOW_SIZE", async function () {
-    await expect(settlement.setRateLimits(0n, 0n)).to.be.revertedWith("E11");
-    await expect(settlement.setRateLimits(9n, 1000n)).to.be.revertedWith("E11");
+    await expect(settlement.setRateLimits(0n, 0n)).to.be.revertedWithCustomError(settlement, "E11");
+    await expect(settlement.setRateLimits(9n, 1000n)).to.be.revertedWithCustomError(settlement, "E11");
   });
 
   it("RL10: non-view claims (actionType > 0) are not rate-limited", async function () {

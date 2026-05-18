@@ -142,7 +142,7 @@ describe("Settlement Nullifier (inline)", function () {
   it("NR3: setNullifierWindowBlocks reverts on zero", async function () {
     await expect(
       settlement.setNullifierWindowBlocks(0n)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(settlement, "E11");
   });
 
   // =========================================================================

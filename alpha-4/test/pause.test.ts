@@ -163,7 +163,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWith("P");
+    ).to.be.revertedWithCustomError(campaigns, "Paused");
   });
 
   // P3: createCampaign works when unpaused
@@ -200,7 +200,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     await expect(
       settlement.connect(user).settleClaims([])
-    ).to.be.revertedWith("P");
+    ).to.be.revertedWithCustomError(settlement, "Paused");
   });
 
   // P8: View functions work when paused
@@ -230,7 +230,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     const TAG = ethers.keccak256(ethers.toUtf8Bytes("topic:test"));
     await expect(
       campaigns.connect(other).setPublisherTags([TAG])
-    ).to.be.revertedWith("P");
+    ).to.be.revertedWithCustomError(campaigns, "Paused");
   });
 
   // T5: PauseRegistry idempotency

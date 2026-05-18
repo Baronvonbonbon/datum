@@ -223,7 +223,7 @@ describe("DatumSettlement", function () {
 
     await expect(
       settlement.connect(other).settleClaims([batch])
-    ).to.be.revertedWith("E32");
+    ).to.be.revertedWithCustomError(settlement, "E32");
   });
 
   // S3b: publisher's registered relaySigner can settle directly (per-publisher relay auth)
@@ -260,7 +260,7 @@ describe("DatumSettlement", function () {
 
     await expect(
       settlement.connect(protocol).settleClaims([batchB])
-    ).to.be.revertedWith("E32");
+    ).to.be.revertedWithCustomError(settlement, "E32");
 
     // Clean up
     await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
@@ -896,7 +896,7 @@ describe("DatumSettlement", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWith("E82");
+      ).to.be.revertedWithCustomError(settlement, "E82");
     });
 
     it("M6-A: advertiser's delegated relay signer is accepted in place of advertiser EOA", async function () {
@@ -933,7 +933,7 @@ describe("DatumSettlement", function () {
       // longer matches what the advertiser has registered on-chain.
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWith("E85");
+      ).to.be.revertedWithCustomError(settlement, "E85");
 
       await mock.setAdvertiserRelaySigner(owner.address, ethers.ZeroAddress);
     });
@@ -956,7 +956,7 @@ describe("DatumSettlement", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWith("E83");
+      ).to.be.revertedWithCustomError(settlement, "E83");
     });
 
     it("D5: expired deadline reverts E81", async function () {
@@ -968,7 +968,7 @@ describe("DatumSettlement", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWith("E81");
+      ).to.be.revertedWithCustomError(settlement, "E81");
     });
 
     it("D6: tampered claim list invalidates publisher sig (E82)", async function () {
@@ -982,7 +982,7 @@ describe("DatumSettlement", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims([tamperedBatch])
-      ).to.be.revertedWith("E82");
+      ).to.be.revertedWithCustomError(settlement, "E82");
     });
 
     it("D7: paused settlement reverts P", async function () {
@@ -994,7 +994,7 @@ describe("DatumSettlement", function () {
       try {
         await expect(
           settlement.connect(other).settleSignedClaims([batch])
-        ).to.be.revertedWith("P");
+        ).to.be.revertedWithCustomError(settlement, "Paused");
       } finally {
         // Unpause via 2-of-3 guardian (owner=g0, user=g1, publisher=g2 per `before`)
         const pid = await pauseReg.connect(user).propose.staticCall(2);
@@ -1013,7 +1013,7 @@ describe("DatumSettlement", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims(tooMany)
-      ).to.be.revertedWith("E28");
+      ).to.be.revertedWithCustomError(settlement, "E28");
 
       // Restore for other tests
       await settlement.connect(owner).setMaxBatchSize(50);
@@ -1021,8 +1021,8 @@ describe("DatumSettlement", function () {
 
     it("D8b: setMaxBatchSize bounded by ceiling (E11)", async function () {
       const ceiling = await settlement.MAX_BATCH_SIZE_CEILING();
-      await expect(settlement.connect(owner).setMaxBatchSize(0)).to.be.revertedWith("E11");
-      await expect(settlement.connect(owner).setMaxBatchSize(ceiling + 1n)).to.be.revertedWith("E11");
+      await expect(settlement.connect(owner).setMaxBatchSize(0)).to.be.revertedWithCustomError(settlement, "E11");
+      await expect(settlement.connect(owner).setMaxBatchSize(ceiling + 1n)).to.be.revertedWithCustomError(settlement, "E11");
     });
   });
 

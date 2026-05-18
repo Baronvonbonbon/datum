@@ -374,7 +374,7 @@ describe("Audit fixes", function () {
 
       await expect(
         settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWith("E34");
+      ).to.be.revertedWithCustomError(settlement, "E34");
     });
 
     it("M-3: accepts dual-sig batch when all claims share the signing publisher", async function () {
@@ -868,7 +868,7 @@ describe("Audit fixes", function () {
       // Active → raising reverts E22
       await expect(
         campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 2)
-      ).to.be.revertedWith("E22");
+      ).to.be.revertedWithCustomError(campaigns, "E22");
     });
 
     // ── A3: AssuranceLevel raise/lower semantics on real DatumCampaigns ───
@@ -927,7 +927,7 @@ describe("Audit fixes", function () {
       // Active → can NOT raise (L0 → L1) anymore.
       await expect(
         campaigns.connect(advertiser).setCampaignAssuranceLevel(cid, 1)
-      ).to.be.revertedWith("E22");
+      ).to.be.revertedWithCustomError(campaigns, "E22");
     });
 
     it("A3: publisher can self-declare maxAssurance (discovery hint, off-chain only)", async function () {

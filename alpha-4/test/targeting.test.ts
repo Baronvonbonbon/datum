@@ -131,7 +131,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   it("TG4: only registered publisher can set tags", async function () {
     await expect(
       campaigns.connect(other).setPublisherTags([TAG_DEFI])
-    ).to.be.revertedWith("Not registered");
+    ).to.be.revertedWithCustomError(campaigns, "NotRegistered");
   });
 
   it("TG5: setTags rejects more than maxPublisherTags (E65)", async function () {
@@ -142,14 +142,14 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     );
     await expect(
       campaigns.connect(publisher).setPublisherTags(tooMany)
-    ).to.be.revertedWith("E65");
+    ).to.be.revertedWithCustomError(campaigns, "E65");
     await campaigns.setMaxPublisherTags(64); // restore default
   });
 
   it("TG5b: setTags rejects zero hash (E00)", async function () {
     await expect(
       campaigns.connect(publisher).setPublisherTags([ethers.ZeroHash])
-    ).to.be.revertedWith("E00");
+    ).to.be.revertedWithCustomError(campaigns, "E00");
   });
 
   it("TG6: setTags reverts when paused", async function () {
@@ -157,7 +157,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
     await expect(
       campaigns.connect(publisher).setPublisherTags([TAG_DEFI])
-    ).to.be.revertedWith("P");
+    ).to.be.revertedWithCustomError(campaigns, "Paused");
 
     // C-4: unpause via guardian 2-of-3
     const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
@@ -172,7 +172,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     );
     await expect(
       campaigns.hasAllTags(publisher.address, tooMany)
-    ).to.be.revertedWith("E66");
+    ).to.be.revertedWithCustomError(campaigns, "E66");
     await campaigns.setMaxCampaignTags(16); // restore default
   });
 
@@ -234,7 +234,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
         [TAG_GAMING], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   it("TG9b: createCampaign with partial match reverts E62", async function () {
@@ -246,7 +246,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
         [TAG_DEFI, TAG_DE], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   it("TG10: open campaign (publisher=0) skips tag check", async function () {
@@ -268,8 +268,8 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
   it("TG-gov-1: setMaxPublisherTags bounded by ceiling (E11)", async function () {
     const ceiling = await campaigns.MAX_PUBLISHER_TAGS_CEILING();
-    await expect(campaigns.setMaxPublisherTags(0)).to.be.revertedWith("E11");
-    await expect(campaigns.setMaxPublisherTags(ceiling + 1n)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxPublisherTags(0)).to.be.revertedWithCustomError(campaigns, "E11");
+    await expect(campaigns.setMaxPublisherTags(ceiling + 1n)).to.be.revertedWithCustomError(campaigns, "E11");
     await campaigns.setMaxPublisherTags(128);
     expect(await campaigns.maxPublisherTags()).to.equal(128);
     await campaigns.setMaxPublisherTags(64); // restore
@@ -277,14 +277,14 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
   it("TG-gov-2: setMaxCampaignTags bounded by ceiling (E11)", async function () {
     const ceiling = await campaigns.MAX_CAMPAIGN_TAGS_CEILING();
-    await expect(campaigns.setMaxCampaignTags(0)).to.be.revertedWith("E11");
-    await expect(campaigns.setMaxCampaignTags(ceiling + 1n)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxCampaignTags(0)).to.be.revertedWithCustomError(campaigns, "E11");
+    await expect(campaigns.setMaxCampaignTags(ceiling + 1n)).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("TG-gov-3: setMaxAllowedPublishers bounded by ceiling (E11)", async function () {
     const ceiling = await campaigns.MAX_ALLOWED_PUBLISHERS_CEILING();
-    await expect(campaigns.setMaxAllowedPublishers(0)).to.be.revertedWith("E11");
-    await expect(campaigns.setMaxAllowedPublishers(ceiling + 1n)).to.be.revertedWith("E11");
+    await expect(campaigns.setMaxAllowedPublishers(0)).to.be.revertedWithCustomError(campaigns, "E11");
+    await expect(campaigns.setMaxAllowedPublishers(ceiling + 1n)).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("TG-gov-4: only owner can set caps (E18)", async function () {
@@ -305,7 +305,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
         tooMany, false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
-    ).to.be.revertedWith("E66");
+    ).to.be.revertedWithCustomError(campaigns, "E66");
     await campaigns.setMaxCampaignTags(16); // restore default
   });
 

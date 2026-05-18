@@ -307,7 +307,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
       settlement.connect(other).settleClaimsMulti([
         { user: user1.address, campaigns: [{ campaignId: cid, claims }] }
       ])
-    ).to.be.revertedWith("E32");
+    ).to.be.revertedWithCustomError(settlement, "E32");
   });
 
   // ── Batch limits ──────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
     });
     await expect(
       settlement.connect(relay).settleClaimsMulti(batches)
-    ).to.be.revertedWith("E28");
+    ).to.be.revertedWithCustomError(settlement, "E28");
     await settlement.connect(owner).setMaxBatchSize(50);
   });
 
@@ -339,7 +339,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
       settlement.connect(relay).settleClaimsMulti([
         { user: user1.address, campaigns }
       ])
-    ).to.be.revertedWith("E28");
+    ).to.be.revertedWithCustomError(settlement, "E28");
     await settlement.connect(owner).setMaxBatchSize(50);
   });
 

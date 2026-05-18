@@ -141,7 +141,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
 
     // Unblock for later tests
     await unblock(advertiser.address);
@@ -159,7 +159,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   it("BK6: unblocked address can registerPublisher and createCampaign", async function () {
@@ -182,7 +182,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
     await unblock(advertiser.address);
   });
 
@@ -352,7 +352,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   it("AL5: open campaign (publisher=0) bypasses allowlist", async function () {

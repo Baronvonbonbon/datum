@@ -107,7 +107,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await expect(
       campaigns.connect(stranger).setBulletinCreative(id, SAMPLE_CID, 0, 100, 0, horizon)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   it("B3: zero CID digest reverts E00", async function () {
@@ -115,7 +115,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await expect(
       campaigns.connect(advertiser).setBulletinCreative(id, ethers.ZeroHash, 0, 100, 0, horizon)
-    ).to.be.revertedWith("E00");
+    ).to.be.revertedWithCustomError(campaigns, "E00");
   });
 
   it("B4: zero bulletinBlock reverts E11", async function () {
@@ -123,7 +123,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await expect(
       campaigns.connect(advertiser).setBulletinCreative(id, SAMPLE_CID, 0, 0, 0, horizon)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("B5: past retention horizon reverts E11", async function () {
@@ -131,14 +131,14 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const cur = BigInt(await ethers.provider.getBlockNumber());
     await expect(
       campaigns.connect(advertiser).setBulletinCreative(id, SAMPLE_CID, 0, 100, 0, cur)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("B6: nonexistent campaign reverts E01", async function () {
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await expect(
       campaigns.connect(advertiser).setBulletinCreative(9999, SAMPLE_CID, 0, 100, 0, horizon)
-    ).to.be.revertedWith("E01");
+    ).to.be.revertedWithCustomError(campaigns, "E01");
   });
 
   // ─── B7-B9: Renewal — advertiser path ─────────────────────────────────────
@@ -166,17 +166,17 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
 
     await expect(
       campaigns.connect(advertiser).confirmBulletinRenewal(id, 100, 0)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
     await expect(
       campaigns.connect(advertiser).confirmBulletinRenewal(id, 50, 0)
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   it("B9: renewal on unset creative reverts E01", async function () {
     const id = await createCampaign();
     await expect(
       campaigns.connect(advertiser).confirmBulletinRenewal(id, 200, 5)
-    ).to.be.revertedWith("E01");
+    ).to.be.revertedWithCustomError(campaigns, "E01");
   });
 
   // ─── B10-B13: Renewer trust gradient ──────────────────────────────────────
@@ -188,7 +188,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
 
     await expect(
       campaigns.connect(renewer1).confirmBulletinRenewal(id, 200, 0)
-    ).to.be.revertedWith("E18");
+    ).to.be.revertedWithCustomError(campaigns, "E18");
   });
 
   it("B11: approved renewer can confirmBulletinRenewal", async function () {
@@ -205,7 +205,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     await campaigns.connect(advertiser).setApprovedBulletinRenewer(id, renewer1.address, false);
     await expect(
       campaigns.connect(renewer1).confirmBulletinRenewal(id, 300, 0)
-    ).to.be.revertedWith("E18");
+    ).to.be.revertedWithCustomError(campaigns, "E18");
   });
 
   it("B12: open renewal mode lets anyone confirmBulletinRenewal", async function () {
@@ -222,17 +222,17 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     await campaigns.connect(advertiser).setOpenBulletinRenewal(id, false);
     await expect(
       campaigns.connect(stranger).confirmBulletinRenewal(id, 300, 0)
-    ).to.be.revertedWith("E18");
+    ).to.be.revertedWithCustomError(campaigns, "E18");
   });
 
   it("B13: non-advertiser cannot setApprovedBulletinRenewer or setOpenBulletinRenewal", async function () {
     const id = await createCampaign();
     await expect(
       campaigns.connect(stranger).setApprovedBulletinRenewer(id, renewer1.address, true)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
     await expect(
       campaigns.connect(stranger).setOpenBulletinRenewal(id, true)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   // ─── B14-B17: Escrow + renewer reimbursement ──────────────────────────────
@@ -313,7 +313,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     await campaigns.connect(advertiser).fundBulletinRenewalEscrow(id, { value: parseDOT("1") });
     await expect(
       campaigns.connect(stranger).withdrawBulletinRenewalEscrow(id, stranger.address, parseDOT("0.1"))
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   it("B20: withdraw above escrow balance reverts E11", async function () {
@@ -321,7 +321,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     await campaigns.connect(advertiser).fundBulletinRenewalEscrow(id, { value: parseDOT("0.1") });
     await expect(
       campaigns.connect(advertiser).withdrawBulletinRenewalEscrow(id, advertiser.address, parseDOT("1"))
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   // ─── B21-B23: Expiry advancement bound ────────────────────────────────────
@@ -347,7 +347,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const id = await createCampaign();
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await campaigns.connect(advertiser).setBulletinCreative(id, SAMPLE_CID, 0, 100, 0, horizon);
-    await expect(campaigns.requestBulletinRenewal(id)).to.be.revertedWith("E22");
+    await expect(campaigns.requestBulletinRenewal(id)).to.be.revertedWithCustomError(campaigns, "E22");
   });
 
   it("B23: requestBulletinRenewal emits Due when in lead window", async function () {
@@ -371,7 +371,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
     const horizon = BigInt(await ethers.provider.getBlockNumber()) + 1_000_000n;
     await campaigns.connect(advertiser).setBulletinCreative(id, SAMPLE_CID, 0, 100, 0, horizon);
 
-    await expect(campaigns.markBulletinExpired(id)).to.be.revertedWith("E22");
+    await expect(campaigns.markBulletinExpired(id)).to.be.revertedWithCustomError(campaigns, "E22");
 
     // Mine past expiry
     const ref = await campaigns.getBulletinCreative(id);
@@ -399,7 +399,7 @@ describe("DatumCampaigns — Bulletin Chain creative storage", function () {
 
     await expect(
       campaigns.connect(owner).setBulletinRenewerReward(cap + 1n)
-    ).to.be.revertedWith("above cap");
+    ).to.be.revertedWithCustomError(campaigns, "AboveCap");
   });
 
   it("B27: setBulletinRenewerReward to zero disables reward", async function () {

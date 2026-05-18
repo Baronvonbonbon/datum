@@ -45,14 +45,14 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
       expect(await freshSettlement.parameterGovernance()).to.equal(ethers.ZeroAddress);
     });
     it("Settlement: double-set rejected", async function () {
-      await expect(settlement.setParameterGovernance(other.address)).to.be.revertedWith("already set");
+      await expect(settlement.setParameterGovernance(other.address)).to.be.revertedWithCustomError(settlement, "AlreadySet");
     });
     it("Settlement: zero address rejected", async function () {
       const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
         owner.address, pgImpersonator.address, other.address,
       );
       const freshSettlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await freshPause.getAddress());
-      await expect(freshSettlement.setParameterGovernance(ethers.ZeroAddress)).to.be.revertedWith("E00");
+      await expect(freshSettlement.setParameterGovernance(ethers.ZeroAddress)).to.be.revertedWithCustomError(freshSettlement, "E00");
     });
     it("Settlement: non-owner rejected", async function () {
       const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
@@ -86,12 +86,12 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
       expect(await settlement.powBucketLeakPerN()).to.equal(30);
     });
     it("random caller rejected with E18", async function () {
-      await expect(settlement.connect(other).setPowDifficultyCurve(8, 60, 100, 10)).to.be.revertedWith("E18");
+      await expect(settlement.connect(other).setPowDifficultyCurve(8, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E18");
     });
     it("bounds still enforced via PG path", async function () {
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWith("E11");
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWith("E11");
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWith("E11");
+      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
+      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
+      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
     });
   });
 

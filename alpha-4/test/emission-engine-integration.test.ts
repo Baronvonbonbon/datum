@@ -31,7 +31,7 @@ describe("DatumSettlement ↔ DatumEmissionEngine integration", function () {
       expect(await settlement.emissionEngine()).to.equal(ethers.ZeroAddress);
     });
     it("zero address rejected", async function () {
-      await expect(settlement.setEmissionEngine(ethers.ZeroAddress)).to.be.revertedWith("E00");
+      await expect(settlement.setEmissionEngine(ethers.ZeroAddress)).to.be.revertedWithCustomError(settlement, "E00");
     });
     it("non-owner rejected", async function () {
       await expect(settlement.connect(other).setEmissionEngine(await engine.getAddress())).to.be.reverted;
@@ -44,7 +44,7 @@ describe("DatumSettlement ↔ DatumEmissionEngine integration", function () {
     });
     it("double-set reverts", async function () {
       await settlement.setEmissionEngine(await engine.getAddress());
-      await expect(settlement.setEmissionEngine(await engine.getAddress())).to.be.revertedWith("already set");
+      await expect(settlement.setEmissionEngine(await engine.getAddress())).to.be.revertedWithCustomError(settlement, "AlreadySet");
     });
   });
 

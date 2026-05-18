@@ -4,6 +4,9 @@
   "description": "DATUM Alpha-4 — EVM-optimized settlement contracts",
   "scripts": {
     "compile": "npx hardhat compile",
+    "compile:mainnet": "npx hardhat --config hardhat.config.mainnet.ts compile",
+    "size": "npx hardhat run scripts/size.ts",
+    "size:mainnet": "npx hardhat --config hardhat.config.mainnet.ts run scripts/size.ts",
     "test": "npx hardhat test",
     "test:coverage": "npx hardhat coverage",
     "deploy:local": "npx hardhat run scripts/deploy.ts --network hardhat",

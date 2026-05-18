@@ -113,21 +113,21 @@ describe("Multi-publisher campaigns", function () {
     const id = await createCampaign(pub1.address);
     await expect(
       campaigns.connect(other).addAllowedPublisher(id, pub2.address)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   it("addAllowedPublisher reverts E71 if publisher already in set", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
       campaigns.connect(advertiser).addAllowedPublisher(id, pub1.address)
-    ).to.be.revertedWith("E71");
+    ).to.be.revertedWithCustomError(campaigns, "E71");
   });
 
   it("addAllowedPublisher reverts E62 if publisher not registered", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
       campaigns.connect(advertiser).addAllowedPublisher(id, other.address)
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   // ── Per-publisher take-rate snapshot ──────────────────────────────────
@@ -160,14 +160,14 @@ describe("Multi-publisher campaigns", function () {
     const id = await createCampaign(pub1.address);
     await expect(
       campaigns.connect(advertiser).removeAllowedPublisher(id, pub2.address)
-    ).to.be.revertedWith("E01");
+    ).to.be.revertedWithCustomError(campaigns, "E01");
   });
 
   it("removeAllowedPublisher reverts E21 if not the advertiser", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
       campaigns.connect(other).removeAllowedPublisher(id, pub1.address)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   // ── Per-publisher bonds ────────────────────────────────────────────────
@@ -276,7 +276,7 @@ describe("Multi-publisher campaigns", function () {
         campaigns.connect(advertiser).addAllowedPublishers(
           id, [pub1.address], [parseDOT("0.5")], { value: parseDOT("0.4") }
         )
-      ).to.be.revertedWith("E11");
+      ).to.be.revertedWithCustomError(campaigns, "E11");
     });
 
     it("array length mismatch reverts (E11)", async function () {
@@ -285,21 +285,21 @@ describe("Multi-publisher campaigns", function () {
         campaigns.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub2.address], [0n], { value: 0 }
         )
-      ).to.be.revertedWith("E11");
+      ).to.be.revertedWithCustomError(campaigns, "E11");
     });
 
     it("empty batch reverts (E11)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
         campaigns.connect(advertiser).addAllowedPublishers(id, [], [], { value: 0 })
-      ).to.be.revertedWith("E11");
+      ).to.be.revertedWithCustomError(campaigns, "E11");
     });
 
     it("non-advertiser reverts (E21)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
         campaigns.connect(other).addAllowedPublishers(id, [pub1.address], [0n], { value: 0 })
-      ).to.be.revertedWith("E21");
+      ).to.be.revertedWithCustomError(campaigns, "E21");
     });
 
     it("duplicate in batch reverts (E71)", async function () {
@@ -308,7 +308,7 @@ describe("Multi-publisher campaigns", function () {
         campaigns.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub1.address], [0n, 0n], { value: 0 }
         )
-      ).to.be.revertedWith("E71");
+      ).to.be.revertedWithCustomError(campaigns, "E71");
     });
 
     it("exceeding remaining headroom reverts (E11)", async function () {
@@ -319,7 +319,7 @@ describe("Multi-publisher campaigns", function () {
         campaigns.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub2.address], [0n, 0n], { value: 0 }
         )
-      ).to.be.revertedWith("E11");
+      ).to.be.revertedWithCustomError(campaigns, "E11");
       await campaigns.setMaxAllowedPublishers(64); // restore
     });
   });

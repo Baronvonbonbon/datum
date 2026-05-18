@@ -58,19 +58,19 @@ describe("PoW + claim-cap baseline (pre-governance-tuning)", function () {
 
   describe("Settlement: setPowDifficultyCurve bounds", function () {
     it("baseShift=0 rejected (E11)", async function () {
-      await expect(settlement.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWith("E11");
+      await expect(settlement.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
     });
     it("baseShift=33 rejected (above [1,32])", async function () {
-      await expect(settlement.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWith("E11");
+      await expect(settlement.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
     });
     it("linearDivisor=0 rejected", async function () {
-      await expect(settlement.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWith("E11");
+      await expect(settlement.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
     });
     it("quadDivisor=0 rejected", async function () {
-      await expect(settlement.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWith("E11");
+      await expect(settlement.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWithCustomError(settlement, "E11");
     });
     it("bucketLeakPerN=0 rejected", async function () {
-      await expect(settlement.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWith("E11");
+      await expect(settlement.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWithCustomError(settlement, "E11");
     });
     it("valid update lands on all four fields", async function () {
       await settlement.setPowDifficultyCurve(12, 100, 200, 50);

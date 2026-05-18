@@ -119,7 +119,7 @@ describe("DatumCampaigns", function () {
         [], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
-    ).to.be.revertedWith("E62");
+    ).to.be.revertedWithCustomError(campaigns, "E62");
   });
 
   // L4: Create campaign with zero value reverts
@@ -131,7 +131,7 @@ describe("DatumCampaigns", function () {
         [], false, ethers.ZeroAddress, 0n, 0n,
         { value: 0 }
       )
-    ).to.be.revertedWith("E11");
+    ).to.be.revertedWithCustomError(campaigns, "E11");
   });
 
   // L5: Metadata
@@ -145,7 +145,7 @@ describe("DatumCampaigns", function () {
 
     await expect(
       campaigns.connect(other).setMetadata(id, hash)
-    ).to.be.revertedWith("E21");
+    ).to.be.revertedWithCustomError(campaigns, "E21");
   });
 
   // L6: Pause/resume (advertiser only)
@@ -217,7 +217,7 @@ describe("DatumCampaigns", function () {
 
     await expect(
       campaigns.connect(other).setCampaignStatus(id, 3) // Completed
-    ).to.be.revertedWith("E25");
+    ).to.be.revertedWithCustomError(campaigns, "E25");
 
     // Activate first (governance), then complete via lifecycle (SM-7 valid transition)
     await campaigns.setGovernanceContract(owner.address);
@@ -237,7 +237,7 @@ describe("DatumCampaigns", function () {
     // Pending → Completed is invalid
     await expect(
       campaigns.connect(lifecycleMock).setCampaignStatus(id, 3)
-    ).to.be.revertedWith("E67");
+    ).to.be.revertedWithCustomError(campaigns, "E67");
 
     // Pending → Expired is valid
     await campaigns.connect(lifecycleMock).setCampaignStatus(id, 5);
@@ -254,7 +254,7 @@ describe("DatumCampaigns", function () {
 
     await expect(
       campaigns.connect(other).setTerminationBlock(id, 12345)
-    ).to.be.revertedWith("E25");
+    ).to.be.revertedWithCustomError(campaigns, "E25");
 
     await campaigns.connect(lifecycleMock).setTerminationBlock(id, 12345);
   });
@@ -270,7 +270,7 @@ describe("DatumCampaigns", function () {
 
     await expect(
       campaigns.setSettlementContract(ethers.ZeroAddress)
-    ).to.be.revertedWith("E00");
+    ).to.be.revertedWithCustomError(campaigns, "E00");
 
     await campaigns.setSettlementContract(owner.address);
     expect(await campaigns.settlementContract()).to.equal(owner.address);
@@ -311,11 +311,11 @@ describe("DatumCampaigns", function () {
     });
 
     it("setDefaultTakeRateBps — below min reverts E11", async function () {
-      await expect(campaigns.setDefaultTakeRateBps(2999)).to.be.revertedWith("E11");
+      await expect(campaigns.setDefaultTakeRateBps(2999)).to.be.revertedWithCustomError(campaigns, "E11");
     });
 
     it("setDefaultTakeRateBps — above max reverts E11", async function () {
-      await expect(campaigns.setDefaultTakeRateBps(8001)).to.be.revertedWith("E11");
+      await expect(campaigns.setDefaultTakeRateBps(8001)).to.be.revertedWithCustomError(campaigns, "E11");
     });
 
     it("setDefaultTakeRateBps — non-owner reverts E18", async function () {

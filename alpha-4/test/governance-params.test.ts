@@ -98,15 +98,15 @@ describe("Governance-tunable params: DatumSettlement revenue split", function ()
 
   it("userShareBps default 7500, bounded [5000, 9000]", async function () {
     expect(await settlement.userShareBps()).to.equal(7500);
-    await expect(settlement.setUserShareBps(4999)).to.be.revertedWith("E11");
-    await expect(settlement.setUserShareBps(9001)).to.be.revertedWith("E11");
+    await expect(settlement.setUserShareBps(4999)).to.be.revertedWithCustomError(settlement, "E11");
+    await expect(settlement.setUserShareBps(9001)).to.be.revertedWithCustomError(settlement, "E11");
     await settlement.setUserShareBps(8500);
     expect(await settlement.userShareBps()).to.equal(8500);
   });
 
   it("datumRewardSplit default 55/40/5 with 10000 sum invariant", async function () {
     expect(await settlement.datumRewardUserBps()).to.equal(5500);
-    await expect(settlement.setDatumRewardSplit(5000, 4000, 500)).to.be.revertedWith("E11");
+    await expect(settlement.setDatumRewardSplit(5000, 4000, 500)).to.be.revertedWithCustomError(settlement, "E11");
     await settlement.setDatumRewardSplit(4000, 4000, 2000);
     expect(await settlement.datumRewardUserBps()).to.equal(4000);
     expect(await settlement.datumRewardAdvertiserBps()).to.equal(2000);

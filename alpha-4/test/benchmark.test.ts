@@ -660,12 +660,12 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-RPT-4: invalid reason (0 or 6) reverts E68", async function () {
-      await expect(campaigns.connect(user).reportPage(reportCampaignId, 0)).to.be.revertedWith("E68");
-      await expect(campaigns.connect(user).reportPage(reportCampaignId, 6)).to.be.revertedWith("E68");
+      await expect(campaigns.connect(user).reportPage(reportCampaignId, 0)).to.be.revertedWithCustomError(campaigns, "E68");
+      await expect(campaigns.connect(user).reportPage(reportCampaignId, 6)).to.be.revertedWithCustomError(campaigns, "E68");
     });
 
     it("BM-RPT-5: non-existent campaign reverts E01", async function () {
-      await expect(campaigns.connect(user).reportPage(999999n, 1)).to.be.revertedWith("E01");
+      await expect(campaigns.connect(user).reportPage(999999n, 1)).to.be.revertedWithCustomError(campaigns, "E01");
     });
   });
 

@@ -342,11 +342,11 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     });
 
     it("POW-governance: setPowDifficultyCurve rejects invalid params and updates", async function () {
-      await expect(settlement.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWith("E11"); // baseShift < 1
-      await expect(settlement.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWith("E11"); // baseShift > 32
-      await expect(settlement.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWith("E11"); // linDiv = 0
-      await expect(settlement.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWith("E11"); // quadDiv = 0
-      await expect(settlement.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWith("E11"); // leak = 0
+      await expect(settlement.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // baseShift < 1
+      await expect(settlement.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // baseShift > 32
+      await expect(settlement.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // linDiv = 0
+      await expect(settlement.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWithCustomError(settlement, "E11"); // quadDiv = 0
+      await expect(settlement.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWithCustomError(settlement, "E11"); // leak = 0
       await settlement.setPowDifficultyCurve(10, 80, 120, 15);
       expect(await settlement.powBaseShift()).to.equal(10);
       expect(await settlement.powLinearDivisor()).to.equal(80n);

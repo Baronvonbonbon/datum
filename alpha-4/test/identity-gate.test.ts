@@ -332,7 +332,7 @@ describe("People Chain identity gate", function () {
 
     it("ID8: setIdentityRegistry is lock-once", async function () {
       await expect(settlement.connect(owner).setIdentityRegistry(other.address))
-        .to.be.revertedWith("already set");
+        .to.be.revertedWithCustomError(settlement, "AlreadySet");
     });
   });
 });

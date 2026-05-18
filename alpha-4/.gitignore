@@ -1,5 +1,7 @@
 artifacts-evm/
 cache-evm/
+artifacts-mainnet/
+cache-mainnet/
 .env
 
 # Per-network deploy artifacts (localhost rehearsals, devnets, etc).

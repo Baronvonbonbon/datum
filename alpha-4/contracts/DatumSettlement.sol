@@ -67,6 +67,24 @@ interface ICampaignsUserCapView {
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
 contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgradable {
+    // ── Custom errors (mainnet-size: replaces require strings) ──
+    error E00();
+    error E11();
+    error E18();
+    error E28();
+    error E32();
+    error E34();
+    error E80();
+    error E81();
+    error E82();
+    error E83();
+    error E84();
+    error E85();
+    error AboveCap();
+    error AlreadySet();
+    error IsFrozen();
+    error Paused();
+
     function version() public pure override returns (uint256) { return 1; }
 
     IDatumBudgetLedger public budgetLedger;
@@ -365,7 +383,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     uint256 private _cbTotal;
 
     constructor(address _pauseRegistry) EIP712("DatumSettlement", "1") {
-        require(_pauseRegistry != address(0), "E00");
+        if (!(_pauseRegistry != address(0))) revert E00();
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
     }
 
@@ -384,11 +402,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         address _lifecycle,
         address _relay
     ) external onlyOwner {
-        require(address(budgetLedger) == address(0), "already configured");
-        require(_budgetLedger != address(0), "E00");
-        require(_paymentVault != address(0), "E00");
-        require(_lifecycle != address(0), "E00");
-        require(_relay != address(0), "E00");
+        if (!(address(budgetLedger) == address(0))) revert AlreadySet();
+        if (!(_budgetLedger != address(0))) revert E00();
+        if (!(_paymentVault != address(0))) revert E00();
+        if (!(_lifecycle != address(0))) revert E00();
+        if (!(_relay != address(0))) revert E00();
         budgetLedger = IDatumBudgetLedger(_budgetLedger);
         paymentVault = IDatumPaymentVault(_paymentVault);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
@@ -400,16 +418,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///      owner swap to a permissive validator is the single largest rug
     ///      surface (fake rates → drain budgets). One write, then frozen.
     function setClaimValidator(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(address(claimValidator) == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(address(claimValidator) == address(0))) revert AlreadySet();
         claimValidator = IDatumClaimValidator(addr);
     }
 
     /// @dev Cypherpunk lock-once: same rationale as setClaimValidator —
     ///      a swappable attestation verifier lets an owner forge dual-sig.
     function setAttestationVerifier(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(attestationVerifier == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(attestationVerifier == address(0))) revert AlreadySet();
         attestationVerifier = addr;
     }
 
@@ -420,10 +438,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         invalidate in-flight publisher proofs (DoS) or, if the new size
     ///         divides the old, re-open a previously-used window for double-use.
     function setRateLimits(uint256 _windowBlocks, uint256 _maxEventsPerWindow) external onlyOwner {
-        require(_windowBlocks >= MIN_RL_WINDOW_SIZE, "E11");
-        require(_maxEventsPerWindow > 0, "E11");
+        if (!(_windowBlocks >= MIN_RL_WINDOW_SIZE)) revert E11();
+        if (!(_maxEventsPerWindow > 0)) revert E11();
         if (rlWindowBlocks != 0) {
-            require(_windowBlocks == rlWindowBlocks, "windowBlocks frozen");
+            if (!(_windowBlocks == rlWindowBlocks)) revert IsFrozen();
         }
         rlWindowBlocks = _windowBlocks;
         rlMaxEventsPerWindow = _maxEventsPerWindow;
@@ -439,8 +457,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///      address(0) is a valid initial state ("feature off"); once set non-zero
     ///      it is frozen for the life of this Settlement.
     function setPublishers(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(address(publishers) == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(address(publishers) == address(0))) revert AlreadySet();
         publishers = IDatumPublishers(addr);
     }
 
@@ -449,29 +467,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///      a hostile vault that quietly absorbs rewards. address(0) leaves the
     ///      feature off; once set non-zero it's frozen.
     function setTokenRewardVault(address addr) external onlyOwner {
-        require(address(tokenRewardVault) == address(0), "already set");
+        if (!(address(tokenRewardVault) == address(0))) revert AlreadySet();
         tokenRewardVault = IDatumTokenRewardVault(addr);
     }
 
     function setCampaigns(address addr) external onlyOwner {
         // B8-fix: structural ref, lock-once.
-        require(address(campaigns) == address(0), "already set");
-        require(addr != address(0), "E00");
+        if (!(address(campaigns) == address(0))) revert AlreadySet();
+        if (!(addr != address(0))) revert E00();
         campaigns = IDatumCampaigns(addr);
     }
 
     /// @dev Cypherpunk lock-once: stake adequacy gate. Hot-swap could neuter it.
     function setPublisherStake(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(address(publisherStake) == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(address(publisherStake) == address(0))) revert AlreadySet();
         publisherStake = IDatumPublisherStake(addr);
     }
 
     /// @dev CB4 lock-once: advertiser-stake callback target. Hot-swap could
     ///      forge budget-spent on rivals to drive their required-stake up.
     function setAdvertiserStake(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(advertiserStake == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(advertiserStake == address(0))) revert AlreadySet();
         advertiserStake = addr;
     }
 
@@ -482,14 +500,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         every in-flight proof or, worse, lets a previously-burned
     ///         nullifier re-map to a fresh windowId (double-spend window).
     function setNullifierWindowBlocks(uint256 _windowBlocks) external onlyOwner {
-        require(_windowBlocks > 0, "E11");
-        require(nullifierWindowBlocks == 0, "frozen");
+        if (!(_windowBlocks > 0)) revert E11();
+        if (!(nullifierWindowBlocks == 0)) revert IsFrozen();
         emit NullifierWindowBlocksUpdated(nullifierWindowBlocks, _windowBlocks);
         nullifierWindowBlocks = _windowBlocks;
     }
 
     function setMaxBatchSize(uint256 v) external onlyOwner {
-        require(v > 0 && v <= MAX_BATCH_SIZE_CEILING, "E11");
+        if (!(v > 0 && v <= MAX_BATCH_SIZE_CEILING)) revert E11();
         maxBatchSize = v;
         emit MaxBatchSizeSet(v);
     }
@@ -505,7 +523,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         2 = require dual-sig (publisher + advertiser EIP-712 cosig).
     ///         3 = require dual-sig AND campaign must require valid ZK proofs.
     function setUserMinAssurance(uint8 level) external whenNotFrozen {
-        require(level <= 3, "E11");
+        if (!(level <= 3)) revert E11();
         userMinAssurance[msg.sender] = level;
         emit UserMinAssuranceSet(msg.sender, level);
     }
@@ -515,7 +533,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         override. The effective gate in `_processBatch` is
     ///         `max(campaignMinIdentityLevel, userMinIdentityLevel)`.
     function setUserMinIdentityLevel(uint8 level) external whenNotFrozen {
-        require(level <= 2, "E11");
+        if (!(level <= 2)) revert E11();
         userMinIdentityLevel[msg.sender] = level;
         emit UserMinIdentityLevelSet(msg.sender, level);
     }
@@ -525,8 +543,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         at a permissive registry and bypass every campaign's identity
     ///         gate in flight. Redeploy Settlement if rotation is needed.
     function setIdentityRegistry(address addr) external onlyOwner {
-        require(addr != address(0), "E00");
-        require(address(identityRegistry) == address(0), "already set");
+        if (!(addr != address(0))) revert E00();
+        if (!(address(identityRegistry) == address(0))) revert AlreadySet();
         identityRegistry = IDatumPeopleChainIdentity(addr);
         emit IdentityRegistrySet(addr);
     }
@@ -534,14 +552,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     /// @notice CB1: self-managed publisher blocklist. Caller is the user.
     ///         Blocked publishers cannot settle claims to this user.
     function setUserBlocksPublisher(address publisher, bool blocked) external whenNotFrozen {
-        require(publisher != address(0), "E00");
+        if (!(publisher != address(0))) revert E00();
         userBlocksPublisher[msg.sender][publisher] = blocked;
         emit UserBlocksPublisherSet(msg.sender, publisher, blocked);
     }
 
     /// @notice CB1: self-managed advertiser blocklist. Caller is the user.
     function setUserBlocksAdvertiser(address advertiser, bool blocked) external whenNotFrozen {
-        require(advertiser != address(0), "E00");
+        if (!(advertiser != address(0))) revert E00();
         userBlocksAdvertiser[msg.sender][advertiser] = blocked;
         emit UserBlocksAdvertiserSet(msg.sender, advertiser, blocked);
     }
@@ -573,8 +591,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     event ParameterGovernanceSet(address indexed pg);
 
     function setParameterGovernance(address pg) external onlyOwner {
-        require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
+        if (!(pg != address(0))) revert E00();
+        if (!(parameterGovernance == address(0))) revert AlreadySet();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -582,7 +600,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     /// @dev Owner OR parameterGovernance — for setters that should be both
     ///      conviction-vote tunable and emergency-deployer tunable.
     modifier onlyOwnerOrPG() {
-        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        if (!(msg.sender == owner() || msg.sender == parameterGovernance)) revert E18();
         _;
     }
 
@@ -590,10 +608,10 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         prevent footguns: baseShift in [1, 32], divisors > 0, leak > 0.
     /// @dev    Callable by owner OR `parameterGovernance` (via PG.execute()).
     function setPowDifficultyCurve(uint8 baseShift, uint32 linearDivisor, uint32 quadDivisor, uint32 bucketLeakPerN) external onlyOwnerOrPG {
-        require(baseShift >= 1 && baseShift <= 32, "E11");
-        require(linearDivisor > 0, "E11");
-        require(quadDivisor > 0, "E11");
-        require(bucketLeakPerN > 0, "E11");
+        if (!(baseShift >= 1 && baseShift <= 32)) revert E11();
+        if (!(linearDivisor > 0)) revert E11();
+        if (!(quadDivisor > 0)) revert E11();
+        if (!(bucketLeakPerN > 0)) revert E11();
         powBaseShift = baseShift;
         powLinearDivisor = linearDivisor;
         powQuadDivisor = quadDivisor;
@@ -647,8 +665,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         // A13: lock once set. Re-pointing to a fresh registry would create a
         // replay window for already-claimed click sessions. Deploy a new
         // Settlement if a registry swap is genuinely required.
-        require(address(clickRegistry) == address(0), "already set");
-        require(addr != address(0), "E00");
+        if (!(address(clickRegistry) == address(0))) revert AlreadySet();
+        if (!(addr != address(0))) revert E00();
         clickRegistry = IDatumClickRegistry(addr);
     }
 
@@ -660,8 +678,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     /// @notice One-time wiring of the DATUM mint authority. Set once at activation;
     ///         cannot be cleared. Activates settlement-driven DATUM minting.
     function setMintAuthority(address _mintAuthority) external onlyOwner {
-        require(_mintAuthority != address(0), "E00");
-        require(mintAuthority == address(0), "already set");
+        if (!(_mintAuthority != address(0))) revert E00();
+        if (!(mintAuthority == address(0))) revert AlreadySet();
         mintAuthority = _mintAuthority;
         emit MintAuthoritySet(_mintAuthority);
     }
@@ -672,8 +690,8 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         (dynamic rate × clipping against daily + epoch budgets)
     ///         instead of the legacy flat-rate path.
     function setEmissionEngine(address engine) external onlyOwner {
-        require(engine != address(0), "E00");
-        require(emissionEngine == address(0), "already set");
+        if (!(engine != address(0))) revert E00();
+        if (!(emissionEngine == address(0))) revert AlreadySet();
         emissionEngine = engine;
         emit EmissionEngineSet(engine);
     }
@@ -684,14 +702,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         changes go through the standard owner/governance route.
     function setMintRate(uint256 newRate) external onlyOwner {
         // A3/B4-fix: enforce hard ceiling. See MAX_MINT_RATE for rationale.
-        require(newRate <= MAX_MINT_RATE, "above cap");
+        if (!(newRate <= MAX_MINT_RATE)) revert AboveCap();
         uint256 old = mintRatePerDot;
         mintRatePerDot = newRate;
         emit MintRateUpdated(old, newRate);
     }
 
     function setDustMintThreshold(uint256 newThreshold) external onlyOwner {
-        require(newThreshold <= 1 * 10**10, "above cap");  // ≤ 1 DATUM max
+        if (!(newThreshold <= 1 * 10**10)) revert AboveCap();  // ≤ 1 DATUM max
         uint256 old = dustMintThreshold;
         dustMintThreshold = newThreshold;
         emit DustMintThresholdUpdated(old, newThreshold);
@@ -701,7 +719,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         take rate). Bounded to [MIN_USER_SHARE_BPS, MAX_USER_SHARE_BPS]
     ///         so neither user nor protocol can be governance-pushed to 0.
     function setUserShareBps(uint16 bps) external onlyOwner {
-        require(bps >= MIN_USER_SHARE_BPS && bps <= MAX_USER_SHARE_BPS, "E11");
+        if (!(bps >= MIN_USER_SHARE_BPS && bps <= MAX_USER_SHARE_BPS)) revert E11();
         userShareBps = bps;
         emit UserShareBpsSet(bps);
     }
@@ -711,7 +729,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     ///         legitimate future split might zero one party out (e.g. user-only
     ///         rewards). Each value is uint16 so max is 10000 anyway.
     function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwner {
-        require(uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) == 10000, "E11");
+        if (!(uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) == 10000)) revert E11();
         datumRewardUserBps = userBps;
         datumRewardPublisherBps = publisherBps;
         datumRewardAdvertiserBps = advertiserBps;
@@ -756,22 +774,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         whenNotFrozen
         returns (SettlementResult memory result)
     {
-        require(address(claimValidator) != address(0), "E00");
+        if (!(address(claimValidator) != address(0))) revert E00();
 
-        require(!pauseRegistry.pausedSettlement(), "P");
+        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
 
-        require(batches.length <= maxBatchSize, "E28");
+        if (!(batches.length <= maxBatchSize)) revert E28();
 
         for (uint256 b = 0; b < batches.length; b++) {
             ClaimBatch calldata batch = batches[b];
 
             bool isPublisherRelay = _isPublisherRelay(batch.claims);
 
-            require(
-                msg.sender == batch.user || msg.sender == relayContract ||
-                msg.sender == attestationVerifier || isPublisherRelay,
-                "E32"
-            );
+            if (!(msg.sender == batch.user || msg.sender == relayContract || msg.sender == attestationVerifier || isPublisherRelay)) revert E32();
             _processBatch(batch.user, batch.campaignId, batch.claims, result, false);
         }
     }
@@ -783,26 +797,22 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         whenNotFrozen
         returns (SettlementResult memory result)
     {
-        require(address(claimValidator) != address(0), "E00");
+        if (!(address(claimValidator) != address(0))) revert E00();
 
-        require(!pauseRegistry.pausedSettlement(), "P");
+        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
 
-        require(batches.length <= maxBatchSize, "E28");
+        if (!(batches.length <= maxBatchSize)) revert E28();
 
         for (uint256 u = 0; u < batches.length; u++) {
             UserClaimBatch calldata ub = batches[u];
-            require(ub.campaigns.length <= maxBatchSize, "E28");
+            if (!(ub.campaigns.length <= maxBatchSize)) revert E28();
 
             for (uint256 c = 0; c < ub.campaigns.length; c++) {
                 CampaignClaims calldata cc = ub.campaigns[c];
 
                 bool isPublisherRelay = _isPublisherRelay(cc.claims);
 
-                require(
-                    msg.sender == ub.user || msg.sender == relayContract ||
-                    msg.sender == attestationVerifier || isPublisherRelay,
-                    "E32"
-                );
+                if (!(msg.sender == ub.user || msg.sender == relayContract || msg.sender == attestationVerifier || isPublisherRelay)) revert E32();
 
                 _processBatch(ub.user, cc.campaignId, cc.claims, result, false);
             }
@@ -816,19 +826,19 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         whenNotFrozen
         returns (SettlementResult memory result)
     {
-        require(address(claimValidator) != address(0), "E00");
-        require(!pauseRegistry.pausedSettlement(), "P");
-        require(batches.length <= maxBatchSize, "E28");
+        if (!(address(claimValidator) != address(0))) revert E00();
+        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
+        if (!(batches.length <= maxBatchSize)) revert E28();
 
         for (uint256 b = 0; b < batches.length; b++) {
             SignedClaimBatch calldata batch = batches[b];
 
             // I-3: reject empty batches — sigs over no claims do nothing and just burn gas
-            require(batch.claims.length > 0, "E28");
+            if (!(batch.claims.length > 0)) revert E28();
 
             // A9: block.number deadline (was block.timestamp). Matches DatumRelay
             // so off-chain clients use one consistent unit across paths.
-            require(block.number <= batch.deadlineBlock, "E81");
+            if (!(block.number <= batch.deadlineBlock)) revert E81();
 
             // Build the EIP-712 struct hash over the batch envelope.
             // A1/M6: both `expectedRelaySigner` (publisher's hot key at sign
@@ -850,11 +860,11 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             // Recover and verify publisher signature
             address pubSigner = ECDSA.recover(digest, batch.publisherSig);
             address expectedPublisher = _batchPublisher(batch.claims);
-            require(expectedPublisher != address(0), "E00");
+            if (!(expectedPublisher != address(0))) revert E00();
             // M-3 (SM-1): every claim must target the same publisher as claims[0]
             // so the dual-sig path's authorization model matches DatumRelay.
             for (uint256 i = 1; i < batch.claims.length; i++) {
-                require(batch.claims[i].publisher == expectedPublisher, "E34");
+                if (!(batch.claims[i].publisher == expectedPublisher)) revert E34();
             }
             // A1: publisher sig must come from `expectedRelaySigner` (if set in
             // the envelope) OR from the publisher's EOA itself. If the envelope
@@ -867,12 +877,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
                     try publishers.relaySigner(expectedPublisher) returns (address r) {
                         currentRelay = r;
                     } catch {}
-                    require(currentRelay == batch.expectedRelaySigner, "E84");
+                    if (!(currentRelay == batch.expectedRelaySigner)) revert E84();
                 }
-                require(pubSigner == batch.expectedRelaySigner, "E82");
+                if (!(pubSigner == batch.expectedRelaySigner)) revert E82();
             } else {
                 // Strict path: only the publisher's EOA can sign.
-                require(pubSigner == expectedPublisher, "E82");
+                if (!(pubSigner == expectedPublisher)) revert E82();
             }
 
             // Recover and verify advertiser signature.
@@ -885,17 +895,17 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             //   - If zero, strict path: sig must come from the advertiser's EOA.
             address advSigner = ECDSA.recover(digest, batch.advertiserSig);
             address expectedAdvertiser = campaigns.getCampaignAdvertiser(batch.campaignId);
-            require(expectedAdvertiser != address(0), "E00");
+            if (!(expectedAdvertiser != address(0))) revert E00();
             if (batch.expectedAdvertiserRelaySigner != address(0)) {
                 address currentAdvRelay = address(0);
                 try campaigns.getAdvertiserRelaySigner(expectedAdvertiser) returns (address r) {
                     currentAdvRelay = r;
                 } catch {}
-                require(currentAdvRelay == batch.expectedAdvertiserRelaySigner, "E85");
-                require(advSigner == batch.expectedAdvertiserRelaySigner, "E83");
+                if (!(currentAdvRelay == batch.expectedAdvertiserRelaySigner)) revert E85();
+                if (!(advSigner == batch.expectedAdvertiserRelaySigner)) revert E83();
             } else {
                 // Strict path: only the advertiser's EOA can sign.
-                require(advSigner == expectedAdvertiser, "E83");
+                if (!(advSigner == expectedAdvertiser)) revert E83();
             }
 
             _processBatch(batch.user, batch.campaignId, batch.claims, result, true);
@@ -948,7 +958,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         SettlementResult memory result,
         bool advertiserConsented
     ) internal {
-        require(claims.length <= maxBatchSize, "E28");
+        if (!(claims.length <= maxBatchSize)) revert E28();
 
         // CB2 (2026-05-13): user self-pause kill switch. Reject the whole
         // batch when the user has paused their own account — emits per-claim
@@ -1398,7 +1408,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
                 _cbTotal = 0;
             }
             _cbTotal += agg.total;
-            require(_cbTotal <= maxSettlementPerBlock, "E80");
+            if (!(_cbTotal <= maxSettlementPerBlock)) revert E80();
         }
 
         // Aggregate paymentVault credit

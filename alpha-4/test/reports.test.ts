@@ -85,11 +85,11 @@ describe("DatumCampaigns — Reports", function () {
 
   // RP3: reportPage with invalid reason reverts E68
   it("RP3: reportPage with reason=0 reverts E68", async function () {
-    await expect(campaigns.connect(reporter1).reportPage(1, 0)).to.be.revertedWith("E68");
+    await expect(campaigns.connect(reporter1).reportPage(1, 0)).to.be.revertedWithCustomError(campaigns, "E68");
   });
 
   it("RP3b: reportPage with reason=6 reverts E68", async function () {
-    await expect(campaigns.connect(reporter1).reportPage(1, 6)).to.be.revertedWith("E68");
+    await expect(campaigns.connect(reporter1).reportPage(1, 6)).to.be.revertedWithCustomError(campaigns, "E68");
   });
 
   // RP4: reportAd increments adReports for campaign
@@ -107,20 +107,20 @@ describe("DatumCampaigns — Reports", function () {
 
   // RP6: reportAd with invalid reason reverts E68
   it("RP6: reportAd with reason=6 reverts E68", async function () {
-    await expect(campaigns.connect(reporter1).reportAd(1, 6)).to.be.revertedWith("E68");
+    await expect(campaigns.connect(reporter1).reportAd(1, 6)).to.be.revertedWithCustomError(campaigns, "E68");
   });
 
   it("RP6b: reportAd with reason=0 reverts E68", async function () {
-    await expect(campaigns.connect(reporter1).reportAd(1, 0)).to.be.revertedWith("E68");
+    await expect(campaigns.connect(reporter1).reportAd(1, 0)).to.be.revertedWithCustomError(campaigns, "E68");
   });
 
   // RP7: non-existent campaign reverts E01
   it("RP7: reportPage on non-existent campaign reverts E01", async function () {
-    await expect(campaigns.connect(reporter1).reportPage(999, 1)).to.be.revertedWith("E01");
+    await expect(campaigns.connect(reporter1).reportPage(999, 1)).to.be.revertedWithCustomError(campaigns, "E01");
   });
 
   it("RP7b: reportAd on non-existent campaign reverts E01", async function () {
-    await expect(campaigns.connect(reporter1).reportAd(999, 1)).to.be.revertedWith("E01");
+    await expect(campaigns.connect(reporter1).reportAd(999, 1)).to.be.revertedWithCustomError(campaigns, "E01");
   });
 
   // RP8: open campaign (publisher=0) — reportPage does NOT increment publisherReports
