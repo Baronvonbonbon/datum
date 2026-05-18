@@ -1013,9 +1013,16 @@ async function main() {
   // Skips if vkSet is already true (idempotent) or if calldata file is absent.
   {
     const vkCalldataPath = path.join(__dirname, "..", "circuits", "setVK-calldata.json");
+    // Path A circuit (impression.circom) has 7 public inputs → 8 IC points
+    // (IC0..IC7). Must match DatumZKVerifier.setVerifyingKey signature.
+    const setVkSig =
+      "function setVerifyingKey(" +
+      "uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, " +
+      "uint256[2] IC0, uint256[2] IC1, uint256[2] IC2, uint256[2] IC3, " +
+      "uint256[2] IC4, uint256[2] IC5, uint256[2] IC6, uint256[2] IC7)";
     const zkIface = new ethers.Interface([
       "function vkSet() view returns (bool)",
-      "function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2, uint256[2] IC3)",
+      setVkSig,
     ]);
 
     const vkSetData = zkIface.encodeFunctionData("vkSet");
@@ -1029,16 +1036,23 @@ async function main() {
       console.warn("        Run `node scripts/setup-zk.mjs` to generate it, then re-run deploy.ts.");
     } else {
       const vkCalldata = JSON.parse(fs.readFileSync(vkCalldataPath, "utf-8"));
-      if (!vkCalldata.IC3) {
-        console.warn("  SKIP: ZKVerifier.setVerifyingKey — calldata missing IC3 (re-run setup-zk.mjs after circuit update)");
+      if (!vkCalldata.IC7) {
+        console.warn("  SKIP: ZKVerifier.setVerifyingKey — calldata only has IC0..IC" +
+                     (vkCalldata.IC6 ? 6 : vkCalldata.IC5 ? 5 : vkCalldata.IC4 ? 4 : 3) +
+                     "; current circuit has 7 public inputs (needs IC0..IC7)");
+        console.warn("        Re-run `node scripts/setup-zk.mjs` to regenerate setVK-calldata.json.");
       } else {
         await sendCall(
           addresses.zkVerifier,
-          ["function setVerifyingKey(uint256[2] alpha1, uint256[4] beta2, uint256[4] gamma2, uint256[4] delta2, uint256[2] IC0, uint256[2] IC1, uint256[2] IC2, uint256[2] IC3)"],
+          [setVkSig],
           "setVerifyingKey",
-          [vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2, vkCalldata.IC0, vkCalldata.IC1, vkCalldata.IC2, vkCalldata.IC3],
+          [
+            vkCalldata.alpha1, vkCalldata.beta2, vkCalldata.gamma2, vkCalldata.delta2,
+            vkCalldata.IC0, vkCalldata.IC1, vkCalldata.IC2, vkCalldata.IC3,
+            vkCalldata.IC4, vkCalldata.IC5, vkCalldata.IC6, vkCalldata.IC7,
+          ],
         );
-        console.log("  SET: ZKVerifier.vk (Groth16 verifying key, 3 public inputs: claimHash, nullifier, impressions)");
+        console.log("  SET: ZKVerifier.vk (Groth16, 7 public inputs: claimHash, nullifier, impressions, stakeRoot, minStake, interestRoot, requiredCategory)");
       }
     }
   }

@@ -26,9 +26,11 @@ alpha-3/circuits/impression_0000.zkey
 alpha-3/circuits/impression.r1cs
 alpha-3/circuits/impression.sym
 alpha-4/circuits/ptau12.ptau
+alpha-4/circuits/ptau13.ptau
 alpha-4/circuits/impression_0000.zkey
 alpha-4/circuits/impression.r1cs
 alpha-4/circuits/impression.sym
+alpha-4/circom
 .env
 
 # DATUM token deploy outputs (per-network)
