@@ -16,6 +16,7 @@ import { parseDOT } from "./helpers/dot";
 
 describe("Multi-publisher campaigns", function () {
   let campaigns: any, publishers: any, ledger: any, pauseReg: any, bonds: any;
+  let allowlist: any;
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
   let pub1: HardhatEthersSigner, pub2: HardhatEthersSigner, pub3: HardhatEthersSigner, other: HardhatEthersSigner;
@@ -53,6 +54,13 @@ describe("Multi-publisher campaigns", function () {
     await campaigns.setLifecycleContract(lifecycleMock.address);
     await campaigns.setChallengeBonds(await bonds.getAddress());
     await bonds.setCampaignsContract(await campaigns.getAddress());
+
+    allowlist = await (await ethers.getContractFactory("DatumCampaignAllowlist")).deploy();
+    await allowlist.setCampaigns(await campaigns.getAddress());
+    await allowlist.setPublishers(await publishers.getAddress());
+    await allowlist.setChallengeBonds(await bonds.getAddress());
+    await campaigns.setAllowlist(await allowlist.getAddress());
+    await bonds.setCampaignAllowlist(await allowlist.getAddress());
     await bonds.setLifecycleContract(lifecycleMock.address);
     await bonds.setGovernanceContract(governanceMock.address);
 
@@ -78,63 +86,63 @@ describe("Multi-publisher campaigns", function () {
 
   it("createCampaign(publisher=A) registers A in the allowlist with count=1", async function () {
     const id = await createCampaign(pub1.address);
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(1);
-    expect(await campaigns.isAllowedPublisher(id, pub1.address)).to.equal(true);
-    expect(await campaigns.isAllowedPublisher(id, pub2.address)).to.equal(false);
-    expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
-    expect(await campaigns.campaignMode(id)).to.equal(1); // ALLOWLIST
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(1);
+    expect(await allowlist.isAllowedPublisher(id, pub1.address)).to.equal(true);
+    expect(await allowlist.isAllowedPublisher(id, pub2.address)).to.equal(false);
+    expect(await allowlist.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+    expect(await allowlist.campaignMode(id)).to.equal(1); // ALLOWLIST
   });
 
   it("createCampaign(publisher=0) leaves allowlist empty (OPEN mode)", async function () {
     const id = await createCampaign(ethers.ZeroAddress);
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(0);
-    expect(await campaigns.campaignMode(id)).to.equal(0); // OPEN
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(0);
+    expect(await allowlist.campaignMode(id)).to.equal(0); // OPEN
   });
 
   // ── addAllowedPublisher ───────────────────────────────────────────────
 
   it("addAllowedPublisher in Pending adds a second publisher with its own take rate", async function () {
     const id = await createCampaign(pub1.address);
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address);
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(2);
-    expect(await campaigns.isAllowedPublisher(id, pub2.address)).to.equal(true);
-    expect(await campaigns.getCampaignPublisherTakeRate(id, pub2.address)).to.equal(4000);
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address);
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(2);
+    expect(await allowlist.isAllowedPublisher(id, pub2.address)).to.equal(true);
+    expect(await allowlist.getCampaignPublisherTakeRate(id, pub2.address)).to.equal(4000);
     // The original publisher's take rate is unaffected.
-    expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+    expect(await allowlist.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
   });
 
   it("addAllowedPublisher emits PublisherAllowed", async function () {
     const id = await createCampaign(pub1.address);
-    await expect(campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address))
-      .to.emit(campaigns, "PublisherAllowed").withArgs(id, pub2.address, 4000);
+    await expect(allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address))
+      .to.emit(allowlist, "PublisherAllowed").withArgs(id, pub2.address, 4000);
   });
 
   it("addAllowedPublisher reverts E21 if not the advertiser", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
-      campaigns.connect(other).addAllowedPublisher(id, pub2.address)
-    ).to.be.revertedWithCustomError(campaigns, "E21");
+      allowlist.connect(other).addAllowedPublisher(id, pub2.address)
+    ).to.be.revertedWithCustomError(allowlist, "E21");
   });
 
   it("addAllowedPublisher reverts E71 if publisher already in set", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
-      campaigns.connect(advertiser).addAllowedPublisher(id, pub1.address)
-    ).to.be.revertedWithCustomError(campaigns, "E71");
+      allowlist.connect(advertiser).addAllowedPublisher(id, pub1.address)
+    ).to.be.revertedWithCustomError(allowlist, "E71");
   });
 
   it("addAllowedPublisher reverts E62 if publisher not registered", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
-      campaigns.connect(advertiser).addAllowedPublisher(id, other.address)
-    ).to.be.revertedWithCustomError(campaigns, "E62");
+      allowlist.connect(advertiser).addAllowedPublisher(id, other.address)
+    ).to.be.revertedWithCustomError(allowlist, "E62");
   });
 
   // ── Per-publisher take-rate snapshot ──────────────────────────────────
 
   it("take rate is snapshotted at allowlist-add time, not at settle time", async function () {
     const id = await createCampaign(pub1.address);
-    expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+    expect(await allowlist.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
     // pub1 stages a take-rate update.
     await publishers.connect(pub1).updateTakeRate(7000);
     // Mine past the delay (50 blocks per our deploy config).
@@ -142,32 +150,32 @@ describe("Multi-publisher campaigns", function () {
     await publishers.connect(pub1).applyTakeRateUpdate();
     expect((await publishers.getPublisher(pub1.address)).takeRateBps).to.equal(7000);
     // Campaign's snapshot is still the original 5000.
-    expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+    expect(await allowlist.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
   });
 
   // ── removeAllowedPublisher ─────────────────────────────────────────────
 
   it("removeAllowedPublisher decrements count and clears the allowed flag", async function () {
     const id = await createCampaign(pub1.address);
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address);
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(2);
-    await campaigns.connect(advertiser).removeAllowedPublisher(id, pub2.address);
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(1);
-    expect(await campaigns.isAllowedPublisher(id, pub2.address)).to.equal(false);
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address);
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(2);
+    await allowlist.connect(advertiser).removeAllowedPublisher(id, pub2.address);
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(1);
+    expect(await allowlist.isAllowedPublisher(id, pub2.address)).to.equal(false);
   });
 
   it("removeAllowedPublisher reverts E01 if not in set", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
-      campaigns.connect(advertiser).removeAllowedPublisher(id, pub2.address)
-    ).to.be.revertedWithCustomError(campaigns, "E01");
+      allowlist.connect(advertiser).removeAllowedPublisher(id, pub2.address)
+    ).to.be.revertedWithCustomError(allowlist, "E01");
   });
 
   it("removeAllowedPublisher reverts E21 if not the advertiser", async function () {
     const id = await createCampaign(pub1.address);
     await expect(
-      campaigns.connect(other).removeAllowedPublisher(id, pub1.address)
-    ).to.be.revertedWithCustomError(campaigns, "E21");
+      allowlist.connect(other).removeAllowedPublisher(id, pub1.address)
+    ).to.be.revertedWithCustomError(allowlist, "E21");
   });
 
   // ── Per-publisher bonds ────────────────────────────────────────────────
@@ -183,7 +191,7 @@ describe("Multi-publisher campaigns", function () {
   it("addAllowedPublisher with msg.value > 0 locks a per-publisher bond", async function () {
     const id = await createCampaign(pub1.address, parseDOT("0.05"));
     const bondAmt = parseDOT("0.03");
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: bondAmt });
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: bondAmt });
     expect(await bonds.bondForPublisher(id, pub2.address)).to.equal(bondAmt);
     expect(await bonds.bondForPublisher(id, pub1.address)).to.equal(parseDOT("0.05"));
     // bondedPublishers should now include both.
@@ -193,7 +201,7 @@ describe("Multi-publisher campaigns", function () {
 
   it("returnBond returns all per-publisher bonds to advertiser pull-queue", async function () {
     const id = await createCampaign(pub1.address, parseDOT("0.05"));
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
     // Trigger Lifecycle return via the mock lifecycle signer.
     await bonds.connect(lifecycleMock).returnBond(id);
     expect(await bonds.pendingBondReturn(advertiser.address)).to.equal(parseDOT("0.08"));
@@ -203,7 +211,7 @@ describe("Multi-publisher campaigns", function () {
 
   it("claimBonusForPublisher pays per-publisher pool, doesn't drain other publisher's bond", async function () {
     const id = await createCampaign(pub1.address, parseDOT("0.05"));
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
 
     // Fund pub1's pool (governance simulates fraud-upheld split).
     await bonds.connect(governanceMock).addToPool(pub1.address, { value: parseDOT("0.1") });
@@ -228,7 +236,7 @@ describe("Multi-publisher campaigns", function () {
 
   it("legacy claimBonus(id) reverts 'ambiguous' when >1 bonded publishers", async function () {
     const id = await createCampaign(pub1.address, parseDOT("0.05"));
-    await campaigns.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
+    await allowlist.connect(advertiser).addAllowedPublisher(id, pub2.address, { value: parseDOT("0.03") });
     await bonds.connect(governanceMock).addToPool(pub1.address, { value: parseDOT("0.1") });
     await expect(bonds.connect(advertiser).claimBonus(id)).to.be.revertedWith("ambiguous");
   });
@@ -237,11 +245,11 @@ describe("Multi-publisher campaigns", function () {
 
   it("open campaigns still settle via the tag-match path (count=0)", async function () {
     const id = await createCampaign(ethers.ZeroAddress);
-    expect(await campaigns.campaignMode(id)).to.equal(0);
+    expect(await allowlist.campaignMode(id)).to.equal(0);
     // For open campaigns, getCampaignForSettlement returns publisher=0 and
     // ClaimValidator uses the legacy tag-match path. We don't drive a full
     // settlement here — the key invariant tested is allowlist count stays 0.
-    expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(0);
+    expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(0);
   });
 
   // ── Cap on allowlist size ──────────────────────────────────────────────
@@ -250,20 +258,20 @@ describe("Multi-publisher campaigns", function () {
   describe("addAllowedPublishers (batch)", function () {
     it("batch adds two publishers without bond in one call", async function () {
       const id = await createCampaign(ethers.ZeroAddress); // open campaign
-      await campaigns.connect(advertiser).addAllowedPublishers(
+      await allowlist.connect(advertiser).addAllowedPublishers(
         id, [pub1.address, pub2.address], [0n, 0n], { value: 0 }
       );
-      expect(await campaigns.campaignAllowedPublisherCount(id)).to.equal(2);
-      expect(await campaigns.isAllowedPublisher(id, pub1.address)).to.equal(true);
-      expect(await campaigns.isAllowedPublisher(id, pub2.address)).to.equal(true);
-      expect(await campaigns.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
-      expect(await campaigns.getCampaignPublisherTakeRate(id, pub2.address)).to.equal(4000);
+      expect(await allowlist.campaignAllowedPublisherCount(id)).to.equal(2);
+      expect(await allowlist.isAllowedPublisher(id, pub1.address)).to.equal(true);
+      expect(await allowlist.isAllowedPublisher(id, pub2.address)).to.equal(true);
+      expect(await allowlist.getCampaignPublisherTakeRate(id, pub1.address)).to.equal(5000);
+      expect(await allowlist.getCampaignPublisherTakeRate(id, pub2.address)).to.equal(4000);
     });
 
     it("batch adds with per-entry bonds; sum must equal msg.value", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       const b1 = parseDOT("0.5"), b2 = parseDOT("0.25");
-      await campaigns.connect(advertiser).addAllowedPublishers(
+      await allowlist.connect(advertiser).addAllowedPublishers(
         id, [pub1.address, pub2.address], [b1, b2], { value: b1 + b2 }
       );
       expect(await bonds.bondForPublisher(id, pub1.address)).to.equal(b1);
@@ -273,64 +281,64 @@ describe("Multi-publisher campaigns", function () {
     it("mismatched sum of bonds vs msg.value reverts (E11)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
-        campaigns.connect(advertiser).addAllowedPublishers(
+        allowlist.connect(advertiser).addAllowedPublishers(
           id, [pub1.address], [parseDOT("0.5")], { value: parseDOT("0.4") }
         )
-      ).to.be.revertedWithCustomError(campaigns, "E11");
+      ).to.be.revertedWithCustomError(allowlist, "E11");
     });
 
     it("array length mismatch reverts (E11)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
-        campaigns.connect(advertiser).addAllowedPublishers(
+        allowlist.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub2.address], [0n], { value: 0 }
         )
-      ).to.be.revertedWithCustomError(campaigns, "E11");
+      ).to.be.revertedWithCustomError(allowlist, "E11");
     });
 
     it("empty batch reverts (E11)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
-        campaigns.connect(advertiser).addAllowedPublishers(id, [], [], { value: 0 })
-      ).to.be.revertedWithCustomError(campaigns, "E11");
+        allowlist.connect(advertiser).addAllowedPublishers(id, [], [], { value: 0 })
+      ).to.be.revertedWithCustomError(allowlist, "E11");
     });
 
     it("non-advertiser reverts (E21)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
-        campaigns.connect(other).addAllowedPublishers(id, [pub1.address], [0n], { value: 0 })
-      ).to.be.revertedWithCustomError(campaigns, "E21");
+        allowlist.connect(other).addAllowedPublishers(id, [pub1.address], [0n], { value: 0 })
+      ).to.be.revertedWithCustomError(allowlist, "E21");
     });
 
     it("duplicate in batch reverts (E71)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       await expect(
-        campaigns.connect(advertiser).addAllowedPublishers(
+        allowlist.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub1.address], [0n, 0n], { value: 0 }
         )
-      ).to.be.revertedWithCustomError(campaigns, "E71");
+      ).to.be.revertedWithCustomError(allowlist, "E71");
     });
 
     it("exceeding remaining headroom reverts (E11)", async function () {
       const id = await createCampaign(ethers.ZeroAddress);
       // Shrink cap so we can hit the headroom check
-      await campaigns.setMaxAllowedPublishers(1);
+      await allowlist.setMaxAllowedPublishers(1);
       await expect(
-        campaigns.connect(advertiser).addAllowedPublishers(
+        allowlist.connect(advertiser).addAllowedPublishers(
           id, [pub1.address, pub2.address], [0n, 0n], { value: 0 }
         )
-      ).to.be.revertedWithCustomError(campaigns, "E11");
-      await campaigns.setMaxAllowedPublishers(64); // restore
+      ).to.be.revertedWithCustomError(allowlist, "E11");
+      await allowlist.setMaxAllowedPublishers(64); // restore
     });
   });
 
   it("maxAllowedPublishers cap is exposed + lockstep with bonds", async function () {
     // Default after Phase B is 64; governance can re-tune within
     // MAX_ALLOWED_PUBLISHERS_CEILING. Same default on the bonds side.
-    expect(await campaigns.maxAllowedPublishers()).to.equal(64);
+    expect(await allowlist.maxAllowedPublishers()).to.equal(64);
     expect(await bonds.maxBondedPublishers()).to.equal(64);
     // Ceilings exposed
-    expect(await campaigns.MAX_ALLOWED_PUBLISHERS_CEILING()).to.equal(256);
+    expect(await allowlist.MAX_ALLOWED_PUBLISHERS_CEILING()).to.equal(256);
     expect(await bonds.MAX_BONDED_PUBLISHERS_CEILING()).to.equal(256);
   });
 });

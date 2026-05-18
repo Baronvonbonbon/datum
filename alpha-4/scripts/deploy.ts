@@ -129,6 +129,8 @@ const REQUIRED_KEYS = [
   "campaignCreative",
   // Community reports (carved back out of DatumCampaigns for EIP-170, alpha-4)
   "reports",
+  // Multi-publisher allowlist (carved out of DatumCampaigns for EIP-170, alpha-4)
+  "campaignAllowlist",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -697,6 +699,13 @@ async function main() {
     await deployOrReuse("reports", "DatumReports", []);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumReports — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumCampaignAllowlist (multi-publisher allowlist)");
+    await deployOrReuse("campaignAllowlist", "DatumCampaignAllowlist", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumCampaignAllowlist — ${err}`);
   }
 
   // --- B2: Council-driven blocklist curator ---
@@ -1330,6 +1339,47 @@ async function main() {
     addresses.settlement,
   );
 
+  // ── CampaignAllowlist: setCampaigns + setPublishers + setChallengeBonds ──
+  // ── Campaigns: setAllowlist (lock-once write coupling) ──
+  // ── ChallengeBonds: setCampaignAllowlist (lockBond auth) ──
+  // ── ClaimValidator: setCampaignAllowlist (per-claim gate read) ──
+  await wireIfNeeded(
+    "CampaignAllowlist.campaigns",
+    "DatumCampaignAllowlist", addresses.campaignAllowlist,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "CampaignAllowlist.publishers",
+    "DatumCampaignAllowlist", addresses.campaignAllowlist,
+    "publishers", "setPublishers",
+    addresses.publishers,
+  );
+  await wireIfNeeded(
+    "CampaignAllowlist.challengeBonds",
+    "DatumCampaignAllowlist", addresses.campaignAllowlist,
+    "challengeBonds", "setChallengeBonds",
+    addresses.challengeBonds,
+  );
+  await wireIfNeeded(
+    "Campaigns.allowlist",
+    "DatumCampaigns", addresses.campaigns,
+    "allowlist", "setAllowlist",
+    addresses.campaignAllowlist,
+  );
+  await wireIfNeeded(
+    "ChallengeBonds.campaignAllowlist",
+    "DatumChallengeBonds", addresses.challengeBonds,
+    "campaignAllowlist", "setCampaignAllowlist",
+    addresses.campaignAllowlist,
+  );
+  await wireIfNeeded(
+    "ClaimValidator.campaignAllowlist",
+    "DatumClaimValidator", addresses.claimValidator,
+    "campaignAllowlist", "setCampaignAllowlist",
+    addresses.campaignAllowlist,
+  );
+
   // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
   await wireIfNeeded(
     "EmissionEngine.settlement",
@@ -1834,6 +1884,7 @@ async function main() {
     "settlementRateLimiter",
     "campaignCreative",
     "reports",
+    "campaignAllowlist",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",

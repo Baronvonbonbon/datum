@@ -186,11 +186,8 @@ interface IDatumCampaigns {
     function campaignAllowlistEnabled(uint256 campaignId) external view returns (bool);
     function campaignAllowlistSnapshot(uint256 campaignId, address advertiser) external view returns (bool);
 
-    // Multi-publisher campaign views.
-    function isAllowedPublisher(uint256 campaignId, address publisher) external view returns (bool);
-    function getCampaignPublisherTakeRate(uint256 campaignId, address publisher) external view returns (uint16);
-    function campaignAllowedPublisherCount(uint256 campaignId) external view returns (uint16);
-    function campaignMode(uint256 campaignId) external view returns (uint8);
+    // Multi-publisher allowlist views moved to DatumCampaignAllowlist
+    // (alpha-4 EIP-170 carve-out).
 
     // Targeting views (merged from TargetingRegistry)
     function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool);

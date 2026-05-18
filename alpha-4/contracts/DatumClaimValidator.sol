@@ -28,6 +28,15 @@ interface IPowEngineGate {
 /// @dev #1 + #2-extension: minimal Campaigns view interface for per-campaign
 ///      sybil knobs. Calls are try/catch-wrapped — falls back to no-op when
 ///      Campaigns doesn't expose these yet (staged migration).
+/// @dev Inline read interface for the carved-out per-campaign allowlist
+///      module (alpha-4 EIP-170). Kept minimal -- ClaimValidator only
+///      needs the three per-claim reads.
+interface IAllowlistGate {
+    function campaignAllowedPublisherCount(uint256 campaignId) external view returns (uint16);
+    function isAllowedPublisher(uint256 campaignId, address publisher) external view returns (bool);
+    function getCampaignPublisherTakeRate(uint256 campaignId, address publisher) external view returns (uint16);
+}
+
 interface ICampaignsSybilKnobs {
     function minUserSettledHistory(uint256 campaignId) external view returns (uint32);
 }
@@ -122,6 +131,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     address public powEngine;
     event PowEngineSet(address indexed engine);
 
+    /// @notice Carved-out allowlist module (alpha-4 EIP-170). When wired,
+    ///         ClaimValidator reads ALLOWLIST-mode gates here instead of from
+    ///         DatumCampaigns. address(0) means "treat every campaign as OPEN"
+    ///         which preserves legacy behavior for test fixtures.
+    address public campaignAllowlist;
+    event CampaignAllowlistSet(address indexed allowlist);
+
     // Path A (ZK): stake-root + interest-commitment refs. Both optional —
     //              when unset, Check 9 falls back to the legacy 3-pub verify()
     //              entrypoint and the stake/interest gates are effectively off.
@@ -213,6 +229,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         emit PowEngineSet(addr);
     }
 
+    function setCampaignAllowlist(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        require(addr != address(0), "E00");
+        campaignAllowlist = addr;
+        emit CampaignAllowlistSet(addr);
+    }
+
     /// @notice Path A: wire the stake-root commitment contract.
     function setStakeRoot(address addr) external onlyOwner {
         require(!plumbingLocked, "locked");
@@ -299,21 +322,23 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         if (claim.publisher == address(0)) return (false, 5, 0, bytes32(0));
 
         uint16 allowedCount = 0;
-        try campaigns.campaignAllowedPublisherCount(claim.campaignId) returns (uint16 n) {
-            allowedCount = n;
-        } catch {
-            // Legacy Campaigns without these getters: fall back to the
-            // single-publisher cPublisher check below.
+        IAllowlistGate _al = IAllowlistGate(campaignAllowlist);
+        if (campaignAllowlist != address(0)) {
+            try _al.campaignAllowedPublisherCount(claim.campaignId) returns (uint16 n) {
+                allowedCount = n;
+            } catch {
+                // Module reachable but reverted -- treat as legacy OPEN.
+            }
         }
 
         if (allowedCount > 0) {
             // ALLOWLIST mode: per-publisher gate + per-publisher take rate snapshot.
-            try campaigns.isAllowedPublisher(claim.campaignId, claim.publisher) returns (bool allowed) {
+            try _al.isAllowedPublisher(claim.campaignId, claim.publisher) returns (bool allowed) {
                 if (!allowed) return (false, 5, 0, bytes32(0));
             } catch {
                 return (false, 5, 0, bytes32(0));
             }
-            try campaigns.getCampaignPublisherTakeRate(claim.campaignId, claim.publisher)
+            try _al.getCampaignPublisherTakeRate(claim.campaignId, claim.publisher)
                 returns (uint16 r)
             {
                 cTakeRate = r;

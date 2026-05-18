@@ -490,6 +490,7 @@ async function main() {
     "governanceRouter", "council",
     "campaignCreative",
     "reports",
+    "campaignAllowlist",
   ];
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {

@@ -32,6 +32,10 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
 
     /// @notice Campaigns contract — authorised to call lockBond.
     address public campaignsContract;
+    /// @notice Allowlist module authorized to call `lockBond` for
+    ///         multi-publisher add paths. Set once.
+    address public campaignAllowlist;
+    event CampaignAllowlistSet(address indexed addr);
 
     /// @notice Lifecycle contract — authorised to call returnBond.
     address public lifecycleContract;
@@ -83,6 +87,16 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
         campaignsContract = addr;
     }
 
+    /// @notice Wire the carved-out allowlist module so it can call lockBond.
+    ///         Lock-once; intentionally separate from `campaignsContract` so
+    ///         the two writers can be upgraded independently.
+    function setCampaignAllowlist(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(campaignAllowlist == address(0), "already set");
+        campaignAllowlist = addr;
+        emit CampaignAllowlistSet(addr);
+    }
+
     function setLifecycleContract(address addr) external onlyOwner {
         require(addr != address(0), "E00");
         require(lifecycleContract == address(0), "already set");
@@ -104,7 +118,10 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     ///      publishers on the same campaign. Reverts if (campaignId, publisher)
     ///      is already bonded.
     function lockBond(uint256 campaignId, address advertiser, address publisher) external payable whenNotFrozen {
-        require(msg.sender == campaignsContract, "E18");
+        require(
+            msg.sender == campaignsContract || msg.sender == campaignAllowlist,
+            "E18"
+        );
         require(msg.value > 0, "E11");
         require(publisher != address(0), "E00");
         require(_bond[campaignId][publisher] == 0, "E71"); // already bonded for this pair
