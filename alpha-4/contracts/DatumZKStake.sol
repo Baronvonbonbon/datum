@@ -225,7 +225,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
 
     /// @notice Lock the slasher set permanently. After this, isSlasher entries
     ///         cannot be added or removed; the slashing authority is fixed.
-    function lockSlashers() external onlyOwner {
+    function lockSlashers() external onlyOwner whenOpenGovPhase {
         require(!slashersLocked, "already locked");
         slashersLocked = true;
         emit SlashersLocked();

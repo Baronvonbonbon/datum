@@ -114,7 +114,7 @@ contract DatumPauseRegistry is DatumUpgradable {
     /// @notice A5: permanently disable owner authority over the guardian set.
     ///         Irreversible. After this the owner can still call no other
     ///         pause-related function — guardians become fully self-managing.
-    function lockGuardianSet() external onlyOwner {
+    function lockGuardianSet() external onlyOwner whenOpenGovPhase {
         require(!guardianSetLocked, "already locked");
         guardianSetLocked = true;
         emit GuardianSetLocked();

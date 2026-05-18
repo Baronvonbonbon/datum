@@ -54,7 +54,7 @@ contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumUpgradable
 
     /// @notice Permanently freeze the council pointer. After this, the owner
     ///         can no longer rotate the council contract. Irreversible.
-    function lockCouncil() external onlyOwner {
+    function lockCouncil() external onlyOwner whenOpenGovPhase {
         require(!councilLocked, "already locked");
         require(council != address(0), "council unset");
         councilLocked = true;

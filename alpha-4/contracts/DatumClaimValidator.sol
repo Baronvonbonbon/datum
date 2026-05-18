@@ -231,7 +231,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     /// @dev    Requires every ref to be set non-zero first — protects against
     ///         locking with a critical ref still unwired. Optional refs that
     ///         remain zero are *committed to staying zero* by the lock.
-    function lockPlumbing() external onlyOwner {
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
         require(!plumbingLocked, "already locked");
         require(address(campaigns) != address(0), "campaigns unset");
         require(address(publishers) != address(0), "publishers unset");

@@ -75,7 +75,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     }
 
     /// @notice A7-fix: freeze the FeeShare recipient permanently.
-    function lockFeeShareRecipient() external onlyOwner {
+    function lockFeeShareRecipient() external onlyOwner whenOpenGovPhase {
         require(!feeShareRecipientLocked, "already locked");
         require(feeShareRecipient != address(0), "set first");
         feeShareRecipientLocked = true;

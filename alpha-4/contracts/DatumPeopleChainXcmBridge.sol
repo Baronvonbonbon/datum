@@ -165,7 +165,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
 
     /// @notice One-way lock for the sovereign address. Call after Paseo
     ///         validation confirms the real People Chain sovereign.
-    function lockSovereign() external onlyOwner {
+    function lockSovereign() external onlyOwner whenOpenGovPhase {
         require(peopleChainSovereign != address(0), "E00");
         sovereignLocked = true;
         emit SovereignLocked();
@@ -188,7 +188,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
         emit PalletCallIndicesSet(_palletIndex, _callIndex);
     }
 
-    function lockPalletCallIndices() external onlyOwner {
+    function lockPalletCallIndices() external onlyOwner whenOpenGovPhase {
         palletCallIndicesLocked = true;
         emit PalletCallIndicesLocked();
     }

@@ -7,6 +7,11 @@ import "./DatumOwnable.sol";
 ///      Kept inline so this base doesn't depend on the full router interface.
 interface IDatumRouter_Upgradable {
     function governor() external view returns (address);
+    /// @notice Returns the current governance phase as a uint8:
+    ///         0 = Admin, 1 = Council, 2 = OpenGov.
+    /// @dev    Matches DatumGovernanceRouter.GovernancePhase ordering. uint8
+    ///         used rather than the enum so this interface stays minimal.
+    function phase() external view returns (uint8);
 }
 
 /// @dev Read-side view of a peer DatumUpgradable for migration. Lets the
@@ -98,6 +103,23 @@ abstract contract DatumUpgradable is DatumOwnable {
     ///         migration. Reads bypass this so a successor can pull state.
     modifier whenNotFrozen() {
         require(!frozen, "frozen");
+        _;
+    }
+
+    /// @notice Restrict lock-once / cypherpunk-commitment functions to the
+    ///         OpenGov phase. Pre-OpenGov, locks revert — the system stays
+    ///         upgradable through Admin and Council phases. Once OpenGov is
+    ///         in charge, OpenGov can choose to fire locks per-contract,
+    ///         ratifying the cypherpunk end-state.
+    /// @dev    When the router is not yet wired (pre-deploy.ts Stage 5 or in
+    ///         standalone unit tests), the modifier defers to the existing
+    ///         onlyOwner check on the function. This preserves
+    ///         backwards-compatibility for tests while enforcing the phase
+    ///         gate once Stage 5 calls setRouter on every contract.
+    modifier whenOpenGovPhase() {
+        if (address(router) != address(0)) {
+            require(router.phase() == 2, "not-opengov");
+        }
         _;
     }
 

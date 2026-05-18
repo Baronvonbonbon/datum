@@ -44,7 +44,7 @@ contract DatumTagCurator is IDatumTagCurator, DatumUpgradable {
         emit CouncilSet(newCouncil);
     }
 
-    function lockCouncil() external onlyOwner {
+    function lockCouncil() external onlyOwner whenOpenGovPhase {
         require(!councilLocked, "already locked");
         require(council != address(0), "council unset");
         councilLocked = true;

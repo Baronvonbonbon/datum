@@ -126,7 +126,7 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     }
 
     /// @notice D1a: commit both Relay refs permanently.
-    function lockPlumbing() external onlyOwner {
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
         require(!plumbingLocked, "already locked");
         require(address(settlement) != address(0), "settlement unset");
         require(address(campaigns) != address(0), "campaigns unset");
@@ -164,7 +164,7 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     /// @notice B7-fix: permanently commit to the permissionless relay path.
     ///         After this call, owner can no longer authorize relayers or shift
     ///         the liveness threshold. Irreversible.
-    function lockRelayerOpen() external onlyOwner {
+    function lockRelayerOpen() external onlyOwner whenOpenGovPhase {
         require(!relayerOpenLocked, "already locked");
         // Clearing the authorized set + threshold = anyone-can-relay forever.
         // (Per the gate in settleClaimsFor: authorizedRelayerCount == 0 means

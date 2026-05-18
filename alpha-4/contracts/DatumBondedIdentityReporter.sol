@@ -191,7 +191,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         cache = IPeopleChainIdentityWriteFromReporter(addr);
         emit CacheSet(addr);
     }
-    function lockCache() external onlyOwner {
+    function lockCache() external onlyOwner whenOpenGovPhase {
         require(address(cache) != address(0), "E00");
         cacheLocked = true;
         emit CacheLocked();

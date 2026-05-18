@@ -75,7 +75,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
     }
 
     /// @notice D1a: commit both ClickRegistry refs permanently.
-    function lockPlumbing() external onlyOwner {
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
         require(!plumbingLocked, "already locked");
         require(relay != address(0), "relay unset");
         require(settlement != address(0), "settlement unset");

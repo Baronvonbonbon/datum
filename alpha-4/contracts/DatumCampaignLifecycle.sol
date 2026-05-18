@@ -104,7 +104,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     }
 
     /// @notice D1a: commit every Lifecycle ref permanently.
-    function lockPlumbing() external onlyOwner {
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
         require(!plumbingLocked, "already locked");
         require(address(campaigns) != address(0), "campaigns unset");
         require(address(budgetLedger) != address(0), "budgetLedger unset");

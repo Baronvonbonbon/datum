@@ -258,7 +258,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
     ///         full v2 redeploy. Called when the protocol is confident
     ///         in the verifier's correctness.
     event PlumbingLocked();
-    function lockPlumbing() external onlyOwner {
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
         require(!plumbingLocked, "already locked");
         plumbingLocked = true;
         emit PlumbingLocked();

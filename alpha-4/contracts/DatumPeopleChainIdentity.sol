@@ -142,7 +142,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
     /// @notice One-way lock that permanently disables the oracle-bridge path,
     ///         leaving the XCM dispatcher as the sole writer. Call this once
     ///         the XCM dispatcher is wired and proven on mainnet.
-    function lockOracleReporter() external onlyOwner {
+    function lockOracleReporter() external onlyOwner whenOpenGovPhase {
         oracleReporterLocked = true;
         oracleReporter = address(0);
         emit OracleReporterLocked();
@@ -157,7 +157,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
     /// @notice One-way lock that pins the XCM dispatcher permanently.
     ///         Call after Paseo testnet ratifies the dispatcher → cache
     ///         flow. Pairs with lockOracleReporter for full trustlessness.
-    function lockXcmDispatcher() external onlyOwner {
+    function lockXcmDispatcher() external onlyOwner whenOpenGovPhase {
         require(xcmDispatcher != address(0), "E00");
         xcmDispatcherLocked = true;
         emit XcmDispatcherLocked();

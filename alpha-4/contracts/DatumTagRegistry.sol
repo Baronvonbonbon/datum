@@ -188,7 +188,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
         emit CampaignsContractSet(c);
     }
 
-    function lockCampaigns() external onlyOwner {
+    function lockCampaigns() external onlyOwner whenOpenGovPhase {
         require(!campaignsLocked, "T01");
         require(campaignsContract != address(0), "T02"); // unset
         campaignsLocked = true;

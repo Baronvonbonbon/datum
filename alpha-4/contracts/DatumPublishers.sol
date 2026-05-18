@@ -135,7 +135,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     ///         locking, so the protocol can't be locked into a permanent
     ///         allow-list dictatorship. After this call, neither setWhitelistMode
     ///         nor setApproved can be called by the owner ever again.
-    function lockWhitelistMode() external onlyOwner {
+    function lockWhitelistMode() external onlyOwner whenOpenGovPhase {
         require(!whitelistMode, "still enabled");
         require(!whitelistModeLocked, "already locked");
         whitelistModeLocked = true;
@@ -163,7 +163,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     /// @notice R-L1: Freeze the stake-gate configuration permanently. After this
     ///         call, setStakeGate reverts. Owner should invoke once governance
     ///         has confirmed the wiring.
-    function lockStakeGate() external onlyOwner {
+    function lockStakeGate() external onlyOwner whenOpenGovPhase {
         require(!stakeGateLocked, "E01");
         // A9-fix: enforce the gate is set to something a normal staker can hit.
         // Caller must lower the threshold below MAX_STAKE_GATE_AT_LOCK first.
@@ -297,7 +297,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     /// @notice B2-fix: lock the curator permanently. After this, the owner can
     ///         no longer change the curator, block addresses, or process unblocks
     ///         — the curator is the sole censorship authority. Irreversible.
-    function lockBlocklistCurator() external onlyOwner {
+    function lockBlocklistCurator() external onlyOwner whenOpenGovPhase {
         require(!blocklistCuratorLocked, "already locked");
         blocklistCuratorLocked = true;
         emit BlocklistCuratorLocked();
