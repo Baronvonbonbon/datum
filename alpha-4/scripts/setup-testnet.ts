@@ -190,10 +190,13 @@ const campaignsAbi = [
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
   // Inline targeting (merged from TargetingRegistry)
   "function setPublisherTags(bytes32[] tagHashes)",
-  // Inline reports (merged from Reports)
+];
+
+// DatumReports is its own contract again (alpha-4 EIP-170 carve-out).
+const reportsIfaceLocal = new ethers.Interface([
   "function reportPage(uint256 campaignId, uint8 reason)",
   "function reportAd(uint256 campaignId, uint8 reason)",
-];
+]);
 
 const activationBondsAbi = [
   "function minBond() view returns (uint256)",
@@ -486,6 +489,7 @@ async function main() {
     "claimValidator", "tokenRewardVault",
     "governanceRouter", "council",
     "campaignCreative",
+    "reports",
   ];
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {
@@ -949,17 +953,17 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // 5.5. TEST REPORTS (Grace reports page + ad on first 2 campaigns)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("5.5", "--- Submitting test reports (inline on Campaigns) ---");
+  log("5.5", "--- Submitting test reports (DatumReports module) ---");
   const reportTargets = allCampaignIds.slice(0, 2).map((id, i) => ({ id, label: `campaign ${i + 1}` }));
   for (const { id, label } of reportTargets) {
     try {
-      await sendCall(grace, rawProvider, addrs.campaigns, campIface, "reportPage", [id, 2]); // misleading
+      await sendCall(grace, rawProvider, addrs.reports, reportsIfaceLocal, "reportPage", [id, 2]); // misleading
       log("5.5", `  grace reported page on ${label} ID ${id} (reason=2 misleading)`);
     } catch (err) {
       log("5.5", `  reportPage (${label}) failed: ${String(err).slice(0, 100)}`);
     }
     try {
-      await sendCall(grace, rawProvider, addrs.campaigns, campIface, "reportAd", [id, 3]); // inappropriate
+      await sendCall(grace, rawProvider, addrs.reports, reportsIfaceLocal, "reportAd", [id, 3]); // inappropriate
       log("5.5", `  grace reported ad on ${label} ID ${id} (reason=3 inappropriate)`);
     } catch (err) {
       log("5.5", `  reportAd (${label}) failed: ${String(err).slice(0, 100)}`);

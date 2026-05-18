@@ -13,18 +13,12 @@ import "./interfaces/IDatumTagCurator.sol";
 import "./interfaces/IDatumTagRegistry.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 
-/// @dev B9-fix: minimal Settlement read interface for the report eligibility
-///      gate. Kept inline — only one function needed and `IDatumSettlement`
-///      doesn't expose this getter.
-interface ISettlementReportGate {
-    function userCampaignSettled(address user, uint256 campaignId, uint8 actionType)
-        external view returns (uint256);
-}
-
 /// @title DatumCampaigns (Core)
-/// @notice Campaign state management — creation, activation, pausing, metadata, views.
-///         Includes inlined campaign validation (SE-3), tag-based targeting (TX-1),
-///         and community reporting.
+/// @notice Campaign state management — creation, activation, pausing, views.
+///         Includes inlined campaign validation (SE-3) and tag-based
+///         targeting (TX-1). Creative storage (IPFS + Bulletin Chain) and
+///         community reporting have been carved out into their own modules
+///         for mainnet EIP-170.
 ///
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
@@ -320,13 +314,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // no longer tracks the per-campaign metadata hash, version, or
     // cooldown state -- the module owns 100% of creative resolution.
 
-    // ---- Community reports (merged from DatumReports) ----
-    mapping(uint256 => uint256) public pageReports;
-    mapping(uint256 => uint256) public adReports;
-    mapping(address => uint256) public publisherReports;
-    mapping(address => uint256) public advertiserReports;
-    mapping(uint256 => mapping(address => bool)) private _hasReportedPage;
-    mapping(uint256 => mapping(address => bool)) private _hasReportedAd;
+    // ---- Community reports moved to DatumReports (alpha-4 EIP-170 carve-out) ----
 
     // -------------------------------------------------------------------------
     // Bulletin Chain creative storage moved to DatumBulletinCreative
@@ -775,60 +763,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // Community reports (merged from DatumReports)
-    // -------------------------------------------------------------------------
-
-    /// @notice B9-fix (2026-05-12): minimum settled events on this campaign the
-    ///         reporter must have before they can file a report. Sybil-resistant
-    ///         by construction: each settled event has been through publisher
-    ///         cosig + rate check + (where required) ZK proof. Fresh sock-puppet
-    ///         addresses can't accumulate `userCampaignSettled` without serving
-    ///         real impressions, so the protocol's own ledger gates eligibility.
-    ///         No token-holding requirement — real users qualify automatically.
-    uint256 public constant MIN_EVENTS_TO_REPORT = 1;
-
-    /// @dev B9-fix: skipped when `settlementContract == address(0)` so test
-    ///      fixtures and early-bootstrap deployments without a wired settlement
-    ///      can still exercise the report path. In production, settlement is
-    ///      always wired before campaigns go live.
-    function _requireReporterEligible(uint256 campaignId) internal view {
-        address s = settlementContract;
-        if (s == address(0)) return;
-        // Sum settled events across view/click/action — any genuine settled
-        // event on this campaign qualifies the reporter.
-        uint256 total = ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 0)
-                      + ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 1)
-                      + ISettlementReportGate(s).userCampaignSettled(msg.sender, campaignId, 2);
-        if (!(total >= MIN_EVENTS_TO_REPORT)) revert E62(); // not a real audience member
-    }
-
-    /// @notice Report a campaign's page (publisher content violation).
-    function reportPage(uint256 campaignId, uint8 reason) external whenNotFrozen {
-        if (!(reason >= 1 && reason <= 5)) revert E68();
-        Campaign storage c = _campaigns[campaignId];
-        if (!(c.advertiser != address(0))) revert E01();
-        if (!(!_hasReportedPage[campaignId][msg.sender])) revert E68();
-        _requireReporterEligible(campaignId);
-        _hasReportedPage[campaignId][msg.sender] = true;
-        pageReports[campaignId]++;
-        address pub = c.publisher;
-        if (pub != address(0)) publisherReports[pub]++;
-        emit PageReported(campaignId, pub, msg.sender, reason);
-    }
-
-    /// @notice Report a campaign's ad creative (advertiser content violation).
-    function reportAd(uint256 campaignId, uint8 reason) external whenNotFrozen {
-        if (!(reason >= 1 && reason <= 5)) revert E68();
-        Campaign storage c = _campaigns[campaignId];
-        if (!(c.advertiser != address(0))) revert E01();
-        if (!(!_hasReportedAd[campaignId][msg.sender])) revert E68();
-        _requireReporterEligible(campaignId);
-        _hasReportedAd[campaignId][msg.sender] = true;
-        adReports[campaignId]++;
-        advertiserReports[c.advertiser]++;
-        emit AdReported(campaignId, c.advertiser, msg.sender, reason);
-    }
+    // Community reports moved to DatumReports (alpha-4 EIP-170 carve-out).
 
     // -------------------------------------------------------------------------
     // Campaign creation

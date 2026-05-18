@@ -141,6 +141,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   let vault:        DatumPaymentVault;
   let campaigns:    DatumCampaigns;
   let creative:     any;
+  let reports:      any;
   let lifecycle:    DatumCampaignLifecycle;
   let v2:           DatumGovernanceV2;
   let claimVal:     DatumClaimValidator;
@@ -243,6 +244,10 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     creative = await (await ethers.getContractFactory("DatumCampaignCreative")).deploy();
     await creative.setCampaigns(await campaigns.getAddress());
     await creative.setPauseRegistry(await pauseReg.getAddress());
+
+    reports = await (await ethers.getContractFactory("DatumReports")).deploy();
+    await reports.setCampaigns(await campaigns.getAddress());
+    await reports.setSettlement(await settlement.getAddress());
 
     await ledger.setCampaigns(await campaigns.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
@@ -646,36 +651,36 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-RPT-1: reportPage increments pageReports and emits event", async function () {
-      const before = await campaigns.pageReports(reportCampaignId);
-      await expect(campaigns.connect(user).reportPage(reportCampaignId, 1))
-        .to.emit(campaigns, "PageReported")
+      const before = await reports.pageReports(reportCampaignId);
+      await expect(reports.connect(user).reportPage(reportCampaignId, 1))
+        .to.emit(reports, "PageReported")
         .withArgs(reportCampaignId, publisher.address, user.address, 1n);
-      expect(await campaigns.pageReports(reportCampaignId)).to.equal(before + 1n);
+      expect(await reports.pageReports(reportCampaignId)).to.equal(before + 1n);
     });
 
     it("BM-RPT-2: reportAd increments adReports and emits event", async function () {
-      const before = await campaigns.adReports(reportCampaignId);
-      await expect(campaigns.connect(user).reportAd(reportCampaignId, 3))
-        .to.emit(campaigns, "AdReported")
+      const before = await reports.adReports(reportCampaignId);
+      await expect(reports.connect(user).reportAd(reportCampaignId, 3))
+        .to.emit(reports, "AdReported")
         .withArgs(reportCampaignId, advertiser.address, user.address, 3n);
-      expect(await campaigns.adReports(reportCampaignId)).to.equal(before + 1n);
+      expect(await reports.adReports(reportCampaignId)).to.equal(before + 1n);
     });
 
     it("BM-RPT-3: all 5 valid reason codes accepted", async function () {
       // Use separate campaigns per iteration — AUDIT-023 dedup prevents re-reporting same campaign
       for (let r = 1; r <= 5; r++) {
-        await expect(campaigns.connect(user).reportPage(rptPageCampaignIds[r - 1], r)).not.to.be.reverted;
-        await expect(campaigns.connect(user).reportAd(rptAdCampaignIds[r - 1], r)).not.to.be.reverted;
+        await expect(reports.connect(user).reportPage(rptPageCampaignIds[r - 1], r)).not.to.be.reverted;
+        await expect(reports.connect(user).reportAd(rptAdCampaignIds[r - 1], r)).not.to.be.reverted;
       }
     });
 
     it("BM-RPT-4: invalid reason (0 or 6) reverts E68", async function () {
-      await expect(campaigns.connect(user).reportPage(reportCampaignId, 0)).to.be.revertedWithCustomError(campaigns, "E68");
-      await expect(campaigns.connect(user).reportPage(reportCampaignId, 6)).to.be.revertedWithCustomError(campaigns, "E68");
+      await expect(reports.connect(user).reportPage(reportCampaignId, 0)).to.be.revertedWithCustomError(reports, "E68");
+      await expect(reports.connect(user).reportPage(reportCampaignId, 6)).to.be.revertedWithCustomError(reports, "E68");
     });
 
     it("BM-RPT-5: non-existent campaign reverts E01", async function () {
-      await expect(campaigns.connect(user).reportPage(999999n, 1)).to.be.revertedWithCustomError(campaigns, "E01");
+      await expect(reports.connect(user).reportPage(999999n, 1)).to.be.revertedWithCustomError(reports, "E01");
     });
   });
 
@@ -821,7 +826,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const seedClaims = buildClaims(cid, publisher.address, user.address, 1, CPM, 1n);
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims: seedClaims }]);
       await gasFor("reportPage (reason 1)", () =>
-        campaigns.connect(user).reportPage(cid, 1)
+        reports.connect(user).reportPage(cid, 1)
       );
     });
 

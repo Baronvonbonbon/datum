@@ -315,7 +315,10 @@ const campaignsAbi = [
   "function nextCampaignId() view returns (uint256)",
   "function getCampaign(uint256 campaignId) view returns (address advertiser, address publisher, uint256 pendingExpiryBlock, uint256 terminationBlock, uint16 snapshotTakeRateBps, uint8 status)",
   "function togglePause(uint256 campaignId, bool pause) external",
-  // Inline reports (merged from DatumReports)
+];
+
+// DatumReports (alpha-4 EIP-170 carve-out)
+const reportsAbi = [
   "function reportPage(uint256 campaignId, uint8 reason)",
   "function reportAd(uint256 campaignId, uint8 reason)",
   "function pageReports(uint256) view returns (uint256)",
@@ -440,6 +443,7 @@ async function main() {
     "tokenRewardVault", "parameterGovernance",
     "publisherReputation",
     "nullifierRegistry", "settlementRateLimiter",
+    "campaignCreative", "reports",
   ];
   const missing = requiredKeys.filter(k => !A[k]);
   if (missing.length > 0) {
@@ -458,7 +462,7 @@ async function main() {
   const tvaultIface    = new Interface(tokenVaultAbi);
   // Reports → campIface (inline on Campaigns). Reputation, RateLimiter,
   // and NullifierRegistry are all carved-out modules (alpha-4 EIP-170).
-  const reportsIface   = campIface;  // reportPage/reportAd/pageReports/adReports are on Campaigns
+  const reportsIface   = new Interface(reportsAbi);  // DatumReports (alpha-4 carve-out)
   const repIface       = new Interface(reputationAbi);
   const rlIface        = new Interface(rateLimiterAbi);
   const zkIface        = new Interface(zkVerifierAbi);
@@ -1102,9 +1106,9 @@ async function main() {
       {
         const t0 = Date.now();
         try {
-          const before = BigInt((await readCall(rawProvider, A.campaigns, reportsIface, "pageReports", [reportCid]))[0]);
-          await sendCall(frank, rawProvider, A.campaigns, reportsIface, "reportPage", [reportCid, 1]);
-          const after  = BigInt((await readCall(rawProvider, A.campaigns, reportsIface, "pageReports", [reportCid]))[0]);
+          const before = BigInt((await readCall(rawProvider, A.reports, reportsIface, "pageReports", [reportCid]))[0]);
+          await sendCall(frank, rawProvider, A.reports, reportsIface, "reportPage", [reportCid, 1]);
+          const after  = BigInt((await readCall(rawProvider, A.reports, reportsIface, "pageReports", [reportCid]))[0]);
           const ms = Date.now() - t0;
           if (after === before + 1n) {
             pass("RPT-1", "reportPage increments pageReports counter", ms,
@@ -1121,9 +1125,9 @@ async function main() {
       {
         const t0 = Date.now();
         try {
-          const before = BigInt((await readCall(rawProvider, A.campaigns, reportsIface, "adReports", [reportCid]))[0]);
-          await sendCall(grace, rawProvider, A.campaigns, reportsIface, "reportAd", [reportCid, 3]);
-          const after  = BigInt((await readCall(rawProvider, A.campaigns, reportsIface, "adReports", [reportCid]))[0]);
+          const before = BigInt((await readCall(rawProvider, A.reports, reportsIface, "adReports", [reportCid]))[0]);
+          await sendCall(grace, rawProvider, A.reports, reportsIface, "reportAd", [reportCid, 3]);
+          const after  = BigInt((await readCall(rawProvider, A.reports, reportsIface, "adReports", [reportCid]))[0]);
           const ms = Date.now() - t0;
           if (after === before + 1n) {
             pass("RPT-2", "reportAd increments adReports counter", ms,

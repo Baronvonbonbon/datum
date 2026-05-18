@@ -344,6 +344,11 @@ async function deployAll() {
   );
   const tokenRewardVault = await (await F("DatumTokenRewardVault")).deploy(await campaigns.getAddress());
 
+  // DatumReports carved out of Campaigns (alpha-4 EIP-170).
+  const reports = await (await F("DatumReports")).deploy();
+  await (await reports.setCampaigns(await campaigns.getAddress())).wait();
+  await (await reports.setSettlement(await settlement.getAddress())).wait();
+
   // FP contracts
   const publisherStake = await (await F("DatumPublisherStake")).deploy(parseDOT("1"), parseDOT("0.0001"), 14400n);
   const challengeBonds = await (await F("DatumChallengeBonds")).deploy();
@@ -441,6 +446,7 @@ async function deployAll() {
     publisherStake, challengeBonds, publisherGov, paramGov, router, council,
     clickReg, curatorContract, activationBonds, stakeRootV1, stakeRootV2,
     identityVer, mockToken, zkStake,
+    reports,
   };
 }
 
@@ -574,7 +580,7 @@ async function measureAll(ctx: any) {
   await measure("User", "zkStake.requestWithdrawal",
     ctx.zkStake.connect(ctx.user).requestWithdrawal(parseDOT("1")));
   await measure("User", "reportPage (reason 1)",
-    ctx.campaigns.connect(ctx.user).reportPage(cidR1, 1));
+    ctx.reports.connect(ctx.user).reportPage(cidR1, 1));
   const userBal = await ctx.vault.userBalance(ctx.user.address);
   console.log(`  user vault balance: ${userBal} planck`);
   if (userBal > 0n) {

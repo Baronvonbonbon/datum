@@ -78,9 +78,8 @@ interface IDatumCampaigns {
     event TagApproved(bytes32 indexed tag);
     event TagRemoved(bytes32 indexed tag);
 
-    // Community report events
-    event PageReported(uint256 indexed campaignId, address indexed publisher, address indexed reporter, uint8 reason);
-    event AdReported(uint256 indexed campaignId, address indexed advertiser, address indexed reporter, uint8 reason);
+    // Community reports moved to DatumReports (alpha-4 EIP-170 carve-out);
+    // PageReported / AdReported are emitted from the carved-out contract.
 
     // -------------------------------------------------------------------------
     // Campaign lifecycle
@@ -197,9 +196,5 @@ interface IDatumCampaigns {
     function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool);
     function getPublisherTags2(address publisher) external view returns (bytes32[] memory);
 
-    // Report views (merged from Reports)
-    function pageReports(uint256 campaignId) external view returns (uint256);
-    function adReports(uint256 campaignId) external view returns (uint256);
-    function publisherReports(address publisher) external view returns (uint256);
-    function advertiserReports(address advertiser) external view returns (uint256);
+    // Report views moved to DatumReports (alpha-4 EIP-170 carve-out).
 }

@@ -127,6 +127,8 @@ const REQUIRED_KEYS = [
   // Per-campaign creative mapping (IPFS metadata + Bulletin Chain refs;
   // carved out of DatumCampaigns for EIP-170, alpha-4)
   "campaignCreative",
+  // Community reports (carved back out of DatumCampaigns for EIP-170, alpha-4)
+  "reports",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -688,6 +690,13 @@ async function main() {
     await deployOrReuse("campaignCreative", "DatumCampaignCreative", []);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumCampaignCreative — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumReports (community reporting)");
+    await deployOrReuse("reports", "DatumReports", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumReports — ${err}`);
   }
 
   // --- B2: Council-driven blocklist curator ---
@@ -1307,6 +1316,20 @@ async function main() {
     addresses.pauseRegistry,
   );
 
+  // ── Reports: setCampaigns + setSettlement (reporter-eligibility gate) ──
+  await wireIfNeeded(
+    "Reports.campaigns",
+    "DatumReports", addresses.reports,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "Reports.settlement",
+    "DatumReports", addresses.reports,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+
   // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
   await wireIfNeeded(
     "EmissionEngine.settlement",
@@ -1810,6 +1833,7 @@ async function main() {
     "nullifierRegistry",
     "settlementRateLimiter",
     "campaignCreative",
+    "reports",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",
