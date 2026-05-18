@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
@@ -15,7 +15,9 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Separated from DatumPaymentVault to keep ETH-native accounting isolated.
 ///         Only supports EVM-native ERC-20 tokens (not native Asset Hub assets).
-contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumOwnable {
+contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     using SafeERC20 for IERC20;
     address public settlement;
     IDatumCampaigns public campaigns;

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 
 interface IDatumCampaignsForMute {
@@ -25,7 +25,9 @@ interface IDatumCampaignsForMute {
 ///         Cypherpunk lock-once: Campaigns and Lifecycle addresses are
 ///         set exactly once and frozen. Treasury and governable parameters
 ///         are owner-mutable (owner is Timelock/Router in the ladder).
-contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumOwnable {
+contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // ── Wiring ────────────────────────────────────────────────────────────────
 
     /// @notice Campaigns contract — only authority that may call openBond.

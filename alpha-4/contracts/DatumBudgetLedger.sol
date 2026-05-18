@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -19,7 +19,9 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
-contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumOwnable {
+contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Authorization
     // -------------------------------------------------------------------------

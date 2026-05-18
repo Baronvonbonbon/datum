@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumTagRegistry.sol";
 
 /// @title DatumTagRegistry
@@ -47,7 +47,9 @@ import "./interfaces/IDatumTagRegistry.sol";
 ///         mixed with the dispute id. This is adequate for low-value tag
 ///         disputes but is not miner-resistant — for high-stakes cases the
 ///         right answer is a VRF, deferred to a future upgrade.
-contract DatumTagRegistry is IDatumTagRegistry, DatumOwnable, ReentrancyGuard {
+contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard {
+    function version() public pure override returns (uint256) { return 1; }
+
     using SafeERC20 for IERC20;
 
     // ---------------------------------------------------------------------

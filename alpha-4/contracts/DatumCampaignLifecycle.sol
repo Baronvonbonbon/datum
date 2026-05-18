@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -18,7 +18,9 @@ import "./interfaces/IDatumChallengeBonds.sol";
 ///
 ///         Termination: 10% slash to governance, 90% refund to advertiser.
 ///         Completion/Expiry: full remaining budget refund to advertiser.
-contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, DatumOwnable {
+contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // References
     // -------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumChallengeBonds.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -26,7 +26,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution;
 ///                      per-publisher (unchanged).
 ///         claimBonus — called by advertiser per-(campaign, publisher).
-contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumOwnable {
+contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     /// @notice Campaigns contract — authorised to call lockBond.
     address public campaignsContract;

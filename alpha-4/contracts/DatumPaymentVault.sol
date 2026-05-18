@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumPaymentVault.sol";
 
@@ -15,7 +15,9 @@ import "./interfaces/IDatumPaymentVault.sol";
 ///         Design: DOT is sent directly from BudgetLedger to this Vault via
 ///         deductAndTransfer(). Settlement then calls creditSettlement() (non-payable)
 ///         to record how the DOT should be split among publisher/user/protocol.
-contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumOwnable {
+contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     // -------------------------------------------------------------------------
     // Authorization

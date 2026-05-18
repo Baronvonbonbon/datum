@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumAdvertiserStake.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 
 /// @title DatumAdvertiserStake
@@ -26,7 +26,9 @@ import "./PaseoSafeSender.sol";
 ///         resolves aye. The slash mechanism consumes from pendingUnstake first
 ///         so a fraud-anticipating advertiser can't shield funds via
 ///         requestUnstake (same R-H1 pattern as DatumPublisherStake).
-contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumOwnable {
+contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     /// @notice Settlement contract — authorised to record cumulative budget spent.
     address public settlementContract;
 
