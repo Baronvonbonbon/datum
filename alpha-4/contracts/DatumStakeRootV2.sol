@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumStakeRoot.sol";
 import "./interfaces/IDatumIdentityVerifier.sol";
@@ -34,7 +34,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         longer mint Sybil leaves from thin air; every leaf must
 ///         correspond to a registered commitment, and each commitment
 ///         registration costs commitmentBond.
-contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
+contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     // ── Constants (sanity ceilings — params governable up to these) ───────────
     uint256 public constant MAX_APPROVAL_THRESHOLD_BPS = 9900;
     uint64  public constant MAX_CHALLENGE_WINDOW = 1_209_600;  // ~84d @ 6s/block
@@ -263,7 +267,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     // ── Reporter lifecycle (permissionless) ───────────────────────────────────
 
     /// @notice Stake-bond to join the permissionless reporter set.
-    function joinReporters() external payable nonReentrant {
+    function joinReporters() external payable nonReentrant whenNotPaused {
         require(msg.value >= reporterMinStake, "E11");
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.amount == 0, "E22"); // already a reporter
@@ -280,7 +284,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     ///         while exit is pending (proposeRoot / approveRoot check
     ///         exitProposedBlock == 0). Removes voting weight immediately so a
     ///         reporter on the way out can't sandwich votes.
-    function proposeReporterExit() external {
+    function proposeReporterExit() external whenNotPaused {
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.amount > 0, "E01");
         require(s.exitProposedBlock == 0, "E22");
@@ -292,7 +296,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     }
 
     /// @notice Reclaim stake after reporterExitDelay blocks have elapsed.
-    function finalizeReporterExit() external nonReentrant {
+    function finalizeReporterExit() external nonReentrant whenNotPaused {
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.exitProposedBlock != 0, "E01");
         require(block.number >= uint256(s.exitProposedBlock) + uint256(reporterExitDelay), "E96");
@@ -328,7 +332,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     ///         before any leaf with this commitment can be included in a
     ///         finalized root (enforced via challengePhantomLeaf). Bond is
     ///         non-refundable — pricing the per-commitment Sybil cost.
-    function registerCommitment(bytes32 commitment) external payable nonReentrant {
+    function registerCommitment(bytes32 commitment) external payable nonReentrant whenNotPaused {
         require(msg.value >= commitmentBond, "E11");
         require(commitment != bytes32(0), "E00");
         require(!registeredCommitments[commitment], "E22");
@@ -352,7 +356,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     ///                      Future fraud-proof modes will read DATUM token state
     ///                      against this block. Must not be a future block.
     /// @param root          Merkle root of leaves (Poseidon(commitment, balance))
-    function proposeRoot(uint256 epoch, uint64 snapshotBlock, bytes32 root) external payable nonReentrant {
+    function proposeRoot(uint256 epoch, uint64 snapshotBlock, bytes32 root) external payable nonReentrant whenNotPaused {
         require(_isActiveReporter(msg.sender), "E01");
         require(msg.value >= proposerBond, "E11");
         require(epoch > latestEpoch, "E64");
@@ -385,7 +389,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
     /// @notice Co-sign a pending root. Adds the caller's bonded stake to the
     ///         approval tally. Cannot approve after the challenge window closes
     ///         (no point — finalization is one-shot).
-    function approveRoot(uint256 epoch) external nonReentrant {
+    function approveRoot(uint256 epoch) external nonReentrant whenNotPaused {
         require(_isActiveReporter(msg.sender), "E01");
         PendingRoot storage p = _pending[epoch];
         require(p.proposer != address(0), "E01");
@@ -400,7 +404,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
 
     /// @notice Finalize a pending root after the challenge window closes.
     ///         Requires approvedStake ≥ approvalThresholdBps × totalReporterStake.
-    function finalizeRoot(uint256 epoch) external nonReentrant {
+    function finalizeRoot(uint256 epoch) external nonReentrant whenNotPaused {
         PendingRoot storage p = _pending[epoch];
         require(p.proposer != address(0), "E01");
         require(!p.slashed, "E22");
@@ -444,7 +448,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         uint256 claimedBalance,
         uint256 leafIndex,
         bytes32[] calldata siblings
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         require(msg.value >= challengerBond, "E11");
         PendingRoot storage p = _pending[epoch];
         require(p.proposer != address(0), "E01");
@@ -497,7 +501,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumOwnable {
         uint256 leafIndex,
         bytes32[] calldata siblings,
         bytes calldata identityProof
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         require(msg.value >= challengerBond, "E11");
         require(address(identityVerifier) != address(0), "E00");
         require(address(datumToken) != address(0), "E00");

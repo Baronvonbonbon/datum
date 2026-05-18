@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title DatumZKStake
 /// @notice Path A anti-sybil: explicit DATUM deposit + withdrawal lockup
@@ -29,7 +29,9 @@ import "./DatumOwnable.sol";
 ///         at 6s/block), a sybil operator can't churn identities faster than
 ///         once per month per capital pool — and slashing (future work) can
 ///         be applied during the cooldown.
-contract DatumZKStake is DatumOwnable, ReentrancyGuard {
+contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
+    function version() public pure override returns (uint256) { return 1; }
+
     using SafeERC20 for IERC20;
 
     /// @notice ~30 days at 6s/block. Withdrawals require this many blocks
@@ -101,7 +103,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     ///         allowed while you have ZERO active stake AND zero pending
     ///         withdrawal. After your first deposit it is permanently fixed
     ///         (changing it mid-stake would orphan your funds from the secret).
-    function setUserCommitment(bytes32 commitment) external {
+    function setUserCommitment(bytes32 commitment) external whenNotPaused {
         require(commitment != bytes32(0), "E11");
         require(staked[msg.sender] == 0 && pending[msg.sender].amount == 0, "locked-by-stake");
         userCommitment[msg.sender] = commitment;
@@ -111,7 +113,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     /// @notice One-shot deposit-and-commit. Convenience for first-time users
     ///         who haven't set their commitment yet. Reverts if a different
     ///         commitment is already on file.
-    function depositWith(bytes32 commitment, uint256 amount) external nonReentrant {
+    function depositWith(bytes32 commitment, uint256 amount) external nonReentrant whenNotPaused {
         require(commitment != bytes32(0), "E11");
         bytes32 cur = userCommitment[msg.sender];
         if (cur == bytes32(0)) {
@@ -126,7 +128,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     /// @notice Stake DATUM. Caller must have approved this contract first AND
     ///         have a userCommitment on file (else deposit reverts E01 — set
     ///         one via `setUserCommitment` or use `depositWith`).
-    function deposit(uint256 amount) external nonReentrant {
+    function deposit(uint256 amount) external nonReentrant whenNotPaused {
         require(userCommitment[msg.sender] != bytes32(0), "E01");
         _deposit(msg.sender, amount);
     }
@@ -148,7 +150,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     ///         it and the lockup clock RESETS to block.number + LOCKUP_BLOCKS.
     ///         This is intentional: continuous request-staggering can't shorten
     ///         the average exit time.
-    function requestWithdrawal(uint256 amount) external nonReentrant {
+    function requestWithdrawal(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "E11");
         require(staked[msg.sender] >= amount, "E03");
         staked[msg.sender] -= amount;
@@ -159,7 +161,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     }
 
     /// @notice Execute a pending withdrawal once the lockup has elapsed.
-    function executeWithdrawal() external nonReentrant {
+    function executeWithdrawal() external nonReentrant whenNotPaused {
         PendingWithdrawal storage p = pending[msg.sender];
         uint256 amount = p.amount;
         require(amount > 0, "E03");
@@ -174,7 +176,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
 
     /// @notice User can fold a pending withdrawal back into active stake.
     ///         No cooldown penalty for changing your mind. Resets pending to 0.
-    function cancelWithdrawal() external nonReentrant {
+    function cancelWithdrawal() external nonReentrant whenNotPaused {
         PendingWithdrawal storage p = pending[msg.sender];
         uint256 amount = p.amount;
         require(amount > 0, "E03");
@@ -237,7 +239,7 @@ contract DatumZKStake is DatumOwnable, ReentrancyGuard {
     /// @param amount          Total amount to remove.
     /// @return fromStaked     How much came from active stake.
     /// @return fromPending    How much came from pending.
-    function slash(address user, uint256 amount) external nonReentrant returns (uint256 fromStaked, uint256 fromPending) {
+    function slash(address user, uint256 amount) external nonReentrant whenNotPaused returns (uint256 fromStaked, uint256 fromPending) {
         require(isSlasher[msg.sender], "E18");
         require(amount > 0, "E11");
         // H-1: recipient must be set so slashed funds can never orphan.

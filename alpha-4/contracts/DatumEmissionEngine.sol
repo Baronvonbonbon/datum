@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title  DatumEmissionEngine
 /// @notice Path H emission curve (TOKENOMICS.md §3.3): outer 7-year halvings
@@ -22,7 +22,9 @@ import "./DatumOwnable.sol";
 ///         receives the effective mint amount (clipped against budgets).
 ///         Anyone can call permissionless `rollEpoch()` after the halving
 ///         interval, and `adjustRate()` after the adjustment period.
-contract DatumEmissionEngine is DatumOwnable {
+contract DatumEmissionEngine is DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     // ─── Baked monetary constants (non-governable) ──────────────────────────
     /// @notice Outer halving cadence — 7 calendar years. Baked.
@@ -129,7 +131,7 @@ contract DatumEmissionEngine is DatumOwnable {
     /// @notice Roll into the next epoch. Permissionless; reverts before
     ///         the halving period has elapsed. Any unspent budget in the
     ///         current epoch carries forward to the next.
-    function rollEpoch() external {
+    function rollEpoch() external whenNotPaused {
         require(block.timestamp >= epochStartTime + HALVING_PERIOD_SECONDS, "too early");
         uint256 carry = remainingEpochBudget;
         currentEpoch++;
@@ -151,7 +153,7 @@ contract DatumEmissionEngine is DatumOwnable {
 
     /// @notice Adapt the per-DOT rate based on observed DOT volume.
     ///         Permissionless; reverts before the adjustment period has elapsed.
-    function adjustRate() external {
+    function adjustRate() external whenNotPaused {
         require(block.timestamp >= lastAdjustmentTime + uint256(adjustmentPeriodSeconds), "too soon");
         _maybeRollDay();
 
@@ -194,7 +196,7 @@ contract DatumEmissionEngine is DatumOwnable {
     ///         amount Settlement should actually mint.
     /// @param  dotPaid Total DOT settled in this batch (10-decimal base).
     /// @return effective Effective DATUM to mint (10-decimal base).
-    function computeAndClipMint(uint256 dotPaid) external returns (uint256 effective) {
+    function computeAndClipMint(uint256 dotPaid) external whenNotPaused returns (uint256 effective) {
         require(msg.sender == settlement, "not settlement");
         if (dotPaid == 0) return 0;
 

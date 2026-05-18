@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -13,7 +13,9 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///         H-6: Settlement and campaigns references are now mutable (Ownable2Step).
 ///         L-1: Inherits OZ EIP712 so the domain separator rebuilds on chainid
 ///              mismatch (chain-fork safe).
-contract DatumRelay is DatumOwnable, EIP712 {
+contract DatumRelay is DatumUpgradable, EIP712 {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -177,6 +179,7 @@ contract DatumRelay is DatumOwnable, EIP712 {
 
     function settleClaimsFor(IDatumSettlement.SignedClaimBatch[] calldata batches)
         external
+        whenNotPaused
         returns (IDatumSettlement.SettlementResult memory result)
     {
         require(!pauseRegistry.pausedSettlement(), "P");

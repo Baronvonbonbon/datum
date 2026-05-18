@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title DatumStakeRoot
 /// @notice Path A: per-epoch Merkle root commitments over user-stake leaves.
@@ -18,7 +18,11 @@ import "./DatumOwnable.sol";
 ///         Roots are kept for `LOOKBACK_EPOCHS` so users with slightly stale
 ///         witnesses can still prove. Beyond that, the root expires and a
 ///         fresh witness must be generated.
-contract DatumStakeRoot is DatumOwnable {
+contract DatumStakeRoot is DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     // ── Deprecation flag ─────────────────────────────────────────────────
     /// @notice When true, commitStakeRoot emits a deprecation warning event
     ///         but still functions. Set via setDeprecated when DatumStakeRootV2
@@ -119,7 +123,7 @@ contract DatumStakeRoot is DatumOwnable {
     ///         approvals. When approvals >= threshold, the root is finalized
     ///         and `rootAt[epoch]` is set.
     /// @dev    Reporters submit their own txs — each pays own gas, no aggregation.
-    function commitStakeRoot(uint256 epoch, bytes32 root) external {
+    function commitStakeRoot(uint256 epoch, bytes32 root) external whenNotPaused {
         require(isReporter[msg.sender], "E01");
         require(epoch >= latestEpoch, "E64");
         require(root != bytes32(0), "E11");

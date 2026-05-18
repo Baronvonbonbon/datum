@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title DatumZKVerifier
 /// @notice Real Groth16 verifier using BN254 precompiles:
@@ -29,7 +29,9 @@ import "./DatumOwnable.sol";
 ///
 ///         VK must be set by owner after running scripts/setup-zk.mjs.
 ///         While unset, verify() returns false (fail-safe).
-contract DatumZKVerifier is DatumOwnable {
+contract DatumZKVerifier is DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     // -------------------------------------------------------------------------
     // BN254 constants

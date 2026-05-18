@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaigns.sol";
@@ -51,7 +51,9 @@ interface ICampaignsZkKnobs {
 ///           - Type-1 (click): checks clickRegistry.hasUnclaimed for session validity.
 ///           - Type-2 (remote-action): ecrecover checks actionSig against pot.actionVerifier.
 ///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
-contract DatumClaimValidator is IDatumClaimValidator, DatumOwnable {
+contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // BM-2: Matches Settlement.MAX_USER_EVENTS — prevents overflow in payment calc
     /// @notice Baked absolute ceiling on `maxClaimEvents`. Governance cannot
     ///         raise the per-claim event count above this — protects against

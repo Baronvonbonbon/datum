@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumClickRegistry.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 
@@ -26,7 +26,9 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///           - recordClick: gated to relay contract.
 ///           - markClaimed: gated to settlement contract.
 ///           - hasUnclaimed: public view.
-contract DatumClickRegistry is IDatumClickRegistry, DatumOwnable {
+contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Authorization
     // -------------------------------------------------------------------------
@@ -90,7 +92,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumOwnable {
         address user,
         uint256 campaignId,
         bytes32 impressionNonce
-    ) external {
+    ) external whenNotPaused {
         require(msg.sender == relay, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
         require(_sessions[sh] == 0, "E90"); // E90: click session already recorded
@@ -103,7 +105,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumOwnable {
         address user,
         uint256 campaignId,
         bytes32 impressionNonce
-    ) external {
+    ) external whenNotPaused {
         require(msg.sender == settlement, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
         require(_sessions[sh] == 1, "E90"); // E90: session not recorded or already claimed

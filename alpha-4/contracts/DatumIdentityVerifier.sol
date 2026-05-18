@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumIdentityVerifier.sol";
 
 /// @title DatumIdentityVerifier
@@ -19,7 +19,9 @@ import "./interfaces/IDatumIdentityVerifier.sol";
 ///         Structure mirrors DatumZKVerifier (BN254 pairing via the 0x06,
 ///         0x07, 0x08 precompiles) but for a 1-public-input circuit. VK
 ///         is set once via setVerifyingKey and locked.
-contract DatumIdentityVerifier is IDatumIdentityVerifier, DatumOwnable {
+contract DatumIdentityVerifier is IDatumIdentityVerifier, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // BN254 constants
     // -------------------------------------------------------------------------
