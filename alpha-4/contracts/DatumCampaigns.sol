@@ -9,10 +9,11 @@ import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumActivationBonds.sol";
-import "./interfaces/IDatumTagCurator.sol";
-import "./interfaces/IDatumTagRegistry.sol";
+// IDatumTagCurator / IDatumTagRegistry refs moved to DatumTagSystem
+// (alpha-4 EIP-170 carve-out).
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumCampaignAllowlist.sol";
+import "./interfaces/IDatumTagSystem.sol";
 
 /// @title DatumCampaigns (Core)
 /// @notice Campaign state management — creation, activation, pausing, views.
@@ -79,14 +80,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///      so the default can never escape the protocol's stated economics.
     uint16 public constant MIN_DEFAULT_TAKE_RATE_BPS = 3000;
     uint16 public constant MAX_DEFAULT_TAKE_RATE_BPS = 8000;
-    // Cap ceilings — governance-settable working values below. Original
-    // alpha-3 caps (32/8) were PVM-sized; EVM permits more headroom.
-    uint16 public constant MAX_PUBLISHER_TAGS_CEILING = 256;
-    uint16 public constant MAX_CAMPAIGN_TAGS_CEILING  = 64;
-    uint16 public maxPublisherTags = 64; // was hard-coded 32
-    uint16 public maxCampaignTags  = 16; // was hard-coded 8
-    event MaxPublisherTagsSet(uint16 value);
-    event MaxCampaignTagsSet(uint16 value);
+    // Tag caps + ceilings moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Safe rollout: max campaign budget cap (0 = disabled)
     uint256 public maxCampaignBudget;
@@ -134,8 +128,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     uint256 public nextCampaignId;
 
     mapping(uint256 => Campaign) private _campaigns;
-    mapping(uint256 => bytes32[]) private _campaignTags;
-    mapping(uint256 => bytes32[]) private _campaignPublisherTags;
+    // Per-campaign tag arrays (_campaignTags, _campaignPublisherTags) moved
+    // to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Action pots — set at creation, immutable per campaign
     mapping(uint256 => ActionPotConfig[]) private _campaignPots;
@@ -148,64 +142,12 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // unless challenged. address(0) = disabled (legacy governance-vote path).
     address public activationBonds;
 
-    // ---- Targeting registry state (merged from DatumTargetingRegistry) ----
-    mapping(address => bytes32[]) private _publisherTags;
-    mapping(address => mapping(bytes32 => bool)) private _publisherTagSet;
-    // A8: when a publisher drops a tag, it stays effective for active campaigns
-    // until `block.number >= tagRemovalEffectiveBlock`. Prevents an advertiser-
-    // unfriendly griefing pattern where a publisher pulls a tag mid-campaign to
-    // strand the budget. Re-adding the tag clears the pending removal.
-    uint256 public constant TAG_REMOVAL_GRACE_BLOCKS = 14400; // ~24h at 6s/block
-    mapping(address => mapping(bytes32 => uint256)) public tagRemovalEffectiveBlock;
-    event TagRemovalScheduled(address indexed publisher, bytes32 indexed tag, uint256 effectiveBlock);
-
-    // Approved tag registry
-    bool public enforceTagRegistry;
-    mapping(bytes32 => bool) public approvedTags;
-    bytes32[] private _approvedTagList;
-    mapping(bytes32 => uint256) private _approvedTagIndex; // 1-based
-
-    /// @notice M5-fix: external tag curator. When set and enforceTagRegistry
-    ///         is enabled, a tag is approved if EITHER the local mapping or
-    ///         the curator returns true. Lock-once so a hostile owner can't
-    ///         swap to a permissive curator.
-    address public tagCurator;
-    bool public tagCuratorLocked;
-    event TagCuratorSet(address indexed curator);
-    event TagCuratorLocked();
-
-    /// @notice One-way lane lock. Once set:
-    ///         - `setEnforceTagRegistry(false)` is permanently disabled (the
-    ///           Curated lane stays selectable forever).
-    ///         - Direct local approvedTags mutations (approveTag,
-    ///           removeApprovedTag, approveTags) revert — tag curation routes
-    ///           exclusively through `tagCurator` thereafter.
-    ///         - The `tagRegistry` pointer cannot be unset (the StakeGated
-    ///           lane stays selectable forever).
-    ///
-    ///         Crucially, this lock does NOT freeze protocol *parameters* —
-    ///         `setMaxCampaignBudget`, `setDefaultTakeRateBps`,
-    ///         `setBulletinRenewerReward`, `setMaxAllowedMinStake` remain
-    ///         gov-tunable indefinitely. Lock the lane menu; free the params.
-    bool public lanesLocked;
-    event LanesLocked();
-
-    /// @notice Stake-gated tag namespace. When wired, publishers/campaigns in
-    ///         StakeGated mode require the tag to be bonded in this registry.
-    ///         Lock-once via `lockLanes()` so a hostile owner can't swap to a
-    ///         permissive registry post-launch.
-    IDatumTagRegistry public tagRegistry;
-    event TagRegistrySet(address indexed registry);
-
-    /// @notice Per-campaign tag-policy lane selected by the advertiser.
-    ///         0 = Any (default; requiredTags accepted as-is, matching relies
-    ///             on publisher's own tag set)
-    ///         1 = StakeGated (every requiredTag must be Bonded in tagRegistry)
-    ///         2 = Curated    (every requiredTag must be `_isTagApproved`)
-    ///         Set via `setCampaignTagMode` before activation; tightening only
-    ///         (Any → StakeGated/Curated, never back).
-    mapping(uint256 => uint8) public campaignTagMode;
-    event CampaignTagModeSet(uint256 indexed campaignId, uint8 mode);
+    // Tag dictionary, per-publisher tag sets, lane mode + lock, tag curator,
+    // tag-registry pointer, and per-campaign tag mode all moved to
+    // DatumTagSystem (alpha-4 EIP-170 carve-out). Campaigns retains a single
+    // pointer; ClaimValidator + Allowlist read TagSystem directly.
+    IDatumTagSystem public tagSystem;
+    event TagSystemSet(address indexed tagSystem);
 
     /// @notice M6-fix: per-advertiser hot-key delegation. Mirrors the publisher
     ///         relay-signer pattern (DatumPublishers.relaySigner). When set,
@@ -456,30 +398,23 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         emit MaxCampaignBudgetSet(amount);
     }
 
-    /// @notice Tune the per-publisher tag-list cap. Bounded by ceiling so
-    ///         setPublisherTags can't be ground to a halt by an absurd value.
-    function setMaxPublisherTags(uint16 v) external onlyOwner {
-        if (!(v > 0 && v <= MAX_PUBLISHER_TAGS_CEILING)) revert E11();
-        maxPublisherTags = v;
-        emit MaxPublisherTagsSet(v);
-    }
-
-    /// @notice Tune the per-campaign required-tag cap.
-    function setMaxCampaignTags(uint16 v) external onlyOwner {
-        if (!(v > 0 && v <= MAX_CAMPAIGN_TAGS_CEILING)) revert E11();
-        maxCampaignTags = v;
-        emit MaxCampaignTagsSet(v);
-    }
-
-    // setMaxAllowedPublishers moved to DatumCampaignAllowlist (alpha-4 EIP-170).
+    // setMaxPublisherTags / setMaxCampaignTags moved to DatumTagSystem.
+    // setMaxAllowedPublishers moved to DatumCampaignAllowlist.
 
     /// @notice One-shot wire of the carved-out allowlist module pointer.
-    ///         Lock-once.
     function setAllowlist(address addr) external onlyOwner {
         if (addr == address(0)) revert E00();
         if (address(allowlist) != address(0)) revert AlreadySet();
         allowlist = IDatumCampaignAllowlist(addr);
         emit AllowlistSet(addr);
+    }
+
+    /// @notice One-shot wire of the carved-out tag-system module pointer.
+    function setTagSystem(address addr) external onlyOwner {
+        if (addr == address(0)) revert E00();
+        if (address(tagSystem) != address(0)) revert AlreadySet();
+        tagSystem = IDatumTagSystem(addr);
+        emit TagSystemSet(addr);
     }
 
     /// @notice Path A: governance cap on the advertiser-settable `campaignMinStake`.
@@ -492,121 +427,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         emit MaxAllowedMinStakeSet(amount);
     }
 
-    /// @notice Enable or disable the Curated lane's enforcement layer. False =
-    ///         curated lane lets through any tag (effectively a kill-switch
-    ///         that demotes Curated-mode publishers to Any-mode for tag
-    ///         registration). After `lockLanes()`, this can only be flipped
-    ///         from false→true — the kill switch cannot be re-armed against
-    ///         the lane.
-    function setEnforceTagRegistry(bool enforced) external onlyOwner {
-        if (lanesLocked) if (!(enforced)) revert LaneLocked();
-        enforceTagRegistry = enforced;
-        emit TagRegistryEnforced(enforced);
-    }
-
-    /// @notice Advertiser tightens the lane for their campaign before
-    ///         activation. Tightening only: Any (0) → StakeGated (1) or
-    ///         Curated (2); StakeGated and Curated are sibling-strict and
-    ///         cannot be swapped to each other (that would require a fresh
-    ///         campaign). All existing `requiredTags` are re-validated against
-    ///         the new lane and must satisfy it.
-    function setCampaignTagMode(uint256 campaignId, uint8 mode) external whenNotFrozen {
-        Campaign storage c = _campaigns[campaignId];
-        if (!(c.advertiser != address(0))) revert E01();
-        if (!(msg.sender == c.advertiser)) revert E21();
-        if (!(c.status == CampaignStatus.Pending)) revert E64(); // pre-activation only
-        if (!(mode <= 2)) revert E11();
-
-        uint8 current = campaignTagMode[campaignId];
-        // Allow Any → anything; otherwise mode must equal current (idempotent).
-        if (!(current == 0 || current == mode)) revert E84(); // can only tighten from Any
-
-        // Re-validate every requiredTag under the new lane.
-        bytes32[] storage reqTags = _campaignTags[campaignId];
-        bool enforce = enforceTagRegistry;
-        for (uint256 i = 0; i < reqTags.length; i++) {
-            _requireTagAllowedForLane(reqTags[i], mode, enforce);
-        }
-
-        campaignTagMode[campaignId] = mode;
-        emit CampaignTagModeSet(campaignId, mode);
-    }
-
-    /// @notice Permanently freeze the three-lane menu (Any / StakeGated /
-    ///         Curated). After this, no future governance can collapse the
-    ///         menu down to a single lane. Parameters within each lane
-    ///         remain gov-tunable indefinitely. See `lanesLocked` natspec.
-    function lockLanes() external onlyOwner whenOpenGovPhase {
-        if (!(!lanesLocked)) revert AlreadySet();
-        if (!(address(tagRegistry) != address(0))) revert RegistryUnset();
-        lanesLocked = true;
-        emit LanesLocked();
-    }
-
-    /// @notice Wire the stake-gated tag registry. Must be set before
-    ///         `lockLanes()` — the lock pins this pointer permanently.
-    function setTagRegistry(address registry) external onlyOwner {
-        if (!(!lanesLocked)) revert LaneLocked();
-        tagRegistry = IDatumTagRegistry(registry);
-        emit TagRegistrySet(registry);
-    }
-
-    /// @notice Add a tag to the approved registry.
-    function approveTag(bytes32 tag) external onlyOwner {
-        if (!(!lanesLocked)) revert LaneLocked();
-        if (!(tag != bytes32(0))) revert E00();
-        if (!(!approvedTags[tag])) revert E15();
-        approvedTags[tag] = true;
-        _approvedTagList.push(tag);
-        _approvedTagIndex[tag] = _approvedTagList.length;
-        emit TagApproved(tag);
-    }
-
-    /// @notice Remove a tag from the approved registry (swap-and-pop).
-    function removeApprovedTag(bytes32 tag) external onlyOwner {
-        if (!(!lanesLocked)) revert LaneLocked();
-        if (!(approvedTags[tag])) revert E01();
-        approvedTags[tag] = false;
-        uint256 idx = _approvedTagIndex[tag] - 1;
-        uint256 lastIdx = _approvedTagList.length - 1;
-        if (idx != lastIdx) {
-            bytes32 lastTag = _approvedTagList[lastIdx];
-            _approvedTagList[idx] = lastTag;
-            _approvedTagIndex[lastTag] = idx + 1;
-        }
-        _approvedTagList.pop();
-        delete _approvedTagIndex[tag];
-        emit TagRemoved(tag);
-    }
-
-    /// @notice Batch approve tags.
-    function approveTags(bytes32[] calldata tags) external onlyOwner {
-        if (!(!lanesLocked)) revert LaneLocked();
-        for (uint256 i = 0; i < tags.length; i++) {
-            if (!(tags[i] != bytes32(0))) revert E00();
-            if (!approvedTags[tags[i]]) {
-                approvedTags[tags[i]] = true;
-                _approvedTagList.push(tags[i]);
-                _approvedTagIndex[tags[i]] = _approvedTagList.length;
-                emit TagApproved(tags[i]);
-            }
-        }
-    }
-
-    /// @notice M5-fix: wire an external tag curator. When set, `_isTagApproved`
-    ///         ORs the local mapping with the curator's `isTagApproved`.
-    function setTagCurator(address curator) external onlyOwner {
-        if (!(!tagCuratorLocked)) revert CuratorLocked();
-        tagCurator = curator;
-        emit TagCuratorSet(curator);
-    }
-
-    /// @notice M5-fix: permanently freeze the tag curator pointer.
-    function lockTagCurator() external onlyOwner whenOpenGovPhase {
-        if (!(!tagCuratorLocked)) revert AlreadySet();
-        tagCuratorLocked = true;
-        emit TagCuratorLocked();
-    }
+    // setEnforceTagRegistry / setCampaignTagMode / lockLanes /
+    // setTagRegistry / approveTag / removeApprovedTag / approveTags /
+    // setTagCurator / lockTagCurator moved to DatumTagSystem
+    // (alpha-4 EIP-170 carve-out).
 
     /// @notice CB4: wire the advertiser-stake contract. Lock-once: a hostile
     ///         owner cannot hot-swap to a permissive stake reader. Set to
@@ -619,123 +443,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         emit AdvertiserStakeSet(addr);
     }
 
-    /// @notice M5-fix: effective tag approval. Local mapping OR external curator.
-    function _isTagApproved(bytes32 tag) internal view returns (bool) {
-        if (approvedTags[tag]) return true;
-        if (tagCurator != address(0)) {
-            try IDatumTagCurator(tagCurator).isTagApproved(tag) returns (bool ok) {
-                return ok;
-            } catch {
-                return false;
-            }
-        }
-        return false;
-    }
+    // _isTagApproved / listApprovedTags moved to DatumTagSystem.
 
-    /// @notice List all approved tags.
-    function listApprovedTags() external view returns (bytes32[] memory) {
-        return _approvedTagList;
-    }
-
-    // -------------------------------------------------------------------------
-    // Campaign creation
-    // -------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // Publisher tag management (merged from DatumTargetingRegistry)
-    // -------------------------------------------------------------------------
-
-    /// @notice Publisher sets their supported tags (max 32). Replaces all previous tags.
-    ///         A8: tags being dropped enter a grace period — they remain effective
-    ///         for `hasAllTags` calls until `block.number >= effectiveBlock`. Tags
-    ///         being re-added clear any pending removal.
-    function setPublisherTags(bytes32[] calldata tagHashes) external whenNotFrozen {
-        if (!(!pauseRegistry.pausedCampaignCreation())) revert Paused();
-        IDatumPublishers.Publisher memory pub = publishers.getPublisher(msg.sender);
-        if (!(pub.registered)) revert NotRegistered();
-        if (!(tagHashes.length <= maxPublisherTags)) revert E65();
-
-        // Stage removals: for each old tag, decide whether the new set keeps it.
-        // Tags being dropped enter the grace window. Tags being kept have any
-        // pending removal cleared.
-        bytes32[] storage oldTags = _publisherTags[msg.sender];
-        for (uint256 i = 0; i < oldTags.length; i++) {
-            bytes32 ot = oldTags[i];
-            bool kept = false;
-            for (uint256 j = 0; j < tagHashes.length; j++) {
-                if (tagHashes[j] == ot) { kept = true; break; }
-            }
-            _publisherTagSet[msg.sender][ot] = false;
-            if (kept) {
-                tagRemovalEffectiveBlock[msg.sender][ot] = 0;
-            } else {
-                uint256 eff = block.number + TAG_REMOVAL_GRACE_BLOCKS;
-                tagRemovalEffectiveBlock[msg.sender][ot] = eff;
-                emit TagRemovalScheduled(msg.sender, ot, eff);
-            }
-        }
-
-        delete _publisherTags[msg.sender];
-        uint8 mode = publishers.publisherTagMode(msg.sender);
-        bool enforce = enforceTagRegistry;
-        for (uint256 i = 0; i < tagHashes.length; i++) {
-            if (!(tagHashes[i] != bytes32(0))) revert E00();
-            _requireTagAllowedForLane(tagHashes[i], mode, enforce);
-            _publisherTags[msg.sender].push(tagHashes[i]);
-            _publisherTagSet[msg.sender][tagHashes[i]] = true;
-            // Re-adding a previously-pending tag aborts its removal.
-            tagRemovalEffectiveBlock[msg.sender][tagHashes[i]] = 0;
-
-            // Best-effort: refresh usage in the stake-gated registry so the
-            // tag's expiry timer is bumped while it's actively in use.
-            if (mode == 1 && address(tagRegistry) != address(0)) {
-                // recordUsage is gated to campaignsContract; if wiring is
-                // incomplete this reverts. Try/catch so a publisher's tag
-                // update doesn't fail on a misconfigured ref.
-                try tagRegistry.recordUsage(tagHashes[i]) {} catch {}
-            }
-        }
-
-        emit TagsUpdated(msg.sender, tagHashes);
-    }
-
-    /// @notice Lane-aware tag validation. Reverts if the tag is not acceptable
-    ///         under the chosen lane.
-    ///         mode 0 (Any)         — no check beyond non-zero.
-    ///         mode 1 (StakeGated)  — tag must be Bonded in `tagRegistry`.
-    ///         mode 2 (Curated)     — tag must satisfy `_isTagApproved` when
-    ///                                 `enforceTagRegistry` is true. When the
-    ///                                 kill-switch is off, the lane is demoted
-    ///                                 to permissive for tag acceptance.
-    function _requireTagAllowedForLane(bytes32 tag, uint8 mode, bool enforce) internal view {
-        if (mode == 0) return;
-        if (mode == 1) {
-            if (!(address(tagRegistry) != address(0))) revert RegistryUnset();
-            if (!(tagRegistry.isTagBonded(tag))) revert E82(); // not bonded
-            return;
-        }
-        if (!(mode == 2)) revert E83(); // unknown mode
-        if (enforce) if (!(_isTagApproved(tag))) revert E81();
-    }
-
-    /// @notice Returns all tags for a publisher.
-    function getPublisherTags2(address publisher) external view returns (bytes32[] memory) {
-        return _publisherTags[publisher];
-    }
-
-    /// @notice Returns true if publisher has ALL of the required tags (AND logic).
-    ///         A8: tags in their post-removal grace window still count as held.
-    function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool) {
-        if (requiredTags.length == 0) return true;
-        if (!(requiredTags.length <= maxCampaignTags)) revert E66();
-        for (uint256 i = 0; i < requiredTags.length; i++) {
-            if (_publisherTagSet[publisher][requiredTags[i]]) continue;
-            uint256 eff = tagRemovalEffectiveBlock[publisher][requiredTags[i]];
-            if (eff != 0 && block.number < eff) continue; // still in grace
-            return false;
-        }
-        return true;
-    }
+    // Publisher tag management (setPublisherTags / hasAllTags / etc.) moved
+    // to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Community reports moved to DatumReports (alpha-4 EIP-170 carve-out).
 
@@ -801,7 +512,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         uint256 budgetValue = msg.value - bondAmount - activationBondAmount;
         if (!(budgetValue >= MINIMUM_BUDGET_PLANCK)) revert E11();
         if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget)) revert E80();
-        if (!(requiredTags.length <= maxCampaignTags)) revert E66();
+        // requiredTags length check moved to DatumTagSystem.initializeCampaignTags.
         // C1-fix: forbid stranded bonds. If the advertiser passes a non-zero
         // bondAmount while ChallengeBonds isn't wired, the lockBond branch
         // below is skipped and the bondAmount portion would sit in this
@@ -834,7 +545,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         // Inline validation (merged from CampaignValidator)
         uint16 snapshot;
         address snapRelaySigner;
-        bytes32[] memory snapPubTags;
         bool allowlistWasEnabled;
         {
             // S12: reject blocked advertisers
@@ -851,16 +561,12 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
                     if (!(publishers.isAllowedAdvertiser(publisher, msg.sender))) revert E62();
                 }
 
-                // TX-1: tag matching
-                if (requiredTags.length > 0) {
-                    for (uint256 i = 0; i < requiredTags.length; i++) {
-                        if (!(_publisherTagSet[publisher][requiredTags[i]])) revert E62();
-                    }
-                }
+                // TX-1: tag matching delegated to TagSystem (returns false on miss).
+                // The validation + snapshot of publisher tags happens inside
+                // tagSystem.initializeCampaignTags below.
 
                 snapshot = pub.takeRateBps;
                 snapRelaySigner = publishers.relaySigner(publisher);
-                snapPubTags = _publisherTags[publisher];
             } else {
                 snapshot = defaultTakeRateBps;
             }
@@ -906,16 +612,11 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
             viewBid: vBid
         });
 
-        // Store required tags
-        if (requiredTags.length > 0) {
-            for (uint256 i = 0; i < requiredTags.length; i++) {
-                _campaignTags[campaignId].push(requiredTags[i]);
-            }
-        }
-
-        // Store publisher tag snapshots
-        for (uint256 i = 0; i < snapPubTags.length; i++) {
-            _campaignPublisherTags[campaignId].push(snapPubTags[i]);
+        // Delegate tag validation + storage to DatumTagSystem.
+        //   - Validates publisher's tag set against requiredTags (publisher !=0).
+        //   - Records the required tags + snapshot of publisher's current tags.
+        if (address(tagSystem) != address(0)) {
+            tagSystem.initializeCampaignTags(campaignId, publisher, requiredTags);
         }
 
         // Store pots and initialize budget per pot
@@ -1204,16 +905,20 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         return _campaigns[campaignId].pendingExpiryBlock;
     }
 
+    /// @notice Delegating view: reads required-tag set from DatumTagSystem.
     function getCampaignTags(uint256 campaignId) external view returns (bytes32[] memory) {
-        return _campaignTags[campaignId];
+        if (address(tagSystem) == address(0)) return new bytes32[](0);
+        return tagSystem.getCampaignTags(campaignId);
     }
 
     function getCampaignRelaySigner(uint256 campaignId) external view returns (address) {
         return _campaigns[campaignId].relaySigner;
     }
 
+    /// @notice Delegating view: reads publisher-tags snapshot from DatumTagSystem.
     function getCampaignPublisherTags(uint256 campaignId) external view returns (bytes32[] memory) {
-        return _campaignPublisherTags[campaignId];
+        if (address(tagSystem) == address(0)) return new bytes32[](0);
+        return tagSystem.getCampaignPublisherTags(campaignId);
     }
 
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool) {

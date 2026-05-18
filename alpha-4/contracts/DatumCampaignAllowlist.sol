@@ -7,6 +7,7 @@ import "./interfaces/IDatumCampaignAllowlist.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
+import "./interfaces/IDatumTagSystem.sol";
 
 /// @title  DatumCampaignAllowlist
 /// @notice Per-campaign publisher allowlist + take-rate snapshot. Carved
@@ -39,6 +40,7 @@ contract DatumCampaignAllowlist is
     IDatumCampaigns    public campaigns;
     IDatumPublishers   public publishers;
     IDatumChallengeBonds public challengeBonds; // optional; address(0) disables bond locking
+    IDatumTagSystem    public tagSystem;        // optional; address(0) skips tag-match check
     bool public plumbingLocked;
 
     // ─────────────────────────────────────────────────────────────────────
@@ -67,6 +69,7 @@ contract DatumCampaignAllowlist is
     event CampaignsSet(address indexed campaigns);
     event PublishersSet(address indexed publishers);
     event ChallengeBondsSet(address indexed challengeBonds);
+    event TagSystemSet(address indexed tagSystem);
     event PlumbingLocked();
 
     // ─────────────────────────────────────────────────────────────────────
@@ -105,6 +108,12 @@ contract DatumCampaignAllowlist is
         if (plumbingLocked) revert LockedAlready();
         challengeBonds = IDatumChallengeBonds(addr); // address(0) is valid (feature off)
         emit ChallengeBondsSet(addr);
+    }
+
+    function setTagSystem(address addr) external onlyOwner {
+        if (plumbingLocked) revert LockedAlready();
+        tagSystem = IDatumTagSystem(addr); // address(0) skips tag-match check
+        emit TagSystemSet(addr);
     }
 
     function lockPlumbing() external onlyOwner whenOpenGovPhase {
@@ -214,9 +223,11 @@ contract DatumCampaignAllowlist is
             if (!publishers.isAllowedAdvertiser(publisher, advertiser)) revert E62();
         }
 
-        bytes32[] memory reqTags = campaigns.getCampaignTags(campaignId);
-        if (reqTags.length > 0) {
-            if (!campaigns.hasAllTags(publisher, reqTags)) revert E62();
+        // Tag-match check delegated to the carved-out TagSystem (alpha-4
+        // EIP-170 carve-out). Single staticcall does the campaignId -> required
+        // tag set lookup + the per-publisher hasAllTags check in one shot.
+        if (address(tagSystem) != address(0)) {
+            if (!tagSystem.hasAllRequiredTags(publisher, campaignId)) revert E62();
         }
 
         uint16 rate = pub.takeRateBps;

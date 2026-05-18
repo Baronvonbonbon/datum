@@ -142,6 +142,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
   let campaigns:    DatumCampaigns;
   let creative:     any;
   let reports:      any;
+  let tagSystem:    any;
   let lifecycle:    DatumCampaignLifecycle;
   let v2:           DatumGovernanceV2;
   let claimVal:     DatumClaimValidator;
@@ -248,6 +249,12 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     reports = await (await ethers.getContractFactory("DatumReports")).deploy();
     await reports.setCampaigns(await campaigns.getAddress());
     await reports.setSettlement(await settlement.getAddress());
+
+    tagSystem = await (await ethers.getContractFactory("DatumTagSystem")).deploy();
+    await tagSystem.setCampaigns(await campaigns.getAddress());
+    await tagSystem.setPublishers(await publishers.getAddress());
+    await tagSystem.setPauseRegistry(await pauseReg.getAddress());
+    await campaigns.setTagSystem(await tagSystem.getAddress());
 
     await ledger.setCampaigns(await campaigns.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
@@ -696,7 +703,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       // Set tags on publisher
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
       const defiTag   = ethers.encodeBytes32String("topic:defi");
-      await campaigns.connect(publisher).setPublisherTags([cryptoTag, defiTag]);
+      await tagSystem.connect(publisher).setPublisherTags([cryptoTag, defiTag]);
     });
 
     it("BM-TAG-1: publisher with matching tags can create fixed campaign", async function () {
@@ -732,7 +739,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     });
 
     it("BM-TAG-4: publisher tags correctly returned by Campaigns", async function () {
-      const tags = await campaigns.getPublisherTags2(publisher.address);
+      const tags = await tagSystem.getPublisherTags2(publisher.address);
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
       const defiTag   = ethers.encodeBytes32String("topic:defi");
       expect(tags).to.include(cryptoTag);
@@ -741,7 +748,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-TAG-5: hasAllTags returns true when publisher has all required tags", async function () {
       const cryptoTag = ethers.encodeBytes32String("topic:crypto");
-      expect(await campaigns.hasAllTags(publisher.address, [cryptoTag])).to.be.true;
+      expect(await tagSystem.hasAllTags(publisher.address, [cryptoTag])).to.be.true;
     });
   });
 

@@ -23,6 +23,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   let pauseReg: DatumPauseRegistry;
   let publishers: DatumPublishers;
   let campaigns: DatumCampaigns;
+  let tagSystem: any;
   let settlement: DatumSettlement;
   let relay: DatumRelay;
   let v2: DatumGovernanceV2;
@@ -96,6 +97,12 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     await campaigns.setBudgetLedger(await ledger.getAddress());
     await campaigns.setLifecycleContract(owner.address); // placeholder
 
+    tagSystem = await (await ethers.getContractFactory("DatumTagSystem")).deploy();
+    await tagSystem.setCampaigns(await campaigns.getAddress());
+    await tagSystem.setPublishers(await publishers.getAddress());
+    await tagSystem.setPauseRegistry(await pauseReg.getAddress());
+    await campaigns.setTagSystem(await tagSystem.getAddress());
+
     await ledger.setCampaigns(await campaigns.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
     await ledger.setLifecycle(owner.address); // placeholder
@@ -163,7 +170,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
         [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
-    ).to.be.revertedWithCustomError(campaigns, "Paused");
+    ).to.be.revertedWithCustomError(tagSystem, "Paused");
   });
 
   // P3: createCampaign works when unpaused
@@ -229,8 +236,8 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     const TAG = ethers.keccak256(ethers.toUtf8Bytes("topic:test"));
     await expect(
-      campaigns.connect(other).setPublisherTags([TAG])
-    ).to.be.revertedWithCustomError(campaigns, "Paused");
+      tagSystem.connect(other).setPublisherTags([TAG])
+    ).to.be.revertedWithCustomError(tagSystem, "Paused");
   });
 
   // T5: PauseRegistry idempotency

@@ -443,7 +443,7 @@ async function main() {
     "tokenRewardVault", "parameterGovernance",
     "publisherReputation",
     "nullifierRegistry", "settlementRateLimiter",
-    "campaignCreative", "reports", "campaignAllowlist",
+    "campaignCreative", "reports", "campaignAllowlist", "tagSystem",
   ];
   const missing = requiredKeys.filter(k => !A[k]);
   if (missing.length > 0) {

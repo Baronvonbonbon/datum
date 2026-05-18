@@ -17,6 +17,7 @@ import { fundSigners, mineBlocks } from "./helpers/mine";
 describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   let campaigns: DatumCampaigns;
   let allowlist: any;
+  let tagSystem: any;
   let publishers: DatumPublishers;
   let pauseReg: DatumPauseRegistry;
   let ledger: DatumBudgetLedger;
@@ -71,6 +72,13 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     await allowlist.setPublishers(await publishers.getAddress());
     await campaigns.setAllowlist(await allowlist.getAddress());
 
+    tagSystem = await (await ethers.getContractFactory("DatumTagSystem")).deploy();
+    await tagSystem.setCampaigns(await campaigns.getAddress());
+    await tagSystem.setPublishers(await publishers.getAddress());
+    await tagSystem.setPauseRegistry(await pauseReg.getAddress());
+    await campaigns.setTagSystem(await tagSystem.getAddress());
+    await allowlist.setTagSystem(await tagSystem.getAddress());
+
     // Register publishers
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
     await publishers.connect(publisher2).registerPublisher(TAKE_RATE_BPS);
@@ -82,9 +90,9 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
   it("TG1: publisher can set tags", async function () {
     const tags = [TAG_DEFI, TAG_EN_US, TAG_MOBILE];
-    await campaigns.connect(publisher).setPublisherTags(tags);
+    await tagSystem.connect(publisher).setPublisherTags(tags);
 
-    const stored = await campaigns.getPublisherTags2(publisher.address);
+    const stored = await tagSystem.getPublisherTags2(publisher.address);
     expect(stored.length).to.equal(3);
     expect(stored[0]).to.equal(TAG_DEFI);
     expect(stored[1]).to.equal(TAG_EN_US);
@@ -93,77 +101,77 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
 
   it("TG1b: setPublisherTags emits TagsUpdated event", async function () {
     const tags = [TAG_GAMING, TAG_DE];
-    await expect(campaigns.connect(publisher2).setPublisherTags(tags))
-      .to.emit(campaigns, "TagsUpdated")
+    await expect(tagSystem.connect(publisher2).setPublisherTags(tags))
+      .to.emit(tagSystem, "TagsUpdated")
       .withArgs(publisher2.address, tags);
   });
 
   it("TG2: setTags replaces previous tags (with A8 removal grace)", async function () {
     // publisher2 already has [GAMING, DE] from TG1b
     const newTags = [TAG_DEFI, TAG_EN_US];
-    await campaigns.connect(publisher2).setPublisherTags(newTags);
+    await tagSystem.connect(publisher2).setPublisherTags(newTags);
 
-    const stored = await campaigns.getPublisherTags2(publisher2.address);
+    const stored = await tagSystem.getPublisherTags2(publisher2.address);
     expect(stored.length).to.equal(2);
     expect(stored[0]).to.equal(TAG_DEFI);
     expect(stored[1]).to.equal(TAG_EN_US);
 
     // A8: dropped tag still effective during the grace window.
-    expect(await campaigns.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.true;
-    const grace = Number(await campaigns.TAG_REMOVAL_GRACE_BLOCKS());
+    expect(await tagSystem.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.true;
+    const grace = Number(await tagSystem.TAG_REMOVAL_GRACE_BLOCKS());
     await mineBlocks(grace + 1);
     // After grace elapses, dropped tag is truly gone.
-    expect(await campaigns.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.false;
+    expect(await tagSystem.hasAllTags(publisher2.address, [TAG_GAMING])).to.be.false;
   });
 
   it("TG3: hasAllTags returns true when publisher has all required tags", async function () {
     // publisher has [DEFI, EN_US, MOBILE]
-    expect(await campaigns.hasAllTags(publisher.address, [TAG_DEFI])).to.be.true;
-    expect(await campaigns.hasAllTags(publisher.address, [TAG_DEFI, TAG_EN_US])).to.be.true;
-    expect(await campaigns.hasAllTags(publisher.address, [TAG_DEFI, TAG_EN_US, TAG_MOBILE])).to.be.true;
+    expect(await tagSystem.hasAllTags(publisher.address, [TAG_DEFI])).to.be.true;
+    expect(await tagSystem.hasAllTags(publisher.address, [TAG_DEFI, TAG_EN_US])).to.be.true;
+    expect(await tagSystem.hasAllTags(publisher.address, [TAG_DEFI, TAG_EN_US, TAG_MOBILE])).to.be.true;
   });
 
   it("TG3b: hasAllTags returns false when publisher is missing a tag", async function () {
     // publisher has [DEFI, EN_US, MOBILE] but not GAMING
-    expect(await campaigns.hasAllTags(publisher.address, [TAG_GAMING])).to.be.false;
-    expect(await campaigns.hasAllTags(publisher.address, [TAG_DEFI, TAG_GAMING])).to.be.false;
+    expect(await tagSystem.hasAllTags(publisher.address, [TAG_GAMING])).to.be.false;
+    expect(await tagSystem.hasAllTags(publisher.address, [TAG_DEFI, TAG_GAMING])).to.be.false;
   });
 
   it("TG3c: hasAllTags returns true for empty requiredTags", async function () {
-    expect(await campaigns.hasAllTags(publisher.address, [])).to.be.true;
-    expect(await campaigns.hasAllTags(other.address, [])).to.be.true;
+    expect(await tagSystem.hasAllTags(publisher.address, [])).to.be.true;
+    expect(await tagSystem.hasAllTags(other.address, [])).to.be.true;
   });
 
   it("TG4: only registered publisher can set tags", async function () {
     await expect(
-      campaigns.connect(other).setPublisherTags([TAG_DEFI])
-    ).to.be.revertedWithCustomError(campaigns, "NotRegistered");
+      tagSystem.connect(other).setPublisherTags([TAG_DEFI])
+    ).to.be.revertedWithCustomError(tagSystem, "NotRegistered");
   });
 
   it("TG5: setTags rejects more than maxPublisherTags (E65)", async function () {
     // Default is 64 (governance-settable). Shrink to 4 to keep the test cheap.
-    await campaigns.setMaxPublisherTags(4);
+    await tagSystem.setMaxPublisherTags(4);
     const tooMany = Array.from({ length: 5 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
     await expect(
-      campaigns.connect(publisher).setPublisherTags(tooMany)
-    ).to.be.revertedWithCustomError(campaigns, "E65");
-    await campaigns.setMaxPublisherTags(64); // restore default
+      tagSystem.connect(publisher).setPublisherTags(tooMany)
+    ).to.be.revertedWithCustomError(tagSystem, "E65");
+    await tagSystem.setMaxPublisherTags(64); // restore default
   });
 
   it("TG5b: setTags rejects zero hash (E00)", async function () {
     await expect(
-      campaigns.connect(publisher).setPublisherTags([ethers.ZeroHash])
-    ).to.be.revertedWithCustomError(allowlist, "E00");
+      tagSystem.connect(publisher).setPublisherTags([ethers.ZeroHash])
+    ).to.be.revertedWithCustomError(tagSystem, "E00");
   });
 
   it("TG6: setTags reverts when paused", async function () {
     await pauseReg.pause();
 
     await expect(
-      campaigns.connect(publisher).setPublisherTags([TAG_DEFI])
-    ).to.be.revertedWithCustomError(campaigns, "Paused");
+      tagSystem.connect(publisher).setPublisherTags([TAG_DEFI])
+    ).to.be.revertedWithCustomError(tagSystem, "Paused");
 
     // C-4: unpause via guardian 2-of-3
     const pid = await pauseReg.connect(advertiser).propose.staticCall(2);
@@ -172,25 +180,25 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   });
 
   it("TG6b: hasAllTags rejects more than maxCampaignTags (E66)", async function () {
-    await campaigns.setMaxCampaignTags(2);
+    await tagSystem.setMaxCampaignTags(2);
     const tooMany = Array.from({ length: 3 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
     await expect(
-      campaigns.hasAllTags(publisher.address, tooMany)
-    ).to.be.revertedWithCustomError(campaigns, "E66");
-    await campaigns.setMaxCampaignTags(16); // restore default
+      tagSystem.hasAllTags(publisher.address, tooMany)
+    ).to.be.revertedWithCustomError(tagSystem, "E66");
+    await tagSystem.setMaxCampaignTags(16); // restore default
   });
 
   it("TG6c: setTags to empty clears all tags (A8 grace honored)", async function () {
-    await campaigns.connect(publisher2).setPublisherTags([]);
-    const stored = await campaigns.getPublisherTags2(publisher2.address);
+    await tagSystem.connect(publisher2).setPublisherTags([]);
+    const stored = await tagSystem.getPublisherTags2(publisher2.address);
     expect(stored.length).to.equal(0);
     // A8: dropped tags still effective until the grace elapses.
-    expect(await campaigns.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.true;
-    const grace = Number(await campaigns.TAG_REMOVAL_GRACE_BLOCKS());
+    expect(await tagSystem.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.true;
+    const grace = Number(await tagSystem.TAG_REMOVAL_GRACE_BLOCKS());
     await mineBlocks(grace + 1);
-    expect(await campaigns.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.false;
+    expect(await tagSystem.hasAllTags(publisher2.address, [TAG_DEFI])).to.be.false;
   });
 
   // =========================================================================
@@ -273,18 +281,18 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   });
 
   it("TG-gov-1: setMaxPublisherTags bounded by ceiling (E11)", async function () {
-    const ceiling = await campaigns.MAX_PUBLISHER_TAGS_CEILING();
-    await expect(campaigns.setMaxPublisherTags(0)).to.be.revertedWithCustomError(allowlist, "E11");
-    await expect(campaigns.setMaxPublisherTags(ceiling + 1n)).to.be.revertedWithCustomError(allowlist, "E11");
-    await campaigns.setMaxPublisherTags(128);
-    expect(await campaigns.maxPublisherTags()).to.equal(128);
-    await campaigns.setMaxPublisherTags(64); // restore
+    const ceiling = await tagSystem.MAX_PUBLISHER_TAGS_CEILING();
+    await expect(tagSystem.setMaxPublisherTags(0)).to.be.revertedWithCustomError(allowlist, "E11");
+    await expect(tagSystem.setMaxPublisherTags(ceiling + 1n)).to.be.revertedWithCustomError(allowlist, "E11");
+    await tagSystem.setMaxPublisherTags(128);
+    expect(await tagSystem.maxPublisherTags()).to.equal(128);
+    await tagSystem.setMaxPublisherTags(64); // restore
   });
 
   it("TG-gov-2: setMaxCampaignTags bounded by ceiling (E11)", async function () {
-    const ceiling = await campaigns.MAX_CAMPAIGN_TAGS_CEILING();
-    await expect(campaigns.setMaxCampaignTags(0)).to.be.revertedWithCustomError(allowlist, "E11");
-    await expect(campaigns.setMaxCampaignTags(ceiling + 1n)).to.be.revertedWithCustomError(allowlist, "E11");
+    const ceiling = await tagSystem.MAX_CAMPAIGN_TAGS_CEILING();
+    await expect(tagSystem.setMaxCampaignTags(0)).to.be.revertedWithCustomError(allowlist, "E11");
+    await expect(tagSystem.setMaxCampaignTags(ceiling + 1n)).to.be.revertedWithCustomError(allowlist, "E11");
   });
 
   it("TG-gov-3: setMaxAllowedPublishers bounded by ceiling (E11)", async function () {
@@ -294,13 +302,13 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   });
 
   it("TG-gov-4: only owner can set caps (E18)", async function () {
-    await expect(campaigns.connect(advertiser).setMaxPublisherTags(50)).to.be.revertedWith("E18");
-    await expect(campaigns.connect(advertiser).setMaxCampaignTags(10)).to.be.revertedWith("E18");
+    await expect(tagSystem.connect(advertiser).setMaxPublisherTags(50)).to.be.revertedWith("E18");
+    await expect(tagSystem.connect(advertiser).setMaxCampaignTags(10)).to.be.revertedWith("E18");
     await expect(allowlist.connect(advertiser).setMaxAllowedPublishers(50)).to.be.revertedWith("E18");
   });
 
   it("TG11: createCampaign rejects more than maxCampaignTags (E66)", async function () {
-    await campaigns.setMaxCampaignTags(2);
+    await tagSystem.setMaxCampaignTags(2);
     const tooMany = Array.from({ length: 3 }, (_, i) =>
       ethers.keccak256(ethers.toUtf8Bytes(`tag:${i}`))
     );
@@ -311,8 +319,8 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
         tooMany, false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
-    ).to.be.revertedWithCustomError(campaigns, "E66");
-    await campaigns.setMaxCampaignTags(16); // restore default
+    ).to.be.revertedWithCustomError(tagSystem, "E66");
+    await tagSystem.setMaxCampaignTags(16); // restore default
   });
 
 });

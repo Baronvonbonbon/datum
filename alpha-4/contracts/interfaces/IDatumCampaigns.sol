@@ -189,9 +189,7 @@ interface IDatumCampaigns {
     // Multi-publisher allowlist views moved to DatumCampaignAllowlist
     // (alpha-4 EIP-170 carve-out).
 
-    // Targeting views (merged from TargetingRegistry)
-    function hasAllTags(address publisher, bytes32[] calldata requiredTags) external view returns (bool);
-    function getPublisherTags2(address publisher) external view returns (bytes32[] memory);
+    // Targeting views moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Report views moved to DatumReports (alpha-4 EIP-170 carve-out).
 }

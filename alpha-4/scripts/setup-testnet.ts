@@ -188,14 +188,18 @@ const campaignsAbi = [
   "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
-  // Inline targeting (merged from TargetingRegistry)
-  "function setPublisherTags(bytes32[] tagHashes)",
+  // setPublisherTags moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
 ];
 
 // DatumReports is its own contract again (alpha-4 EIP-170 carve-out).
 const reportsIfaceLocal = new ethers.Interface([
   "function reportPage(uint256 campaignId, uint8 reason)",
   "function reportAd(uint256 campaignId, uint8 reason)",
+]);
+
+// DatumTagSystem (alpha-4 EIP-170 carve-out).
+const tagSystemIfaceLocal = new ethers.Interface([
+  "function setPublisherTags(bytes32[] tagHashes)",
 ]);
 
 const activationBondsAbi = [
@@ -491,6 +495,7 @@ async function main() {
     "campaignCreative",
     "reports",
     "campaignAllowlist",
+    "tagSystem",
   ];
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {
@@ -621,7 +626,7 @@ async function main() {
     tagHash("locale:en"),
   ];
   try {
-    await sendCall(diana, rawProvider, addrs.campaigns, campIface, "setPublisherTags", [dianaTags]);
+    await sendCall(diana, rawProvider, addrs.tagSystem, tagSystemIfaceLocal, "setPublisherTags", [dianaTags]);
     log("2.5", `  diana: ${dianaTags.length} tags set (crypto-web3, defi, polkadot, computers-electronics, finance, locale:en)`);
   } catch (err) {
     log("2.5", `  diana tags: ${String(err).slice(0, 100)}`);
@@ -635,7 +640,7 @@ async function main() {
     tagHash("locale:en"),
   ];
   try {
-    await sendCall(eve, rawProvider, addrs.campaigns, campIface, "setPublisherTags", [eveTags]);
+    await sendCall(eve, rawProvider, addrs.tagSystem, tagSystemIfaceLocal, "setPublisherTags", [eveTags]);
     log("2.5", `  eve: ${eveTags.length} tags set (crypto-web3, nfts, daos-governance, locale:en)`);
   } catch (err) {
     log("2.5", `  eve tags: ${String(err).slice(0, 100)}`);

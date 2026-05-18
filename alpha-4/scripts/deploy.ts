@@ -131,6 +131,9 @@ const REQUIRED_KEYS = [
   "reports",
   // Multi-publisher allowlist (carved out of DatumCampaigns for EIP-170, alpha-4)
   "campaignAllowlist",
+  // Tag system (governance tag dict + per-publisher tags + per-campaign required tags;
+  // carved out of DatumCampaigns for EIP-170, alpha-4)
+  "tagSystem",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -706,6 +709,13 @@ async function main() {
     await deployOrReuse("campaignAllowlist", "DatumCampaignAllowlist", []);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumCampaignAllowlist — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumTagSystem (tag dict + per-publisher tags + per-campaign tags)");
+    await deployOrReuse("tagSystem", "DatumTagSystem", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumTagSystem — ${err}`);
   }
 
   // --- B2: Council-driven blocklist curator ---
@@ -1380,6 +1390,40 @@ async function main() {
     addresses.campaignAllowlist,
   );
 
+  // ── TagSystem: setCampaigns + setPublishers + setPauseRegistry ──
+  // ── Campaigns: setTagSystem (lock-once write coupling) ──
+  // ── Allowlist: setTagSystem (per-add hasAllRequiredTags read) ──
+  await wireIfNeeded(
+    "TagSystem.campaigns",
+    "DatumTagSystem", addresses.tagSystem,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "TagSystem.publishers",
+    "DatumTagSystem", addresses.tagSystem,
+    "publishers", "setPublishers",
+    addresses.publishers,
+  );
+  await wireIfNeeded(
+    "TagSystem.pauseRegistry",
+    "DatumTagSystem", addresses.tagSystem,
+    "pauseRegistry", "setPauseRegistry",
+    addresses.pauseRegistry,
+  );
+  await wireIfNeeded(
+    "Campaigns.tagSystem",
+    "DatumCampaigns", addresses.campaigns,
+    "tagSystem", "setTagSystem",
+    addresses.tagSystem,
+  );
+  await wireIfNeeded(
+    "CampaignAllowlist.tagSystem",
+    "DatumCampaignAllowlist", addresses.campaignAllowlist,
+    "tagSystem", "setTagSystem",
+    addresses.tagSystem,
+  );
+
   // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
   await wireIfNeeded(
     "EmissionEngine.settlement",
@@ -1885,6 +1929,7 @@ async function main() {
     "campaignCreative",
     "reports",
     "campaignAllowlist",
+    "tagSystem",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",
