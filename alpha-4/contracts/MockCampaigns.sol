@@ -297,5 +297,15 @@ contract MockCampaigns {
         return campaignAssuranceLevel[campaignId];
     }
 
+    // ── People Chain identity gate mirror ────────────────────────────────────
+    mapping(uint256 => uint8) public campaignMinIdentityLevel;
+    function setCampaignMinIdentityLevel(uint256 campaignId, uint8 level) external {
+        require(level <= 2, "E11");
+        campaignMinIdentityLevel[campaignId] = level;
+    }
+    function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8) {
+        return campaignMinIdentityLevel[campaignId];
+    }
+
     receive() external payable {}
 }

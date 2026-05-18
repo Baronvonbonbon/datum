@@ -158,7 +158,12 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice D1a: commit both Router refs permanently.
+    /// @dev    Phase-gated on OpenGov to match the rest of the lock-once
+    ///         surface (Stage 4). The router is the phase source so it
+    ///         checks its own `phase` enum directly rather than going
+    ///         through the IDatumRouter_Upgradable modifier.
     function lockPlumbing() external onlyOwner {
+        require(phase == GovernancePhase.OpenGov, "not-opengov");
         require(!plumbingLocked, "already locked");
         require(address(campaigns) != address(0), "campaigns unset");
         require(address(lifecycle) != address(0), "lifecycle unset");

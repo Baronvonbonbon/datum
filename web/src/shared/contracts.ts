@@ -358,6 +358,8 @@ export function getPeopleChainXcmBridgeContract(addresses: ContractAddresses, pr
 /// UPGRADABLE_KEYS list in alpha-4/scripts/deploy.ts.
 const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
   "pauseRegistry",
+  "campaigns",
+  "settlement",
   "publishers",
   "campaignLifecycle",
   "budgetLedger",

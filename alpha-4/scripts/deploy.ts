@@ -1621,6 +1621,8 @@ async function main() {
   // we hash the same string to get the bytes32 registry key.
   const UPGRADABLE_KEYS: (keyof typeof addresses)[] = [
     "pauseRegistry",
+    "campaigns",
+    "settlement",
     "publishers",
     "campaignLifecycle",
     "budgetLedger",

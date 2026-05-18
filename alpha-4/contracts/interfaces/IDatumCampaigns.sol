@@ -155,6 +155,8 @@ interface IDatumCampaigns {
     function getCampaignRequiresZkProof(uint256 campaignId) external view returns (bool);
     /// @notice A3: effective AssuranceLevel (0/1/2).
     function getCampaignAssuranceLevel(uint256 campaignId) external view returns (uint8);
+    /// @notice People Chain identity gate (0=disabled, 1=Reasonable, 2=KnownGood).
+    function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8);
     function getCampaignMetadata(uint256 campaignId) external view returns (bytes32);
 
     /// @notice Returns campaign settlement data (3-tuple — no bidCpmPlanck, pots handle rates).

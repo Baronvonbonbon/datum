@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
@@ -29,7 +29,9 @@ interface ISettlementReportGate {
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
 ///         in DatumBudgetLedger per (campaignId, actionType).
-contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
+contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Configuration
     // -------------------------------------------------------------------------
@@ -266,6 +268,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     mapping(uint256 => uint32) public minUserSettledHistory;
     event CampaignMinHistorySet(uint256 indexed campaignId, uint32 minHistory);
 
+    // People Chain identity gate (2026-05-16): per-campaign required minimum
+    // identity level the user must hold (cached in DatumPeopleChainIdentity).
+    // 0 = disabled (no identity gate). 1 = Reasonable. 2 = KnownGood.
+    // Advertiser-settable. Raising locked at Pending (advertiser can't
+    // mid-flight invalidate users who already started participating); lowering
+    // permitted any time. The check itself happens in DatumSettlement, which
+    // reads campaignMinIdentityLevel(id) + identity.isVerified(user, level).
+    mapping(uint256 => uint8) public campaignMinIdentityLevel;
+    event CampaignMinIdentityLevelSet(uint256 indexed campaignId, uint8 level);
+
     // A14: metadata change tracking. Counter bumps on every successful
     // setMetadata; off-chain publishers detect mid-flight creative swaps by
     // watching the version. Active campaigns also pay a cooldown between
@@ -475,7 +487,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice A5/B8-fix: one-way switch. After this, the four governance-
     ///         critical setters above can only stage pending addresses; the
     ///         new contract must call its acceptX() to finalize.
-    function lockBootstrap() external onlyOwner {
+    function lockBootstrap() external onlyOwner whenOpenGovPhase {
         require(!bootstrapped, "already bootstrapped");
         bootstrapped = true;
         emit BootstrapLocked();
@@ -575,7 +587,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         cannot be swapped to each other (that would require a fresh
     ///         campaign). All existing `requiredTags` are re-validated against
     ///         the new lane and must satisfy it.
-    function setCampaignTagMode(uint256 campaignId, uint8 mode) external {
+    function setCampaignTagMode(uint256 campaignId, uint8 mode) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -601,7 +613,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         Curated). After this, no future governance can collapse the
     ///         menu down to a single lane. Parameters within each lane
     ///         remain gov-tunable indefinitely. See `lanesLocked` natspec.
-    function lockLanes() external onlyOwner {
+    function lockLanes() external onlyOwner whenOpenGovPhase {
         require(!lanesLocked, "already locked");
         require(address(tagRegistry) != address(0), "registry-unset");
         lanesLocked = true;
@@ -667,7 +679,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice M5-fix: permanently freeze the tag curator pointer.
-    function lockTagCurator() external onlyOwner {
+    function lockTagCurator() external onlyOwner whenOpenGovPhase {
         require(!tagCuratorLocked, "already locked");
         tagCuratorLocked = true;
         emit TagCuratorLocked();
@@ -714,7 +726,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         A8: tags being dropped enter a grace period — they remain effective
     ///         for `hasAllTags` calls until `block.number >= effectiveBlock`. Tags
     ///         being re-added clear any pending removal.
-    function setPublisherTags(bytes32[] calldata tagHashes) external {
+    function setPublisherTags(bytes32[] calldata tagHashes) external whenNotFrozen {
         require(!pauseRegistry.pausedCampaignCreation(), "P");
         IDatumPublishers.Publisher memory pub = publishers.getPublisher(msg.sender);
         require(pub.registered, "Not registered");
@@ -831,7 +843,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice Report a campaign's page (publisher content violation).
-    function reportPage(uint256 campaignId, uint8 reason) external {
+    function reportPage(uint256 campaignId, uint8 reason) external whenNotFrozen {
         require(reason >= 1 && reason <= 5, "E68");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
@@ -845,7 +857,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice Report a campaign's ad creative (advertiser content violation).
-    function reportAd(uint256 campaignId, uint8 reason) external {
+    function reportAd(uint256 campaignId, uint8 reason) external whenNotFrozen {
         require(reason >= 1 && reason <= 5, "E68");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
@@ -872,7 +884,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         address rewardToken,
         uint256 rewardPerImpression,
         uint256 bondAmount
-    ) external payable returns (uint256 campaignId) {
+    ) external payable whenNotFrozen returns (uint256 campaignId) {
         return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0);
     }
 
@@ -885,7 +897,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint256 rewardPerImpression,
         uint256 bondAmount,
         uint256 activationBondAmount
-    ) external payable returns (uint256 campaignId) {
+    ) external payable whenNotFrozen returns (uint256 campaignId) {
         return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount);
     }
 
@@ -1075,7 +1087,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///      should retain the ability to update creative metadata during a pause —
     ///      pause is for blocking *settlement*, not for freezing all state.
     ///      Do not "fix" this by adding `!pauseRegistry.paused()`.
-    function setMetadata(uint256 campaignId, bytes32 metadataHash) external {
+    function setMetadata(uint256 campaignId, bytes32 metadataHash) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1104,7 +1116,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         to provide). Lowering is permitted at any time — less proof
     ///         never invalidates past claims and gives the advertiser an
     ///         escape if their cosign pipeline breaks.
-    function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external {
+    function setCampaignAssuranceLevel(uint256 campaignId, uint8 level) external whenNotFrozen {
         require(level <= 2, "E11");
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
@@ -1121,7 +1133,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         ZK-gated claims. 0 disables the gate. Raising locked at Pending
     ///         (advertiser can't strand staked users mid-flight); lowering allowed
     ///         any time (loosens the gate — past claims remain valid).
-    function setCampaignMinStake(uint256 campaignId, uint256 minStake) external {
+    function setCampaignMinStake(uint256 campaignId, uint256 minStake) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1137,7 +1149,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Path A: set the campaign's required interest category.
     ///         bytes32(0) = any. Changes locked once Active (changing a required
     ///         category mid-flight would invalidate user proofs in flight).
-    function setCampaignRequiredCategory(uint256 campaignId, bytes32 category) external {
+    function setCampaignRequiredCategory(uint256 campaignId, bytes32 category) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1230,7 +1242,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint256 campaignId,
         address[] calldata pubs,
         uint256[] calldata bondAmounts
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1284,7 +1296,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         from the next block, claims from this publisher fail Check 3.
     ///         In-flight bonds for this (campaign, publisher) pair remain
     ///         claimable via the normal end-of-campaign return path.
-    function removeAllowedPublisher(uint256 campaignId, address publisher) external {
+    function removeAllowedPublisher(uint256 campaignId, address publisher) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1319,7 +1331,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice #1 (2026-05-12): set the per-user per-window cap for this campaign.
     ///         Both 0 = disabled. Raise locked once Active (advertiser can't
     ///         tighten mid-flight and strand user earnings); lower allowed any time.
-    function setCampaignUserCap(uint256 campaignId, uint32 maxEvents, uint32 windowBlocks) external {
+    function setCampaignUserCap(uint256 campaignId, uint32 maxEvents, uint32 windowBlocks) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1344,7 +1356,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice #2-extension (2026-05-12): set the minimum cumulative settled
     ///         events a user must have (across any campaign) before participating
     ///         in this campaign. 0 = disabled. Same Pending-only raise rule.
-    function setCampaignMinHistory(uint256 campaignId, uint32 minHistory) external {
+    function setCampaignMinHistory(uint256 campaignId, uint32 minHistory) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1354,6 +1366,35 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         }
         minUserSettledHistory[campaignId] = minHistory;
         emit CampaignMinHistorySet(campaignId, minHistory);
+    }
+
+    /// @notice People Chain identity gate. Set the minimum verified identity
+    ///         level (0=disabled, 1=Reasonable, 2=KnownGood) a user must hold
+    ///         in DatumPeopleChainIdentity to settle on this campaign.
+    ///
+    ///         Raising the bar (e.g. None → KnownGood) is locked at Pending
+    ///         for the same reason as AssuranceLevel: an advertiser must not
+    ///         be able to mid-flight invalidate already-engaged users.
+    ///         Lowering is permitted in any state.
+    ///
+    ///         Settlement enforces this in `_processBatch` and OR-merges with
+    ///         the user-side floor (`userMinIdentityLevel`).
+    function setCampaignMinIdentityLevel(uint256 campaignId, uint8 level) external whenNotFrozen {
+        require(level <= 2, "E11");
+        Campaign storage c = _campaigns[campaignId];
+        require(c.advertiser != address(0), "E01");
+        require(msg.sender == c.advertiser, "E21");
+        uint8 prev = campaignMinIdentityLevel[campaignId];
+        if (level > prev) {
+            require(c.status == CampaignStatus.Pending, "E22");
+        }
+        campaignMinIdentityLevel[campaignId] = level;
+        emit CampaignMinIdentityLevelSet(campaignId, level);
+    }
+
+    /// @notice Effective People Chain identity gate level for a campaign.
+    function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8) {
+        return campaignMinIdentityLevel[campaignId];
     }
 
     // -------------------------------------------------------------------------
@@ -1384,7 +1425,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint32  bulletinBlock,
         uint32  bulletinIndex,
         uint64  retentionHorizonBlock
-    ) external {
+    ) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1438,7 +1479,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
         uint256 campaignId,
         uint32  newBulletinBlock,
         uint32  newBulletinIndex
-    ) external nonReentrant {
+    ) external nonReentrant whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         BulletinRef storage br = campaignBulletin[campaignId];
@@ -1486,7 +1527,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         `confirmBulletinRenewal` here. Free to call by anyone; rate
     ///         self-limited by the expiry condition (event won't fire again
     ///         until a renewal advances the expiry).
-    function requestBulletinRenewal(uint256 campaignId) external {
+    function requestBulletinRenewal(uint256 campaignId) external whenNotFrozen {
         BulletinRef storage br = campaignBulletin[campaignId];
         require(br.cidDigest != bytes32(0), "E01");
         require(
@@ -1500,7 +1541,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Mark a Bulletin Chain creative as expired (permissionless).
     ///         Only callable once retention has actually lapsed. Frontends
     ///         can use this event to fall back to the IPFS hash for display.
-    function markBulletinExpired(uint256 campaignId) external {
+    function markBulletinExpired(uint256 campaignId) external whenNotFrozen {
         BulletinRef storage br = campaignBulletin[campaignId];
         require(br.cidDigest != bytes32(0), "E01");
         require(block.number >= br.expiryHubBlock, "E22");
@@ -1514,7 +1555,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
 
     /// @notice Fund the renewal escrow for a campaign. Permissionless funding
     ///         (anyone can top up — useful for collective campaigns).
-    function fundBulletinRenewalEscrow(uint256 campaignId) external payable {
+    function fundBulletinRenewalEscrow(uint256 campaignId) external payable whenNotFrozen {
         require(_campaigns[campaignId].advertiser != address(0), "E01");
         require(msg.value > 0, "E11");
         bulletinRenewalEscrow[campaignId] += msg.value;
@@ -1524,7 +1565,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     }
 
     /// @notice Withdraw unused escrow to a recipient. Advertiser-only.
-    function withdrawBulletinRenewalEscrow(uint256 campaignId, address recipient, uint256 amount) external nonReentrant {
+    function withdrawBulletinRenewalEscrow(uint256 campaignId, address recipient, uint256 amount) external nonReentrant whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1538,7 +1579,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------- Renewer authorization (advertiser-controlled) ------------------
 
     /// @notice Approve / revoke a specific renewer address for this campaign.
-    function setApprovedBulletinRenewer(uint256 campaignId, address renewer, bool approved) external {
+    function setApprovedBulletinRenewer(uint256 campaignId, address renewer, bool approved) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1550,7 +1591,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     /// @notice Toggle fully-open renewal for this campaign. When true, anyone
     ///         can call `confirmBulletinRenewal` and drain renewer reward.
     ///         Advertiser is responsible for sizing the escrow to match risk.
-    function setOpenBulletinRenewal(uint256 campaignId, bool open) external {
+    function setOpenBulletinRenewal(uint256 campaignId, bool open) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1591,7 +1632,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
-    function activateCampaign(uint256 campaignId) external {
+    function activateCampaign(uint256 campaignId) external whenNotFrozen {
         // Governance-driven action — gated on governance pause, not settlement.
         require(!pauseRegistry.pausedGovernance(), "P");
         // Two authorities: governance (legacy vote path or contested-vote
@@ -1614,7 +1655,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
-    function togglePause(uint256 campaignId, bool pause) external {
+    function togglePause(uint256 campaignId, bool pause) external whenNotFrozen {
         Campaign storage c = _campaigns[campaignId];
         require(c.advertiser != address(0), "E01");
         require(msg.sender == c.advertiser, "E21");
@@ -1634,7 +1675,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumCampaigns
-    function setCampaignStatus(uint256 campaignId, CampaignStatus newStatus) external {
+    function setCampaignStatus(uint256 campaignId, CampaignStatus newStatus) external whenNotFrozen {
         require(msg.sender == lifecycleContract, "E25");
         CampaignStatus current = _campaigns[campaignId].status;
         require(_validTransition(current, newStatus), "E67");
@@ -1682,7 +1723,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumOwnable, PaseoSafeSender {
     ///         delegation — subsequent batches require strict EOA cosigs from
     ///         this advertiser. The cold key is the SOLE authority over this
     ///         mapping; a compromised hot key cannot self-perpetuate.
-    function setAdvertiserRelaySigner(address signer) external {
+    function setAdvertiserRelaySigner(address signer) external whenNotFrozen {
         // Advertiser-side rotation is part of the settlement trust path —
         // gate on settlement pause so a settlement-pause halts both the
         // batches AND new advertiser hot-key rotations during triage.

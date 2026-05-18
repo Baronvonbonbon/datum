@@ -71,6 +71,7 @@ import { HouseAdPreview } from "./pages/settings/HouseAdPreview";
 // Me
 import { History } from "./pages/me/History";
 import { AssurancePage } from "./pages/me/Assurance";
+import { IdentityPage } from "./pages/me/Identity";
 import { Dust } from "./pages/me/Dust";
 
 // Demo
@@ -154,6 +155,7 @@ export function App() {
               {/* Me — wallet-scoped views */}
               <Route path="/me/history" element={<History />} />
               <Route path="/me/assurance" element={<AssurancePage />} />
+              <Route path="/me/identity" element={<IdentityPage />} />
               <Route path="/me/dust" element={<Dust />} />
 
               {/* Demo */}

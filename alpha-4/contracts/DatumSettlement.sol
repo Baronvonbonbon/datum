@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumClaimValidator.sol";
@@ -16,6 +16,7 @@ import "./interfaces/IDatumBudgetLedger.sol";
 import "./interfaces/IDatumPaymentVault.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
+import "./interfaces/IDatumPeopleChainIdentity.sol";
 
 /// @dev Minimal interface to DatumMintAuthority for the DATUM-token integration.
 ///      Kept inline (rather than a full interface file) because Settlement only
@@ -65,7 +66,9 @@ interface ICampaignsUserCapView {
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwnable {
+contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     IDatumBudgetLedger public budgetLedger;
     IDatumPaymentVault public paymentVault;
     IDatumCampaignLifecycle public lifecycle;
@@ -179,6 +182,25 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     // their own behalf without relying on each campaign's advertiser to opt in.
     // Default 0 = accept any level (current behavior). Self-set only.
     mapping(address => uint8) public userMinAssurance;
+
+    /// @notice People Chain identity gate (user-side floor). Symmetric to the
+    ///         campaign-side `campaignMinIdentityLevel` — the user can demand
+    ///         that any campaign they settle on must require identity at this
+    ///         minimum level. The effective gate is the OR-merge:
+    ///             effectiveMinLevel = max(campaignMinIdentityLevel, userMinIdentityLevel)
+    ///         0 = disabled (default). Self-set only.
+    mapping(address => uint8) public userMinIdentityLevel;
+    event UserMinIdentityLevelSet(address indexed user, uint8 level);
+
+    /// @notice People Chain identity cache. Settlement queries `isVerified` on
+    ///         the hot path. Set once via `setIdentityRegistry` (lock-once;
+    ///         hot-swapping the identity source mid-flight would let an
+    ///         attacker rotate to a permissive cache and bypass the gate).
+    ///         Address(0) means the identity gate is dormant: any non-zero
+    ///         effective-min-level reverts batches CLOSED — operators must
+    ///         wire the registry before any campaign or user opts in.
+    IDatumPeopleChainIdentity public identityRegistry;
+    event IdentityRegistrySet(address indexed registry);
 
     /// @notice CB1: per-user counterparty blocklists. Self-set; only the user
     ///         themselves can mutate. Checked in _processBatch — any batch
@@ -482,22 +504,43 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     ///         1 = require publisher cosig (relay path or publisher's own relay).
     ///         2 = require dual-sig (publisher + advertiser EIP-712 cosig).
     ///         3 = require dual-sig AND campaign must require valid ZK proofs.
-    function setUserMinAssurance(uint8 level) external {
+    function setUserMinAssurance(uint8 level) external whenNotFrozen {
         require(level <= 3, "E11");
         userMinAssurance[msg.sender] = level;
         emit UserMinAssuranceSet(msg.sender, level);
     }
 
+    /// @notice User-side People Chain identity floor (0/1/2). Mirrors
+    ///         `setUserMinAssurance`: self-only, instant effect, no admin
+    ///         override. The effective gate in `_processBatch` is
+    ///         `max(campaignMinIdentityLevel, userMinIdentityLevel)`.
+    function setUserMinIdentityLevel(uint8 level) external whenNotFrozen {
+        require(level <= 2, "E11");
+        userMinIdentityLevel[msg.sender] = level;
+        emit UserMinIdentityLevelSet(msg.sender, level);
+    }
+
+    /// @notice Wire the People Chain identity cache. Lock-once: rotating the
+    ///         identity source after deploy would let a captured owner point
+    ///         at a permissive registry and bypass every campaign's identity
+    ///         gate in flight. Redeploy Settlement if rotation is needed.
+    function setIdentityRegistry(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(address(identityRegistry) == address(0), "already set");
+        identityRegistry = IDatumPeopleChainIdentity(addr);
+        emit IdentityRegistrySet(addr);
+    }
+
     /// @notice CB1: self-managed publisher blocklist. Caller is the user.
     ///         Blocked publishers cannot settle claims to this user.
-    function setUserBlocksPublisher(address publisher, bool blocked) external {
+    function setUserBlocksPublisher(address publisher, bool blocked) external whenNotFrozen {
         require(publisher != address(0), "E00");
         userBlocksPublisher[msg.sender][publisher] = blocked;
         emit UserBlocksPublisherSet(msg.sender, publisher, blocked);
     }
 
     /// @notice CB1: self-managed advertiser blocklist. Caller is the user.
-    function setUserBlocksAdvertiser(address advertiser, bool blocked) external {
+    function setUserBlocksAdvertiser(address advertiser, bool blocked) external whenNotFrozen {
         require(advertiser != address(0), "E00");
         userBlocksAdvertiser[msg.sender][advertiser] = blocked;
         emit UserBlocksAdvertiserSet(msg.sender, advertiser, blocked);
@@ -506,7 +549,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     /// @notice CB2: user self-pause kill switch. While true, no batches settle
     ///         to this user regardless of submission path or AssuranceLevel.
     ///         Self-set; only the user.
-    function setUserPaused(bool paused_) external {
+    function setUserPaused(bool paused_) external whenNotFrozen {
         userPaused[msg.sender] = paused_;
         emit UserPausedSet(msg.sender, paused_);
     }
@@ -710,6 +753,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     function settleClaims(ClaimBatch[] calldata batches)
         external
         nonReentrant
+        whenNotFrozen
         returns (SettlementResult memory result)
     {
         require(address(claimValidator) != address(0), "E00");
@@ -736,6 +780,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     function settleClaimsMulti(UserClaimBatch[] calldata batches)
         external
         nonReentrant
+        whenNotFrozen
         returns (SettlementResult memory result)
     {
         require(address(claimValidator) != address(0), "E00");
@@ -768,6 +813,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
     function settleSignedClaims(SignedClaimBatch[] calldata batches)
         external
         nonReentrant
+        whenNotFrozen
         returns (SettlementResult memory result)
     {
         require(address(claimValidator) != address(0), "E00");
@@ -949,6 +995,49 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumOwna
                     emit ClaimRejected(campaignId, user, claims[j].nonce, 26);
                 }
                 return;
+            }
+        }
+
+        // People Chain identity gate (2026-05-16). Effective minimum identity
+        // level is the OR-merge of the campaign-side and user-side floors.
+        // When non-zero, the user MUST have a non-expired cached attestation
+        // at >= that level in DatumPeopleChainIdentity, regardless of which
+        // submission path is in use (relay, dual-sig, publisher-relay).
+        //
+        // Fail-CLOSED on (a) unreadable Campaigns ref and (b) identity
+        // registry unwired — matches H2-fix gradient: a misconfiguration
+        // can't silently downgrade an identity-gated campaign to no gate.
+        {
+            uint8 campaignMinId = 0;
+            if (address(campaigns) != address(0)) {
+                // Default to max enforced on revert so a broken Campaigns ref
+                // can't downgrade a KnownGood gate to None.
+                campaignMinId = 2;
+                try campaigns.getCampaignMinIdentityLevel(campaignId) returns (uint8 lvl) {
+                    campaignMinId = lvl;
+                } catch {
+                    // Use existing AssuranceLookupFailed signal — same root cause.
+                    emit AssuranceLookupFailed(campaignId);
+                }
+            }
+            uint8 userMinId = userMinIdentityLevel[user];
+            uint8 effMinId = campaignMinId > userMinId ? campaignMinId : userMinId;
+            if (effMinId > 0) {
+                bool ok = false;
+                if (address(identityRegistry) != address(0)) {
+                    try identityRegistry.isVerified(user, effMinId) returns (bool v) {
+                        ok = v;
+                    } catch {
+                        ok = false; // fail closed
+                    }
+                }
+                if (!ok) {
+                    for (uint256 j = 0; j < claims.length; j++) {
+                        result.rejectedCount++;
+                        emit ClaimRejected(campaignId, user, claims[j].nonce, 30);
+                    }
+                    return;
+                }
             }
         }
 

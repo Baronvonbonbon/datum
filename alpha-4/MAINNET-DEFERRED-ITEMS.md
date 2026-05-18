@@ -270,23 +270,22 @@ Conservative mainnet rollout features. None block deploy.
   and TokenRewardVault if compromised. Guardian separate from governor;
   burned/transferred to DAO in Phase 3.
 
-## 10.5. Upgrade ladder follow-ups (Stages 1–5b complete; loose ends)
+## 10.5. Upgrade ladder follow-ups (Stages 1–6 + deferred closeout complete)
 
 Per session that landed the ladder (commits `16291e1` Stage 1 →
-`c61c85d` Stage 5b):
+`c61c85d` Stage 5b → Option B closeout):
 
-- [ ] **DatumCampaigns + DatumSettlement** still on DatumOwnable
-      (Tier 3 deferred). Pending the user's in-flight identity-gate
-      + dual-sig settlement work. Once that's committed, retrofit
-      both: inheritance, version(), whenNotFrozen on user-facing
-      mutators (settleClaims, settleClaimsMulti, createCampaign, etc.).
-- [ ] **DatumGovernanceRouter.lockPlumbing** is not phase-gated.
-      Router IS the phase source so it can't use the IDatumRouter_
-      Upgradable modifier; needs a local
-      `require(phase == GovernancePhase.OpenGov, "not-opengov")` check.
-- [ ] **DatumCampaigns lockBootstrap / lockLanes / lockTagCurator** —
-      will get phase-gated automatically once Tier 3 deferred work
-      lands.
+- [x] ✅ **DatumCampaigns + DatumSettlement** converted to
+      DatumUpgradable. Identity-gate + dual-sig in-flight work
+      committed in the same closeout, plus 28+ user-facing
+      mutators get `whenNotFrozen`, 3 lock-once functions get
+      `whenOpenGovPhase`.
+- [x] ✅ **DatumGovernanceRouter.lockPlumbing** now phase-gated via
+      local `require(phase == GovernancePhase.OpenGov, "not-opengov")`
+      check (router IS the phase source; can't use the interface
+      modifier).
+- [x] ✅ **DatumCampaigns lockBootstrap / lockLanes / lockTagCurator** —
+      phase-gated in the Option B closeout commit.
 - [ ] **`_migrate` implementations are no-ops**. State preservation
       across upgrades requires per-contract overrides. Currently
       every upgrade is "redeploy fresh, state lost". Acceptable for
