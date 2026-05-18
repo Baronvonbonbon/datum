@@ -19,6 +19,8 @@ import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumPeopleChainIdentity.sol";
 import "./interfaces/IDatumPowEngine.sol";
 import "./interfaces/IDatumPublisherReputation.sol";
+import "./interfaces/IDatumNullifierRegistry.sol";
+import "./interfaces/IDatumSettlementRateLimiter.sol";
 
 /// @dev Minimal interface to DatumMintAuthority for the DATUM-token integration.
 ///      Kept inline (rather than a full interface file) because Settlement only
@@ -158,17 +160,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     event DustMintThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
     event DatumMintFailed(address indexed user, address indexed publisher, address indexed advertiser, uint256 totalMint);
 
-    // ── BM-5: Rate limiter (merged from DatumSettlementRateLimiter) ──
-    uint256 public constant MIN_RL_WINDOW_SIZE = 10;
-    uint256 public rlWindowBlocks;
-    uint256 public rlMaxEventsPerWindow;
-    /// @dev publisher => windowId => cumulative view events settled in that window
-    mapping(address => mapping(uint256 => uint256)) public publisherWindowEvents;
-
-    // ── FP-5: Nullifier registry (merged from DatumNullifierRegistry) ──
-    uint256 public nullifierWindowBlocks;
-    /// @dev campaignId => nullifier => used
-    mapping(uint256 => mapping(bytes32 => bool)) private _nullifierUsed;
+    // ── BM-5: Rate limiter — carved out to DatumSettlementRateLimiter ──
+    // ── FP-5: Nullifier registry — carved out to DatumNullifierRegistry ──
+    // Both were alpha-3 satellites that got merged in for PVM bytecode
+    // pressure; un-merged for mainnet EIP-170. Settlement keeps lock-once
+    // pointers and consults each module per claim.
+    IDatumSettlementRateLimiter public rateLimiter;
+    IDatumNullifierRegistry public nullifiers;
+    event RateLimiterSet(address indexed limiter);
+    event NullifierRegistrySet(address indexed registry);
 
     // ── BM-8/BM-9: Publisher reputation — carved out to DatumPublisherReputation
     // Reputation state, the per-publisher acceptance counters, and the
@@ -248,9 +248,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     mapping(address => uint256) public userTotalSettled;
 
     event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
-    event RateLimitsUpdated(uint256 windowBlocks, uint256 maxEventsPerWindow);
-    event NullifierSubmitted(uint256 indexed campaignId, bytes32 indexed nullifier);
-    event NullifierWindowBlocksUpdated(uint256 oldValue, uint256 newValue);
     /// @notice L-4: Emitted when the non-critical token-reward credit reverts so off-chain
     ///         monitors can flag mis-wired or under-funded reward configs.
     event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
@@ -377,21 +374,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         attestationVerifier = addr;
     }
 
-    /// @notice BM-5: Update rate limiter window size and per-publisher event cap.
-    /// @dev    A8-fix (2026-05-12): once `rlWindowBlocks` is non-zero, only the
-    ///         per-publisher cap (`_maxEventsPerWindow`) may change. The window
-    ///         size itself is frozen because shifting it mid-flight would either
-    ///         invalidate in-flight publisher proofs (DoS) or, if the new size
-    ///         divides the old, re-open a previously-used window for double-use.
-    function setRateLimits(uint256 _windowBlocks, uint256 _maxEventsPerWindow) external onlyOwner {
-        if (!(_windowBlocks >= MIN_RL_WINDOW_SIZE)) revert E11();
-        if (!(_maxEventsPerWindow > 0)) revert E11();
-        if (rlWindowBlocks != 0) {
-            if (!(_windowBlocks == rlWindowBlocks)) revert IsFrozen();
-        }
-        rlWindowBlocks = _windowBlocks;
-        rlMaxEventsPerWindow = _maxEventsPerWindow;
-        emit RateLimitsUpdated(_windowBlocks, _maxEventsPerWindow);
+    /// @notice Wire the carved-out rate limiter module. Lock-once.
+    function setRateLimiter(address addr) external onlyOwner {
+        if (addr == address(0)) revert E00();
+        if (address(rateLimiter) != address(0)) revert AlreadySet();
+        rateLimiter = IDatumSettlementRateLimiter(addr);
+        emit RateLimiterSet(addr);
     }
 
     function setMinClaimInterval(uint16 interval) external onlyOwner {
@@ -439,17 +427,12 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         advertiserStake = addr;
     }
 
-    /// @notice FP-5: Update nullifier window size.
-    /// @dev    A8-fix (2026-05-12): lock-once. Off-chain ZK clients bake
-    ///         `windowId = block.number / nullifierWindowBlocks` into the
-    ///         nullifier preimage. Changing the divisor mid-flight either DoS's
-    ///         every in-flight proof or, worse, lets a previously-burned
-    ///         nullifier re-map to a fresh windowId (double-spend window).
-    function setNullifierWindowBlocks(uint256 _windowBlocks) external onlyOwner {
-        if (!(_windowBlocks > 0)) revert E11();
-        if (!(nullifierWindowBlocks == 0)) revert IsFrozen();
-        emit NullifierWindowBlocksUpdated(nullifierWindowBlocks, _windowBlocks);
-        nullifierWindowBlocks = _windowBlocks;
+    /// @notice Wire the carved-out nullifier-registry module. Lock-once.
+    function setNullifierRegistry(address addr) external onlyOwner {
+        if (addr == address(0)) revert E00();
+        if (address(nullifiers) != address(0)) revert AlreadySet();
+        nullifiers = IDatumNullifierRegistry(addr);
+        emit NullifierRegistrySet(addr);
     }
 
     function setMaxBatchSize(uint256 v) external onlyOwner {
@@ -625,14 +608,14 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         if (address(pauseRegistry) == address(0)) return (false, "pauseRegistry");
         if (address(claimValidator) == address(0)) return (false, "claimValidator");
         if (address(campaigns) == address(0)) return (false, "campaigns");
-        // A1: off-chain ZK clients derive `windowId = block.number / nullifierWindowBlocks`
-        // to bake into the nullifier preimage. A zero `nullifierWindowBlocks` makes
-        // every windowId collapse to 0, breaking replay prevention across windows.
-        // Require it set whenever the verifier is wired (claimValidator implies ZK path).
-        if (nullifierWindowBlocks == 0) return (false, "nullifierWindowBlocks");
+        // A1: off-chain ZK clients derive windowId via the nullifier registry's
+        // configured window. Require both the registry wired AND its window set
+        // when the verifier path is in play (claimValidator implies ZK).
+        if (address(nullifiers) == address(0)) return (false, "nullifiers");
+        if (nullifiers.nullifierWindowBlocks() == 0) return (false, "nullifierWindowBlocks");
         // Optional references (address(0) = disabled feature, not misconfigured):
-        // publishers, tokenRewardVault, publisherStake, clickRegistry, attestationVerifier
-        // Inline features (rate limiter, reputation) have no external refs
+        // publishers, tokenRewardVault, publisherStake, clickRegistry,
+        // attestationVerifier, rateLimiter, reputation, powEngine
         return (true, "");
     }
 
@@ -1145,17 +1128,15 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
                 }
             }
 
-            // BM-5: Per-publisher window rate limit (inline; view claims only)
-            if (rlWindowBlocks > 0 && claim.actionType == 0) {
-                uint256 windowId = block.number / rlWindowBlocks;
-                uint256 current = publisherWindowEvents[claim.publisher][windowId];
-                if (current + claim.eventCount > rlMaxEventsPerWindow) {
+            // BM-5: Per-publisher window rate limit (view claims only).
+            //       Delegated to DatumSettlementRateLimiter (atomic try-consume).
+            if (address(rateLimiter) != address(0) && claim.actionType == 0) {
+                if (!rateLimiter.tryConsume(claim.publisher, claim.eventCount)) {
                     result.rejectedCount++;
                     emit ClaimRejected(claim.campaignId, user, claim.nonce, 14);
                     gapFound = true;
                     continue;
                 }
-                publisherWindowEvents[claim.publisher][windowId] = current + claim.eventCount;
             }
 
             // FP-1: Publisher stake adequacy check (optional)
@@ -1168,9 +1149,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
                 }
             }
 
-            // FP-5: Nullifier replay check (view claims only, inline)
-            if (claim.actionType == 0 && claim.nullifier != bytes32(0)) {
-                if (_nullifierUsed[claim.campaignId][claim.nullifier]) {
+            // FP-5: Nullifier replay check + register (atomic; view claims only).
+            //       Delegated to DatumNullifierRegistry.tryConsume which marks
+            //       the nullifier used and returns false on replay collision.
+            //       Equivalent to the previous split check/register pattern --
+            //       only the CEI hashChain update sat between, which cannot
+            //       fail (mapping writes).
+            if (
+                address(nullifiers) != address(0) &&
+                claim.actionType == 0 &&
+                claim.nullifier != bytes32(0)
+            ) {
+                if (!nullifiers.tryConsume(claim.campaignId, claim.nullifier)) {
                     result.rejectedCount++;
                     emit ClaimRejected(claim.campaignId, user, claim.nonce, 19);
                     gapFound = true;
@@ -1181,15 +1171,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             // Effects first (CEI): update chain state before external calls
             lastClaimHash[user][claim.campaignId][claim.actionType] = computedHash;
             lastNonce[user][claim.campaignId][claim.actionType] = claim.nonce;
-
-            // FP-5: Register nullifier (view claims only, inline).
-            // L-1 audit fix: redundant require removed — the pre-check above
-            // already sets gapFound on collision, so this branch only runs
-            // for fresh nullifiers.
-            if (claim.actionType == 0 && claim.nullifier != bytes32(0)) {
-                _nullifierUsed[claim.campaignId][claim.nullifier] = true;
-                emit NullifierSubmitted(claim.campaignId, claim.nullifier);
-            }
 
             // CPC: mark click session as claimed (type-1 only)
             if (claim.actionType == 1 && address(clickRegistry) != address(0) && claim.clickSessionHash != bytes32(0)) {
@@ -1382,29 +1363,6 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     }
 
     // -------------------------------------------------------------------------
-    // Views: Rate limiter
-    // -------------------------------------------------------------------------
-
-    /// @notice Returns current rate-limit window usage for a publisher.
-    function currentWindowUsage(address publisher)
-        external
-        view
-        returns (uint256 windowId, uint256 events, uint256 limit)
-    {
-        if (rlWindowBlocks == 0) return (0, 0, 0);
-        windowId = block.number / rlWindowBlocks;
-        events = publisherWindowEvents[publisher][windowId];
-        limit = rlMaxEventsPerWindow;
-    }
-
-    // -------------------------------------------------------------------------
-    // Views: Nullifier registry
-    // -------------------------------------------------------------------------
-
-    /// @notice Returns true if the nullifier has already been submitted for this campaign.
-    function isNullifierUsed(uint256 campaignId, bytes32 nullifier) external view returns (bool) {
-        return _nullifierUsed[campaignId][nullifier];
-    }
-
-    // Reputation views moved to DatumPublisherReputation (carve-out).
+    // Rate-limiter, nullifier, and reputation views all moved to their
+    // respective carve-out modules.
 }

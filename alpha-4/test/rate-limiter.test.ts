@@ -30,6 +30,7 @@ describe("Settlement Rate Limiter (inline)", function () {
   let pauseReg: DatumPauseRegistry;
   let relay: DatumRelay;
   let lifecycle: DatumCampaignLifecycle;
+  let rateLimiter: any;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -104,6 +105,10 @@ describe("Settlement Rate Limiter (inline)", function () {
     await settlement.setClaimValidator(await claimValidator.getAddress());
     await settlement.setCampaigns(await campaigns.getAddress());
 
+    rateLimiter = await (await ethers.getContractFactory("DatumSettlementRateLimiter")).deploy();
+    await rateLimiter.setSettlement(await settlement.getAddress());
+    await settlement.setRateLimiter(await rateLimiter.getAddress());
+
     await lifecycle.setCampaigns(await campaigns.getAddress());
     await lifecycle.setBudgetLedger(await ledger.getAddress());
     await lifecycle.setGovernanceContract(owner.address);
@@ -114,7 +119,7 @@ describe("Settlement Rate Limiter (inline)", function () {
     await publishers.connect(publisher2).registerPublisher(TAKE_RATE_BPS);
 
     // Enable rate limiter
-    await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 
   // =========================================================================
@@ -122,26 +127,26 @@ describe("Settlement Rate Limiter (inline)", function () {
   // =========================================================================
 
   it("RL1: setRateLimits stores window and max correctly", async function () {
-    expect(await settlement.rlWindowBlocks()).to.equal(WINDOW_BLOCKS);
-    expect(await settlement.rlMaxEventsPerWindow()).to.equal(MAX_PER_WINDOW);
+    expect(await rateLimiter.rlWindowBlocks()).to.equal(WINDOW_BLOCKS);
+    expect(await rateLimiter.rlMaxEventsPerWindow()).to.equal(MAX_PER_WINDOW);
   });
 
   it("RL2: setRateLimits only callable by owner", async function () {
     await expect(
-      settlement.connect(other).setRateLimits(100n, 1000n)
-    ).to.be.revertedWith("E18");
+      rateLimiter.connect(other).setRateLimits(100n, 1000n)
+    ).to.be.reverted;
   });
 
   it("RL3: currentWindowUsage returns zeros for fresh publisher", async function () {
-    const [windowId, events, limit] = await settlement.currentWindowUsage(publisher.address);
+    const [windowId, events, limit] = await rateLimiter.currentWindowUsage(publisher.address);
     expect(events).to.equal(0n);
     expect(limit).to.equal(MAX_PER_WINDOW);
     expect(windowId).to.be.gt(0n);
   });
 
   it("RL4: currentWindowUsage returns independent values per publisher", async function () {
-    const [wid1, , ] = await settlement.currentWindowUsage(publisher.address);
-    const [wid2, , ] = await settlement.currentWindowUsage(publisher2.address);
+    const [wid1, , ] = await rateLimiter.currentWindowUsage(publisher.address);
+    const [wid2, , ] = await rateLimiter.currentWindowUsage(publisher2.address);
     expect(wid1).to.equal(wid2); // same window
   });
 
@@ -149,15 +154,15 @@ describe("Settlement Rate Limiter (inline)", function () {
     // Window size is locked once non-zero (A8-fix: prevent mid-flight reshape
     // of windowId mapping which would either DoS in-flight proofs or re-open
     // already-used windows). Max-events may still be re-tuned at any time.
-    await settlement.setRateLimits(WINDOW_BLOCKS, 100000n);
-    expect(await settlement.rlWindowBlocks()).to.equal(WINDOW_BLOCKS);
-    expect(await settlement.rlMaxEventsPerWindow()).to.equal(100000n);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, 100000n);
+    expect(await rateLimiter.rlWindowBlocks()).to.equal(WINDOW_BLOCKS);
+    expect(await rateLimiter.rlMaxEventsPerWindow()).to.equal(100000n);
     // Changing the window after first set must revert.
     await expect(
-      settlement.setRateLimits(WINDOW_BLOCKS + 1n, 100000n)
-    ).to.be.revertedWithCustomError(settlement, "IsFrozen");
+      rateLimiter.setRateLimits(WINDOW_BLOCKS + 1n, 100000n)
+    ).to.be.revertedWithCustomError(rateLimiter, "WindowFrozen");
     // Restore max
-    await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 
   // =========================================================================
@@ -203,13 +208,13 @@ describe("Settlement Rate Limiter (inline)", function () {
 
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: [claim] }]);
 
-    const [, events, ] = await settlement.currentWindowUsage(publisher.address);
+    const [, events, ] = await rateLimiter.currentWindowUsage(publisher.address);
     expect(events).to.equal(eventCount);
   });
 
   it("RL7: claims exceeding window cap are rejected with code 14", async function () {
     // Set very low limit
-    await settlement.setRateLimits(WINDOW_BLOCKS, 10n);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, 10n);
 
     // Create fresh campaign
     await campaigns.connect(advertiser).createCampaign(
@@ -260,26 +265,24 @@ describe("Settlement Rate Limiter (inline)", function () {
     expect(parsed.args.reasonCode).to.equal(14n);
 
     // Restore limits
-    await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 
   it("RL8: window resets after WINDOW_BLOCKS", async function () {
     // A8-fix: windowBlocks frozen after first set; use the configured value.
-    const [wid1, , ] = await settlement.currentWindowUsage(publisher.address);
+    const [wid1, , ] = await rateLimiter.currentWindowUsage(publisher.address);
 
     // Mine past one window
     await mineBlocks(WINDOW_BLOCKS + 1n);
 
-    const [wid2, events2, ] = await settlement.currentWindowUsage(publisher.address);
+    const [wid2, events2, ] = await rateLimiter.currentWindowUsage(publisher.address);
     expect(wid2).to.be.gt(wid1);
     expect(events2).to.equal(0n); // fresh window
   });
 
   it("RL9: rate limiter disabled by default (rlWindowBlocks=0 initially)", async function () {
-    // Deploy a fresh settlement without calling setRateLimits — starts disabled
-    const fresh = await (await ethers.getContractFactory("DatumSettlement")).deploy(
-      await pauseReg.getAddress()
-    ) as DatumSettlement;
+    // Deploy a fresh limiter without calling setRateLimits — starts disabled
+    const fresh = await (await ethers.getContractFactory("DatumSettlementRateLimiter")).deploy();
     const [wid, events, limit] = await fresh.currentWindowUsage(publisher.address);
     expect(wid).to.equal(0n);
     expect(events).to.equal(0n);
@@ -287,13 +290,13 @@ describe("Settlement Rate Limiter (inline)", function () {
   });
 
   it("RL9b: setRateLimits reverts when windowBlocks < MIN_RL_WINDOW_SIZE", async function () {
-    await expect(settlement.setRateLimits(0n, 0n)).to.be.revertedWithCustomError(settlement, "E11");
-    await expect(settlement.setRateLimits(9n, 1000n)).to.be.revertedWithCustomError(settlement, "E11");
+    await expect(rateLimiter.setRateLimits(0n, 0n)).to.be.revertedWithCustomError(rateLimiter, "E11");
+    await expect(rateLimiter.setRateLimits(9n, 1000n)).to.be.revertedWithCustomError(rateLimiter, "E11");
   });
 
   it("RL10: non-view claims (actionType > 0) are not rate-limited", async function () {
     // Set very restrictive limit
-    await settlement.setRateLimits(WINDOW_BLOCKS, 1n);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, 1n);
 
     // Create campaign with click pot
     await campaigns.connect(advertiser).createCampaign(
@@ -313,9 +316,9 @@ describe("Settlement Rate Limiter (inline)", function () {
     // with code 14 (rate limit). This test just verifies the rate limit logic
     // only applies to actionType 0.
     // We just verify that the rate limiter state checks actionType == 0
-    expect(await settlement.rlMaxEventsPerWindow()).to.equal(1n);
+    expect(await rateLimiter.rlMaxEventsPerWindow()).to.equal(1n);
 
     // Restore
-    await settlement.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
+    await rateLimiter.setRateLimits(WINDOW_BLOCKS, MAX_PER_WINDOW);
   });
 });

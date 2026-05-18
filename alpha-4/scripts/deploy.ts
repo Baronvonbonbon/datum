@@ -120,6 +120,10 @@ const REQUIRED_KEYS = [
   // acceptance-rate counters, anomaly detection, and the minReputationScore
   // gate now live here).
   "publisherReputation",
+  // Nullifier registry (FP-5, carved out of DatumSettlement for EIP-170)
+  "nullifierRegistry",
+  // Per-publisher settlement rate limiter (BM-5, carved out for EIP-170)
+  "settlementRateLimiter",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -662,6 +666,20 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumPublisherReputation — ${err}`);
   }
 
+  try {
+    logStep("Deploying DatumNullifierRegistry (FP-5 ZK replay-prevention)");
+    await deployOrReuse("nullifierRegistry", "DatumNullifierRegistry", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumNullifierRegistry — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumSettlementRateLimiter (BM-5 per-publisher cap)");
+    await deployOrReuse("settlementRateLimiter", "DatumSettlementRateLimiter", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumSettlementRateLimiter — ${err}`);
+  }
+
   // --- B2: Council-driven blocklist curator ---
   try {
     logStep("Deploying DatumCouncilBlocklistCurator (B2)");
@@ -1187,51 +1205,83 @@ async function main() {
     addresses.publisherReputation,
   );
 
-  // ── Alpha-4 inline: Settlement rate limiter + nullifier window ──
-  // These are now inline in Settlement (no separate contracts).
-  // setRateLimits and setNullifierWindowBlocks are owner-only.
+  // ── NullifierRegistry: setSettlement + setNullifierWindowBlocks ──
+  // ── Settlement: setNullifierRegistry (lock-once) ──
+  await wireIfNeeded(
+    "NullifierRegistry.settlement",
+    "DatumNullifierRegistry", addresses.nullifierRegistry,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.nullifiers",
+    "DatumSettlement", addresses.settlement,
+    "nullifiers", "setNullifierRegistry",
+    addresses.nullifierRegistry,
+  );
+  // Configure the ZK window divisor on the registry (lock-once). Idempotent:
+  // if already non-zero it's frozen and the call would revert -- skip via
+  // a read-first pattern.
   {
-    const settleIface = new ethers.Interface([
-      "function rlWindowBlocks() view returns (uint256)",
+    const iface = new ethers.Interface([
       "function nullifierWindowBlocks() view returns (uint256)",
-      "function setRateLimits(uint256,uint256)",
       "function setNullifierWindowBlocks(uint256)",
     ]);
-
-    // Rate limiter
-    const rlData = settleIface.encodeFunctionData("rlWindowBlocks");
-    const rlRaw = await rawProvider.call({ to: addresses.settlement, data: rlData });
-    const currentRlWindow = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], rlRaw)[0];
-    if (currentRlWindow === RATE_LIMITER_WINDOW_BLOCKS) {
-      console.log("  OK (already set): Settlement.setRateLimits");
-    } else {
+    const data = iface.encodeFunctionData("nullifierWindowBlocks", []);
+    const ret = await rawProvider.call({ to: addresses.nullifierRegistry, data });
+    const cur = BigInt(ret);
+    if (cur === 0n) {
       await sendCall(
-        addresses.settlement,
-        ["function setRateLimits(uint256,uint256)"],
-        "setRateLimits",
-        [RATE_LIMITER_WINDOW_BLOCKS, RATE_LIMITER_MAX_IMPRESSIONS],
-      );
-      console.log("  SET: Settlement.setRateLimits(" + RATE_LIMITER_WINDOW_BLOCKS + ", " + RATE_LIMITER_MAX_IMPRESSIONS + ")");
-    }
-
-    // Nullifier window
-    const nwData = settleIface.encodeFunctionData("nullifierWindowBlocks");
-    const nwRaw = await rawProvider.call({ to: addresses.settlement, data: nwData });
-    const currentNullifierWindow = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], nwRaw)[0];
-    if (currentNullifierWindow === NULLIFIER_WINDOW_BLOCKS) {
-      console.log("  OK (already set): Settlement.setNullifierWindowBlocks");
-    } else {
-      await sendCall(
-        addresses.settlement,
+        addresses.nullifierRegistry,
         ["function setNullifierWindowBlocks(uint256)"],
         "setNullifierWindowBlocks",
         [NULLIFIER_WINDOW_BLOCKS],
       );
-      console.log("  SET: Settlement.setNullifierWindowBlocks(" + NULLIFIER_WINDOW_BLOCKS + ")");
+      console.log(`  SET: NullifierRegistry.nullifierWindowBlocks(${NULLIFIER_WINDOW_BLOCKS})`);
+    } else {
+      console.log(`  OK (already set): NullifierRegistry.nullifierWindowBlocks (${cur})`);
     }
   }
 
-  // Alpha-4: Reputation is inline in Settlement (auto-accumulated, no separate wiring needed)
+  // ── RateLimiter: setSettlement + setRateLimits ──
+  // ── Settlement: setRateLimiter (lock-once) ──
+  await wireIfNeeded(
+    "RateLimiter.settlement",
+    "DatumSettlementRateLimiter", addresses.settlementRateLimiter,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.rateLimiter",
+    "DatumSettlement", addresses.settlement,
+    "rateLimiter", "setRateLimiter",
+    addresses.settlementRateLimiter,
+  );
+  {
+    const iface = new ethers.Interface([
+      "function rlWindowBlocks() view returns (uint256)",
+      "function setRateLimits(uint256,uint256)",
+    ]);
+    const data = iface.encodeFunctionData("rlWindowBlocks", []);
+    const ret = await rawProvider.call({ to: addresses.settlementRateLimiter, data });
+    const cur = BigInt(ret);
+    if (cur === 0n) {
+      await sendCall(
+        addresses.settlementRateLimiter,
+        ["function setRateLimits(uint256,uint256)"],
+        "setRateLimits",
+        [RATE_LIMITER_WINDOW_BLOCKS, RATE_LIMITER_MAX_IMPRESSIONS],
+      );
+      console.log(`  SET: RateLimiter.setRateLimits(${RATE_LIMITER_WINDOW_BLOCKS}, ${RATE_LIMITER_MAX_IMPRESSIONS})`);
+    } else {
+      console.log(`  OK (already set): RateLimiter window/cap`);
+    }
+  }
+
+  // Rate limiter window/cap + nullifier window are configured on the carved-out
+  // DatumSettlementRateLimiter and DatumNullifierRegistry modules above
+  // (alongside their setSettlement wiring). The previous inline block on
+  // Settlement was removed.
 
   // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
   await wireIfNeeded(
@@ -1733,6 +1783,8 @@ async function main() {
     "clickRegistry",
     "powEngine",
     "publisherReputation",
+    "nullifierRegistry",
+    "settlementRateLimiter",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",

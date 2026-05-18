@@ -222,8 +222,12 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await settlement.getAddress(), await campaigns.getAddress(), await pauseReg.getAddress()
     );
 
-    // 6. BM-5: Rate limiter (inline in Settlement: window=200, cap=50000)
-    await settlement.setRateLimits(200n, 50000n);
+    // 6. BM-5: Rate limiter (carved out — DatumSettlementRateLimiter)
+    const rateLimiter = await (await ethers.getContractFactory("DatumSettlementRateLimiter")).deploy();
+    await rateLimiter.setSettlement(await settlement.getAddress());
+    await settlement.setRateLimiter(await rateLimiter.getAddress());
+    await rateLimiter.setRateLimits(200n, 50000n);
+    (settlement as any).__rateLimiter = rateLimiter;
 
     // ---------------------------------------------------------------------------
     // Wiring
@@ -576,7 +580,8 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
 
     it("BM-RL-4: raising cap allows impressions above previous limit", async function () {
       await mineBlocks(210); // ensure fresh window
-      await settlement.setRateLimits(200n, 100000000n); // effectively unlimited
+      const rl = (settlement as any).__rateLimiter;
+      await rl.setRateLimits(200n, 100000000n); // effectively unlimited
       const cid = await newActiveCampaign(RL_BUDGET, RL_DAILY, RL_CPM);
       // 50000 impressions — would exceed old cap but new cap is very high
       const claims = buildClaims(cid, publisher.address, user.address, 1, RL_CPM, 50000n);
@@ -586,7 +591,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       expect(r.settledCount).to.equal(1n);
       await settlement.connect(user).settleClaims([{ user: user.address, campaignId: cid, claims }]);
       // Restore
-      await settlement.setRateLimits(200n, 50000n);
+      await rl.setRateLimits(200n, 50000n);
     });
   });
 

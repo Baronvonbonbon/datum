@@ -46,6 +46,7 @@ describe("Settlement Nullifier (inline)", function () {
   let validator: DatumClaimValidator;
   let relay: DatumRelay;
   let mock: MockCampaigns;
+  let nullifiers: any;
 
   let campaignId: bigint;
 
@@ -87,14 +88,18 @@ describe("Settlement Nullifier (inline)", function () {
     await settlement.setClaimValidator(await validator.getAddress());
     await settlement.setPublishers(await mock.getAddress());
 
+    nullifiers = await (await ethers.getContractFactory("DatumNullifierRegistry")).deploy();
+    await nullifiers.setSettlement(await settlement.getAddress());
+    await settlement.setNullifierRegistry(await nullifiers.getAddress());
+
     await ledger.setCampaigns(await mock.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
     await ledger.setLifecycle(await mock.getAddress());
     await mock.setBudgetLedger(await ledger.getAddress());
     await vault.setSettlement(await settlement.getAddress());
 
-    // Set nullifier window
-    await settlement.setNullifierWindowBlocks(WINDOW_BLOCKS);
+    // Set nullifier window on the carved-out registry
+    await nullifiers.setNullifierWindowBlocks(WINDOW_BLOCKS);
 
     // Create a test campaign
     campaignId = 1n;
@@ -130,19 +135,19 @@ describe("Settlement Nullifier (inline)", function () {
   // =========================================================================
 
   it("NR1: setNullifierWindowBlocks stores value correctly", async function () {
-    expect(await settlement.nullifierWindowBlocks()).to.equal(WINDOW_BLOCKS);
+    expect(await nullifiers.nullifierWindowBlocks()).to.equal(WINDOW_BLOCKS);
   });
 
   it("NR2: setNullifierWindowBlocks only callable by owner", async function () {
     await expect(
-      settlement.connect(other).setNullifierWindowBlocks(7200n)
-    ).to.be.revertedWith("E18");
+      nullifiers.connect(other).setNullifierWindowBlocks(7200n)
+    ).to.be.reverted;
   });
 
   it("NR3: setNullifierWindowBlocks reverts on zero", async function () {
     await expect(
-      settlement.setNullifierWindowBlocks(0n)
-    ).to.be.revertedWithCustomError(settlement, "E11");
+      nullifiers.setNullifierWindowBlocks(0n)
+    ).to.be.revertedWithCustomError(nullifiers, "E11");
   });
 
   // =========================================================================
@@ -151,7 +156,7 @@ describe("Settlement Nullifier (inline)", function () {
 
   it("NR4: isNullifierUsed returns false before any settlement", async function () {
     const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nr4-test"));
-    expect(await settlement.isNullifierUsed(campaignId, nullifier)).to.equal(false);
+    expect(await nullifiers.isNullifierUsed(campaignId, nullifier)).to.equal(false);
   });
 
   it("NR5: after settling, isNullifierUsed returns true", async function () {
@@ -162,7 +167,7 @@ describe("Settlement Nullifier (inline)", function () {
       { user: user.address, campaignId, claims: [claim] }
     ]);
 
-    expect(await settlement.isNullifierUsed(campaignId, nullifier)).to.equal(true);
+    expect(await nullifiers.isNullifierUsed(campaignId, nullifier)).to.equal(true);
   });
 
   it("NR6: same nullifier on different campaign is allowed", async function () {
@@ -186,7 +191,7 @@ describe("Settlement Nullifier (inline)", function () {
       (log) => { try { return iface.parseLog(log)?.name === "ClaimRejected"; } catch { return false; } }
     );
     expect(rejectedEvents.length).to.equal(0);
-    expect(await settlement.isNullifierUsed(cid2, nullifier)).to.equal(true);
+    expect(await nullifiers.isNullifierUsed(cid2, nullifier)).to.equal(true);
   });
 
   // =========================================================================
@@ -253,7 +258,7 @@ describe("Settlement Nullifier (inline)", function () {
     ]);
 
     await expect(tx)
-      .to.emit(settlement, "NullifierSubmitted")
+      .to.emit(nullifiers, "NullifierSubmitted")
       .withArgs(cid5, nullifier);
   });
 });

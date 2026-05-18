@@ -108,14 +108,10 @@ describe("Stage 2: PowEngine + ClaimValidator PG dual-permission", function () {
   });
 
   describe("Settlement-side setters unchanged", function () {
-    it("Settlement.setRateLimits still owner-only (sanity)", async function () {
-      const sigs = await ethers.getSigners();
-      const Pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
-        sigs[0].address, sigs[1].address, sigs[2].address,
-      );
-      const settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await Pause.getAddress());
-      await expect(settlement.connect(other).setRateLimits(100, 10000)).to.be.reverted;
-      await expect(settlement.connect(owner).setRateLimits(100, 10000)).to.not.be.reverted;
+    it("RateLimiter.setRateLimits still owner-only (sanity)", async function () {
+      const rl = await (await ethers.getContractFactory("DatumSettlementRateLimiter")).deploy();
+      await expect(rl.connect(other).setRateLimits(100, 10000)).to.be.reverted;
+      await expect(rl.connect(owner).setRateLimits(100, 10000)).to.not.be.reverted;
     });
     it("ClaimValidator.setActivationBonds still owner-only", async function () {
       await expect(validator.connect(pgImpersonator).setActivationBonds(other.address)).to.be.reverted;

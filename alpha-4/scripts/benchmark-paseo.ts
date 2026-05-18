@@ -338,13 +338,23 @@ const settlementAbi = [
   `function settleClaimsMulti((address user, (uint256 campaignId, (${CLAIM_T})[] claims)[] campaigns)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
   "function lastNonce(address user, uint256 campaignId, uint8 actionType) view returns (uint256)",
   "function lastClaimHash(address user, uint256 campaignId, uint8 actionType) view returns (bytes32)",
-  // Inline rate limiter (merged from DatumSettlementRateLimiter)
+];
+
+// Carved-out modules (alpha-4 EIP-170): RateLimiter, Reputation, Nullifier.
+const rateLimiterAbi = [
   "function currentWindowUsage(address publisher) view returns (uint256 windowId, uint256 events, uint256 limit)",
   "function rlWindowBlocks() view returns (uint256)",
   "function rlMaxEventsPerWindow() view returns (uint256)",
-  // Inline nullifier (merged from DatumNullifierRegistry)
-  "function isNullifierUsed(uint256 windowId, bytes32 nullifier) view returns (bool)",
-  "function nullifierWindowBlocks() view returns (uint256)",
+];
+
+const reputationAbi = [
+  "function getReputationScore(address publisher) view returns (uint16)",
+  "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
+  "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
+  "function repTotalSettled(address) view returns (uint256)",
+  "function repTotalRejected(address) view returns (uint256)",
+  "function minReputationScore() view returns (uint16)",
+  "function canSettle(address) view returns (bool)",
 ];
 
 const vaultAbi = [
@@ -384,7 +394,7 @@ const publisherStakeAbi = [
   "function cumulativeImpressions(address publisher) view returns (uint256)",
 ];
 
-// Nullifier functions are inline on Settlement — alias settleIface below
+// DatumNullifierRegistry (carved out, alpha-4 EIP-170).
 const nullifierAbi = [
   "function isNullifierUsed(uint256 campaignId, bytes32 nullifier) view returns (bool)",
   "function nullifierWindowBlocks() view returns (uint256)",
@@ -429,6 +439,7 @@ async function main() {
     "zkVerifier", "pauseRegistry", "publisherStake",
     "tokenRewardVault", "parameterGovernance",
     "publisherReputation",
+    "nullifierRegistry", "settlementRateLimiter",
   ];
   const missing = requiredKeys.filter(k => !A[k]);
   if (missing.length > 0) {
@@ -445,19 +456,11 @@ async function main() {
   const settleIface    = new Interface(settlementAbi);
   const vaultIface     = new Interface(vaultAbi);
   const tvaultIface    = new Interface(tokenVaultAbi);
-  // Reports → campIface (inline on Campaigns); RateLimiter → settleIface (inline on Settlement)
-  // Reputation moved back out to DatumPublisherReputation (alpha-4 EIP-170 carve-out).
+  // Reports → campIface (inline on Campaigns). Reputation, RateLimiter,
+  // and NullifierRegistry are all carved-out modules (alpha-4 EIP-170).
   const reportsIface   = campIface;  // reportPage/reportAd/pageReports/adReports are on Campaigns
-  const repIface       = new Interface([
-    "function getReputationScore(address publisher) view returns (uint16)",
-    "function getPublisherStats(address publisher) view returns (uint256 settled, uint256 rejected, uint16 score)",
-    "function isAnomaly(address publisher, uint256 campaignId) view returns (bool)",
-    "function repTotalSettled(address) view returns (uint256)",
-    "function repTotalRejected(address) view returns (uint256)",
-    "function minReputationScore() view returns (uint16)",
-    "function canSettle(address) view returns (bool)",
-  ]);
-  const rlIface        = settleIface;
+  const repIface       = new Interface(reputationAbi);
+  const rlIface        = new Interface(rateLimiterAbi);
   const zkIface        = new Interface(zkVerifierAbi);
   const pauseIface     = new Interface(pauseRegistryAbi);
   const stakeIface     = new Interface(publisherStakeAbi);
@@ -940,9 +943,9 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const wb   = BigInt((await readCall(rawProvider, A.settlement, rlIface, "rlWindowBlocks", []))[0]);
-        const maxI = BigInt((await readCall(rawProvider, A.settlement, rlIface, "rlMaxEventsPerWindow", []))[0]);
-        const res  = await readCall(rawProvider, A.settlement, rlIface, "currentWindowUsage", [diana.address]);
+        const wb   = BigInt((await readCall(rawProvider, A.settlementRateLimiter, rlIface, "rlWindowBlocks", []))[0]);
+        const maxI = BigInt((await readCall(rawProvider, A.settlementRateLimiter, rlIface, "rlMaxEventsPerWindow", []))[0]);
+        const res  = await readCall(rawProvider, A.settlementRateLimiter, rlIface, "currentWindowUsage", [diana.address]);
         const [windowId, events, limit] = [BigInt(res[0]), BigInt(res[1]), BigInt(res[2])];
         const ms = Date.now() - t0;
         pass("RL-1", "Rate limiter settings readable", ms,
@@ -956,7 +959,7 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const resBefore = await readCall(rawProvider, A.settlement, rlIface, "currentWindowUsage", [diana.address]);
+        const resBefore = await readCall(rawProvider, A.settlementRateLimiter, rlIface, "currentWindowUsage", [diana.address]);
         const impBefore = BigInt(resBefore[1]);
         const limitN    = BigInt(resBefore[2]);
         const IMPS_RL   = 50n;
@@ -970,7 +973,7 @@ async function main() {
           );
           console.log(`  [INFO] RL-2: campaign ${rlCid} active`);
           await doSettle(grace, rlCid, diana.address, 1, parseDOT("0.1"), IMPS_RL);
-          const resAfter  = await readCall(rawProvider, A.settlement, rlIface, "currentWindowUsage", [diana.address]);
+          const resAfter  = await readCall(rawProvider, A.settlementRateLimiter, rlIface, "currentWindowUsage", [diana.address]);
           const windowAfter = BigInt(resAfter[0]);
           const impAfter  = BigInt(resAfter[1]);
           const ms = Date.now() - t0;
@@ -1227,7 +1230,7 @@ async function main() {
       const t0 = Date.now();
       try {
         const fakeNullifier = keccak256(toUtf8Bytes("benchmark-nullifier-test"));
-        const used = Boolean((await readCall(rawProvider, A.settlement, nullIface, "isNullifierUsed",
+        const used = Boolean((await readCall(rawProvider, A.nullifierRegistry, nullIface, "isNullifierUsed",
           [999n, fakeNullifier]))[0]);
         const ms = Date.now() - t0;
         if (!used) {
@@ -1244,7 +1247,7 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const wb = BigInt((await readCall(rawProvider, A.settlement, nullIface, "nullifierWindowBlocks", []))[0]);
+        const wb = BigInt((await readCall(rawProvider, A.nullifierRegistry, nullIface, "nullifierWindowBlocks", []))[0]);
         const ms = Date.now() - t0;
         pass("NULLIFIER-2", "windowBlocks readable", ms, `windowBlocks=${wb}`);
       } catch (err: any) {
