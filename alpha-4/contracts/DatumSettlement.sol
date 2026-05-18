@@ -21,25 +21,12 @@ import "./interfaces/IDatumPowEngine.sol";
 import "./interfaces/IDatumPublisherReputation.sol";
 import "./interfaces/IDatumNullifierRegistry.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
+import "./interfaces/IDatumMintCoordinator.sol";
 
-/// @dev Minimal interface to DatumMintAuthority for the DATUM-token integration.
-///      Kept inline (rather than a full interface file) because Settlement only
-///      uses this single function, and the authority itself is optional —
-///      zero-address mintAuthority disables the mint flow.
-interface IDatumMintAuthority_Settle {
-    function mintForSettlement(
-        address user, uint256 userAmt,
-        address publisher, uint256 publisherAmt,
-        address advertiser, uint256 advertiserAmt
-    ) external;
-}
-
-/// @dev Path H emission engine — adapts the per-DOT rate, enforces the daily
-///      cap, and clips per-claim mint against epoch + daily budgets. See
-///      DatumEmissionEngine.sol and TOKENOMICS.md §3.3.
-interface IDatumEmissionEngine {
-    function computeAndClipMint(uint256 dotPaid) external returns (uint256 effective);
-}
+/// IDatumMintAuthority_Settle / IDatumEmissionEngine interface refs moved
+/// to DatumMintCoordinator (alpha-4 EIP-170 carve-out). Settlement now
+/// holds a single mintCoordinator pointer and calls `coordinate` once
+/// per batch.
 
 /// @dev #1 (2026-05-12): minimal Campaigns view for the per-user per-campaign
 ///      cap. Inline to avoid touching the IDatumCampaigns interface during
@@ -114,51 +101,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     // CPC: click registry for type-1 session tracking (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
 
-    // ── DATUM token integration (zero address = disabled) ────────────────
-    /// @notice Mint authority for DATUM emissions. When set, every settled
-    ///         claim mints WDATUM to user/publisher/advertiser proportional
-    ///         to the payment, gated by `mintRatePerDot` and `dustMintThreshold`.
-    /// @dev    Set once via `setMintAuthority(addr)`. Cannot be unset (would
-    ///         require redeploying settlement). Zero address at deploy means
-    ///         the mint flow is dormant until wired post-deploy.
-    address public mintAuthority;
-
-    /// @notice Path H emission engine. When set, every settled claim's DATUM
-    ///         mint amount is computed by the engine — including dynamic-rate
-    ///         adaptation, daily cap clipping, and epoch budget enforcement.
-    /// @dev    Set once via `setEmissionEngine(addr)`. Cannot be unset (would
-    ///         require redeploying settlement). Zero address keeps the legacy
-    ///         flat-rate fallback active during early bootstrap; once flipped
-    ///         to a real engine the legacy path is dormant.
-    address public emissionEngine;
-
-    /// @notice Legacy flat-rate fallback used until `emissionEngine` is wired.
-    ///         The current value remains useful for tests and early bootstrap
-    ///         deployments; once the engine is live it is unused.
-    /// @dev    Bootstrap value 19 DATUM/DOT, in 10-decimal base. Owner-tunable
-    ///         within MAX_LEGACY_MINT_RATE.
-    uint256 public mintRatePerDot = 19 * 10**10;
-
-    /// @notice Hard ceiling on legacy flat-rate `mintRatePerDot`. Engine path
-    ///         enforces its own ceiling (MAX_RATE = 200).
-    uint256 public constant MAX_MINT_RATE = 100 * 10**10;
-
-    /// @notice Skip the DATUM mint entirely when totalMint < threshold.
-    /// @dev    Saves gas on dust mints. Default 0.01 DATUM (1e8 base units).
-    uint256 public dustMintThreshold = 10**8;
-
-    /// @notice Split BPS for user / publisher / advertiser DATUM rewards.
-    ///         Governance-tunable via `setDatumRewardSplit`; sum must equal
-    ///         10000. Defaults match §3.3: 55/40/5.
-    uint16 public datumRewardUserBps       = 5500;
-    uint16 public datumRewardPublisherBps  = 4000;
-    uint16 public datumRewardAdvertiserBps =  500;
-    event DatumRewardSplitSet(uint16 userBps, uint16 publisherBps, uint16 advertiserBps);
-
-    event MintAuthoritySet(address indexed authority);
-    event MintRateUpdated(uint256 oldRate, uint256 newRate);
-    event DustMintThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
-    event DatumMintFailed(address indexed user, address indexed publisher, address indexed advertiser, uint256 totalMint);
+    // ── DATUM token mint — carved out to DatumMintCoordinator ───────────
+    // Mint authority, emission engine pointer, legacy flat-rate fallback,
+    // dust threshold, reward split bps, and the per-batch orchestration
+    // logic all moved to DatumMintCoordinator (alpha-4 EIP-170 carve-out).
+    // Settlement holds one lock-once pointer and calls coordinate() once
+    // per batch at the end of _processBatch. The coordinator runs the
+    // engine-or-fallback path, applies the dust gate, splits the result,
+    // and delegates the actual mint to the wired MintAuthority.
+    IDatumMintCoordinator public mintCoordinator;
+    event MintCoordinatorSet(address indexed coordinator);
 
     // ── BM-5: Rate limiter — carved out to DatumSettlementRateLimiter ──
     // ── FP-5: Nullifier registry — carved out to DatumNullifierRegistry ──
@@ -531,45 +483,16 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         maxSettlementPerBlock = cap;
     }
 
-    /// @notice One-time wiring of the DATUM mint authority. Set once at activation;
-    ///         cannot be cleared. Activates settlement-driven DATUM minting.
-    function setMintAuthority(address _mintAuthority) external onlyOwner {
-        if (!(_mintAuthority != address(0))) revert E00();
-        if (!(mintAuthority == address(0))) revert AlreadySet();
-        mintAuthority = _mintAuthority;
-        emit MintAuthoritySet(_mintAuthority);
+    /// @notice One-time wiring of the carved-out mint coordinator. Lock-once.
+    function setMintCoordinator(address coordinator) external onlyOwner {
+        if (coordinator == address(0)) revert E00();
+        if (address(mintCoordinator) != address(0)) revert AlreadySet();
+        mintCoordinator = IDatumMintCoordinator(coordinator);
+        emit MintCoordinatorSet(coordinator);
     }
 
-    event EmissionEngineSet(address indexed engine);
-    /// @notice Wire the Path H emission engine (lock-once). Once set, the
-    ///         per-batch DATUM mint amount is computed by the engine
-    ///         (dynamic rate × clipping against daily + epoch budgets)
-    ///         instead of the legacy flat-rate path.
-    function setEmissionEngine(address engine) external onlyOwner {
-        if (!(engine != address(0))) revert E00();
-        if (!(emissionEngine == address(0))) revert AlreadySet();
-        emissionEngine = engine;
-        emit EmissionEngineSet(engine);
-    }
-
-    /// @notice Update the per-DOT DATUM mint rate. Scaffold path for §3.3 currentRate.
-    /// @dev    Governance-tunable for the scaffold. The full Path H adaptive
-    ///         mechanism will move this to a separate contract; for now,
-    ///         changes go through the standard owner/governance route.
-    function setMintRate(uint256 newRate) external onlyOwner {
-        // A3/B4-fix: enforce hard ceiling. See MAX_MINT_RATE for rationale.
-        if (!(newRate <= MAX_MINT_RATE)) revert AboveCap();
-        uint256 old = mintRatePerDot;
-        mintRatePerDot = newRate;
-        emit MintRateUpdated(old, newRate);
-    }
-
-    function setDustMintThreshold(uint256 newThreshold) external onlyOwner {
-        if (!(newThreshold <= 1 * 10**10)) revert AboveCap();  // ≤ 1 DATUM max
-        uint256 old = dustMintThreshold;
-        dustMintThreshold = newThreshold;
-        emit DustMintThresholdUpdated(old, newThreshold);
-    }
+    // setMintAuthority / setEmissionEngine / setMintRate / setDustMintThreshold /
+    // setDatumRewardSplit moved to DatumMintCoordinator.
 
     /// @notice Governance: set the user's share of `remainder` (after publisher
     ///         take rate). Bounded to [MIN_USER_SHARE_BPS, MAX_USER_SHARE_BPS]
@@ -580,17 +503,7 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         emit UserShareBpsSet(bps);
     }
 
-    /// @notice Governance: set the DATUM mint reward split (user / publisher /
-    ///         advertiser). Sum must equal 10000. No per-leg lower bound — a
-    ///         legitimate future split might zero one party out (e.g. user-only
-    ///         rewards). Each value is uint16 so max is 10000 anyway.
-    function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwner {
-        if (!(uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) == 10000)) revert E11();
-        datumRewardUserBps = userBps;
-        datumRewardPublisherBps = publisherBps;
-        datumRewardAdvertiserBps = advertiserBps;
-        emit DatumRewardSplitSet(userBps, publisherBps, advertiserBps);
-    }
+    // setDatumRewardSplit moved to DatumMintCoordinator.
 
     receive() external payable { revert("E03"); }
 
@@ -1268,49 +1181,18 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
             );
         }
 
-        // ── DATUM token mint (optional; gated on mintAuthority being set) ──
-        // Per §3.3 Path H: emission engine computes the per-batch mint with
-        // dynamic-rate adaptation + daily-cap and epoch-budget clipping.
-        // Legacy fallback path: when emissionEngine is unset, use the flat
-        // `mintRatePerDot` scaffold (early bootstrap).
-        // Skipped entirely if mintAuthority is unset (deferred wiring).
-        // Skipped per-batch if total mint would be below dust threshold.
-        if (mintAuthority != address(0) && agg.total > 0) {
-            uint256 totalMint;
-            if (emissionEngine != address(0)) {
-                // Path H: delegate mint amount to the engine. The engine clips
-                // against remaining daily + epoch budgets and updates its
-                // accumulators. If the daily cap is exhausted it returns 0
-                // and the dust gate below silently skips the mint.
-                try IDatumEmissionEngine(emissionEngine).computeAndClipMint(agg.total) returns (uint256 minted) {
-                    totalMint = minted;
-                } catch {
-                    // Engine reverted (misconfigured); fail soft — skip mint.
-                    totalMint = 0;
-                }
-            } else {
-                // Legacy flat-rate path.
-                totalMint = (agg.total * mintRatePerDot) / (10**10);
-            }
-            if (totalMint >= dustMintThreshold) {
-                uint256 userMint        = (totalMint * uint256(datumRewardUserBps))      / 10000;
-                uint256 publisherMint   = (totalMint * uint256(datumRewardPublisherBps)) / 10000;
-                uint256 advertiserMint  = totalMint - userMint - publisherMint;  // remainder = advertiser share
-                address advertiser = address(campaigns) == address(0)
-                    ? address(0)
-                    : campaigns.getCampaignAdvertiser(campaignId);
-
-                // Authority enforces its own MINTABLE_CAP; we don't second-guess here.
-                try IDatumMintAuthority_Settle(mintAuthority).mintForSettlement(
-                    user,        userMint,
-                    agg.publisher, publisherMint,
-                    advertiser,  advertiserMint
-                ) {} catch {
-                    // Non-critical: if the mint authority rejects (cap hit, etc.)
-                    // we don't want settlement to revert. Emit a signal for observers.
-                    emit DatumMintFailed(user, agg.publisher, advertiser, totalMint);
-                }
-            }
+        // ── DATUM token mint — delegated to DatumMintCoordinator ──
+        // The coordinator runs the engine-or-fallback computation, applies
+        // the dust gate, splits across user/publisher/advertiser per the
+        // configured bps, and delegates the actual mint to the wired
+        // MintAuthority. Failures fail-soft inside the coordinator (try/
+        // catch + DatumMintFailed event there) so settlement never reverts
+        // on a mint-side problem.
+        if (address(mintCoordinator) != address(0) && agg.total > 0) {
+            address advertiser = address(campaigns) == address(0)
+                ? address(0)
+                : campaigns.getCampaignAdvertiser(campaignId);
+            mintCoordinator.coordinate(user, agg.publisher, advertiser, agg.total);
         }
 
         // Aggregate token reward credit (view claims only, non-critical)

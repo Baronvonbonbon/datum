@@ -43,14 +43,18 @@ async function main() {
   console.log(`totalMinted                 : ${await engine.totalMinted()}`);
 
   // 3. Wiring
+  // alpha-4 EIP-170 carve-out: emissionEngine now lives on DatumMintCoordinator,
+  // not Settlement. Walk the chain Settlement -> coordinator -> engine.
   console.log(`\n--- Wiring ---`);
+  const coordinatorAddr = await settlement.mintCoordinator();
+  const coordinator = await ethers.getContractAt("DatumMintCoordinator", coordinatorAddr);
   const engineSet = await engine.settlement();
-  const settleEngine = await settlement.emissionEngine();
+  const settleEngine = await coordinator.emissionEngine();
   const expectMatch =
-    engineSet.toLowerCase() === addrs.settlement.toLowerCase() &&
+    engineSet.toLowerCase() === coordinatorAddr.toLowerCase() &&
     settleEngine.toLowerCase() === addrs.emissionEngine.toLowerCase();
-  console.log(`engine.settlement()      = ${engineSet}    ${engineSet.toLowerCase() === addrs.settlement.toLowerCase() ? "✓" : "✗"}`);
-  console.log(`settlement.emissionEngine = ${settleEngine}  ${settleEngine.toLowerCase() === addrs.emissionEngine.toLowerCase() ? "✓" : "✗"}`);
+  console.log(`engine.settlement()         = ${engineSet}    ${engineSet.toLowerCase() === coordinatorAddr.toLowerCase() ? "✓ (= coordinator)" : "✗"}`);
+  console.log(`coordinator.emissionEngine  = ${settleEngine}  ${settleEngine.toLowerCase() === addrs.emissionEngine.toLowerCase() ? "✓" : "✗"}`);
 
   // 4. Ownership
   console.log(`\n--- Ownership ---`);
@@ -122,12 +126,12 @@ async function main() {
     }
   }
 
-  // 8. Settlement-side state
-  console.log(`\n--- Settlement-side mint config ---`);
-  console.log(`settlement.emissionEngine       : ${await settlement.emissionEngine()}`);
-  console.log(`settlement.mintRatePerDot       : ${await settlement.mintRatePerDot()}  (legacy fallback rate)`);
-  console.log(`settlement.dustMintThreshold    : ${await settlement.dustMintThreshold()}`);
-  console.log(`settlement.mintAuthority        : ${await settlement.mintAuthority()}    (zero = mints disabled)`);
+  // 8. Coordinator-side state (alpha-4 EIP-170 carve-out)
+  console.log(`\n--- MintCoordinator-side mint config ---`);
+  console.log(`coordinator.emissionEngine      : ${await coordinator.emissionEngine()}`);
+  console.log(`coordinator.mintRatePerDot      : ${await coordinator.mintRatePerDot()}  (legacy fallback rate)`);
+  console.log(`coordinator.dustMintThreshold   : ${await coordinator.dustMintThreshold()}`);
+  console.log(`coordinator.mintAuthority       : ${await coordinator.mintAuthority()}    (zero = mints disabled)`);
 
   console.log(`\n=== Verification complete ===\n`);
 }

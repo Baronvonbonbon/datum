@@ -146,6 +146,9 @@ const REQUIRED_KEYS = [
   "identityVerifier",
   // Path H DATUM emission engine (TOKENOMICS §3.3 — daily cap + dynamic rate)
   "emissionEngine",
+  // Mint coordinator (carved out of Settlement for EIP-170; owns mintAuthority +
+  // emissionEngine pointers + rate/dust/split bps; called once per batch).
+  "mintCoordinator",
   // People Chain identity gate (2026-05-16): cached attestation cache;
   // Settlement reads isVerified(user, minLevel) when a campaign or user opts in
   "peopleChainIdentity",
@@ -797,6 +800,13 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumEmissionEngine — ${err}`);
   }
 
+  try {
+    logStep("Deploying DatumMintCoordinator (DATUM emission orchestration)");
+    await deployOrReuse("mintCoordinator", "DatumMintCoordinator", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumMintCoordinator — ${err}`);
+  }
+
   // --- DatumPeopleChainIdentity: cached People Chain identity attestations ---
   // No constructor args. Wired into Settlement via setIdentityRegistry below.
   // Oracle reporter (Diana on testnet) granted via setOracleReporter in STAGE 3.
@@ -1424,16 +1434,37 @@ async function main() {
     addresses.tagSystem,
   );
 
-  // ── DatumEmissionEngine ↔ Settlement bidirectional wiring (lock-once both ways) ──
+  // ── MintCoordinator + Settlement + EmissionEngine wiring (alpha-4 carve-out) ──
+  // Settlement -> MintCoordinator (lock-once pointer; Settlement calls
+  //                                coordinator.coordinate(...) at end of batch).
+  // MintCoordinator -> Settlement (auth: only Settlement can invoke coordinate).
+  // MintCoordinator -> EmissionEngine (lock-once pointer; coordinator delegates
+  //                                    per-batch mint computation to the engine).
+  // EmissionEngine -> MintCoordinator (auth: only the coordinator can call
+  //                                    computeAndClipMint; replaces the legacy
+  //                                    EmissionEngine.settlement = Settlement
+  //                                    binding).
   await wireIfNeeded(
-    "EmissionEngine.settlement",
-    "DatumEmissionEngine", addresses.emissionEngine,
+    "MintCoordinator.settlement",
+    "DatumMintCoordinator", addresses.mintCoordinator,
     "settlement", "setSettlement",
     addresses.settlement,
   );
   await wireIfNeeded(
-    "Settlement.emissionEngine",
+    "Settlement.mintCoordinator",
     "DatumSettlement", addresses.settlement,
+    "mintCoordinator", "setMintCoordinator",
+    addresses.mintCoordinator,
+  );
+  await wireIfNeeded(
+    "EmissionEngine.settlement",
+    "DatumEmissionEngine", addresses.emissionEngine,
+    "settlement", "setSettlement",
+    addresses.mintCoordinator, // coordinator is the EmissionEngine's caller now
+  );
+  await wireIfNeeded(
+    "MintCoordinator.emissionEngine",
+    "DatumMintCoordinator", addresses.mintCoordinator,
     "emissionEngine", "setEmissionEngine",
     addresses.emissionEngine,
   );
@@ -1930,6 +1961,7 @@ async function main() {
     "reports",
     "campaignAllowlist",
     "tagSystem",
+    "mintCoordinator",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",

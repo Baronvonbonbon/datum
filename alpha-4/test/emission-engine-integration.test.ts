@@ -8,8 +8,9 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 const UNIT = 10n ** 10n;
 
-describe("DatumSettlement ↔ DatumEmissionEngine integration", function () {
+describe("MintCoordinator ↔ DatumEmissionEngine integration", function () {
   let settlement: any;
+  let coordinator: any;
   let engine: any;
   let owner: HardhatEthersSigner;
   let other: HardhatEthersSigner;
@@ -22,50 +23,57 @@ describe("DatumSettlement ↔ DatumEmissionEngine integration", function () {
     const pause = await PauseF.deploy(owner.address, other.address, g2.address);
     const SettlementF = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementF.deploy(await pause.getAddress());
+    // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint state +
+    // emissionEngine pointer + mintAuthority + rate/dust/split moved here.
+    const CoordinatorF = await ethers.getContractFactory("DatumMintCoordinator");
+    coordinator = await CoordinatorF.deploy();
+    await coordinator.setSettlement(await settlement.getAddress());
+    await settlement.setMintCoordinator(await coordinator.getAddress());
     const EngineF = await ethers.getContractFactory("DatumEmissionEngine");
     engine = await EngineF.deploy();
   });
 
   describe("setEmissionEngine (lock-once)", function () {
     it("starts unset", async function () {
-      expect(await settlement.emissionEngine()).to.equal(ethers.ZeroAddress);
+      expect(await coordinator.emissionEngine()).to.equal(ethers.ZeroAddress);
     });
     it("zero address rejected", async function () {
-      await expect(settlement.setEmissionEngine(ethers.ZeroAddress)).to.be.revertedWithCustomError(settlement, "E00");
+      await expect(coordinator.setEmissionEngine(ethers.ZeroAddress)).to.be.revertedWithCustomError(coordinator, "E00");
     });
     it("non-owner rejected", async function () {
-      await expect(settlement.connect(other).setEmissionEngine(await engine.getAddress())).to.be.reverted;
+      await expect(coordinator.connect(other).setEmissionEngine(await engine.getAddress())).to.be.reverted;
     });
     it("happy path sets address + emits event", async function () {
       const addr = await engine.getAddress();
-      await expect(settlement.setEmissionEngine(addr))
-        .to.emit(settlement, "EmissionEngineSet").withArgs(addr);
-      expect(await settlement.emissionEngine()).to.equal(addr);
+      await expect(coordinator.setEmissionEngine(addr))
+        .to.emit(coordinator, "EmissionEngineSet").withArgs(addr);
+      expect(await coordinator.emissionEngine()).to.equal(addr);
     });
     it("double-set reverts", async function () {
-      await settlement.setEmissionEngine(await engine.getAddress());
-      await expect(settlement.setEmissionEngine(await engine.getAddress())).to.be.revertedWithCustomError(settlement, "AlreadySet");
+      await coordinator.setEmissionEngine(await engine.getAddress());
+      await expect(coordinator.setEmissionEngine(await engine.getAddress())).to.be.revertedWithCustomError(coordinator, "AlreadySet");
     });
   });
 
   describe("Engine wiring sanity", function () {
-    it("engine accepts settlement as authorized caller", async function () {
-      await engine.setSettlement(await settlement.getAddress());
-      // Now Settlement could call engine.computeAndClipMint via internal path
-      // (no direct external entry from owner — that's the design).
+    it("engine accepts coordinator as authorized caller", async function () {
+      await engine.setSettlement(await coordinator.getAddress());
+      // Now MintCoordinator could call engine.computeAndClipMint via the
+      // batch-end coordinate() hook (no direct external entry from owner --
+      // that's the design).
     });
-    it("non-settlement callers rejected by engine", async function () {
-      await engine.setSettlement(await settlement.getAddress());
+    it("non-coordinator callers rejected by engine", async function () {
+      await engine.setSettlement(await coordinator.getAddress());
       await expect(engine.computeAndClipMint(UNIT)).to.be.revertedWith("not settlement");
     });
   });
 
   describe("Mint hook delegation (smoke)", function () {
-    it("Settlement compiles with both legacy + engine fields wired", async function () {
+    it("Coordinator compiles with both legacy + engine fields wired", async function () {
       // Legacy field still exposed for fallback / observability.
-      expect(await settlement.mintRatePerDot()).to.equal(19n * UNIT);
+      expect(await coordinator.mintRatePerDot()).to.equal(19n * UNIT);
       // Engine field exposed for migration.
-      expect(await settlement.emissionEngine()).to.equal(ethers.ZeroAddress);
+      expect(await coordinator.emissionEngine()).to.equal(ethers.ZeroAddress);
     });
   });
 });

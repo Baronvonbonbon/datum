@@ -25,6 +25,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
   let authority: DatumMintAuthority;
   let wrapper: DatumWrapper;
   let settlement: DatumSettlement;
+  let coordinator: any; // DatumMintCoordinator (alpha-4 EIP-170 carve-out)
 
   let deployer: HardhatEthersSigner;
   let user: HardhatEthersSigner;
@@ -78,78 +79,87 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     const pause = await PauseF.deploy(deployer.address, user.address, publisher.address);
     settlement = await SettlementF.deploy(await pause.getAddress());
 
-    // Wire settlement as the authority's settlement caller.
-    await authority.setSettlement(await settlement.getAddress());
+    // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint state +
+    // setters moved here. Settlement calls coordinator.coordinate(...)
+    // once per batch.
+    const CoordinatorF = await ethers.getContractFactory("DatumMintCoordinator");
+    coordinator = await CoordinatorF.deploy();
+    await coordinator.setSettlement(await settlement.getAddress());
+    await settlement.setMintCoordinator(await coordinator.getAddress());
+
+    // Wire coordinator as the authority's settlement caller (it's the
+    // contract that now invokes authority.mintForSettlement).
+    await authority.setSettlement(await coordinator.getAddress());
   });
 
   describe("Settlement integration setters", function () {
     it("mintAuthority starts unset (zero address)", async function () {
-      expect(await settlement.mintAuthority()).to.equal(ethers.ZeroAddress);
+      expect(await coordinator.mintAuthority()).to.equal(ethers.ZeroAddress);
     });
 
     it("default mint rate is 19 DATUM/DOT (scaffold bootstrap value)", async function () {
-      expect(await settlement.mintRatePerDot()).to.equal(19n * UNIT);
+      expect(await coordinator.mintRatePerDot()).to.equal(19n * UNIT);
     });
 
     it("default dust threshold is 0.01 DATUM", async function () {
-      expect(await settlement.dustMintThreshold()).to.equal(UNIT / 100n);
+      expect(await coordinator.dustMintThreshold()).to.equal(UNIT / 100n);
     });
 
     it("owner can set mint authority once", async function () {
-      await settlement.setMintAuthority(await authority.getAddress());
-      expect(await settlement.mintAuthority()).to.equal(await authority.getAddress());
+      await coordinator.setMintAuthority(await authority.getAddress());
+      expect(await coordinator.mintAuthority()).to.equal(await authority.getAddress());
     });
 
     it("setting mint authority twice reverts", async function () {
       await expect(
-        settlement.setMintAuthority(user.address)
-      ).to.be.revertedWithCustomError(settlement, "AlreadySet");
+        coordinator.setMintAuthority(user.address)
+      ).to.be.revertedWithCustomError(coordinator, "AlreadySet");
     });
 
     it("zero address mint authority reverts", async function () {
-      // Need a fresh deployment to test this
-      const PauseF = await ethers.getContractFactory("DatumPauseRegistry");
-      const p = await PauseF.deploy(deployer.address, advertiser.address, user.address);
-      const SettlementF = await ethers.getContractFactory("DatumSettlement");
-      const s = await SettlementF.deploy(await p.getAddress());
-      await expect(s.setMintAuthority(ethers.ZeroAddress)).to.be.revertedWithCustomError(s, "E00");
+      // Need a fresh coordinator to test this (the shared one has the
+      // authority already wired so the zero-address path is blocked
+      // by the AlreadySet check first).
+      const CoordinatorF = await ethers.getContractFactory("DatumMintCoordinator");
+      const c = await CoordinatorF.deploy();
+      await expect(c.setMintAuthority(ethers.ZeroAddress)).to.be.revertedWithCustomError(c, "E00");
     });
 
     it("owner can update mint rate", async function () {
       const newRate = 10n * UNIT;
-      await settlement.setMintRate(newRate);
-      expect(await settlement.mintRatePerDot()).to.equal(newRate);
+      await coordinator.setMintRate(newRate);
+      expect(await coordinator.mintRatePerDot()).to.equal(newRate);
       // Reset for downstream tests
-      await settlement.setMintRate(19n * UNIT);
+      await coordinator.setMintRate(19n * UNIT);
     });
 
     it("dust threshold has upper bound at 1 DATUM", async function () {
       await expect(
-        settlement.setDustMintThreshold(2n * UNIT)
-      ).to.be.revertedWithCustomError(settlement, "AboveCap");
+        coordinator.setDustMintThreshold(2n * UNIT)
+      ).to.be.revertedWithCustomError(coordinator, "AboveCap");
       // Set valid threshold
-      await settlement.setDustMintThreshold(UNIT / 100n);
+      await coordinator.setDustMintThreshold(UNIT / 100n);
     });
 
     it("split BPS defaults match §3.3 spec (now governance-tunable via setDatumRewardSplit)", async function () {
-      expect(await settlement.datumRewardUserBps()).to.equal(5500);
-      expect(await settlement.datumRewardPublisherBps()).to.equal(4000);
-      expect(await settlement.datumRewardAdvertiserBps()).to.equal(500);
+      expect(await coordinator.datumRewardUserBps()).to.equal(5500);
+      expect(await coordinator.datumRewardPublisherBps()).to.equal(4000);
+      expect(await coordinator.datumRewardAdvertiserBps()).to.equal(500);
     });
 
     it("setDatumRewardSplit rejects non-10000 sum", async function () {
       await expect(
-        settlement.setDatumRewardSplit(5000, 4000, 500)
-      ).to.be.revertedWithCustomError(settlement, "E11");
+        coordinator.setDatumRewardSplit(5000, 4000, 500)
+      ).to.be.revertedWithCustomError(coordinator, "E11");
     });
 
     it("setDatumRewardSplit updates values when sum=10000", async function () {
-      await settlement.setDatumRewardSplit(6000, 3500, 500);
-      expect(await settlement.datumRewardUserBps()).to.equal(6000);
-      expect(await settlement.datumRewardPublisherBps()).to.equal(3500);
-      expect(await settlement.datumRewardAdvertiserBps()).to.equal(500);
+      await coordinator.setDatumRewardSplit(6000, 3500, 500);
+      expect(await coordinator.datumRewardUserBps()).to.equal(6000);
+      expect(await coordinator.datumRewardPublisherBps()).to.equal(3500);
+      expect(await coordinator.datumRewardAdvertiserBps()).to.equal(500);
       // Restore defaults for downstream tests in this suite.
-      await settlement.setDatumRewardSplit(5500, 4000, 500);
+      await coordinator.setDatumRewardSplit(5500, 4000, 500);
     });
 
     it("setUserShareBps bounded to [MIN, MAX]", async function () {
@@ -221,14 +231,14 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       // enough that payoutDot × rate / UNIT < threshold causes the whole mint to be
       // skipped without reverting. We test that integration in the broader
       // settlement.test.ts when end-to-end batches run.
-      const threshold = await settlement.dustMintThreshold();
+      const threshold = await coordinator.dustMintThreshold();
       expect(threshold).to.equal(UNIT / 100n);
     });
 
     it("dust threshold can be raised within the 1-DATUM ceiling", async function () {
-      await settlement.setDustMintThreshold(UNIT / 10n);
-      expect(await settlement.dustMintThreshold()).to.equal(UNIT / 10n);
-      await settlement.setDustMintThreshold(UNIT / 100n);  // restore
+      await coordinator.setDustMintThreshold(UNIT / 10n);
+      expect(await coordinator.dustMintThreshold()).to.equal(UNIT / 10n);
+      await coordinator.setDustMintThreshold(UNIT / 100n);  // restore
     });
   });
 });

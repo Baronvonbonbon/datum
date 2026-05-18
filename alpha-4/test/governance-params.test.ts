@@ -84,7 +84,7 @@ describe("Governance-tunable params: DatumGovernanceV2", function () {
 });
 
 describe("Governance-tunable params: DatumSettlement revenue split", function () {
-  let settlement: any, owner: any, other: any;
+  let settlement: any, coordinator: any, owner: any, other: any;
 
   beforeEach(async function () {
     await fundSigners();
@@ -94,6 +94,12 @@ describe("Governance-tunable params: DatumSettlement revenue split", function ()
     const pause = await Pause.deploy(signers[0].address, signers[1].address, signers[2].address);
     const S = await ethers.getContractFactory("DatumSettlement");
     settlement = await S.deploy(await pause.getAddress());
+    // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint reward split
+    // setters moved here.
+    const C = await ethers.getContractFactory("DatumMintCoordinator");
+    coordinator = await C.deploy();
+    await coordinator.setSettlement(await settlement.getAddress());
+    await settlement.setMintCoordinator(await coordinator.getAddress());
   });
 
   it("userShareBps default 7500, bounded [5000, 9000]", async function () {
@@ -105,15 +111,15 @@ describe("Governance-tunable params: DatumSettlement revenue split", function ()
   });
 
   it("datumRewardSplit default 55/40/5 with 10000 sum invariant", async function () {
-    expect(await settlement.datumRewardUserBps()).to.equal(5500);
-    await expect(settlement.setDatumRewardSplit(5000, 4000, 500)).to.be.revertedWithCustomError(settlement, "E11");
-    await settlement.setDatumRewardSplit(4000, 4000, 2000);
-    expect(await settlement.datumRewardUserBps()).to.equal(4000);
-    expect(await settlement.datumRewardAdvertiserBps()).to.equal(2000);
+    expect(await coordinator.datumRewardUserBps()).to.equal(5500);
+    await expect(coordinator.setDatumRewardSplit(5000, 4000, 500)).to.be.revertedWithCustomError(coordinator, "E11");
+    await coordinator.setDatumRewardSplit(4000, 4000, 2000);
+    expect(await coordinator.datumRewardUserBps()).to.equal(4000);
+    expect(await coordinator.datumRewardAdvertiserBps()).to.equal(2000);
   });
 
   it("non-owner rejected (E18)", async function () {
     await expect(settlement.connect(other).setUserShareBps(8000)).to.be.revertedWith("E18");
-    await expect(settlement.connect(other).setDatumRewardSplit(5000, 4500, 500)).to.be.revertedWith("E18");
+    await expect(coordinator.connect(other).setDatumRewardSplit(5000, 4500, 500)).to.be.reverted;
   });
 });

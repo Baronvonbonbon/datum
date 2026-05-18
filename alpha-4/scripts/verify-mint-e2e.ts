@@ -87,16 +87,22 @@ async function main() {
   }
   await rawCall(authorityAddr, authority.interface, "setWrapper", [wrapperAddr]);
   console.log(`authority.setWrapper(wrapper) ✓`);
-  await rawCall(authorityAddr, authority.interface, "setSettlement", [addrs.settlement]);
-  console.log(`authority.setSettlement(settlement) ✓`);
 
+  // alpha-4 EIP-170 carve-out: the mintAuthority lives on DatumMintCoordinator,
+  // which is the contract that calls into authority.mintForSettlement at the
+  // end of every settled batch. Wire authority.setSettlement to the coordinator
+  // and the coordinator to the authority.
   const settlement = await ethers.getContractAt("DatumSettlement", addrs.settlement, alice);
-  const currentAuthority = await settlement.mintAuthority();
+  const coordinatorAddr = await settlement.mintCoordinator();
+  await rawCall(authorityAddr, authority.interface, "setSettlement", [coordinatorAddr]);
+  console.log(`authority.setSettlement(coordinator=${coordinatorAddr}) ✓`);
+  const coordinator = await ethers.getContractAt("DatumMintCoordinator", coordinatorAddr, alice);
+  const currentAuthority = await coordinator.mintAuthority();
   if (currentAuthority === ethers.ZeroAddress) {
-    await rawCall(addrs.settlement, settlement.interface, "setMintAuthority", [authorityAddr]);
-    console.log(`settlement.setMintAuthority(authority) ✓`);
+    await rawCall(coordinatorAddr, coordinator.interface, "setMintAuthority", [authorityAddr]);
+    console.log(`coordinator.setMintAuthority(authority) ✓`);
   } else {
-    console.log(`settlement.mintAuthority already set to ${currentAuthority}`);
+    console.log(`coordinator.mintAuthority already set to ${currentAuthority}`);
   }
 
   console.log("\n=== Stage 3: Engine state BEFORE mint ===");

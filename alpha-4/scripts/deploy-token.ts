@@ -168,15 +168,28 @@ async function main() {
   console.log("\n[7] Cross-wiring with existing alpha-4 contracts (if provided)...");
 
   if (existingSettlement) {
-    await (await authority.setSettlement(existingSettlement)).wait();
-    console.log(`    Wired: MintAuthority.settlement = ${existingSettlement}`);
-
+    // alpha-4 EIP-170 carve-out: mintAuthority lives on DatumMintCoordinator,
+    // not Settlement. The token-stack deploy expects Settlement's mintCoordinator
+    // to already be wired (deploy.ts handles that). Here we read the
+    // coordinator address through Settlement and wire BOTH sides:
+    //   - authority.setSettlement(<coordinator>) so the authority accepts
+    //     mintForSettlement from the coordinator (the new caller).
+    //   - coordinator.setMintAuthority(<authority>) so the coordinator
+    //     knows where to mint.
     const settlement = await ethers.getContractAt("DatumSettlement", existingSettlement);
-    try {
-      await (await settlement.setMintAuthority(await authority.getAddress())).wait();
-      console.log(`    Wired: Settlement.mintAuthority = ${await authority.getAddress()}`);
-    } catch (err) {
-      console.warn(`    SKIP: Settlement.setMintAuthority — ${err instanceof Error ? err.message : err}`);
+    const coordinatorAddr = await settlement.mintCoordinator();
+    if (coordinatorAddr === ethers.ZeroAddress) {
+      console.warn(`    SKIP: Settlement.mintCoordinator is unset; run deploy.ts first.`);
+    } else {
+      await (await authority.setSettlement(coordinatorAddr)).wait();
+      console.log(`    Wired: MintAuthority.settlement = ${coordinatorAddr} (coordinator)`);
+      const coordinator = await ethers.getContractAt("DatumMintCoordinator", coordinatorAddr);
+      try {
+        await (await coordinator.setMintAuthority(await authority.getAddress())).wait();
+        console.log(`    Wired: MintCoordinator.mintAuthority = ${await authority.getAddress()}`);
+      } catch (err) {
+        console.warn(`    SKIP: MintCoordinator.setMintAuthority — ${err instanceof Error ? err.message : err}`);
+      }
     }
   } else {
     console.log("    (no settlement address provided — skipping)");
