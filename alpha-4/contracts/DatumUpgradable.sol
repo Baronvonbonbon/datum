@@ -13,7 +13,7 @@ interface IDatumRouter_Upgradable {
 ///      new version validate the predecessor before pulling state.
 interface IDatumUpgradable_Migrate {
     function version() external pure returns (uint256);
-    function paused() external view returns (bool);
+    function frozen() external view returns (bool);
 }
 
 /// @title  DatumUpgradable
@@ -35,7 +35,7 @@ interface IDatumUpgradable_Migrate {
 ///         This split lets routine deploy-time wiring stay simple (owner)
 ///         while upgrade/pause/migrate authority follows the phase ladder.
 ///
-/// @dev    Storage layout: `router` + `paused` + `migrated` + `migrationSource`
+/// @dev    Storage layout: `router` + `frozen` + `migrated` + `migrationSource`
 ///         + a 50-slot `__upgradeGap`. Children should add their own
 ///         storage AFTER inheriting this base. To remain upgrade-safe,
 ///         children should NOT reorder these fields and SHOULD reserve
@@ -57,9 +57,9 @@ abstract contract DatumUpgradable is DatumOwnable {
     IDatumRouter_Upgradable public router;
 
     /// @notice Migration pause flag. When true, every function marked
-    ///         `whenNotPaused` reverts. Read calls remain available so a
+    ///         `whenNotFrozen` reverts. Read calls remain available so a
     ///         successor can `migrate(thisContract)` from the paused state.
-    bool public paused;
+    bool public frozen;
 
     /// @notice Lock-once flag set when `migrate()` completes. Prevents the
     ///         migration step from being re-run accidentally on the same
@@ -79,8 +79,8 @@ abstract contract DatumUpgradable is DatumOwnable {
     // ─────────────────────────────────────────────────────────────────────
 
     event RouterSet(address indexed router);
-    event Paused();
-    event Unpaused();
+    event Frozen();
+    event Unfrozen();
     event Migrated(address indexed from, uint256 fromVersion, uint256 toVersion);
 
     // ─────────────────────────────────────────────────────────────────────
@@ -96,8 +96,8 @@ abstract contract DatumUpgradable is DatumOwnable {
 
     /// @notice Block state-mutating calls while the contract is paused for
     ///         migration. Reads bypass this so a successor can pull state.
-    modifier whenNotPaused() {
-        require(!paused, "paused");
+    modifier whenNotFrozen() {
+        require(!frozen, "frozen");
         _;
     }
 
@@ -131,16 +131,16 @@ abstract contract DatumUpgradable is DatumOwnable {
     // Pause / unpause (governance)
     // ─────────────────────────────────────────────────────────────────────
 
-    function pause() external onlyGovernance {
-        require(!paused, "already paused");
-        paused = true;
-        emit Paused();
+    function freeze() external onlyGovernance {
+        require(!frozen, "already frozen");
+        frozen = true;
+        emit Frozen();
     }
 
-    function unpause() external onlyGovernance {
-        require(paused, "not paused");
-        paused = false;
-        emit Unpaused();
+    function unfreeze() external onlyGovernance {
+        require(frozen, "not frozen");
+        frozen = false;
+        emit Unfrozen();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ abstract contract DatumUpgradable is DatumOwnable {
 
         uint256 fromVersion = IDatumUpgradable_Migrate(oldContract).version();
         require(fromVersion < version(), "downgrade");
-        require(IDatumUpgradable_Migrate(oldContract).paused(), "old-not-paused");
+        require(IDatumUpgradable_Migrate(oldContract).frozen(), "old-not-frozen");
 
         // Set migrated BEFORE _migrate runs to prevent reentrancy attacks
         // that try to re-enter migrate during state copying.

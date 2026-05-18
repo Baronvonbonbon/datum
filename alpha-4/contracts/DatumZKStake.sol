@@ -103,7 +103,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     ///         allowed while you have ZERO active stake AND zero pending
     ///         withdrawal. After your first deposit it is permanently fixed
     ///         (changing it mid-stake would orphan your funds from the secret).
-    function setUserCommitment(bytes32 commitment) external whenNotPaused {
+    function setUserCommitment(bytes32 commitment) external whenNotFrozen {
         require(commitment != bytes32(0), "E11");
         require(staked[msg.sender] == 0 && pending[msg.sender].amount == 0, "locked-by-stake");
         userCommitment[msg.sender] = commitment;
@@ -113,7 +113,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     /// @notice One-shot deposit-and-commit. Convenience for first-time users
     ///         who haven't set their commitment yet. Reverts if a different
     ///         commitment is already on file.
-    function depositWith(bytes32 commitment, uint256 amount) external nonReentrant whenNotPaused {
+    function depositWith(bytes32 commitment, uint256 amount) external nonReentrant whenNotFrozen {
         require(commitment != bytes32(0), "E11");
         bytes32 cur = userCommitment[msg.sender];
         if (cur == bytes32(0)) {
@@ -128,7 +128,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     /// @notice Stake DATUM. Caller must have approved this contract first AND
     ///         have a userCommitment on file (else deposit reverts E01 — set
     ///         one via `setUserCommitment` or use `depositWith`).
-    function deposit(uint256 amount) external nonReentrant whenNotPaused {
+    function deposit(uint256 amount) external nonReentrant whenNotFrozen {
         require(userCommitment[msg.sender] != bytes32(0), "E01");
         _deposit(msg.sender, amount);
     }
@@ -150,7 +150,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     ///         it and the lockup clock RESETS to block.number + LOCKUP_BLOCKS.
     ///         This is intentional: continuous request-staggering can't shorten
     ///         the average exit time.
-    function requestWithdrawal(uint256 amount) external nonReentrant whenNotPaused {
+    function requestWithdrawal(uint256 amount) external nonReentrant whenNotFrozen {
         require(amount > 0, "E11");
         require(staked[msg.sender] >= amount, "E03");
         staked[msg.sender] -= amount;
@@ -161,7 +161,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     }
 
     /// @notice Execute a pending withdrawal once the lockup has elapsed.
-    function executeWithdrawal() external nonReentrant whenNotPaused {
+    function executeWithdrawal() external nonReentrant whenNotFrozen {
         PendingWithdrawal storage p = pending[msg.sender];
         uint256 amount = p.amount;
         require(amount > 0, "E03");
@@ -176,7 +176,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
 
     /// @notice User can fold a pending withdrawal back into active stake.
     ///         No cooldown penalty for changing your mind. Resets pending to 0.
-    function cancelWithdrawal() external nonReentrant whenNotPaused {
+    function cancelWithdrawal() external nonReentrant whenNotFrozen {
         PendingWithdrawal storage p = pending[msg.sender];
         uint256 amount = p.amount;
         require(amount > 0, "E03");
@@ -239,7 +239,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
     /// @param amount          Total amount to remove.
     /// @return fromStaked     How much came from active stake.
     /// @return fromPending    How much came from pending.
-    function slash(address user, uint256 amount) external nonReentrant whenNotPaused returns (uint256 fromStaked, uint256 fromPending) {
+    function slash(address user, uint256 amount) external nonReentrant whenNotFrozen returns (uint256 fromStaked, uint256 fromPending) {
         require(isSlasher[msg.sender], "E18");
         require(amount > 0, "E11");
         // H-1: recipient must be set so slashed funds can never orphan.

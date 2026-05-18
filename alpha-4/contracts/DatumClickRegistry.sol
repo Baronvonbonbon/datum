@@ -92,7 +92,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
         address user,
         uint256 campaignId,
         bytes32 impressionNonce
-    ) external whenNotPaused {
+    ) external whenNotFrozen {
         require(msg.sender == relay, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
         require(_sessions[sh] == 0, "E90"); // E90: click session already recorded
@@ -105,7 +105,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
         address user,
         uint256 campaignId,
         bytes32 impressionNonce
-    ) external whenNotPaused {
+    ) external whenNotFrozen {
         require(msg.sender == settlement, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
         require(_sessions[sh] == 1, "E90"); // E90: session not recorded or already claimed

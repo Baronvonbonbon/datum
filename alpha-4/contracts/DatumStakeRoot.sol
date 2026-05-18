@@ -123,7 +123,7 @@ contract DatumStakeRoot is DatumUpgradable {
     ///         approvals. When approvals >= threshold, the root is finalized
     ///         and `rootAt[epoch]` is set.
     /// @dev    Reporters submit their own txs — each pays own gas, no aggregation.
-    function commitStakeRoot(uint256 epoch, bytes32 root) external whenNotPaused {
+    function commitStakeRoot(uint256 epoch, bytes32 root) external whenNotFrozen {
         require(isReporter[msg.sender], "E01");
         require(epoch >= latestEpoch, "E64");
         require(root != bytes32(0), "E11");

@@ -179,7 +179,7 @@ contract DatumRelay is DatumUpgradable, EIP712 {
 
     function settleClaimsFor(IDatumSettlement.SignedClaimBatch[] calldata batches)
         external
-        whenNotPaused
+        whenNotFrozen
         returns (IDatumSettlement.SettlementResult memory result)
     {
         require(!pauseRegistry.pausedSettlement(), "P");

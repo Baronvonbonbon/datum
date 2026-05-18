@@ -184,7 +184,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
         address user,
         uint8   level,
         uint64  validityBlocks
-    ) external whenNotPaused {
+    ) external whenNotFrozen {
         require(
             (xcmDispatcher != address(0) && msg.sender == xcmDispatcher) ||
             (oracleReporter != address(0) && msg.sender == oracleReporter),
@@ -205,7 +205,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
         address[] calldata users,
         uint8[]   calldata levels,
         uint64[]  calldata validityBlocksArr
-    ) external whenNotPaused {
+    ) external whenNotFrozen {
         require(
             (xcmDispatcher != address(0) && msg.sender == xcmDispatcher) ||
             (oracleReporter != address(0) && msg.sender == oracleReporter),
@@ -242,7 +242,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
 
     /// @notice Caller purges their own cached record. After this, `isVerified`
     ///         returns false until a writer re-attests.
-    function forgetMe() external whenNotPaused {
+    function forgetMe() external whenNotFrozen {
         delete _records[msg.sender];
         emit IdentityForgotten(msg.sender);
     }
@@ -252,7 +252,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
     ///         these to know when to spend the query budget on a re-attest.
     ///         When pallet-revive ships a permissionless XCM-query primitive,
     ///         this becomes a real cross-chain call.
-    function requestIdentityRefresh(address user) external whenNotPaused {
+    function requestIdentityRefresh(address user) external whenNotFrozen {
         require(user != address(0), "E00");
         emit IdentityRefreshRequested(user, msg.sender);
     }

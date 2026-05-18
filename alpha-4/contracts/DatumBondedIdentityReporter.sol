@@ -243,7 +243,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
 
     // ── Reporter lifecycle ────────────────────────────────────────────────────
     /// @notice Stake-bond to join the permissionless reporter set.
-    function joinReporters() external payable nonReentrant whenNotPaused {
+    function joinReporters() external payable nonReentrant whenNotFrozen {
         require(msg.value >= reporterMinStake, "E11");
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.amount == 0, "E22"); // already a reporter
@@ -259,7 +259,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     /// @notice Begin unbonding. Decrements totalReporterStake immediately
     ///         so an exit-proposed reporter cannot influence further
     ///         approvals.
-    function proposeReporterExit() external whenNotPaused {
+    function proposeReporterExit() external whenNotFrozen {
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.amount > 0, "E01");
         require(s.exitProposedBlock == 0, "E22");
@@ -269,7 +269,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     }
 
     /// @notice Reclaim stake after reporterExitDelay blocks have elapsed.
-    function finalizeReporterExit() external nonReentrant whenNotPaused {
+    function finalizeReporterExit() external nonReentrant whenNotFrozen {
         ReporterStake storage s = reporterStake[msg.sender];
         require(s.exitProposedBlock != 0, "E01");
         require(block.number >= uint256(s.exitProposedBlock) + uint256(reporterExitDelay), "E96");
@@ -308,7 +308,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         address user,
         uint8   level,
         uint64  validityBlocks
-    ) external payable nonReentrant whenNotPaused returns (bytes32 key) {
+    ) external payable nonReentrant whenNotFrozen returns (bytes32 key) {
         require(_isActiveReporter(msg.sender), "E01");
         require(msg.value >= proposerBond, "E11");
         require(user != address(0), "E00");
@@ -339,7 +339,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     ///         reaches `approvalThresholdBps` of total reporter stake,
     ///         the attestation can be finalized without waiting for the
     ///         challenge window.
-    function approveAttestation(bytes32 key) external whenNotPaused {
+    function approveAttestation(bytes32 key) external whenNotFrozen {
         require(_isActiveReporter(msg.sender), "E01");
         require(!_approvedBy[key][msg.sender], "E22");
         Attestation storage a = attestations[key];
@@ -357,7 +357,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     ///         until the owner (Timelock) resolves it via slashAttestation
     ///         or dismissChallenge. v1 is owner-arbitrated; v2 will
     ///         accept registrar-signature counter-evidence per design doc §3a.
-    function challengeAttestation(bytes32 key) external payable nonReentrant whenNotPaused {
+    function challengeAttestation(bytes32 key) external payable nonReentrant whenNotFrozen {
         require(msg.value >= challengerBond, "E11");
         Attestation storage a = attestations[key];
         require(a.status == AttestStatus.Pending, "E22");
@@ -376,7 +376,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     /// @dev    v1: owner is the Timelock; resolution requires a passed
     ///         proposal with 48h delay. v2 will replace with on-chain
     ///         counter-evidence verification.
-    function slashAttestation(bytes32 key) external onlyOwner nonReentrant whenNotPaused {
+    function slashAttestation(bytes32 key) external onlyOwner nonReentrant whenNotFrozen {
         Attestation storage a = attestations[key];
         require(a.status == AttestStatus.Challenged, "E22");
 
@@ -432,7 +432,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     ///         theory fire if challengeWindow hasn't elapsed; in
     ///         practice the dismissal usually happens after the window,
     ///         making the attestation immediately finalizable.
-    function dismissChallenge(bytes32 key) external onlyOwner nonReentrant whenNotPaused {
+    function dismissChallenge(bytes32 key) external onlyOwner nonReentrant whenNotFrozen {
         Attestation storage a = attestations[key];
         require(a.status == AttestStatus.Challenged, "E22");
 
@@ -450,7 +450,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
     ///         - Slow path: challengeWindow elapsed without challenge
     ///         Either way, writes through to the cache and refunds the
     ///         proposer's bond.
-    function finalizeAttestation(bytes32 key) external nonReentrant whenNotPaused {
+    function finalizeAttestation(bytes32 key) external nonReentrant whenNotFrozen {
         require(address(cache) != address(0), "cache-unset");
         Attestation storage a = attestations[key];
         require(a.status == AttestStatus.Pending, "E22");

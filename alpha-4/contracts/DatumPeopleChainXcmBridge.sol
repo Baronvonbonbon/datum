@@ -225,7 +225,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
 
     /// @notice User-paid refresh. msg.value funds the XCM execution; any
     ///         surplus over `refreshFee` is forwarded to the precompile too.
-    function requestRefresh(address user) external payable whenNotPaused {
+    function requestRefresh(address user) external payable whenNotFrozen {
         require(user != address(0), "E00");
         require(msg.value >= refreshFee, "E03");
         _requireOffCooldown(user);
@@ -236,7 +236,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
 
     /// @notice Advertiser-subsidized refresh. Anyone can call but the fee
     ///         is drawn from the campaign's escrow.
-    function requestRefreshFromCampaign(uint256 campaignId, address user) external whenNotPaused {
+    function requestRefreshFromCampaign(uint256 campaignId, address user) external whenNotFrozen {
         require(user != address(0), "E00");
         uint256 fee = refreshFee;
         uint256 bal = campaignXcmRefreshEscrow[campaignId];
@@ -278,7 +278,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
     /// @notice People Chain Transact callback. Only callable as the
     ///         configured sovereign address. Writes the attestation
     ///         straight to the cache.
-    function xcmCallback(address user, uint8 level, uint64 validityBlocks) external whenNotPaused {
+    function xcmCallback(address user, uint8 level, uint64 validityBlocks) external whenNotFrozen {
         require(peopleChainSovereign != address(0), "sovereign-unset");
         require(msg.sender == peopleChainSovereign, "E18");
         require(user != address(0), "E00");
@@ -294,7 +294,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
 
     /// @notice Permissionless top-up. Advertiser, anyone funds a campaign's
     ///         refresh budget so the refresh button is free for users.
-    function fundXcmRefreshEscrow(uint256 campaignId) external payable whenNotPaused {
+    function fundXcmRefreshEscrow(uint256 campaignId) external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         uint256 newBal = campaignXcmRefreshEscrow[campaignId] + msg.value;
         campaignXcmRefreshEscrow[campaignId] = newBal;
@@ -308,7 +308,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
         uint256 campaignId,
         address payable recipient,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotFrozen {
         require(campaignsContract != address(0), "campaigns-unset");
         require(recipient != address(0), "E00");
         address adv = IDatumCampaignsAdvertiser(campaignsContract)

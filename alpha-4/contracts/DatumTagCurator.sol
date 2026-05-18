@@ -51,13 +51,13 @@ contract DatumTagCurator is IDatumTagCurator, DatumUpgradable {
         emit CouncilLocked();
     }
 
-    function approveTag(bytes32 tag) external onlyCouncil whenNotPaused {
+    function approveTag(bytes32 tag) external onlyCouncil whenNotFrozen {
         require(tag != bytes32(0), "E00");
         _approved[tag] = true;
         emit TagApproved(tag);
     }
 
-    function removeTag(bytes32 tag) external onlyCouncil whenNotPaused {
+    function removeTag(bytes32 tag) external onlyCouncil whenNotFrozen {
         require(tag != bytes32(0), "E00");
         _approved[tag] = false;
         emit TagRemoved(tag);

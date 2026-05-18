@@ -131,7 +131,7 @@ contract DatumEmissionEngine is DatumUpgradable {
     /// @notice Roll into the next epoch. Permissionless; reverts before
     ///         the halving period has elapsed. Any unspent budget in the
     ///         current epoch carries forward to the next.
-    function rollEpoch() external whenNotPaused {
+    function rollEpoch() external whenNotFrozen {
         require(block.timestamp >= epochStartTime + HALVING_PERIOD_SECONDS, "too early");
         uint256 carry = remainingEpochBudget;
         currentEpoch++;
@@ -153,7 +153,7 @@ contract DatumEmissionEngine is DatumUpgradable {
 
     /// @notice Adapt the per-DOT rate based on observed DOT volume.
     ///         Permissionless; reverts before the adjustment period has elapsed.
-    function adjustRate() external whenNotPaused {
+    function adjustRate() external whenNotFrozen {
         require(block.timestamp >= lastAdjustmentTime + uint256(adjustmentPeriodSeconds), "too soon");
         _maybeRollDay();
 
@@ -196,7 +196,7 @@ contract DatumEmissionEngine is DatumUpgradable {
     ///         amount Settlement should actually mint.
     /// @param  dotPaid Total DOT settled in this batch (10-decimal base).
     /// @return effective Effective DATUM to mint (10-decimal base).
-    function computeAndClipMint(uint256 dotPaid) external whenNotPaused returns (uint256 effective) {
+    function computeAndClipMint(uint256 dotPaid) external whenNotFrozen returns (uint256 effective) {
         require(msg.sender == settlement, "not settlement");
         if (dotPaid == 0) return 0;
 

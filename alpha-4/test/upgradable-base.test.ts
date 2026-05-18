@@ -105,34 +105,34 @@ describe("DatumUpgradable", function () {
     it("rejects pause before router is set", async () => {
       const fresh = await (await ethers.getContractFactory("MockUpgradable")).deploy(1);
       // governor on the router is `governor` but fresh has no router wired
-      await expect(fresh.connect(governor).pause()).to.be.revertedWith("router-unset");
+      await expect(fresh.connect(governor).freeze()).to.be.revertedWith("router-unset");
     });
 
     it("non-governor reverts E19", async () => {
-      await expect(v1.connect(other).pause()).to.be.revertedWith("E19");
+      await expect(v1.connect(other).freeze()).to.be.revertedWith("E19");
     });
 
     it("governor can pause + unpause", async () => {
-      await expect(v1.connect(governor).pause()).to.emit(v1, "Paused");
-      expect(await v1.paused()).to.equal(true);
-      await expect(v1.connect(governor).unpause()).to.emit(v1, "Unpaused");
-      expect(await v1.paused()).to.equal(false);
+      await expect(v1.connect(governor).freeze()).to.emit(v1, "Frozen");
+      expect(await v1.frozen()).to.equal(true);
+      await expect(v1.connect(governor).unfreeze()).to.emit(v1, "Unfrozen");
+      expect(await v1.frozen()).to.equal(false);
     });
 
     it("paused blocks whenNotPaused functions; reads work", async () => {
-      await v1.connect(governor).pause();
-      await expect(v1.connect(other).increment()).to.be.revertedWith("paused");
+      await v1.connect(governor).freeze();
+      await expect(v1.connect(other).increment()).to.be.revertedWith("frozen");
       // Read is still available
       expect(await v1.counter()).to.equal(0n);
     });
 
     it("double-pause reverts", async () => {
-      await v1.connect(governor).pause();
-      await expect(v1.connect(governor).pause()).to.be.revertedWith("already paused");
+      await v1.connect(governor).freeze();
+      await expect(v1.connect(governor).freeze()).to.be.revertedWith("already frozen");
     });
 
     it("unpause without prior pause reverts", async () => {
-      await expect(v1.connect(governor).unpause()).to.be.revertedWith("not paused");
+      await expect(v1.connect(governor).unfreeze()).to.be.revertedWith("not frozen");
     });
 
     it("authority follows the router's current governor (Council phase)", async () => {
@@ -140,10 +140,10 @@ describe("DatumUpgradable", function () {
       await router.connect(owner).setGovernor(1, council.address);
       await router.connect(council).acceptGovernor();
       // governor EOA can no longer pause
-      await expect(v1.connect(governor).pause()).to.be.revertedWith("E19");
+      await expect(v1.connect(governor).freeze()).to.be.revertedWith("E19");
       // council can
-      await v1.connect(council).pause();
-      expect(await v1.paused()).to.equal(true);
+      await v1.connect(council).freeze();
+      expect(await v1.frozen()).to.equal(true);
     });
   });
 
@@ -158,7 +158,7 @@ describe("DatumUpgradable", function () {
       // Seed state on v1
       await v1.connect(owner).setCounter(42n);
       // Pause v1 so its state is frozen
-      await v1.connect(governor).pause();
+      await v1.connect(governor).freeze();
     });
 
     it("v2 can migrate from v1 (state copied)", async () => {
@@ -170,15 +170,15 @@ describe("DatumUpgradable", function () {
     });
 
     it("migrate from unpaused old reverts", async () => {
-      await v1.connect(governor).unpause();
+      await v1.connect(governor).unfreeze();
       await expect(v2.connect(governor).migrate(await v1.getAddress()))
-        .to.be.revertedWith("old-not-paused");
+        .to.be.revertedWith("old-not-frozen");
     });
 
     it("migrate from same-or-higher version reverts (downgrade)", async () => {
       // v2 paused (set up to be migration source); v1 trying to migrate from v2 → downgrade
-      await v1.connect(governor).unpause();
-      await v2.connect(governor).pause();
+      await v1.connect(governor).unfreeze();
+      await v2.connect(governor).freeze();
       // Re-wire so v1 can be the target: v1.version() = 1, v2.version() = 2.
       // v1 migrating from v2 = downgrade (1 < 2 NOT >= so revert)
       await expect(v1.connect(governor).migrate(await v2.getAddress()))
@@ -189,16 +189,16 @@ describe("DatumUpgradable", function () {
       // Fresh peer v1' at the same version as v1
       const peer = await (await ethers.getContractFactory("MockUpgradable")).deploy(1);
       await peer.connect(owner).setRouter(await router.getAddress());
-      await peer.connect(governor).pause();
+      await peer.connect(governor).freeze();
       // v1 (version 1) trying to migrate from peer (version 1) — not strictly greater
-      await v1.connect(governor).unpause();
+      await v1.connect(governor).unfreeze();
       await expect(v1.connect(governor).migrate(await peer.getAddress()))
         .to.be.revertedWith("downgrade");
     });
 
     it("migrate to self reverts E18", async () => {
       // v2 trying to migrate from itself
-      await v2.connect(governor).pause();
+      await v2.connect(governor).freeze();
       await expect(v2.connect(governor).migrate(await v2.getAddress()))
         .to.be.revertedWith("E18");
     });
@@ -213,7 +213,7 @@ describe("DatumUpgradable", function () {
       // Try a second migration from a third peer
       const peer = await (await ethers.getContractFactory("MockUpgradable")).deploy(1);
       await peer.connect(owner).setRouter(await router.getAddress());
-      await peer.connect(governor).pause();
+      await peer.connect(governor).freeze();
       await expect(v2.connect(governor).migrate(await peer.getAddress()))
         .to.be.revertedWith("already migrated");
     });

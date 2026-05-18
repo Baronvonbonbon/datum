@@ -26,9 +26,9 @@ contract MockUpgradable is DatumUpgradable {
         return _ver;
     }
 
-    /// @notice State-mutating call protected by whenNotPaused, so pause
+    /// @notice State-mutating call protected by whenNotFrozen, so pause
     ///         semantics can be tested end-to-end.
-    function increment() external whenNotPaused {
+    function increment() external whenNotFrozen {
         counter += 1;
     }
 
@@ -54,7 +54,7 @@ contract MockUpgradableV2 is DatumUpgradable {
         return 2;
     }
 
-    function increment() external whenNotPaused {
+    function increment() external whenNotFrozen {
         counter += 1;
     }
 

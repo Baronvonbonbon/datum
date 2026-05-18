@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title DatumPauseRegistry
 /// @notice Global emergency pause circuit breaker.
@@ -24,7 +24,14 @@ import "./DatumOwnable.sol";
 ///
 ///         Replay protection: each proposal is marked `executed` rather than
 ///         deleted (AUDIT-021), and approvers are tracked per-proposal.
-contract DatumPauseRegistry is DatumOwnable {
+contract DatumPauseRegistry is DatumUpgradable {
+
+    /// @notice Upgrade ladder version. Note: this contract's own `paused()`
+    ///         function is the category-mask pause (existing API, unchanged).
+    ///         DatumUpgradable's migration-pause uses `frozen()` instead, so
+    ///         no collision.
+    function version() public pure override returns (uint256) { return 1; }
+
     /// @dev CB6: per-category pause bitfield. `paused()` returns true iff any
     ///      active category remains within its MAX_PAUSE_BLOCKS expiry window.
     uint8 internal _pausedCategoriesRaw;
@@ -132,7 +139,7 @@ contract DatumPauseRegistry is DatumOwnable {
 
     /// @notice Any guardian can pause the system unilaterally. The asymmetry
     ///         vs. unpause is deliberate — live exploits don't wait for quorum.
-    function pauseFast() external {
+    function pauseFast() external whenNotFrozen {
         require(_isGuardian(msg.sender), "E18");
         _engage(msg.sender, CAT_ALL);
     }
@@ -140,7 +147,7 @@ contract DatumPauseRegistry is DatumOwnable {
     /// @notice CB6: per-category fast-pause. Any guardian can pause a subset
     ///         of categories, limiting blast radius. `categories` is a
     ///         bitfield of CAT_* constants.
-    function pauseFastCategories(uint8 categories) external {
+    function pauseFastCategories(uint8 categories) external whenNotFrozen {
         require(_isGuardian(msg.sender), "E18");
         require(categories != 0 && (categories & ~CAT_ALL) == 0, "E11");
         _engage(msg.sender, categories);
@@ -151,7 +158,7 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         quorum, so even an attacker who steals the owner key can only
     ///         ratchet the system into pause; recovery remains gated on the
     ///         (potentially rotated) guardians.
-    function pause() external onlyOwner {
+    function pause() external onlyOwner whenNotFrozen {
         _engage(msg.sender, CAT_ALL);
     }
 
@@ -205,7 +212,7 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         after auto-expiry, confusing observers reading
     ///         `_pausedCategoriesRaw` directly. Anyone can call this to
     ///         reconcile raw state with effective state.
-    function expireStaleCategories() external {
+    function expireStaleCategories() external whenNotFrozen {
         uint8 raw = _pausedCategoriesRaw;
         if (raw == 0) return;
         uint8 active = _activeMask();
@@ -224,7 +231,7 @@ contract DatumPauseRegistry is DatumOwnable {
 
     /// @notice Propose an unpause (action=2). Pause is intentionally not a
     ///         valid action here — use `pauseFast` instead.
-    function propose(uint8 action) external returns (uint256 proposalId) {
+    function propose(uint8 action) external whenNotFrozen returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
         require(action == 2, "E11");
         require(paused(), "E11"); // must currently be paused to propose unpause
@@ -239,7 +246,7 @@ contract DatumPauseRegistry is DatumOwnable {
     }
 
     /// @notice Approve an existing proposal. Executes on the 2nd vote.
-    function approve(uint256 proposalId) external {
+    function approve(uint256 proposalId) external whenNotFrozen {
         require(_isGuardian(msg.sender), "E18");
         Proposal storage p = _proposals[proposalId];
         require(p.action != 0, "E01");
@@ -289,7 +296,7 @@ contract DatumPauseRegistry is DatumOwnable {
     /// @notice CB6: propose unpause of a specific category subset. Same 2-of-3
     ///         approval as full unpause. Lets the council unpause governance
     ///         while leaving settlement paused (or vice versa) for triage.
-    function proposeCategoryUnpause(uint8 categories) external returns (uint256 proposalId) {
+    function proposeCategoryUnpause(uint8 categories) external whenNotFrozen returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
         require(categories != 0 && (categories & ~CAT_ALL) == 0, "E11");
         require((_activeMask() & categories) != 0, "E11"); // at least one must be active
@@ -312,7 +319,7 @@ contract DatumPauseRegistry is DatumOwnable {
     ///         guardian can propose; activation requires a second approval.
     ///         Works regardless of `guardianSetLocked` — that flag only blocks
     ///         the owner-only `setGuardians` bootstrap path.
-    function proposeGuardianRotation(address ng0, address ng1, address ng2) external returns (uint256 proposalId) {
+    function proposeGuardianRotation(address ng0, address ng1, address ng2) external whenNotFrozen returns (uint256 proposalId) {
         require(_isGuardian(msg.sender), "E18");
         require(ng0 != address(0) && ng1 != address(0) && ng2 != address(0), "E00");
         require(ng0 != ng1 && ng1 != ng2 && ng0 != ng2, "E11");

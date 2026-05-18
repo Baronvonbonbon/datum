@@ -64,7 +64,7 @@ contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumUpgradable
     /// @notice Block an address. Called by the Council contract after a passing vote.
     /// @param addr        The address to block.
     /// @param reasonHash  IPFS CID (or similar) pointing at the evidence/decision rationale.
-    function blockAddr(address addr, bytes32 reasonHash) external onlyCouncil whenNotPaused {
+    function blockAddr(address addr, bytes32 reasonHash) external onlyCouncil whenNotFrozen {
         require(addr != address(0), "E00");
         _blocked[addr] = true;
         blockReason[addr] = reasonHash;
@@ -72,7 +72,7 @@ contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumUpgradable
     }
 
     /// @notice Unblock an address. Called by the Council contract after a passing vote.
-    function unblockAddr(address addr) external onlyCouncil whenNotPaused {
+    function unblockAddr(address addr) external onlyCouncil whenNotFrozen {
         require(addr != address(0), "E00");
         _blocked[addr] = false;
         blockReason[addr] = bytes32(0);
