@@ -12,13 +12,17 @@ import "./interfaces/IDatumStakeRoot.sol";
 import "./interfaces/IDatumInterestCommitments.sol";
 import "./interfaces/IDatumActivationBondsMinimal.sol";
 
-/// @dev #5 + #2-extension (2026-05-12): minimal Settlement view interface for
-///      the PoW difficulty target and the per-user cumulative settled-events
-///      counter. Kept inline — only two functions; not worth a separate file.
-interface ISettlementSybilGate {
+/// @dev #2-extension: minimal Settlement view for the per-user cumulative
+///      settled-events counter (history gate).
+interface ISettlementHistory {
+    function userTotalSettled(address user) external view returns (uint256);
+}
+
+/// @dev #5: minimal DatumPowEngine view (PoW difficulty target). Moved out
+///      of Settlement so the engine can be upgraded independently.
+interface IPowEngineGate {
     function enforcePow() external view returns (bool);
     function powTargetForUser(address user, uint256 eventCount) external view returns (uint256);
-    function userTotalSettled(address user) external view returns (uint256);
 }
 
 /// @dev #1 + #2-extension: minimal Campaigns view interface for per-campaign
@@ -109,9 +113,14 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     IDatumZKVerifier public zkVerifier;
     // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
-    // #5 + #2: optional Settlement ref for PoW target + history total reads.
-    //          address(0) = sybil gates disabled (default before wiring).
+    // #2: optional Settlement ref for cumulative history-total reads.
+    //     address(0) = history gate disabled (default before wiring).
     address public settlement;
+
+    // #5: optional PowEngine ref for per-impression PoW difficulty target.
+    //     address(0) = PoW gate disabled (default before wiring).
+    address public powEngine;
+    event PowEngineSet(address indexed engine);
 
     // Path A (ZK): stake-root + interest-commitment refs. Both optional —
     //              when unset, Check 9 falls back to the legacy 3-pub verify()
@@ -195,6 +204,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         settlement = addr;
+    }
+
+    function setPowEngine(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        require(addr != address(0), "E00");
+        powEngine = addr;
+        emit PowEngineSet(addr);
     }
 
     /// @notice Path A: wire the stake-root commitment contract.
@@ -390,22 +406,14 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         ));
         if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
 
-        // Check 8b: #5 — Per-impression PoW with scaling difficulty.
-        //   keccak256(claimHash || powNonce) <= target(user, eventCount).
-        //   Target tightens with the user's recent settled rate AND scales
-        //   inversely with eventCount so bots can't amortize across batched
-        //   impressions. Gated by settlement.enforcePow; skipped entirely
-        //   when settlement isn't wired (early bootstrap).
-        // Check 8c: #2-extension — proof-of-on-chain-history filter. The
-        //   campaign can require the reporter has settled N events historically
-        //   (across any campaign) before participating. Soft sybil bar that
-        //   doesn't lock out real users with prior protocol activity.
-        if (settlement != address(0)) {
-            ISettlementSybilGate s = ISettlementSybilGate(settlement);
-            // PoW (reason 27)
-            try s.enforcePow() returns (bool enf) {
+        // Check 8b: #5 — Per-impression PoW with scaling difficulty. Reads
+        //   target from the carved-out DatumPowEngine. Skipped when engine
+        //   isn't wired (early bootstrap).
+        if (powEngine != address(0)) {
+            IPowEngineGate e = IPowEngineGate(powEngine);
+            try e.enforcePow() returns (bool enf) {
                 if (enf) {
-                    try s.powTargetForUser(user, claim.eventCount) returns (uint256 target) {
+                    try e.powTargetForUser(user, claim.eventCount) returns (uint256 target) {
                         if (uint256(keccak256(abi.encodePacked(computedHash, claim.powNonce))) > target) {
                             return (false, 27, 0, bytes32(0));
                         }
@@ -414,11 +422,16 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
                     }
                 }
             } catch {}
+        }
 
-            // History gate (reason 28): per-campaign minUserSettledHistory
+        // Check 8c: #2-extension — proof-of-on-chain-history filter. The
+        //   campaign can require the reporter has settled N events historically
+        //   (across any campaign) before participating. Soft sybil bar that
+        //   doesn't lock out real users with prior protocol activity.
+        if (settlement != address(0)) {
             try ICampaignsSybilKnobs(address(campaigns)).minUserSettledHistory(claim.campaignId) returns (uint32 minHist) {
                 if (minHist > 0) {
-                    try s.userTotalSettled(user) returns (uint256 totalSettled) {
+                    try ISettlementHistory(settlement).userTotalSettled(user) returns (uint256 totalSettled) {
                         if (totalSettled < uint256(minHist)) return (false, 28, 0, bytes32(0));
                     } catch {
                         return (false, 28, 0, bytes32(0));

@@ -7,18 +7,19 @@ import { ethers } from "hardhat";
 import { mineBlocks } from "./helpers/mine";
 
 describe("Stage 3: bucket leak monthly default", function () {
-  let settlement: any;
+  let powEngine: any;
   let user: any;
 
   beforeEach(async function () {
     const [owner, other, g2, alice] = await ethers.getSigners();
     user = alice;
     const Pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, other.address, g2.address);
-    settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await Pause.getAddress());
+    void Pause;
+    powEngine = await (await ethers.getContractFactory("DatumPowEngine")).deploy();
   });
 
   it("default leak is 1440 blocks per unit (the Stage 3 value)", async function () {
-    expect(await settlement.powBucketLeakPerN()).to.equal(1440);
+    expect(await powEngine.powBucketLeakPerN()).to.equal(1440);
   });
 
   it("math: 300-event bucket drains in ~30 days @ 6s/block (= 432,000 blocks)", function () {
@@ -47,7 +48,7 @@ describe("Stage 3: bucket leak monthly default", function () {
     // setting via direct storage in earlier tests). The key invariant
     // here is that the leak alone doesn't prevent the bucket from growing
     // when settles arrive faster than the leak rate.
-    expect(await settlement.powBucketLeakPerN()).to.equal(1440);
+    expect(await powEngine.powBucketLeakPerN()).to.equal(1440);
     // 1440 blocks/unit = at 6s/block = 8640s = 2.4 hours per unit drained.
     // A user settling > 1 event per 2.4 hours accumulates bucket.
     // A user settling once a month (~10 events/day across 30 days = 300)
@@ -55,8 +56,8 @@ describe("Stage 3: bucket leak monthly default", function () {
   });
 
   it("can still be tuned back down via governance if needed", async function () {
-    await settlement.setPowDifficultyCurve(8, 60, 100, 100);
-    expect(await settlement.powBucketLeakPerN()).to.equal(100);
+    await powEngine.setPowDifficultyCurve(8, 60, 100, 100);
+    expect(await powEngine.powBucketLeakPerN()).to.equal(100);
     // governance can shorten drain for emergency response
   });
 });

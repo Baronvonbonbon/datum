@@ -43,6 +43,7 @@ describe("Integration", function () {
   let claimValidator: DatumClaimValidator;
   let tokenRewardVault: DatumTokenRewardVault;
   let mockERC20: MockERC20;
+  let powEngine: any;
 
   let owner: HardhatEthersSigner;
   let advertiser: HardhatEthersSigner;
@@ -169,6 +170,11 @@ describe("Integration", function () {
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
 
+    const PowEngineFactory = await ethers.getContractFactory("DatumPowEngine");
+    powEngine = await PowEngineFactory.deploy();
+    await powEngine.setSettlement(await settlement.getAddress());
+    await settlement.setPowEngine(await powEngine.getAddress());
+
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
     relay = await RelayFactory.deploy(await settlement.getAddress(), await campaigns.getAddress(), await pauseReg.getAddress());
 
@@ -198,9 +204,11 @@ describe("Integration", function () {
     await settlement.setClaimValidator(await claimValidator.getAddress());
     await settlement.setAttestationVerifier(await verifier.getAddress());
     await settlement.setCampaigns(await campaigns.getAddress());
-    // #5: wire validator → settlement so the PoW target view is queryable
-    //     when enforcePow flips on. Lock-once.
+    // #2: validator → settlement for the userTotalSettled history-gate read.
+    //     Lock-once.
     await claimValidator.setSettlement(await settlement.getAddress());
+    // #5: validator → powEngine for the per-impression PoW target read.
+    await claimValidator.setPowEngine(await powEngine.getAddress());
 
     // Token reward vault (ERC-20 sidecar)
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
@@ -977,7 +985,7 @@ describe("Integration", function () {
       const freshUser = (await ethers.getSigners())[8];
 
       // Step 1: flip the gate on globally.
-      await settlement.setEnforcePow(true);
+      await powEngine.setEnforcePow(true);
 
       // Step 2: create + activate a real campaign through the full stack.
       const campaignId = await createTestCampaign();
@@ -1001,7 +1009,7 @@ describe("Integration", function () {
       expect(rejected, "expected at least one zero-effort submission to be rejected").to.equal(true);
 
       // Step 4: solve PoW client-side.
-      const target = BigInt((await settlement.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
+      const target = BigInt((await powEngine.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
       claims[0].powNonce = findPowNonce(claims[0].claimHash, target);
 
       // Step 5: submit through the real settleClaims path.
@@ -1022,11 +1030,11 @@ describe("Integration", function () {
       expect(await settlement.lastNonce(freshUser.address, campaignId, 0)).to.equal(1n);
 
       // Step 8: bucket filled — next claim from this user faces tighter target.
-      const bucketAfter = await settlement.userPowBucketEffective(freshUser.address);
+      const bucketAfter = await powEngine.userPowBucketEffective(freshUser.address);
       expect(bucketAfter).to.be.gte(1n);
 
       // Restore default for any subsequent suites.
-      await settlement.setEnforcePow(false);
+      await powEngine.setEnforcePow(false);
     });
   });
 });

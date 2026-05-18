@@ -112,6 +112,10 @@ const REQUIRED_KEYS = [
   "governanceRouter", "council",
   // CPC (cost-per-click) fraud prevention
   "clickRegistry",
+  // PoW engine (carved out of DatumSettlement for EIP-170; #5 leaky-bucket
+  // difficulty + per-impression target now lives here so the module is
+  // independently upgradable via the governance router).
+  "powEngine",
   // B2: Council-driven blocklist curator (audit pass 2)
   "blocklistCurator",
   // Optimistic activation gateway (Phases 1/2a/2b, 2026-05-14)
@@ -638,6 +642,15 @@ async function main() {
     throw new Error(`FAILED AT STEP ${step}: DatumClickRegistry — ${err}`);
   }
 
+  // --- PoW engine (carved out of Settlement for EIP-170) ---
+
+  try {
+    logStep("Deploying DatumPowEngine (#5 leaky-bucket PoW)");
+    await deployOrReuse("powEngine", "DatumPowEngine", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumPowEngine — ${err}`);
+  }
+
   // --- B2: Council-driven blocklist curator ---
   try {
     logStep("Deploying DatumCouncilBlocklistCurator (B2)");
@@ -1124,6 +1137,28 @@ async function main() {
     "DatumClickRegistry", addresses.clickRegistry,
     "settlement", "setSettlement",
     addresses.settlement,
+  );
+
+  // ── PowEngine: setSettlement (allows Settlement.consumeFor calls) ──
+  // ── Settlement: setPowEngine (lock-once pointer) ──
+  // ── ClaimValidator: setPowEngine (so the PoW target read works) ──
+  await wireIfNeeded(
+    "PowEngine.settlement",
+    "DatumPowEngine", addresses.powEngine,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "Settlement.powEngine",
+    "DatumSettlement", addresses.settlement,
+    "powEngine", "setPowEngine",
+    addresses.powEngine,
+  );
+  await wireIfNeeded(
+    "ClaimValidator.powEngine",
+    "DatumClaimValidator", addresses.claimValidator,
+    "powEngine", "setPowEngine",
+    addresses.powEngine,
   );
 
   // ── Alpha-4 inline: Settlement rate limiter + nullifier window ──
@@ -1670,6 +1705,7 @@ async function main() {
     "parameterGovernance",
     "council",
     "clickRegistry",
+    "powEngine",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",

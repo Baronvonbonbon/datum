@@ -7,6 +7,7 @@ import {
   DatumPaymentVault,
   DatumBudgetLedger,
   DatumClaimValidator,
+  DatumPowEngine,
   MockCampaigns,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
@@ -24,6 +25,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
   let vault: DatumPaymentVault;
   let ledger: DatumBudgetLedger;
   let validator: DatumClaimValidator;
+  let powEngine: DatumPowEngine;
   let mock: MockCampaigns;
 
   let owner: HardhatEthersSigner;
@@ -110,6 +112,12 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+
+    const PowEngineFactory = await ethers.getContractFactory("DatumPowEngine");
+    powEngine = await PowEngineFactory.deploy();
+    await powEngine.setSettlement(await settlement.getAddress());
+    await settlement.setPowEngine(await powEngine.getAddress());
+    await validator.setPowEngine(await powEngine.getAddress());
 
     await settlement.configure(
       await ledger.getAddress(),
@@ -290,7 +298,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
     it("POW2: enforcePow=true with zero powNonce typically rejects (reason 27)", async function () {
       // Wire validator → settlement so the PoW view can be queried.
       await validator.setSettlement(await settlement.getAddress());
-      await settlement.setEnforcePow(true);
+      await powEngine.setEnforcePow(true);
 
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 100n);
@@ -319,58 +327,58 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       expect(observedReject).to.equal(true);
 
       // Clean up state for subsequent tests
-      await settlement.setEnforcePow(false);
+      await powEngine.setEnforcePow(false);
     });
 
     it("POW-curve: difficulty target tightens quadratically with usage", async function () {
-      await settlement.setEnforcePow(true);
+      await powEngine.setEnforcePow(true);
       // Pull target for the same user at different event counts. The user's
       // `userPowEventsThisWindow` was incremented by BM-2 settled events
       // (~thousands), so target should be very small (far harder than fresh).
-      const tFresh = BigInt((await settlement.powTargetForUser(other.address, 1n)).toString());
-      const tHeavy = BigInt((await settlement.powTargetForUser(user.address, 1n)).toString());
+      const tFresh = BigInt((await powEngine.powTargetForUser(other.address, 1n)).toString());
+      const tHeavy = BigInt((await powEngine.powTargetForUser(user.address, 1n)).toString());
       // Heavy user's target must be much smaller (i.e., harder PoW).
       expect(tFresh).to.be.gt(tHeavy);
       // Per-impression scaling: bigger eventCount → proportionally smaller target.
-      const t1 = BigInt((await settlement.powTargetForUser(other.address, 1n)).toString());
-      const t100 = BigInt((await settlement.powTargetForUser(other.address, 100n)).toString());
+      const t1 = BigInt((await powEngine.powTargetForUser(other.address, 1n)).toString());
+      const t100 = BigInt((await powEngine.powTargetForUser(other.address, 100n)).toString());
       // Allow ±1 unit of rounding; t100 should be ≈ t1 / 100.
       const ratio = t1 / t100;
       expect(ratio).to.be.gte(99n);
       expect(ratio).to.be.lte(101n);
-      await settlement.setEnforcePow(false);
+      await powEngine.setEnforcePow(false);
     });
 
     it("POW-governance: setPowDifficultyCurve rejects invalid params and updates", async function () {
-      await expect(settlement.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // baseShift < 1
-      await expect(settlement.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // baseShift > 32
-      await expect(settlement.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(settlement, "E11"); // linDiv = 0
-      await expect(settlement.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWithCustomError(settlement, "E11"); // quadDiv = 0
-      await expect(settlement.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWithCustomError(settlement, "E11"); // leak = 0
-      await settlement.setPowDifficultyCurve(10, 80, 120, 15);
-      expect(await settlement.powBaseShift()).to.equal(10);
-      expect(await settlement.powLinearDivisor()).to.equal(80n);
-      expect(await settlement.powQuadDivisor()).to.equal(120n);
-      expect(await settlement.powBucketLeakPerN()).to.equal(15n);
+      await expect(powEngine.setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11"); // baseShift < 1
+      await expect(powEngine.setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11"); // baseShift > 32
+      await expect(powEngine.setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11"); // linDiv = 0
+      await expect(powEngine.setPowDifficultyCurve(8, 60, 0, 10)).to.be.revertedWithCustomError(powEngine, "E11"); // quadDiv = 0
+      await expect(powEngine.setPowDifficultyCurve(8, 60, 100, 0)).to.be.revertedWithCustomError(powEngine, "E11"); // leak = 0
+      await powEngine.setPowDifficultyCurve(10, 80, 120, 15);
+      expect(await powEngine.powBaseShift()).to.equal(10);
+      expect(await powEngine.powLinearDivisor()).to.equal(80n);
+      expect(await powEngine.powQuadDivisor()).to.equal(120n);
+      expect(await powEngine.powBucketLeakPerN()).to.equal(15n);
       // Restore defaults
-      await settlement.setPowDifficultyCurve(8, 60, 100, 10);
+      await powEngine.setPowDifficultyCurve(8, 60, 100, 10);
     });
 
     it("POW-leak: bucket drains over time so difficulty decays to baseline", async function () {
-      await settlement.setEnforcePow(true);
+      await powEngine.setEnforcePow(true);
       // `user` accumulated bucket from BM-2 tests. Use hardhat_mine to batch
       // many blocks in one RPC call — looping evm_mine is O(blocks) RPC calls.
-      const bucketNow = BigInt((await settlement.userPowBucketEffective(user.address)).toString());
-      const leakPerN = BigInt((await settlement.powBucketLeakPerN()).toString());
+      const bucketNow = BigInt((await powEngine.userPowBucketEffective(user.address)).toString());
+      const leakPerN = BigInt((await powEngine.powBucketLeakPerN()).toString());
       const blocksToFullyDrain = bucketNow * leakPerN + 1n;
       await ethers.provider.send("hardhat_mine", ["0x" + blocksToFullyDrain.toString(16)]);
-      const after = BigInt((await settlement.userPowBucketEffective(user.address)).toString());
+      const after = BigInt((await powEngine.userPowBucketEffective(user.address)).toString());
       expect(after).to.equal(0n);
       // Target should now equal the baseline target (same as a fresh user).
-      const tHeavyDecayed = BigInt((await settlement.powTargetForUser(user.address, 1n)).toString());
-      const tFresh = BigInt((await settlement.powTargetForUser(other.address, 1n)).toString());
+      const tHeavyDecayed = BigInt((await powEngine.powTargetForUser(user.address, 1n)).toString());
+      const tFresh = BigInt((await powEngine.powTargetForUser(other.address, 1n)).toString());
       expect(tHeavyDecayed).to.equal(tFresh);
-      await settlement.setEnforcePow(false);
+      await powEngine.setEnforcePow(false);
     });
 
     it("POW3: enforcePow=true with valid powNonce settles", async function () {
@@ -378,17 +386,17 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       // accumulated `user`'s userPowEventsThisWindow > 600 → shift=24,
       // pushing search cost into millions of hashes). `other` is unused.
       const freshUser = other;
-      await settlement.setEnforcePow(true);
+      await powEngine.setEnforcePow(true);
       const cid = await createTestCampaign();
       // eventCount=1 keeps the easy-band target manageable: max>>8 → ~256 hashes.
       const claims = buildClaimChain(cid, publisher.address, freshUser.address, 1, BID_CPM, 1n);
-      const target = BigInt((await settlement.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
+      const target = BigInt((await powEngine.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
       claims[0].powNonce = findPowNonce(claims[0].claimHash, target);
       const r = await settlement.connect(freshUser).settleClaims.staticCall([
         { user: freshUser.address, campaignId: cid, claims }
       ]);
       expect(r.settledCount).to.equal(1n);
-      await settlement.setEnforcePow(false);
+      await powEngine.setEnforcePow(false);
     });
   });
 });

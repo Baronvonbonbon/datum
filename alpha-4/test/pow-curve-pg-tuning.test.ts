@@ -1,17 +1,25 @@
-// Stage 2 — dual-permission PG hook on Settlement + ClaimValidator.
+// Stage 2 — dual-permission PG hook on PowEngine + ClaimValidator.
 // Owner can still tune directly; ParameterGovernance can tune through
 // the standard PG.execute path; everyone else is rejected.
+//
+// (Originally targeted DatumSettlement; PoW state + curve tuning moved
+// to DatumPowEngine as part of the EIP-170 carve-out. Settlement no
+// longer owns the PG hook because it had no other consumers.)
 
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () {
-  let settlement: any;
+describe("Stage 2: PowEngine + ClaimValidator PG dual-permission", function () {
+  let powEngine: any;
   let validator: any;
   let owner: HardhatEthersSigner;
   let pgImpersonator: HardhatEthersSigner;
   let other: HardhatEthersSigner;
+
+  async function freshPowEngine() {
+    return (await ethers.getContractFactory("DatumPowEngine")).deploy();
+  }
 
   beforeEach(async function () {
     const sigs = await ethers.getSigners();
@@ -21,7 +29,7 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
     const Pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
       owner.address, pgImpersonator.address, g2.address,
     );
-    settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await Pause.getAddress());
+    powEngine = await freshPowEngine();
 
     const Publishers = await (await ethers.getContractFactory("DatumPublishers")).deploy(20n, await Pause.getAddress());
     const Campaigns = await (await ethers.getContractFactory("DatumCampaigns")).deploy(
@@ -31,43 +39,30 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
       await Campaigns.getAddress(), await Publishers.getAddress(), await Pause.getAddress(),
     );
 
-    // Wire the PG impersonator address as parameterGovernance on both contracts
-    await settlement.setParameterGovernance(pgImpersonator.address);
+    await powEngine.setParameterGovernance(pgImpersonator.address);
     await validator.setParameterGovernance(pgImpersonator.address);
   });
 
   describe("setParameterGovernance lock-once on both contracts", function () {
-    it("Settlement: starts unset (zero address before setup)", async function () {
-      const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
-        owner.address, pgImpersonator.address, other.address,
-      );
-      const freshSettlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await freshPause.getAddress());
-      expect(await freshSettlement.parameterGovernance()).to.equal(ethers.ZeroAddress);
+    it("PowEngine: starts unset (zero address before setup)", async function () {
+      const fresh = await freshPowEngine();
+      expect(await fresh.parameterGovernance()).to.equal(ethers.ZeroAddress);
     });
-    it("Settlement: double-set rejected", async function () {
-      await expect(settlement.setParameterGovernance(other.address)).to.be.revertedWithCustomError(settlement, "AlreadySet");
+    it("PowEngine: double-set rejected", async function () {
+      await expect(powEngine.setParameterGovernance(other.address)).to.be.revertedWithCustomError(powEngine, "AlreadySet");
     });
-    it("Settlement: zero address rejected", async function () {
-      const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
-        owner.address, pgImpersonator.address, other.address,
-      );
-      const freshSettlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await freshPause.getAddress());
-      await expect(freshSettlement.setParameterGovernance(ethers.ZeroAddress)).to.be.revertedWithCustomError(freshSettlement, "E00");
+    it("PowEngine: zero address rejected", async function () {
+      const fresh = await freshPowEngine();
+      await expect(fresh.setParameterGovernance(ethers.ZeroAddress)).to.be.revertedWithCustomError(fresh, "E00");
     });
-    it("Settlement: non-owner rejected", async function () {
-      const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
-        owner.address, pgImpersonator.address, other.address,
-      );
-      const freshSettlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await freshPause.getAddress());
-      await expect(freshSettlement.connect(other).setParameterGovernance(pgImpersonator.address)).to.be.reverted;
+    it("PowEngine: non-owner rejected", async function () {
+      const fresh = await freshPowEngine();
+      await expect(fresh.connect(other).setParameterGovernance(pgImpersonator.address)).to.be.reverted;
     });
-    it("Settlement: emits ParameterGovernanceSet", async function () {
-      const freshPause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
-        owner.address, pgImpersonator.address, other.address,
-      );
-      const freshSettlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await freshPause.getAddress());
-      await expect(freshSettlement.setParameterGovernance(pgImpersonator.address))
-        .to.emit(freshSettlement, "ParameterGovernanceSet").withArgs(pgImpersonator.address);
+    it("PowEngine: emits ParameterGovernanceSet", async function () {
+      const fresh = await freshPowEngine();
+      await expect(fresh.setParameterGovernance(pgImpersonator.address))
+        .to.emit(fresh, "ParameterGovernanceSet").withArgs(pgImpersonator.address);
     });
 
     it("ClaimValidator: double-set rejected", async function () {
@@ -75,23 +70,23 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
     });
   });
 
-  describe("Settlement.setPowDifficultyCurve — owner-or-PG", function () {
+  describe("PowEngine.setPowDifficultyCurve — owner-or-PG", function () {
     it("owner can call", async function () {
-      await expect(settlement.connect(owner).setPowDifficultyCurve(12, 100, 200, 50)).to.not.be.reverted;
-      expect(await settlement.powBaseShift()).to.equal(12);
+      await expect(powEngine.connect(owner).setPowDifficultyCurve(12, 100, 200, 50)).to.not.be.reverted;
+      expect(await powEngine.powBaseShift()).to.equal(12);
     });
     it("PG impersonator can call (simulates PG.execute → setPowDifficultyCurve)", async function () {
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(10, 80, 150, 30)).to.not.be.reverted;
-      expect(await settlement.powBaseShift()).to.equal(10);
-      expect(await settlement.powBucketLeakPerN()).to.equal(30);
+      await expect(powEngine.connect(pgImpersonator).setPowDifficultyCurve(10, 80, 150, 30)).to.not.be.reverted;
+      expect(await powEngine.powBaseShift()).to.equal(10);
+      expect(await powEngine.powBucketLeakPerN()).to.equal(30);
     });
     it("random caller rejected with E18", async function () {
-      await expect(settlement.connect(other).setPowDifficultyCurve(8, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E18");
+      await expect(powEngine.connect(other).setPowDifficultyCurve(8, 60, 100, 10)).to.be.revertedWithCustomError(powEngine, "E18");
     });
     it("bounds still enforced via PG path", async function () {
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
-      await expect(settlement.connect(pgImpersonator).setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(settlement, "E11");
+      await expect(powEngine.connect(pgImpersonator).setPowDifficultyCurve(0, 60, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11");
+      await expect(powEngine.connect(pgImpersonator).setPowDifficultyCurve(33, 60, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11");
+      await expect(powEngine.connect(pgImpersonator).setPowDifficultyCurve(8, 0, 100, 10)).to.be.revertedWithCustomError(powEngine, "E11");
     });
   });
 
@@ -112,9 +107,14 @@ describe("Stage 2: Settlement + ClaimValidator PG dual-permission", function () 
     });
   });
 
-  describe("Other onlyOwner setters remain owner-only", function () {
-    it("Settlement.setRateLimits still owner-only", async function () {
-      await expect(settlement.connect(pgImpersonator).setRateLimits(100, 10000)).to.be.reverted;
+  describe("Settlement-side setters unchanged", function () {
+    it("Settlement.setRateLimits still owner-only (sanity)", async function () {
+      const sigs = await ethers.getSigners();
+      const Pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(
+        sigs[0].address, sigs[1].address, sigs[2].address,
+      );
+      const settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(await Pause.getAddress());
+      await expect(settlement.connect(other).setRateLimits(100, 10000)).to.be.reverted;
       await expect(settlement.connect(owner).setRateLimits(100, 10000)).to.not.be.reverted;
     });
     it("ClaimValidator.setActivationBonds still owner-only", async function () {
