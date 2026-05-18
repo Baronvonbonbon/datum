@@ -349,4 +349,165 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     ) {
         return campaigns.getCampaignForSettlement(campaignId);
     }
+
+    // -------------------------------------------------------------------------
+    // Upgrade ladder (Stage 1) — registry of replaceable contracts
+    //
+    // Each contract in the deployment registers its canonical address here
+    // (keyed by keccak256("name")). Governance-phase-gated upgrades replace
+    // the live pointer while preserving history. Consumers can read
+    // `currentAddrOf` to discover the live address of any registered
+    // contract; setters across the codebase get re-wired by governance
+    // batches at upgrade time.
+    //
+    // Authorization: `onlyGovernor` — in Admin phase that's the deployer
+    // (so iteration is one-tx fast). In Council phase, Council; in OpenGov,
+    // GovernanceV2. Each phase's natural delays apply (Council vote,
+    // OpenGov + Timelock).
+    //
+    // See narrative-analysis/upgrade-ladder-design.md.
+    // -------------------------------------------------------------------------
+
+    mapping(bytes32 => address)   public currentAddrOf;
+    mapping(bytes32 => uint256)   public versionOf;
+    mapping(bytes32 => address[]) public addressHistory;
+
+    event ContractRegistered(bytes32 indexed name, address indexed addr);
+    event ContractUpgraded(
+        bytes32 indexed name,
+        address indexed oldAddr,
+        address indexed newAddr,
+        uint256 newVersion
+    );
+
+    /// @notice Initial registration of a contract address. Owner-only so the
+    ///         deploy script can populate the registry post-deploy. Cannot
+    ///         overwrite an existing entry — use upgradeContract for that.
+    function register(bytes32 name, address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(currentAddrOf[name] == address(0), "already registered");
+        currentAddrOf[name] = addr;
+        versionOf[name] = 1;
+        addressHistory[name].push(addr);
+        emit ContractRegistered(name, addr);
+    }
+
+    /// @notice Phase-gated upgrade of a registered contract. Replaces the
+    ///         live address, increments version, appends to history.
+    ///         Re-wiring consumers (e.g., cache.setXcmDispatcher) is the
+    ///         caller's responsibility — usually done as a batch in the
+    ///         same governance proposal.
+    function upgradeContract(bytes32 name, address newAddr) external onlyGovernor {
+        require(newAddr != address(0), "E00");
+        address old = currentAddrOf[name];
+        require(old != address(0), "not registered");
+        require(newAddr != old, "no change");
+        currentAddrOf[name] = newAddr;
+        versionOf[name] += 1;
+        addressHistory[name].push(newAddr);
+        emit ContractUpgraded(name, old, newAddr, versionOf[name]);
+    }
+
+    function addressHistoryLength(bytes32 name) external view returns (uint256) {
+        return addressHistory[name].length;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase regression (timelocked emergency step-back)
+    //
+    // The forward path (setGovernor → acceptGovernor) enforces
+    // `newPhase >= phaseFloor` for monotonic decentralization. Regression
+    // bypasses that floor by definition: the current-phase governor
+    // proposes a step back, a 48h timelock fires, then anyone can execute.
+    //
+    // After execution, phaseFloor follows the regression downward, so
+    // re-promotion via setGovernor + raisePhaseFloor is unblocked.
+    //
+    // Authorization: only the current governor can propose or cancel.
+    // Execution is permissionless after timelock — anyone pays the gas.
+    // -------------------------------------------------------------------------
+
+    /// @notice Block delay between proposeRegression and executeRegression.
+    ///         Tunable by owner (Timelock) within [MIN, MAX] bounds.
+    ///         Default 28800 ≈ 48h at 6s/block. Tests on hardhat-local set
+    ///         to MIN to keep mining cheap.
+    uint256 public regressionTimelockBlocks = 28800;
+    uint256 public constant MIN_REGRESSION_TIMELOCK = 14400;   // ~24h floor
+    uint256 public constant MAX_REGRESSION_TIMELOCK = 100800;  // ~7d ceiling
+
+    GovernancePhase public pendingRegressionPhase;
+    address public pendingRegressionGovernor;
+    uint256 public pendingRegressionExecutableAfterBlock;
+
+    event RegressionTimelockSet(uint256 blocks);
+    event RegressionProposed(
+        GovernancePhase indexed newPhase,
+        address indexed newGovernor,
+        uint256 executableAfterBlock
+    );
+    event RegressionCancelled();
+    event RegressionExecuted(
+        GovernancePhase indexed newPhase,
+        address indexed newGovernor
+    );
+
+    function setRegressionTimelock(uint256 blocks_) external onlyOwner {
+        require(
+            blocks_ >= MIN_REGRESSION_TIMELOCK && blocks_ <= MAX_REGRESSION_TIMELOCK,
+            "E11"
+        );
+        regressionTimelockBlocks = blocks_;
+        emit RegressionTimelockSet(blocks_);
+    }
+
+    /// @notice Stage a phase regression. Only the current governor can call.
+    ///         `newPhase` must be strictly below current phase.
+    ///         `newGovernor` is the address that will take over at the new
+    ///         phase (e.g., Council contract address when regressing
+    ///         OpenGov → Council).
+    function proposeRegression(GovernancePhase newPhase, address newGovernor)
+        external onlyGovernor
+    {
+        require(newGovernor != address(0), "E00");
+        require(uint8(newPhase) < uint8(phase), "not a regression");
+        require(pendingRegressionGovernor == address(0), "regression pending");
+        pendingRegressionPhase = newPhase;
+        pendingRegressionGovernor = newGovernor;
+        pendingRegressionExecutableAfterBlock = block.number + regressionTimelockBlocks;
+        emit RegressionProposed(newPhase, newGovernor, pendingRegressionExecutableAfterBlock);
+    }
+
+    /// @notice Cancel a pending regression. Only the current governor —
+    ///         the same authority that proposed it. Prevents a malicious
+    ///         executor from waiting out the timelock on an aborted proposal.
+    function cancelRegression() external onlyGovernor {
+        require(pendingRegressionGovernor != address(0), "no pending");
+        pendingRegressionPhase = GovernancePhase.Admin;  // reset
+        pendingRegressionGovernor = address(0);
+        pendingRegressionExecutableAfterBlock = 0;
+        emit RegressionCancelled();
+    }
+
+    /// @notice Execute a pending regression after the timelock. Permissionless.
+    ///         Phase + governor flip atomically; phaseFloor follows down so
+    ///         re-promotion is unblocked.
+    function executeRegression() external {
+        require(pendingRegressionGovernor != address(0), "no pending");
+        require(block.number >= pendingRegressionExecutableAfterBlock, "still in timelock");
+
+        GovernancePhase newPhase = pendingRegressionPhase;
+        address newGovernor = pendingRegressionGovernor;
+
+        phase = newPhase;
+        governor = newGovernor;
+        // Reset phaseFloor — regression breaks the monotonic invariant.
+        // Once operations stabilize, the operator can raisePhaseFloor() again.
+        phaseFloor = newPhase;
+
+        pendingRegressionPhase = GovernancePhase.Admin;
+        pendingRegressionGovernor = address(0);
+        pendingRegressionExecutableAfterBlock = 0;
+
+        emit RegressionExecuted(newPhase, newGovernor);
+    }
 }
