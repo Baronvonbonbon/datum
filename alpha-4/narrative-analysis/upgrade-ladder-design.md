@@ -1,9 +1,14 @@
 # Upgrade Ladder — Design
 
-**Status:** Design specification. Approved decisions baked in; per-contract
-classification reviewed; implementation pending.
+**Status:** **SHIPPED** as of 2026-05-18. Stages 1–6 complete across 22
+commits (`16291e1` Stage 1 router registry → `bd59fa4` Stage 6 audit-prep).
+~36 of ~38 contracts inherit DatumUpgradable. Lock-once functions
+phase-gated on OpenGov. Web app reads addresses from the on-chain
+registry. **Cypherpunk locking remains the roadmap end-state** — alpha
+posture intentionally loosens those commitments so we can iterate
+during testing.
 
-**Date:** 2026-05-17
+**Date:** 2026-05-17 (design); shipped 2026-05-18
 
 **Context:** Pre-mainnet flexibility play. Allow the protocol to upgrade
 and replace any contract via a phased governance ladder (deploy admin →

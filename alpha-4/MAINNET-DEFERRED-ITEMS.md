@@ -10,11 +10,30 @@ Compiled 2026-05-16. Verified against `alpha-4/contracts/` 2026-05-16
 (items already addressed are marked **✅ COMPLETE** with the source
 location of the fix).
 
+**2026-05-18 update — Upgrade ladder shipped (Stages 1–6):**
+Alpha-4 now supports phased governance-controlled contract replacement
+across ~36 contracts. Every `lock*()` cypherpunk-commitment function
+is gated on OpenGov phase via `whenOpenGovPhase`. Pre-OpenGov, locks
+revert; testing posture stays malleable. **The cypherpunk locking
+commitments below remain on the roadmap but are loosened during
+alpha/beta testing.** When OpenGov is the active governor, governance
+can choose to fire each `lock*()` per contract, ratifying the
+cypherpunk end-state piecemeal. Details:
+`narrative-analysis/upgrade-ladder-design.md` + §13 of
+`narrative-analysis/deploy-runbook-paseo.md`.
+
 ---
 
 ## 1. Permission lock-downs (from PRE-MAINNET-CHECKLIST §Permission)
 
-After vetting production parties, call:
+**As of Stage 4 (commit `d353348`), every `lock*()` function below is
+phase-gated on OpenGov via `whenOpenGovPhase`.** Pre-OpenGov, these
+calls revert `not-opengov`. The list below tracks WHICH locks to fire
+once OpenGov is the active governor — not when they're _technically
+possible_ (now), but when they're _operationally appropriate_ (post
+testnet validation).
+
+After vetting production parties + reaching OpenGov phase:
 
 - `DatumRelay.lockRelayerOpen()` — converts relay from open-mode (any EOA
   passing stateless sig+liveness) to a curated set. Verify
@@ -22,10 +41,23 @@ After vetting production parties, call:
 - `DatumCouncilBlocklistCurator.lockCouncil()`
 - `DatumTagCurator.lockCouncil()`
 - `DatumPublishers.lockBlocklistCurator()`
-- `DatumCampaigns.lockTagCurator()`
+- `DatumCampaigns.lockTagCurator()` (pending Campaigns Tier 3 conversion)
 - `DatumGovernanceRouter.raisePhaseFloor()` after Phase 1 (Council) and
   again after Phase 2 (OpenGov) — prevents any future `setGovernor` from
   regressing back.
+- `DatumPeopleChainIdentity.lockOracleReporter()` + `.lockXcmDispatcher()`
+- `DatumPeopleChainXcmBridge.lockSovereign()` + `.lockPalletCallIndices()`
+- `DatumBondedIdentityReporter.lockCache()`
+- `DatumPaymentVault.lockFeeShareRecipient()`
+- `DatumStakeRootV2.lockPlumbing()`
+- `DatumPublishers.lockWhitelistMode()` + `.lockStakeGate()`
+- `DatumTagRegistry.lockCampaigns()`
+- `DatumRelay.lockPlumbing()`
+- `DatumZKStake.lockSlashers()`
+- `DatumPauseRegistry.lockGuardianSet()`
+- `DatumClickRegistry.lockPlumbing()`
+- `DatumClaimValidator.lockPlumbing()`
+- `DatumCampaignLifecycle.lockPlumbing()`
 
 ## 2. Mock / shim replacements
 

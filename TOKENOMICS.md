@@ -1,8 +1,20 @@
 # DATUM Token — Spec & Plan
 
-**Status:** draft v0.2 (architecture frozen, sections being walked one-by-one)
-**Date:** 2026-05-10
+**Status:** draft v0.3 (architecture frozen; upgrade-ladder addendum 2026-05-18)
+**Date:** 2026-05-18
 **Scope:** the DATUM ownership token, its utility, distribution, and integration with the existing DOT-denominated protocol.
+
+> **2026-05-18 upgradability addendum:** the alpha-4 upgrade ladder (Stages 1–6,
+> see `alpha-4/narrative-analysis/upgrade-ladder-design.md`) makes the entire
+> token plane — `DatumMintAuthority`, `DatumWrapper`, `DatumVesting`,
+> `DatumBootstrapPool`, `DatumFeeShare` — **upgradable via governance** during
+> alpha / beta. Several invariants previously documented in this spec as
+> "irrevocable" are now **phase-conditional**: they will become irrevocable
+> only when OpenGov fires the corresponding `lock*` function. The end-state
+> guarantees in §0 and §5 remain the roadmap target; the timeline shifts.
+>
+> Read §11.5 below ("Upgradability addendum") before assuming any token-plane
+> contract behaves as immutable.
 
 ---
 
@@ -1810,3 +1822,88 @@ There are no remaining design decisions in this spec.
 ---
 
 *End of v0.6 spec. All design decisions locked, including §2.7 Council scope (operational authority — campaign lifecycle, self-governance, hard-slash, capped treasury grants, fraud initiation, phase transitions; no parameter governance, no large grants, no salaries). Remaining work in §10 is pre-launch operational tasks and the v0.3-relay-staking implementation spec.*
+
+---
+
+## 11.5. Upgradability addendum (2026-05-18)
+
+The alpha-4 upgrade ladder (commits `16291e1` Stage 1 → `bd59fa4` Stage 6,
+documented in `alpha-4/narrative-analysis/upgrade-ladder-design.md`) is
+**material to several invariants in this spec**. Document them here before
+they're forgotten.
+
+### 11.5a. What changed
+
+Five token-plane contracts now inherit `DatumUpgradable`:
+
+- `DatumMintAuthority`
+- `DatumWrapper`
+- `DatumVesting`
+- `DatumBootstrapPool`
+- `DatumFeeShare`
+
+Each gains:
+- `version() returns 1` (overridable per redeploy)
+- `frozen` + `freeze()` / `unfreeze()` (governance-gated, halts mutators)
+- `migrate(oldContract)` (governance-gated, lock-once, no-op default)
+- `setRouter(addr)` (lock-once, wires the governance router)
+- `whenNotFrozen` on every user-facing mutator
+- `whenOpenGovPhase` on every `lock*` function (i.e., they revert until
+  the governance ladder reaches OpenGov)
+
+### 11.5b. Which §0 / §5 invariants are now phase-conditional
+
+| Invariant | This spec said | After alpha-4 upgrade ladder |
+|---|---|---|
+| MintAuthority issuer transfer is "one transfer per deployment, by design" | Permanent post-sunset | `acceptIssuerRole` is `whenNotFrozen`; governance can freeze/migrate MintAuthority to a v2 before locking — `issuerLocked` only locks the per-deployment issuer slot, not the contract itself |
+| Wrapper "No admin key. No upgradeability." | Permanent | False until OpenGov fires `lock*`; governance can migrate Wrapper to v2 with new mint authority, etc. |
+| Vesting "No revoke. No clawback. Vesting continues per the original schedule" | Permanent | The beneficiary's claim and the per-schedule math are still in-contract; but a governance proposal could migrate the contract to a v2 with different math. **Beneficiary protection is now governance-trust, not code-is-law.** |
+| BootstrapPool 1M reserve "fixed at construction" | Permanent | Pool config governance-mutable until OpenGov locks |
+| FeeShare distribution math | Permanent | Same — governance can migrate to a v2 with different accumulator scaling |
+
+### 11.5c. Cypherpunk endpoint (the roadmap)
+
+The original "code-is-law" guarantees become **OpenGov-choice
+commitments** rather than baked-in invariants. The endpoint:
+
+1. Alpha + beta: every token-plane contract is replaceable (deployer
+   admin instantly; Council N-of-M; OpenGov + Timelock 48h).
+2. **At some future point, OpenGov votes to fire `lock*` per contract.**
+   Each lock-firing is a community-ratified cypherpunk commitment.
+3. Post-lock, that specific contract becomes effectively immutable —
+   governance can no longer upgrade, only fork.
+
+### 11.5d. What this means for v0.6 spec consumers
+
+If you're reading this spec to understand token guarantees in
+production, **you're reading the end-state, not the alpha state**.
+During alpha + beta, every guarantee in §0–§10 is governance-revocable
+(via the upgrade ladder). The lock-once functions exist; they are
+gated on OpenGov; they have not been fired yet.
+
+Track the actual state of each contract via:
+- `<contract>.frozen()` — whether migration is in flight
+- `<contract>.version()` — which deployment version
+- `<contract>.router()` — registry pointer
+- `router.contractAddr(name)` — the live address
+- Audit log of governance proposals that fired `lock*`
+
+### 11.5e. Open work tied to TOKENOMICS
+
+Per `alpha-4/MAINNET-DEFERRED-ITEMS.md` §7.5:
+
+- [ ] Write per-contract `_migrate(oldContract)` overrides for state
+      preservation (currently every override is no-op — state is lost
+      on upgrade, fine for "redeploy fresh" alpha posture).
+- [ ] Document the lock-firing sequence post-OpenGov:
+      `MintAuthority.lockUpgrade()` / `lockIssuer()` (new function
+      naming TBD) → `Wrapper.lockMintAuthority()` → `Vesting.lockSchedule()`
+      etc. Each adds a finality commitment at the cost of one OpenGov
+      vote and 48h Timelock.
+- [ ] Trusted-setup ceremony for ZKVerifier / IdentityVerifier
+      (separate from token plane but cypherpunk-adjacent; tracked
+      in MAINNET-DEFERRED-ITEMS.md §6).
+
+The alpha posture trades short-term code-is-law certainty for long-term
+operational flexibility during testing. The end-state remains the
+target; only the timeline shifts.

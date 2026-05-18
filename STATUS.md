@@ -1,9 +1,33 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-08
-**Current Phase:** Alpha-4 v0.4.0 — EVM-only refactor (9 satellites merged, 29 → 21 contracts); webapp migrated; deployed on Paseo Hub via pallet-revive EVM
+**Last Updated:** 2026-05-18
+**Current Phase:** Alpha-4 v0.5.0 — upgrade ladder shipped (Stages 1–6); ~36 contracts upgradable via governance registry; lock-once cypherpunk commitments phase-gated on OpenGov; **testing-fresh posture during alpha-beta with locks deferred**
 **Testnet:** Paseo Hub (Chain ID 420420417) — alpha-4 (EVM, solc) + alpha-3 (PVM, resolc 1.1.0) reference
 **Web App:** https://datum.javcon.io
+**Contract count:** 30 deployed (+6 token-plane via deploy-token.ts) — see `deployed-addresses.json`
+**Tests:** 1224 passing
+
+## Cypherpunk roadmap (2026-05-18)
+
+The system is **upgradable today, locked tomorrow**. Two-phase commitment:
+
+1. **Alpha + beta (current):** Every contract is replaceable via governance.
+   The deployer (Phase 0 = Admin) can `upgradeContract(name, v2)` instantly;
+   Council (Phase 1) and OpenGov (Phase 2) gate the same flow with their
+   respective delays. Lock-once functions revert pre-OpenGov so the system
+   stays malleable while we iterate. This includes the token plane
+   (MintAuthority, Wrapper, Vesting, BootstrapPool, FeeShare) — previously
+   "irrevocable post-sunset" by design, now phase-conditional.
+
+2. **Production (when OpenGov is in charge):** Governance can fire
+   `lock*()` functions per-contract, ratifying cypherpunk commitments
+   one by one. The original "code-is-law" guarantees become OpenGov-
+   choice commitments rather than baked-in invariants.
+
+This trades short-term "code is law" certainty for long-term operational
+flexibility during testing. The end-state (every lock fired,
+oracleReporter lock-once retired, parachain sunset finalized) remains the
+roadmap target — see `alpha-4/MAINNET-DEFERRED-ITEMS.md` §1 and §7.5.
 
 ---
 
