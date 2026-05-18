@@ -82,8 +82,14 @@ const PAUSE_GUARDIAN_2 = "0x09ce34740bCE52FB3cAa4A2D50cC2fbAD6F32C5b"; // Charli
 
 // ── File paths ───────────────────────────────────────────────────────────────
 
-const ADDR_FILE = path.join(__dirname, "..", "deployed-addresses.json");
-const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", "deployed-addresses.json");
+// Per-network address files. The canonical mainline file
+// (`deployed-addresses.json`) is reserved for the testnet/mainnet deploy
+// (network `polkadotTestnet`); other networks (notably `localhost`) write
+// to `deployed-addresses.<network>.json` so rehearsals don't clobber the
+// live Paseo addresses.
+const _addrSuffix = network.name === "polkadotTestnet" ? "" : `.${network.name}`;
+const ADDR_FILE = path.join(__dirname, "..", `deployed-addresses${_addrSuffix}.json`);
+const EXT_ADDR_FILE = path.join(__dirname, "..", "extension", `deployed-addresses${_addrSuffix}.json`);
 
 // ── Required address keys (21 contracts) ─────────────────────────────────────
 // Alpha-4 consolidation: 9 satellites merged into parents
@@ -1589,7 +1595,20 @@ async function main() {
   await lockPlumbingIfNeeded("Lifecycle",        addresses.campaignLifecycle);
   await lockPlumbingIfNeeded("ClickRegistry",    addresses.clickRegistry);
   await lockPlumbingIfNeeded("Relay",            addresses.relay);
-  await lockPlumbingIfNeeded("GovernanceRouter", addresses.governanceRouter);
+  // GovernanceRouter.lockPlumbing is intentionally gated on OpenGov phase.
+  // At deploy time we are in Admin phase, so it's a no-op (would revert).
+  // Governance calls it after the phase ladder advances to OpenGov.
+  {
+    const phaseIface = new ethers.Interface(["function phase() view returns (uint8)"]);
+    const phaseVal = ethers.AbiCoder.defaultAbiCoder().decode(["uint8"],
+      await rawProvider.call({ to: addresses.governanceRouter, data: phaseIface.encodeFunctionData("phase") })
+    )[0];
+    if (Number(phaseVal) === 2) {
+      await lockPlumbingIfNeeded("GovernanceRouter", addresses.governanceRouter);
+    } else {
+      console.log(`  SKIP: GovernanceRouter.lockPlumbing — phase=${phaseVal} (needs OpenGov=2)`);
+    }
+  }
 
   console.log("\n  All wiring complete.");
 
@@ -2057,7 +2076,20 @@ async function main() {
   await checkBool("Lifecycle.plumbingLocked",        addresses.campaignLifecycle, "plumbingLocked", true);
   await checkBool("ClickRegistry.plumbingLocked",    addresses.clickRegistry,     "plumbingLocked", true);
   await checkBool("Relay.plumbingLocked",            addresses.relay,             "plumbingLocked", true);
-  await checkBool("GovernanceRouter.plumbingLocked", addresses.governanceRouter,  "plumbingLocked", true);
+  // GovernanceRouter.lockPlumbing is phase-gated on OpenGov; only validate
+  // post-OpenGov. On testnet (Admin phase) it stays unlocked until governance
+  // advances the ladder and calls Router.lockPlumbing() itself.
+  {
+    const phaseIface = new ethers.Interface(["function phase() view returns (uint8)"]);
+    const phaseVal = ethers.AbiCoder.defaultAbiCoder().decode(["uint8"],
+      await rawProvider.call({ to: addresses.governanceRouter, data: phaseIface.encodeFunctionData("phase") })
+    )[0];
+    if (Number(phaseVal) === 2) {
+      await checkBool("GovernanceRouter.plumbingLocked", addresses.governanceRouter, "plumbingLocked", true);
+    } else {
+      console.log(`  SKIP-VALIDATE: GovernanceRouter.plumbingLocked (phase=${phaseVal}, locks only at OpenGov)`);
+    }
+  }
 
   // T1-B: ParameterGovernance — standalone, no cross-contract wiring needed at deploy time
   // (ownership transfer to ParameterGovernance happens per-contract via governance proposals)
