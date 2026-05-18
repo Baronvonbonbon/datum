@@ -104,11 +104,11 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
         emit MaxSlashBpsPerCallSet(bps);
     }
 
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 
     // ── Advertiser actions ─────────────────────────────────────────────────────
 
-    function stake() external payable {
+    function stake() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         _staked[msg.sender] += msg.value;
         emit Staked(msg.sender, msg.value, _staked[msg.sender]);
@@ -129,7 +129,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
         emit UnstakeRequested(msg.sender, amount, avail);
     }
 
-    function unstake() external nonReentrant {
+    function unstake() external nonReentrant whenNotFrozen {
         UnstakeRequest memory req = _pendingUnstake[msg.sender];
         require(req.amount > 0, "E01");
         require(block.number >= req.availableBlock, "E70");
@@ -159,7 +159,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
 
     /// @dev R-H1 mirror: slash consumes from pendingUnstake first so a
     ///      fraud-anticipating advertiser can't shield via requestUnstake.
-    function slash(address advertiser, uint256 amount, address recipient) external nonReentrant {
+    function slash(address advertiser, uint256 amount, address recipient) external nonReentrant whenNotFrozen {
         require(msg.sender == slashContract, "E18");
         require(recipient != address(0), "E00");
 

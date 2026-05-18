@@ -252,7 +252,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
     // ---------------------------------------------------------------------
 
     /// @inheritdoc IDatumTagRegistry
-    function registerTag(bytes32 tag, uint256 amount) external nonReentrant {
+    function registerTag(bytes32 tag, uint256 amount) external nonReentrant whenNotFrozen {
         require(tag != bytes32(0), "E00");
         require(amount >= minTagBond, "T04"); // below floor
         TagInfo storage t = _tags[tag];
@@ -282,7 +282,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
     }
 
     /// @inheritdoc IDatumTagRegistry
-    function expireTag(bytes32 tag) external nonReentrant {
+    function expireTag(bytes32 tag) external nonReentrant whenNotFrozen {
         TagInfo storage t = _tags[tag];
         require(t.state == TagState.Bonded, "T07"); // not eligible (None/Disputed/Expired)
         require(uint64(block.number) >= t.lastUsedBlock + expiryBlocks, "T08"); // still fresh
@@ -377,7 +377,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
     // Jury participation
     // ---------------------------------------------------------------------
 
-    function stakeAsJuror(uint256 amount) external nonReentrant {
+    function stakeAsJuror(uint256 amount) external nonReentrant whenNotFrozen {
         require(amount > 0, "E11");
         require(jurorStake[msg.sender] + amount >= jurorMinStake, "T12"); // below min
 
@@ -391,7 +391,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
         emit JurorStaked(msg.sender, amount, jurorStake[msg.sender]);
     }
 
-    function unstakeJuror(uint256 amount) external nonReentrant {
+    function unstakeJuror(uint256 amount) external nonReentrant whenNotFrozen {
         uint256 stake_ = jurorStake[msg.sender];
         uint256 locked = jurorLockedStake[msg.sender];
         require(amount > 0 && amount <= stake_ - locked, "T13"); // exceeds free stake
@@ -455,7 +455,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
         emit VoteRevealed(disputeId, msg.sender, vote);
     }
 
-    function resolveDispute(uint256 disputeId) external nonReentrant {
+    function resolveDispute(uint256 disputeId) external nonReentrant whenNotFrozen {
         Dispute storage d = _disputes[disputeId];
         require(d.tag != bytes32(0), "T16");
         require(!d.resolved, "T20g"); // already resolved

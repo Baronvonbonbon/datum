@@ -121,7 +121,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
 
     /// @dev Accept refund from Campaigns/Lifecycle on edge paths and from
     ///      challengers posting counter-bond.
-    receive() external payable {}
+    receive() external payable whenNotFrozen {}
 
     // ── Admin ─────────────────────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     // ── Write paths ───────────────────────────────────────────────────────────
 
     /// @inheritdoc IDatumActivationBonds
-    function openBond(uint256 campaignId, address creator) external payable {
+    function openBond(uint256 campaignId, address creator) external payable whenNotFrozen {
         require(msg.sender == campaignsContract, "E19");
         require(creator != address(0), "E00");
         require(msg.value >= _minBond, "E11");
@@ -197,7 +197,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @inheritdoc IDatumActivationBonds
-    function challenge(uint256 campaignId) external payable nonReentrant {
+    function challenge(uint256 campaignId) external payable nonReentrant whenNotFrozen {
         State storage s = _state[campaignId];
         require(s.phase == Phase.Open, "E95");
         require(block.number < s.timelockExpiry, "E96"); // timelock closed
@@ -213,7 +213,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @inheritdoc IDatumActivationBonds
-    function activate(uint256 campaignId) external nonReentrant {
+    function activate(uint256 campaignId) external nonReentrant whenNotFrozen {
         State storage s = _state[campaignId];
         require(s.phase == Phase.Open, "E95");
         require(block.number >= s.timelockExpiry, "E96"); // still in timelock
@@ -236,7 +236,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @inheritdoc IDatumActivationBonds
-    function settle(uint256 campaignId) external nonReentrant {
+    function settle(uint256 campaignId) external nonReentrant whenNotFrozen {
         State storage s = _state[campaignId];
         require(s.phase == Phase.Open || s.phase == Phase.Contested, "E94");
 
@@ -263,12 +263,12 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @inheritdoc IDatumActivationBonds
-    function claim() external nonReentrant {
+    function claim() external nonReentrant whenNotFrozen {
         _claim(msg.sender, msg.sender);
     }
 
     /// @inheritdoc IDatumActivationBonds
-    function claimTo(address recipient) external nonReentrant {
+    function claimTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claim(msg.sender, recipient);
     }
@@ -297,7 +297,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     //   can open. ClaimValidator consults isMuted() to reject claims while
     //   the bond is active.
 
-    function mute(uint256 campaignId) external payable nonReentrant {
+    function mute(uint256 campaignId) external payable nonReentrant whenNotFrozen {
         MuteState storage m = _mute[campaignId];
         require(!m.active, "E94"); // already muted
         require(msg.value >= _muteMinBond, "E11");
@@ -326,7 +326,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         emit Muted(campaignId, msg.sender, msg.value);
     }
 
-    function settleMute(uint256 campaignId) external nonReentrant {
+    function settleMute(uint256 campaignId) external nonReentrant whenNotFrozen {
         MuteState storage m = _mute[campaignId];
         require(m.active, "E95");
 

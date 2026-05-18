@@ -107,7 +107,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
         uint8   actionType,
         uint256 budget,
         uint256 dailyCap
-    ) external payable {
+    ) external payable whenNotFrozen {
         require(msg.sender == address(campaigns), "E25");
         require(actionType <= 2, "E88"); // E88: invalid action type
         require(msg.value == budget, "E16");
@@ -193,13 +193,13 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     }
 
     /// @notice M-1: Pull a queued advertiser refund to the advertiser's own address.
-    function claimAdvertiserRefund() external nonReentrant {
+    function claimAdvertiserRefund() external nonReentrant whenNotFrozen {
         _claimAdvertiserRefund(msg.sender);
     }
 
     /// @notice M-1: Pull a queued advertiser refund to a different recipient
     ///         (e.g. cold wallet). Only the advertiser who owns the refund can call.
-    function claimAdvertiserRefundTo(address recipient) external nonReentrant {
+    function claimAdvertiserRefundTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claimAdvertiserRefund(recipient);
     }
@@ -243,7 +243,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
 
     /// @notice Sweep rounding dust from terminal campaigns to protocol treasury.
     ///         Permissionless — anyone can call. Only works for terminal campaign statuses (3,4,5).
-    function sweepDust(uint256 campaignId) external nonReentrant {
+    function sweepDust(uint256 campaignId) external nonReentrant whenNotFrozen {
         // Check campaign is terminal
         IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
         require(uint8(status) >= 3, "E14"); // 3=Completed, 4=Terminated, 5=Expired
@@ -295,5 +295,5 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
 
     /// @notice Reject stray native deposits — there is no internal path that
     ///         requires open `receive()` here. (I-1)
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 }

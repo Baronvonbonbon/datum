@@ -96,7 +96,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumTokenRewardVault
-    function withdraw(address token) external nonReentrant {
+    function withdraw(address token) external nonReentrant whenNotFrozen {
         uint256 amount = userTokenBalance[token][msg.sender];
         require(amount > 0, "E03");
         userTokenBalance[token][msg.sender] = 0;
@@ -106,7 +106,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     }
 
     /// @inheritdoc IDatumTokenRewardVault
-    function withdrawTo(address token, address recipient) external nonReentrant {
+    function withdrawTo(address token, address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         uint256 amount = userTokenBalance[token][msg.sender];
         require(amount > 0, "E03");
@@ -121,7 +121,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumTokenRewardVault
-    function reclaimExpiredBudget(uint256 campaignId, address token) external nonReentrant {
+    function reclaimExpiredBudget(uint256 campaignId, address token) external nonReentrant whenNotFrozen {
         // Verify caller is the campaign advertiser
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(msg.sender == advertiser, "E18");
@@ -139,5 +139,5 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     }
 
     /// @notice Reject accidental ETH deposits
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 }

@@ -95,7 +95,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
         governanceContract = addr;
     }
 
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 
     // ── Core actions ───────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     /// @dev Per-publisher: multiple lockBond calls allowed for distinct
     ///      publishers on the same campaign. Reverts if (campaignId, publisher)
     ///      is already bonded.
-    function lockBond(uint256 campaignId, address advertiser, address publisher) external payable {
+    function lockBond(uint256 campaignId, address advertiser, address publisher) external payable whenNotFrozen {
         require(msg.sender == campaignsContract, "E18");
         require(msg.value > 0, "E11");
         require(publisher != address(0), "E00");
@@ -126,7 +126,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     /// @dev M-1: Records returns into `pendingBondReturn` instead of pushing.
     ///      Multi-publisher: iterates the bonded set and returns each
     ///      unclaimed bond to the corresponding advertiser pull-queue.
-    function returnBond(uint256 campaignId) external nonReentrant {
+    function returnBond(uint256 campaignId) external nonReentrant whenNotFrozen {
         require(msg.sender == lifecycleContract, "E18");
         address[] storage publishers = _bondedPublishers[campaignId];
         uint256 n = publishers.length;
@@ -153,12 +153,12 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     }
 
     /// @notice M-1: Pull a queued bond return to msg.sender.
-    function claimBondReturn() external nonReentrant {
+    function claimBondReturn() external nonReentrant whenNotFrozen {
         _claimBondReturn(msg.sender);
     }
 
     /// @notice M-1: Pull a queued bond return to a chosen recipient (cold wallet).
-    function claimBondReturnTo(address recipient) external nonReentrant {
+    function claimBondReturnTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claimBondReturn(recipient);
     }
@@ -172,7 +172,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     }
 
     /// @inheritdoc IDatumChallengeBonds
-    function addToPool(address publisher) external payable {
+    function addToPool(address publisher) external payable whenNotFrozen {
         require(msg.sender == governanceContract, "E18");
         require(msg.value > 0, "E11");
         _bonusPool[publisher] += msg.value;
@@ -187,13 +187,13 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     ///                                  already claimed).
     ///        - 2+ bonded publishers → "ambiguous"; caller must use the
     ///                                  per-publisher claim variant.
-    function claimBonus(uint256 campaignId) external nonReentrant {
+    function claimBonus(uint256 campaignId) external nonReentrant whenNotFrozen {
         address publisher = _resolveLegacyPublisher(campaignId);
         _claimBonus(campaignId, publisher, msg.sender);
     }
 
     /// @notice M-1 cold-wallet variant.
-    function claimBonusTo(uint256 campaignId, address recipient) external nonReentrant {
+    function claimBonusTo(uint256 campaignId, address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         address publisher = _resolveLegacyPublisher(campaignId);
         _claimBonus(campaignId, publisher, recipient);
@@ -227,7 +227,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
 
     /// @notice Per-publisher claim — required for multi-publisher campaigns
     ///         where multiple bonds are locked.
-    function claimBonusForPublisher(uint256 campaignId, address publisher) external nonReentrant {
+    function claimBonusForPublisher(uint256 campaignId, address publisher) external nonReentrant whenNotFrozen {
         _claimBonus(campaignId, publisher, msg.sender);
     }
 

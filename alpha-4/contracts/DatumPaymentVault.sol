@@ -87,7 +87,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     /// @dev    The recipient is expected to be a DatumFeeShare contract whose
     ///         `receive()` folds the inflow into its accumulator. If no
     ///         recipient is configured this reverts; use withdrawProtocol() instead.
-    function sweepToFeeShare() external nonReentrant {
+    function sweepToFeeShare() external nonReentrant whenNotFrozen {
         address recipient = feeShareRecipient;
         require(recipient != address(0), "E00");
         uint256 amount = protocolBalance;
@@ -123,7 +123,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumPaymentVault
-    function withdrawPublisher() external nonReentrant {
+    function withdrawPublisher() external nonReentrant whenNotFrozen {
         uint256 amount = publisherBalance[msg.sender];
         require(amount > 0, "E03");
         publisherBalance[msg.sender] = 0;
@@ -132,7 +132,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     }
 
     /// @inheritdoc IDatumPaymentVault
-    function withdrawPublisherTo(address recipient) external nonReentrant {
+    function withdrawPublisherTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         uint256 amount = publisherBalance[msg.sender];
         require(amount > 0, "E03");
@@ -142,7 +142,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     }
 
     /// @inheritdoc IDatumPaymentVault
-    function withdrawUser() external nonReentrant {
+    function withdrawUser() external nonReentrant whenNotFrozen {
         uint256 amount = userBalance[msg.sender];
         require(amount > 0, "E03");
         userBalance[msg.sender] = 0;
@@ -151,7 +151,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     }
 
     /// @inheritdoc IDatumPaymentVault
-    function withdrawUserTo(address recipient) external nonReentrant {
+    function withdrawUserTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         uint256 amount = userBalance[msg.sender];
         require(amount > 0, "E03");
@@ -236,5 +236,5 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     // Receive
     // -------------------------------------------------------------------------
 
-    receive() external payable {}
+    receive() external payable whenNotFrozen {}
 }

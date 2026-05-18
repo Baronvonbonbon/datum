@@ -104,12 +104,12 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
         emit MaxSlashBpsPerCallSet(bps);
     }
 
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 
     // ── Publisher actions ──────────────────────────────────────────────────────
 
     /// @inheritdoc IDatumPublisherStake
-    function stake() external payable {
+    function stake() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         _staked[msg.sender] += msg.value;
         emit Staked(msg.sender, msg.value, _staked[msg.sender]);
@@ -132,7 +132,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     }
 
     /// @inheritdoc IDatumPublisherStake
-    function unstake() external nonReentrant {
+    function unstake() external nonReentrant whenNotFrozen {
         UnstakeRequest memory req = _pendingUnstake[msg.sender];
         require(req.amount > 0, "E01");
         require(block.number >= req.availableBlock, "E70"); // delay not elapsed
@@ -160,7 +160,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     ///      could call requestUnstake to move funds out of `_staked` (still
     ///      held in the contract for the unstake delay) and shield them from
     ///      slash. Combining the two makes the slash mechanism honest.
-    function slash(address publisher, uint256 amount, address recipient) external nonReentrant {
+    function slash(address publisher, uint256 amount, address recipient) external nonReentrant whenNotFrozen {
         require(msg.sender == slashContract, "E18");
         require(recipient != address(0), "E00");
 

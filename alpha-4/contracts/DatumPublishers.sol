@@ -173,7 +173,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     }
 
     /// @inheritdoc IDatumPublishers
-    function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused {
+    function registerPublisher(uint16 takeRateBps) external nonReentrant whenNotPaused whenNotFrozen {
         // M-6 audit fix: fail-CLOSED. A flagged publisher can't register; a
         // curator that reverts must be repaired before registration resumes.
         // Liveness during brief curator outages is sacrificed to honest gate
@@ -204,7 +204,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     }
 
     /// @inheritdoc IDatumPublishers
-    function updateTakeRate(uint16 newTakeRateBps) external nonReentrant whenNotPaused {
+    function updateTakeRate(uint16 newTakeRateBps) external nonReentrant whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(
             newTakeRateBps >= MIN_TAKE_RATE_BPS && newTakeRateBps <= MAX_TAKE_RATE_BPS,
@@ -222,7 +222,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     }
 
     /// @inheritdoc IDatumPublishers
-    function applyTakeRateUpdate() external nonReentrant whenNotPaused {
+    function applyTakeRateUpdate() external nonReentrant whenNotPaused whenNotFrozen {
         Publisher storage pub = _publishers[msg.sender];
         require(pub.registered, "Not registered");
         require(pub.pendingTakeRateBps != 0, "No pending update");
@@ -238,7 +238,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     /// @notice R-L2: Cancel a pending take rate update before the delay elapses.
     ///         Lets a publisher who queued the wrong rate drop it without
     ///         waiting out the delay window.
-    function cancelPendingTakeRate() external whenNotPaused {
+    function cancelPendingTakeRate() external whenNotPaused whenNotFrozen {
         Publisher storage pub = _publishers[msg.sender];
         require(pub.registered, "Not registered");
         require(pub.pendingTakeRateBps != 0, "No pending update");
@@ -307,13 +307,13 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     // S12: Per-publisher advertiser allowlist
     // -------------------------------------------------------------------------
 
-    function setAllowlistEnabled(bool enabled) external whenNotPaused {
+    function setAllowlistEnabled(bool enabled) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         allowlistEnabled[msg.sender] = enabled;
         emit AllowlistToggled(msg.sender, enabled);
     }
 
-    function setAllowedAdvertiser(address advertiser, bool allowed) external whenNotPaused {
+    function setAllowedAdvertiser(address advertiser, bool allowed) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(advertiser != address(0), "E00");
         _allowedAdvertisers[msg.sender][advertiser] = allowed;
@@ -334,7 +334,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     function setAllowedAdvertisers(
         address[] calldata advertisers,
         bool[] calldata allowed
-    ) external whenNotPaused {
+    ) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(advertisers.length == allowed.length, "E11");
         require(advertisers.length > 0 && advertisers.length <= MAX_ALLOWLIST_BATCH, "E11");
@@ -354,7 +354,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     // BM-7: SDK version registry (integrity verification)
     // -------------------------------------------------------------------------
 
-    function registerSdkVersion(bytes32 hash) external whenNotPaused {
+    function registerSdkVersion(bytes32 hash) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(hash != bytes32(0), "E00");
         sdkVersionHash[msg.sender] = hash;
@@ -373,7 +373,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     ///         signer == address(0) clears the relay signer (falls back to publisher wallet).
     /// @dev Enforces a cooldown between rotations so an attacker briefly
     ///      controlling the old key can't sandwich a rotation event.
-    function setRelaySigner(address signer) external whenNotPaused {
+    function setRelaySigner(address signer) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         uint256 lastRotated = relaySignerRotatedBlock[msg.sender];
         require(
@@ -386,7 +386,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     }
 
     /// @notice Set the IPFS CID (as bytes32) for publisher off-chain metadata.
-    function setProfile(bytes32 hash) external whenNotPaused {
+    function setProfile(bytes32 hash) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(hash != bytes32(0), "E00");
         profileHash[msg.sender] = hash;
@@ -398,7 +398,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     ///         "rotate key + refresh metadata" flow. Per-field semantics
     ///         (rotation cooldown on relay; non-zero profile hash) are
     ///         identical to the single-field setters.
-    function setRelaySignerAndProfile(address signer, bytes32 hash) external whenNotPaused {
+    function setRelaySignerAndProfile(address signer, bytes32 hash) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(hash != bytes32(0), "E00");
 
@@ -422,7 +422,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     ///         per-batch by cryptographic proof. Lowering or raising is
     ///         permitted at any time; publishers can freely upgrade as they
     ///         build out cosign infrastructure or downgrade if they retire it.
-    function setPublisherMaxAssurance(uint8 level) external whenNotPaused {
+    function setPublisherMaxAssurance(uint8 level) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(level <= 2, "E11");
         publisherMaxAssurance[msg.sender] = level;
@@ -430,7 +430,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     }
 
     /// @notice Set the publisher's tag-policy lane. See `publisherTagMode`.
-    function setPublisherTagMode(uint8 mode) external whenNotPaused {
+    function setPublisherTagMode(uint8 mode) external whenNotPaused whenNotFrozen {
         require(_publishers[msg.sender].registered, "Not registered");
         require(mode <= 2, "E11");
         publisherTagMode[msg.sender] = mode;

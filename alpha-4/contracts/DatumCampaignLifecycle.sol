@@ -122,7 +122,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Advertiser or settlement (auto-complete) can call.
     ///      Drains remaining budget to advertiser via BudgetLedger.
-    function completeCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
+    function completeCampaign(uint256 campaignId) external nonReentrant whenNotPaused whenNotFrozen {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
         require(
@@ -154,7 +154,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Called by GovernanceV2 directly (not via Campaigns).
     ///      10% slash to governance, 90% refund to advertiser.
-    function terminateCampaign(uint256 campaignId) external nonReentrant {
+    function terminateCampaign(uint256 campaignId) external nonReentrant whenNotFrozen {
         require(!pauseRegistry.pausedSettlement(), "P");
         require(msg.sender == governanceContract, "E19");
 
@@ -184,7 +184,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
 
     /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Callable by anyone once pendingExpiryBlock has passed.
-    function expirePendingCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
+    function expirePendingCampaign(uint256 campaignId) external nonReentrant whenNotPaused whenNotFrozen {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
 
@@ -213,7 +213,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     ///      No budget is drained — the campaign returns to Pending for a second evaluation.
     ///      pendingExpiryBlock is set to type(uint256).max to prevent expirePendingCampaign
     ///      from racing the governance termination path.
-    function demoteCampaign(uint256 campaignId) external nonReentrant {
+    function demoteCampaign(uint256 campaignId) external nonReentrant whenNotFrozen {
         require(!pauseRegistry.pausedSettlement(), "P");
         require(msg.sender == governanceContract, "E19");
 
@@ -238,7 +238,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     /// @notice Expire an Active/Paused campaign that has had no settlement activity
     ///         for `inactivityTimeoutBlocks`. Permissionless — anyone can call.
     ///         Full remaining budget refunded to advertiser.
-    function expireInactiveCampaign(uint256 campaignId) external nonReentrant whenNotPaused {
+    function expireInactiveCampaign(uint256 campaignId) external nonReentrant whenNotPaused whenNotFrozen {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
         require(advertiser != address(0), "E01");
 
