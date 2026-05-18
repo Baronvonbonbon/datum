@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumBlocklistCurator.sol";
 
 /// @title DatumCouncilBlocklistCurator
@@ -20,7 +20,11 @@ import "./interfaces/IDatumBlocklistCurator.sol";
 ///         — it cannot directly block/unblock. The cypherpunk credible
 ///         commitment is `lockCouncil()`, which permanently freezes the council
 ///         pointer so even the timelock can no longer change it.
-contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumOwnable {
+contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     /// @notice The contract authorized to call block/unblock. Typically DatumCouncil.
     address public council;
     /// @notice Once true, `council` is frozen — even owner can't change it.
@@ -60,7 +64,7 @@ contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumOwnable {
     /// @notice Block an address. Called by the Council contract after a passing vote.
     /// @param addr        The address to block.
     /// @param reasonHash  IPFS CID (or similar) pointing at the evidence/decision rationale.
-    function blockAddr(address addr, bytes32 reasonHash) external onlyCouncil {
+    function blockAddr(address addr, bytes32 reasonHash) external onlyCouncil whenNotPaused {
         require(addr != address(0), "E00");
         _blocked[addr] = true;
         blockReason[addr] = reasonHash;
@@ -68,7 +72,7 @@ contract DatumCouncilBlocklistCurator is IDatumBlocklistCurator, DatumOwnable {
     }
 
     /// @notice Unblock an address. Called by the Council contract after a passing vote.
-    function unblockAddr(address addr) external onlyCouncil {
+    function unblockAddr(address addr) external onlyCouncil whenNotPaused {
         require(addr != address(0), "E00");
         _blocked[addr] = false;
         blockReason[addr] = bytes32(0);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumPeopleChainIdentity.sol";
 
 /// @title DatumPeopleChainIdentity
@@ -58,7 +58,11 @@ import "./interfaces/IDatumPeopleChainIdentity.sol";
 ///
 ///         Levels are monotone: a `minLevel` check passes for any record at or
 ///         above the threshold (KnownGood satisfies a Reasonable-floor gate).
-contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumOwnable {
+contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Storage
     // -------------------------------------------------------------------------
@@ -180,7 +184,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumOwnable {
         address user,
         uint8   level,
         uint64  validityBlocks
-    ) external {
+    ) external whenNotPaused {
         require(
             (xcmDispatcher != address(0) && msg.sender == xcmDispatcher) ||
             (oracleReporter != address(0) && msg.sender == oracleReporter),
@@ -201,7 +205,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumOwnable {
         address[] calldata users,
         uint8[]   calldata levels,
         uint64[]  calldata validityBlocksArr
-    ) external {
+    ) external whenNotPaused {
         require(
             (xcmDispatcher != address(0) && msg.sender == xcmDispatcher) ||
             (oracleReporter != address(0) && msg.sender == oracleReporter),
@@ -238,7 +242,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumOwnable {
 
     /// @notice Caller purges their own cached record. After this, `isVerified`
     ///         returns false until a writer re-attests.
-    function forgetMe() external {
+    function forgetMe() external whenNotPaused {
         delete _records[msg.sender];
         emit IdentityForgotten(msg.sender);
     }
@@ -248,7 +252,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumOwnable {
     ///         these to know when to spend the query budget on a re-attest.
     ///         When pallet-revive ships a permissionless XCM-query primitive,
     ///         this becomes a real cross-chain call.
-    function requestIdentityRefresh(address user) external {
+    function requestIdentityRefresh(address user) external whenNotPaused {
         require(user != address(0), "E00");
         emit IdentityRefreshRequested(user, msg.sender);
     }

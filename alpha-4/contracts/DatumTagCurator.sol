@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumTagCurator.sol";
 
 /// @title DatumTagCurator
@@ -18,7 +18,11 @@ import "./interfaces/IDatumTagCurator.sol";
 ///         DatumCampaigns OR-merges the curator's verdict with its own
 ///         `approvedTags` mapping, so a deployer can use either path or
 ///         both. When no curator is wired, `approvedTags` is consulted alone.
-contract DatumTagCurator is IDatumTagCurator, DatumOwnable {
+contract DatumTagCurator is IDatumTagCurator, DatumUpgradable {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     address public council;
     bool public councilLocked;
 
@@ -47,13 +51,13 @@ contract DatumTagCurator is IDatumTagCurator, DatumOwnable {
         emit CouncilLocked();
     }
 
-    function approveTag(bytes32 tag) external onlyCouncil {
+    function approveTag(bytes32 tag) external onlyCouncil whenNotPaused {
         require(tag != bytes32(0), "E00");
         _approved[tag] = true;
         emit TagApproved(tag);
     }
 
-    function removeTag(bytes32 tag) external onlyCouncil {
+    function removeTag(bytes32 tag) external onlyCouncil whenNotPaused {
         require(tag != bytes32(0), "E00");
         _approved[tag] = false;
         emit TagRemoved(tag);
