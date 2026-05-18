@@ -147,6 +147,36 @@ is set. (AUDIT-PASS-5 recommendation #1;
 - **External audit before mainnet.** Internal pass found 4 HIGH bugs;
   an external specialist review is warranted before live funds depend
   on this code.
+- **Re-audit obligation from upgrade ladder (Stages 1–5b, 2026-05-18).**
+  The upgrade-ladder retrofit added new surface to ~36 contracts:
+  DatumUpgradable inheritance (router/frozen/migrated state, 50-slot
+  storage gap), whenNotFrozen on user-facing mutators, whenOpenGovPhase
+  on every lock-once function, plus a registry + regression mechanic
+  in DatumGovernanceRouter. AUDIT-PASS-5 findings closed under
+  "fine because immutable" or "fine because lock-once" need
+  re-verification — the lock-once defenses are now phase-conditional.
+  Detailed checklist in `narrative-analysis/deploy-runbook-paseo.md`
+  §13 (a-f).
+
+## 7.5. Token-plane upgradability (Stage 3 Tier 5 follow-up)
+
+`DatumMintAuthority`, `DatumWrapper`, `DatumVesting`, `DatumBootstrapPool`,
+`DatumFeeShare` are now upgradable via the governance ladder. Pre-OpenGov,
+token-plane parameters and state are governance-mutable. The previous
+"irrevocable parachain sunset" guarantee on MintAuthority becomes
+phase-conditional: OpenGov can choose to lock the sunset state, but
+the timeline shifts.
+
+Action item: write a TOKENOMICS.md section documenting:
+- Token plane upgradability mechanics (per design doc
+  `upgrade-ladder-design.md` §10)
+- Migration approach for token state (currently `_migrate` is no-op;
+  state preservation requires per-contract overrides)
+- The lock-once functions (`MintAuthority.acceptIssuerRole` via
+  pendingIssuer, `Wrapper.lockMintAuthority` if added) all
+  phase-gated on OpenGov post Stage 4
+
+Not blocking for Paseo. Required before Polkadot Hub mainnet.
 
 ## 8. EVM bytecode size (EIP-170, 24576 B)
 
@@ -207,6 +237,31 @@ Conservative mainnet rollout features. None block deploy.
 - **EMERGENCY-DRAIN** — 24h-timelocked guardian drain on PaymentVault
   and TokenRewardVault if compromised. Guardian separate from governor;
   burned/transferred to DAO in Phase 3.
+
+## 10.5. Upgrade ladder follow-ups (Stages 1–5b complete; loose ends)
+
+Per session that landed the ladder (commits `16291e1` Stage 1 →
+`c61c85d` Stage 5b):
+
+- [ ] **DatumCampaigns + DatumSettlement** still on DatumOwnable
+      (Tier 3 deferred). Pending the user's in-flight identity-gate
+      + dual-sig settlement work. Once that's committed, retrofit
+      both: inheritance, version(), whenNotFrozen on user-facing
+      mutators (settleClaims, settleClaimsMulti, createCampaign, etc.).
+- [ ] **DatumGovernanceRouter.lockPlumbing** is not phase-gated.
+      Router IS the phase source so it can't use the IDatumRouter_
+      Upgradable modifier; needs a local
+      `require(phase == GovernancePhase.OpenGov, "not-opengov")` check.
+- [ ] **DatumCampaigns lockBootstrap / lockLanes / lockTagCurator** —
+      will get phase-gated automatically once Tier 3 deferred work
+      lands.
+- [ ] **`_migrate` implementations are no-ops**. State preservation
+      across upgrades requires per-contract overrides. Currently
+      every upgrade is "redeploy fresh, state lost". Acceptable for
+      testnet per user's directive; production decisions per-contract.
+- [ ] **Storage layout snapshot**. Run `hardhat-storage-layout` or
+      `forge inspect storage-layout` for every Upgradable contract
+      pre- and post-upgrade-ladder. Capture as audit-reference.
 
 ## 11. Smaller deferred items in contract source
 

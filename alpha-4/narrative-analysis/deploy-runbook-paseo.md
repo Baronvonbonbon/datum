@@ -517,3 +517,256 @@ through the testnet. No effect on the production cache.
 #     cache.setXcmDispatcher(addresses.peopleChainBondedReporter)
 #   ...then ratify with cache.lockXcmDispatcher() after stable operation.
 ```
+
+---
+
+## 12. Upgrade procedure (Stages 1–5b)
+
+End-to-end runbook for replacing any registered Upgradable contract
+through the governance ladder.
+
+### 12a. Replace a Tier 1 / Tier 2 / Tier 3 contract (no state migration)
+
+Use this when state preservation is NOT required (the "redeploy fresh"
+posture). Most testnet upgrades fall here.
+
+**1. Deploy v2:**
+```bash
+# In a fresh hardhat task or one-shot script:
+#   const v2 = await F.deploy(...);
+#   await v2.setRouter(addresses.governanceRouter);
+#   await v2.transferOwnership(addresses.timelock);  // if owner-managed
+#   await new Contract(addresses.timelock, ...).acceptOwnership(v2);
+```
+
+**2. Freeze v1** (governance proposal — Admin phase = deployer EOA;
+Council phase = council vote; OpenGov = passed proposal):
+```typescript
+await v1.freeze();
+```
+
+**3. Re-wire consumers** (one tx per dependent contract — same flow,
+through governance):
+```typescript
+// Example: bridge v2 replacing bridge v1
+await cache.setXcmDispatcher(v2);  // cache now writes via v2
+```
+
+**4. Flip the registry pointer**:
+```typescript
+await router.upgradeContract(
+  ethers.keccak256(ethers.toUtf8Bytes("peopleChainXcmBridge")),
+  v2,
+);
+```
+
+**5. (Optional) Update deployed-addresses.json** for the next deploy.ts
+re-run. The on-chain registry is the source of truth; the JSON is the
+fallback for fresh boots.
+
+**6. Verify**: hit the web UI; `useContracts.peopleChainXcmBridge`
+should now point at v2 (via the resolver in Stage 5b).
+
+### 12b. Replace a contract with state migration
+
+Same as 12a, but step 2 also calls `v2.migrate(v1)` after freeze:
+
+```typescript
+await v1.freeze();                       // (must come first)
+await v2.migrate(v1);                    // pulls state; sets migrated=true
+// re-wire + upgradeContract as in 12a
+```
+
+`v2._migrate(oldContract)` is per-contract; default no-op. State-heavy
+contracts (Campaigns, Settlement, Vault, Ledger) need explicit
+implementations (currently stubs — extend when state preservation
+becomes a goal).
+
+### 12c. Emergency regression
+
+If a v2 turns out broken AND the system has already advanced to OpenGov,
+the current governor (OpenGov) can propose phase regression:
+
+```typescript
+// As OpenGov governor (typically via GovernanceV2 → ParameterGovernance → Timelock):
+await router.proposeRegression(
+  1,                       // GovernancePhase.Council
+  addresses.council,       // newGovernor for the regressed phase
+);
+// 48h timelock elapses (regressionTimelockBlocks)...
+await router.executeRegression();        // permissionless after delay
+```
+
+After regression: phase = Council; phaseFloor follows down; subsequent
+upgrades go through the Council vote pipeline. Re-promotion to OpenGov
+via `setGovernor + acceptGovernor + raisePhaseFloor` once stable.
+
+### 12d. Self-upgrade the router
+
+The router itself has a slot at `keccak256("governanceRouter")`. To
+replace it:
+
+1. Deploy v2 of `DatumGovernanceRouter` with the same constructor.
+2. Migrate state — currently the router's registry mapping isn't
+   migrate()-able (it's the registry itself; no general migrate path).
+   For Paseo: redeploy fresh + manually re-register every Upgradable
+   on the new router via `register()`.
+3. Update **out-of-band**:
+   - `deployed-addresses.json:governanceRouter` → new address
+   - Every contract's `router` slot — but `setRouter` is lock-once
+     once set. **This means router rotation requires migrating every
+     Upgradable to a v2 too**, with the new router wired in.
+
+**Router rotation is the most dangerous operation in the system.**
+Document each step, rehearse on a fork before mainnet.
+
+---
+
+## 13. Audit-prep checklist (post Stages 1–5b)
+
+New surface introduced across the upgrade ladder needs review before
+mainnet. Action items:
+
+### 13a. Storage layout safety
+
+Every contract that inherited DatumUpgradable has shifted storage
+slots (router, frozen, migrated, migrationSource + 50-slot gap). For
+a fresh redeploy this is fine. For mainnet migration, audit:
+
+- [ ] No `slot()` assembly assumptions in inheriting contracts (grep
+      `assembly { sload(<n>) }` patterns).
+- [ ] Storage gap (`__upgradeGap[50]`) doesn't collide with any child
+      contract's first storage field.
+- [ ] Contracts that previously used `address public owner` slot 0
+      now occupy a different slot — confirm nothing assumes slot 0.
+
+Recommended: run `forge inspect <Contract> storage-layout` for each
+Upgradable contract and diff against pre-upgrade-ladder snapshot.
+
+### 13b. Re-audit on existing findings
+
+AUDIT-PASS-5 closed several findings with "fine because immutable" or
+"fine because lock-once". The lock-once defenses are now
+phase-conditional (whenOpenGovPhase). Re-verify:
+
+- [ ] H1 (ActivationBonds bps snapshot at openBond) — snapshot still
+      fires at openBond before any lock could be relevant. Likely OK.
+- [ ] M1 (mute payout strand) — `setTreasury(0)` is still onlyOwner;
+      no phase gate change. Still partially open per
+      MAINNET-DEFERRED-ITEMS.md §7.
+- [ ] L6 (conviction curve (0,0)) — still guarded; not affected by
+      phase gate. OK.
+- [ ] B7-fix (DatumRelay.lockRelayerOpen) — now phase-gated. Pre-
+      OpenGov, relay-open path stays mutable. Operational discipline
+      pre-OpenGov.
+- [ ] Curator locks (council, blocklist, tag) — phase-gated. Same
+      story.
+- [ ] D1a plumbing locks (Router, Relay, ClickRegistry, ClaimValidator,
+      StakeRootV2, Lifecycle) — phase-gated. Same.
+
+### 13c. New surface
+
+Surface introduced by Stages 1–5b that didn't exist pre-ladder:
+
+- [ ] `DatumUpgradable.freeze` / `unfreeze` — governance-paused state
+      blocks every `whenNotFrozen` mutator. Audit: does any contract
+      have a function the freeze SHOULDN'T block (e.g., view-like
+      that mutates a counter)? Currently no — all mutators tagged
+      uniformly. Re-verify per contract.
+- [ ] `DatumUpgradable.migrate` — reads from old contract storage via
+      `IDatumUpgradable_Migrate(old).version()` / `.frozen()`. Both
+      view calls. Reentrancy from a malicious old contract during
+      `_migrate` is prevented by setting `migrated = true` BEFORE
+      `_migrate()` runs. Audit each per-contract `_migrate`
+      override (currently no-op everywhere).
+- [ ] `DatumGovernanceRouter.upgradeContract` — phase-gated via
+      onlyGovernor. Audit: who is governor in each phase? Admin =
+      deployer EOA / Safe; Council = Council contract; OpenGov =
+      GovernanceV2. Each has its own internal authorization. Verified.
+- [ ] `DatumGovernanceRouter.proposeRegression` /
+      `executeRegression` — only current governor proposes; anyone
+      executes after 48h timelock. The cancellation path is governor-
+      only. Audit: can a malicious-or-coerced governor abuse
+      regression to escape OpenGov? Yes — but the 48h timelock + on-
+      chain visibility gives the community a window to challenge
+      socially. Document explicitly.
+
+### 13d. Token-plane upgradability flag (TOKENOMICS.md)
+
+The Tier 5 conversion broke the previous "irrevocable sunset" guarantee
+on `DatumMintAuthority` / `DatumWrapper` / `DatumVesting` /
+`DatumBootstrapPool`. Add a section to TOKENOMICS.md documenting:
+
+- Pre-OpenGov: token contracts upgradable; the "issuer locked forever"
+  invariant on MintAuthority is now phase-conditional.
+- OpenGov: governance can fire `lock*` functions to ratify the
+  cypherpunk commitments. Until then, all token-plane state is
+  governance-mutable.
+- Migration path: `migrate()` is a stub on token contracts; state
+  preservation requires per-contract `_migrate` overrides before any
+  real upgrade.
+
+Action: write this section after the next TOKENOMICS revision; not
+blocking for Paseo.
+
+### 13e. Deferred items
+
+Per commit history, deferred from Stages 1–5b:
+
+- [ ] DatumCampaigns + DatumSettlement — DatumOwnable still; pending
+      your in-flight work. Add to Tier 3 once committed.
+- [ ] DatumGovernanceRouter.lockPlumbing — special-case phase check
+      (router IS the phase source; can't use the interface modifier).
+      Add a local `require(phase == GovernancePhase.OpenGov)` check.
+- [ ] Storage-layout snapshot — run `hardhat-storage-layout` plugin or
+      manual `forge inspect` to capture pre/post snapshots for audit
+      reference.
+- [ ] Per-contract `_migrate` implementations — every override
+      currently no-op. Becomes load-bearing when state preservation
+      becomes a goal.
+
+### 13f. Operational invariants to verify on Paseo
+
+Before declaring the upgrade ladder production-ready:
+
+- [ ] Run the deploy.ts end-to-end on Paseo. Verify PHASE 2.5 logs
+      show all 26 contracts registered + setRouter'd.
+- [ ] Hit `router.contractAddr(keccak256("peopleChainXcmBridge"))`
+      from a script. Should return the deployed bridge address.
+- [ ] Pick a Tier 1 contract (say PeopleChainXcmBridge). Walk
+      §12a — deploy v2, freeze v1, re-wire cache.xcmDispatcher,
+      upgradeContract. Verify web UI picks up the new address.
+- [ ] In Admin phase, fire any `lock*` function — should now revert
+      `not-opengov` (router is wired). Promote phase to OpenGov via
+      setGovernor + acceptGovernor. Re-fire lock — should succeed.
+- [ ] Propose a regression OpenGov → Council. Verify it can't execute
+      before timelock (28800 blocks ≈ 48h on Paseo with adjusted
+      block time). Set test timelock to MIN (14400 = ~24h) for
+      tractable testing.
+
+Each of these is a small standalone script; collectively they prove
+the entire ladder works on a real network.
+
+---
+
+## 14. Audit ask (external)
+
+When commissioning an external audit (per MAINNET-DEFERRED-ITEMS.md
+§7), the scope must explicitly include:
+
+1. `DatumGovernanceRouter` — registry mechanics, phase progression,
+   regression timelock, self-upgrade slot.
+2. `DatumUpgradable` — modifier semantics (whenNotFrozen,
+   whenOpenGovPhase), migrate reentrancy, storage gap, setRouter
+   lock-once.
+3. Every Upgradable contract's storage layout — verify slot 0..52
+   matches DatumUpgradable's expectation, no child collisions.
+4. Phase-gated lock-once functions — verify each lock cannot fire
+   before OpenGov AND that the router-unset fallback to onlyOwner
+   is acceptable for Paseo / non-production use only.
+5. `migrate()` reentrancy + state-copy safety across each per-contract
+   `_migrate` override that ships before mainnet.
+
+Estimated audit effort: medium delta on top of the existing scope —
+the upgrade ladder is uniform across ~36 contracts but the
+attack surface is concentrated in the router + base.
