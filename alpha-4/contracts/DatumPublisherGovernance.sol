@@ -5,7 +5,7 @@ import "./interfaces/IDatumPublisherGovernance.sol";
 import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -30,7 +30,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (unlike GovernanceV2 campaign slash) —
 ///         they simply can't withdraw until lockup expires.
-contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender, DatumOwnable {
+contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     uint8 public constant MAX_CONVICTION = 8;
 
     // ── Conviction curve (governable, quadratic) ──────────────────────────────
@@ -385,7 +387,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     /// @inheritdoc IDatumPublisherGovernance
     /// @dev G-M5: requires `proposeBond` to be sent. Refunded on quorum reached;
     ///      forfeited to the treasury (owner-claimable via sweepTreasury) otherwise.
-    function propose(address publisher, bytes32 evidenceHash) external payable whenNotPaused {
+    function propose(address publisher, bytes32 evidenceHash) external payable whenNotPaused whenNotFrozen {
         require(publisher != address(0), "E00");
         require(evidenceHash != bytes32(0), "E00");
         require(msg.value == proposeBond, "E11");
@@ -463,7 +465,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @inheritdoc IDatumPublisherGovernance
-    function withdrawVote(uint256 proposalId) external nonReentrant {
+    function withdrawVote(uint256 proposalId) external nonReentrant whenNotFrozen {
         Vote storage v = _votes[proposalId][msg.sender];
         require(v.direction != 0, "E01");
         require(block.number >= v.lockedUntilBlock, "E42");
@@ -486,7 +488,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @inheritdoc IDatumPublisherGovernance
-    function resolve(uint256 proposalId) external nonReentrant whenNotPaused {
+    function resolve(uint256 proposalId) external nonReentrant whenNotPaused whenNotFrozen {
         Proposal storage p = _proposals[proposalId];
         require(p.createdBlock > 0, "E01");
         require(!p.resolved, "E41");
@@ -542,7 +544,7 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
 
     /// @notice G-M6: Move accumulated slashed remainder into the owner's
     ///         pull-payout queue. Permissionless trigger; only owner can claim.
-    function sweepTreasury() external nonReentrant {
+    function sweepTreasury() external nonReentrant whenNotFrozen {
         uint256 amount = treasuryBalance;
         require(amount > 0, "E03");
         treasuryBalance = 0;
@@ -552,12 +554,12 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @notice G-M3/G-M5/G-M6: Pull a queued payout to msg.sender.
-    function claimGovPayout() external nonReentrant {
+    function claimGovPayout() external nonReentrant whenNotFrozen {
         _claimGovPayout(msg.sender);
     }
 
     /// @notice G-M3/G-M5/G-M6: Pull a queued payout to a chosen recipient.
-    function claimGovPayoutTo(address recipient) external nonReentrant {
+    function claimGovPayoutTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claimGovPayout(recipient);
     }
@@ -597,5 +599,5 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     }
 
     /// @notice Allow receiving slashed funds from PublisherStake.slash().
-    receive() external payable {}
+    receive() external payable whenNotFrozen {}
 }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
@@ -32,7 +32,9 @@ import "./interfaces/IDatumActivationBondsMinimal.sol";
 ///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
-contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
+contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     uint8 public constant MAX_CONVICTION = 8;
 
     // -------------------------------------------------------------------------
@@ -234,7 +236,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
 
     /// @dev Accept ETH from contract-originated transfers (e.g. BudgetLedger slash fraction)
     ///      and voter slash deposits held for winner distribution.
-    receive() external payable {}
+    receive() external payable whenNotFrozen {}
 
     // -------------------------------------------------------------------------
     // Admin
@@ -350,7 +352,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     // Voting
     // -------------------------------------------------------------------------
 
-    function vote(uint256 campaignId, bool aye, uint8 conviction) external payable nonReentrant {
+    function vote(uint256 campaignId, bool aye, uint8 conviction) external payable nonReentrant whenNotFrozen {
         require(!pauseRegistry.pausedGovernance(), "P");
         require(conviction <= MAX_CONVICTION, "E40");
         require(msg.value > 0, "E41");
@@ -441,7 +443,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         emit CommitRevealWindowOpened(campaignId, w.commitDeadline, w.revealDeadline);
     }
 
-    function commitVote(uint256 campaignId, bytes32 hash) external payable nonReentrant {
+    function commitVote(uint256 campaignId, bytes32 hash) external payable nonReentrant whenNotFrozen {
         require(!pauseRegistry.pausedGovernance(), "P");
         require(hash != bytes32(0), "E40");
         require(msg.value > 0, "E41");
@@ -480,7 +482,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
         bool aye,
         uint8 conviction,
         bytes32 salt
-    ) external nonReentrant {
+    ) external nonReentrant whenNotFrozen {
         require(!pauseRegistry.pausedGovernance(), "P");
         require(conviction <= MAX_CONVICTION, "E40");
 
@@ -521,7 +523,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     ///         Permissionless after revealDeadline. The full lockAmount moves
     ///         to slashCollected[campaignId] for distribution to revealers on
     ///         the winning side.
-    function sweepUnrevealed(uint256 campaignId, address voter) external nonReentrant {
+    function sweepUnrevealed(uint256 campaignId, address voter) external nonReentrant whenNotFrozen {
         CommitRevealWindow storage w = commitRevealWindow[campaignId];
         require(w.opened, "E52");
         require(block.number > w.revealDeadline, "E51"); // reveal still open
@@ -544,7 +546,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     // Withdrawal
     // -------------------------------------------------------------------------
 
-    function withdraw(uint256 campaignId) external nonReentrant {
+    function withdraw(uint256 campaignId) external nonReentrant whenNotFrozen {
         Vote storage v = _votes[campaignId][msg.sender];
         require(v.direction != 0, "E44");
         require(block.number >= v.lockedUntilBlock, "E45");
@@ -703,7 +705,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     }
 
     /// @notice Winner claims proportional share of collected slash
-    function claimSlashReward(uint256 campaignId) external nonReentrant {
+    function claimSlashReward(uint256 campaignId) external nonReentrant whenNotFrozen {
         require(slashFinalized[campaignId], "E54");
         require(!slashClaimed[campaignId][msg.sender], "E55");
 
@@ -733,7 +735,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     /// @notice Sweep unclaimed slash pool after deadline. Permissionless.
     /// @dev G-M3: queues the residue for owner pull; owner calls
     ///      claimOwnerSweep[To] to actually receive funds.
-    function sweepSlashPool(uint256 campaignId) external nonReentrant {
+    function sweepSlashPool(uint256 campaignId) external nonReentrant whenNotFrozen {
         require(slashFinalized[campaignId], "E54");
         require(block.number >= slashFinalizedBlock[campaignId] + SWEEP_DEADLINE_BLOCKS, "E24");
 
@@ -747,12 +749,12 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumOwnable {
     }
 
     /// @notice G-M3: Owner pulls accumulated swept residue to themselves.
-    function claimOwnerSweep() external nonReentrant {
+    function claimOwnerSweep() external nonReentrant whenNotFrozen {
         _claimOwnerSweep(msg.sender);
     }
 
     /// @notice G-M3: Owner pulls accumulated swept residue to a chosen recipient.
-    function claimOwnerSweepTo(address recipient) external nonReentrant {
+    function claimOwnerSweepTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claimOwnerSweep(recipient);
     }

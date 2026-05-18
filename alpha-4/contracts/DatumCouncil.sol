@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -24,7 +24,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 ///           router.setGovernor(Council, address(this))   // via Timelock
 ///           → proposals target the Router directly, e.g.:
 ///               targets = [router],  calldatas = [activateCampaign(id)]
-contract DatumCouncil is DatumOwnable, ReentrancyGuard {
+contract DatumCouncil is DatumUpgradable, ReentrancyGuard {
+
+    /// @notice Upgrade ladder version.
+    function version() public pure override returns (uint256) { return 1; }
+
     using SafeERC20 for IERC20;
 
 
@@ -348,7 +352,7 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     }
 
     /// @notice Execute a passed proposal. Callable by anyone.
-    function execute(uint256 proposalId) external nonReentrant {
+    function execute(uint256 proposalId) external nonReentrant whenNotFrozen {
         Proposal storage p = proposals[proposalId];
         require(p.proposedBlock > 0, "E01");
         require(!p.executed, "E52");
@@ -604,5 +608,5 @@ contract DatumCouncil is DatumOwnable, ReentrancyGuard {
     }
 
     /// @notice Accept ETH so proposals with value can be funded and executed.
-    receive() external payable {}
+    receive() external payable whenNotFrozen {}
 }

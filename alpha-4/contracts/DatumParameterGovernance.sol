@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import "./interfaces/IDatumParameterGovernance.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 
 /**
@@ -24,7 +24,9 @@ import "./PaseoSafeSender.sol";
  *              E11 bad value, E18 not owner, E40 proposal state/condition error,
  *              E57 reentrancy.
  */
-contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, PaseoSafeSender {
+contract DatumParameterGovernance is IDatumParameterGovernance, DatumUpgradable, PaseoSafeSender {
+    function version() public pure override returns (uint256) { return 1; }
+
 
     // ── Conviction table ────────────────────────────────────────────────────────
     uint8 public constant MAX_CONVICTION = 8;
@@ -139,7 +141,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Pa
         emit Voted(proposalId, msg.sender, aye, msg.value, conviction);
     }
 
-    function withdrawVote(uint256 proposalId) external nonReentrant {
+    function withdrawVote(uint256 proposalId) external nonReentrant whenNotFrozen {
         Vote storage v = _votes[proposalId][msg.sender];
         require(v.lockAmount > 0, "E03");
         require(block.number >= v.lockUntil, "E40");
@@ -153,7 +155,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Pa
         emit VoteWithdrawn(proposalId, msg.sender, amount);
     }
 
-    function resolve(uint256 proposalId) external whenNotPaused {
+    function resolve(uint256 proposalId) external whenNotPaused whenNotFrozen {
         Proposal storage p = _proposals[proposalId];
         require(p.state == State.Active, "E40");
         require(block.number > p.endBlock, "E40");
@@ -174,7 +176,7 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Pa
         emit Resolved(proposalId, uint8(p.state));
     }
 
-    function execute(uint256 proposalId) external nonReentrant whenNotPaused {
+    function execute(uint256 proposalId) external nonReentrant whenNotPaused whenNotFrozen {
         Proposal storage p = _proposals[proposalId];
         require(p.state == State.Passed, "E40");
         require(block.number >= p.executeAfter, "E40");
@@ -221,12 +223,12 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumOwnable, Pa
     }
 
     /// @notice G-M3: Pull a queued bond payout to msg.sender.
-    function claimBondPayout() external nonReentrant {
+    function claimBondPayout() external nonReentrant whenNotFrozen {
         _claimBondPayout(msg.sender);
     }
 
     /// @notice G-M3: Pull a queued bond payout to a chosen recipient (cold wallet).
-    function claimBondPayoutTo(address recipient) external nonReentrant {
+    function claimBondPayoutTo(address recipient) external nonReentrant whenNotFrozen {
         require(recipient != address(0), "E00");
         _claimBondPayout(recipient);
     }

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "./interfaces/IDatumAdvertiserGovernance.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 
 /// @title DatumAdvertiserGovernance
@@ -27,7 +27,9 @@ import "./PaseoSafeSender.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (mirrors PublisherGov) — they
 ///         simply cannot withdraw until lockup expires.
-contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSender, DatumOwnable {
+contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     uint8 public constant MAX_CONVICTION = 8;
 
     // Governable quadratic conviction curve (defaults A=25, B=50 → weight(8)=21x).
@@ -189,7 +191,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         emit AdvertiserFraudProposed(id, advertiser, msg.sender, evidenceHash);
     }
 
-    function vote(uint256 id, bool aye, uint8 conviction) external payable whenNotPaused {
+    function vote(uint256 id, bool aye, uint8 conviction) external payable whenNotPaused whenNotFrozen {
         require(conviction <= MAX_CONVICTION, "E40");
         Proposal storage p = proposals[id];
         require(p.startBlock != 0 && !p.resolved, "E50");
@@ -215,7 +217,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         emit AdvertiserFraudVoted(id, msg.sender, aye, conviction, w);
     }
 
-    function resolve(uint256 id) external nonReentrant whenNotPaused {
+    function resolve(uint256 id) external nonReentrant whenNotPaused whenNotFrozen {
         Proposal storage p = proposals[id];
         require(p.startBlock != 0 && !p.resolved, "E50");
         // Grace period after last nay vote so an aye majority can't snipe a
@@ -255,7 +257,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
 
     // ── Voter stake withdrawal ─────────────────────────────────────────────────
 
-    function withdrawVote(uint256 id) external nonReentrant {
+    function withdrawVote(uint256 id) external nonReentrant whenNotFrozen {
         Proposal storage p = proposals[id];
         VoteRecord storage v = votes[id][msg.sender];
         require(v.stake > 0 && !v.withdrawn, "E03");
@@ -268,7 +270,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
 
     // ── Payout queue ───────────────────────────────────────────────────────────
 
-    function claimGovPayout() external nonReentrant {
+    function claimGovPayout() external nonReentrant whenNotFrozen {
         uint256 amount = pendingGovPayout[msg.sender];
         require(amount > 0, "E03");
         pendingGovPayout[msg.sender] = 0;
@@ -285,7 +287,7 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
     }
 
     // ── Accept slash proceeds ──────────────────────────────────────────────────
-    receive() external payable {
+    receive() external payable whenNotFrozen {
         // Slashed DOT lands here from AdvertiserStake — credit to treasury.
         // L-3 audit fix: revert on any other sender so mistransfers can't
         // silently orphan DOT in this contract (sweepTreasury only sweeps

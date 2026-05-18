@@ -2,14 +2,16 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumOwnable.sol";
+import "./DatumUpgradable.sol";
 
 /// @title DatumTimelock
 /// @notice 48-hour timelock for admin changes on DATUM contracts.
 ///         C-6: Supports multiple concurrent proposals keyed by proposalId.
 ///         proposalId = keccak256(target, data, salt).
 ///         Max MAX_CONCURRENT proposals pending at once.
-contract DatumTimelock is ReentrancyGuard, DatumOwnable {
+contract DatumTimelock is ReentrancyGuard, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
     uint256 public constant TIMELOCK_DELAY = 172800;    // 48 hours in seconds
     /// @notice AUDIT-029: Proposals expire after 7 days post-delay to prevent stale execution.
     uint256 public constant PROPOSAL_TIMEOUT = 604800;  // 7 days in seconds
@@ -58,7 +60,7 @@ contract DatumTimelock is ReentrancyGuard, DatumOwnable {
     }
 
     /// @notice Execute a matured proposal.
-    function execute(bytes32 proposalId) external nonReentrant {
+    function execute(bytes32 proposalId) external nonReentrant whenNotFrozen {
         Proposal storage p = proposals[proposalId];
         require(p.timestamp != 0, "E36");
         require(!p.executed, "E36");
@@ -92,5 +94,5 @@ contract DatumTimelock is ReentrancyGuard, DatumOwnable {
     /// @notice Reject stray native deposits (G-I1). `execute` calls
     ///         `target.call(data)` without forwarding value, so receive() has
     ///         no real consumer; treat unsolicited transfers as a misconfiguration.
-    receive() external payable { revert("E03"); }
+    receive() external payable whenNotFrozen { revert("E03"); }
 }
