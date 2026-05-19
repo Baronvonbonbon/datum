@@ -13,6 +13,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, isSubstrate, mineBlocks } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Settlement tests for alpha-2:
 // S1-S8: core settlement, payment split, rejection
@@ -131,6 +132,7 @@ describe("DatumSettlement", function () {
     // Deploy Settlement (alpha-3: constructor takes only pauseRegistry)
     const SettlementFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     // Deploy Relay
     const RelayFactory = await ethers.getContractFactory("DatumRelay");

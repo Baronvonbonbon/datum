@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { fundSigners, mineBlocks } from "./helpers/mine";
 import { parseDOT } from "./helpers/dot";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Regression tests for the 2026-05-13 audit pass (H-1, H-2, H-3, M-1, M-2,
 // M-4, M-6, M-7, M-8, L-1, L-3, L-4). Each describe block targets one
@@ -169,6 +170,7 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
     validator = await V.deploy(await mock.getAddress(), await mock.getAddress(), await pauseReg.getAddress());
     const S = await ethers.getContractFactory("DatumSettlement");
     settlement = await S.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
     const R = await ethers.getContractFactory("DatumRelay");
     relay = await R.deploy(await settlement.getAddress(), await mock.getAddress(), await pauseReg.getAddress());
     await settlement.configure(await ledger.getAddress(), await vault.getAddress(), await mock.getAddress(), await relay.getAddress());

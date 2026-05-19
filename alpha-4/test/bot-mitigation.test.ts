@@ -14,6 +14,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // BM-7: Publisher SDK version registry
 // BM-2: Per-user per-campaign settlement cap
@@ -112,6 +113,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     const PowEngineFactory = await ethers.getContractFactory("DatumPowEngine");
     powEngine = await PowEngineFactory.deploy();

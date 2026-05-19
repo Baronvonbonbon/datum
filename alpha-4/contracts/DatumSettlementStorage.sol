@@ -195,6 +195,50 @@ abstract contract DatumSettlementStorage is
     event LogicSet(address indexed logicA, address indexed logicB);
 
     // ─────────────────────────────────────────────────────────────────────
+    // Shared types
+    //
+    // Memory-only struct; not state. Lives on the base so DatumSettlement
+    // and DatumSettlementLogicB see the same definition. Aggregates one
+    // batch's payouts before the per-batch creditSettlement call.
+    // ─────────────────────────────────────────────────────────────────────
+
+    struct BatchAggregate {
+        uint256 total;
+        uint256 publisherPayment;
+        uint256 userPayment;
+        uint256 protocolFee;
+        address publisher;
+        uint256 tokenReward;
+        address rewardToken;
+        uint256 rewardPerImpression;
+        bool exhausted;
+        uint256 campaignIdExhausted;
+        uint256 eventsSettled;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Shared view helper
+    //
+    // Hoisted to the base so Settlement (auth check in settleClaims /
+    // settleClaimsMulti) and LogicB (auth-mirror inside processBatch, if
+    // ever needed) can both call it. Reads only state — no writes — so it
+    // is safe under both direct call and DELEGATECALL contexts.
+    // ─────────────────────────────────────────────────────────────────────
+
+    function _isPublisherRelay(IDatumSettlement.Claim[] calldata claims)
+        internal
+        view
+        returns (bool)
+    {
+        if (address(_publishers) == address(0) || claims.length == 0) return false;
+        try _publishers.relaySigner(claims[0].publisher) returns (address pubRelay) {
+            return pubRelay != address(0) && msg.sender == pubRelay;
+        } catch {
+            return false;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Errors used by Settlement + (in phase 8d-2+) the Logic contracts.
     // ─────────────────────────────────────────────────────────────────────
 

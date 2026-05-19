@@ -15,6 +15,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Settlement inline rate limiter tests (BM-5, alpha-4 consolidation)
 // RL1–RL5:  setRateLimits admin, currentWindowUsage view, window reset
@@ -77,6 +78,7 @@ describe("Settlement Rate Limiter (inline)", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
     relay = await RelayFactory.deploy(

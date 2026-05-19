@@ -5,6 +5,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 const UNIT = 10n ** 10n;
 
@@ -23,6 +24,7 @@ describe("MintCoordinator ↔ DatumEmissionEngine integration", function () {
     const pause = await PauseF.deploy(owner.address, other.address, g2.address);
     const SettlementF = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementF.deploy(await pause.getAddress());
+    await wireSettlementLogic(settlement as any);
     // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint state +
     // emissionEngine pointer + mintAuthority + rate/dust/split moved here.
     const CoordinatorF = await ethers.getContractFactory("DatumMintCoordinator");

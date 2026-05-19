@@ -19,6 +19,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { mineBlocks, isSubstrate, fundSigners, advanceTime } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Integration tests for alpha-2 (12-contract architecture):
 // A: Happy path (create → vote → activate → settle → complete → resolve → withdraw)
@@ -170,6 +171,7 @@ describe("Integration", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     const PowEngineFactory = await ethers.getContractFactory("DatumPowEngine");
     powEngine = await PowEngineFactory.deploy();

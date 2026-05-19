@@ -13,6 +13,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Nullifier tests (FP-5, alpha-4 consolidation — merged into Settlement):
 // NR1:  setNullifierWindowBlocks stores value correctly
@@ -72,6 +73,7 @@ describe("Settlement Nullifier (inline)", function () {
     settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(
       await pauseRegistry.getAddress()
     ) as DatumSettlement;
+    await wireSettlementLogic(settlement as any);
 
     relay = await (await ethers.getContractFactory("DatumRelay")).deploy(
       await settlement.getAddress(),

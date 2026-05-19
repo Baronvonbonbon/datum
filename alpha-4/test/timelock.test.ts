@@ -12,6 +12,7 @@ import {
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { advanceTime, fundSigners } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Admin timelock tests for alpha-3: C-6 multi-proposal API
 // propose(target, data, salt) → proposalId, execute(proposalId), cancel(proposalId)
@@ -65,6 +66,7 @@ describe("Admin Timelock (DatumTimelock)", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     // Wire contracts directly (owner is deployer, not timelock yet)
     await campaigns.setGovernanceContract(newAddr.address);

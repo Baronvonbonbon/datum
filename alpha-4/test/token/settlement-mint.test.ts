@@ -14,6 +14,7 @@ import {
   DatumSettlement,
 } from "../../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { wireSettlementLogic } from "../helpers/settlementLogic";
 
 const ASSET_ID = 31337n;
 const DECIMALS = 10n;
@@ -78,6 +79,7 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
     const PauseF = await ethers.getContractFactory("DatumPauseRegistry");
     const pause = await PauseF.deploy(deployer.address, user.address, publisher.address);
     settlement = await SettlementF.deploy(await pause.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint state +
     // setters moved here. Settlement calls coordinator.coordinate(...)

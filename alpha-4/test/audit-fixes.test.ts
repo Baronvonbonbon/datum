@@ -38,6 +38,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { fundSigners } from "./helpers/mine";
 import { ethersKeccakAbi } from "./helpers/hash";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 describe("Audit fixes", function () {
   // ── M-1 fixtures ────────────────────────────────────────────────────────
@@ -328,6 +329,7 @@ describe("Audit fixes", function () {
 
       const SettleFactory = await ethers.getContractFactory("DatumSettlement");
       settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+      await wireSettlementLogic(settlement as any);
 
       const RelayFactory = await ethers.getContractFactory("DatumRelay");
       const relay = await RelayFactory.deploy(

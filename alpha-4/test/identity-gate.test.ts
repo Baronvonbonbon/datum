@@ -197,6 +197,7 @@ describe("People Chain identity gate", function () {
       );
       settlement = await (await ethers.getContractFactory("DatumSettlement"))
         .deploy(await pauseReg.getAddress());
+        await wireSettlementLogic(settlement as any);
 
       const RelayFactory = await ethers.getContractFactory("DatumRelay");
       const relay = await RelayFactory.deploy(
@@ -295,6 +296,7 @@ describe("People Chain identity gate", function () {
       // Fresh settlement without identityRegistry set, but gate requested.
       const settle2 = await (await ethers.getContractFactory("DatumSettlement"))
         .deploy(await pauseReg.getAddress());
+        await wireSettlementLogic(settle2 as any);
 
       const RelayFactory = await ethers.getContractFactory("DatumRelay");
       const relay2 = await RelayFactory.deploy(
@@ -339,4 +341,5 @@ describe("People Chain identity gate", function () {
 
 // Tiny shim so withArgs can match dynamic expiryBlock.
 import { anyValue as anyValueExp } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 function anyValue() { return anyValueExp; }

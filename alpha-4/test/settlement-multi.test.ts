@@ -13,6 +13,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // settleClaimsMulti tests (cross-campaign claim batching)
 // SM1–SM3:  single-user single-campaign — same result as settleClaims
@@ -116,6 +117,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
 
     const SettlementFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettlementFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     await settlement.configure(
       await ledger.getAddress(),

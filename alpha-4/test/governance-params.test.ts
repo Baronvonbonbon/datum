@@ -2,6 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { fundSigners } from "./helpers/mine";
 import { parseDOT } from "./helpers/dot";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Tests for the governance-tunable gating parameters added in the
 // "make everything governable within bounds" pass.
@@ -94,6 +95,7 @@ describe("Governance-tunable params: DatumSettlement revenue split", function ()
     const pause = await Pause.deploy(signers[0].address, signers[1].address, signers[2].address);
     const S = await ethers.getContractFactory("DatumSettlement");
     settlement = await S.deploy(await pause.getAddress());
+    await wireSettlementLogic(settlement as any);
     // DatumMintCoordinator (alpha-4 EIP-170 carve-out): mint reward split
     // setters moved here.
     const C = await ethers.getContractFactory("DatumMintCoordinator");

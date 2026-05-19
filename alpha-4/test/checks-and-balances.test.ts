@@ -17,6 +17,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // CB1-CB7: checks-and-balances pass. Each describe block tests one CB
 // in isolation; all share the minimal Settlement + MockCampaigns setup.
@@ -82,6 +83,7 @@ describe("Checks & Balances (CB1-CB7)", function () {
 
     settlement = await (await ethers.getContractFactory("DatumSettlement"))
       .deploy(await pauseReg.getAddress());
+      await wireSettlementLogic(settlement as any);
     const relay = await (await ethers.getContractFactory("DatumRelay"))
       .deploy(await settlement.getAddress(), await mock.getAddress(), await pauseReg.getAddress());
     await settlement.configure(

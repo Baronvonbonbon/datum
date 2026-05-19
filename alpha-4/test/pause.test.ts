@@ -15,6 +15,7 @@ import {
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { fundSigners, mineBlocks } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // Global pause tests for alpha-2: P1-P8
 // Verifies DatumPauseRegistry circuit breaker across Campaigns, Settlement, Relay, and Lifecycle.
@@ -83,6 +84,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
 
     const SettleFactory = await ethers.getContractFactory("DatumSettlement");
     settlement = await SettleFactory.deploy(await pauseReg.getAddress());
+    await wireSettlementLogic(settlement as any);
 
     const RelayFactory = await ethers.getContractFactory("DatumRelay");
     relay = await RelayFactory.deploy(

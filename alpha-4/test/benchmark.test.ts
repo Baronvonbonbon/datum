@@ -60,6 +60,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT, formatDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks, isSubstrate } from "./helpers/mine";
+import { wireSettlementLogic } from "./helpers/settlementLogic";
 
 // ---------------------------------------------------------------------------
 // DOT price → planck CPM conversion ($1 CPM baseline)
@@ -218,6 +219,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     settlement = await (await ethers.getContractFactory("DatumSettlement")).deploy(
       await pauseReg.getAddress()
     );
+    await wireSettlementLogic(settlement as any);
     relay = await (await ethers.getContractFactory("DatumRelay")).deploy(
       await settlement.getAddress(), await campaigns.getAddress(), await pauseReg.getAddress()
     );
