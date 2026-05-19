@@ -173,6 +173,27 @@ interface IDatumCampaigns {
     function nextCampaignId() external view returns (uint256);
     function getCampaignRewardToken(uint256 campaignId) external view returns (address);
     function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256);
+
+    // -------------------------------------------------------------------------
+    // Non-reverting safe view variants (alpha-4 phase 8d hedge #4)
+    //
+    // The Safe variants return `(false, ZERO)` for unknown campaigns and
+    // `(true, value)` otherwise. Settlement's hot path calls these instead
+    // of the unsafe variants + try/catch so that "campaign deleted /
+    // unknown" is a normal return rather than a revert -- a captured or
+    // mis-wired Campaigns contract can no longer use a selective revert
+    // as a grief vector against specific campaigns. A genuine revert from
+    // these now indicates a contract-level bug (not user-data-driven) and
+    // still triggers Settlement's fail-closed gradient.
+    // -------------------------------------------------------------------------
+
+    function getCampaignAdvertiserSafe(uint256 campaignId) external view returns (bool ok, address advertiser);
+    function getCampaignAssuranceLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level);
+    function getCampaignMinIdentityLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level);
+    function getCampaignRequiresZkProofSafe(uint256 campaignId) external view returns (bool ok, bool requires);
+    function getCampaignRewardTokenSafe(uint256 campaignId) external view returns (bool ok, address token);
+    function getCampaignRewardPerImpressionSafe(uint256 campaignId) external view returns (bool ok, uint256 rate);
+    function getCampaignUserCapSafe(uint256 campaignId) external view returns (bool ok, uint32 maxEvents, uint32 windowBlocks);
     function minimumCpmFloor() external view returns (uint256);
     function pendingTimeoutBlocks() external view returns (uint256);
     function settlementContract() external view returns (address);

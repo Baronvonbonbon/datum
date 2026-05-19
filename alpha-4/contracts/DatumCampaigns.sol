@@ -960,4 +960,55 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     function getCampaignRewardPerImpression(uint256 campaignId) external view returns (uint256) {
         return _campaigns[campaignId].rewardPerImpression;
     }
+
+    // -------------------------------------------------------------------------
+    // Non-reverting safe view variants (alpha-4 phase 8d hedge #4)
+    //
+    // SAFETY: every Safe variant in this block MUST be unable to revert for
+    //         ANY input. They use only mapping reads (which default-return
+    //         zero for unknown keys) and a single `advertiser != address(0)`
+    //         existence check. If a Safe variant ever ends up reverting,
+    //         it's a contract bug -- callers (notably Settlement.processBatch)
+    //         interpret a revert here as fail-closed.
+    //
+    // The "exists" signal is `_campaigns[campaignId].advertiser != address(0)`.
+    // Only createCampaign sets advertiser (always to msg.sender, never zero),
+    // so the check is unambiguous: a zero advertiser means the campaign was
+    // never created.
+    // -------------------------------------------------------------------------
+
+    function getCampaignAdvertiserSafe(uint256 campaignId) external view returns (bool ok, address advertiser) {
+        address a = _campaigns[campaignId].advertiser;
+        return (a != address(0), a);
+    }
+
+    function getCampaignAssuranceLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, 0);
+        return (true, campaignAssuranceLevel[campaignId]);
+    }
+
+    function getCampaignMinIdentityLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, 0);
+        return (true, campaignMinIdentityLevel[campaignId]);
+    }
+
+    function getCampaignRequiresZkProofSafe(uint256 campaignId) external view returns (bool ok, bool requires) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, false);
+        return (true, _campaigns[campaignId].requiresZkProof);
+    }
+
+    function getCampaignRewardTokenSafe(uint256 campaignId) external view returns (bool ok, address token) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, address(0));
+        return (true, _campaigns[campaignId].rewardToken);
+    }
+
+    function getCampaignRewardPerImpressionSafe(uint256 campaignId) external view returns (bool ok, uint256 rate) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, 0);
+        return (true, _campaigns[campaignId].rewardPerImpression);
+    }
+
+    function getCampaignUserCapSafe(uint256 campaignId) external view returns (bool ok, uint32 maxEvents, uint32 windowBlocks) {
+        if (_campaigns[campaignId].advertiser == address(0)) return (false, 0, 0);
+        return (true, userEventCapPerWindow[campaignId], userCapWindowBlocks[campaignId]);
+    }
 }

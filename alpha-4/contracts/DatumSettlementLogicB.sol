@@ -62,9 +62,12 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         // CB1: user-side advertiser blocklist. Advertiser is per-campaign, so
         // we can check at batch entry (one read per batch). Publisher block
         // happens per-claim below since the publisher can vary per claim.
+        // Hedge #4: use the non-reverting safe variant so a captured Campaigns
+        // upgrade can't selectively revert this getter to block specific
+        // users' batches.
         if (address(_campaigns) != address(0)) {
-            address adv = _campaigns.getCampaignAdvertiser(campaignId);
-            if (adv != address(0) && _userBlocksAdvertiser[user][adv]) {
+            (bool advOk, address adv) = _campaigns.getCampaignAdvertiserSafe(campaignId);
+            if (advOk && adv != address(0) && _userBlocksAdvertiser[user][adv]) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
                     emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 28);
@@ -79,18 +82,18 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         // in to ZK-verified settlement for themselves; an advertiser cosig
         // does NOT satisfy this floor. Reject if campaign doesn't require ZK.
         if (_userMinAssurance[user] >= 3 && address(_campaigns) != address(0)) {
-            bool reqZk = false;
-            // SAFETY (M1-fix gradient): fail-CLOSED on revert. User has opted
-            //         into L3 (ZK-only) for themselves. If we can't read the
-            //         campaign's ZK flag, assume NO ZK and reject -- the
-            //         opposite (fail-open) would silently downgrade the user's
-            //         self-imposed floor on a misconfigured Campaigns ref.
-            try _campaigns.getCampaignRequiresZkProof(campaignId) returns (bool z) {
-                reqZk = z;
-            } catch {
-                reqZk = false;
-            }
-            if (!reqZk) {
+            // SAFETY (M1-fix gradient, hedge #4): non-reverting safe getter
+            //         means "campaign unknown" returns (ok=false) as a normal
+            //         value, NOT a revert. Both ok=false AND reqZk=false
+            //         reach the !reqZk reject path -- correct for the M1-fix
+            //         L3-only floor: user demands ZK, campaign doesn't
+            //         require it (or doesn't exist), reject.
+            //         A revert here would be a Campaigns contract bug, and
+            //         falls through Solidity's natural reverting path --
+            //         the outer settle entry bubbles the revert to the
+            //         caller, which is the desired fail-closed default.
+            (bool zkOk, bool reqZk) = _campaigns.getCampaignRequiresZkProofSafe(campaignId);
+            if (!zkOk || !reqZk) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
                     emit ZKAssuranceFailed(campaignId, user);
@@ -112,17 +115,20 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         {
             uint8 campaignMinId = 0;
             if (address(_campaigns) != address(0)) {
-                // SAFETY (H2-fix gradient): fail-CLOSED on revert. Default to
-                //         max-enforced (level 2) so a broken Campaigns ref
-                //         can't downgrade a KnownGood gate to None. The
-                //         opposite (default 0 on revert) would let a captured
-                //         Campaigns upgrade silently bypass identity gates
-                //         for every in-flight settlement.
-                campaignMinId = 2;
-                try _campaigns.getCampaignMinIdentityLevel(campaignId) returns (uint8 lvl) {
+                // SAFETY (H2-fix gradient, hedge #4): the safe variant returns
+                //         (ok, level) without reverting. ok=false means
+                //         "campaign unknown" -- treat as the default (level
+                //         0, no identity gate from the campaign side, but
+                //         the user-side floor below may still raise effMinId
+                //         to non-zero). ok=true uses the returned level
+                //         directly.
+                //         A revert here is a Campaigns contract bug and
+                //         falls through naturally -- caller sees the revert
+                //         and the batch fails, which is the desired
+                //         fail-closed posture.
+                (bool idOk, uint8 lvl) = _campaigns.getCampaignMinIdentityLevelSafe(campaignId);
+                if (idOk) {
                     campaignMinId = lvl;
-                } catch {
-                    emit AssuranceLookupFailed(campaignId);
                 }
             }
             uint8 userMinId = _userMinIdentityLevel[user];
@@ -157,17 +163,17 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         // fail-closed (L1+).
         uint8 effectiveLevel = 0;
         if (address(_campaigns) != address(0)) {
-            // SAFETY (H2-fix gradient): fail-CLOSED on revert. effectiveLevel
-            //         defaults to 2 (max enforced) so a captured Campaigns
-            //         upgrade can't silently downgrade high-assurance
-            //         campaigns to L0. Pairs with the per-claim blocklist
-            //         gate below: at L1+ that gate ALSO fails closed, so a
-            //         single broken getter doesn't bypass both protections.
-            effectiveLevel = 2;
-            try _campaigns.getCampaignAssuranceLevel(campaignId) returns (uint8 l) {
+            // SAFETY (H2-fix gradient, hedge #4): the safe variant returns
+            //         (ok, level). ok=true uses the level directly. ok=false
+            //         means "campaign unknown" -- effectiveLevel stays 0
+            //         (the default level on the user side covers L1+ via
+            //         _userMinAssurance, and per-claim blocklist at L0 is
+            //         fail-open by design).
+            //         A revert here indicates a Campaigns contract bug and
+            //         bubbles up naturally -- the batch fails closed.
+            (bool lvlOk, uint8 l) = _campaigns.getCampaignAssuranceLevelSafe(campaignId);
+            if (lvlOk) {
                 effectiveLevel = l;
-            } catch {
-                emit AssuranceLookupFailed(campaignId);
             }
         }
 
@@ -231,25 +237,20 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
         BatchAggregate memory agg;
 
-        // Cache token reward config once per batch (view claims only)
+        // Cache token reward config once per batch (view claims only).
+        // Hedge #4: switched to safe variants. Token rewards are an opt-in
+        // additive credit on top of DOT settlement; if Campaigns is mis-wired
+        // or the campaign is unknown, the reward block below is skipped --
+        // DOT settlement must not be DoS-able by a non-critical reward path.
         if (claims.length > 0 && address(_tokenRewardVault) != address(0) && address(_campaigns) != address(0) && batchActionType == 0) {
-            // SAFETY: fail-OPEN on revert. Token rewards are an OPTIONAL,
-            //         non-critical credit (additive to the DOT settlement).
-            //         If we can't read the reward config, agg.rewardToken
-            //         stays address(0) and the per-claim token-reward block
-            //         below is skipped. The opposite (fail-closed) would let
-            //         a misconfigured Campaigns ref DoS the primary DOT
-            //         settlement path -- unacceptable trade since the reward
-            //         pool itself is opt-in.
-            try _campaigns.getCampaignRewardToken(campaignId) returns (address rt) {
+            (bool tokOk, address rt) = _campaigns.getCampaignRewardTokenSafe(campaignId);
+            if (tokOk && rt != address(0)) {
                 agg.rewardToken = rt;
-                if (rt != address(0)) {
-                    // SAFETY: same fail-open rationale as the parent block.
-                    try _campaigns.getCampaignRewardPerImpression(campaignId) returns (uint256 rpi) {
-                        agg.rewardPerImpression = rpi;
-                    } catch {}
+                (bool rpiOk, uint256 rpi) = _campaigns.getCampaignRewardPerImpressionSafe(campaignId);
+                if (rpiOk) {
+                    agg.rewardPerImpression = rpi;
                 }
-            } catch {}
+            }
         }
 
         for (uint256 i = 0; i < claims.length; i++) {
@@ -350,30 +351,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             _userCampaignSettled[user][claim.campaignId][claim.actionType] = newTotal;
 
             // #1: Per-user per-campaign per-window cap (advertiser-set).
-            //     Cheap try/catch on the Campaigns view so older deployments
-            //     without these knobs continue to settle normally.
+            //     Hedge #4: switched to safe variant. Returns (ok=true,
+            //     max, win) when known; (ok=false, 0, 0) when unknown.
+            //     Both branches treat "no cap" identically (skip the block),
+            //     so we just check max > 0 after the safe call.
             if (address(_campaigns) != address(0)) {
-                uint32 capMax;
-                uint32 capWin;
-                // SAFETY: fail-OPEN on revert. The window cap is an OPT-IN
-                //         advertiser feature (default 0 = no cap). If the
-                //         getter reverts because the deployed Campaigns
-                //         version doesn't expose it, we want settlement to
-                //         continue with no cap rather than DoS the batch.
-                //         capMax stays 0 and the gated block below is
-                //         skipped.
-                try ICampaignsUserCapView(address(_campaigns)).userEventCapPerWindow(claim.campaignId) returns (uint32 m) {
-                    capMax = m;
-                } catch {}
+                (, uint32 capMax, uint32 capWin) = _campaigns.getCampaignUserCapSafe(claim.campaignId);
                 if (capMax > 0) {
-                    // SAFETY: fail-OPEN on revert. Same rationale -- if the
-                    //         window getter reverts after the cap getter
-                    //         succeeded, capWin stays 0 and the cap check
-                    //         block below is skipped. A misconfigured
-                    //         Campaigns view shouldn't DoS settlement.
-                    try ICampaignsUserCapView(address(_campaigns)).userCapWindowBlocks(claim.campaignId) returns (uint32 w) {
-                        capWin = w;
-                    } catch {}
                     if (capWin > 0) {
                         uint256 wid = block.number / uint256(capWin);
                         uint256 cur = _userCampaignWindowEvents[user][claim.campaignId][claim.actionType][wid];
@@ -514,10 +498,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         }
 
         // ── DATUM token mint — delegated to DatumMintCoordinator ──
+        // Hedge #4: safe variant. advertiser address is best-effort -- the
+        // coordinator's split bps tolerates address(0) (no advertiser share).
         if (address(_mintCoordinator) != address(0) && agg.total > 0) {
-            address advertiser = address(_campaigns) == address(0)
-                ? address(0)
-                : _campaigns.getCampaignAdvertiser(campaignId);
+            address advertiser;
+            if (address(_campaigns) != address(0)) {
+                (, advertiser) = _campaigns.getCampaignAdvertiserSafe(campaignId);
+            }
             _mintCoordinator.coordinate(user, agg.publisher, advertiser, agg.total);
         }
 
@@ -543,8 +530,10 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         }
 
         // CB4: Record DOT spent on advertiser stake bonding curve. Best-effort.
+        // Hedge #4: safe variant. If the campaign is unknown, advertiser_
+        // stays address(0) and the bonding curve update is skipped.
         if (_advertiserStake != address(0) && agg.total > 0 && address(_campaigns) != address(0)) {
-            address advertiser_ = _campaigns.getCampaignAdvertiser(campaignId);
+            (, address advertiser_) = _campaigns.getCampaignAdvertiserSafe(campaignId);
             if (advertiser_ != address(0)) {
                 // SAFETY: fail-SOFT via low-level call (CB4 best-effort).
                 //         A misconfigured advertiser-stake target -- whether

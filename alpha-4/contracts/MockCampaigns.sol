@@ -307,5 +307,55 @@ contract MockCampaigns {
         return campaignMinIdentityLevel[campaignId];
     }
 
+    // -------------------------------------------------------------------------
+    // Non-reverting safe view variants (alpha-4 phase 8d hedge #4 mirror)
+    //
+    // Mirrors the safe variants on DatumCampaigns so tests using
+    // MockCampaigns as the Campaigns ref continue to work after Settlement
+    // switched to the Safe call sites. Existence is signaled by
+    // `campaigns[id].advertiser != address(0)` (same as DatumCampaigns).
+    // The mock doesn't track rewardToken / rewardPerImpression / user cap
+    // mappings -- for those, return zero when the campaign exists; the
+    // hot path treats zero as "feature off" identically to the real
+    // contract.
+    // -------------------------------------------------------------------------
+
+    function getCampaignAdvertiserSafe(uint256 campaignId) external view returns (bool ok, address advertiser) {
+        address a = campaigns[campaignId].advertiser;
+        return (a != address(0), a);
+    }
+
+    function getCampaignAssuranceLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level) {
+        if (campaigns[campaignId].advertiser == address(0)) return (false, 0);
+        return (true, campaignAssuranceLevel[campaignId]);
+    }
+
+    function getCampaignMinIdentityLevelSafe(uint256 campaignId) external view returns (bool ok, uint8 level) {
+        if (campaigns[campaignId].advertiser == address(0)) return (false, 0);
+        return (true, campaignMinIdentityLevel[campaignId]);
+    }
+
+    function getCampaignRequiresZkProofSafe(uint256 campaignId) external view returns (bool ok, bool requires) {
+        if (campaigns[campaignId].advertiser == address(0)) return (false, false);
+        return (true, campaignRequiresZkProof[campaignId]);
+    }
+
+    function getCampaignRewardTokenSafe(uint256 /*campaignId*/) external pure returns (bool ok, address token) {
+        // Mock doesn't track reward tokens. Tests that need a non-zero
+        // reward should use the real DatumCampaigns; for the rest, returning
+        // (false, 0) makes Settlement's token-reward block a no-op.
+        return (false, address(0));
+    }
+
+    function getCampaignRewardPerImpressionSafe(uint256 /*campaignId*/) external pure returns (bool ok, uint256 rate) {
+        return (false, 0);
+    }
+
+    function getCampaignUserCapSafe(uint256 /*campaignId*/) external pure returns (bool ok, uint32 maxEvents, uint32 windowBlocks) {
+        // Mock doesn't track per-user window caps; returning all zeros
+        // makes Settlement skip the gate entirely.
+        return (false, 0, 0);
+    }
+
     receive() external payable {}
 }

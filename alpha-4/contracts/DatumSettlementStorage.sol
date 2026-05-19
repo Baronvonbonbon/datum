@@ -21,19 +21,6 @@ import "./interfaces/IDatumNullifierRegistry.sol";
 import "./interfaces/IDatumSettlementRateLimiter.sol";
 import "./interfaces/IDatumMintCoordinator.sol";
 
-/// @dev #1 (2026-05-12): minimal Campaigns view for the per-user per-campaign
-///      cap. Inline to avoid touching the IDatumCampaigns interface during
-///      staged migration. Older deployments without these getters simply
-///      revert and the try/catch above skips the cap.
-///
-///      Moved here from DatumSettlement.sol (phase 8d-1) so both
-///      DatumSettlement and the future DatumSettlementLogicA/LogicB
-///      contracts share the same definition.
-interface ICampaignsUserCapView {
-    function userEventCapPerWindow(uint256 campaignId) external view returns (uint32);
-    function userCapWindowBlocks(uint256 campaignId) external view returns (uint32);
-}
-
 /// @dev Forward-declared shape of DatumSettlementLogicB.processBatch.
 ///      Used by the shared `_delegateProcessBatch` helper on
 ///      DatumSettlementStorage so both DatumSettlement (dual-sig path)

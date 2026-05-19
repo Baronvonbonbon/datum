@@ -19,7 +19,7 @@
       "label": "router",
       "offset": 0,
       "slot": "2",
-      "type": "t_contract(IDatumRouter_Upgradable)5252"
+      "type": "t_contract(IDatumRouter_Upgradable)5172"
     },
     {
       "label": "frozen",
@@ -49,19 +49,19 @@
       "label": "_budgetLedger",
       "offset": 0,
       "slot": "54",
-      "type": "t_contract(IDatumBudgetLedger)5736"
+      "type": "t_contract(IDatumBudgetLedger)5656"
     },
     {
       "label": "_paymentVault",
       "offset": 0,
       "slot": "55",
-      "type": "t_contract(IDatumPaymentVault)6413"
+      "type": "t_contract(IDatumPaymentVault)6398"
     },
     {
       "label": "_lifecycle",
       "offset": 0,
       "slot": "56",
-      "type": "t_contract(IDatumCampaignLifecycle)5789"
+      "type": "t_contract(IDatumCampaignLifecycle)5709"
     },
     {
       "label": "_relayContract",
@@ -73,7 +73,7 @@
       "label": "_pauseRegistry",
       "offset": 0,
       "slot": "58",
-      "type": "t_contract(IDatumPauseRegistry)6324"
+      "type": "t_contract(IDatumPauseRegistry)6309"
     },
     {
       "label": "_attestationVerifier",
@@ -85,31 +85,31 @@
       "label": "_claimValidator",
       "offset": 0,
       "slot": "60",
-      "type": "t_contract(IDatumClaimValidator)6194"
+      "type": "t_contract(IDatumClaimValidator)6179"
     },
     {
       "label": "_publishers",
       "offset": 0,
       "slot": "61",
-      "type": "t_contract(IDatumPublishers)6849"
+      "type": "t_contract(IDatumPublishers)6834"
     },
     {
       "label": "_tokenRewardVault",
       "offset": 0,
       "slot": "62",
-      "type": "t_contract(IDatumTokenRewardVault)7165"
+      "type": "t_contract(IDatumTokenRewardVault)7150"
     },
     {
       "label": "_campaigns",
       "offset": 0,
       "slot": "63",
-      "type": "t_contract(IDatumCampaigns)6168"
+      "type": "t_contract(IDatumCampaigns)6153"
     },
     {
       "label": "_publisherStake",
       "offset": 0,
       "slot": "64",
-      "type": "t_contract(IDatumPublisherStake)6647"
+      "type": "t_contract(IDatumPublisherStake)6632"
     },
     {
       "label": "_advertiserStake",
@@ -121,31 +121,31 @@
       "label": "_clickRegistry",
       "offset": 0,
       "slot": "66",
-      "type": "t_contract(IDatumClickRegistry)6254"
+      "type": "t_contract(IDatumClickRegistry)6239"
     },
     {
       "label": "_mintCoordinator",
       "offset": 0,
       "slot": "67",
-      "type": "t_contract(IDatumMintCoordinator)6270"
+      "type": "t_contract(IDatumMintCoordinator)6255"
     },
     {
       "label": "_rateLimiter",
       "offset": 0,
       "slot": "68",
-      "type": "t_contract(IDatumSettlementRateLimiter)7048"
+      "type": "t_contract(IDatumSettlementRateLimiter)7033"
     },
     {
       "label": "_nullifiers",
       "offset": 0,
       "slot": "69",
-      "type": "t_contract(IDatumNullifierRegistry)6290"
+      "type": "t_contract(IDatumNullifierRegistry)6275"
     },
     {
       "label": "_reputation",
       "offset": 0,
       "slot": "70",
-      "type": "t_contract(IDatumPublisherReputation)6504"
+      "type": "t_contract(IDatumPublisherReputation)6489"
     },
     {
       "label": "_maxBatchSize",
@@ -169,7 +169,7 @@
       "label": "_identityRegistry",
       "offset": 0,
       "slot": "74",
-      "type": "t_contract(IDatumPeopleChainIdentity)6452"
+      "type": "t_contract(IDatumPeopleChainIdentity)6437"
     },
     {
       "label": "_userBlocksPublisher",
@@ -193,7 +193,7 @@
       "label": "_powEngine",
       "offset": 0,
       "slot": "78",
-      "type": "t_contract(IDatumPowEngine)6480"
+      "type": "t_contract(IDatumPowEngine)6465"
     },
     {
       "label": "_userTotalSettled",
