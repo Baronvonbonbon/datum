@@ -15,6 +15,8 @@
 /// before deploy time.
 import { expect } from "chai";
 import { artifacts } from "hardhat";
+import * as fs from "fs";
+import * as path from "path";
 
 type Slot = {
   astId: number;
@@ -114,4 +116,37 @@ describe("Settlement storage layout invariant (phase 8d-5)", function () {
     );
   });
 
+  it("current layout matches alpha-4/settlement-layout.snapshot.json (committed)", function () {
+    // Phase 8d hedge #1: the previous three tests guarantee the THREE
+    // contracts agree with EACH OTHER, but they don't catch the case
+    // where DatumSettlementStorage is intentionally modified (adding a
+    // new field, changing a type) without the change being reviewed.
+    // The committed snapshot anchors the layout: any change to it must
+    // appear in a PR diff and be approved alongside the storage change.
+    //
+    // To regenerate after an intentional storage-base change:
+    //   npx hardhat run scripts/dump-settlement-layout.ts
+    const snapPath = path.resolve(
+      __dirname,
+      "..",
+      "settlement-layout.snapshot.json"
+    );
+    const snap = JSON.parse(fs.readFileSync(snapPath, "utf-8")) as {
+      slotCount: number;
+      storage: Omit<Slot, "astId" | "contract">[];
+    };
+    const current = layoutSettlement.storage.map(normalizeSlot);
+    expect(current.length).to.equal(
+      snap.slotCount,
+      `Slot count drift: snapshot has ${snap.slotCount}, code has ${current.length}. ` +
+      `If intentional, regenerate via npx hardhat run scripts/dump-settlement-layout.ts.`
+    );
+    expect(current).to.deep.equal(
+      snap.storage,
+      "Storage layout drifted from settlement-layout.snapshot.json. " +
+      "If intentional, regenerate via npx hardhat run scripts/dump-settlement-layout.ts. " +
+      "If not, you just changed Settlement's storage layout -- existing deployments " +
+      "would be corrupted by an upgrade."
+    );
+  });
 });

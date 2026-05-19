@@ -298,7 +298,83 @@ async function verifyCode(provider: any, addr: string, maxWait = 60): Promise<bo
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Phase 8d hedge #1: refuse to deploy if the Settlement contracts'
+/// current storage layout has drifted from settlement-layout.snapshot.json.
+/// Fires before any contract touches the wire, so a build from a divergent
+/// tree can't accidentally deploy an upgrade-incompatible Settlement.
+async function validateSettlementLayoutMatchesSnapshot(): Promise<void> {
+  const fs = await import("fs");
+  const path = await import("path");
+  const hh = await import("hardhat");
+
+  const snapPath = path.resolve(__dirname, "..", "settlement-layout.snapshot.json");
+  if (!fs.existsSync(snapPath)) {
+    console.log("  WARN: settlement-layout.snapshot.json missing -- skipping layout gate");
+    return;
+  }
+  const snap = JSON.parse(fs.readFileSync(snapPath, "utf-8")) as {
+    slotCount: number;
+    storage: Array<{ label: string; offset: number; slot: string; type: string }>;
+  };
+
+  async function readLayout(contract: string) {
+    const bi = await hh.artifacts.getBuildInfo(
+      `contracts/${contract}.sol:${contract}`
+    );
+    if (!bi) throw new Error(`No build info for ${contract}`);
+    const out = bi.output.contracts as Record<
+      string,
+      Record<string, { storageLayout?: { storage: any[] } }>
+    >;
+    const sl = out[`contracts/${contract}.sol`]?.[contract]?.storageLayout;
+    if (!sl) throw new Error(
+      `Storage layout missing for ${contract} -- enable outputSelection.storageLayout`
+    );
+    return sl.storage.map((s: any) => ({
+      label: s.label, offset: s.offset, slot: s.slot, type: s.type,
+    }));
+  }
+
+  const triple = [
+    "DatumSettlement",
+    "DatumSettlementLogicA",
+    "DatumSettlementLogicB",
+  ];
+  const layouts = await Promise.all(triple.map(readLayout));
+  // Self-consistency first: the three contracts must agree with each other.
+  for (let i = 1; i < layouts.length; i++) {
+    if (JSON.stringify(layouts[0]) !== JSON.stringify(layouts[i])) {
+      throw new Error(
+        `LAYOUT GATE FAIL: ${triple[0]} and ${triple[i]} have divergent ` +
+        `storage layouts. DELEGATECALL would corrupt storage. ` +
+        `Refusing to deploy. (Run scripts/dump-settlement-layout.ts after ` +
+        `intentional changes.)`
+      );
+    }
+  }
+  // Then against the committed snapshot.
+  const current = JSON.stringify(layouts[0]);
+  const expected = JSON.stringify(snap.storage);
+  if (current !== expected) {
+    throw new Error(
+      `LAYOUT GATE FAIL: current Settlement storage layout has drifted ` +
+      `from settlement-layout.snapshot.json (snapshot has ${snap.slotCount} ` +
+      `slots, code has ${layouts[0].length}). If intentional, regenerate ` +
+      `the snapshot via "npx hardhat run scripts/dump-settlement-layout.ts" ` +
+      `and review the diff in PR alongside the storage change. Refusing to deploy.`
+    );
+  }
+  console.log(
+    `  OK: Settlement layout gate passed (${snap.slotCount} slots match snapshot)`
+  );
+}
+
 async function main() {
+  // Phase 8d hedge #1: layout gate runs BEFORE any contract is deployed.
+  // If Settlement storage has drifted from the committed snapshot without a
+  // matching update to the snapshot, this throws and the deploy aborts.
+  await validateSettlementLayoutMatchesSnapshot();
+
   // Use raw ethers provider to bypass hardhat-polkadot plugin receipt waiting bug
   const rpcUrl = (network.config as any).url || "http://127.0.0.1:8545";
   const rawProvider = new JsonRpcProvider(rpcUrl);

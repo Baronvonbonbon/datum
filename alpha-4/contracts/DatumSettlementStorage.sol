@@ -178,6 +178,14 @@ abstract contract DatumSettlementStorage is
     address internal _logicA;
     address internal _logicB;
 
+    // Phase 8d hedge: once production governance has audited and approved
+    // the deployed Logic pair, calling Settlement.lockLogic() flips this
+    // flag and any future setLogic call reverts. Pattern matches the
+    // existing lockLanes / lockSlashers / lockMintAuthority cluster.
+    // Left false during alpha/beta so governance can rotate Logic during
+    // testing; production fires lockLogic via the upgrade ladder.
+    bool internal _logicLocked;
+
     // ─────────────────────────────────────────────────────────────────────
     // Events
     //
@@ -209,6 +217,7 @@ abstract contract DatumSettlementStorage is
     event PowEngineSet(address indexed engine);
     event DualSigSet(address indexed dualSig);
     event LogicSet(address indexed logicA, address indexed logicB);
+    event LogicLocked();
 
     // ─────────────────────────────────────────────────────────────────────
     // Shared types
@@ -247,11 +256,65 @@ abstract contract DatumSettlementStorage is
         returns (bool)
     {
         if (address(_publishers) == address(0) || claims.length == 0) return false;
+        // SAFETY: fail-CLOSED on revert. Returning false means the caller
+        //         falls back to the broader auth list (batch.user,
+        //         relayContract, attestationVerifier). The opposite
+        //         (returning true on revert) would let a captured
+        //         Publishers upgrade unilaterally authorize any settler
+        //         as a "publisher relay" by reverting relaySigner().
         try _publishers.relaySigner(claims[0].publisher) returns (address pubRelay) {
             return pubRelay != address(0) && msg.sender == pubRelay;
         } catch {
             return false;
         }
+    }
+
+    /// @dev Pure assurance-gate decision (phase 8d hedge #5). Extracted out
+    ///      of the per-batch inner loop so the gradient is auditable in
+    ///      isolation. Inputs are pre-resolved by the caller (the
+    ///      `msg.sender == relayContract` check and the `_isPublisherRelay`
+    ///      view aren't pure, so they're passed in as booleans).
+    ///
+    ///      Returns (accept=true, 0) when the submission path satisfies the
+    ///      effective level. Returns (accept=false, reasonCode) for the
+    ///      specific rejection variant:
+    ///        - reasonCode 24: effective level is L2 (DualSigned) and
+    ///                         advertiserConsented is false. Only the dual-
+    ///                         sig path (Settlement.processVerifiedBatch via
+    ///                         DatumDualSigSettlement) can satisfy L2.
+    ///        - reasonCode 25: effective level is L1 (PublisherSigned) and
+    ///                         neither the relay path nor a publisher's own
+    ///                         relaySigner is the submitter.
+    ///
+    ///      Effective level is the OR-merge `max(campaignLevel,
+    ///      userMinAssurance)` -- a user can demand higher assurance than
+    ///      the campaign offers (B5-fix); the campaign cannot demand less
+    ///      than the user's floor.
+    ///
+    ///      The dual-sig path satisfies EVERY level by definition: both
+    ///      publisher and advertiser have signed off-chain. Bail early so
+    ///      the L2 branch doesn't reject a legitimate dual-sig batch.
+    function _assuranceDecision(
+        uint8 campaignLevel,
+        uint8 userMinAssurance,
+        bool advertiserConsented,
+        bool fromRelay,
+        bool fromPublisherRelay
+    ) internal pure returns (bool accept, uint8 reasonCode) {
+        if (advertiserConsented) return (true, 0);
+
+        uint8 level = campaignLevel;
+        if (userMinAssurance > level) level = userMinAssurance;
+
+        if (level >= 2) return (false, 24);
+
+        if (level == 1) {
+            if (fromRelay || fromPublisherRelay) return (true, 0);
+            return (false, 25);
+        }
+
+        // level == 0: any path accepted.
+        return (true, 0);
     }
 
     /// @dev Forward one batch into DatumSettlementLogicB via DELEGATECALL.

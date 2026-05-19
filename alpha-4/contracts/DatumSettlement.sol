@@ -469,14 +469,26 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///         (DatumSettlementStorage). Owner-settable; later upgrade-ladder
     ///         phases will gate this behind the Timelock.
     function setLogic(address logicA_, address logicB_) external onlyOwner {
+        if (_logicLocked) revert AlreadySet();
         if (logicA_ == address(0) || logicB_ == address(0)) revert E00();
         _logicA = logicA_;
         _logicB = logicB_;
         emit LogicSet(logicA_, logicB_);
     }
 
+    /// @notice Production cypherpunk lock. After this fires, the Logic
+    ///         pair is frozen and any future setLogic call reverts. Matches
+    ///         the lockLanes / lockSlashers / lockMintAuthority cluster.
+    ///         Owner-only -- in production the owner is the OpenGov
+    ///         Timelock so the lock decision flows through a 48h proposal.
+    function lockLogic() external onlyOwner {
+        _logicLocked = true;
+        emit LogicLocked();
+    }
+
     function logicA() external view returns (address) { return _logicA; }
     function logicB() external view returns (address) { return _logicB; }
+    function logicLocked() external view returns (bool) { return _logicLocked; }
 
     // -------------------------------------------------------------------------
     // Settlement

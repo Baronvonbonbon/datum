@@ -80,10 +80,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         // does NOT satisfy this floor. Reject if campaign doesn't require ZK.
         if (_userMinAssurance[user] >= 3 && address(_campaigns) != address(0)) {
             bool reqZk = false;
+            // SAFETY (M1-fix gradient): fail-CLOSED on revert. User has opted
+            //         into L3 (ZK-only) for themselves. If we can't read the
+            //         campaign's ZK flag, assume NO ZK and reject -- the
+            //         opposite (fail-open) would silently downgrade the user's
+            //         self-imposed floor on a misconfigured Campaigns ref.
             try _campaigns.getCampaignRequiresZkProof(campaignId) returns (bool z) {
                 reqZk = z;
             } catch {
-                // Fail closed on unreadable ZK flag — same gradient logic as H2.
                 reqZk = false;
             }
             if (!reqZk) {
@@ -108,13 +112,16 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         {
             uint8 campaignMinId = 0;
             if (address(_campaigns) != address(0)) {
-                // Default to max enforced on revert so a broken Campaigns ref
-                // can't downgrade a KnownGood gate to None.
+                // SAFETY (H2-fix gradient): fail-CLOSED on revert. Default to
+                //         max-enforced (level 2) so a broken Campaigns ref
+                //         can't downgrade a KnownGood gate to None. The
+                //         opposite (default 0 on revert) would let a captured
+                //         Campaigns upgrade silently bypass identity gates
+                //         for every in-flight settlement.
                 campaignMinId = 2;
                 try _campaigns.getCampaignMinIdentityLevel(campaignId) returns (uint8 lvl) {
                     campaignMinId = lvl;
                 } catch {
-                    // Use existing AssuranceLookupFailed signal — same root cause.
                     emit AssuranceLookupFailed(campaignId);
                 }
             }
@@ -123,10 +130,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (effMinId > 0) {
                 bool ok = false;
                 if (address(_identityRegistry) != address(0)) {
+                    // SAFETY: fail-CLOSED on revert. ok stays false, reject
+                    //         the batch. The opposite (assume verified on
+                    //         revert) would silently allow unidentified
+                    //         users to settle on identity-gated campaigns.
                     try _identityRegistry.isVerified(user, effMinId) returns (bool v) {
                         ok = v;
                     } catch {
-                        ok = false; // fail closed
+                        ok = false;
                     }
                 }
                 if (!ok) {
@@ -146,9 +157,12 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         // fail-closed (L1+).
         uint8 effectiveLevel = 0;
         if (address(_campaigns) != address(0)) {
-            // H2-fix (2026-05-13): fail CLOSED on revert. Default to max
-            // enforced (2) so a misconfigured Campaigns ref can't silently
-            // downgrade high-assurance campaigns to L0.
+            // SAFETY (H2-fix gradient): fail-CLOSED on revert. effectiveLevel
+            //         defaults to 2 (max enforced) so a captured Campaigns
+            //         upgrade can't silently downgrade high-assurance
+            //         campaigns to L0. Pairs with the per-claim blocklist
+            //         gate below: at L1+ that gate ALSO fails closed, so a
+            //         single broken getter doesn't bypass both protections.
             effectiveLevel = 2;
             try _campaigns.getCampaignAssuranceLevel(campaignId) returns (uint8 l) {
                 effectiveLevel = l;
@@ -157,45 +171,26 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
-        // A3: AssuranceLevel gate. Enforce that the submission path delivers
-        // the required cryptographic proof. Levels nest: a dual-sig batch
-        // (advertiserConsented=true) satisfies every level; the relay path /
-        // publisher-relay msg.sender satisfies level 1.
-        if (!advertiserConsented && address(_campaigns) != address(0)) {
-            uint8 level = effectiveLevel;
-
-            // B5-fix: honor the user's own floor. If a user demands ≥L1 and the
-            // campaign offers L0, treat the batch as if it required the user's
-            // floor — reject. Permits each user to opt out of low-proof settlement
-            // for themselves without protocol-wide policy changes.
-            uint8 uMin = _userMinAssurance[user];
-            if (uMin > level) level = uMin;
-
-            if (level >= 2) {
-                // Level 2 (DualSigned) requires settleSignedClaims (this would have
-                // set advertiserConsented). Reject everything else with reason 24.
+        // A3: AssuranceLevel gate. The gradient (campaign level + user
+        // floor + submission path) is extracted into the pure
+        // `_assuranceDecision` helper on DatumSettlementStorage (phase 8d
+        // hedge #5) so it can be table-tested in isolation. Inputs that
+        // aren't pure (msg.sender comparisons, _isPublisherRelay) are
+        // resolved here and passed in.
+        if (address(_campaigns) != address(0)) {
+            (bool accept, uint8 reasonCode) = _assuranceDecision(
+                effectiveLevel,
+                _userMinAssurance[user],
+                advertiserConsented,
+                msg.sender == _relayContract,
+                _isPublisherRelay(claims)
+            );
+            if (!accept) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 24);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, reasonCode);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
-            }
-
-            if (level == 1) {
-                // Level 1 (PublisherSigned) requires that a publisher sig has
-                // been validated upstream. DatumRelay validates the publisher
-                // cosig before forwarding to settleClaims, and the publisher's
-                // own relaySigner submitting via settleClaims demonstrates
-                // their authority directly. Reject any other path.
-                bool fromRelay = (msg.sender == _relayContract);
-                bool fromPublisherRelay = _isPublisherRelay(claims);
-                if (!fromRelay && !fromPublisherRelay) {
-                    for (uint256 j = 0; j < claims.length; j++) {
-                        result.rejectedCount++;
-                        emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 25);
-                    }
-                    return (result.settledCount, result.rejectedCount, result.totalPaid);
-                }
             }
         }
 
@@ -238,9 +233,18 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
         // Cache token reward config once per batch (view claims only)
         if (claims.length > 0 && address(_tokenRewardVault) != address(0) && address(_campaigns) != address(0) && batchActionType == 0) {
+            // SAFETY: fail-OPEN on revert. Token rewards are an OPTIONAL,
+            //         non-critical credit (additive to the DOT settlement).
+            //         If we can't read the reward config, agg.rewardToken
+            //         stays address(0) and the per-claim token-reward block
+            //         below is skipped. The opposite (fail-closed) would let
+            //         a misconfigured Campaigns ref DoS the primary DOT
+            //         settlement path -- unacceptable trade since the reward
+            //         pool itself is opt-in.
             try _campaigns.getCampaignRewardToken(campaignId) returns (address rt) {
                 agg.rewardToken = rt;
                 if (rt != address(0)) {
+                    // SAFETY: same fail-open rationale as the parent block.
                     try _campaigns.getCampaignRewardPerImpression(campaignId) returns (uint256 rpi) {
                         agg.rewardPerImpression = rpi;
                     } catch {}
@@ -272,6 +276,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // at L0 where liveness is preferred.
             if (address(_publishers) != address(0)) {
                 if (effectiveLevel >= 1) {
+                    // SAFETY (M2-fix + H-3 gradient at L1+): fail-CLOSED on
+                    //         revert. The blocklist is part of the L1+
+                    //         guarantee surface; if the curator reverts we
+                    //         must treat the publisher as blocked rather
+                    //         than fall through. Uses isBlockedStrict (not
+                    //         isBlocked) because isBlocked swallows curator
+                    //         reverts internally, which would make this
+                    //         catch unreachable and silently bypass the gate.
                     try _publishers.isBlockedStrict(claim.publisher) returns (bool blocked) {
                         if (blocked) {
                             result.rejectedCount++;
@@ -280,7 +292,6 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                             continue;
                         }
                     } catch {
-                        // Fail closed: blocklist gate is part of L1+ guarantees.
                         result.rejectedCount++;
                         emit BlocklistFailedClosed(claim.campaignId, claim.publisher);
                         emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 11);
@@ -288,8 +299,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                         continue;
                     }
                 } else {
-                    // L0: fail-open. publishers.isBlocked already swallows
-                    // curator reverts and returns false, so no try/catch needed.
+                    // SAFETY (M2-fix gradient at L0): fail-OPEN. L0
+                    //         campaigns prioritize liveness over strict
+                    //         curation. _publishers.isBlocked swallows
+                    //         curator reverts and returns false (no try/
+                    //         catch needed) -- a captured curator can NOT
+                    //         block payouts on an L0 campaign by reverting,
+                    //         which is the intended L0 contract.
                     if (_publishers.isBlocked(claim.publisher)) {
                         result.rejectedCount++;
                         emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 11);
@@ -339,10 +355,22 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (address(_campaigns) != address(0)) {
                 uint32 capMax;
                 uint32 capWin;
+                // SAFETY: fail-OPEN on revert. The window cap is an OPT-IN
+                //         advertiser feature (default 0 = no cap). If the
+                //         getter reverts because the deployed Campaigns
+                //         version doesn't expose it, we want settlement to
+                //         continue with no cap rather than DoS the batch.
+                //         capMax stays 0 and the gated block below is
+                //         skipped.
                 try ICampaignsUserCapView(address(_campaigns)).userEventCapPerWindow(claim.campaignId) returns (uint32 m) {
                     capMax = m;
                 } catch {}
                 if (capMax > 0) {
+                    // SAFETY: fail-OPEN on revert. Same rationale -- if the
+                    //         window getter reverts after the cap getter
+                    //         succeeded, capWin stays 0 and the cap check
+                    //         block below is skipped. A misconfigured
+                    //         Campaigns view shouldn't DoS settlement.
                     try ICampaignsUserCapView(address(_campaigns)).userCapWindowBlocks(claim.campaignId) returns (uint32 w) {
                         capWin = w;
                     } catch {}
@@ -495,6 +523,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
         // Aggregate token reward credit (view claims only, non-critical)
         if (agg.tokenReward > 0) {
+            // SAFETY: fail-SOFT on revert (L-4). Token reward is additive on
+            //         top of DOT settlement and the user has already been
+            //         credited their DOT share. If the vault is out of
+            //         tokens or mis-wired, we emit RewardCreditFailed so
+            //         off-chain monitors can detect + refund, but we don't
+            //         revert the whole batch -- DOT settlement is the
+            //         primary value flow and must not be DoS-able by a
+            //         non-critical reward credit.
             try _tokenRewardVault.creditReward(campaignId, agg.rewardToken, user, agg.tokenReward) {}
             catch {
                 emit RewardCreditFailed(campaignId, user, agg.rewardToken, agg.tokenReward);
@@ -510,11 +546,19 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         if (_advertiserStake != address(0) && agg.total > 0 && address(_campaigns) != address(0)) {
             address advertiser_ = _campaigns.getCampaignAdvertiser(campaignId);
             if (advertiser_ != address(0)) {
+                // SAFETY: fail-SOFT via low-level call (CB4 best-effort).
+                //         A misconfigured advertiser-stake target -- whether
+                //         a hostile target, a missing recordBudgetSpent,
+                //         or an out-of-gas revert -- must NOT DoS the
+                //         settlement. The boolean return is intentionally
+                //         suppressed. Stake bonding curve advancement is a
+                //         secondary economic signal; the primary value flow
+                //         (paymentVault credit) has already completed.
                 (bool ok2, ) = _advertiserStake.call(abi.encodeWithSignature(
                     "recordBudgetSpent(address,uint256)",
                     advertiser_, agg.total
                 ));
-                ok2; // suppressed: callback failure is non-critical
+                ok2;
             }
         }
 
