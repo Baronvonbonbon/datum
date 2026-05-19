@@ -2,8 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+// EIP712 + ECDSA moved to DatumDualSigSettlement (alpha-4 EIP-170 carve-out).
 import "./DatumUpgradable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -57,7 +56,7 @@ interface ICampaignsUserCapView {
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgradable {
+contract DatumSettlement is IDatumSettlement, ReentrancyGuard, DatumUpgradable {
     // ── Custom errors (mainnet-size: replaces require strings) ──
     error E00();
     error E11();
@@ -268,16 +267,21 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
     //     authority, not whoever the publishers contract returns at exec time.
     //   - deadlineBlock: block.number is cheaper to predict than block.timestamp
     //     and removes the unit-ambiguity vs. the Relay path.
-    /// @dev M6: extended to bind the advertiser's relay signer at sign time,
-    ///      mirroring the publisher-side A1 anti-rotation pattern. A post-sign
-    ///      `setAdvertiserRelaySigner` rotation invalidates in-flight cosigs.
-    bytes32 private constant CLAIM_BATCH_TYPEHASH = keccak256(
-        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner,address expectedAdvertiserRelaySigner)"
-    );
+    // CLAIM_BATCH_TYPEHASH + EIP712 base moved to DatumDualSigSettlement
+    // (alpha-4 EIP-170 carve-out). Settlement no longer hashes / recovers
+    // signatures itself; the DualSig contract does both and then calls
+    // `processVerifiedBatch` below.
     uint256 private _cbBlock;
     uint256 private _cbTotal;
 
-    constructor(address _pauseRegistry) EIP712("DatumSettlement", "1") {
+    /// @notice The carved-out DualSig settlement module. Set once via
+    ///         `setDualSig` (lock-once). When non-zero, this is the only
+    ///         caller allowed to invoke `processVerifiedBatch`.
+    address public dualSig;
+    event DualSigSet(address indexed dualSig);
+    error OnlyDualSig();
+
+    constructor(address _pauseRegistry) {
         if (!(_pauseRegistry != address(0))) revert E00();
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
     }
@@ -588,113 +592,29 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, EIP712, DatumUpgr
         }
     }
 
+    /// @notice Wire the carved-out DualSig settlement module. Lock-once.
+    function setDualSig(address addr) external onlyOwner {
+        if (addr == address(0)) revert E00();
+        if (dualSig != address(0)) revert AlreadySet();
+        dualSig = addr;
+        emit DualSigSet(addr);
+    }
+
     /// @inheritdoc IDatumSettlement
-    function settleSignedClaims(SignedClaimBatch[] calldata batches)
-        external
-        nonReentrant
-        whenNotFrozen
-        returns (SettlementResult memory result)
-    {
-        if (!(address(claimValidator) != address(0))) revert E00();
-        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
-        if (!(batches.length <= maxBatchSize)) revert E28();
-
-        for (uint256 b = 0; b < batches.length; b++) {
-            SignedClaimBatch calldata batch = batches[b];
-
-            // I-3: reject empty batches — sigs over no claims do nothing and just burn gas
-            if (!(batch.claims.length > 0)) revert E28();
-
-            // A9: block.number deadline (was block.timestamp). Matches DatumRelay
-            // so off-chain clients use one consistent unit across paths.
-            if (!(block.number <= batch.deadlineBlock)) revert E81();
-
-            // Build the EIP-712 struct hash over the batch envelope.
-            // A1/M6: both `expectedRelaySigner` (publisher's hot key at sign
-            //     time) and `expectedAdvertiserRelaySigner` (advertiser's hot
-            //     key at sign time) are bound to the envelope so a post-sign
-            //     rotation on either side invalidates in-flight cosigs.
-            bytes32 claimsHash = _hashClaims(batch.claims);
-            bytes32 structHash = keccak256(abi.encode(
-                CLAIM_BATCH_TYPEHASH,
-                batch.user,
-                batch.campaignId,
-                claimsHash,
-                batch.deadlineBlock,
-                batch.expectedRelaySigner,
-                batch.expectedAdvertiserRelaySigner
-            ));
-            bytes32 digest = _hashTypedDataV4(structHash);
-
-            // Recover and verify publisher signature
-            address pubSigner = ECDSA.recover(digest, batch.publisherSig);
-            address expectedPublisher = _batchPublisher(batch.claims);
-            if (!(expectedPublisher != address(0))) revert E00();
-            // M-3 (SM-1): every claim must target the same publisher as claims[0]
-            // so the dual-sig path's authorization model matches DatumRelay.
-            for (uint256 i = 1; i < batch.claims.length; i++) {
-                if (!(batch.claims[i].publisher == expectedPublisher)) revert E34();
-            }
-            // A1: publisher sig must come from `expectedRelaySigner` (if set in
-            // the envelope) OR from the publisher's EOA itself. If the envelope
-            // declares a specific relay key (non-zero) it must also be the
-            // currently-configured one — otherwise the publisher rotated keys
-            // between sign and submit and the cosig is stale.
-            if (batch.expectedRelaySigner != address(0)) {
-                if (address(publishers) != address(0)) {
-                    address currentRelay = address(0);
-                    try publishers.relaySigner(expectedPublisher) returns (address r) {
-                        currentRelay = r;
-                    } catch {}
-                    if (!(currentRelay == batch.expectedRelaySigner)) revert E84();
-                }
-                if (!(pubSigner == batch.expectedRelaySigner)) revert E82();
-            } else {
-                // Strict path: only the publisher's EOA can sign.
-                if (!(pubSigner == expectedPublisher)) revert E82();
-            }
-
-            // Recover and verify advertiser signature.
-            // M6: advertiser-side delegation mirrors the publisher-side A1 pattern.
-            //   - If `expectedAdvertiserRelaySigner` is non-zero in the envelope,
-            //     the sig must come from that hot key AND the advertiser must still
-            //     have that key registered at submission time (a rotation between
-            //     sign and submit invalidates the cosig — same anti-staleness
-            //     semantics as the publisher relay path).
-            //   - If zero, strict path: sig must come from the advertiser's EOA.
-            address advSigner = ECDSA.recover(digest, batch.advertiserSig);
-            address expectedAdvertiser = campaigns.getCampaignAdvertiser(batch.campaignId);
-            if (!(expectedAdvertiser != address(0))) revert E00();
-            if (batch.expectedAdvertiserRelaySigner != address(0)) {
-                address currentAdvRelay = address(0);
-                try campaigns.getAdvertiserRelaySigner(expectedAdvertiser) returns (address r) {
-                    currentAdvRelay = r;
-                } catch {}
-                if (!(currentAdvRelay == batch.expectedAdvertiserRelaySigner)) revert E85();
-                if (!(advSigner == batch.expectedAdvertiserRelaySigner)) revert E83();
-            } else {
-                // Strict path: only the advertiser's EOA can sign.
-                if (!(advSigner == expectedAdvertiser)) revert E83();
-            }
-
-            _processBatch(batch.user, batch.campaignId, batch.claims, result, true);
-        }
-    }
-
-    /// @dev Compute a deterministic hash over all claims in a batch for EIP-712 signing.
-    ///      Each claim is hashed individually, then all hashes are combined.
-    function _hashClaims(Claim[] calldata claims) internal pure returns (bytes32) {
-        bytes32[] memory hashes = new bytes32[](claims.length);
-        for (uint256 i = 0; i < claims.length; i++) {
-            hashes[i] = claims[i].claimHash;
-        }
-        return keccak256(abi.encodePacked(hashes));
-    }
-
-    /// @dev Extract the publisher address from the first claim in a batch.
-    function _batchPublisher(Claim[] calldata claims) internal pure returns (address) {
-        if (claims.length == 0) return address(0);
-        return claims[0].publisher;
+    /// @dev Called by DatumDualSigSettlement after both EIP-712 signatures
+    ///      have been verified. Gated to `dualSig` so no other contract or
+    ///      EOA can invoke the dual-sig settle path.
+    function processVerifiedBatch(
+        address user,
+        uint256 campaignId,
+        Claim[] calldata claims
+    ) external nonReentrant whenNotFrozen returns (SettlementResult memory result) {
+        if (msg.sender != dualSig) revert OnlyDualSig();
+        if (address(claimValidator) == address(0)) revert E00();
+        if (pauseRegistry.pausedSettlement()) revert Paused();
+        if (claims.length == 0) revert E28();
+        if (claims.length > maxBatchSize) revert E28();
+        _processBatch(user, campaignId, claims, result, true);
     }
 
     function _isPublisherRelay(Claim[] calldata claims) internal view returns (bool) {

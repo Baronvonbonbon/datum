@@ -28,6 +28,7 @@ import { fundSigners, isSubstrate, mineBlocks } from "./helpers/mine";
 
 describe("DatumSettlement", function () {
   let settlement: DatumSettlement;
+  let dualSig: any; // DatumDualSigSettlement (alpha-4 EIP-170 carve-out)
   let relay: DatumRelay;
   let mock: MockCampaigns;
   let pauseReg: DatumPauseRegistry;
@@ -161,6 +162,15 @@ describe("DatumSettlement", function () {
     await settlement.setPublishers(await mock.getAddress());
     // Wire campaigns for advertiser lookup (settleSignedClaims dual-sig path)
     await settlement.setCampaigns(await mock.getAddress());
+
+    // alpha-4 EIP-170 carve-out: settleSignedClaims moved to DatumDualSigSettlement.
+    const DualSigF = await ethers.getContractFactory("DatumDualSigSettlement");
+    dualSig = await DualSigF.deploy();
+    await dualSig.setSettlement(await settlement.getAddress());
+    await dualSig.setPauseRegistry(await pauseReg.getAddress());
+    await dualSig.setPublishers(await mock.getAddress());
+    await dualSig.setCampaigns(await mock.getAddress());
+    await settlement.setDualSig(await dualSig.getAddress());
   });
 
   // S1: Single claim — correct payment split
@@ -792,7 +802,7 @@ describe("DatumSettlement", function () {
         name: "DatumSettlement",
         version: "1",
         chainId: (await ethers.provider.getNetwork()).chainId,
-        verifyingContract: await settlement.getAddress(),
+        verifyingContract: await dualSig.getAddress(),
       };
     }
 
@@ -865,11 +875,11 @@ describe("DatumSettlement", function () {
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
 
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
       expect(result.rejectedCount).to.equal(0n);
 
-      await settlement.connect(other).settleSignedClaims([batch]);
+      await dualSig.connect(other).settleSignedClaims([batch]);
       expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
     });
 
@@ -881,7 +891,7 @@ describe("DatumSettlement", function () {
       // A1: cosig binds the expected relay key into the EIP-712 envelope.
       const batch = await makeDualSignedBatch(cid, claims, protocol, owner, undefined, protocol.address);
 
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
 
       // Cleanup so other tests are unaffected
@@ -895,8 +905,8 @@ describe("DatumSettlement", function () {
       const batch = await makeDualSignedBatch(cid, claims, other, owner);
 
       await expect(
-        settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(settlement, "E82");
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E82");
     });
 
     it("M6-A: advertiser's delegated relay signer is accepted in place of advertiser EOA", async function () {
@@ -910,7 +920,7 @@ describe("DatumSettlement", function () {
         cid, claims, publisher, protocol, undefined, ethers.ZeroAddress, protocol.address,
       );
 
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
       expect(result.rejectedCount).to.equal(0n);
 
@@ -932,8 +942,8 @@ describe("DatumSettlement", function () {
       // Step 4: submission must be rejected — the envelope's expected key no
       // longer matches what the advertiser has registered on-chain.
       await expect(
-        settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(settlement, "E85");
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E85");
 
       await mock.setAdvertiserRelaySigner(owner.address, ethers.ZeroAddress);
     });
@@ -944,7 +954,7 @@ describe("DatumSettlement", function () {
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
 
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
     });
 
@@ -955,8 +965,8 @@ describe("DatumSettlement", function () {
       const batch = await makeDualSignedBatch(cid, claims, publisher, other);
 
       await expect(
-        settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(settlement, "E83");
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E83");
     });
 
     it("D5: expired deadline reverts E81", async function () {
@@ -967,8 +977,8 @@ describe("DatumSettlement", function () {
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner, expired);
 
       await expect(
-        settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(settlement, "E81");
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E81");
     });
 
     it("D6: tampered claim list invalidates publisher sig (E82)", async function () {
@@ -981,8 +991,8 @@ describe("DatumSettlement", function () {
       const tamperedBatch = { ...batch, claims: tamperedClaims };
 
       await expect(
-        settlement.connect(other).settleSignedClaims([tamperedBatch])
-      ).to.be.revertedWithCustomError(settlement, "E82");
+        dualSig.connect(other).settleSignedClaims([tamperedBatch])
+      ).to.be.revertedWithCustomError(dualSig, "E82");
     });
 
     it("D7: paused settlement reverts P", async function () {
@@ -993,7 +1003,7 @@ describe("DatumSettlement", function () {
       await pauseReg.pause();
       try {
         await expect(
-          settlement.connect(other).settleSignedClaims([batch])
+          dualSig.connect(other).settleSignedClaims([batch])
         ).to.be.revertedWithCustomError(settlement, "Paused");
       } finally {
         // Unpause via 2-of-3 guardian (owner=g0, user=g1, publisher=g2 per `before`)
@@ -1012,7 +1022,7 @@ describe("DatumSettlement", function () {
       const tooMany = new Array(3).fill(batch);
 
       await expect(
-        settlement.connect(other).settleSignedClaims(tooMany)
+        dualSig.connect(other).settleSignedClaims(tooMany)
       ).to.be.revertedWithCustomError(settlement, "E28");
 
       // Restore for other tests

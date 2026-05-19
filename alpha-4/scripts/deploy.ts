@@ -149,6 +149,9 @@ const REQUIRED_KEYS = [
   // Mint coordinator (carved out of Settlement for EIP-170; owns mintAuthority +
   // emissionEngine pointers + rate/dust/split bps; called once per batch).
   "mintCoordinator",
+  // Dual-sig settlement (carved out of Settlement for EIP-170; owns EIP-712
+  // base + settleSignedClaims path; calls Settlement.processVerifiedBatch).
+  "dualSig",
   // People Chain identity gate (2026-05-16): cached attestation cache;
   // Settlement reads isVerified(user, minLevel) when a campaign or user opts in
   "peopleChainIdentity",
@@ -805,6 +808,13 @@ async function main() {
     await deployOrReuse("mintCoordinator", "DatumMintCoordinator", []);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumMintCoordinator — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumDualSigSettlement (EIP-712 settleSignedClaims path)");
+    await deployOrReuse("dualSig", "DatumDualSigSettlement", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumDualSigSettlement — ${err}`);
   }
 
   // --- DatumPeopleChainIdentity: cached People Chain identity attestations ---
@@ -1469,6 +1479,39 @@ async function main() {
     addresses.emissionEngine,
   );
 
+  // ── DualSig: settlement + pauseRegistry + publishers + campaigns wiring ──
+  // ── Settlement: setDualSig (lock-once; gates processVerifiedBatch) ──
+  await wireIfNeeded(
+    "DualSig.settlement",
+    "DatumDualSigSettlement", addresses.dualSig,
+    "settlement", "setSettlement",
+    addresses.settlement,
+  );
+  await wireIfNeeded(
+    "DualSig.pauseRegistry",
+    "DatumDualSigSettlement", addresses.dualSig,
+    "pauseRegistry", "setPauseRegistry",
+    addresses.pauseRegistry,
+  );
+  await wireIfNeeded(
+    "DualSig.publishers",
+    "DatumDualSigSettlement", addresses.dualSig,
+    "publishers", "setPublishers",
+    addresses.publishers,
+  );
+  await wireIfNeeded(
+    "DualSig.campaigns",
+    "DatumDualSigSettlement", addresses.dualSig,
+    "campaigns", "setCampaigns",
+    addresses.campaigns,
+  );
+  await wireIfNeeded(
+    "Settlement.dualSig",
+    "DatumSettlement", addresses.settlement,
+    "dualSig", "setDualSig",
+    addresses.dualSig,
+  );
+
   // ──────────────────────────────────────────────────────────────────────────
   // Audit pass 2 wiring (2026-05-12)
   // ──────────────────────────────────────────────────────────────────────────
@@ -1962,6 +2005,7 @@ async function main() {
     "campaignAllowlist",
     "tagSystem",
     "mintCoordinator",
+    "dualSig",
     "blocklistCurator",
     "activationBonds",
     "stakeRoot",

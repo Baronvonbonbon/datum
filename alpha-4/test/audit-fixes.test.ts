@@ -196,6 +196,7 @@ describe("Audit fixes", function () {
 
   describe("M-3 + dual-sig toggle", function () {
     let settlement: DatumSettlement;
+    let dualSig: any; // DatumDualSigSettlement (alpha-4 EIP-170 carve-out)
     let validator: DatumClaimValidator;
     let pauseReg: DatumPauseRegistry;
     let ledger: DatumBudgetLedger;
@@ -249,7 +250,7 @@ describe("Audit fixes", function () {
         name: "DatumSettlement",
         version: "1",
         chainId: (await ethers.provider.getNetwork()).chainId,
-        verifyingContract: await settlement.getAddress(),
+        verifyingContract: await dualSig.getAddress(),
       };
     }
 
@@ -349,6 +350,15 @@ describe("Audit fixes", function () {
       await vault.setSettlement(await settlement.getAddress());
       await settlement.setPublishers(await mock.getAddress());
       await settlement.setCampaigns(await mock.getAddress());
+
+      // alpha-4 EIP-170 carve-out
+      const DualSigF = await ethers.getContractFactory("DatumDualSigSettlement");
+      dualSig = await DualSigF.deploy();
+      await dualSig.setSettlement(await settlement.getAddress());
+      await dualSig.setPauseRegistry(await pauseReg.getAddress());
+      await dualSig.setPublishers(await mock.getAddress());
+      await dualSig.setCampaigns(await mock.getAddress());
+      await settlement.setDualSig(await dualSig.getAddress());
     });
 
     async function createOpenCampaign(): Promise<bigint> {
@@ -373,8 +383,8 @@ describe("Audit fixes", function () {
       const batch = await makeBatch(cid, [c1, c2], publisher, owner);
 
       await expect(
-        settlement.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(settlement, "E34");
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E34");
     });
 
     it("M-3: accepts dual-sig batch when all claims share the signing publisher", async function () {
@@ -383,7 +393,7 @@ describe("Audit fixes", function () {
       const c2 = buildClaim(cid, publisher.address, user.address, 2n, c1.claimHash);
       const batch = await makeBatch(cid, [c1, c2], publisher, owner);
 
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(2n);
     });
 
@@ -411,7 +421,7 @@ describe("Audit fixes", function () {
 
       const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
       const batch = await makeBatch(cid, [c1], publisher, owner);
-      const result = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const result = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(result.settledCount).to.equal(1n);
     });
 
@@ -449,7 +459,7 @@ describe("Audit fixes", function () {
 
       const c1 = buildClaim(cid, publisher.address, user.address, 1n, ethers.ZeroHash);
       const batch = await makeBatch(cid, [c1], publisher, owner);
-      const r = await settlement.connect(other).settleSignedClaims.staticCall([batch]);
+      const r = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
       expect(r.settledCount).to.equal(1n);
     });
 

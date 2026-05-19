@@ -99,11 +99,24 @@ interface IDatumSettlement {
     ///         Max 10 users, 10 campaigns per user, 50 claims per campaign.
     function settleClaimsMulti(UserClaimBatch[] calldata batches) external returns (SettlementResult memory result);
 
-    /// @notice Settle claims with dual EIP-712 signatures from both publisher and advertiser.
-    ///         Anyone can submit (permissionless relay). Both signatures must cover the
-    ///         same (user, campaignId, claimsHash, deadline) typed data. Either party
-    ///         can refute claims by withholding their signature.
-    function settleSignedClaims(SignedClaimBatch[] calldata batches) external returns (SettlementResult memory result);
+    /// @notice settleSignedClaims moved to DatumDualSigSettlement (alpha-4
+    ///         EIP-170 carve-out). The dual-sig contract owns the EIP-712
+    ///         base + typehash + ECDSA sig recovery; after verifying both
+    ///         signatures, it calls Settlement.processVerifiedBatch (below).
+
+    /// @notice Settlement-facing entry that the carved-out DualSig module
+    ///         calls after verifying both signatures. Gated to the wired
+    ///         dual-sig contract via the `onlyDualSig` check inside.
+    function processVerifiedBatch(
+        address user,
+        uint256 campaignId,
+        Claim[] calldata claims
+    ) external returns (SettlementResult memory result);
+
+    /// @notice Outer-batch cap shared across the settle entry points
+    ///         (settleClaims, settleClaimsMulti, settleSignedClaims). Read
+    ///         by the carved-out DualSig contract once per call.
+    function maxBatchSize() external view returns (uint256);
 
     // -------------------------------------------------------------------------
     // Views — triple-keyed by (user, campaignId, actionType)
