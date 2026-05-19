@@ -81,7 +81,13 @@ contract DatumSettlement is IDatumSettlement, ReentrancyGuard, DatumUpgradable {
     IDatumPaymentVault public paymentVault;
     IDatumCampaignLifecycle public lifecycle;
     address public relayContract;
-    IDatumPauseRegistry public immutable pauseRegistry;
+    /// @dev Demoted from `immutable` in alpha-4 EIP-170 phase 8d-1. The
+    ///      DatumSettlementLogic contracts (added in phase 8d-2+) share
+    ///      Settlement's storage via DELEGATECALL and need to read this
+    ///      value through a normal storage slot rather than a value baked
+    ///      into Settlement's own runtime bytecode. Set once in the
+    ///      constructor; no setter, no way to re-point.
+    IDatumPauseRegistry public pauseRegistry;
     address public attestationVerifier;
     IDatumClaimValidator public claimValidator;
     // S12: publishers ref for settlement-level blocklist check (address(0) = disabled)

@@ -1,0 +1,198 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./DatumUpgradable.sol";
+import "./interfaces/IDatumSettlement.sol";
+import "./interfaces/IDatumPauseRegistry.sol";
+import "./interfaces/IDatumClaimValidator.sol";
+import "./interfaces/IDatumPublisherStake.sol";
+import "./interfaces/IDatumClickRegistry.sol";
+import "./interfaces/IDatumPublishers.sol";
+import "./interfaces/IDatumCampaigns.sol";
+import "./interfaces/IDatumBudgetLedger.sol";
+import "./interfaces/IDatumPaymentVault.sol";
+import "./interfaces/IDatumTokenRewardVault.sol";
+import "./interfaces/IDatumCampaignLifecycle.sol";
+import "./interfaces/IDatumPeopleChainIdentity.sol";
+import "./interfaces/IDatumPowEngine.sol";
+import "./interfaces/IDatumPublisherReputation.sol";
+import "./interfaces/IDatumNullifierRegistry.sol";
+import "./interfaces/IDatumSettlementRateLimiter.sol";
+import "./interfaces/IDatumMintCoordinator.sol";
+
+/// @dev #1 (2026-05-12): minimal Campaigns view for the per-user per-campaign
+///      cap. Inline to avoid touching the IDatumCampaigns interface during
+///      staged migration. Older deployments without these getters simply
+///      revert and the try/catch above skips the cap.
+///
+///      Moved here from DatumSettlement.sol (phase 8d-1) so both
+///      DatumSettlement and the future DatumSettlementLogicA/LogicB
+///      contracts share the same definition.
+interface ICampaignsUserCapView {
+    function userEventCapPerWindow(uint256 campaignId) external view returns (uint32);
+    function userCapWindowBlocks(uint256 campaignId) external view returns (uint32);
+}
+
+/// @title  DatumSettlementStorage
+/// @notice Shared abstract storage base for DatumSettlement and the future
+///         DatumSettlementLogicA / DatumSettlementLogicB contracts (phase
+///         8d-2+ of the EIP-170 plan).
+///
+/// @dev    The library + DELEGATECALL pattern requires every participating
+///         contract to declare the EXACT same storage layout. This abstract
+///         base is the single source of truth for that layout: it inherits
+///         the same chain DatumSettlement had pre-phase-1
+///         (ReentrancyGuard + DatumUpgradable) so ancestor slots stay at
+///         their original offsets, then declares every Settlement-owned
+///         state variable in its original order.
+///
+/// @dev    NAMING: state variables use an underscore prefix (`_foo`)
+///         so DatumSettlement can expose them as `function foo()` external
+///         getters without name-shadowing collisions. The trailing public
+///         constants (MAX_BATCH_SIZE_CEILING etc.) stay un-prefixed since
+///         constants don't collide with getters.
+///
+/// @dev    LAYOUT INVARIANT: never declare additional state in child
+///         contracts. New state goes here. The storage-layout snapshot
+///         test in test/settlement-layout.test.ts (added in phase 8d-5)
+///         compiles every child and asserts identical layouts.
+abstract contract DatumSettlementStorage is
+    IDatumSettlement,
+    ReentrancyGuard,
+    DatumUpgradable
+{
+    // ─────────────────────────────────────────────────────────────────────
+    // Cross-contract references (one slot each, order preserved from the
+    // pre-refactor DatumSettlement). Underscore prefix to avoid colliding
+    // with the public getters DatumSettlement exposes.
+    // ─────────────────────────────────────────────────────────────────────
+
+    IDatumBudgetLedger      internal _budgetLedger;
+    IDatumPaymentVault      internal _paymentVault;
+    IDatumCampaignLifecycle internal _lifecycle;
+    address                 internal _relayContract;
+    /// @notice Demoted from `immutable` in phase 8d-1 so future
+    ///         DatumSettlementLogic contracts can read this through shared
+    ///         storage. Set once in DatumSettlement's constructor; no setter.
+    IDatumPauseRegistry     internal _pauseRegistry;
+    address                 internal _attestationVerifier;
+    IDatumClaimValidator    internal _claimValidator;
+    IDatumPublishers        internal _publishers;
+    IDatumTokenRewardVault  internal _tokenRewardVault;
+    IDatumCampaigns         internal _campaigns;
+    IDatumPublisherStake    internal _publisherStake;
+    address                 internal _advertiserStake;
+    IDatumClickRegistry     internal _clickRegistry;
+
+    // ── DATUM token mint -- carved out to DatumMintCoordinator (C8b) ────
+    IDatumMintCoordinator internal _mintCoordinator;
+
+    // ── BM-5 + FP-5 carve-outs (alpha-4 EIP-170) ────────────────────────
+    IDatumSettlementRateLimiter internal _rateLimiter;
+    IDatumNullifierRegistry     internal _nullifiers;
+
+    // ── BM-8/BM-9 reputation -- carved out to DatumPublisherReputation ──
+    IDatumPublisherReputation internal _reputation;
+
+    // ── Settlement batch size (governable) ──────────────────────────────
+    uint256 public constant MAX_BATCH_SIZE_CEILING = 200;
+    uint256 internal _maxBatchSize = 50;
+
+    // ── User-side policy ────────────────────────────────────────────────
+    mapping(address => uint8) internal _userMinAssurance;
+    mapping(address => uint8) internal _userMinIdentityLevel;
+    IDatumPeopleChainIdentity internal _identityRegistry;
+    mapping(address => mapping(address => bool)) internal _userBlocksPublisher;
+    mapping(address => mapping(address => bool)) internal _userBlocksAdvertiser;
+    mapping(address => bool) internal _userPaused;
+
+    // ── PoW -- carved out to DatumPowEngine ─────────────────────────────
+    IDatumPowEngine internal _powEngine;
+
+    // ── History counter (per-user cumulative settled events) ────────────
+    mapping(address => uint256) internal _userTotalSettled;
+
+    // ── Per-claim chain state ───────────────────────────────────────────
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256))) internal _lastNonce;
+    mapping(address => mapping(uint256 => mapping(uint8 => bytes32))) internal _lastClaimHash;
+
+    // ── BM-2 per-user per-campaign counters ─────────────────────────────
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256))) internal _userCampaignSettled;
+    uint256 public constant MAX_USER_EVENTS = 100000;
+
+    // ── #1 per-user per-campaign per-window event tracker ───────────────
+    mapping(address => mapping(uint256 => mapping(uint8 => mapping(uint256 => uint256))))
+        internal _userCampaignWindowEvents;
+
+    // ── Revenue split (DOT) ─────────────────────────────────────────────
+    uint16  internal _userShareBps = 7500;
+    uint16  public constant MIN_USER_SHARE_BPS = 5000;
+    uint16  public constant MAX_USER_SHARE_BPS = 9000;
+    uint256 internal constant BPS_DENOMINATOR = 10000;
+
+    // ── BM-10 per-(user, campaign) settle interval gate ─────────────────
+    uint16 internal _minClaimInterval;
+    mapping(address => mapping(uint256 => mapping(uint8 => uint256))) internal _lastSettlementBlock;
+
+    // ── L-7 global per-block circuit breaker ────────────────────────────
+    uint256 internal _maxSettlementPerBlock;
+    uint256 internal _cbBlock;
+    uint256 internal _cbTotal;
+
+    // ── Dual-sig carve-out (alpha-4 EIP-170, C8c) ───────────────────────
+    address internal _dualSig;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Events
+    //
+    // ClaimSettled + ClaimRejected stay declared on IDatumSettlement (the
+    // storage base inherits it) so the interface keeps owning the public
+    // settlement surface. Settlement and the future LogicA / LogicB all
+    // emit the same event signature via that inherited declaration.
+    // ─────────────────────────────────────────────────────────────────────
+
+    event SettlementConfigured(address budgetLedger, address paymentVault, address lifecycle, address relay);
+    event RewardCreditFailed(uint256 indexed campaignId, address indexed user, address indexed token, uint256 amount);
+    event BlocklistCheckFailed(uint256 indexed campaignId, address indexed publisher);
+    event AssuranceLookupFailed(uint256 indexed campaignId);
+    event BlocklistFailedClosed(uint256 indexed campaignId, address indexed publisher);
+    event ZKAssuranceFailed(uint256 indexed campaignId, address indexed user);
+    event UserBlocklistRejected(address indexed user, address indexed counterparty);
+    event UserBlocksPublisherSet(address indexed user, address indexed publisher, bool blocked);
+    event UserBlocksAdvertiserSet(address indexed user, address indexed advertiser, bool blocked);
+    event UserPausedSet(address indexed user, bool paused);
+    event UserShareBpsSet(uint16 bps);
+    event UserMinIdentityLevelSet(address indexed user, uint8 level);
+    event IdentityRegistrySet(address indexed registry);
+    event UserMinAssuranceSet(address indexed user, uint8 level);
+    event MaxBatchSizeSet(uint256 value);
+    event MintCoordinatorSet(address indexed coordinator);
+    event RateLimiterSet(address indexed limiter);
+    event NullifierRegistrySet(address indexed registry);
+    event ReputationContractSet(address indexed reputation);
+    event PowEngineSet(address indexed engine);
+    event DualSigSet(address indexed dualSig);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Errors used by Settlement + (in phase 8d-2+) the Logic contracts.
+    // ─────────────────────────────────────────────────────────────────────
+
+    error E00();
+    error E11();
+    error E18();
+    error E28();
+    error E32();
+    error E34();
+    error E80();
+    error E81();
+    error E82();
+    error E83();
+    error E84();
+    error E85();
+    error AboveCap();
+    error AlreadySet();
+    error IsFrozen();
+    error Paused();
+    error OnlyDualSig();
+}
