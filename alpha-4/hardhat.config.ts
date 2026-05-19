@@ -15,6 +15,14 @@ const config: HardhatUserConfig = {
       },
       viaIR: true,
       evmVersion: "cancun",
+      // Emit storage layouts so test/settlement-layout.test.ts can assert
+      // DatumSettlement / LogicA / LogicB all share the exact same slot
+      // assignments (phase 8d-5 invariant for the DELEGATECALL pattern).
+      outputSelection: {
+        "*": {
+          "*": ["storageLayout"],
+        },
+      },
     },
   },
   networks: {

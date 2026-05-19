@@ -102,7 +102,14 @@ const REQUIRED_KEYS = [
   "pauseRegistry", "timelock", "publishers", "campaigns",
   "budgetLedger", "paymentVault", "campaignLifecycle",
   "attestationVerifier", "governanceV2",
-  "settlement", "relay", "zkVerifier",
+  "settlement",
+  // Settlement two-Logic split (alpha-4 EIP-170 phase 8d-2..4): LogicA
+  // owns the relay outer loops, LogicB owns the per-batch pipeline.
+  // Both share Settlement's storage via the DatumSettlementStorage
+  // abstract base and are reached via DELEGATECALL. Wired via
+  // settlement.setLogic(logicA, logicB) in stage 3.
+  "settlementLogicA", "settlementLogicB",
+  "relay", "zkVerifier",
   "claimValidator", "tokenRewardVault",
   // FP-1–FP-4 fraud prevention
   "publisherStake", "challengeBonds", "publisherGovernance",
@@ -494,6 +501,25 @@ async function main() {
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumSettlement — ${err}`);
+  }
+
+  // Settlement two-Logic split (alpha-4 EIP-170 phase 8d-2..4): deploy
+  // both Logic contracts immediately after Settlement so the setLogic
+  // wiring in stage 3 has both addresses available. Constructors take
+  // no arguments -- the contracts inherit DatumSettlementStorage and
+  // are never called directly (only via DELEGATECALL from Settlement /
+  // LogicA), so their own storage stays zero-initialized.
+  try {
+    logStep("Deploying DatumSettlementLogicA");
+    await deployOrReuse("settlementLogicA", "DatumSettlementLogicA", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumSettlementLogicA — ${err}`);
+  }
+  try {
+    logStep("Deploying DatumSettlementLogicB");
+    await deployOrReuse("settlementLogicB", "DatumSettlementLogicB", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumSettlementLogicB — ${err}`);
   }
 
   try {
@@ -1262,6 +1288,43 @@ async function main() {
     "reputation", "setReputationContract",
     addresses.publisherReputation,
   );
+
+  // ── Settlement: setLogic(logicA, logicB) (governance-rotatable as a pair) ──
+  // Two-Logic split (alpha-4 EIP-170 phase 8d). Both Logic contracts share
+  // Settlement's storage via DatumSettlementStorage; updating only one of
+  // them would risk an A/B layout mismatch, so they're wired atomically.
+  // Idempotent: skip if both pointers already match.
+  {
+    const iface = new ethers.Interface([
+      "function logicA() view returns (address)",
+      "function logicB() view returns (address)",
+      "function setLogic(address,address)",
+    ]);
+    const currentA = (await rawProvider.call({
+      to: addresses.settlement,
+      data: iface.encodeFunctionData("logicA", []),
+    }));
+    const currentB = (await rawProvider.call({
+      to: addresses.settlement,
+      data: iface.encodeFunctionData("logicB", []),
+    }));
+    const decodedA = "0x" + currentA.slice(-40);
+    const decodedB = "0x" + currentB.slice(-40);
+    if (
+      decodedA.toLowerCase() === addresses.settlementLogicA.toLowerCase() &&
+      decodedB.toLowerCase() === addresses.settlementLogicB.toLowerCase()
+    ) {
+      console.log("  OK (already set): Settlement.logic (A + B)");
+    } else {
+      await sendCall(
+        addresses.settlement,
+        ["function setLogic(address,address)"],
+        "setLogic",
+        [addresses.settlementLogicA, addresses.settlementLogicB],
+      );
+      console.log("  SET: Settlement.logic (A + B)");
+    }
+  }
 
   // ── NullifierRegistry: setSettlement + setNullifierWindowBlocks ──
   // ── Settlement: setNullifierRegistry (lock-once) ──
