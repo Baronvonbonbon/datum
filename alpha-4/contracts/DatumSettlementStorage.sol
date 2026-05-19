@@ -34,6 +34,22 @@ interface ICampaignsUserCapView {
     function userCapWindowBlocks(uint256 campaignId) external view returns (uint32);
 }
 
+/// @dev Forward-declared shape of DatumSettlementLogicB.processBatch.
+///      Used by the shared `_delegateProcessBatch` helper on
+///      DatumSettlementStorage so both DatumSettlement (dual-sig path)
+///      and DatumSettlementLogicA (relay outer loops) can dispatch into
+///      LogicB without importing the LogicB contract directly. Avoids
+///      the circular import that would otherwise form (LogicB imports
+///      the storage base; the base would import LogicB).
+interface IDatumSettlementLogicB_processBatch {
+    function processBatch(
+        address user,
+        uint256 campaignId,
+        IDatumSettlement.Claim[] calldata claims,
+        bool advertiserConsented
+    ) external returns (uint256 settled, uint256 rejected, uint256 paid);
+}
+
 /// @title  DatumSettlementStorage
 /// @notice Shared abstract storage base for DatumSettlement and the future
 ///         DatumSettlementLogicA / DatumSettlementLogicB contracts (phase
@@ -236,6 +252,42 @@ abstract contract DatumSettlementStorage is
         } catch {
             return false;
         }
+    }
+
+    /// @dev Forward one batch into DatumSettlementLogicB via DELEGATECALL.
+    ///      Shared between DatumSettlement (dual-sig path) and
+    ///      DatumSettlementLogicA (relay outer loops) so both invoke the
+    ///      inner pipeline through one well-tested helper. LogicB inherits
+    ///      this same storage base so its `processBatch` SLOAD/SSTORE
+    ///      operations hit the original caller's storage.
+    function _delegateProcessBatch(
+        address user,
+        uint256 campaignId,
+        IDatumSettlement.Claim[] calldata claims,
+        bool advertiserConsented,
+        IDatumSettlement.SettlementResult memory result
+    ) internal {
+        address target = _logicB;
+        if (target == address(0)) revert E00();
+        (bool ok, bytes memory ret) = target.delegatecall(
+            abi.encodeCall(
+                IDatumSettlementLogicB_processBatch.processBatch,
+                (user, campaignId, claims, advertiserConsented)
+            )
+        );
+        if (!ok) {
+            // Bubble the original revert reason so call sites see the
+            // same Custom Error / require string an inlined call would
+            // have produced.
+            assembly {
+                let size := mload(ret)
+                revert(add(ret, 0x20), size)
+            }
+        }
+        (uint256 s, uint256 r, uint256 p) = abi.decode(ret, (uint256, uint256, uint256));
+        result.settledCount  += s;
+        result.rejectedCount += r;
+        result.totalPaid     += p;
     }
 
     // ─────────────────────────────────────────────────────────────────────

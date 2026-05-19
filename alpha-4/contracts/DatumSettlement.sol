@@ -10,7 +10,6 @@ pragma solidity ^0.8.24;
 // settle ABI surface lives at the Settlement contract address and Logic
 // stubs don't have to satisfy it.
 import "./DatumSettlementStorage.sol";
-import "./DatumSettlementLogicB.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumClaimValidator.sol";
@@ -484,62 +483,49 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumSettlement
-    /// @dev Thin auth shell. The per-batch pipeline (gates, validation,
-    ///      payment math, vault credit, mint, reputation) lives in
-    ///      DatumSettlementLogicB and is reached via DELEGATECALL so
-    ///      every SLOAD/SSTORE inside the loop hits Settlement's slots.
-    ///      LogicB pointer must be wired via `setLogic` before any
-    ///      settle path will succeed (E00 if unset).
-    function settleClaims(ClaimBatch[] calldata batches)
+    /// @dev Thin dispatcher. The relay-side outer loop lives in
+    ///      DatumSettlementLogicA, which in turn delegatecalls
+    ///      DatumSettlementLogicB.processBatch for each batch. Both
+    ///      Logic contracts share Settlement's storage via the
+    ///      DatumSettlementStorage abstract base, so every SLOAD /
+    ///      SSTORE through the chain hits Settlement's slots. LogicA
+    ///      pointer must be wired via `setLogic` (E00 if unset). The
+    ///      `nonReentrant` / `whenNotFrozen` guards live on LogicA's
+    ///      entry rather than here -- applying them twice would
+    ///      double-lock the shared `_status` slot.
+    function settleClaims(ClaimBatch[] calldata)
         external
-        nonReentrant
-        whenNotFrozen
-        returns (SettlementResult memory result)
+        returns (SettlementResult memory)
     {
-        if (!(address(_claimValidator) != address(0))) revert E00();
-
-        if (!(!_pauseRegistry.pausedSettlement())) revert Paused();
-
-        if (!(batches.length <= _maxBatchSize)) revert E28();
-
-        for (uint256 b = 0; b < batches.length; b++) {
-            ClaimBatch calldata batch = batches[b];
-
-            bool isPublisherRelay = _isPublisherRelay(batch.claims);
-
-            if (!(msg.sender == batch.user || msg.sender == _relayContract || msg.sender == _attestationVerifier || isPublisherRelay)) revert E32();
-            _delegateProcessBatch(batch.user, batch.campaignId, batch.claims, false, result);
-        }
+        return _delegateToLogicA();
     }
 
     /// @inheritdoc IDatumSettlement
-    /// @dev See `settleClaims` for the DELEGATECALL routing notes.
-    function settleClaimsMulti(UserClaimBatch[] calldata batches)
+    /// @dev See `settleClaims` for the dispatcher / chained delegatecall
+    ///      notes.
+    function settleClaimsMulti(UserClaimBatch[] calldata)
         external
-        nonReentrant
-        whenNotFrozen
-        returns (SettlementResult memory result)
+        returns (SettlementResult memory)
     {
-        if (!(address(_claimValidator) != address(0))) revert E00();
+        return _delegateToLogicA();
+    }
 
-        if (!(!_pauseRegistry.pausedSettlement())) revert Paused();
-
-        if (!(batches.length <= _maxBatchSize)) revert E28();
-
-        for (uint256 u = 0; u < batches.length; u++) {
-            UserClaimBatch calldata ub = batches[u];
-            if (!(ub.campaigns.length <= _maxBatchSize)) revert E28();
-
-            for (uint256 c = 0; c < ub.campaigns.length; c++) {
-                CampaignClaims calldata cc = ub.campaigns[c];
-
-                bool isPublisherRelay = _isPublisherRelay(cc.claims);
-
-                if (!(msg.sender == ub.user || msg.sender == _relayContract || msg.sender == _attestationVerifier || isPublisherRelay)) revert E32();
-
-                _delegateProcessBatch(ub.user, cc.campaignId, cc.claims, false, result);
+    /// @dev Forward the current `msg.data` (selector + calldata) into
+    ///      DatumSettlementLogicA via DELEGATECALL. Both relay entry
+    ///      points share this body since the only thing that varies is
+    ///      the calldata shape -- LogicA's overload selector handles
+    ///      the dispatch.
+    function _delegateToLogicA() internal returns (SettlementResult memory) {
+        address target = _logicA;
+        if (target == address(0)) revert E00();
+        (bool ok, bytes memory ret) = target.delegatecall(msg.data);
+        if (!ok) {
+            assembly {
+                let size := mload(ret)
+                revert(add(ret, 0x20), size)
             }
         }
+        return abi.decode(ret, (SettlementResult));
     }
 
     /// @notice Wire the carved-out DualSig settlement module. Lock-once.
@@ -565,42 +551,6 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
         if (claims.length == 0) revert E28();
         if (claims.length > _maxBatchSize) revert E28();
         _delegateProcessBatch(user, campaignId, claims, true, result);
-    }
-
-    /// @dev Forward one batch into DatumSettlementLogicB via DELEGATECALL.
-    ///      LogicB shares Settlement's storage layout (both inherit
-    ///      DatumSettlementStorage), so every SLOAD / SSTORE inside
-    ///      `processBatch` hits Settlement's slots. The pointer is checked
-    ///      lazily here (E00 if unset) rather than gated at every external
-    ///      entry — keeps the wiring story in one place.
-    function _delegateProcessBatch(
-        address user,
-        uint256 campaignId,
-        Claim[] calldata claims,
-        bool advertiserConsented,
-        SettlementResult memory result
-    ) internal {
-        address target = _logicB;
-        if (target == address(0)) revert E00();
-        (bool ok, bytes memory ret) = target.delegatecall(
-            abi.encodeCall(
-                DatumSettlementLogicB.processBatch,
-                (user, campaignId, claims, advertiserConsented)
-            )
-        );
-        if (!ok) {
-            // Bubble the original revert reason so call sites see the
-            // same Custom Error / require string that the inlined version
-            // would have produced.
-            assembly {
-                let size := mload(ret)
-                revert(add(ret, 0x20), size)
-            }
-        }
-        (uint256 s, uint256 r, uint256 p) = abi.decode(ret, (uint256, uint256, uint256));
-        result.settledCount  += s;
-        result.rejectedCount += r;
-        result.totalPaid     += p;
     }
 
 
