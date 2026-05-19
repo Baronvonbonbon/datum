@@ -1,11 +1,11 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-18
-**Current Phase:** Alpha-4 v0.5.0 — upgrade ladder shipped (Stages 1–6); ~36 contracts upgradable via governance registry; lock-once cypherpunk commitments phase-gated on OpenGov; **testing-fresh posture during alpha-beta with locks deferred**
+**Last Updated:** 2026-05-19
+**Current Phase:** Alpha-4 v0.5.0 — upgrade ladder shipped (Stages 1–6); ~36 contracts upgradable via governance registry; lock-once cypherpunk commitments phase-gated on OpenGov; **testing-fresh posture during alpha-beta with locks deferred**; Settlement EIP-170 closed via two-Logic split (2026-05-19)
 **Testnet:** Paseo Hub (Chain ID 420420417) — alpha-4 (EVM, solc) + alpha-3 (PVM, resolc 1.1.0) reference
 **Web App:** https://datum.javcon.io
-**Contract count:** 30 deployed (+6 token-plane via deploy-token.ts) — see `deployed-addresses.json`
-**Tests:** 1224 passing
+**Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (+6 token-plane via deploy-token.ts) — see `deployed-addresses.json`
+**Tests:** 1228 passing (+4 storage-layout invariant tests for the Settlement Logic split)
 
 ## Cypherpunk roadmap (2026-05-18)
 
@@ -218,7 +218,7 @@ Source: `alpha-4/deployed-addresses.json` (authoritative for alpha-4).
 | Alpha contracts (archived) | 132 | Passing |
 | Alpha-2 contracts (archived) | 187 | Passing |
 | Alpha-3 contracts | 546 / 546 | All passing |
-| Alpha-4 contracts | 532 / 532 | All passing (incl. 8 new D1–D8 dual-sig) |
+| Alpha-4 contracts | 1228 / 1228 | All passing (incl. 4 storage-layout invariant tests for the Settlement Logic split) |
 | Alpha-4 extension | 212 | Passing |
 
 ---
@@ -255,13 +255,24 @@ AdminGovernance (Phase 0, active), GovernanceRouter (stable proxy), Council (Pha
 ### ✅ 10. Hybrid Dual-Sig Settlement — DONE (uncommitted, 2026-05-08)
 `Settlement.settleSignedClaims` permissionless path with publisher + advertiser EIP-712 co-sigs. 8 new tests (D1–D8). Extension/web/relay-bot all updated to the new struct layout.
 
-### 11. E2E Browser Validation
+### ✅ 11. Settlement EIP-170 — DONE (2026-05-19, commits 85b98ba → 5a8b291)
+After 10 carve-outs Settlement was still 9.8 KB over the 24,576 B mainnet cap. Closed via a two-Logic split: `DatumSettlement` keeps the public ABI + storage + setters/getters, `DatumSettlementLogicA` owns the relay-side outer loops (`settleClaims`, `settleClaimsMulti`), and `DatumSettlementLogicB` owns the per-batch pipeline (`processBatch` body). All three inherit `DatumSettlementStorage` (single source of truth for layout) and the Logic contracts run in Settlement's storage via DELEGATECALL.
+
+Sizes after the split (all under EIP-170 with audit headroom):
+- `DatumSettlement` — 11,338 B (was 34,494 B)
+- `DatumSettlementLogicA` — 5,289 B
+- `DatumSettlementLogicB` — 12,507 B
+- `DatumCampaigns` — 20,767 B (already under EIP-170 since the TagSystem carve-out)
+
+The Logic pair is governance-rotatable atomically via `setLogic(logicA, logicB)` to prevent A/B layout drift mid-upgrade. Storage layout enforcement: `test/settlement-layout.test.ts` compiles all three contracts and asserts slot-by-slot identity (catches any future drift before deploy). Deploy script auto-wires.
+
+### 12. E2E Browser Validation
 Full flow on Paseo against alpha-4 EVM addresses: load extension, create impression, settle on-chain, confirm earnings.
 
-### 12. Open Testing
+### 13. Open Testing
 Publish addresses, document external tester flow, monitor events.
 
-### 13. External Security Audit
+### 14. External Security Audit
 Professional audit before Kusama/Polkadot Hub deployment.
 
 ---
