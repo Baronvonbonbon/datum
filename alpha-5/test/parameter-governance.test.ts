@@ -1,0 +1,427 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import {
+  DatumParameterGovernance,
+  DatumPauseRegistry,
+  DatumPublisherStake,
+  MockCallTarget,
+} from "../typechain-types";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { mineBlocks, fundSigners } from "./helpers/mine";
+
+// DatumParameterGovernance tests (T1-B)
+// PGV1–PGV3:  propose() — happy path, zero target, wrong bond
+// PGV4–PGV7:  vote() — aye/nay, conviction weight, locked re-vote, zero value
+// PGV8:       withdrawVote() — locked reverts, conviction 0 withdraws
+// PGV9–PGV11: resolve() — passes, rejected (bond slashed), cannot re-resolve
+// PGV12–PGV13: execute() — calls target, returns bond; too-early reverts
+// PGV14–PGV15: cancel() — owner cancels, non-owner reverts
+// PGV16:      setParams — updates all params
+// PGV17:      ownership transfer
+
+describe("DatumParameterGovernance", function () {
+  let gov: DatumParameterGovernance;
+  let pauseReg: DatumPauseRegistry;
+  let target: MockCallTarget;
+  let stakeContract: DatumPublisherStake;
+
+  let owner: HardhatEthersSigner;
+  let proposer: HardhatEthersSigner;
+  let voter1: HardhatEthersSigner;
+  let voter2: HardhatEthersSigner;
+  let other: HardhatEthersSigner;
+
+  const VOTING_PERIOD = 20n;
+  const TIMELOCK      = 3n;
+  const QUORUM        = 10_000_000_000n; // 1 DOT conviction-weighted
+  const PROPOSE_BOND  = 2_000_000_000n;  // 0.2 DOT
+
+  before(async function () {
+    await fundSigners();
+    [owner, proposer, voter1, voter2, other] = await ethers.getSigners();
+
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    pauseReg = await PauseFactory.deploy(owner.address, proposer.address, voter1.address);
+
+    const GovFactory = await ethers.getContractFactory("DatumParameterGovernance");
+    gov = await GovFactory.deploy(await pauseReg.getAddress(), VOTING_PERIOD, TIMELOCK, QUORUM, PROPOSE_BOND);
+
+    const TargetFactory = await ethers.getContractFactory("MockCallTarget");
+    target = await TargetFactory.deploy();
+
+    // For ABI encoding tests only (no ownership needed)
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    stakeContract = await StakeFactory.deploy(1_000_000_000n, 1_000n, 100n);
+
+    // AUDIT-004: whitelist MockCallTarget so PGV11 execute() can proceed
+    await gov.connect(owner).setWhitelistedTarget(await target.getAddress(), true);
+    await gov.connect(owner).setPermittedSelector(await target.getAddress(), "0xdeadbeef", true);
+  });
+
+  // ── PGV1: propose happy path ─────────────────────────────────────────────────
+
+  it("PGV1 propose — creates proposal with correct fields", async function () {
+    const payload = "0xdeadbeef";
+    const tx = await gov.connect(proposer).propose(
+      await target.getAddress(), payload, "Test proposal",
+      { value: PROPOSE_BOND }
+    );
+    const receipt = await tx.wait();
+    const event = receipt?.logs.map(l => {
+      try { return gov.interface.parseLog(l); } catch { return null; }
+    }).find(e => e?.name === "Proposed");
+    expect(event).to.not.be.null;
+    expect(event?.args.proposalId).to.equal(0n);
+    expect(event?.args.proposer).to.equal(proposer.address);
+
+    const p = await gov.proposals(0n);
+    expect(p.state).to.equal(0); // Active
+    expect(p.bond).to.equal(PROPOSE_BOND);
+    expect(p.endBlock - p.startBlock).to.equal(VOTING_PERIOD);
+  });
+
+  // ── PGV2: propose — wrong bond ───────────────────────────────────────────────
+
+  it("PGV2 propose — wrong bond reverts E11", async function () {
+    await expect(
+      gov.connect(proposer).propose(await target.getAddress(), "0x01", "x", { value: 1n })
+    ).to.be.revertedWith("E11");
+  });
+
+  // ── PGV3: propose — zero target reverts E00 ─────────────────────────────────
+
+  it("PGV3 propose — zero target reverts E00", async function () {
+    await expect(
+      gov.connect(proposer).propose(ethers.ZeroAddress, "0x01", "x", { value: PROPOSE_BOND })
+    ).to.be.revertedWith("E00");
+  });
+
+  // ── PGV4: vote aye ───────────────────────────────────────────────────────────
+
+  it("PGV4 vote — aye adds conviction-weighted weight", async function () {
+    const amount = 1_000_000_000n;
+    await gov.connect(voter1).vote(0n, true, 1, { value: amount }); // ×2
+
+    const p = await gov.proposals(0n);
+    expect(p.ayeWeight).to.equal(amount * 2n);
+    expect(p.nayWeight).to.equal(0n);
+
+    const v = await gov.getVote(0n, voter1.address);
+    expect(v.aye).to.be.true;
+    expect(v.conviction).to.equal(1);
+    expect(v.lockAmount).to.equal(amount);
+  });
+
+  // ── PGV5: vote nay ───────────────────────────────────────────────────────────
+
+  it("PGV5 vote — nay with conviction 0 (×1)", async function () {
+    const amount = 500_000_000n;
+    await gov.connect(voter2).vote(0n, false, 0, { value: amount });
+
+    const p = await gov.proposals(0n);
+    expect(p.nayWeight).to.equal(amount);
+  });
+
+  // ── PGV6: vote — zero value reverts E03 ──────────────────────────────────────
+
+  it("PGV6 vote — zero value reverts E03", async function () {
+    await expect(gov.connect(other).vote(0n, true, 0, { value: 0n })).to.be.revertedWith("E03");
+  });
+
+  // ── PGV7: vote — conviction > 8 reverts E40 ──────────────────────────────────
+
+  it("PGV7 vote — conviction > 8 reverts E40", async function () {
+    await expect(
+      gov.connect(other).vote(0n, true, 9, { value: 1_000_000_000n })
+    ).to.be.revertedWith("E40");
+  });
+
+  // ── PGV8: withdrawVote ────────────────────────────────────────────────────────
+
+  it("PGV8 withdrawVote — locked vote reverts E40; conviction 0 withdraws immediately", async function () {
+    // voter1 has conviction 1 (14400 block lockup) — locked
+    await expect(gov.connect(voter1).withdrawVote(0n)).to.be.revertedWith("E40");
+
+    // voter2 voted with conviction 0 — lockUntil = block.number + 0 = at-or-before now
+    const v = await gov.getVote(0n, voter2.address);
+    expect(v.lockAmount).to.be.gt(0n);
+    const before = await ethers.provider.getBalance(voter2.address);
+    const tx = await gov.connect(voter2).withdrawVote(0n);
+    const receipt = await tx.wait();
+    const gasCost = receipt!.gasUsed * tx.gasPrice!;
+    const after = await ethers.provider.getBalance(voter2.address);
+    expect(after + gasCost).to.be.closeTo(before + v.lockAmount, 1_000_000n);
+
+    // Re-withdraw reverts E03
+    await expect(gov.connect(voter2).withdrawVote(0n)).to.be.revertedWith("E03");
+  });
+
+  // ── PGV9: resolve — passes ───────────────────────────────────────────────────
+
+  it("PGV9 resolve — passes when aye >= quorum and aye > nay", async function () {
+    // voter1: 1_000_000_000 × 2 = 2_000_000_000; need 10_000_000_000
+    const bigVote = 5_000_000_000n; // × 2 = 10_000_000_000 → total aye = 12_000_000_000
+    await gov.connect(other).vote(0n, true, 1, { value: bigVote });
+
+    const p = await gov.proposals(0n);
+    const currentBlock = await ethers.provider.getBlockNumber();
+    const blocksToMine = Number(p.endBlock) - currentBlock + 1;
+    if (blocksToMine > 0) await mineBlocks(blocksToMine);
+
+    await gov.connect(other).resolve(0n);
+
+    const resolved = await gov.proposals(0n);
+    expect(resolved.state).to.equal(1); // Passed
+    expect(resolved.executeAfter).to.be.gt(0n);
+  });
+
+  // ── PGV10: resolve — cannot re-resolve ───────────────────────────────────────
+
+  it("PGV10 resolve — already resolved reverts E40", async function () {
+    await expect(gov.connect(other).resolve(0n)).to.be.revertedWith("E40");
+  });
+
+  // ── PGV11: execute — success ──────────────────────────────────────────────────
+
+  it("PGV11 execute — calls target, returns bond to proposer (G-M3 pull)", async function () {
+    const p = await gov.proposals(0n);
+    const currentBlock = await ethers.provider.getBlockNumber();
+    const blocksToMine = Number(p.executeAfter) - currentBlock + 1;
+    if (blocksToMine > 0) await mineBlocks(blocksToMine);
+
+    // G-M3: bond is queued in pendingBondPayout, not pushed.
+    await gov.connect(other).execute(0n);
+    expect(await gov.pendingBondPayout(proposer.address)).to.equal(PROPOSE_BOND);
+
+    const callCount = await target.callCount();
+    expect(callCount).to.equal(1n); // MockCallTarget's fallback was invoked
+
+    const executed = await gov.proposals(0n);
+    expect(executed.state).to.equal(2); // Executed
+    expect(executed.bond).to.equal(0n);
+
+    // Proposer pulls the bond
+    const before = await ethers.provider.getBalance(proposer.address);
+    const claimTx = await gov.connect(proposer).claimBondPayout();
+    const claimReceipt = await claimTx.wait();
+    const after = await ethers.provider.getBalance(proposer.address);
+    const claimGas = claimReceipt!.gasUsed * claimReceipt!.gasPrice;
+    expect(after - before + claimGas).to.equal(PROPOSE_BOND);
+    expect(await gov.pendingBondPayout(proposer.address)).to.equal(0n);
+  });
+
+  // ── PGV12: execute — too early ────────────────────────────────────────────────
+
+  it("PGV12 execute — before timelock reverts E40", async function () {
+    // Create a new proposal and pass it, then try to execute immediately
+    await gov.connect(proposer).propose(
+      await target.getAddress(), "0xdeadbeef", "Early execute test",
+      { value: PROPOSE_BOND }
+    );
+    const proposalId = await gov.nextProposalId() - 1n;
+
+    // Vote to pass
+    await gov.connect(voter1).vote(proposalId, true, 1, { value: 5_000_000_000n });
+    await gov.connect(other).vote(proposalId, true, 1, { value: 5_000_000_000n });
+
+    const p = await gov.proposals(proposalId);
+    const currentBlock = await ethers.provider.getBlockNumber();
+    let blocksToMine = Number(p.endBlock) - currentBlock + 1;
+    if (blocksToMine > 0) await mineBlocks(blocksToMine);
+    await gov.connect(other).resolve(proposalId);
+
+    // executeAfter = endBlock + timelockBlocks = now + 3 blocks (approx)
+    // Immediately try to execute — may or may not be before executeAfter
+    const p2 = await gov.proposals(proposalId);
+    const current2 = BigInt(await ethers.provider.getBlockNumber());
+    if (current2 < p2.executeAfter) {
+      await expect(gov.connect(other).execute(proposalId)).to.be.revertedWith("E40");
+    } else {
+      this.skip(); // Hardhat mines fast; timelock already elapsed
+    }
+  });
+
+  // ── PGV13: rejected — bond slashed ────────────────────────────────────────────
+
+  it("PGV13 reject — bond slashed to owner when quorum not met (G-M3 pull)", async function () {
+    await gov.connect(proposer).propose(
+      await target.getAddress(), "0xdeadbeef", "No quorum",
+      { value: PROPOSE_BOND }
+    );
+    const proposalId = await gov.nextProposalId() - 1n;
+
+    // No votes (ayeWeight = 0 < QUORUM)
+    const p = await gov.proposals(proposalId);
+    const currentBlock = await ethers.provider.getBlockNumber();
+    const blocksToMine = Number(p.endBlock) - currentBlock + 1;
+    if (blocksToMine > 0) await mineBlocks(blocksToMine);
+
+    const pendingBefore = await gov.pendingBondPayout(owner.address);
+    await gov.connect(other).resolve(proposalId);
+    const pendingAfter = await gov.pendingBondPayout(owner.address);
+
+    const rejected = await gov.proposals(proposalId);
+    expect(rejected.state).to.equal(3); // Rejected
+    expect(pendingAfter - pendingBefore).to.equal(PROPOSE_BOND);
+  });
+
+  // ── PGV14: cancel — owner cancels Active proposal ─────────────────────────────
+
+  it("PGV14 cancel — owner cancels, bond slashed (G-M3 pull)", async function () {
+    await gov.connect(proposer).propose(
+      await target.getAddress(), "0xdeadbeef", "Cancel me",
+      { value: PROPOSE_BOND }
+    );
+    const proposalId = await gov.nextProposalId() - 1n;
+
+    const pendingBefore = await gov.pendingBondPayout(owner.address);
+    await gov.connect(owner).cancel(proposalId);
+    const pendingAfter = await gov.pendingBondPayout(owner.address);
+
+    expect(pendingAfter - pendingBefore).to.equal(PROPOSE_BOND);
+    expect((await gov.proposals(proposalId)).state).to.equal(4); // Cancelled
+  });
+
+  // ── PGV15: cancel — non-owner reverts E18 ────────────────────────────────────
+
+  it("PGV15 cancel — non-owner reverts E18", async function () {
+    await gov.connect(proposer).propose(
+      await target.getAddress(), "0xdeadbeef", "Non-owner cancel",
+      { value: PROPOSE_BOND }
+    );
+    const proposalId = await gov.nextProposalId() - 1n;
+    await expect(gov.connect(other).cancel(proposalId)).to.be.revertedWith("E18");
+    await gov.connect(owner).cancel(proposalId);
+  });
+
+  // ── PGV16: setParams ──────────────────────────────────────────────────────────
+
+  it("PGV16 setParams — owner updates params", async function () {
+    await gov.connect(owner).setParams(20n, 10n, 50_000_000_000n, 5_000_000_000n);
+    expect(await gov.votingPeriodBlocks()).to.equal(20n);
+    expect(await gov.timelockBlocks()).to.equal(10n);
+    expect(await gov.quorum()).to.equal(50_000_000_000n);
+    expect(await gov.proposeBond()).to.equal(5_000_000_000n);
+
+    await expect(gov.connect(other).setParams(1n, 1n, 1n, 1n)).to.be.revertedWith("E18");
+
+    // Restore
+    await gov.connect(owner).setParams(VOTING_PERIOD, TIMELOCK, QUORUM, PROPOSE_BOND);
+  });
+
+  // ── PGV17: ownership transfer ─────────────────────────────────────────────────
+
+  it("PGV17 ownership — two-step transfer", async function () {
+    await gov.connect(owner).transferOwnership(other.address);
+    expect(await gov.pendingOwner()).to.equal(other.address);
+
+    await expect(gov.connect(voter1).acceptOwnership()).to.be.revertedWith("E18");
+
+    await gov.connect(other).acceptOwnership();
+    expect(await gov.owner()).to.equal(other.address);
+
+    await gov.connect(other).transferOwnership(owner.address);
+    await gov.connect(owner).acceptOwnership();
+    expect(await gov.owner()).to.equal(owner.address);
+  });
+
+  // ── PGV-BS1: bootstrapAcceptOwnership — happy path ───────────────────────────
+
+  it("PGV-BS1 bootstrapAcceptOwnership — owner accepts pending Ownable2Step transfer", async function () {
+    // Deploy a fresh PublisherStake owned by `owner`
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+
+    // Phase 1: deployer transfers ownership to ParameterGovernance
+    await ps.connect(owner).transferOwnership(await gov.getAddress());
+    expect(await ps.pendingOwner()).to.equal(await gov.getAddress());
+
+    // Phase 2: deployer (still PG owner) calls bootstrap on PG to accept
+    await gov.connect(owner).bootstrapAcceptOwnership(await ps.getAddress());
+    expect(await ps.owner()).to.equal(await gov.getAddress());
+  });
+
+  // ── PGV-BS2: bootstrapAcceptOwnership — non-owner reverts E18 ────────────────
+
+  it("PGV-BS2 bootstrapAcceptOwnership — non-owner reverts", async function () {
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+    await ps.connect(owner).transferOwnership(await gov.getAddress());
+    await expect(
+      gov.connect(other).bootstrapAcceptOwnership(await ps.getAddress())
+    ).to.be.revertedWith("E18");
+  });
+
+  // ── PGV-BS3: bootstrapAcceptOwnership — zero address reverts E00 ─────────────
+
+  it("PGV-BS3 bootstrapAcceptOwnership — zero address reverts E00", async function () {
+    await expect(
+      gov.connect(owner).bootstrapAcceptOwnership(ethers.ZeroAddress)
+    ).to.be.revertedWith("E00");
+  });
+
+  // ── PGV-BS4: bootstrapAcceptOwnership — no pending transfer reverts E02 ──────
+
+  it("PGV-BS4 bootstrapAcceptOwnership — target with no pending transfer reverts", async function () {
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1_000_000_000n, 1_000n, 100n);
+    // No transferOwnership called; pendingOwner is zero address
+    await expect(
+      gov.connect(owner).bootstrapAcceptOwnership(await ps.getAddress())
+    ).to.be.revertedWith("E02");
+  });
+
+  // ── PGV-EX1: end-to-end execute on a contract owned via bootstrap ────────────
+
+  it("PGV-EX1 end-to-end — PG owns a contract via bootstrap and executes a whitelisted setParams call", async function () {
+    // Fresh PG with low quorum so a single voter can pass it
+    const PauseFactory = await ethers.getContractFactory("DatumPauseRegistry");
+    const pr = await PauseFactory.deploy(owner.address, proposer.address, voter1.address);
+    const PG = await ethers.getContractFactory("DatumParameterGovernance");
+    const pg = await PG.deploy(await pr.getAddress(), 5n, 2n, 1n, 1n); // 5-block voting, 2-block timelock, 1 wei quorum, 1 wei bond
+
+    // Fresh PublisherStake to govern
+    const StakeFactory = await ethers.getContractFactory("DatumPublisherStake");
+    const ps = await StakeFactory.connect(owner).deploy(1n, 1n, 1n);
+
+    // Whitelist target + setParams selector on PG (deployer is PG owner)
+    const setParamsSelector = ps.interface.getFunction("setParams")!.selector;
+    await pg.connect(owner).setWhitelistedTarget(await ps.getAddress(), true);
+    await pg.connect(owner).setPermittedSelector(await ps.getAddress(), setParamsSelector, true);
+
+    // Migrate PS ownership: transfer + bootstrap accept
+    await ps.connect(owner).transferOwnership(await pg.getAddress());
+    await pg.connect(owner).bootstrapAcceptOwnership(await ps.getAddress());
+    expect(await ps.owner()).to.equal(await pg.getAddress());
+
+    // Propose a setParams change
+    const newPayload = ps.interface.encodeFunctionData("setParams", [42n, 7n, 99n]);
+    await pg.connect(proposer).propose(await ps.getAddress(), newPayload, "raise base", { value: 1n });
+    const id = (await pg.nextProposalId()) - 1n;
+
+    // Vote aye with conviction 0 (no lockup)
+    await pg.connect(voter1).vote(id, true, 0, { value: 100n });
+    await mineBlocks(6); // past voting period
+    await pg.connect(other).resolve(id);
+    await mineBlocks(3); // past timelock
+    await pg.connect(other).execute(id);
+
+    // The change applied
+    expect(await ps.baseStakePlanck()).to.equal(42n);
+    expect(await ps.planckPerImpression()).to.equal(7n);
+    expect(await ps.unstakeDelayBlocks()).to.equal(99n);
+  });
+
+  // ── PGV18: conviction helpers ─────────────────────────────────────────────────
+
+  it("PGV18 convictionWeight and convictionLockup — boundary values", async function () {
+    expect(await gov.convictionWeight(0)).to.equal(1n);
+    expect(await gov.convictionWeight(8)).to.equal(21n);
+    expect(await gov.convictionLockup(0)).to.equal(0n);
+    expect(await gov.convictionLockup(1)).to.equal(14_400n);
+    expect(await gov.convictionLockup(8)).to.equal(5_256_000n);
+
+    await expect(gov.convictionWeight(9)).to.be.revertedWith("E40");
+    await expect(gov.convictionLockup(9)).to.be.revertedWith("E40");
+  });
+});

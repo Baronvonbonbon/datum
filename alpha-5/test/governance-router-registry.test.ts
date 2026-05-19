@@ -1,0 +1,330 @@
+// DatumGovernanceRouter — Stage 1 upgrade ladder (registry + regression).
+//
+// Covers narrative-analysis/upgrade-ladder-design.md §2:
+//   - register / upgradeContract phase-gated auth
+//   - version + history tracking
+//   - phase regression with timelock (propose → 48h → execute)
+//   - cancellation
+//   - phase floor follows regression downward
+
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import {
+  DatumGovernanceRouter,
+  MockCampaigns,
+  MockCampaignLifecycle,
+} from "../typechain-types";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+
+const NAME_BRIDGE   = ethers.keccak256(ethers.toUtf8Bytes("bridge"));
+const NAME_REPORTER = ethers.keccak256(ethers.toUtf8Bytes("reporter"));
+
+// Match MIN_REGRESSION_TIMELOCK so tests don't have to mine 48h
+const TIMELOCK_BLOCKS = 14400n;
+
+async function mineBlocks(n: bigint) {
+  await ethers.provider.send("hardhat_mine", ["0x" + n.toString(16)]);
+}
+
+describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
+  let router: DatumGovernanceRouter;
+  let mock: MockCampaigns;
+  let mockLifecycle: MockCampaignLifecycle;
+
+  let owner: HardhatEthersSigner;
+  let governor: HardhatEthersSigner;
+  let council: HardhatEthersSigner;
+  let openGov: HardhatEthersSigner;
+  let v1: HardhatEthersSigner;
+  let v2: HardhatEthersSigner;
+  let v3: HardhatEthersSigner;
+  let other: HardhatEthersSigner;
+
+  beforeEach(async function () {
+    [owner, governor, council, openGov, v1, v2, v3, other] = await ethers.getSigners();
+
+    const MockF = await ethers.getContractFactory("MockCampaigns");
+    mock = await MockF.deploy();
+    const LifecycleF = await ethers.getContractFactory("MockCampaignLifecycle");
+    mockLifecycle = await LifecycleF.deploy(await mock.getAddress());
+
+    const RouterF = await ethers.getContractFactory("DatumGovernanceRouter");
+    router = await RouterF.deploy(
+      await mock.getAddress(),
+      await mockLifecycle.getAddress(),
+      governor.address,
+    );
+
+    // Lower the regression timelock to MIN so tests can mine through it.
+    await router.connect(owner).setRegressionTimelock(TIMELOCK_BLOCKS);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Registry: register
+  // ─────────────────────────────────────────────────────────────────────
+  describe("register", function () {
+    it("owner can register an initial address", async () => {
+      await expect(router.connect(owner).register(NAME_BRIDGE, v1.address))
+        .to.emit(router, "ContractRegistered").withArgs(NAME_BRIDGE, v1.address);
+      expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v1.address);
+      expect(await router.versionOf(NAME_BRIDGE)).to.equal(1n);
+      expect(await router.addressHistoryLength(NAME_BRIDGE)).to.equal(1n);
+      expect(await router.addressHistory(NAME_BRIDGE, 0)).to.equal(v1.address);
+    });
+
+    it("non-owner reverts E18", async () => {
+      await expect(router.connect(other).register(NAME_BRIDGE, v1.address))
+        .to.be.revertedWith("E18");
+    });
+
+    it("zero address reverts E00", async () => {
+      await expect(router.connect(owner).register(NAME_BRIDGE, ethers.ZeroAddress))
+        .to.be.revertedWith("E00");
+    });
+
+    it("double-register reverts (use upgradeContract)", async () => {
+      await router.connect(owner).register(NAME_BRIDGE, v1.address);
+      await expect(router.connect(owner).register(NAME_BRIDGE, v2.address))
+        .to.be.revertedWith("already registered");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Registry: upgradeContract — phase-gated authorization
+  // ─────────────────────────────────────────────────────────────────────
+  describe("upgradeContract (Admin phase)", function () {
+    beforeEach(async () => {
+      await router.connect(owner).register(NAME_BRIDGE, v1.address);
+    });
+
+    it("governor (deployer) can upgrade in Admin phase", async () => {
+      await expect(router.connect(governor).upgradeContract(NAME_BRIDGE, v2.address))
+        .to.emit(router, "ContractUpgraded").withArgs(NAME_BRIDGE, v1.address, v2.address, 2n);
+      expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v2.address);
+      expect(await router.versionOf(NAME_BRIDGE)).to.equal(2n);
+      expect(await router.addressHistoryLength(NAME_BRIDGE)).to.equal(2n);
+    });
+
+    it("non-governor reverts E19", async () => {
+      await expect(router.connect(other).upgradeContract(NAME_BRIDGE, v2.address))
+        .to.be.revertedWith("E19");
+    });
+
+    it("upgrade to zero address reverts E00", async () => {
+      await expect(router.connect(governor).upgradeContract(NAME_BRIDGE, ethers.ZeroAddress))
+        .to.be.revertedWith("E00");
+    });
+
+    it("upgrade to same address reverts (no change)", async () => {
+      await expect(router.connect(governor).upgradeContract(NAME_BRIDGE, v1.address))
+        .to.be.revertedWith("no change");
+    });
+
+    it("upgrade unregistered name reverts (not registered)", async () => {
+      await expect(router.connect(governor).upgradeContract(NAME_REPORTER, v2.address))
+        .to.be.revertedWith("not registered");
+    });
+
+    it("multiple upgrades increment version + extend history", async () => {
+      await router.connect(governor).upgradeContract(NAME_BRIDGE, v2.address);
+      await router.connect(governor).upgradeContract(NAME_BRIDGE, v3.address);
+      expect(await router.versionOf(NAME_BRIDGE)).to.equal(3n);
+      expect(await router.addressHistory(NAME_BRIDGE, 0)).to.equal(v1.address);
+      expect(await router.addressHistory(NAME_BRIDGE, 1)).to.equal(v2.address);
+      expect(await router.addressHistory(NAME_BRIDGE, 2)).to.equal(v3.address);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Registry: upgradeContract under Council phase
+  // ─────────────────────────────────────────────────────────────────────
+  describe("upgradeContract (Council phase)", function () {
+    beforeEach(async () => {
+      await router.connect(owner).register(NAME_BRIDGE, v1.address);
+      // Advance to Council phase via the existing two-step setGovernor flow.
+      // Note: we use council EOA as a stand-in for a real DatumCouncil
+      // contract — the auth check is just msg.sender == governor.
+      await router.connect(owner).setGovernor(1, council.address);
+      await router.connect(council).acceptGovernor();
+      expect(await router.phase()).to.equal(1n); // Council
+      expect(await router.governor()).to.equal(council.address);
+    });
+
+    it("Admin-phase deployer can no longer upgrade", async () => {
+      await expect(router.connect(governor).upgradeContract(NAME_BRIDGE, v2.address))
+        .to.be.revertedWith("E19");
+    });
+
+    it("Council can upgrade", async () => {
+      await router.connect(council).upgradeContract(NAME_BRIDGE, v2.address);
+      expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v2.address);
+    });
+  });
+
+  describe("upgradeContract (OpenGov phase)", function () {
+    beforeEach(async () => {
+      await router.connect(owner).register(NAME_BRIDGE, v1.address);
+      await router.connect(owner).setGovernor(1, council.address);
+      await router.connect(council).acceptGovernor();
+      await router.connect(owner).setGovernor(2, openGov.address);
+      await router.connect(openGov).acceptGovernor();
+      expect(await router.phase()).to.equal(2n); // OpenGov
+    });
+
+    it("OpenGov can upgrade", async () => {
+      await router.connect(openGov).upgradeContract(NAME_BRIDGE, v2.address);
+      expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v2.address);
+    });
+
+    it("Council can no longer upgrade", async () => {
+      await expect(router.connect(council).upgradeContract(NAME_BRIDGE, v2.address))
+        .to.be.revertedWith("E19");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase regression: propose / cancel / execute
+  // ─────────────────────────────────────────────────────────────────────
+  describe("phase regression", function () {
+    beforeEach(async () => {
+      // Move all the way to OpenGov so regression has somewhere to go back to.
+      await router.connect(owner).setGovernor(1, council.address);
+      await router.connect(council).acceptGovernor();
+      await router.connect(owner).setGovernor(2, openGov.address);
+      await router.connect(openGov).acceptGovernor();
+      // Ratchet the floor up so we can verify regression breaks it.
+      await router.connect(other).raisePhaseFloor();
+      expect(await router.phase()).to.equal(2n);
+      expect(await router.phaseFloor()).to.equal(2n);
+    });
+
+    it("OpenGov proposes regression to Council", async () => {
+      const tx = await router.connect(openGov).proposeRegression(1, council.address);
+      const receipt = await tx.wait();
+      const head = BigInt(receipt!.blockNumber);
+      const executable = head + TIMELOCK_BLOCKS;
+      await expect(tx)
+        .to.emit(router, "RegressionProposed")
+        .withArgs(1, council.address, executable);
+      expect(await router.pendingRegressionPhase()).to.equal(1n);
+      expect(await router.pendingRegressionGovernor()).to.equal(council.address);
+    });
+
+    it("non-governor cannot propose regression", async () => {
+      await expect(router.connect(other).proposeRegression(1, council.address))
+        .to.be.revertedWith("E19");
+    });
+
+    it("must be strictly downward", async () => {
+      // OpenGov can't propose OpenGov (no regression)
+      await expect(router.connect(openGov).proposeRegression(2, openGov.address))
+        .to.be.revertedWith("not a regression");
+    });
+
+    it("cannot stack two pending regressions", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await expect(router.connect(openGov).proposeRegression(0, governor.address))
+        .to.be.revertedWith("regression pending");
+    });
+
+    it("execute fails before timelock", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await expect(router.executeRegression())
+        .to.be.revertedWith("still in timelock");
+    });
+
+    it("execute succeeds after timelock; phase + governor + floor follow down", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await mineBlocks(TIMELOCK_BLOCKS);
+
+      await expect(router.executeRegression())
+        .to.emit(router, "RegressionExecuted").withArgs(1, council.address);
+
+      expect(await router.phase()).to.equal(1n);
+      expect(await router.governor()).to.equal(council.address);
+      // Floor follows down so re-promotion is unblocked.
+      expect(await router.phaseFloor()).to.equal(1n);
+      // Pending state cleared.
+      expect(await router.pendingRegressionGovernor()).to.equal(ethers.ZeroAddress);
+    });
+
+    it("cancel by governor clears the pending state", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await expect(router.connect(openGov).cancelRegression())
+        .to.emit(router, "RegressionCancelled");
+      expect(await router.pendingRegressionGovernor()).to.equal(ethers.ZeroAddress);
+      // Execute now reverts no-pending.
+      await mineBlocks(TIMELOCK_BLOCKS);
+      await expect(router.executeRegression()).to.be.revertedWith("no pending");
+    });
+
+    it("non-governor cannot cancel", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await expect(router.connect(other).cancelRegression())
+        .to.be.revertedWith("E19");
+    });
+
+    it("after regression, can re-promote via setGovernor + raisePhaseFloor", async () => {
+      await router.connect(openGov).proposeRegression(1, council.address);
+      await mineBlocks(TIMELOCK_BLOCKS);
+      await router.executeRegression();
+      expect(await router.phase()).to.equal(1n);
+
+      // Re-promote to OpenGov via the normal two-step
+      await router.connect(owner).setGovernor(2, openGov.address);
+      await router.connect(openGov).acceptGovernor();
+      expect(await router.phase()).to.equal(2n);
+      expect(await router.phaseFloor()).to.equal(1n);
+
+      // Re-ratchet the floor
+      await router.connect(other).raisePhaseFloor();
+      expect(await router.phaseFloor()).to.equal(2n);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // setRegressionTimelock
+  // ─────────────────────────────────────────────────────────────────────
+  describe("setRegressionTimelock", function () {
+    it("owner can set within bounds", async () => {
+      await router.connect(owner).setRegressionTimelock(50000n);
+      expect(await router.regressionTimelockBlocks()).to.equal(50000n);
+    });
+
+    it("below MIN reverts E11", async () => {
+      await expect(router.connect(owner).setRegressionTimelock(100n))
+        .to.be.revertedWith("E11");
+    });
+
+    it("above MAX reverts E11", async () => {
+      await expect(router.connect(owner).setRegressionTimelock(1_000_000n))
+        .to.be.revertedWith("E11");
+    });
+
+    it("non-owner reverts E18", async () => {
+      await expect(router.connect(other).setRegressionTimelock(50000n))
+        .to.be.revertedWith("E18");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Router self-upgrade — bytes32("governanceRouter") slot is just a
+  // registry entry; recursive upgrade is supported but flagged in the
+  // runbook as needing a manual operator step (deployed-addresses
+  // reference + every consumer re-wires).
+  // ─────────────────────────────────────────────────────────────────────
+  describe("router self-upgrade slot", function () {
+    const NAME_SELF = ethers.keccak256(ethers.toUtf8Bytes("governanceRouter"));
+
+    it("can register and upgrade its own slot like any other contract", async () => {
+      const routerAddr = await router.getAddress();
+      await router.connect(owner).register(NAME_SELF, routerAddr);
+      // Pretend we've deployed a router v2 elsewhere; upgrade the slot.
+      // (No state migration here — that's a Stage 6 operator runbook step.)
+      const fakeV2 = v2.address;
+      await router.connect(governor).upgradeContract(NAME_SELF, fakeV2);
+      expect(await router.currentAddrOf(NAME_SELF)).to.equal(fakeV2);
+      expect(await router.versionOf(NAME_SELF)).to.equal(2n);
+    });
+  });
+});

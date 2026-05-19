@@ -1,0 +1,289 @@
+{
+  "note": "Storage layout snapshot for the Settlement two-Logic split. DatumSettlement, DatumSettlementLogicA, and DatumSettlementLogicB must all share this exact layout (DELEGATECALL invariant). Regenerate via scripts/dump-settlement-layout.ts after any intentional change to DatumSettlementStorage; the file is checked in test/settlement-layout.test.ts (CI) and at the top of scripts/deploy.ts (pre-deploy gate).",
+  "contract": "DatumSettlement, DatumSettlementLogicA, DatumSettlementLogicB",
+  "slotCount": 47,
+  "storage": [
+    {
+      "label": "_owner",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "label": "_pendingOwner",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "label": "router",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_contract(IDatumRouter_Upgradable)58410"
+    },
+    {
+      "label": "frozen",
+      "offset": 20,
+      "slot": "2",
+      "type": "t_bool"
+    },
+    {
+      "label": "migrated",
+      "offset": 21,
+      "slot": "2",
+      "type": "t_bool"
+    },
+    {
+      "label": "migrationSource",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_address"
+    },
+    {
+      "label": "__upgradeGap",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_array(t_uint256)50_storage"
+    },
+    {
+      "label": "_budgetLedger",
+      "offset": 0,
+      "slot": "54",
+      "type": "t_contract(IDatumBudgetLedger)63480"
+    },
+    {
+      "label": "_paymentVault",
+      "offset": 0,
+      "slot": "55",
+      "type": "t_contract(IDatumPaymentVault)64860"
+    },
+    {
+      "label": "_lifecycle",
+      "offset": 0,
+      "slot": "56",
+      "type": "t_contract(IDatumCampaignLifecycle)63619"
+    },
+    {
+      "label": "_relayContract",
+      "offset": 0,
+      "slot": "57",
+      "type": "t_address"
+    },
+    {
+      "label": "_pauseRegistry",
+      "offset": 0,
+      "slot": "58",
+      "type": "t_contract(IDatumPauseRegistry)64771"
+    },
+    {
+      "label": "_attestationVerifier",
+      "offset": 0,
+      "slot": "59",
+      "type": "t_address"
+    },
+    {
+      "label": "_claimValidator",
+      "offset": 0,
+      "slot": "60",
+      "type": "t_contract(IDatumClaimValidator)64378"
+    },
+    {
+      "label": "_publishers",
+      "offset": 0,
+      "slot": "61",
+      "type": "t_contract(IDatumPublishers)65470"
+    },
+    {
+      "label": "_tokenRewardVault",
+      "offset": 0,
+      "slot": "62",
+      "type": "t_contract(IDatumTokenRewardVault)66179"
+    },
+    {
+      "label": "_campaigns",
+      "offset": 0,
+      "slot": "63",
+      "type": "t_contract(IDatumCampaigns)64063"
+    },
+    {
+      "label": "_publisherStake",
+      "offset": 0,
+      "slot": "64",
+      "type": "t_contract(IDatumPublisherStake)65268"
+    },
+    {
+      "label": "_advertiserStake",
+      "offset": 0,
+      "slot": "65",
+      "type": "t_address"
+    },
+    {
+      "label": "_clickRegistry",
+      "offset": 0,
+      "slot": "66",
+      "type": "t_contract(IDatumClickRegistry)64438"
+    },
+    {
+      "label": "_mintCoordinator",
+      "offset": 0,
+      "slot": "67",
+      "type": "t_contract(IDatumMintCoordinator)64504"
+    },
+    {
+      "label": "_rateLimiter",
+      "offset": 0,
+      "slot": "68",
+      "type": "t_contract(IDatumSettlementRateLimiter)65701"
+    },
+    {
+      "label": "_nullifiers",
+      "offset": 0,
+      "slot": "69",
+      "type": "t_contract(IDatumNullifierRegistry)64524"
+    },
+    {
+      "label": "_reputation",
+      "offset": 0,
+      "slot": "70",
+      "type": "t_contract(IDatumPublisherReputation)65125"
+    },
+    {
+      "label": "_maxBatchSize",
+      "offset": 0,
+      "slot": "71",
+      "type": "t_uint256"
+    },
+    {
+      "label": "_userMinAssurance",
+      "offset": 0,
+      "slot": "72",
+      "type": "t_mapping(t_address,t_uint8)"
+    },
+    {
+      "label": "_userMinIdentityLevel",
+      "offset": 0,
+      "slot": "73",
+      "type": "t_mapping(t_address,t_uint8)"
+    },
+    {
+      "label": "_identityRegistry",
+      "offset": 0,
+      "slot": "74",
+      "type": "t_contract(IDatumPeopleChainIdentity)64899"
+    },
+    {
+      "label": "_userBlocksPublisher",
+      "offset": 0,
+      "slot": "75",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_bool))"
+    },
+    {
+      "label": "_userBlocksAdvertiser",
+      "offset": 0,
+      "slot": "76",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_bool))"
+    },
+    {
+      "label": "_userPaused",
+      "offset": 0,
+      "slot": "77",
+      "type": "t_mapping(t_address,t_bool)"
+    },
+    {
+      "label": "_powEngine",
+      "offset": 0,
+      "slot": "78",
+      "type": "t_contract(IDatumPowEngine)64927"
+    },
+    {
+      "label": "_userTotalSettled",
+      "offset": 0,
+      "slot": "79",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "label": "_lastNonce",
+      "offset": 0,
+      "slot": "80",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_uint256)))"
+    },
+    {
+      "label": "_lastClaimHash",
+      "offset": 0,
+      "slot": "81",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_bytes32)))"
+    },
+    {
+      "label": "_userCampaignSettled",
+      "offset": 0,
+      "slot": "82",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_uint256)))"
+    },
+    {
+      "label": "_userCampaignWindowEvents",
+      "offset": 0,
+      "slot": "83",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_mapping(t_uint256,t_uint256))))"
+    },
+    {
+      "label": "_userShareBps",
+      "offset": 0,
+      "slot": "84",
+      "type": "t_uint16"
+    },
+    {
+      "label": "_minClaimInterval",
+      "offset": 2,
+      "slot": "84",
+      "type": "t_uint16"
+    },
+    {
+      "label": "_lastSettlementBlock",
+      "offset": 0,
+      "slot": "85",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_uint256)))"
+    },
+    {
+      "label": "_maxSettlementPerBlock",
+      "offset": 0,
+      "slot": "86",
+      "type": "t_uint256"
+    },
+    {
+      "label": "_cbBlock",
+      "offset": 0,
+      "slot": "87",
+      "type": "t_uint256"
+    },
+    {
+      "label": "_cbTotal",
+      "offset": 0,
+      "slot": "88",
+      "type": "t_uint256"
+    },
+    {
+      "label": "_dualSig",
+      "offset": 0,
+      "slot": "89",
+      "type": "t_address"
+    },
+    {
+      "label": "_logicA",
+      "offset": 0,
+      "slot": "90",
+      "type": "t_address"
+    },
+    {
+      "label": "_logicB",
+      "offset": 0,
+      "slot": "91",
+      "type": "t_address"
+    },
+    {
+      "label": "_logicLocked",
+      "offset": 20,
+      "slot": "91",
+      "type": "t_bool"
+    }
+  ]
+}

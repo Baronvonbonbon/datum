@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.24;
+
+/// @title IDatumChallengeBonds
+/// @notice FP-2: Optional advertiser challenge bonds.
+///         Advertisers lock a bond at campaign creation; returned on normal end.
+///         If publisher fraud is upheld, the slash proceeds partially fund a bonus
+///         pool from which bonded advertisers can claim proportional compensation.
+interface IDatumChallengeBonds {
+    event BondLocked(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 amount);
+    /// @notice Bond cleared from state and queued for advertiser pull. (M-1)
+    event BondReturned(uint256 indexed campaignId, address indexed advertiser, uint256 amount);
+    /// @notice Advertiser pulled their queued bond return. (M-1)
+    event BondReturnClaimed(address indexed advertiser, address indexed recipient, uint256 amount);
+    event BonusAdded(address indexed publisher, uint256 amount, uint256 poolTotal);
+    event BonusClaimed(uint256 indexed campaignId, address indexed advertiser, uint256 amount);
+
+    /// @notice Lock a bond for a campaign. Callable by Campaigns contract on creation.
+    ///         Receives the bond as native DOT (msg.value).
+    /// @param campaignId Campaign ID.
+    /// @param advertiser Bond owner.
+    /// @param publisher  Publisher the bond is associated with.
+    function lockBond(uint256 campaignId, address advertiser, address publisher) external payable;
+
+    /// @notice Return the bond to the advertiser. Callable by Lifecycle on complete/expire.
+    /// @param campaignId Campaign ID.
+    function returnBond(uint256 campaignId) external;
+
+    /// @notice Add to the publisher's bonus pool (from slash proceeds).
+    ///         Callable by PublisherGovernance on successful fraud resolution.
+    ///         Receives funds as native DOT (msg.value).
+    /// @param publisher Publisher whose bonus pool grows.
+    function addToPool(address publisher) external payable;
+
+    /// @notice Claim bonus for a campaign whose publisher was found fraudulent.
+    ///         Advertiser receives bond * bonusPool[publisher] / totalBonds[publisher]
+    ///         (capped to actual pool balance). Bond is burned (not returned).
+    /// @param campaignId Campaign ID with a locked bond.
+    function claimBonus(uint256 campaignId) external;
+
+    /// @notice M-1 cold-wallet variant: claim bonus to a chosen recipient.
+    function claimBonusTo(uint256 campaignId, address recipient) external;
+
+    /// @notice M-1: Pull a queued bond return to msg.sender.
+    function claimBondReturn() external;
+
+    /// @notice M-1: Pull a queued bond return to a chosen recipient.
+    function claimBondReturnTo(address recipient) external;
+
+    /// @notice M-1: Pending bond-return amount for an advertiser.
+    function pendingBondReturn(address advertiser) external view returns (uint256);
+
+    /// @notice Per-publisher claim variants (multi-publisher campaign support).
+    function claimBonusForPublisher(uint256 campaignId, address publisher) external;
+    function claimBonusForPublisherTo(uint256 campaignId, address publisher, address recipient) external;
+
+    // ── Views ──────────────────────────────────────────────────────────────────
+
+    /// @notice Legacy single-publisher views. Resolve only when exactly one
+    ///         publisher is bonded on the campaign; return zero/empty otherwise.
+    ///         Callers handling multi-publisher campaigns should use the
+    ///         per-publisher variants below.
+    function bondOwner(uint256 campaignId) external view returns (address);
+    function bond(uint256 campaignId) external view returns (uint256);
+    function bondPublisher(uint256 campaignId) external view returns (address);
+
+    /// @notice Per-publisher views.
+    function bondForPublisher(uint256 campaignId, address publisher) external view returns (uint256);
+    function bondOwnerForPublisher(uint256 campaignId, address publisher) external view returns (address);
+    function bonusClaimedForPublisher(uint256 campaignId, address publisher) external view returns (bool);
+    function bondedPublishers(uint256 campaignId) external view returns (address[] memory);
+
+    /// @notice Total bonds locked against a publisher across all campaigns.
+    function totalBonds(address publisher) external view returns (uint256);
+
+    /// @notice Current bonus pool accrued for a publisher from slash proceeds.
+    function bonusPool(address publisher) external view returns (uint256);
+
+    /// @notice Whether any bonus has been claimed for a campaign (legacy).
+    function bonusClaimed(uint256 campaignId) external view returns (bool);
+}

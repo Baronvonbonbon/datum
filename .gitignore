@@ -31,7 +31,14 @@ alpha-4/circuits/impression_0000.zkey
 alpha-4/circuits/impression.r1cs
 alpha-4/circuits/impression.sym
 alpha-4/circom
+alpha-5/circuits/ptau12.ptau
+alpha-5/circuits/ptau13.ptau
+alpha-5/circuits/impression_0000.zkey
+alpha-5/circuits/impression.r1cs
+alpha-5/circuits/impression.sym
+alpha-5/circom
 .env
 
 # DATUM token deploy outputs (per-network)
 alpha-4/token-addresses-*.json
+alpha-5/token-addresses-*.json

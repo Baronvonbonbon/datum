@@ -1,0 +1,232 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.24;
+
+import "./interfaces/IDatumPublisherStake.sol";
+import "./DatumUpgradable.sol";
+import "./PaseoSafeSender.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/// @title DatumPublisherStake
+/// @notice FP-1 + FP-4: Publisher staking with bonding-curve required stake.
+///
+///         Publishers lock native DOT to signal commitment. The minimum required
+///         stake grows with cumulative settled impressions:
+///
+///           requiredStake = baseStakePlanck + cumulativeImpressions * planckPerImpression
+///
+///         Unstaking is subject to a delay (default 100,800 blocks ≈ 7 days at 6s/block).
+///         Requesters cannot drop below requiredStake at unstake-request time.
+///
+///         Settlement calls recordImpressions() after each successful batch to
+///         advance the bonding curve. If the stake feature is enabled on Settlement
+///         (publisherStake != address(0)), claims from inadequately staked publishers
+///         are rejected with reason code 15.
+///
+///         Slash is called by PublisherGovernance when a fraud proposal resolves aye.
+contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgradable {
+    function version() public pure override returns (uint256) { return 1; }
+
+    /// @notice Settlement contract — authorised to call recordImpressions.
+    address public settlementContract;
+
+    /// @notice Slash contract — authorised to call slash (PublisherGovernance).
+    address public slashContract;
+
+    // ── Bonding curve params ───────────────────────────────────────────────────
+
+    uint256 public baseStakePlanck;
+    uint256 public planckPerImpression;
+    uint256 public unstakeDelayBlocks;
+    /// @notice AUDIT-012: Cap on requiredStake to prevent bonding curve runaway.
+    ///         Default 10^14 planck = 10,000 DOT.
+    uint256 public maxRequiredStake = 10**14;
+
+    // ── State ──────────────────────────────────────────────────────────────────
+
+    mapping(address => uint256) private _staked;
+    mapping(address => uint256) private _cumulativeImpressions;
+    mapping(address => UnstakeRequest) private _pendingUnstake;
+
+    constructor(
+        uint256 _baseStakePlanck,
+        uint256 _planckPerImpression,
+        uint256 _unstakeDelayBlocks
+    ) {
+        require(_unstakeDelayBlocks > 0, "E00");
+        baseStakePlanck = _baseStakePlanck;
+        planckPerImpression = _planckPerImpression;
+        unstakeDelayBlocks = _unstakeDelayBlocks;
+    }
+
+    // ── Admin ──────────────────────────────────────────────────────────────────
+
+    /// @dev Cypherpunk lock-once: settlementContract is the only caller allowed
+    ///      to advance the publisher's bonding curve (recordImpressions). Swap =
+    ///      forge impressions to inflate required-stake on rivals.
+    function setSettlementContract(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(settlementContract == address(0), "already set");
+        settlementContract = addr;
+    }
+
+    /// @dev Cypherpunk lock-once: slashContract may forcibly burn staked DOT.
+    ///      Hot-swap = unilateral slash of any publisher.
+    function setSlashContract(address addr) external onlyOwner {
+        require(addr != address(0), "E00");
+        require(slashContract == address(0), "already set");
+        slashContract = addr;
+    }
+
+    function setParams(uint256 _base, uint256 _perImpression, uint256 _delay) external onlyOwner {
+        require(_delay > 0, "E00");
+        baseStakePlanck = _base;
+        planckPerImpression = _perImpression;
+        unstakeDelayBlocks = _delay;
+        emit ParamsUpdated(_base, _perImpression, _delay);
+    }
+
+    /// @notice AUDIT-012: Set the bonding curve cap. Owner-only.
+    function setMaxRequiredStake(uint256 cap) external onlyOwner {
+        require(cap > 0, "E00");
+        maxRequiredStake = cap;
+    }
+
+    /// @notice H-2 audit fix: max fraction of a publisher's slashable balance
+    ///         a single slash call may consume, in bps. Defaults to 5000 (50%).
+    ///         Multi-call slashes remain possible.
+    uint16 public maxSlashBpsPerCall = 5000;
+    event MaxSlashBpsPerCallSet(uint16 bps);
+
+    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwner {
+        require(bps > 0 && bps <= 10000, "E11");
+        maxSlashBpsPerCall = bps;
+        emit MaxSlashBpsPerCallSet(bps);
+    }
+
+    receive() external payable whenNotFrozen { revert("E03"); }
+
+    // ── Publisher actions ──────────────────────────────────────────────────────
+
+    /// @inheritdoc IDatumPublisherStake
+    function stake() external payable whenNotFrozen {
+        require(msg.value > 0, "E11");
+        _staked[msg.sender] += msg.value;
+        emit Staked(msg.sender, msg.value, _staked[msg.sender]);
+    }
+
+    /// @inheritdoc IDatumPublisherStake
+    function requestUnstake(uint256 amount) external {
+        require(amount > 0, "E11");
+        require(_staked[msg.sender] >= amount, "E03");
+        require(_pendingUnstake[msg.sender].amount == 0, "E68"); // already pending
+
+        uint256 remaining = _staked[msg.sender] - amount;
+        uint256 req = requiredStake(msg.sender);
+        require(remaining >= req, "E69"); // would drop below required
+
+        _staked[msg.sender] = remaining;
+        uint256 avail = block.number + unstakeDelayBlocks;
+        _pendingUnstake[msg.sender] = UnstakeRequest({ amount: amount, availableBlock: avail });
+        emit UnstakeRequested(msg.sender, amount, avail);
+    }
+
+    /// @inheritdoc IDatumPublisherStake
+    function unstake() external nonReentrant whenNotFrozen {
+        UnstakeRequest memory req = _pendingUnstake[msg.sender];
+        require(req.amount > 0, "E01");
+        require(block.number >= req.availableBlock, "E70"); // delay not elapsed
+
+        delete _pendingUnstake[msg.sender];
+
+        emit Unstaked(msg.sender, req.amount);
+        _safeSend(msg.sender, req.amount);
+    }
+
+    // ── Settlement callback ────────────────────────────────────────────────────
+
+    /// @inheritdoc IDatumPublisherStake
+    function recordImpressions(address publisher, uint256 count) external {
+        require(msg.sender == settlementContract, "E18");
+        _cumulativeImpressions[publisher] += count;
+        emit ImpressionsRecorded(publisher, count, _cumulativeImpressions[publisher]);
+    }
+
+    // ── Governance slash ───────────────────────────────────────────────────────
+
+    /// @inheritdoc IDatumPublisherStake
+    /// @dev R-H1: Slash consumes from `pendingUnstake` first, then `_staked`.
+    ///      Without this, a publisher anticipating a fraud governance proposal
+    ///      could call requestUnstake to move funds out of `_staked` (still
+    ///      held in the contract for the unstake delay) and shield them from
+    ///      slash. Combining the two makes the slash mechanism honest.
+    function slash(address publisher, uint256 amount, address recipient) external nonReentrant whenNotFrozen {
+        require(msg.sender == slashContract, "E18");
+        require(recipient != address(0), "E00");
+
+        uint256 active = _staked[publisher];
+        UnstakeRequest storage pending = _pendingUnstake[publisher];
+        uint256 pendingAmt = pending.amount;
+        uint256 totalSlashable = active + pendingAmt;
+
+        if (amount > totalSlashable) amount = totalSlashable;
+        // H-2: cap a single slash at maxSlashBpsPerCall of total slashable.
+        uint256 callCap = (totalSlashable * uint256(maxSlashBpsPerCall)) / 10000;
+        if (amount > callCap) amount = callCap;
+        if (amount == 0) return;
+
+        // Take from pending first (so a recent requestUnstake can't dodge slash).
+        uint256 fromPending = amount < pendingAmt ? amount : pendingAmt;
+        if (fromPending > 0) {
+            uint256 newPending = pendingAmt - fromPending;
+            if (newPending == 0) {
+                delete _pendingUnstake[publisher];
+            } else {
+                pending.amount = newPending;
+            }
+        }
+        uint256 fromActive = amount - fromPending;
+        if (fromActive > 0) {
+            _staked[publisher] = active - fromActive;
+        }
+
+        emit Slashed(publisher, amount, recipient);
+        _safeSend(recipient, amount);
+    }
+
+    // ── Views ──────────────────────────────────────────────────────────────────
+
+    function staked(address publisher) external view returns (uint256) {
+        return _staked[publisher];
+    }
+
+    function cumulativeImpressions(address publisher) external view returns (uint256) {
+        return _cumulativeImpressions[publisher];
+    }
+
+    function pendingUnstake(address publisher) external view returns (UnstakeRequest memory) {
+        return _pendingUnstake[publisher];
+    }
+
+    function requiredStake(address publisher) public view returns (uint256) {
+        uint256 cap = maxRequiredStake;
+        uint256 base = baseStakePlanck;
+        uint256 perImp = planckPerImpression;
+        uint256 cum = _cumulativeImpressions[publisher];
+        // Saturating bonding-curve evaluation: short-circuit before the
+        // multiplication can overflow when an attacker drives `cum` very high.
+        // The cap is applied either way, so we only need to do the math when
+        // we're not already past it.
+        if (perImp == 0 || cum == 0) {
+            return base >= cap ? cap : base;
+        }
+        if (base >= cap) return cap;
+        uint256 headroom = cap - base;
+        if (cum > headroom / perImp) return cap;
+        return base + cum * perImp;
+    }
+
+    function isAdequatelyStaked(address publisher) external view returns (bool) {
+        return _staked[publisher] >= requiredStake(publisher);
+    }
+}

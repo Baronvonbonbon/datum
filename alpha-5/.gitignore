@@ -1,0 +1,11 @@
+artifacts-evm/
+cache-evm/
+artifacts-mainnet/
+cache-mainnet/
+.env
+
+# Per-network deploy artifacts (localhost rehearsals, devnets, etc).
+# The canonical `deployed-addresses.json` is reserved for the testnet/mainnet
+# deploy (Paseo).
+deployed-addresses.*.json
+extension/deployed-addresses.*.json
