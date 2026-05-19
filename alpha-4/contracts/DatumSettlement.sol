@@ -5,9 +5,12 @@ pragma solidity ^0.8.24;
 // State, errors, non-Claim events, and the inline ICampaignsUserCapView
 // interface live on DatumSettlementStorage (alpha-4 phase 8d-1) so the
 // future LogicA/LogicB contracts can share Settlement's storage layout
-// via DELEGATECALL. The storage base in turn inherits IDatumSettlement,
-// ReentrancyGuard, and DatumUpgradable.
+// via DELEGATECALL. The storage base inherits ReentrancyGuard +
+// DatumUpgradable; IDatumSettlement stays on Settlement so the public
+// settle ABI surface lives at the Settlement contract address and Logic
+// stubs don't have to satisfy it.
 import "./DatumSettlementStorage.sol";
+import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumPublisherStake.sol";
@@ -50,7 +53,7 @@ import "./interfaces/IDatumMintCoordinator.sol";
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)
 ///           protocolFee     = remainder - userPayment     (25%)
-contract DatumSettlement is DatumSettlementStorage {
+contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
 
     function version() public pure override returns (uint256) { return 1; }
 
@@ -425,23 +428,55 @@ contract DatumSettlement is DatumSettlementStorage {
     /// @notice Check that all required references are configured. Returns (valid, missingField).
     ///         Call after deploy/wiring as a smoke test.
     function validateConfiguration() external view returns (bool valid, string memory missingField) {
-        if (address(_budgetLedger) == address(0)) return (false, "_budgetLedger");
-        if (address(_paymentVault) == address(0)) return (false, "_paymentVault");
-        if (address(_lifecycle) == address(0)) return (false, "_lifecycle");
-        if (_relayContract == address(0)) return (false, "_relayContract");
-        if (address(_pauseRegistry) == address(0)) return (false, "_pauseRegistry");
-        if (address(_claimValidator) == address(0)) return (false, "_claimValidator");
-        if (address(_campaigns) == address(0)) return (false, "_campaigns");
+        if (address(_budgetLedger) == address(0)) return (false, "budgetLedger");
+        if (address(_paymentVault) == address(0)) return (false, "paymentVault");
+        if (address(_lifecycle) == address(0)) return (false, "lifecycle");
+        if (_relayContract == address(0)) return (false, "relayContract");
+        if (address(_pauseRegistry) == address(0)) return (false, "pauseRegistry");
+        if (address(_claimValidator) == address(0)) return (false, "claimValidator");
+        if (address(_campaigns) == address(0)) return (false, "campaigns");
         // A1: off-chain ZK clients derive windowId via the nullifier registry's
         // configured window. Require both the registry wired AND its window set
-        // when the verifier path is in play (_claimValidator implies ZK).
-        if (address(_nullifiers) == address(0)) return (false, "_nullifiers");
+        // when the verifier path is in play (claimValidator implies ZK).
+        if (address(_nullifiers) == address(0)) return (false, "nullifiers");
         if (_nullifiers.nullifierWindowBlocks() == 0) return (false, "nullifierWindowBlocks");
         // Optional references (address(0) = disabled feature, not misconfigured):
         // publishers, tokenRewardVault, publisherStake, clickRegistry,
         // attestationVerifier, rateLimiter, reputation, powEngine
         return (true, "");
     }
+
+    // -------------------------------------------------------------------------
+    // Two-Logic split routing (alpha-4 EIP-170 phase 8d-2)
+    // -------------------------------------------------------------------------
+    //
+    // DatumSettlementLogicA and DatumSettlementLogicB inherit the same
+    // DatumSettlementStorage abstract base as Settlement, so DELEGATECALL
+    // into either contract operates on Settlement's storage. The pointers
+    // are updated as a pair via `setLogic` to keep the two Logic contracts
+    // in lockstep — an A/B mismatch on storage layout would corrupt slots
+    // at the first cross-call.
+    //
+    // Pointers are governance-rotatable (not lock-once): the whole point of
+    // this split is that Logic is the upgradable surface. Settlement itself
+    // is the stable slot owner. Owner under OpenGov is the Timelock, so
+    // rotation flows through a 48h governance proposal.
+    //
+    // Phase 8d-2 (this commit): wiring only. No functions are routed yet.
+
+    /// @notice Wire the LogicA + LogicB pair. Both must be non-zero; both
+    ///         must be deployed against the SAME storage layout
+    ///         (DatumSettlementStorage). Owner-settable; later upgrade-ladder
+    ///         phases will gate this behind the Timelock.
+    function setLogic(address logicA_, address logicB_) external onlyOwner {
+        if (logicA_ == address(0) || logicB_ == address(0)) revert E00();
+        _logicA = logicA_;
+        _logicB = logicB_;
+        emit LogicSet(logicA_, logicB_);
+    }
+
+    function logicA() external view returns (address) { return _logicA; }
+    function logicB() external view returns (address) { return _logicB; }
 
     // -------------------------------------------------------------------------
     // Settlement

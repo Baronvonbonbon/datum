@@ -42,10 +42,19 @@ interface ICampaignsUserCapView {
 /// @dev    The library + DELEGATECALL pattern requires every participating
 ///         contract to declare the EXACT same storage layout. This abstract
 ///         base is the single source of truth for that layout: it inherits
-///         the same chain DatumSettlement had pre-phase-1
+///         the same non-interface chain DatumSettlement had pre-phase-1
 ///         (ReentrancyGuard + DatumUpgradable) so ancestor slots stay at
 ///         their original offsets, then declares every Settlement-owned
 ///         state variable in its original order.
+///
+/// @dev    IDatumSettlement is NOT inherited here. Interfaces contribute no
+///         storage slots so the layout would be identical either way, but
+///         pulling the interface in would force LogicA / LogicB to provide
+///         concrete implementations of every settle entry point — which is
+///         the opposite of what they are (DELEGATECALL targets, not
+///         standalone settlement contracts). DatumSettlement re-declares
+///         `is IDatumSettlement` on its own line so it remains the public
+///         settlement ABI surface.
 ///
 /// @dev    NAMING: state variables use an underscore prefix (`_foo`)
 ///         so DatumSettlement can expose them as `function foo()` external
@@ -58,7 +67,6 @@ interface ICampaignsUserCapView {
 ///         test in test/settlement-layout.test.ts (added in phase 8d-5)
 ///         compiles every child and asserts identical layouts.
 abstract contract DatumSettlementStorage is
-    IDatumSettlement,
     ReentrancyGuard,
     DatumUpgradable
 {
@@ -143,6 +151,17 @@ abstract contract DatumSettlementStorage is
     // ── Dual-sig carve-out (alpha-4 EIP-170, C8c) ───────────────────────
     address internal _dualSig;
 
+    // ── Two-Logic split (alpha-4 EIP-170 phase 8d-2) ────────────────────
+    // DatumSettlementLogicA and DatumSettlementLogicB carry the bytecode
+    // that Settlement DELEGATECALLs into; both inherit this same storage
+    // base so their layouts match Settlement's exactly. The pointers are
+    // updated as a pair via Settlement.setLogic to keep the two Logic
+    // contracts in lockstep — an A/B mismatch would corrupt storage at
+    // the first cross-call. Default address(0) means the routing path
+    // is dormant (Phase 2 has no functions routed yet).
+    address internal _logicA;
+    address internal _logicB;
+
     // ─────────────────────────────────────────────────────────────────────
     // Events
     //
@@ -173,6 +192,7 @@ abstract contract DatumSettlementStorage is
     event ReputationContractSet(address indexed reputation);
     event PowEngineSet(address indexed engine);
     event DualSigSet(address indexed dualSig);
+    event LogicSet(address indexed logicA, address indexed logicB);
 
     // ─────────────────────────────────────────────────────────────────────
     // Errors used by Settlement + (in phase 8d-2+) the Logic contracts.
