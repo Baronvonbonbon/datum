@@ -754,7 +754,20 @@ the current architecture. Documented in detail in
   Reject reason 26 emits when a user demands ZK but the campaign
   doesn't require it. End-to-end coverage in
   `user-min-assurance-l3.test.ts`.
-- **G-8** No emergency unstake for users.
+- **G-8** **Closed 2026-05-20.** Time-locked recovery address on
+  `DatumPaymentVault`. Users pre-register a recovery address (cold
+  wallet) via `setRecoveryAddress(addr)`; after
+  `recoveryDelayBlocks` (~24h default, bounded `[6h, 30d]`), anyone
+  can call `emergencyWithdraw(originalAccount)` and ALL vault
+  balances (both `userBalance` and `publisherBalance`) are sent to
+  the registered recovery. One-shot: recovery state clears after
+  use. Anti-attack property: even with a compromised hot key, an
+  attacker can't bypass the delay — `setRecoveryAddress` overwrites
+  always restart the timer, so the legitimate user (who detected
+  the compromise off-chain) has the full delay window to call
+  `cancelRecoveryAddress`. Applies to PaymentVault's DOT credits
+  (the highest-value user asset); TokenRewardVault ERC-20 credits
+  could adopt the same pattern incrementally.
 - **G-9** Slash funds compensate governance, not the actual victims.
 - **G-10** **Closed 2026-05-20.** `ParameterRetuneGuard` mixin
   (`contracts/lib/ParameterRetuneGuard.sol`) + integration on

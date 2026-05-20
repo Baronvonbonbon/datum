@@ -175,6 +175,22 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.-6 G-8 emergency unstake / recovery for users — closed (2026-05-20)
+
+- [x] **Time-locked recovery address** shipped on `DatumPaymentVault`.
+      Pre-register cold wallet via `setRecoveryAddress(addr)`; after
+      ~24h default delay (bounded `[6h, 30d]`), `emergencyWithdraw`
+      pulls all vault balances to the recovery. One-shot: recovery
+      clears after use. 25 new tests (payment-vault-g8.test.ts).
+- [ ] Operational: calibrate `recoveryDelayBlocks` from off-chain
+      compromise-detection timelines. Default 14400 (~24h) gives
+      users one day to react; reduce/extend based on observed
+      incident-response patterns.
+- [ ] Incrementally adopt the recovery pattern on `DatumTokenRewardVault`
+      (ERC-20 side-rewards). Pattern is identical; ~50 LOC additional.
+      Not blocking since DOT credits in PaymentVault are the
+      highest-value user asset.
+
 ### 3.-5 G-10 economic-parameter retune rate limit — first close (2026-05-20)
 
 - [x] **`ParameterRetuneGuard` mixin** (`contracts/lib/ParameterRetuneGuard.sol`)
