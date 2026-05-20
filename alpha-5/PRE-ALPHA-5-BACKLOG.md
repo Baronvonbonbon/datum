@@ -175,6 +175,47 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.-5 G-10 economic-parameter retune rate limit — first close (2026-05-20)
+
+- [x] **`ParameterRetuneGuard` mixin** (`contracts/lib/ParameterRetuneGuard.sol`)
+      + integration on `DatumRelayGovernance` (4 high-impact setters).
+      16 new tests. Default cooldown 0 (testnet posture); production
+      sets a non-zero value via `setRetuneCooldownBlocks`.
+- [ ] Incrementally adopt the mixin on the other governance contracts:
+      `DatumPublisherGovernance` (setSlashBps, setConvictionCurve,
+      setBondBonusBps), `DatumAdvertiserGovernance` (setSlashBps,
+      setConvictionCurve, setPublisherClaimBond), `DatumGovernanceV2`
+      (setSlashBps, setConvictionCurve, setQuorum),
+      `DatumMintCoordinator` (setMintRate, setDatumRewardSplit,
+      setDustMintThreshold). Pattern is documented; each integration
+      is ~5 LOC per setter.
+- [ ] Operational: calibrate `retuneCooldownBlocks` from production
+      data; typical production value would be ~14400 (24h). Lock-once
+      mechanism not yet added — consuming contracts can wrap
+      `setRetuneCooldownBlocks` with their own `whenOpenGovPhase`
+      lock when ready.
+
+### 3.-4 G-7 L3 ZK-only userMinAssurance floor — closed (2026-05-20)
+
+- [x] **Verified L3 setter accepts** `userMinAssurance <= 3` in
+      `DatumSettlement.setUserMinAssurance`. M1-fix L3 ZK enforcement
+      shipped during audit-pass-5 (LogicB._processBatch line 84+).
+      8 new confirmation tests in `user-min-assurance-l3.test.ts`.
+      Doc-only gap; structurally closed since alpha-4.
+
+### 3.-3 G-4 reporter cabal fast eviction — closed (2026-05-20)
+
+- [x] **`DatumStakeRootV2.markInactive(reporter)`** shipped.
+      Permissionless eviction after `inactivityThresholdBlocks`
+      (~7d default, bounded `[24h, 30d]`). Activity tracked via
+      `lastActiveBlock[reporter]` on join/propose/approve. Voting
+      weight drops immediately; stake locked through `reporterExitDelay`
+      for slash protection. 17 new tests.
+- [ ] Operational: calibrate `inactivityThresholdBlocks` from
+      observed off-chain root cadence. Default 100800 (~7d) is
+      conservative — could be tightened to 50400 (~3.5d) once cadence
+      is empirical.
+
 ### 3.-2 G-3 publisher-side dispute initiation — closed (2026-05-20)
 
 - [x] **Council-arbitrated publisher → advertiser fraud claim track**

@@ -118,6 +118,28 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
     // ── Pull-pattern payouts ──────────────────────────────────────────────────
     mapping(address => uint256) private _pendingPayout;
 
+    // ── G-4 first close (2026-05-20): permissionless inactivity eviction ──
+    /// @notice Last block at which a reporter proposed or approved a root
+    ///         (or joined, treated as initial activity so a fresh joiner is
+    ///         not immediately marked inactive). Drives `markInactive`.
+    mapping(address => uint64) public lastActiveBlock;
+    /// @notice Blocks of silence after which any caller can `markInactive` a
+    ///         reporter. Closes G-4 (reporter cabal stonewall): a malicious
+    ///         set that refuses to propose/approve can be evicted without
+    ///         waiting for governance. Bounded by MAX_INACTIVITY_THRESHOLD.
+    uint64 public inactivityThresholdBlocks;
+    /// @notice Ceiling on `inactivityThresholdBlocks`. ~30 days. A threshold
+    ///         longer than this defeats the close (stonewall window is too
+    ///         long); a threshold shorter risks false-positives on honest
+    ///         reporters during off-peak periods.
+    uint64 public constant MAX_INACTIVITY_THRESHOLD = 432_000; // ~30d @ 6s
+    /// @notice Minimum threshold. Below this and honest reporters get
+    ///         false-positive-marked during legitimate quiet periods.
+    uint64 public constant MIN_INACTIVITY_THRESHOLD = 14_400;  // ~24h @ 6s
+
+    event ReporterMarkedInactive(address indexed reporter, uint64 lastActiveBlock, uint64 markedAtBlock);
+    event InactivityThresholdSet(uint64 value);
+
     // ── Events ────────────────────────────────────────────────────────────────
     event ReporterJoined(address indexed reporter, uint256 stake);
     event ReporterExitProposed(address indexed reporter, uint64 unlockAtBlock);
@@ -188,6 +210,8 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         slashApproverBps = _slashApproverBps;
         commitmentBond = _commitmentBond;
         datumToken = IERC20(_datumToken);
+        // G-4 default: ~7d (100800 blocks @ 6s). Within [MIN, MAX] bounds.
+        inactivityThresholdBlocks = 100_800;
     }
 
     /// @dev Accept contract-originated transfers (slash residuals).
@@ -277,6 +301,10 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         _reporterIndex[msg.sender] = reporterList.length;
         reporterList.push(msg.sender);
         totalReporterStake += msg.value;
+        // G-4: treat join as activity so a fresh reporter isn't immediately
+        // markInactive-able. They have a full inactivityThresholdBlocks to
+        // produce their first propose/approve.
+        lastActiveBlock[msg.sender] = uint64(block.number);
         emit ReporterJoined(msg.sender, msg.value);
     }
 
@@ -321,6 +349,42 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
     function _isActiveReporter(address who) internal view returns (bool) {
         ReporterStake storage s = reporterStake[who];
         return s.amount > 0 && s.exitProposedBlock == 0;
+    }
+
+    // ── G-4 first close (2026-05-20): permissionless inactivity eviction ──
+
+    /// @notice Force a reporter into exit-pending state if they've been
+    ///         inactive (no propose/approve) for `inactivityThresholdBlocks`.
+    ///         Permissionless: any caller. Closes G-4 (reporter cabal
+    ///         stonewall) — a malicious set that refuses to do their job can
+    ///         be evicted without governance vote.
+    ///
+    /// @dev    Semantically equivalent to the reporter calling
+    ///         `proposeReporterExit` themselves. Voting weight drops
+    ///         immediately (totalReporterStake -= amount); stake stays
+    ///         locked for `reporterExitDelay` so the reporter remains
+    ///         slashable for any previously-approved fraudulent root.
+    function markInactive(address reporter) external nonReentrant whenNotFrozen {
+        ReporterStake storage s = reporterStake[reporter];
+        require(s.amount > 0, "E01");           // not a reporter
+        require(s.exitProposedBlock == 0, "E22"); // already exit-pending
+        uint64 lab = lastActiveBlock[reporter];
+        // Defensive: lab == 0 should never happen (set on joinReporters)
+        // but if it did, fall through to "never active" semantics.
+        require(uint256(lab) + uint256(inactivityThresholdBlocks) < block.number, "E96");
+
+        s.exitProposedBlock = uint64(block.number);
+        totalReporterStake -= s.amount;
+        emit ReporterMarkedInactive(reporter, lab, uint64(block.number));
+        emit ReporterExitProposed(reporter, s.exitProposedBlock + reporterExitDelay);
+    }
+
+    /// @notice Tune the inactivity-threshold window. Bounded to
+    ///         [MIN_INACTIVITY_THRESHOLD, MAX_INACTIVITY_THRESHOLD].
+    function setInactivityThresholdBlocks(uint64 v) external onlyOwner {
+        require(v >= MIN_INACTIVITY_THRESHOLD && v <= MAX_INACTIVITY_THRESHOLD, "E11");
+        inactivityThresholdBlocks = v;
+        emit InactivityThresholdSet(v);
     }
 
     function reporterCount() external view returns (uint256) { return reporterList.length; }
@@ -381,6 +445,8 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         // Proposer's own stake counts as the first approval.
         _approvedBy[epoch][msg.sender] = true;
         p.approvedStake = reporterStake[msg.sender].amount;
+        // G-4: refresh activity for this reporter on propose.
+        lastActiveBlock[msg.sender] = uint64(block.number);
 
         emit RootProposed(epoch, root, msg.sender, snapshotBlock);
         emit RootApproved(epoch, msg.sender, reporterStake[msg.sender].amount);
@@ -399,6 +465,8 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
         _approvedBy[epoch][msg.sender] = true;
         p.approvedStake += reporterStake[msg.sender].amount;
+        // G-4: refresh activity for this reporter on approve.
+        lastActiveBlock[msg.sender] = uint64(block.number);
         emit RootApproved(epoch, msg.sender, reporterStake[msg.sender].amount);
     }
 

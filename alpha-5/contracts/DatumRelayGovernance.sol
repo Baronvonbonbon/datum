@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
+import "./lib/ParameterRetuneGuard.sol";
 import "./interfaces/IDatumRelayStake.sol";
 import "./interfaces/IDatumRelayGovernance.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -38,7 +39,8 @@ import "./interfaces/IDatumPauseRegistry.sol";
 contract DatumRelayGovernance is
     IDatumRelayGovernance,
     PaseoSafeSender,
-    DatumUpgradable
+    DatumUpgradable,
+    ParameterRetuneGuard
 {
     function version() public pure override returns (uint256) { return 1; }
 
@@ -171,17 +173,28 @@ contract DatumRelayGovernance is
     }
 
     // ── Parameter setters ───────────────────────────────────────────────
+    //
+    // G-10 first close (2026-05-20): high-impact economic setters guarded
+    // by ParameterRetuneGuard cooldown. Defense-in-depth on top of the
+    // upgrade-ladder Timelock — even if governance is compromised, slash
+    // bps / conviction curve / treasury split cannot be snap-retuned
+    // faster than retuneCooldownBlocks. Quorum / grace / propose-bond are
+    // ungated because their damage profile is lower (rate-limiter, not
+    // value-extraction).
+
     function setQuorum(uint256 v) external onlyOwner whenNotFrozen { quorum = v; emit QuorumSet(v); }
     function setMinGraceBlocks(uint256 v) external onlyOwner whenNotFrozen { minGraceBlocks = v; emit MinGraceBlocksSet(v); }
     function setProposeBond(uint256 v) external onlyOwner whenNotFrozen { proposeBond = v; emit ProposeBondSet(v); }
 
     function setSlashAmountBps(uint16 v) external onlyOwner whenNotFrozen {
+        _guardRetune("slashAmountBps");
         if (v > 10000) revert E11();
         slashAmountBps = v;
         emit SlashAmountBpsSet(v);
     }
 
     function setChallengerBonusBps(uint16 v) external onlyOwner whenNotFrozen {
+        _guardRetune("challengerBonusBps");
         if (uint32(v) + uint32(treasuryBps) > 10000) revert E11();
         challengerBonusBps = v;
         // Re-use TreasuryBpsSet for completeness — challenger emit
@@ -190,6 +203,7 @@ contract DatumRelayGovernance is
     }
 
     function setTreasuryBps(uint16 v) external onlyOwner whenNotFrozen {
+        _guardRetune("treasuryBps");
         if (uint32(challengerBonusBps) + uint32(v) > 10000) revert E11();
         if (treasury == address(0) && v != 0) revert E00();
         treasuryBps = v;
@@ -197,6 +211,7 @@ contract DatumRelayGovernance is
     }
 
     function setConvictionCurve(uint256 a, uint256 b) external onlyOwner whenNotFrozen {
+        _guardRetune("convictionCurve");
         // L-6 fix: reject (0, 0). Reserved as the "not yet snapshotted" sentinel.
         if (a == 0 && b == 0) revert E11();
         // Sanity ceiling on max weight (matches PublisherGovernance shape).
@@ -205,6 +220,14 @@ contract DatumRelayGovernance is
         convictionA = a;
         convictionB = b;
         emit ConvictionCurveSet(a, b);
+    }
+
+    /// @notice G-10: owner-only setter for the retune cooldown window.
+    ///         Bounded by MAX_RETUNE_COOLDOWN_BLOCKS (~30d). 0 disables.
+    ///         Default 0 (testnet posture); production sets a non-zero
+    ///         value before any high-impact retune.
+    function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner whenNotFrozen {
+        _setRetuneCooldownBlocks(blocks_);
     }
 
     function setConvictionLockups(uint256[9] calldata l) external onlyOwner whenNotFrozen {

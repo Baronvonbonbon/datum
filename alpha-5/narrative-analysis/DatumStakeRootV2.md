@@ -128,6 +128,28 @@ the multiplier that compounds if an approver is repeatedly caught.
 `reporterExitDelay` blocks, `exit()` returns the stake. Slash applies
 during the delay window — exit-propose isn't a slash escape.
 
+### G-4 close (2026-05-20): permissionless inactivity eviction
+
+`markInactive(reporter)` — any caller. Forces a reporter into the
+exit-pending state if they've been silent (no `proposeRoot` or
+`approveRoot`) for `inactivityThresholdBlocks`. Closes the reporter-
+cabal stonewall vector identified in
+`gaps-in-checks-and-balances.md` G-4: a malicious set that refuses
+to do its job can be evicted without governance vote.
+
+Semantics are identical to the reporter calling `proposeReporterExit`
+themselves: voting weight drops immediately (`totalReporterStake -=
+amount`), stake stays locked through `reporterExitDelay` for slash
+protection. Activity tracked via `lastActiveBlock[reporter]` set on
+`joinReporters` (so fresh joiners aren't immediately evictable),
+`proposeRoot`, and `approveRoot`.
+
+Parameter `inactivityThresholdBlocks` is bounded `[MIN, MAX] =
+[24h, 30d]` (constants on the contract); default 7d. Owner-tunable
+via `setInactivityThresholdBlocks` within the bounds. Below MIN
+risks false-positive eviction during legitimate quiet periods;
+above MAX defeats the close (stonewall window too long).
+
 L3 (audit-pass-5): if EVERY reporter exits, `totalReporterStake = 0`
 and `approvedStake * 10000 >= 0` is trivially true. A proposer
 could finalize their root alone. Documented as a graceful-degradation

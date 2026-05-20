@@ -720,20 +720,43 @@ the current architecture. Documented in detail in
   planes (publisher / advertiser) now have symmetric Council-
   arbitrated dispute primitives in addition to the pre-existing
   symmetric conviction-vote tracks.
-- **G-4 — Reporter cabal has no fast eviction.** StakeRoot V1
-  reporters can stonewall finalization. V2 challenge window partially
-  closes this; total replacement is still slow.
+- **G-4 — Reporter cabal has no fast eviction.** **Closed
+  2026-05-20** via `DatumStakeRootV2.markInactive(reporter)`.
+  Permissionless: any caller can evict a reporter who's been silent
+  (no `proposeRoot` / `approveRoot`) for `inactivityThresholdBlocks`
+  (~7d default, bounded `[24h, 30d]`). Mechanically equivalent to
+  `proposeReporterExit` — voting weight drops immediately,
+  `totalReporterStake` decrements, stake stays locked through
+  `reporterExitDelay` for slash protection. Activity tracked via
+  `lastActiveBlock[reporter]` set in `joinReporters`, `proposeRoot`,
+  `approveRoot`. Stonewall vector closed; recovery is "spin up new
+  reporters" (V2 already permits permissionless join).
 
 ### 7.2 Medium-severity gaps (G-5 to G-10)
 
 - **G-5** Users can't collectively act (no user-DAO surface).
 - **G-6** No appeal for false-positive curator entries.
-- **G-7** Asymmetric AssuranceLevel direction silently rejects
-  (per-user `userMinAssurance` only goes up to 2; can't express
-  "ZK only" floor — PRE-REDEPLOY M1).
+- **G-7** **Closed 2026-05-20.** L3 ZK-only `userMinAssurance` floor.
+  Audit-pass-5 M1-fix in `DatumSettlementLogicB._processBatch`
+  already routes `userMinAssurance >= 3` through a ZK-required
+  gate; `Settlement.setUserMinAssurance` accepts `level <= 3`.
+  Reject reason 26 emits when a user demands ZK but the campaign
+  doesn't require it. End-to-end coverage in
+  `user-min-assurance-l3.test.ts`.
 - **G-8** No emergency unstake for users.
 - **G-9** Slash funds compensate governance, not the actual victims.
-- **G-10** No rate limit on economic-parameter retunes.
+- **G-10** **Closed 2026-05-20.** `ParameterRetuneGuard` mixin
+  (`contracts/lib/ParameterRetuneGuard.sol`) + integration on
+  `DatumRelayGovernance`. High-impact economic setters
+  (`slashAmountBps`, `challengerBonusBps`, `treasuryBps`,
+  `convictionCurve`) carry a per-key cooldown via `_guardRetune(key)`.
+  Defense-in-depth on top of the upgrade-ladder Timelock — even if
+  governance is compromised, snap-retunes cannot fire faster than
+  `retuneCooldownBlocks` (bounded `[0, 30d]`). Default 0 (testnet
+  posture); production sets a non-zero value before locking. Same
+  mixin is incrementally adoptable on the other governance
+  contracts (PublisherGov, AdvertiserGov, V2, MintCoordinator); the
+  pattern + RelayGov integration is the close.
 
 ### 7.3 Acknowledged-unfixable
 

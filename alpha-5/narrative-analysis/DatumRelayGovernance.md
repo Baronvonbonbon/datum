@@ -140,6 +140,30 @@ matches `DatumPublisherGovernance`.
 capped at 80% by `DatumRelayStake.slash`'s refund floor — the
 on-chain math compounds the two bps values harmlessly.
 
+## G-10 close (2026-05-20): retune cooldown
+
+The four high-impact economic setters (`setSlashAmountBps`,
+`setChallengerBonusBps`, `setTreasuryBps`, `setConvictionCurve`)
+inherit `ParameterRetuneGuard` and call `_guardRetune(key)` before
+applying the new value. Defense-in-depth on top of the upgrade-
+ladder Timelock — even if governance is compromised, snap-retunes on
+these parameters cannot fire faster than `retuneCooldownBlocks`.
+
+`setRetuneCooldownBlocks(blocks)` is owner-only, bounded `[0, 30d]`.
+Default 0 (cooldown disabled — testnet posture). Production sets the
+target value (e.g. 14400 ≈ 24h) before any live high-impact retune.
+
+Ungated setters (`setQuorum`, `setMinGraceBlocks`, `setProposeBond`)
+are rate-limiter knobs with lower damage profile — left out of the
+guard intentionally so operational tuning isn't impeded.
+
+Per-key state: `lastRetuneBlock["slashAmountBps"]`,
+`lastRetuneBlock["challengerBonusBps"]`,
+`lastRetuneBlock["treasuryBps"]`, `lastRetuneBlock["convictionCurve"]`.
+Each is independent — retuning one doesn't block another. View
+helper `retuneReadyAt(key)` returns the block at which the next
+retune on that key becomes legal (0 when cooldown disabled).
+
 ## Cypherpunk locks
 
 - `setRelayStake(addr)` — lock-once on first non-zero set
