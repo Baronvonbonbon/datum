@@ -496,6 +496,8 @@ async function main() {
     "reports",
     "campaignAllowlist",
     "tagSystem",
+    // G-1 first close: relay accountability pair.
+    "relayStake", "relayGovernance",
   ];
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {
@@ -1065,6 +1067,7 @@ async function main() {
     "claimValidator", "tokenRewardVault",
     "publisherStake", "challengeBonds", "publisherGovernance", "parameterGovernance",
     "governanceRouter", "council",
+    "relayStake", "relayGovernance",
   ];
   for (const key of alpha5ContractKeys) {
     if (addrs[key]) console.log(`  ${key.padEnd(24)} ${addrs[key]}`);

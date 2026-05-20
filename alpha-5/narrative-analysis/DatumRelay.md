@@ -21,12 +21,45 @@ publisher typehash. Before that, a captured publisher cosig could be replayed
 with altered claim rates or event counts. Now the cosig is content-bound; any
 mutation breaks the signature.
 
-## Authorized relayers (H-4)
+## Authorized relayers (H-4 + G-1)
 
 `authorizedRelayers[addr]` controls who may submit. The fallback design: if
-the authorized list is empty, anyone may submit (the "liveness fallback").
-This keeps the protocol from getting bricked by a misconfigured relayer set,
-while letting publishers tighten the list when they want to.
+the authorized list is empty (and no stake-gate is wired), anyone may submit
+(the "liveness fallback"). This keeps the protocol from getting bricked by
+a misconfigured relayer set, while letting publishers tighten the list when
+they want to.
+
+### G-1 stake-gate augment (2026-05-20)
+
+`setRelayStake(addr)` wires an optional pointer to
+[`DatumRelayStake`](./DatumRelayStake.md). Pattern (b) augment: a relay
+passes authorization if EITHER manually allowlisted via
+`authorizedRelayers` OR adequately staked per `relayStake.isAuthorized`.
+
+```solidity
+function isAuthorizedRelayer(address relayer) public view returns (bool) {
+    if (authorizedRelayers[relayer]) return true;
+    if (address(relayStake) != address(0) && relayStake.isAuthorized(relayer)) return true;
+    return false;
+}
+```
+
+This closes the identity + bond layer of G-1 (Relay has zero on-chain
+accountability) — relays now have a slashable economic identity via
+`DatumRelayStake`, adjudicated by conviction vote through
+[`DatumRelayGovernance`](./DatumRelayGovernance.md). The full proposal,
+including the censorship-fast-track upgrade path (Approach A or B), is
+in [`proposals/relay-accountability.md`](./proposals/relay-accountability.md).
+
+The stake gate is **disabled at deploy** (`RELAY_MIN_STAKE = 0`).
+Governance raises the floor via `RelayStake.setRelayMinStake(floor)`
+once the production relayer set has stabilized; before that, behavior
+is identical to pre-G-1.
+
+The liveness fallback now considers BOTH paths. If neither a manually-
+authorized relayer nor a staked one has submitted within
+`livenessThresholdBlocks`, anyone may submit — same anti-brick property
+as before.
 
 ## Pause check
 

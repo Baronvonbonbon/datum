@@ -175,6 +175,28 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.0 G-1 relay accountability — partially closed (2026-05-20)
+
+- [x] **Identity + bond + governance slash** shipped via
+      `DatumRelayStake` + `DatumRelayGovernance`. See
+      [`narrative-analysis/proposals/relay-accountability.md`](narrative-analysis/proposals/relay-accountability.md)
+      and per-contract narratives. Tests: 77 new (relay-stake,
+      relay-governance, relay-accountability-integration); 1319
+      total passing.
+- [ ] Operational: rotate `DatumRelayGovernance.treasury` from
+      deployer to protocol treasury Safe.
+- [ ] Operational: calibrate `relayMinStake` after observing
+      production relayer-set composition. Arm via
+      `RelayStake.setRelayMinStake(floor)`.
+- [ ] Decide pattern (a) replace vs continuing (b) augment around
+      Phase 1 → 2 transition. Pattern (a) means emptying
+      `authorizedRelayers` + `Relay.lockRelayerOpen()` so the stake
+      gate is the sole authorization source.
+- [ ] **Approach A or B censorship fast-track.** Deferred until
+      observed censorship rate justifies the gas tax. Triggers
+      documented in relay-accountability.md §9.
+- [ ] **MEV / front-running primitives.** Research-stage; no commit.
+
 ### 3.1 Progressive decentralization knobs
 
 - [ ] **GOV-MIGRATION** three-phase handoff (already routed via

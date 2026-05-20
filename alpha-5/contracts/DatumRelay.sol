@@ -6,6 +6,7 @@ import "./DatumUpgradable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
+import "./interfaces/IDatumRelayStake.sol";
 
 /// @title DatumRelay
 /// @notice Publisher relay for claim settlement via EIP-712 user signatures.
@@ -79,6 +80,16 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     ///         Pre-lock: owner can swap to fix wiring. Post-lock: frozen forever.
     bool public plumbingLocked;
     event PlumbingLocked();
+
+    /// @notice G-1 close: optional stake gate. When wired, a relay passes
+    ///         authorization if EITHER manually authorized via
+    ///         `authorizedRelayers` OR adequately staked per
+    ///         `relayStake.isAuthorized` (pattern (b) augment from the
+    ///         relay-accountability proposal). `address(0)` disables the
+    ///         stake-gate path — authorization falls back to the
+    ///         pre-existing flow.
+    IDatumRelayStake public relayStake;
+    event RelayStakeSet(address indexed relayStake);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -173,6 +184,28 @@ contract DatumRelay is DatumUpgradable, EIP712 {
         emit RelayerOpenLocked();
     }
 
+    /// @notice G-1 close: wire DatumRelayStake. Pattern (b) augment — a
+    ///         relay passes authorization if EITHER manually authorized
+    ///         OR adequately staked. `address(0)` disables the stake gate
+    ///         entirely (no behavior change from pre-relay-accountability).
+    /// @dev    Owner-only; locked under `plumbingLocked` once the relay
+    ///         tier reaches its production wiring. Pre-lock, governance
+    ///         can rotate to a new RelayStake contract.
+    function setRelayStake(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        relayStake = IDatumRelayStake(addr);
+        emit RelayStakeSet(addr);
+    }
+
+    /// @notice G-1 view: a relay is authorized if it appears in the manual
+    ///         allowlist OR if the staking gate is wired and accepts.
+    ///         Pure view; called by tests + off-chain monitors.
+    function isAuthorizedRelayer(address relayer) public view returns (bool) {
+        if (authorizedRelayers[relayer]) return true;
+        if (address(relayStake) != address(0) && relayStake.isAuthorized(relayer)) return true;
+        return false;
+    }
+
     // -------------------------------------------------------------------------
     // Relay settlement
     // -------------------------------------------------------------------------
@@ -184,12 +217,20 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     {
         require(!pauseRegistry.pausedSettlement(), "P");
 
-        // H-4: Relayer authorization check with liveness fallback
-        if (authorizedRelayerCount > 0) {
-            if (authorizedRelayers[msg.sender]) {
+        // H-4 + G-1: relayer authorization check. Pattern (b) augment —
+        // staked relays pass alongside manually-authorized ones. The
+        // liveness fallback (anyone-may-submit if no authorized relayer
+        // has submitted within livenessThresholdBlocks) covers the case
+        // where no relay (manual OR staked) has been active recently.
+        bool stakeGateOn = address(relayStake) != address(0);
+        bool gateActive = authorizedRelayerCount > 0 || stakeGateOn;
+        if (gateActive) {
+            bool passes = authorizedRelayers[msg.sender]
+                || (stakeGateOn && relayStake.isAuthorized(msg.sender));
+            if (passes) {
                 lastRelayBlock = block.number;
             } else {
-                // Liveness fallback: if no authorized relayer submitted recently, allow anyone
+                // Liveness fallback
                 require(
                     livenessThresholdBlocks > 0 &&
                     block.number > lastRelayBlock + livenessThresholdBlocks,

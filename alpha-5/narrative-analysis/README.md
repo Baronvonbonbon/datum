@@ -67,6 +67,16 @@ can be settled on-chain via stake slashing rather than off-chain trust.
 34. **[DatumOwnable](./DatumOwnable.md)** — Ownable2Step base shared by all owner-gated contracts.
 35. **[PaseoSafeSender](./PaseoSafeSender.md)** — DOT-transfer helper that defeats the Paseo eth-rpc denomination bug.
 
+### G-1 first close (2026-05-20)
+
+The relay-accountability pair, mirroring the publisher and advertiser
+stake/governance pairs. See
+[`proposals/relay-accountability.md`](./proposals/relay-accountability.md)
+for design and the future Approach A/B upgrade scaffold.
+
+36. **[DatumRelayStake](./DatumRelayStake.md)** — flat-minimum bond + slash hook for the relay role. `isAuthorized` consumed by `DatumRelay` (pattern (b) augment).
+37. **[DatumRelayGovernance](./DatumRelayGovernance.md)** — conviction-vote fraud proposals against relays. Mirrors `DatumPublisherGovernance` / `DatumAdvertiserGovernance`.
+
 ### Carried in from alpha-4 (no standalone narrative yet)
 
 The 21 contracts below were added or split out during the alpha-4 line.

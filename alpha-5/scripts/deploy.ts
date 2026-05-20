@@ -110,6 +110,8 @@ const REQUIRED_KEYS = [
   // settlement.setLogic(logicA, logicB) in stage 3.
   "settlementLogicA", "settlementLogicB",
   "relay", "zkVerifier",
+  // G-1 first close: relay accountability pair (relay-accountability proposal)
+  "relayStake", "relayGovernance",
   "claimValidator", "tokenRewardVault",
   // FP-1–FP-4 fraud prevention
   "publisherStake", "challengeBonds", "publisherGovernance",
@@ -194,6 +196,19 @@ const PUB_GOV_SLASH_BPS = 5000n;                     // 50% slash of publisher s
 const PUB_GOV_BOND_BONUS_BPS = 2000n;                // 20% of slash forwarded to ChallengeBonds pool
 const PUB_GOV_GRACE_BLOCKS = 14400n;                 // ~24h grace period after first nay vote
 const PUB_GOV_PROPOSE_BOND = parseDOT("1");          // 1 DOT bond to open a fraud proposal
+
+// G-1 relay accountability deployment parameters (relay-accountability proposal)
+// Trial posture: stake gate disabled at deploy (RELAY_MIN_STAKE = 0). Operators
+// opt-in to staking; relayMinStake is raised via governance setter once the
+// production relayer set has stabilized.
+const RELAY_MIN_STAKE = 0n;                          // 0 = stake gate disabled
+const RELAY_EXIT_DELAY = 50400n;                     // ~3.5d at 6s/block
+const RELAY_GOV_QUORUM = parseDOT("100");            // 100 DOT conviction-weighted
+const RELAY_GOV_GRACE_BLOCKS = 14400n;               // ~24h after first nay
+const RELAY_GOV_PROPOSE_BOND = parseDOT("2");        // 2 DOT bond to propose
+const RELAY_GOV_SLASH_AMOUNT_BPS = 5000n;            // 50% of relay's stake on uphold (capped at 80% by RelayStake)
+const RELAY_GOV_CHALLENGER_BPS = 2000n;              // 20% of slash → proposer
+const RELAY_GOV_TREASURY_BPS = 1000n;                // 10% of slash → treasury
 
 // T1-B parameter governance deployment parameters
 const PARAM_GOV_VOTING_PERIOD = 50400n;              // ~7d at 6s/block
@@ -638,6 +653,35 @@ async function main() {
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumRelay — ${err}`);
+  }
+
+  // G-1 first close: relay accountability pair (relay-accountability proposal).
+  // Pattern (b) augment — Relay's authorization passes if EITHER manually
+  // allowlisted OR adequately staked. Stake gate disabled (RELAY_MIN_STAKE = 0)
+  // at deploy time; operators opt-in to staking, governance raises the floor
+  // once the production relayer set stabilizes.
+  try {
+    logStep("Deploying DatumRelayStake (G-1)");
+    await deployOrReuse("relayStake", "DatumRelayStake", [
+      RELAY_MIN_STAKE,
+      RELAY_EXIT_DELAY,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumRelayStake — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumRelayGovernance (G-1)");
+    await deployOrReuse("relayGovernance", "DatumRelayGovernance", [
+      RELAY_GOV_QUORUM,
+      RELAY_GOV_GRACE_BLOCKS,
+      RELAY_GOV_PROPOSE_BOND,
+      RELAY_GOV_SLASH_AMOUNT_BPS,
+      RELAY_GOV_CHALLENGER_BPS,
+      RELAY_GOV_TREASURY_BPS,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumRelayGovernance — ${err}`);
   }
 
   try {
@@ -1878,6 +1922,53 @@ async function main() {
     addresses.publisherStake,
   );
 
+  // ── G-1 relay accountability wiring ──
+  // RelayStake gets two pointers: the relay contract (for clarity / future
+  // hooks) and the governance contract (sole slasher). Lock-once via
+  // RelayStake.lockPlumbing once the production wiring is final.
+  await wireIfNeeded(
+    "RelayStake.relayContract",
+    "DatumRelayStake", addresses.relayStake,
+    "relayContractAddr", "setRelayContract",
+    addresses.relay,
+  );
+  await wireIfNeeded(
+    "RelayStake.governance",
+    "DatumRelayStake", addresses.relayStake,
+    "governance", "setGovernance",
+    addresses.relayGovernance,
+  );
+  // RelayGovernance reads stake balances + calls slash on RelayStake.
+  await wireIfNeeded(
+    "RelayGovernance.relayStake",
+    "DatumRelayGovernance", addresses.relayGovernance,
+    "relayStake", "setRelayStake",
+    addresses.relayStake,
+  );
+  await wireIfNeeded(
+    "RelayGovernance.pauseRegistry",
+    "DatumRelayGovernance", addresses.relayGovernance,
+    "pauseRegistry", "setPauseRegistry",
+    addresses.pauseRegistry,
+  );
+  // RelayGovernance treasury: deployer at deploy time; rotate to protocol
+  // treasury Safe before mainnet (PRE-ALPHA-5-BACKLOG §1.2).
+  await wireIfNeeded(
+    "RelayGovernance.treasury",
+    "DatumRelayGovernance", addresses.relayGovernance,
+    "treasury", "setTreasury",
+    deployer.address,
+  );
+  // Relay → RelayStake: pattern (b) augment. Stake-gated relays can join
+  // alongside manually-authorized ones. Stake gate stays disabled
+  // (RELAY_MIN_STAKE = 0) until governance arms it.
+  await wireIfNeeded(
+    "Relay.relayStake",
+    "DatumRelay", addresses.relay,
+    "relayStake", "setRelayStake",
+    addresses.relayStake,
+  );
+
   // ── People Chain identity gate wiring ──
   // Settlement.setIdentityRegistry is LOCK-ONCE: rotation would let an
   // attacker swap in a permissive cache mid-flight. Idempotent.
@@ -2296,6 +2387,12 @@ async function main() {
   // belongs on the same 48h delay as the other governance surface.
   await transferOwnershipIfNeeded("StakeRoot",   "DatumStakeRoot",   addresses.stakeRoot);
   await transferOwnershipIfNeeded("StakeRootV2", "DatumStakeRootV2", addresses.stakeRootV2);
+  // G-1: RelayStake + RelayGovernance ownership. relayMinStake retunes,
+  // exitDelay changes, conviction-curve retunes, slash-bps changes all
+  // route through Timelock + governance ladder so the floor can't be
+  // unilaterally lowered to admit a captured relay.
+  await transferOwnershipIfNeeded("RelayStake",      "DatumRelayStake",      addresses.relayStake);
+  await transferOwnershipIfNeeded("RelayGovernance", "DatumRelayGovernance", addresses.relayGovernance);
   // PeopleChain XCM bridge: lockSovereign + lockPalletCallIndices fire from
   // owner post-Paseo-validation. Route through Timelock so those one-way
   // commitments can't be made unilaterally.

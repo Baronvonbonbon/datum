@@ -6,7 +6,7 @@ and the path from current alpha posture to the cypherpunk end state.
 Authoritative for shape; defer to per-contract docs under
 `narrative-analysis/` for invariant-level precision.
 
-**Codebase shape:** 57 production contracts (52 in `contracts/` + 5 in
+**Codebase shape:** 59 production contracts (54 in `contracts/` + 5 in
 `contracts/token/`), Solidity 0.8.24, EVM (`evmVersion: cancun`,
 viaIR, optimizer 200 runs). Single build target — pallet-revive on
 Polkadot Hub runs EVM bytecode directly, so no resolc/PVM step.
@@ -616,6 +616,13 @@ By role.
 | `DatumTimelock` | 48-hour delay on owner-gated admin changes |
 | `DatumActivationBonds` | Optimistic activation creator bonds + challenge + mute |
 
+### 6.8a Relay accountability (2) — G-1 first close (2026-05-20)
+
+| Contract | Role |
+|---|---|
+| `DatumRelayStake` | Flat-minimum bond + slash hook; `isAuthorized` consumed by `DatumRelay` |
+| `DatumRelayGovernance` | Conviction-vote fraud proposals against relays (4 reason codes) |
+
 ### 6.9 Identity (5)
 
 | Contract | Role |
@@ -672,10 +679,19 @@ the current architecture. Documented in detail in
 
 ### 7.1 High-severity gaps (G-1 to G-4)
 
-- **G-1 — Relay has zero on-chain accountability.** No stake, no
-  slash, no on-chain identity. A dominant relay can censor / front-run
-  / time-extract. Closing: a `DatumRelayStake` contract analogous to
-  `DatumPublisherStake`.
+- **G-1 — Relay has zero on-chain accountability.** **Partially
+  closed 2026-05-20** via `DatumRelayStake` + `DatumRelayGovernance`
+  (relay-accountability proposal §4-5). Relays now have a slashable
+  on-chain bond, adjudicated by conviction vote on four reason codes
+  (censorship / front-run / MEV / collusion). Pattern (b) augment on
+  `DatumRelay` — staked relays pass authorization alongside manually-
+  allowlisted ones. Refund-floor cap MAX_PUNISHMENT_BPS = 8000
+  preserves ≥ 20% on any single slash. **Still open:** governance-
+  vote resolution is slow (one vote cycle ~7d); censorship-fast-track
+  (Approach A: Settlement-side mark, or Approach B: on-chain
+  commitment) deferred until observed censorship rate justifies the
+  per-batch gas tax. MEV / front-running primitives also still open
+  (need different mechanism class — VSS or encrypted mempool).
 - **G-2 — Two-of-three guardian cabal damage window.** 2-of-3
   guardians can pause for 14 days before unpause becomes possible.
   Closing: shorter max-pause + per-category time caps (CB6 partial).
