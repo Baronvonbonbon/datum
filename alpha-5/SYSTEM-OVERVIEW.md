@@ -707,9 +707,19 @@ the current architecture. Documented in detail in
   3-of-3 total compromise is unbounded; per-cycle damage to a
   single category is still real (just bounded now). Lock-once
   posture via `lockPauseParams` post-OpenGov.
-- **G-3 — No publisher-side dispute initiation.** Publishers can't
-  challenge advertiser fraud directly; only the reverse exists
-  (`AdvertiserGovernance`). Closing: bidirectional governance.
+- **G-3 — No publisher-side dispute initiation.** **Closed
+  2026-05-20** via `DatumAdvertiserGovernance.filePublisherFraudClaim`
+  + `councilResolvePublisherClaim`. Mirror of the existing
+  `DatumPublisherGovernance.fileAdvertiserFraudClaim` Council-
+  arbitrated track. Publishers (or any non-self filer with the
+  bond) file an evidence-backed claim against an advertiser; Council
+  resolves on-chain after off-chain review. Upheld → advertiser stake
+  slashed via `advertiserStake.slash`, bond refunded to filer.
+  Dismissed → bond forwarded to advertiser as anti-grief
+  compensation. Lock-once `councilArbiter`. The protocol's two trust
+  planes (publisher / advertiser) now have symmetric Council-
+  arbitrated dispute primitives in addition to the pre-existing
+  symmetric conviction-vote tracks.
 - **G-4 — Reporter cabal has no fast eviction.** StakeRoot V1
   reporters can stonewall finalization. V2 challenge window partially
   closes this; total replacement is still slow.

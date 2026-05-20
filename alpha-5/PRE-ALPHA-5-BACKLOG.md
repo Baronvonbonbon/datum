@@ -175,6 +175,21 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.-2 G-3 publisher-side dispute initiation — closed (2026-05-20)
+
+- [x] **Council-arbitrated publisher → advertiser fraud claim track**
+      shipped via `DatumAdvertiserGovernance.filePublisherFraudClaim`
+      + `councilResolvePublisherClaim`. Mirror of the existing
+      `DatumPublisherGovernance.fileAdvertiserFraudClaim`. 23 new
+      tests; full suite 1369 passing.
+- [ ] Operational: confirm `AdvertiserGovernance.councilArbiter`
+      wired to the live Council address. deploy.ts does this
+      automatically when `addresses.advertiserGovernance` is set.
+- [ ] Operational: set `publisherClaimBond` to calibrated production
+      value. deploy.ts default is 1 DOT (matches PublisherGov's
+      `advertiserClaimBond` default). Raise if false-positive grief
+      becomes a pattern.
+
 ### 3.-1 G-2 guardian damage bounds — partially closed (2026-05-20)
 
 - [x] **Per-category caps, solo/extended window split, re-engagement

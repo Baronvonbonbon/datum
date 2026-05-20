@@ -80,6 +80,62 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
     event GovPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
     event TreasurySwept(address indexed owner, uint256 amount);
 
+    // -------------------------------------------------------------------------
+    // G-3 first close (2026-05-20): Council-arbitrated publisher → advertiser
+    // fraud claims. Mirror of DatumPublisherGovernance.fileAdvertiserFraudClaim.
+    // Closes the asymmetry where advertisers had a fast Council-arbitrated
+    // track against publishers but publishers had no equivalent against
+    // advertisers. Same shape: filer stakes a bond + evidence CID, Council
+    // resolves off-chain review on-chain via councilResolvePublisherClaim.
+    //
+    //   upheld    → advertiser stake slashed; bond refunded to filer.
+    //   dismissed → bond forwarded to advertiser as compensation.
+    //
+    // Lock-once on councilArbiter, configurable bond, anti-self check.
+    // -------------------------------------------------------------------------
+
+    struct PublisherFraudClaim {
+        address publisher;        // who filed (typically a publisher; not enforced on-chain)
+        address advertiser;       // target
+        uint256 campaignId;       // 0 = advertiser-wide claim
+        bytes32 evidenceHash;     // IPFS CID of analytics evidence
+        uint256 bond;             // filer-staked bond
+        bool resolved;
+        bool upheld;
+        uint256 createdBlock;
+    }
+
+    /// @notice Council contract authorized to resolve publisher fraud claims.
+    address public councilArbiter;
+    /// @notice Bond required to file a publisher fraud claim. 0 disables the track.
+    uint256 public publisherClaimBond;
+    /// @notice Auto-incrementing claim id.
+    uint256 public nextPublisherClaimId = 1;
+    mapping(uint256 => PublisherFraudClaim) public publisherClaims;
+
+    event CouncilArbiterSet(address indexed arbiter);
+    event PublisherClaimBondSet(uint256 amount);
+    event PublisherFraudClaimFiled(
+        uint256 indexed claimId,
+        address indexed publisher,
+        address indexed advertiser,
+        uint256 campaignId,
+        bytes32 evidenceHash,
+        uint256 bond
+    );
+    event PublisherFraudClaimResolved(
+        uint256 indexed claimId,
+        address indexed advertiser,
+        bool upheld,
+        uint256 slashAmount,
+        uint256 bondDisposition
+    );
+
+    modifier onlyCouncilArbiter() {
+        require(councilArbiter != address(0) && msg.sender == councilArbiter, "E18");
+        _;
+    }
+
     // ── Proposal storage ───────────────────────────────────────────────────────
 
     mapping(uint256 => Proposal) public proposals;
@@ -163,7 +219,111 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
         emit ConvictionLockupsSet(l);
     }
 
+    // ── G-3 admin: Council arbiter + claim bond ────────────────────────────────
+
+    /// @notice Set the Council contract authorized to resolve publisher fraud
+    ///         claims. Cypherpunk lock-once: a hot-swappable arbiter is a
+    ///         unilateral slash backdoor. address(0) leaves the Council-
+    ///         arbitrated track disabled; once set non-zero it's frozen.
+    function setCouncilArbiter(address arbiter) external onlyOwner {
+        require(councilArbiter == address(0), "already set");
+        require(arbiter != address(0), "E00");
+        councilArbiter = arbiter;
+        emit CouncilArbiterSet(arbiter);
+    }
+
+    /// @notice Set the bond required for filing a publisher fraud claim.
+    ///         Bond refunded on upheld, forwarded to advertiser on dismissed.
+    ///         Set to 0 to disable the Council-arbitrated track entirely.
+    function setPublisherClaimBond(uint256 amount) external onlyOwner {
+        publisherClaimBond = amount;
+        emit PublisherClaimBondSet(amount);
+    }
+
     modifier whenNotPaused() { require(!pauseRegistry.pausedGovernance(), "P"); _; }
+
+    // ── G-3: Council-arbitrated publisher → advertiser fraud claims ──────────
+
+    /// @notice File a fraud claim against an advertiser. Stake `publisherClaimBond`
+    ///         to file. Council resolves later via `councilResolvePublisherClaim`.
+    /// @param advertiser    Advertiser being accused.
+    /// @param campaignId    Campaign-specific claim, or 0 for advertiser-wide.
+    /// @param evidenceHash  IPFS CID of analytics evidence reviewed off-chain.
+    function filePublisherFraudClaim(address advertiser, uint256 campaignId, bytes32 evidenceHash)
+        external
+        payable
+        whenNotPaused
+        whenNotFrozen
+        returns (uint256 claimId)
+    {
+        require(advertiser != address(0), "E00");
+        require(evidenceHash != bytes32(0), "E00");
+        require(publisherClaimBond > 0, "E01"); // track disabled
+        require(msg.value == publisherClaimBond, "E11");
+        require(councilArbiter != address(0), "E01");
+        // Anti-laundering: cannot file against self.
+        require(msg.sender != advertiser, "E18");
+
+        claimId = nextPublisherClaimId++;
+        publisherClaims[claimId] = PublisherFraudClaim({
+            publisher: msg.sender,
+            advertiser: advertiser,
+            campaignId: campaignId,
+            evidenceHash: evidenceHash,
+            bond: msg.value,
+            resolved: false,
+            upheld: false,
+            createdBlock: block.number
+        });
+        emit PublisherFraudClaimFiled(claimId, msg.sender, advertiser, campaignId, evidenceHash, msg.value);
+    }
+
+    /// @notice Council resolves a filed publisher fraud claim. Called by the
+    ///         Council contract after its propose+vote+execute cycle.
+    /// @param claimId  The publisher claim id.
+    /// @param upheld   true = fraud confirmed; false = claim dismissed.
+    function councilResolvePublisherClaim(uint256 claimId, bool upheld)
+        external
+        onlyCouncilArbiter
+        nonReentrant
+        whenNotFrozen
+    {
+        PublisherFraudClaim storage c = publisherClaims[claimId];
+        require(c.createdBlock > 0, "E01");
+        require(!c.resolved, "E41");
+        c.resolved = true;
+        c.upheld = upheld;
+
+        uint256 slashAmount = 0;
+        uint256 bond = c.bond;
+        c.bond = 0;
+        uint256 bondDisposition = bond;
+
+        if (upheld) {
+            // Slash advertiser stake — same distribution as conviction track.
+            // Slashed DOT lands in this contract's treasuryBalance via receive().
+            if (address(advertiserStake) != address(0) && slashBps > 0) {
+                uint256 currentStake = advertiserStake.staked(c.advertiser);
+                slashAmount = (currentStake * slashBps) / 10_000;
+                if (slashAmount > 0) {
+                    advertiserStake.slash(c.advertiser, slashAmount, address(this));
+                    emit AdvertiserSlashed(c.advertiser, slashAmount);
+                }
+            }
+            // Bond refunded to filer (queue pull).
+            if (bond > 0) {
+                pendingGovPayout[c.publisher] += bond;
+                emit GovPayoutQueued(c.publisher, bond, "publisher fraud claim upheld");
+            }
+        } else {
+            // Dismissed: bond → advertiser (compensation for false claim).
+            if (bond > 0) {
+                pendingGovPayout[c.advertiser] += bond;
+                emit GovPayoutQueued(c.advertiser, bond, "publisher fraud claim dismissed");
+            }
+        }
+        emit PublisherFraudClaimResolved(claimId, c.advertiser, upheld, slashAmount, bondDisposition);
+    }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 

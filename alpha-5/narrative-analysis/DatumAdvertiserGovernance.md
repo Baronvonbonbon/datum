@@ -58,15 +58,45 @@ must elapse before resolution. Tighter than the PublisherGov "first-nay"
 gate — every late nay vote resets the clock, giving nay coalitions more
 time to coordinate as new opposition trickles in.
 
+## G-3 first close (2026-05-20): publisher-filed Council track
+
+Mirror of `DatumPublisherGovernance.fileAdvertiserFraudClaim`. Closes
+`gaps-in-checks-and-balances.md` G-3 (no publisher-side dispute
+initiation). Pre-close, the conviction-vote track was symmetric
+(anyone can propose on either side), but the fast Council-arbitrated
+track existed only one-directionally (advertisers could file against
+publishers). Now publishers can file with bond + evidence CID and
+Council resolves on-chain.
+
+```
+publisher  ──filePublisherFraudClaim(adv, campaignId, evidence)──►
+                                                  (locks publisherClaimBond)
+                                                          │
+                                                  Council off-chain review
+                                                          │
+council    ──councilResolvePublisherClaim(claimId, upheld)─►
+                upheld   → advertiserStake.slash; bond → filer pending queue
+                dismissed → bond → advertiser pending queue (anti-grief)
+```
+
+Lock-once `councilArbiter` setter (hot-swap = unilateral slash
+backdoor). `publisherClaimBond` is tunable — 0 disables the track
+entirely. Anti-self check: an advertiser cannot file against
+themselves.
+
+The on-chain filer field is recorded as `msg.sender` and not enforced
+to be a publisher — the bond requirement gates the actor in practice.
+Publishers are the natural filers (they're the parties who detect
+advertiser welching first), but anyone with the bond can file. Same
+shape as the PublisherGov sibling.
+
 ## What this contract doesn't have
 
-- No advertiser-fraud-claim arbiter path (PublisherGov has one for Council
-  resolution of advertiser-filed claims; the symmetric "publisher-filed
-  claim against advertiser" doesn't exist here — publishers have less
-  recourse than advertisers in the current design, partly intentional
-  since the protocol's economic asymmetry already favors them via the
-  take rate).
+- ~~No publisher-filed claim against advertiser~~ — **closed by G-3
+  first close** (above).
 - No bonus-pool integration (no ChallengeBonds for the advertiser side).
+  Slashed funds accumulate as treasuryBalance via `receive()`;
+  ChallengeBonds is publisher-side only.
 
 ## Pause behavior
 

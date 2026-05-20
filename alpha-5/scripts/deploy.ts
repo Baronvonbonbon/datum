@@ -2109,6 +2109,42 @@ async function main() {
     addresses.council,
   );
 
+  // ── G-3 first close (2026-05-20): AdvertiserGovernance.councilArbiter
+  //    (lock-once). Mirror of PublisherGovernance.councilArbiter. Enables
+  //    the Council-arbitrated publisher → advertiser fraud claim track.
+  if (addresses.advertiserGovernance) {
+    await wireIfNeeded(
+      "AdvertiserGovernance.councilArbiter",
+      "DatumAdvertiserGovernance", addresses.advertiserGovernance,
+      "councilArbiter", "setCouncilArbiter",
+      addresses.council,
+    );
+
+    // G-3 publisher claim bond — 1 DOT default. Matches the PublisherGov
+    // advertiserClaimBond default (mirror symmetry). Set 0 to disable.
+    {
+      const iface = new ethers.Interface([
+        "function publisherClaimBond() view returns (uint256)",
+        "function setPublisherClaimBond(uint256)",
+      ]);
+      const cur = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"],
+        await rawProvider.call({
+          to: addresses.advertiserGovernance,
+          data: iface.encodeFunctionData("publisherClaimBond"),
+        })
+      )[0];
+      const target = ethers.parseUnits("1", 10);  // 1 DOT in planck (10-decimal)
+      if (cur === target) {
+        console.log("  OK (already set): AdvertiserGovernance.publisherClaimBond");
+      } else {
+        await sendCall(addresses.advertiserGovernance,
+          ["function setPublisherClaimBond(uint256)"],
+          "setPublisherClaimBond", [target]);
+        console.log("  SET: AdvertiserGovernance.publisherClaimBond =", target.toString());
+      }
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // STAGE 4 — IRREVOCABLE FLAGS
   // After this, no setter on the locked plumbing contracts works again,
