@@ -175,6 +175,24 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.-7 G-6 blocklist appeal mechanism — closed (2026-05-20)
+
+- [x] **Bonded appeal flow** shipped on
+      `DatumCouncilBlocklistCurator`. `fileBlocklistAppeal` +
+      `councilResolveAppeal` + pull-payment queue + treasury sweep.
+      Mirror of the G-3 publisher-fraud-claim shape. 21 new tests
+      (blocklist-curator-g6.test.ts).
+- [ ] Operational: set `appealBond` to a production value via
+      `setAppealBond` before opening the track. 0 keeps it disabled.
+      Recommend starting at 1 DOT (matches the symmetric
+      PublisherGov advertiser-claim bond + AdvertiserGov
+      publisher-claim bond).
+- [ ] Consider mirroring this pattern to `DatumTagCurator` (G-6
+      coverage for tag-approval false positives). Same shape; not
+      blocking since the tag set is currently small and false-
+      positive risk is lower than publisher-blocklist
+      false-positives.
+
 ### 3.-6 G-8 emergency unstake / recovery for users — closed (2026-05-20)
 
 - [x] **Time-locked recovery address** shipped on `DatumPaymentVault`.

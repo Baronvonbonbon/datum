@@ -746,7 +746,17 @@ the current architecture. Documented in detail in
 ### 7.2 Medium-severity gaps (G-5 to G-10)
 
 - **G-5** Users can't collectively act (no user-DAO surface).
-- **G-6** No appeal for false-positive curator entries.
+- **G-6** **Closed 2026-05-20.** Bonded appeal mechanism on
+  `DatumCouncilBlocklistCurator`. Anyone (typically the blocked
+  address itself) calls `fileBlocklistAppeal(blockedAddr,
+  evidenceHash)` with `msg.value == appealBond`; Council resolves
+  on-chain after off-chain review via `councilResolveAppeal(id,
+  upheld)`. Upheld → address unblocked + bond refunded to filer
+  (via pull-payment queue). Dismissed → bond forfeit to
+  `treasuryBalance` (anti-grief; owner sweeps via `sweepTreasury`).
+  Same shape as the G-3 publisher-fraud-claim track. `appealBond`
+  is governance-tunable (0 disables the track). Blocked-address
+  precondition enforced; self-appeal allowed.
 - **G-7** **Closed 2026-05-20.** L3 ZK-only `userMinAssurance` floor.
   Audit-pass-5 M1-fix in `DatumSettlementLogicB._processBatch`
   already routes `userMinAssurance >= 3` through a ZK-required

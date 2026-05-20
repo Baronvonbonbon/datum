@@ -78,3 +78,73 @@ itself implemented isBlocked, every dependent contract would have to point
 at Council directly. Then swapping councils (Phase 1 v1 → v2) would
 require re-wiring every dependent. With Curator in the middle, only the
 Curator's `council` pointer needs updating.
+
+## G-6 close (2026-05-20): bonded appeal mechanism
+
+Closes `gaps-in-checks-and-balances.md` G-6 (No appeal for false-
+positive curator entries). Pre-close, a blocked address had no
+on-chain path to contest the decision — the only recovery was a
+fresh Council vote to unblock, which required someone with social
+access to the Council. Now there's a bonded, evidence-backed
+appeal flow.
+
+```
+appellant ──fileBlocklistAppeal(blockedAddr, evidence) {appealBond}──►
+                                                          │
+                                                  Council off-chain review
+                                                          │
+council   ──councilResolveAppeal(appealId, upheld)──►
+                upheld   → blockedAddr unblocked + bond → filer pending queue
+                dismissed → bond → treasuryBalance (owner sweep)
+```
+
+### Authorization
+
+- **`fileBlocklistAppeal(blockedAddr, evidenceHash) payable`** —
+  permissionless caller. Typically the blocked address itself
+  self-appeals; an advocate (lawyer, friend, DAO) can also file by
+  paying the bond. Preconditions: `appealBond > 0` (track enabled),
+  `msg.value == appealBond`, `blockedAddr` non-zero, `evidenceHash`
+  non-zero, `_blocked[blockedAddr] == true` (can't appeal a
+  non-block).
+- **`councilResolveAppeal(appealId, upheld)`** — `onlyCouncil` (same
+  gate as `blockAddr` / `unblockAddr`). Called via the Council's
+  propose+vote+execute pipeline.
+
+### Bond economics
+
+- **Upheld** (false-positive confirmed): `_blocked[addr] = false`,
+  `blockReason[addr] = 0`, bond → appellant's `pendingPayout` queue.
+  `AddrUnblocked` event fires.
+- **Dismissed** (block was correct): bond → `treasuryBalance`.
+  Owner (Timelock in production) sweeps via `sweepTreasury`. The
+  forfeit funds an anti-grief reserve — repeated frivolous appeals
+  drain the appellant's wallet, not protocol resources.
+
+### Graceful interaction with direct unblock
+
+If the Council unblocks the address directly (via `unblockAddr`)
+while an appeal is still pending, then resolves the appeal as
+upheld, the unblock branch is idempotent — no double-emit, no
+revert. Bond still refunds. This handles the case where Council
+acts before the appeal lands.
+
+### Parameter
+
+`appealBond` is tunable forever (no lock-once). 0 disables the
+track. Recommended production value: ~1 DOT, matching the
+symmetric `advertiserClaimBond` on PublisherGov and
+`publisherClaimBond` on AdvertiserGov.
+
+### Pull-payment queue + treasury
+
+Same shape as the other governance contracts:
+
+- `pendingPayout[address] → uint256` for refunds (upheld bonds +
+  treasury sweeps).
+- `claimPayout()` / `claimPayoutTo(recipient)` to pull.
+- `treasuryBalance` for forfeited bonds; `sweepTreasury()` moves
+  to `pendingPayout[owner]` (permissionless trigger, owner-only
+  recipient).
+- Inherits `PaseoSafeSender` for the eth-rpc denomination
+  workaround on payouts.
