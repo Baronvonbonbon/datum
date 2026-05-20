@@ -692,9 +692,21 @@ the current architecture. Documented in detail in
   commitment) deferred until observed censorship rate justifies the
   per-batch gas tax. MEV / front-running primitives also still open
   (need different mechanism class — VSS or encrypted mempool).
-- **G-2 — Two-of-three guardian cabal damage window.** 2-of-3
-  guardians can pause for 14 days before unpause becomes possible.
-  Closing: shorter max-pause + per-category time caps (CB6 partial).
+- **G-2 — Two-of-three guardian cabal damage window.** **Partially
+  closed 2026-05-20** via three mechanisms in `DatumPauseRegistry`:
+  (1) solo fast-pause window shortened to ~24h default
+  (`soloMaxPauseBlocks`); extension past that requires 2-of-3
+  proposal (action 5); (2) per-category extended caps differ by
+  damage profile (settlement 3d, campaign-creation 7d, governance
+  7d, token-mint 14d) via `categoryMaxPauseBlocks[cat]`;
+  (3) per-(guardian, category) cooldown after engagement
+  (`reengagementCooldownBlocks` ~7d default) closes the "extend
+  indefinitely by re-engaging at expiry" attack. Consensus unpause
+  (action 2 or 4) clears both cooldown and extension. Owner-pause
+  bypasses cooldown (bootstrap-emergency role). **Still open:**
+  3-of-3 total compromise is unbounded; per-cycle damage to a
+  single category is still real (just bounded now). Lock-once
+  posture via `lockPauseParams` post-OpenGov.
 - **G-3 — No publisher-side dispute initiation.** Publishers can't
   challenge advertiser fraud directly; only the reverse exists
   (`AdvertiserGovernance`). Closing: bidirectional governance.

@@ -17,10 +17,68 @@ CAT_TOKEN_MINT        = 8
 CAT_ALL               = 15
 ```
 
-Each category has its own engagement block (`pausedAtBlockFor[cat]`) and
-its own ~14-day expiry (`MAX_PAUSE_BLOCKS = 201_600`). A guardian who
-discovers a settlement bug can pause only CAT_SETTLEMENT, leaving
-governance and campaign creation flowing.
+Each category has its own engagement block (`pausedAtBlockFor[cat]`),
+its own solo expiry (`soloMaxPauseBlocks` ~24h default), and its own
+extended expiry reachable via 2-of-3 proposal
+(`categoryMaxPauseBlocks[cat]` ~3-14d depending on category). A
+guardian who discovers a settlement bug can pause only CAT_SETTLEMENT,
+leaving governance and campaign creation flowing.
+
+## G-2 first close (2026-05-20): tighter damage bounds
+
+Pre-close: any single guardian could pause for 14 days, and re-engage
+at expiry indefinitely — the 14-day cap was unbounded in aggregate
+(see `gaps-in-checks-and-balances.md` G-2). The close ships three
+mechanisms:
+
+1. **Per-category caps.** `categoryMaxPauseBlocks[cat]` differs per
+   category (defaults: settlement 3d, campaign-creation 7d,
+   governance 7d, token-mint 14d). Damage profiles vary; settlement
+   pause stops user payouts (high cost), governance pause stops vote
+   resolution (low cost in steady-state).
+2. **Solo vs extended windows.** A single-guardian `pauseFast` engages
+   the category for `soloMaxPauseBlocks` (~24h). Extending past that
+   requires a 2-of-3 `proposeExtendPause(categories)` proposal
+   (action 5), which bumps the effective end-block to
+   `pausedAtBlockFor[cat] + categoryMaxPauseBlocks[cat]`. The solo
+   window preserves emergency speed; sustained pause requires consensus.
+3. **Per-(guardian, category) cooldown.** After a guardian's
+   engagement on a category, that guardian cannot re-engage the same
+   category until `lastEngagedBlock + soloMaxPauseBlocks +
+   reengagementCooldownBlocks` (~7d default cooldown). Closes the
+   "extend indefinitely by re-engaging at expiry" attack.
+
+Owner-pause `pause()` bypasses the cooldown — it's the
+bootstrap-emergency path, not a guardian's solo-pause role. Even when
+the deployer happens to sit on the guardian set, the owner-pause
+authority is the deploying party's emergency response, not a regular
+guardian action.
+
+Consensus unpause (action 2 or action 4) is an explicit dismissal: it
+clears both the per-(guardian, category) cooldown clock for the
+unpaused categories AND the `extendedUntilBlock[cat]` extension state,
+so the next engagement starts fresh in the solo window.
+
+### Parameter setters
+
+- **`setSoloMaxPauseBlocks(b)`** — owner-only, bounded `1 ≤ b ≤ MAX_PAUSE_PARAM_CEILING`.
+- **`setCategoryMaxPauseBlocks(cat, b)`** — owner-only, single bit,
+  `soloMaxPauseBlocks ≤ b ≤ MAX_PAUSE_PARAM_CEILING`.
+- **`setReengagementCooldownBlocks(b)`** — owner-only, `b ≤ MAX_PAUSE_PARAM_CEILING`.
+  `b == 0` disables cooldown (testnet posture).
+- **`lockPauseParams()`** — owner-only, `whenOpenGovPhase`, one-way.
+  Freezes all three setters permanently.
+
+### Damage bounds summary
+
+| Attacker | Per-cycle damage on a single category | Notes |
+|---|---|---|
+| 1-of-3 (rogue guardian) | ≤ soloMaxPauseBlocks (~24h) | Then cooldown ~7d before they can re-pause |
+| 2-of-3 cabal | ≤ categoryMaxPauseBlocks[cat] (3-14d) | Then cooldown applies to both colluding guardians; honest third can vote unpause |
+| 3-of-3 (total compromise) | Unbounded | Out of scope of any mechanism short of Council/OpenGov override |
+
+The 2-of-3 number is bounded per-cycle now, whereas pre-close it was
+effectively unbounded.
 
 Per-category accessor methods (`pausedSettlement()`,
 `pausedCampaignCreation()`, `pausedGovernance()`, `pausedTokenMint()`)

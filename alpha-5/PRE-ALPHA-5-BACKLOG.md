@@ -175,6 +175,23 @@ validation in production, NOT just when technically possible.
 
 Items deferred for design conversation. None block the next redeploy.
 
+### 3.-1 G-2 guardian damage bounds — partially closed (2026-05-20)
+
+- [x] **Per-category caps, solo/extended window split, re-engagement
+      cooldown** shipped in `DatumPauseRegistry`. Tests: 27 new
+      (pause-g2). Total tests 1346.
+- [ ] Calibrate `categoryMaxPauseBlocks` defaults based on production
+      damage observations once protocol is live. Defaults: settlement
+      3d, campaign-creation 7d, governance 7d, token-mint 14d.
+- [ ] Decide whether to enable `reengagementCooldownBlocks` on Paseo
+      (currently 7d default at deploy) or set it to 0 for testnet
+      iteration. Production posture: ~7d.
+- [ ] Fire `pauseParamsLocked` post-OpenGov once parameter calibration
+      is final. Lock-once.
+- [ ] **3-of-3 total guardian compromise** remains unbounded. Future
+      consideration: Council/OpenGov override path for unpause when
+      all three guardians are captured. Not in scope for G-2 close.
+
 ### 3.0 G-1 relay accountability — partially closed (2026-05-20)
 
 - [x] **Identity + bond + governance slash** shipped via

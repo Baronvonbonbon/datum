@@ -33,7 +33,7 @@ contract DatumPauseRegistry is DatumUpgradable {
     function version() public pure override returns (uint256) { return 1; }
 
     /// @dev CB6: per-category pause bitfield. `paused()` returns true iff any
-    ///      active category remains within its MAX_PAUSE_BLOCKS expiry window.
+    ///      active category remains within its effective expiry window.
     uint8 internal _pausedCategoriesRaw;
     /// @notice CB6: per-category engagement block, for independent expiry.
     mapping(uint8 => uint256) public pausedAtBlockFor;
@@ -51,12 +51,43 @@ contract DatumPauseRegistry is DatumUpgradable {
     ///         pausedAtBlockFor[category] for precise per-category timing.
     uint256 public pausedAtBlock;
 
-    /// @notice A6/B6-fix (2026-05-12): pause auto-expiry. ~14 days at 6s/block
-    ///         (14400 blocks/day × 14). After this window, `paused()` returns
-    ///         false even if `_pausedRaw == true`. Guardians can still re-engage
-    ///         via pauseFast() — this just caps the unbroken pause duration so
-    ///         no single guardian can freeze the system forever.
+    /// @notice Ceiling on every pause-parameter setter. ~14 days at 6s/block
+    ///         (14400 blocks/day × 14). No setter can exceed this; no
+    ///         category cap exceeds this; no extension exceeds this; no
+    ///         cooldown exceeds this.
+    uint64 public constant MAX_PAUSE_PARAM_CEILING = 201600;
+    /// @notice Backward-compat alias. Previously the single uniform expiry
+    ///         constant; replaced by per-category caps + extension proposals
+    ///         (G-2 first close, 2026-05-20). Kept as a publicly-visible
+    ///         ceiling for tooling that read the old name.
     uint256 public constant MAX_PAUSE_BLOCKS = 201600;
+
+    // ── G-2 first close (2026-05-20): tighter pause damage bounds ───────
+    // Solo fast-pause window — short. A single guardian can pause this many
+    // blocks; extending past that requires a 2-of-3 extend proposal
+    // (action == 5). Bounded by MAX_PAUSE_PARAM_CEILING; governance-settable
+    // pre-`lockPauseParams`.
+    uint64 public soloMaxPauseBlocks;
+    /// @notice Per-category extended cap (reached via 2-of-3 extend proposal).
+    ///         Different categories have different damage profiles; settlement
+    ///         pause stops user payouts (high cost), governance pause stops
+    ///         vote resolution (low cost in steady-state).
+    mapping(uint8 => uint64) public categoryMaxPauseBlocks;
+    /// @notice Per-guardian per-category cooldown after a previous engagement.
+    ///         Closes the "extend indefinitely by re-engaging at expiry"
+    ///         attack. Same guardian cannot re-pause same category until
+    ///         `lastEngagedBlock + soloMaxPauseBlocks + reengagementCooldownBlocks`.
+    uint64 public reengagementCooldownBlocks;
+    /// @notice Per-category extended end-block, set non-zero by an executed
+    ///         2-of-3 extend proposal. Overrides the solo cap for that
+    ///         category until the next fresh engagement resets it.
+    mapping(uint8 => uint64) public extendedUntilBlock;
+    /// @notice Per-(category, guardian) block of the most recent engagement.
+    ///         Drives the re-engagement cooldown check.
+    mapping(uint8 => mapping(address => uint64)) public lastEngagedBlock;
+    /// @notice G-2 cypherpunk lock — freezes pause-parameter setters
+    ///         permanently. Phase-gated on OpenGov via DatumUpgradable.
+    bool public pauseParamsLocked;
 
     // SM-6: guardian set
     address[3] public guardians;
@@ -95,9 +126,24 @@ contract DatumPauseRegistry is DatumUpgradable {
     event PauseProposed(uint256 indexed proposalId, uint8 action, address indexed proposer);
     event PauseApproved(uint256 indexed proposalId, address indexed approver);
     event GuardianRotationProposed(uint256 indexed proposalId, address indexed proposer, address ng0, address ng1, address ng2);
+    // G-2 events
+    event PauseExtended(address indexed by, uint8 indexed categories, uint64 until);
+    event SoloMaxPauseBlocksSet(uint64 blocks_);
+    event CategoryMaxPauseBlocksSet(uint8 indexed category, uint64 blocks_);
+    event ReengagementCooldownBlocksSet(uint64 blocks_);
+    event PauseParamsLocked();
 
     constructor(address g0, address g1, address g2) {
         _setGuardians(g0, g1, g2);
+        // G-2 defaults: solo 24h, settlement extended 3d, campaign-creation
+        // and governance extended 7d, token-mint extended 14d. Cooldown 7d.
+        // All bounded by MAX_PAUSE_PARAM_CEILING (~14d).
+        soloMaxPauseBlocks = 14400;                      // ~24h @ 6s
+        categoryMaxPauseBlocks[CAT_SETTLEMENT]        = 43200;   // ~3d
+        categoryMaxPauseBlocks[CAT_CAMPAIGN_CREATION] = 100800;  // ~7d
+        categoryMaxPauseBlocks[CAT_GOVERNANCE]        = 100800;  // ~7d
+        categoryMaxPauseBlocks[CAT_TOKEN_MINT]        = 201600;  // ~14d
+        reengagementCooldownBlocks = 100800;             // ~7d
     }
 
     // -------------------------------------------------------------------------
@@ -158,34 +204,88 @@ contract DatumPauseRegistry is DatumUpgradable {
     ///         quorum, so even an attacker who steals the owner key can only
     ///         ratchet the system into pause; recovery remains gated on the
     ///         (potentially rotated) guardians.
+    /// @dev    G-2: the owner-pause path bypasses the per-(guardian, category)
+    ///         cooldown. This is by design — even when the owner happens to
+    ///         also sit on the guardian set, the owner-pause role is the
+    ///         bootstrap-emergency path and shouldn't be rate-limited by the
+    ///         guardian cooldown mechanism. The cooldown attaches to the
+    ///         guardian fast-pause flow specifically.
     function pause() external onlyOwner whenNotFrozen {
-        _engage(msg.sender, CAT_ALL);
+        _engageNoCooldown(msg.sender, CAT_ALL);
     }
 
-    /// @dev Internal helper: OR `categories` into the bitfield and refresh the
-    ///      engagement block for each. Idempotent — re-engaging an already-
-    ///      active category resets its expiry clock (useful: a guardian can
-    ///      extend a near-expired pause by re-calling pauseFast).
-    function _engage(address by, uint8 categories) internal {
+    /// @dev Owner-pause helper. Same effect as `_engage` minus the cooldown
+    ///      check. Still resets extendedUntilBlock so any prior 2-of-3
+    ///      extension is dropped — a fresh owner-pause is a fresh window.
+    function _engageNoCooldown(address by, uint8 categories) internal {
         require(categories != 0, "E11");
+        if (categories & CAT_SETTLEMENT        != 0) _engageCategory(CAT_SETTLEMENT);
+        if (categories & CAT_CAMPAIGN_CREATION != 0) _engageCategory(CAT_CAMPAIGN_CREATION);
+        if (categories & CAT_GOVERNANCE        != 0) _engageCategory(CAT_GOVERNANCE);
+        if (categories & CAT_TOKEN_MINT        != 0) _engageCategory(CAT_TOKEN_MINT);
         _pausedCategoriesRaw |= categories;
-        if (categories & CAT_SETTLEMENT        != 0) pausedAtBlockFor[CAT_SETTLEMENT]        = block.number;
-        if (categories & CAT_CAMPAIGN_CREATION != 0) pausedAtBlockFor[CAT_CAMPAIGN_CREATION] = block.number;
-        if (categories & CAT_GOVERNANCE        != 0) pausedAtBlockFor[CAT_GOVERNANCE]        = block.number;
-        if (categories & CAT_TOKEN_MINT        != 0) pausedAtBlockFor[CAT_TOKEN_MINT]        = block.number;
         pausedAtBlock = block.number;
         emit PausedCategory(by, categories);
         emit Paused(by);
     }
 
-    /// @notice CB6: bitfield of currently-active (within-window) categories.
+    /// @dev Internal helper: OR `categories` into the bitfield and refresh the
+    ///      engagement block for each. G-2: enforces per-(guardian, category)
+    ///      re-engagement cooldown; resets extendedUntilBlock so the new
+    ///      pause starts in the solo window (extension requires fresh 2-of-3).
+    function _engage(address by, uint8 categories) internal {
+        require(categories != 0, "E11");
+        // G-2 cooldown: per-(category, guardian). Skipped for owner pause()
+        // path — owner is bootstrap-emergency and not in the cooldown set.
+        bool isG = _isGuardian(by);
+        if (categories & CAT_SETTLEMENT        != 0) { if (isG) _checkAndRecordCooldown(CAT_SETTLEMENT,        by); _engageCategory(CAT_SETTLEMENT); }
+        if (categories & CAT_CAMPAIGN_CREATION != 0) { if (isG) _checkAndRecordCooldown(CAT_CAMPAIGN_CREATION, by); _engageCategory(CAT_CAMPAIGN_CREATION); }
+        if (categories & CAT_GOVERNANCE        != 0) { if (isG) _checkAndRecordCooldown(CAT_GOVERNANCE,        by); _engageCategory(CAT_GOVERNANCE); }
+        if (categories & CAT_TOKEN_MINT        != 0) { if (isG) _checkAndRecordCooldown(CAT_TOKEN_MINT,        by); _engageCategory(CAT_TOKEN_MINT); }
+        _pausedCategoriesRaw |= categories;
+        pausedAtBlock = block.number;
+        emit PausedCategory(by, categories);
+        emit Paused(by);
+    }
+
+    /// @dev G-2 cooldown enforcement. The same guardian cannot re-pause the
+    ///      same category until `lastEngagedBlock + soloMaxPauseBlocks +
+    ///      reengagementCooldownBlocks` has elapsed. Closes the "extend
+    ///      indefinitely by re-engaging at expiry" attack on G-2.
+    function _checkAndRecordCooldown(uint8 cat, address by) internal {
+        uint64 last = lastEngagedBlock[cat][by];
+        if (last != 0) {
+            uint256 readyAt = uint256(last) + uint256(soloMaxPauseBlocks) + uint256(reengagementCooldownBlocks);
+            require(block.number > readyAt, "cooldown");
+        }
+        lastEngagedBlock[cat][by] = uint64(block.number);
+    }
+
+    /// @dev G-2: a fresh engagement on a category resets `extendedUntilBlock`
+    ///      to zero — the new pause starts in the solo window, and the
+    ///      2-of-3 cabal must re-propose to extend.
+    function _engageCategory(uint8 cat) internal {
+        pausedAtBlockFor[cat] = block.number;
+        extendedUntilBlock[cat] = 0;
+    }
+
+    /// @notice CB6 + G-2: bitfield of currently-active (within-window)
+    ///         categories. Effective end-block per category:
+    ///           extendedUntilBlock[cat] != 0 → use it (2-of-3 extension)
+    ///           otherwise                    → pausedAtBlockFor[cat] + soloMaxPauseBlocks
     function _activeMask() internal view returns (uint8 mask) {
         uint8 raw = _pausedCategoriesRaw;
         if (raw == 0) return 0;
-        if (raw & CAT_SETTLEMENT        != 0 && block.number <= pausedAtBlockFor[CAT_SETTLEMENT]        + MAX_PAUSE_BLOCKS) mask |= CAT_SETTLEMENT;
-        if (raw & CAT_CAMPAIGN_CREATION != 0 && block.number <= pausedAtBlockFor[CAT_CAMPAIGN_CREATION] + MAX_PAUSE_BLOCKS) mask |= CAT_CAMPAIGN_CREATION;
-        if (raw & CAT_GOVERNANCE        != 0 && block.number <= pausedAtBlockFor[CAT_GOVERNANCE]        + MAX_PAUSE_BLOCKS) mask |= CAT_GOVERNANCE;
-        if (raw & CAT_TOKEN_MINT        != 0 && block.number <= pausedAtBlockFor[CAT_TOKEN_MINT]        + MAX_PAUSE_BLOCKS) mask |= CAT_TOKEN_MINT;
+        if (raw & CAT_SETTLEMENT        != 0 && _categoryActive(CAT_SETTLEMENT))        mask |= CAT_SETTLEMENT;
+        if (raw & CAT_CAMPAIGN_CREATION != 0 && _categoryActive(CAT_CAMPAIGN_CREATION)) mask |= CAT_CAMPAIGN_CREATION;
+        if (raw & CAT_GOVERNANCE        != 0 && _categoryActive(CAT_GOVERNANCE))        mask |= CAT_GOVERNANCE;
+        if (raw & CAT_TOKEN_MINT        != 0 && _categoryActive(CAT_TOKEN_MINT))        mask |= CAT_TOKEN_MINT;
+    }
+
+    function _categoryActive(uint8 cat) internal view returns (bool) {
+        uint256 effEnd = extendedUntilBlock[cat];
+        if (effEnd == 0) effEnd = pausedAtBlockFor[cat] + uint256(soloMaxPauseBlocks);
+        return block.number <= effEnd;
     }
 
     /// @notice True iff ANY category is currently paused. CB6-aware call
@@ -259,6 +359,9 @@ contract DatumPauseRegistry is DatumUpgradable {
         } else if (p.action == 4) {
             // CB6: must still have at least one of the target categories active.
             require((_activeMask() & p.categories) != 0, "E11");
+        } else if (p.action == 5) {
+            // G-2: every targeted category must still be active.
+            require((_activeMask() & p.categories) == p.categories, "E11");
         }
         // action == 3 (guardian rotation) needs no pre-state guard.
 
@@ -278,6 +381,12 @@ contract DatumPauseRegistry is DatumUpgradable {
             uint8 cleared = _pausedCategoriesRaw;
             _pausedCategoriesRaw = 0;
             pausedAtBlock = 0;
+            // G-2: a 2-of-3 unpause is an explicit dismissal — clear the
+            // per-(guardian, category) cooldown clock so guardians aren't
+            // penalized for an engagement the consensus voted to reverse.
+            // Also clear extendedUntilBlock so a future engagement starts
+            // fresh in the solo window.
+            _clearCooldownAndExtension(cleared);
             emit UnpausedCategory(msg.sender, cleared);
             emit Unpaused(msg.sender);
         } else if (p.action == 3) {
@@ -285,12 +394,92 @@ contract DatumPauseRegistry is DatumUpgradable {
         } else if (p.action == 4) {
             // CB6: clear only the specified categories.
             _pausedCategoriesRaw &= ~p.categories;
+            // G-2: same dismissal-clear, scoped to the unpaused categories.
+            _clearCooldownAndExtension(p.categories);
             emit UnpausedCategory(msg.sender, p.categories);
             if (_pausedCategoriesRaw == 0) {
                 pausedAtBlock = 0;
                 emit Unpaused(msg.sender);
             }
+        } else if (p.action == 5) {
+            // G-2: extend per-category caps for the listed bits.
+            uint64 until = 0;
+            if (p.categories & CAT_SETTLEMENT        != 0) { _extendCategory(CAT_SETTLEMENT);        if (extendedUntilBlock[CAT_SETTLEMENT]        > until) until = extendedUntilBlock[CAT_SETTLEMENT]; }
+            if (p.categories & CAT_CAMPAIGN_CREATION != 0) { _extendCategory(CAT_CAMPAIGN_CREATION); if (extendedUntilBlock[CAT_CAMPAIGN_CREATION] > until) until = extendedUntilBlock[CAT_CAMPAIGN_CREATION]; }
+            if (p.categories & CAT_GOVERNANCE        != 0) { _extendCategory(CAT_GOVERNANCE);        if (extendedUntilBlock[CAT_GOVERNANCE]        > until) until = extendedUntilBlock[CAT_GOVERNANCE]; }
+            if (p.categories & CAT_TOKEN_MINT        != 0) { _extendCategory(CAT_TOKEN_MINT);        if (extendedUntilBlock[CAT_TOKEN_MINT]        > until) until = extendedUntilBlock[CAT_TOKEN_MINT]; }
+            emit PauseExtended(msg.sender, p.categories, until);
         }
+    }
+
+    /// @dev G-2 helper: bump the extended end-block for a category. Uses
+    ///      max() so a second extend doesn't shrink an already-longer one.
+    function _extendCategory(uint8 cat) internal {
+        uint256 newEnd = pausedAtBlockFor[cat] + uint256(categoryMaxPauseBlocks[cat]);
+        if (newEnd > uint256(extendedUntilBlock[cat])) {
+            extendedUntilBlock[cat] = uint64(newEnd);
+        }
+    }
+
+    /// @dev G-2 helper: invoked from action-2 and action-4 unpause execution.
+    ///      Clears the per-(guardian, category) cooldown clock and the
+    ///      extension end-block for every category in the bitfield. The
+    ///      semantic intent: a consensus unpause dismisses the pause, so
+    ///      guardians shouldn't carry the cooldown penalty into a future
+    ///      engagement, and any extension is invalidated by definition.
+    function _clearCooldownAndExtension(uint8 categories) internal {
+        if (categories == 0) return;
+        // Per-category clear of extension end-block.
+        if (categories & CAT_SETTLEMENT        != 0) extendedUntilBlock[CAT_SETTLEMENT]        = 0;
+        if (categories & CAT_CAMPAIGN_CREATION != 0) extendedUntilBlock[CAT_CAMPAIGN_CREATION] = 0;
+        if (categories & CAT_GOVERNANCE        != 0) extendedUntilBlock[CAT_GOVERNANCE]        = 0;
+        if (categories & CAT_TOKEN_MINT        != 0) extendedUntilBlock[CAT_TOKEN_MINT]        = 0;
+        // Per-guardian cooldown clear. We only need to clear the THREE current
+        // guardians' entries — historical guardians (post-rotation) are
+        // irrelevant for cooldown.
+        address g0 = guardians[0]; address g1 = guardians[1]; address g2 = guardians[2];
+        if (categories & CAT_SETTLEMENT != 0) {
+            lastEngagedBlock[CAT_SETTLEMENT][g0] = 0;
+            lastEngagedBlock[CAT_SETTLEMENT][g1] = 0;
+            lastEngagedBlock[CAT_SETTLEMENT][g2] = 0;
+        }
+        if (categories & CAT_CAMPAIGN_CREATION != 0) {
+            lastEngagedBlock[CAT_CAMPAIGN_CREATION][g0] = 0;
+            lastEngagedBlock[CAT_CAMPAIGN_CREATION][g1] = 0;
+            lastEngagedBlock[CAT_CAMPAIGN_CREATION][g2] = 0;
+        }
+        if (categories & CAT_GOVERNANCE != 0) {
+            lastEngagedBlock[CAT_GOVERNANCE][g0] = 0;
+            lastEngagedBlock[CAT_GOVERNANCE][g1] = 0;
+            lastEngagedBlock[CAT_GOVERNANCE][g2] = 0;
+        }
+        if (categories & CAT_TOKEN_MINT != 0) {
+            lastEngagedBlock[CAT_TOKEN_MINT][g0] = 0;
+            lastEngagedBlock[CAT_TOKEN_MINT][g1] = 0;
+            lastEngagedBlock[CAT_TOKEN_MINT][g2] = 0;
+        }
+    }
+
+    /// @notice G-2: propose extending the pause window for a category subset.
+    ///         Solo fast-pause caps at `soloMaxPauseBlocks` (~24h default);
+    ///         this proposal type bumps the effective end-block to
+    ///         `pausedAtBlockFor[cat] + categoryMaxPauseBlocks[cat]` per
+    ///         targeted category. 2-of-3 approval — same proposal type as
+    ///         unpause, just a different action.
+    function proposeExtendPause(uint8 categories) external whenNotFrozen returns (uint256 proposalId) {
+        require(_isGuardian(msg.sender), "E18");
+        require(categories != 0 && (categories & ~CAT_ALL) == 0, "E11");
+        // Every targeted category must be currently active.
+        require((_activeMask() & categories) == categories, "E11");
+
+        proposalId = ++_proposalNonce;
+        Proposal storage p = _proposals[proposalId];
+        p.action = 5;
+        p.proposer = msg.sender;
+        p.approvals = 1;
+        p.categories = categories;
+        p.voted[msg.sender] = true;
+        emit PauseProposed(proposalId, 5, msg.sender);
     }
 
     /// @notice CB6: propose unpause of a specific category subset. Same 2-of-3
@@ -334,5 +523,50 @@ contract DatumPauseRegistry is DatumUpgradable {
         p.ng2 = ng2;
         p.voted[msg.sender] = true;
         emit GuardianRotationProposed(proposalId, msg.sender, ng0, ng1, ng2);
+    }
+
+    // -------------------------------------------------------------------------
+    // G-2: pause-parameter governance (owner-only, lock-once)
+    // -------------------------------------------------------------------------
+
+    /// @notice Set the solo (1-of-N) fast-pause window in blocks. Bounded
+    ///         by MAX_PAUSE_PARAM_CEILING (~14d).
+    function setSoloMaxPauseBlocks(uint64 b) external onlyOwner whenNotFrozen {
+        require(!pauseParamsLocked, "locked");
+        require(b > 0 && b <= MAX_PAUSE_PARAM_CEILING, "E11");
+        soloMaxPauseBlocks = b;
+        emit SoloMaxPauseBlocksSet(b);
+    }
+
+    /// @notice Set the per-category extended cap reached via 2-of-3 extend
+    ///         proposal. Must be >= soloMaxPauseBlocks (extension can never
+    ///         shrink the solo window) and <= MAX_PAUSE_PARAM_CEILING.
+    ///         `category` must be exactly one CAT_* bit.
+    function setCategoryMaxPauseBlocks(uint8 category, uint64 b) external onlyOwner whenNotFrozen {
+        require(!pauseParamsLocked, "locked");
+        require(category != 0 && (category & ~CAT_ALL) == 0, "E11");
+        // Must be a single bit (no compound categories).
+        require((category & (category - 1)) == 0, "E11");
+        require(b >= soloMaxPauseBlocks && b <= MAX_PAUSE_PARAM_CEILING, "E11");
+        categoryMaxPauseBlocks[category] = b;
+        emit CategoryMaxPauseBlocksSet(category, b);
+    }
+
+    /// @notice Set the per-(guardian, category) re-engagement cooldown in
+    ///         blocks. Closes the "extend indefinitely by re-engaging at
+    ///         expiry" attack. 0 = cooldown disabled (testnet only).
+    function setReengagementCooldownBlocks(uint64 b) external onlyOwner whenNotFrozen {
+        require(!pauseParamsLocked, "locked");
+        require(b <= MAX_PAUSE_PARAM_CEILING, "E11");
+        reengagementCooldownBlocks = b;
+        emit ReengagementCooldownBlocksSet(b);
+    }
+
+    /// @notice Cypherpunk lock: freeze all G-2 pause-parameter setters
+    ///         permanently. Phase-gated on OpenGov.
+    function lockPauseParams() external onlyOwner whenOpenGovPhase {
+        require(!pauseParamsLocked, "already locked");
+        pauseParamsLocked = true;
+        emit PauseParamsLocked();
     }
 }
