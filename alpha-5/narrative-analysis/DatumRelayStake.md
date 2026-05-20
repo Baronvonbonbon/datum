@@ -1,24 +1,38 @@
 # DatumRelayStake
 
-G-1 first close: bond gate + slash hook for the relay role. Mirrors
-`DatumPublisherStake` / `DatumAdvertiserStake` in shape but with a
-**flat minimum stake** (no bonding curve) — a relay's adversarial
-power is not a function of cumulative throughput, so curve growth
-would penalize productive relays without economic benefit.
+G-1 first close: **optional** bond gate + slash hook for
+**third-party shared-relay operators**. Mirrors `DatumPublisherStake`
+/ `DatumAdvertiserStake` in shape but with a **flat minimum stake**
+(no bonding curve) — a relay's adversarial power is not a function
+of cumulative throughput, so curve growth would penalize productive
+relays without economic benefit.
+
+Important framing: this contract governs Path 3 (third-party shared
+relay) only. Publishers and advertisers running their own relay
+infrastructure use Paths 1-2 (direct-to-Settlement via
+`Publishers.relaySigner` or `DatumDualSigSettlement`) and don't
+touch this contract. Staking is **never mandatory** for the
+protocol — it's a self-selected accountability signal for
+independent third-party operators who want to participate in the
+shared `DatumRelay.settleClaimsFor` flow without being on the
+Council-curated allowlist. See
+[`proposals/relay-accountability.md §6`](./proposals/relay-accountability.md)
+for the full operator-type → path mapping.
 
 Two roles consume this contract:
 
 1. **DatumRelay** reads `isAuthorized(addr)` to gate its authorized-
-   relayer set (pattern (b) augment: pass if EITHER manually
-   authorized via the existing allowlist OR adequately staked here).
+   relayer set (augment-pattern: pass if EITHER manually allowlisted
+   OR adequately staked here). The two paths are permanent — there
+   is no planned "stake-only" cutover.
 2. **DatumRelayGovernance** calls `slash(...)` when a fraud proposal
    resolves upheld. The full slashed amount is forwarded to the
    recipient (governance); governance handles the challenger /
    treasury split off-side.
 
 Companion: [`proposals/relay-accountability.md`](./proposals/relay-accountability.md)
-covers the full design rationale, the pattern (a/b/c) integration
-choice, and the upgrade-path scaffold for the future Settlement-mark
+covers the full design rationale, the three authorization paths,
+and the upgrade-path scaffold for the future Settlement-mark
 (Approach A) or on-chain commitment (Approach B) variants.
 
 ## Authorization model

@@ -259,12 +259,19 @@ Items deferred for design conversation. None block the next redeploy.
 - [ ] Operational: rotate `DatumRelayGovernance.treasury` from
       deployer to protocol treasury Safe.
 - [ ] Operational: calibrate `relayMinStake` after observing
-      production relayer-set composition. Arm via
-      `RelayStake.setRelayMinStake(floor)`.
-- [ ] Decide pattern (a) replace vs continuing (b) augment around
-      Phase 1 → 2 transition. Pattern (a) means emptying
-      `authorizedRelayers` + `Relay.lockRelayerOpen()` so the stake
-      gate is the sole authorization source.
+      independent operator interest. Arm via
+      `RelayStake.setRelayMinStake(floor)` when independent
+      third-party operators want to participate; before then,
+      Path 3 authorization is allowlist-only on `DatumRelay`.
+- [x] ~~Decide pattern (a) replace vs (b) augment~~ — **decided
+      2026-05-20: keep (b) augment permanently**. The three-path
+      architecture (Path 1 publisher relaySigner direct, Path 2
+      advertiser dual-sig direct, Path 3 DatumRelay with optional
+      stake-or-allowlist) means staking is never mandatory.
+      Manual `authorizedRelayers` allowlist is preserved for
+      Council-curated parties; stake gate is opt-in for
+      independent operators. Decision recorded in
+      `proposals/relay-accountability.md §6`.
 - [ ] **Approach A or B censorship fast-track.** Deferred until
       observed censorship rate justifies the gas tax. Triggers
       documented in relay-accountability.md §9.

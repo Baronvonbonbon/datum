@@ -12,19 +12,30 @@ and `DatumAdvertiserStake + DatumAdvertiserGovernance`.
 
 ### Goals
 
-- Give every authorized relay an on-chain identity (an EOA bonded
-  in a stake contract) that the protocol can slash.
-- Make the authorized-relayer set self-selecting via bond floor —
-  remove the "owner manages a list" surface that today makes
-  `Relay.lockRelayerOpen()` a hollow commitment.
-- Adjudicate censorship complaints through conviction voting on a
-  bond-secured proposal — same audit-trail shape the rest of the
-  protocol uses.
+- Give **independent third-party relays** an on-chain identity (an
+  EOA bonded in a stake contract) that the protocol can slash.
+  Self-operating publishers and advertisers use the existing
+  `relaySigner` / dual-sig direct paths and are NOT subject to this
+  scheme.
+- Make the third-party authorized-relayer set self-selecting via
+  optional bond floor — providing an alternative to the manual
+  `authorizedRelayers` allowlist while keeping the allowlist
+  available for Council-curated parties.
+- Adjudicate censorship complaints against staked relays through
+  conviction voting on a bond-secured proposal — same audit-trail
+  shape the rest of the protocol uses.
 - Preserve hot-path gas: no new SSTORE per settled batch on
   Settlement.
 
 ### Non-goals
 
+- **Force every relay operator to stake.** Publishers and
+  advertisers running their own relay infrastructure use the
+  pre-existing direct-to-Settlement paths (`Publishers.relaySigner`
+  / `DatumDualSigSettlement`) and never touch `DatumRelay`. The
+  stake gate applies only to the third-party shared-relay service.
+  Stake is a **self-selected accountability signal**, not a
+  protocol-wide requirement.
 - Real-time slash. Governance is the resolution layer; a single
   proven censorship event takes a vote cycle to slash. If observed
   censorship rate makes that too slow, add Approach A or B (§9).
@@ -32,6 +43,8 @@ and `DatumAdvertiserStake + DatumAdvertiserGovernance`.
   primitives the EVM offers; needs a different mechanism class.
 - Relay reputation curves. Flat minimum stake; reputation can be
   layered later if useful.
+- A "stake-only" end-state. The manual allowlist is preserved
+  permanently for Council-curated parties (see §6).
 
 ## 2. Why this first
 
@@ -246,74 +259,106 @@ contract DatumRelayGovernance is DatumUpgradable, PaseoSafeSender {
 **Sizing reference:** `DatumPublisherGovernance` is ~530 LOC.
 Target similar.
 
-## 6. DatumRelay integration
+## 6. Authorization paths (three production paths, optional staking)
 
-`DatumRelay` already has `authorizedRelayers[address] → bool` +
-`relayerOpen` + `lockRelayerOpen()`. Three migration patterns,
-ordered by conservatism:
+Critical clarification (2026-05-20): the stake gate **only governs the
+third-party multi-publisher relay service** (`DatumRelay.settleClaimsFor`).
+Publishers and advertisers running their own relay infrastructure
+already have direct paths to Settlement that bypass `DatumRelay`
+entirely — they do NOT need to stake. The protocol has three
+production authorization paths, one of which uses the stake gate:
 
-### (a) Replace — clean cypherpunk
+### Path 1: Publisher self-operates via `relaySigner`
 
-Authorization comes ONLY from the stake gate.
+A publisher who runs their own relay infrastructure configures
+`Publishers.setRelaySigner(theirHotKey)` and the hot key submits
+directly to `Settlement.settleClaims`. The `_isPublisherRelay`
+check on `DatumSettlementStorage` recognizes the relaySigner and
+passes authorization. **Does not touch `DatumRelay` at all.**
+No stake required.
+
+### Path 2: Advertiser self-operates via dual-sig
+
+An advertiser running their own settlement infrastructure produces
+publisher + advertiser cosigs and submits to
+`DatumDualSigSettlement.settleSignedClaims` directly. Submission
+is permissionless; auth is via the EIP-712 cosig itself.
+**Does not touch `DatumRelay` at all.** No stake required.
+
+### Path 3: Third-party shared relay via `DatumRelay.settleClaimsFor`
+
+The multi-publisher relay service. Independent operators batch
+claims from many publishers + users and submit through `DatumRelay`,
+which verifies the publisher cosig before forwarding to Settlement.
+This is the only path subject to the stake gate.
+
+`DatumRelay` authorization for this path uses the **augment pattern (b)**:
 
 ```solidity
-// In DatumRelay:
 function _isAuthorized(address relayer) internal view returns (bool) {
-    return address(relayStake) != address(0)
-        && relayStake.isAuthorized(relayer);
-}
-```
-
-`authorizedRelayers` mapping can stay for backward-compat reads but
-isn't consulted. Cleanest end-state. Requires a phase-2 lockdown
-move.
-
-### (b) Augment — additive transition (recommended for first deploy)
-
-```solidity
-function _isAuthorized(address relayer) internal view returns (bool) {
-    if (authorizedRelayers[relayer]) return true;     // existing path
+    if (authorizedRelayers[relayer]) return true;     // manual allowlist
     if (address(relayStake) != address(0)
-        && relayStake.isAuthorized(relayer)) return true;     // new path
+        && relayStake.isAuthorized(relayer)) return true; // optional stake gate
     return false;
 }
 ```
 
-Existing manually-authorized relays continue to work; staked relays
-join in addition. Easy migration; no behavior break.
+A relay passes if EITHER manually allowlisted OR adequately staked.
+Both paths coexist permanently — this is the intended production
+posture, not a transition step.
 
-### (c) Layered — strict
+### Operator-type → path mapping
 
-```solidity
-function _isAuthorized(address relayer) internal view returns (bool) {
-    return authorizedRelayers[relayer]
-        && (address(relayStake) == address(0) || relayStake.isAuthorized(relayer));
-}
-```
+| Operator | Path | Stake required? |
+|---|---|---|
+| Publisher running own relay | Path 1 (relaySigner direct) | No |
+| Advertiser running own dual-sig | Path 2 (DualSig direct) | No |
+| Independent third-party operator | Path 3 (DatumRelay + stake) | Yes, if not allowlisted |
+| Council-curated third party | Path 3 (DatumRelay + allowlist) | No |
 
-Both gates must pass. Most conservative; defeats the
-self-selecting property. Probably not what we want.
+Independent operators self-select into staking — slashable accountability,
+on-chain reputation signal, ability to claim slash bonuses from upheld
+fraud proposals against other relays. Council-curated parties (e.g. a
+network's official relay, an exchange's relay) sit on the allowlist
+without needing to stake.
 
-### Recommended path
+### Why NOT flip to "stake-only" (pattern a)
 
-1. **Deploy A5R1 (alpha-5 release 1)** with pattern **(b)** —
-   additive. `relayMinStake = 0` initially so stake gate is a no-op.
-   No behavior change for existing relays.
-2. **Trial period.** Relays opt-in to staking. Observe rate of
-   stake adoption, gas costs in production, governance proposals
-   if any.
-3. **Calibrate `relayMinStake`** based on relayer-set composition.
-   Start conservative (e.g. 10 PAS) and raise via owner setter once
-   the production relayer set has stabilized.
-4. **Flip to (a)** by setting `authorizedRelayers[*] = false` for
-   addresses that haven't staked and emptying the mapping. Lock
-   `Relay.lockRelayerOpen()` and `RelayStake.lockStakeGate()`
-   post-OpenGov. Final state: stake gate is the sole authorization
-   source.
+Earlier drafts of this proposal contemplated a Phase-2 cutover from
+augment (b) to "stake-only" (a) — emptying `authorizedRelayers` and
+making the stake gate the sole authorization source. **This is no
+longer the planned end-state.** Reasons:
 
-Pattern (b) means the small contract change to `DatumRelay` is
-the only Solidity edit to the existing tree. Everything else is
-new contracts.
+- Publishers / advertisers running their own relays use Paths 1-2
+  and don't touch DatumRelay at all, so the stake-only cutover would
+  affect only the third-party shared-relay service.
+- Within Path 3, the manual allowlist is genuinely useful for
+  Council-curated parties (the network's own relay, exchange relays,
+  etc.) that have other accountability mechanisms.
+- The allowlist setter `setRelayerAuthorized` is owner-only; after
+  Phase-2, ownership routes through Timelock + Council, so
+  allowlist additions ARE community-gated. The cypherpunk concern
+  about "owner-managed list with capture surface" is already
+  addressed by the upgrade-ladder routing.
+
+### Deploy posture (still pattern b, just permanent)
+
+1. **Deploy A5R1** with pattern (b) — augment. `relayMinStake = 0`
+   initially so stake gate is a no-op for the third-party path.
+   Manual allowlist is the only authorization signal at deploy.
+2. **Arm the stake gate.** Once independent operators want to
+   participate, governance calls `RelayStake.setRelayMinStake(floor)`.
+   Stake gate becomes active alongside the allowlist.
+3. **Lock the stake gate** post-OpenGov via `RelayStake.lockStakeGate()`
+   and `RelayStake.lockPlumbing()`. `Relay.lockRelayerOpen()` only
+   fires when the allowlist is considered final — not as a precursor
+   to the stake-only cutover, but as the cypherpunk commitment that
+   the allowlist won't be expanded except via curator-pattern
+   delegation (see future work).
+
+Pattern (b) means the small contract change to `DatumRelay` is the
+only Solidity edit to the existing tree. Everything else is new
+contracts.
 
 ## 7. Slash flow walk-through
 

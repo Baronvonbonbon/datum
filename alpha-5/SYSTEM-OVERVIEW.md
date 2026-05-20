@@ -681,17 +681,28 @@ the current architecture. Documented in detail in
 
 - **G-1 — Relay has zero on-chain accountability.** **Partially
   closed 2026-05-20** via `DatumRelayStake` + `DatumRelayGovernance`
-  (relay-accountability proposal §4-5). Relays now have a slashable
-  on-chain bond, adjudicated by conviction vote on four reason codes
-  (censorship / front-run / MEV / collusion). Pattern (b) augment on
-  `DatumRelay` — staked relays pass authorization alongside manually-
-  allowlisted ones. Refund-floor cap MAX_PUNISHMENT_BPS = 8000
-  preserves ≥ 20% on any single slash. **Still open:** governance-
-  vote resolution is slow (one vote cycle ~7d); censorship-fast-track
-  (Approach A: Settlement-side mark, or Approach B: on-chain
-  commitment) deferred until observed censorship rate justifies the
-  per-batch gas tax. MEV / front-running primitives also still open
-  (need different mechanism class — VSS or encrypted mempool).
+  (relay-accountability proposal §4-6). **Three authorization paths;
+  staking is optional.** Publishers running their own relay use
+  Path 1 (`Publishers.setRelaySigner` → direct to Settlement,
+  bypasses `DatumRelay` entirely). Advertisers running their own
+  dual-sig flow use Path 2 (`DatumDualSigSettlement` direct,
+  permissionless). Third-party shared relays use Path 3
+  (`DatumRelay.settleClaimsFor`) and are subject to the
+  augment-pattern authorization: pass via manual `authorizedRelayers`
+  allowlist OR via `DatumRelayStake.isAuthorized`. **Both Path 3
+  sub-paths are permanent — no "stake-only" cutover planned.** The
+  allowlist serves Council-curated parties (network's own relay,
+  exchange relays); the stake gate serves independent operators who
+  self-select into on-chain accountability + reputation. Staked
+  relays are slashable via conviction vote on four reason codes
+  (censorship / front-run / MEV / collusion); refund-floor cap
+  `MAX_PUNISHMENT_BPS = 8000` preserves ≥ 20% on any single slash.
+  **Still open:** governance-vote resolution is slow (one vote cycle
+  ~7d); censorship-fast-track (Approach A: Settlement-side mark, or
+  Approach B: on-chain commitment) deferred until observed censorship
+  rate justifies the per-batch gas tax. MEV / front-running
+  primitives also still open (need different mechanism class — VSS
+  or encrypted mempool).
 - **G-2 — Two-of-three guardian cabal damage window.** **Partially
   closed 2026-05-20** via three mechanisms in `DatumPauseRegistry`:
   (1) solo fast-pause window shortened to ~24h default
