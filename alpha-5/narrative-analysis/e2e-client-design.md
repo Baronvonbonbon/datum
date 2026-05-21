@@ -5,11 +5,17 @@ alpha-5 contract tree on Paseo. Sized for follow-up implementation.
 
 Date: 2026-05-21
 Status: Design — not implementation
-Revision: r2 (2026-05-21) — extension is now a self-contained wallet
+Revision: r3 (2026-05-21) — extension is a self-contained wallet
 (BIP-39 HD, password-unlock, multi-account, send-to-external) and
 the *only* wallet surface. Webapp uses the extension as its EIP-1193
-provider. No HTTP RPC anywhere — pine/smoldot is the sole chain
-access path across all client surfaces.
+provider. Pine/smoldot is the canonical chain access path on every
+surface. **End-user paths (extension, public webapp reads) are
+pine-only.** **Operator surfaces (webapp `/publisher` and
+`/advertiser` routes, relay-bot) are pine-first with per-query RPC
+fallback for history beyond pine's window** — and they support a
+user-configurable BYO RPC endpoint so operators can point at their
+own archive node. All RPC-augmented tiles carry a visible "via RPC"
+badge.
 
 ---
 
@@ -25,15 +31,21 @@ access path across all client surfaces.
    publisher, governance, admin/protocol, me/user, token plane,
    identity bridge) gets a single dashboard route that is a global
    overview + recent telemetry. Same shape across all of them.
-3. **Pine/smoldot only.** Every read and every write goes through
-   the local smoldot light client (via `pine`). The Paseo HTTP
-   gateway is *not* used anywhere — webapp, extension, and relay-bot
-   all run pine. Pine's session-scoped TxPool also fixes the Paseo
-   null-receipt bug for writes routed through it. Cypherpunk
-   posture: the dApp never leaks a request to a centralized RPC
-   gateway. Trade-off: cold-install UX shows a "syncing…" state
-   until smoldot indexes its first finalized block (~10–30 s on
-   Paseo with warm peers).
+3. **Pine/smoldot canonical, RPC as escape valve for history on
+   operator surfaces.** Every live read and every write goes
+   through pine. End-user paths (extension popup, public webapp
+   reads on `/explorer`, `/me`) are strictly pine-only — no HTTP
+   anywhere. Operator paths (`/publisher`, `/advertiser`,
+   relay-bot) are pine-first with per-query RPC fallback for
+   queries that need history beyond pine's rolling window
+   (~10k blocks ≈ 17 h on Paseo). Operators can configure their
+   own RPC endpoint (BYO archive node) in Settings; default is the
+   public Paseo gateway. Tiles that needed the RPC fallback carry
+   a "via RPC" badge so the trust posture stays visible. Pine's
+   session-scoped TxPool fixes the Paseo null-receipt bug for any
+   write that goes through it. Cold-install UX shows a "syncing…"
+   state until smoldot indexes its first finalized block (~10–30 s
+   on Paseo with warm peers).
 4. **Telemetry, not analytics.** Each dashboard ships a rolling
    window of meaningful events (recent settlements, governance
    actions, pauses, locks fired, upgrades). Built from `eth_getLogs`
@@ -66,21 +78,39 @@ client reads chain state. The current matrix lives in
 | `eth_getLogs` | Rolling ~10k-block window from connect time | Telemetry windows must be sized to Pine's window |
 | Historical blocks | Stubbed pre-window | Cannot rely on `getBlockByNumber(oldBlock)` |
 
-**Strategy: pine-only. No HTTP fallback anywhere.**
+**Strategy: pine canonical, per-query RPC fallback on operator
+paths only.**
 
-- `web/src/lib/provider.ts` (new): exports `getProvider()` — wraps
-  pine, no alternative endpoint.
+- `web/src/lib/provider.ts` (new): exports `getPineProvider()` and
+  `getRpcProvider()`. The latter only resolves to a non-null value
+  on routes whitelisted as "operator" (`/publisher`, `/advertiser`,
+  and their nested pages); on all other routes it returns
+  `undefined` so hook misuse fails fast at dev time.
+- `web/src/lib/query.ts` (new): defines `queryWithFallback<T>({
+  pine, rpcFallback?, windowBlocks })` — the single entry point
+  for any chain query that *might* need history. Behavior:
+  1. Try pine. If pine can satisfy `fromBlock = currentBlock -
+     windowBlocks`, return the pine result and don't touch RPC.
+  2. If pine's earliest indexed block > `fromBlock` and the caller
+     supplied an `rpcFallback`, splice in the older slice from RPC.
+     Tag the returned data with `viaRpc: true`.
+  3. If pine misses *and* no fallback was supplied (end-user
+     routes), return what pine has and tag `viaRpc: false,
+     truncatedTo: pineEarliestBlock`.
 - Cold start shows a `Syncing…` overlay until pine reaches
   `peers ≥ 2 && finalizedHead != 0 && logIndexerReady`. Typically
   10–30 s on Paseo with warm peers; first-ever install needs to
   pull the chainspec checkpoint over P2P and can take up to ~60 s.
-- The webapp embeds pine directly for read-only paths (Explorer,
-  public dashboards). When the extension is installed, the webapp
-  *also* gets the extension's EIP-1193 provider — but that provider
-  is itself pine-backed (the extension routes everything through
-  its own offscreen smoldot). Two pine instances exist in that
-  case, which is fine: they're cheap to run and isolation is good
-  cypherpunk discipline.
+- The webapp embeds pine directly for read paths. When the
+  extension is installed, the webapp *also* gets the extension's
+  EIP-1193 provider — but that provider is itself pine-backed (the
+  extension routes everything through its own offscreen smoldot).
+  Two pine instances exist in that case, which is fine: they're
+  cheap to run and isolation is good cypherpunk discipline.
+- Operator BYO RPC endpoint configured at `/settings/rpc`. Stored
+  in `localStorage` per origin. Defaults to the public Paseo
+  gateway. Pages outside the operator whitelist ignore this
+  setting entirely.
 
 **Pine init flow (webapp):**
 
@@ -108,13 +138,25 @@ on app start
   decision). A subtle "history begins at block N" footnote in the
   popup makes the cutover explicit.
 
-**Telemetry-window contract.** All dashboards declare their window
-size upfront (`{ blocks: 14_400 }` ≈ 24 h on Paseo). The dashboard
-hook reads `eth_getLogs(fromBlock = max(currentBlock - window,
-pine.connectedAtBlock))` so the UI never asks pine for logs it
-can't serve. When the available window is shorter than the
-requested window, the dashboard shows a "Pine connected N min ago
-— partial window" banner. There is no HTTP fall-through.
+**Telemetry-window contract.** Each dashboard tile declares two
+values: `windowBlocks` (how much history it wants) and
+`historyAllowed` (whether RPC fallback is permitted for this
+specific tile). Tile semantics:
+
+- `historyAllowed: false` (end-user tiles): `queryWithFallback`
+  returns whatever pine has, tagged `truncatedTo: N` when pine's
+  window is shorter than requested. Tile renders a small
+  "Pine connected N min ago — partial window" banner.
+- `historyAllowed: true` (operator tiles): RPC splices in older
+  history beyond pine's reach. Tile shows a "via RPC" badge so the
+  operator knows this specific tile leaked metadata to their RPC
+  endpoint. Live data (newest end of the window) still comes from
+  pine.
+
+The default is `historyAllowed: false`. Each operator-page tile
+opts in explicitly; the type system enforces that
+`historyAllowed: true` is only legal on routes registered as
+operator paths.
 
 **Pine missing pieces to flag (issues, not blockers):**
 
@@ -250,23 +292,34 @@ The webapp does *not* ship its own wallet. Signing and account
 management belong to the extension. The webapp's role is:
 
 - Render read-only pages (Explorer, public dashboards) for visitors
-  with no extension installed. Pine is the only chain access path.
-- When the extension is detected (`window.datum` injected on page
-  load by the extension's content script), bind it as the signer
-  and as a secondary read provider. Reads can come from either the
+  with no extension installed. Pine is the only chain access path
+  on these routes.
+- When the extension is detected (via EIP-6963 announcement or
+  `window.datum` fallback), bind it as the signer and as a
+  secondary read provider. Reads can come from either the
   webapp's own pine or the extension's pine — they're equivalent.
+- On operator routes (`/publisher/*`, `/advertiser/*`), expose the
+  per-query RPC fallback (see §1) for history beyond pine's
+  window. RPC endpoint is operator-configurable.
 
 Files:
 
-- `web/src/lib/provider.ts` (new): wraps a single pine instance.
-  No HTTP rail. Throws cleanly if pine fails to connect after a
-  warm-up timeout (60 s).
-- `web/src/lib/walletConnector.ts` (new): detects `window.datum`,
-  exposes `connect()` / `getAccounts()` / `signAndSend()`. Uses the
-  same EIP-1193 message shape the extension serves. Falls through
+- `web/src/lib/provider.ts` (new): wraps the pine instance + (on
+  operator routes only) the RPC instance. Pine starts at app
+  load; RPC is lazy-initialized the first time a tile opts in.
+- `web/src/lib/query.ts` (new): `queryWithFallback` primitive
+  documented in §1.
+- `web/src/lib/walletConnector.ts` (new): detects DATUM provider
+  via EIP-6963 (preferred) or `window.datum` (fallback). Exposes
+  `connect()` / `getAccounts()` / `signAndSend()`. Falls through
   to a "Install the DATUM extension" CTA when absent.
-- `web/src/hooks/useLogs.ts` (new): window-aware log fetcher with
-  Pine warm-up handling.
+- `web/src/lib/rpcSettings.ts` (new): operator-configurable RPC
+  endpoint; stored per origin in `localStorage`. Default is the
+  public Paseo gateway. Validation: `eth_chainId` ping at save
+  time.
+- `web/src/hooks/useLogs.ts` (new): window-aware log fetcher.
+  Accepts `historyAllowed: boolean`; routes through
+  `queryWithFallback` accordingly.
 - `web/src/hooks/useContractRead.ts` (refactor): default to pine.
 - `web/src/hooks/useContractWrite.ts` (new): always routes through
   `walletConnector.signAndSend()`. Pages that need signing
@@ -279,11 +332,18 @@ Files:
   connect.
 - `web/src/components/WalletStatus.tsx` (new): chip showing
   connected extension account + chain.
+- `web/src/components/ViaRpcBadge.tsx` (new): the small badge that
+  hangs off tiles which used the RPC fallback.
 - **Removed:** `web/src/lib/extensionDaemon.ts`,
   `web/src/lib/walletProvider.ts`, and any reliance on injected
   `window.ethereum` from MetaMask-style wallets. The DATUM
   extension's provider lives at `window.datum` so it never
-  collides with other wallets the user has installed.
+  collides with other wallets the user has installed; EIP-6963
+  announcement is the canonical discovery path.
+
+New webapp route: `/settings/rpc` — operator-only screen for
+choosing a custom RPC endpoint. Public routes don't link to it;
+it's reachable from `/publisher` and `/advertiser` settings panes.
 
 ### Read-only fallback (no extension)
 
@@ -569,7 +629,11 @@ are remembered until revoked from SettingsTab.
 - `background/pineBridge.ts` defines `pineRpc(method, params)` that
   forwards to the offscreen document; offscreen's `smoldot.ts` owns
   the WASM client and is the only place pine lives.
-- **All chain reads route through pineRpc. No HTTP fallback.**
+- **All chain reads route through pineRpc. No HTTP fallback, ever.**
+  The dual-rail decision (per-query RPC fallback for operator
+  surfaces) applies only to the webapp's `/publisher` and
+  `/advertiser` routes. The extension is a user-facing wallet; its
+  privacy posture is uniform.
 - Cold install: popup boots into Onboarding (no pine needed yet);
   once the user has a wallet + password, the EarningsTab is shown
   with a "Syncing chain — N peers, M blocks finalized" indicator
@@ -579,6 +643,9 @@ are remembered until revoked from SettingsTab.
   restart cold-starts pine again (acceptable; ~30 s warm-up).
 - Bundle impact: ~600 KB smoldot WASM + chainspec, fetched once
   on first install and cached in `chrome.storage.local`.
+- History footer: EarningsTab shows "History begins at block N
+  (installed YYYY-MM-DD)" so the user knows the cutoff. There is
+  no backward sync.
 
 ### 3.5 Dashboard surface (popup)
 
@@ -749,8 +816,9 @@ gitignored.
 
 ### 5.4 Pine integration
 
-- `provider.mjs` exposes `getProvider()` backed by pine only.
-  Same single-rail shape as the webapp.
+- `provider.mjs` exposes `getPineProvider()` and an optional
+  `getRpcProvider()` — same dual-rail shape as the operator side
+  of the webapp.
 - Pine in Node ships via `pine/dist` consumed as a normal package.
   Smoldot WASM is loaded once at startup; the relay process is
   long-lived so the 600 KB warm-up cost is amortized.
@@ -760,6 +828,14 @@ gitignored.
 - On boot, relay refuses to submit any tx until pine has reached
   `peers ≥ 2 && finalizedHead != 0` to avoid sending into a
   half-synced view. Status emitted via the `/health` endpoint.
+- RPC fallback is used only for periodic operator-history jobs
+  (e.g. monthly settlement digest, archive divergence checks) —
+  jobs whose semantics specifically need history older than pine
+  can serve. All live operations (claim submission, click batching,
+  StakeRootV2 cron) are pine-only. Endpoint is config-driven via
+  `RPC_URL` env; defaults to the public Paseo gateway when unset.
+  A relay operator pointing at their own archive node fixes the
+  metadata-leak concern and gets faster history queries.
 
 ### 5.5 Dashboard surface
 
@@ -863,7 +939,7 @@ not yet staked).
 
 ## 7. Telemetry plumbing
 
-Per dashboard log windows hit `eth_getLogs` against ~5–10 contracts
+Per-dashboard log windows hit `eth_getLogs` against ~5–10 contracts
 each. Pine's LogIndexer handles fan-out, but to avoid hammering
 the indexer:
 
@@ -872,11 +948,26 @@ the indexer:
 - Hooks declare interest at mount, unsubscribe on unmount.
 - New blocks tick once and refresh every active subscription via
   `pine.getLogs(prevHigh+1, newBlock)`.
-- Backpressure: if pine is warming up, hooks return a `loading`
-  state until pine reaches the requested `fromBlock`. No HTTP
-  fall-through.
+- Backpressure: if pine is warming up, hooks return `loading`
+  until pine reaches the requested `fromBlock`.
 
-This pattern is required because Pine's `getLogs` is in-memory but
+For tiles on operator routes that opt in to RPC fallback
+(`historyAllowed: true`), the eventBus splits the request:
+
+- *Live tail* (blocks after `pine.connectedAtBlock`) — served by
+  the multicast pine subscription as above.
+- *Historical head* (blocks before `pine.connectedAtBlock`) —
+  served by a one-shot RPC `eth_getLogs` call against the operator's
+  configured endpoint, cached in `localStorage` per
+  `(address, topic0, fromBlock, toBlock)` so repeat tile mounts
+  don't re-query. Cache invalidates only when the operator's
+  endpoint changes.
+
+Idle heuristic: when a hook has seen no events for ≥ 10 blocks,
+its pine subscription downshifts to every-other-block polling.
+Restores to per-block polling on the first new event.
+
+This pattern is required because pine's `getLogs` is in-memory but
 not free — one call per dashboard per block ≈ 1.5 s of WASM work
 on bigger windows. Multicasting cuts that to one call per block
 total.
@@ -955,73 +1046,80 @@ config + chainspec are loaded once by the extension and re-used).
 
 ---
 
-## 9. Open design questions
+## 9. Design decisions (r3 — resolved)
 
-These need answers before / during implementation:
+All questions from r2 are now settled. Recording the decisions
+here as the canonical reference; implementation work refers back to
+this section.
 
-1. **Smoldot chainspec source.** The chainspec for `paseo-asset-hub`
-   needs to ship with the extension + webapp. Pine already vendors
-   one in `pine/src/chainspecs/`; we'll consume it directly. Open:
-   how often does the spec need to be refreshed (Paseo runtime
-   upgrades), and what's the update channel (extension auto-update
-   for Chrome Web Store, manual for unpacked)? Recommendation:
-   pin a known-good spec per release and rev with each protocol
-   upgrade.
-2. **History cutoff UX.** "No HTTP, ever" means earnings before
-   install are invisible. Popup must be explicit: "History begins
-   at block N (installed 2026-05-21)". Open: do we *also* offer a
-   "scan from genesis" power-user button that lets pine sync
-   backward? Pine doesn't support backward fills today; we'd need
-   to add it (out of scope for first cut). Recommendation: ship
-   without backward sync; add later if user demand justifies.
-3. **Vault password reset.** No recovery path other than the
-   mnemonic. If a user forgets both, funds are lost. Open: do we
-   offer a "destroy vault + re-import mnemonic" UI explicitly, or
-   require the user to uninstall + reinstall the extension?
-   Recommendation: explicit "Reset wallet" button in SettingsTab,
-   gated behind a "Type RESET to confirm" prompt. Same outcome as
-   uninstall, lower friction.
-4. **EIP-1193 namespace.** `window.datum` avoids MetaMask
-   collision but means existing dApps don't auto-discover us.
-   Open: do we also implement EIP-6963 (multi-injected-provider
-   discovery) so the webapp's wallet picker can list both DATUM
-   and other wallets, even though we only support DATUM ourselves?
-   Recommendation: yes — EIP-6963 announce-event, even though our
-   provider is the only one our webapp actually supports. Future-
-   proofs the interface.
-5. **Send-tab token discovery.** Auto-discover ERC-20 holdings via
-   pine event logs (Transfer events to this address). Open: do we
-   subscribe to *all* Transfer logs and filter (expensive), or
-   maintain a curated allowlist of tokens (DATUM, USDT, USDC, etc.)
-   plus user-pasted addresses? Recommendation: allowlist + paste,
-   no global subscription. Auto-discovery is a follow-on.
-6. **PoW + signing concurrency.** The extension already does PoW
-   solving in a worker. With the wallet in the offscreen document
-   too, we now have several long-running CPU consumers in one
-   place. Open: do we move PoW solving to a separate worker pool,
-   or keep it in offscreen with cooperative yielding?
-   Recommendation: keep in offscreen, add yield points to PoW
-   solver every N hashes so wallet unlock + signing stays
-   responsive.
-7. **Relay-bot multi-publisher.** The mainnet design (per backlog
-   §1.8) is multi-publisher with HSM keys. For Paseo we stay
-   single-publisher Diana. Recommendation: multi-publisher shape
-   from day one, with `publishers: [{ address, signerEnv }]`
-   defaulting to a single entry. Cheap to add; expensive to
-   retrofit.
-8. **Dashboard data-freshness UX.** Block-level refresh (every ~6 s
-   on Paseo) is the right cadence for telemetry streams but feels
-   chatty for hero stats. Recommendation: hero stats poll on
-   block intervals but only re-render when a value changes;
-   telemetry stream re-renders every block.
-9. **Mobile.** Webapp is desktop-first. The dashboard template
-   assumes a wide hero-strip + side-by-side stream/actions. Mobile
-   reshuffles to vertical stack. The extension is desktop-only
-   for now (no mobile Chrome extension support yet). Open:
-   commit to a mobile-friendly webapp (read-only, since no
-   extension = no signing) or punt? Recommendation: responsive
-   read-only webapp; mobile signing waits for a future RN/PWA
-   wallet companion.
+1. **Smoldot chainspec source.** Vendor `paseo-asset-hub` chainspec
+   directly from `pine/src/chainspecs/`. Rev on every Paseo runtime
+   upgrade that changes consensus or state-trie versions. Pine
+   prints `runtime spec version` from chainHead at startup; if
+   mismatched against the version baked into the build, every
+   surface shows a "client out of date — upgrade" banner. Mainnet
+   ships with a 14-day grace window where the old spec stays
+   compatible.
+
+2. **History cutoff UX.** Resolved by the per-query RPC fallback on
+   operator routes. End-user surfaces (extension, public webapp)
+   show an explicit "History begins at block N (installed
+   YYYY-MM-DD)" footnote. Operator surfaces splice in older history
+   via RPC when needed. No backward sync in pine itself.
+
+3. **Vault password reset.** Explicit "Reset wallet" button in
+   `SettingsTab`. Gate: typed-string confirmation ("Type ERASE
+   WALLET to confirm") + a checkbox affirming the user holds their
+   mnemonic. Same outcome as uninstall + reinstall; lower friction.
+
+4. **EIP-1193 namespace.** Both. Expose via EIP-6963
+   multi-injected-provider discovery *and* keep `window.datum` as
+   a direct binding. Webapp wallet connector prefers EIP-6963 if
+   present, falls back to `window.datum`. Other wallets (MetaMask
+   etc.) can coexist without collision; future wallet pickers will
+   list DATUM correctly.
+
+5. **Send-tab token discovery.** Allowlist + paste. Allowlist:
+   known sidecars from `assetRegistry.ts` (DATUM once minted,
+   USDT precompile, USDC precompile) plus any token observed
+   receiving a Transfer to the active account during normal pine
+   operation (recorded in the local vault). Paste path validates
+   via `eth_call` on `symbol()` / `decimals()` / `balanceOf` before
+   showing the send form. No global Transfer subscription.
+
+6. **PoW + signing concurrency.** Both stay in the offscreen
+   document. PoW solver yields cooperatively every N hashes (tune
+   N to ~10 ms slices). Signing has hard priority: when a sign
+   request arrives, PoW pauses until signing completes. Signing
+   is rare and fast (~10 ms); PoW is bursty but tolerant of
+   preemption.
+
+7. **Relay-bot multi-publisher.** Multi-publisher schema from day
+   one: `publishers: [{ address, signerEnv, label }]`. Defaults to
+   a single entry on testnet. Zero added complexity for v1; no
+   future migration.
+
+8. **Dashboard data-freshness UX.** Hero stats poll on block
+   intervals and only re-render when the underlying value changes.
+   Telemetry stream re-renders every block. Idle heuristic: if no
+   relevant events arrive for ≥ 10 blocks, downshift to
+   every-other-block polling; restore on first new event.
+
+9. **Mobile.** Webapp ships responsive read-only layouts (public
+   routes work on mobile). Signing-required pages render an
+   "Open in desktop with the DATUM extension installed" panel on
+   mobile. Extension stays desktop-only. A future RN / PWA wallet
+   companion handles mobile signing — out of scope for alpha-5.
+
+10. **Per-query RPC fallback scope.** Available only on routes
+    registered as operator paths (`/publisher/*`, `/advertiser/*`,
+    and the relay-bot service). Each tile must opt in explicitly
+    via `historyAllowed: true`. Type system rejects opt-in on
+    end-user routes. Tiles using the fallback render a "via RPC"
+    badge. Operator-configurable RPC endpoint stored per origin in
+    `localStorage` at `/settings/rpc`; default is the public Paseo
+    gateway. Operators are expected to point this at their own
+    archive node in production.
 
 ---
 
