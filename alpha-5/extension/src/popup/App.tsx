@@ -17,6 +17,10 @@ import { AccountsTab } from "./wallet/AccountsTab";
 import { SendTab } from "./wallet/SendTab";
 import { ReceiveTab } from "./wallet/ReceiveTab";
 import { SettingsTab } from "./wallet/SettingsTab";
+import {
+  PermissionRequest,
+  usePendingPermission,
+} from "./wallet/PermissionRequest";
 import { walletClient, type WalletStatus } from "./wallet/walletClient";
 
 type Tab = "accounts" | "send" | "receive" | "settings";
@@ -89,7 +93,32 @@ export function App() {
     );
   }
 
-  return <Dashboard status={status} onChange={setStatus} refresh={refresh} />;
+  return (
+    <UnlockedShell status={status} onChange={setStatus} refresh={refresh} />
+  );
+}
+
+/// Wraps the Dashboard with the pending-permission overlay so dApp
+/// connection requests interrupt the active tab. Polling is gated on
+/// the unlocked state — locked wallets can't grant permissions, and a
+/// locked wallet auto-denies any in-flight requests (see unlock.lock).
+function UnlockedShell({
+  status,
+  onChange,
+  refresh,
+}: {
+  status: WalletStatus;
+  onChange: (s: WalletStatus) => void;
+  refresh: () => void;
+}) {
+  const { pending, refresh: refreshPending } = usePendingPermission({
+    enabled: status.state === "unlocked",
+  });
+
+  if (pending) {
+    return <PermissionRequest pending={pending} onResolved={refreshPending} />;
+  }
+  return <Dashboard status={status} onChange={onChange} refresh={refresh} />;
 }
 
 function Dashboard({

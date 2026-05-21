@@ -28,6 +28,8 @@ import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
 import { dispatchWalletRpc } from "./wallet/rpcDispatcher";
 import { loadIdleTimeoutSetting } from "./wallet/unlock";
+import { handleProviderRequest } from "./wallet/providerHandler";
+import { normalizeOrigin } from "./wallet/permissions";
 import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, StoredSettings } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
@@ -400,6 +402,29 @@ async function handleMessage(
   // See background/wallet/rpcDispatcher.ts for the op→handler table.
   if (msg.type === "WALLET_RPC_REQUEST") {
     return dispatchWalletRpc(msg.requestId, msg.op, msg.args);
+  }
+  // EIP-1193 provider RPC from a content script. The sender's origin
+  // (`sender.origin` — pulled from the tab the script runs in, NOT
+  // from any field the page could control) drives the permission
+  // gate. Reject if the sender isn't a page-context content script.
+  if (msg.type === "WALLET_PROVIDER_REQUEST") {
+    const origin = normalizeOrigin(sender.origin ?? sender.url ?? "");
+    if (!origin) {
+      return {
+        type: "WALLET_PROVIDER_RESPONSE",
+        requestId: msg.requestId,
+        ok: false,
+        error: { code: 4100, message: "Provider RPC requires a page-context sender" },
+      };
+    }
+    const result = await handleProviderRequest({ origin, method: msg.method, params: msg.params });
+    return {
+      type: "WALLET_PROVIDER_RESPONSE",
+      requestId: msg.requestId,
+      ok: result.ok,
+      result: result.ok ? result.result : undefined,
+      error: result.ok ? undefined : result.error,
+    };
   }
   switch (msg.type) {
     case "IMPRESSION_RECORDED": {

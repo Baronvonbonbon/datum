@@ -15,6 +15,8 @@ import type {
 } from "@shared/messages";
 import type { AccountMeta } from "../../background/wallet/accounts";
 import type { WalletStatus } from "../../background/wallet/unlock";
+import type { OriginPermission } from "../../background/wallet/permissions";
+import type { PendingPermission } from "../../background/wallet/permissionQueue";
 
 /// Return shape for `sendNative` — used by SendTab to render the
 /// "submitted, awaiting confirmation" state.
@@ -141,7 +143,33 @@ export const walletClient = {
   personalSign(message: string): Promise<string> {
     return call<string>("personalSign", { message });
   },
+
+  // ── Permissions surface ───────────────────────────────────────────
+
+  listPermissions(): Promise<OriginPermission[]> {
+    return call<OriginPermission[]>("listPermissions");
+  },
+
+  revokePermission(origin: string): Promise<void> {
+    return call<void>("revokePermission", { origin });
+  },
+
+  /// Returns the oldest pending approval, or null when the queue is
+  /// empty. Polled by the popup's PermissionRequest overlay every few
+  /// seconds.
+  getPendingPermission(): Promise<PendingPermission | null> {
+    return call<PendingPermission | null>("getPendingPermission");
+  },
+
+  approvePendingPermission(id: string): Promise<{ approved: boolean }> {
+    return call<{ approved: boolean }>("approvePendingPermission", { id });
+  },
+
+  denyPendingPermission(id: string): Promise<{ denied: boolean }> {
+    return call<{ denied: boolean }>("denyPendingPermission", { id });
+  },
 };
 
 // Re-export for downstream type consumers (the screens).
 export type { AccountMeta, WalletStatus };
+export type { OriginPermission, PendingPermission };

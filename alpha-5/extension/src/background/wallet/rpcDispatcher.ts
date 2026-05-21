@@ -32,6 +32,15 @@ import {
   personalSign,
 } from "./signing";
 import { pineRpc } from "../pineBridge";
+import {
+  listPermissions,
+  revokePermission,
+} from "./permissions";
+import {
+  peekQueue,
+  approve as approvePending,
+  deny as denyPending,
+} from "./permissionQueue";
 
 export async function dispatchWalletRpc(
   requestId: string,
@@ -121,6 +130,20 @@ async function runOp(op: WalletRpcOp, args: any): Promise<unknown> {
       return signTypedData(args.domain, args.types, args.value);
     case "personalSign":
       return personalSign(args.message);
+    case "listPermissions":
+      return listPermissions();
+    case "revokePermission":
+      return revokePermission(args.origin);
+    case "getPendingPermission": {
+      // Popup polls this when the extension badge shows a pending count.
+      // Returns the head of the queue, or null if empty.
+      const queue = peekQueue();
+      return queue[0] ?? null;
+    }
+    case "approvePendingPermission":
+      return { approved: approvePending(args.id) };
+    case "denyPendingPermission":
+      return { denied: denyPending(args.id) };
     default: {
       const exhaustive: never = op;
       throw new Error(`unknown wallet op: ${exhaustive}`);

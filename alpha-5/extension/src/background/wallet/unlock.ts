@@ -39,6 +39,8 @@ import {
 import type { AccountMeta } from "./accounts";
 import type { MnemonicStrength } from "./mnemonic";
 import { walletRpc } from "./transport";
+import { clearAllPermissions } from "./permissions";
+import { denyAll as denyAllPending } from "./permissionQueue";
 
 // ─── Cached state (background process) ─────────────────────────────────
 
@@ -192,6 +194,9 @@ export async function lock(): Promise<WalletStatus> {
     await walletRpc<{ locked: true }>({ type: "WALLET_LOCK" });
   }
   clearIdleTimer();
+  // Any dApp waiting on a permission prompt now sees a denied result
+  // so its Promise doesn't outlive the unlocked session that birthed it.
+  denyAllPending();
   syncCache({
     unlocked: false,
     accounts: [],
@@ -201,11 +206,13 @@ export async function lock(): Promise<WalletStatus> {
   return getStatus();
 }
 
-/// Destructive — erases the persisted vault. After this the popup
-/// routes back to onboarding.
+/// Destructive — erases the persisted vault AND every per-origin
+/// permission grant. After this the popup routes back to onboarding;
+/// dApps that had previously connected must re-request.
 export async function resetWallet(): Promise<WalletStatus> {
   await lock().catch(() => undefined);
   await deleteVault();
+  await clearAllPermissions();
   return getStatus();
 }
 

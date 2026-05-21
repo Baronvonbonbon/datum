@@ -72,6 +72,15 @@ export type PopupToBackground =
       requestId: string;
       op: WalletRpcOp;
       args?: unknown;
+    }
+  // Content script ↔ background: EIP-1193 provider RPC. Sent by the
+  // walletBridge (ISOLATED world) after the walletInjector (MAIN world)
+  // proxied a window.datum.request call. Reply is WALLET_PROVIDER_RESPONSE.
+  | {
+      type: "WALLET_PROVIDER_REQUEST";
+      requestId: string;
+      method: string;
+      params: unknown[];
     };
 
 /// Discriminator for WALLET_RPC_REQUEST. Each op maps to a handler in
@@ -91,7 +100,14 @@ export type WalletRpcOp =
   | "sendNative"
   | "signTransaction"
   | "signTypedData"
-  | "personalSign";
+  | "personalSign"
+  // Permission ops — surfaced by the popup's PermissionRequest overlay
+  // and Settings → Permissions section.
+  | "listPermissions"
+  | "revokePermission"
+  | "getPendingPermission"
+  | "approvePendingPermission"
+  | "denyPendingPermission";
 
 /// Reply envelope for WALLET_RPC_REQUEST. Background pushes this back
 /// via `sendResponse`; popupClient resolves the matching Promise.
@@ -103,6 +119,17 @@ export type WalletRpcResponse = {
   /// popup/wallet/walletClient.ts for the per-op return types.
   payload?: unknown;
   error?: string;
+};
+
+/// Reply envelope for WALLET_PROVIDER_REQUEST. Background pushes this
+/// back to the content-script bridge, which forwards to the page via
+/// CustomEvent.
+export type WalletProviderResponse = {
+  type: "WALLET_PROVIDER_RESPONSE";
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
 };
 
 // Messages sent FROM background TO offscreen document

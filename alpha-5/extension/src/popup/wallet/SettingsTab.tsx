@@ -13,7 +13,7 @@
 // it, so it doesn't block.
 
 import { useState, useEffect } from "react";
-import { walletClient, type WalletStatus } from "./walletClient";
+import { walletClient, type WalletStatus, type OriginPermission } from "./walletClient";
 import {
   card,
   button,
@@ -22,6 +22,7 @@ import {
   subText,
   fieldLabel,
   errorText,
+  mono,
 } from "./styles";
 
 const THEME_STORAGE_KEY = "walletTheme";
@@ -38,10 +39,107 @@ export function SettingsTab({
       <div style={{ ...heading, fontSize: 13 }}>Settings</div>
 
       <SecuritySection status={status} onChange={onChange} />
+      <PermissionsSection />
       <ThemeSection />
       <ResetSection onChange={onChange} />
     </div>
   );
+}
+
+function PermissionsSection() {
+  const [perms, setPerms] = useState<OriginPermission[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    walletClient
+      .listPermissions()
+      .then((p) => {
+        if (!cancelled) setPerms(p);
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(String(e?.message ?? e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function revoke(origin: string) {
+    setErr(null);
+    try {
+      await walletClient.revokePermission(origin);
+      const next = await walletClient.listPermissions();
+      setPerms(next);
+    } catch (e: any) {
+      setErr(String(e?.message ?? e));
+    }
+  }
+
+  return (
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ color: "var(--text-strong)", fontSize: 12, fontWeight: 500 }}>
+        Connected sites
+      </div>
+      {perms === null ? (
+        <div style={subText}>Loading…</div>
+      ) : perms.length === 0 ? (
+        <div style={{ ...subText, fontSize: 11 }}>
+          No sites have connected. Approving a connection from a dApp
+          will list it here.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {perms.map((p) => (
+            <div
+              key={p.origin}
+              style={{
+                ...card,
+                padding: "7px 9px",
+                background: "var(--bg)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ ...mono, fontSize: 11, color: "var(--text-strong)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {p.origin}
+                </div>
+                <div style={{ ...subText, fontSize: 10 }}>
+                  Granted {relativeTime(p.grantedAt)}
+                </div>
+              </div>
+              <button
+                style={{
+                  ...button("danger"),
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  width: "auto",
+                }}
+                onClick={() => revoke(p.origin)}
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {err && <div style={errorText}>{err}</div>}
+    </div>
+  );
+}
+
+function relativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day} d ago`;
 }
 
 function SecuritySection({
