@@ -258,7 +258,10 @@ export function Layout() {
       <header className="nano-header" style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
           <Link to="/" style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, color: "var(--text-strong)", fontSize: 16, letterSpacing: "0.06em", flexShrink: 0, textDecoration: "none" }}>
-            <span style={{ color: "rgba(245,245,248,0.55)" }}>
+            {/* BrackMark brackets follow currentColor; route through the
+                theme-aware muted text so light mode doesn't white out the
+                logo. Dot stays fixed Polkadot pink (set inside BrandMark). */}
+            <span style={{ color: "var(--text-muted)" }}>
               <BrandMark size={16} />
             </span>
             DATUM

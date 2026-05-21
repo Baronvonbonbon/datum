@@ -1123,7 +1123,96 @@ this section.
 
 ---
 
-## 10. Out-of-scope items (tracked elsewhere)
+## 10. Theme + responsive design
+
+Cross-cutting concern that affects every client surface. Tracked
+explicitly so it doesn't decay into silent debt.
+
+### 10.1 Theme
+
+Existing state:
+
+- Webapp ships dark + light themes via `[data-theme="..."]` CSS
+  custom-property blocks in `web/src/index.css`. Toggle lives in
+  `Layout.tsx` header and in `/settings`. Default is dark.
+- Several inline styles in webapp components hardcode
+  `rgba(255,255,255,...)` colors, which silently break light mode
+  by invisibly tinting against a light background. As of 2026-05-21
+  the brand mark in `Layout.tsx`, the disclaimer copy in
+  `Footer.tsx`, and similar sites were fixed to route through
+  `var(--text-muted)` / `var(--text-strong)` / `var(--text)`.
+- Extension popup currently dark-only; no theme toggle.
+- SDK house-ad uses a dark-on-pink scheme baked into the SVG;
+  not theme-aware, doesn't need to be (it's the brand mark on a
+  publisher's page).
+
+Open theme work (tracked):
+
+- **Webapp inline-color audit.** Components still carrying
+  hardcoded white/black: `Demo.tsx` (multiple sites at lines
+  ~658/897/1188/1194), `LockStateStrip.tsx:161`,
+  `ToastContainer.tsx:7/85`, `PrivacyBanner.tsx:79`,
+  `ExtensionApplet.tsx:49`. Each needs a pass to swap inline
+  colors for theme tokens. Single PR; cosmetic risk only.
+- **Extension popup theme.** Stage 1c adds `SettingsTab`, which
+  is the natural home for a theme toggle. Until then the popup
+  stays dark; mirror the same `[data-theme]` pattern from the
+  webapp so the same CSS tokens drive both.
+- **Light-mode visual QA.** Once the inline-color audit lands,
+  run a manual pass of every operator dashboard in light mode to
+  catch any remaining mis-tinted icons / borders / hover states.
+- **Color-token cleanup.** A handful of components reach for
+  `var(--accent-dim, #555)` — the fallback was for a previous
+  release that didn't define the token. Remove the fallbacks
+  once we confirm the token is universally present.
+
+### 10.2 Responsive design
+
+Existing state:
+
+- Webapp ships a single mobile breakpoint at 640 px (`@media
+  (max-width: 640px)` block in `index.css`). At narrower widths
+  the sidebar becomes a hamburger overlay; header-status chip and
+  role badges hide; main padding tightens.
+- Dashboard template (§6) hasn't been built yet; first build will
+  bake in responsive behaviour from the start.
+- Extension popup is fixed-width (browser-determined), not
+  responsive — desktop only.
+- SDK ad slots are sized by IAB format constants; the publisher
+  page owns the responsive context.
+
+Open responsive work (tracked):
+
+- **Mobile spot-check.** Open every existing page in DevTools
+  device emulation (375 × 667 baseline) and log any tables that
+  overflow, action rows that wrap badly, or hero stats that
+  collapse off-screen. Expect a punch list of ~5–15 fixes.
+- **Dashboard template responsive rules.** When building the
+  shared template (§6), define mobile reshuffles up front:
+  4-column hero → 2-column → 1-column at 1024 / 640 / 380 px.
+  Telemetry stream collapses subtitles below 640 px. Action
+  hooks become a sticky bottom bar below 640 px.
+- **Tables.** A few pages (governance/Vote, advertiser/Analytics)
+  use multi-column tables that won't fit narrow screens. Add a
+  horizontal-scroll wrapper or stacked-card alternative.
+- **Read-only mobile signing pages.** Per §9.9, any page that
+  needs signing renders an "Open in desktop with the DATUM
+  extension installed" panel on mobile. Implement via a
+  `useIsMobile()` hook + a single `<MobileSigningGate>` wrapper.
+- **Touch targets.** Verify every clickable element on mobile is
+  ≥ 44 × 44 CSS px (Apple/Google guideline). Most "nano-btn" calls
+  hit this; a handful of icon-only buttons in the header may not.
+
+### 10.3 Rollout
+
+Cosmetic work folds into Stage 8 (Polish) of §8. The two
+audit items above (inline-color audit, mobile spot-check) are
+the deliverables that produce the punch lists; everything else
+is downstream of them.
+
+---
+
+## 11. Out-of-scope items (tracked elsewhere)
 
 These came up while scoping but belong in other docs:
 

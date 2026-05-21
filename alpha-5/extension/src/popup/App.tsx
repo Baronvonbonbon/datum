@@ -12,7 +12,9 @@ import { BrandMark } from "./BrandMark";
 function DatumWordmark({ size = 16 }: { size?: number }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--accent)", fontWeight: 700, fontSize: size, letterSpacing: "0.06em" }}>
-      <span style={{ color: "rgba(245,245,248,0.55)" }}>
+      {/* Bracket color follows theme; popup will support light + dark
+          once SettingsTab toggle lands in Stage 1c. */}
+      <span style={{ color: "var(--text-muted)" }}>
         <BrandMark size={size} />
       </span>
       DATUM

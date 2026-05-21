@@ -34,7 +34,8 @@
   "permissions": [
     "storage",
     "alarms",
-    "windows"
+    "windows",
+    "offscreen"
   ],
 
   "host_permissions": [

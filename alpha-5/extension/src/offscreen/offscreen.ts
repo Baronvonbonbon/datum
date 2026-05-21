@@ -5,6 +5,7 @@
 import { BrowserProvider, Eip1193Provider } from "ethers";
 import { getSettlementContract } from "@shared/contracts";
 import { BackgroundToOffscreen, OffscreenToBackground } from "@shared/messages";
+import { handlePineMessage } from "./smoldot";
 
 declare global {
   interface Window {
@@ -12,17 +13,53 @@ declare global {
   }
 }
 
+// Single multiplexer for every message the background sends to this
+// offscreen doc. New message families dispatch from here.
+//
+// Convention: each handler returns the full OffscreenToBackground reply.
+// Synchronous returns are wrapped in Promise.resolve so the listener
+// branch is uniform.
 chrome.runtime.onMessage.addListener(
   (msg: BackgroundToOffscreen, _sender, sendResponse) => {
-    if (msg.type !== "OFFSCREEN_SUBMIT") return false;
-    handleSubmit(msg).then(sendResponse).catch((err) => {
-      sendResponse({ type: "OFFSCREEN_SUBMIT_RESULT", settledCount: 0, rejectedCount: 0, error: String(err) });
-    });
-    return true; // async
+    switch (msg.type) {
+      case "OFFSCREEN_SUBMIT": {
+        const submitMsg = msg; // narrowed by the case guard
+        handleSubmit(submitMsg).then(sendResponse).catch((err) => {
+          sendResponse({ type: "OFFSCREEN_SUBMIT_RESULT", settledCount: 0, rejectedCount: 0, error: String(err) });
+        });
+        return true; // async
+      }
+      case "PINE_INIT":
+      case "PINE_RPC_REQUEST":
+      case "PINE_STATUS_SUBSCRIBE": {
+        handlePineMessage(msg).then(sendResponse).catch((err) => {
+          // Pine errors return as PINE_RPC_RESULT with an error payload so
+          // the background bridge can route them back to the original caller.
+          if (msg.type === "PINE_RPC_REQUEST") {
+            sendResponse({
+              type: "PINE_RPC_RESULT",
+              requestId: msg.requestId,
+              error: { code: -32603, message: String(err) },
+            });
+          } else {
+            // PINE_INIT / PINE_STATUS_SUBSCRIBE don't have a requestId; just
+            // log. Status broadcasts continue independently.
+            console.error("[offscreen] pine handler error", err);
+            sendResponse(undefined);
+          }
+        });
+        return true; // async
+      }
+      default:
+        return false;
+    }
   }
 );
 
-async function handleSubmit(msg: BackgroundToOffscreen): Promise<OffscreenToBackground> {
+// Narrow BackgroundToOffscreen down to the OFFSCREEN_SUBMIT variant.
+type OffscreenSubmitMsg = Extract<BackgroundToOffscreen, { type: "OFFSCREEN_SUBMIT" }>;
+
+async function handleSubmit(msg: OffscreenSubmitMsg): Promise<OffscreenToBackground> {
   if (!window.ethereum) {
     return {
       type: "OFFSCREEN_SUBMIT_RESULT",

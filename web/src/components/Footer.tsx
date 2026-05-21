@@ -112,14 +112,14 @@ export function Footer() {
         lineHeight: 1.7,
         opacity: 0.7,
       }}>
-        <span style={{ color: "rgba(255,255,255,0.18)", fontWeight: 700, letterSpacing: "0.06em", marginRight: 6 }}>
+        <span style={{ color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.06em", marginRight: 6 }}>
           ⚠ DISCLAIMER:
         </span>
         This software is provided <em>as-is</em>, without warranty of any kind, expressed, implied, stated,
         unstated, whispered into the void, or otherwise conjured from the legal ether — including but not
         limited to merchantability, fitness for any particular purpose, or the assumption that any of this
         will work the way you expect it to.{" "}
-        JAVCoN, LLC and the Datum Protocol contributors assume <strong style={{ color: "rgba(255,255,255,0.35)" }}>zero liability</strong>{" "}
+        JAVCoN, LLC and the Datum Protocol contributors assume <strong style={{ color: "var(--text-strong)" }}>zero liability</strong>{" "}
         for any loss, damage, missed airdrop, regulatory headache, or existential crisis arising from your
         use of this software.{" "}
         Continuing to use Datum constitutes your acceptance of the{" "}
@@ -127,7 +127,7 @@ export function Footer() {
           href="https://github.com/Baronvonbonbon/datum/blob/main/PRIVACY-POLICY.md"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "rgba(255,255,255,0.4)" }}
+          style={{ color: "var(--text)" }}
         >
           privacy policy
         </a>{" "}

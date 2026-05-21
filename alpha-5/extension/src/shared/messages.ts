@@ -62,19 +62,74 @@ export type PopupToBackground =
   | { type: "GET_IMPRESSION_LOG" }
   | { type: "CLEAR_IMPRESSION_LOG" };
 
-// Messages sent FROM background TO offscreen document (sign + submit)
-export type BackgroundToOffscreen = {
-  type: "OFFSCREEN_SUBMIT";
-  userAddress: string;
-  batches: import("./types").SerializedClaimBatch[];
-  contractAddresses: import("./types").ContractAddresses;
-  rpcUrl: string;
-};
+// Messages sent FROM background TO offscreen document
+export type BackgroundToOffscreen =
+  | {
+      type: "OFFSCREEN_SUBMIT";
+      userAddress: string;
+      batches: import("./types").SerializedClaimBatch[];
+      contractAddresses: import("./types").ContractAddresses;
+      rpcUrl: string;
+    }
+  | {
+      // Pine RPC bridge — background asks the offscreen-hosted PineProvider
+      // to handle a JSON-RPC call. Reply is PINE_RPC_RESULT.
+      type: "PINE_RPC_REQUEST";
+      requestId: string;
+      method: string;
+      params: unknown[];
+    }
+  | {
+      // Initialize the offscreen pine instance (chainspec + connect).
+      // Idempotent — repeated calls report current status without reconnecting.
+      type: "PINE_INIT";
+      chain: string; // chain preset key, e.g. "paseo-asset-hub"
+    }
+  | {
+      // Subscribe / unsubscribe to status updates (sync step, peer count,
+      // finalized head). Background re-broadcasts these to interested
+      // popup/UI listeners.
+      type: "PINE_STATUS_SUBSCRIBE";
+    };
 
 // Messages sent FROM offscreen document TO background
-export type OffscreenToBackground = {
-  type: "OFFSCREEN_SUBMIT_RESULT";
-  settledCount: number;
-  rejectedCount: number;
+export type OffscreenToBackground =
+  | {
+      type: "OFFSCREEN_SUBMIT_RESULT";
+      settledCount: number;
+      rejectedCount: number;
+      error?: string;
+    }
+  | {
+      type: "PINE_RPC_RESULT";
+      requestId: string;
+      result?: unknown;
+      error?: { code: number; message: string; data?: unknown };
+    }
+  | {
+      type: "PINE_STATUS";
+      status: PineStatus;
+    };
+
+/// Snapshot of the offscreen pine instance's lifecycle, broadcast to
+/// background → popup → any tile that listens. Stage-1 surface is small;
+/// every consumer keeps a single `useState<PineStatus>` and renders accordingly.
+export type PineStatus = {
+  /// "idle" before PINE_INIT. "connecting" while smoldot warms up.
+  /// "ready" once the first finalized block is observed and the LogIndexer
+  /// has at least started. "error" if connect rejected; the error string is
+  /// populated.
+  state: "idle" | "connecting" | "ready" | "error";
+  /// Most recent SyncStep label from pine (e.g. "fetching-chainspec",
+  /// "waiting-for-peers", "syncing-from-checkpoint"). Empty before connect.
+  step: string;
+  /// Smoldot's peer count, reported by chainHead. 0 until smoldot dials out.
+  peers: number;
+  /// Latest finalized block number seen, or 0 if none yet.
+  finalizedHead: number;
+  /// Block at which pine considers its LogIndexer warm. UI uses this as the
+  /// lower-bound when computing "history begins at block N" footers.
+  indexedFromBlock: number;
+  /// Populated only when state === "error".
   error?: string;
 };
