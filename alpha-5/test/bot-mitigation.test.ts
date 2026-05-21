@@ -128,6 +128,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       owner.address
     );
     await settlement.setClaimValidator(await validator.getAddress());
+    await settlement.setCampaigns(await mock.getAddress());
     await ledger.setCampaigns(await mock.getAddress());
     await ledger.setSettlement(await settlement.getAddress());
     await ledger.setLifecycle(owner.address);

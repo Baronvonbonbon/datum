@@ -103,9 +103,19 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         uint128 proposerBond;
         uint256 approvedStake;       // cumulative bonded stake of approvers
         bool    slashed;
+        // F-029 fix (2026-05-20): snapshot of totalReporterStake at the
+        // moment the root was proposed. finalizeRoot uses this as the
+        // threshold denominator so honest reporter exits during the
+        // challenge window cannot lower the bar a hostile root must clear.
+        uint256 totalStakeAtPropose;
     }
     mapping(uint256 => PendingRoot) private _pending;
     mapping(uint256 => mapping(address => bool)) private _approvedBy;
+    // F-030 fix (2026-05-20): per-epoch list of approvers (proposer + each
+    // approveRoot caller). Used by _slashProposer so the slash loop
+    // iterates only actual approvers instead of the full reporterList,
+    // bounding worst-case gas to "approvers, not all reporters".
+    mapping(uint256 => address[]) private _approversByEpoch;
 
     // ── Finalized roots (mirrors V1's storage shape) ──────────────────────────
     mapping(uint256 => bytes32) public override rootAt;
@@ -441,10 +451,14 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         p.snapshotBlock = snapshotBlock;
         p.proposer = msg.sender;
         p.proposerBond = uint128(msg.value);
+        // F-029 fix: snapshot the global stake denominator at propose time.
+        p.totalStakeAtPropose = totalReporterStake;
 
         // Proposer's own stake counts as the first approval.
         _approvedBy[epoch][msg.sender] = true;
         p.approvedStake = reporterStake[msg.sender].amount;
+        // F-030 fix: track approvers per-epoch for the bounded slash loop.
+        _approversByEpoch[epoch].push(msg.sender);
         // G-4: refresh activity for this reporter on propose.
         lastActiveBlock[msg.sender] = uint64(block.number);
 
@@ -465,6 +479,9 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
         _approvedBy[epoch][msg.sender] = true;
         p.approvedStake += reporterStake[msg.sender].amount;
+        // F-030 fix: record approver in the per-epoch list for the
+        // bounded slash loop.
+        _approversByEpoch[epoch].push(msg.sender);
         // G-4: refresh activity for this reporter on approve.
         lastActiveBlock[msg.sender] = uint64(block.number);
         emit RootApproved(epoch, msg.sender, reporterStake[msg.sender].amount);
@@ -477,7 +494,13 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         require(p.proposer != address(0), "E01");
         require(!p.slashed, "E22");
         require(block.number > uint256(p.proposedAtBlock) + uint256(challengeWindow), "E96");
-        require(p.approvedStake * 10000 >= totalReporterStake * uint256(approvalThresholdBps), "E46");
+        // F-029 fix: use the proposal-time snapshot of totalReporterStake
+        // as the threshold denominator. The previous `totalReporterStake`
+        // read picked up honest reporter exits during the challenge
+        // window, lowering the bar an attacker's approvals had to clear.
+        // The snapshot pins the quorum to the population that existed
+        // when the root was proposed.
+        require(p.approvedStake * 10000 >= p.totalStakeAtPropose * uint256(approvalThresholdBps), "E46");
 
         bytes32 root = p.root;
         rootAt[epoch] = root;
@@ -634,32 +657,27 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         // regardless of exit status (must remain so or exit-propose becomes
         // a slash-immunity gambit).
 
-        // Also slash slashApproverBps% of every approver's bonded stake
-        for (uint256 i = 0; i < reporterList.length; i++) {
-            address r = reporterList[i];
-            if (_approvedBy[epoch][r] && r != p.proposer) {
-                uint256 cut = reporterStake[r].amount * uint256(slashApproverBps) / 10000;
-                if (cut > 0) {
-                    reporterStake[r].amount -= cut;
-                    if (reporterStake[r].exitProposedBlock == 0) {
-                        totalReporterStake -= cut;
-                    }
-                    totalSlash += cut;
-                    emit ApproverSlashed(epoch, r, cut);
-                }
-            }
-        }
-        // Proposer's own stake is also slashed at the approver rate (proposer
-        // is the most-culpable approver of their own bad root)
-        if (_approvedBy[epoch][p.proposer]) {
-            uint256 cut = reporterStake[p.proposer].amount * uint256(slashApproverBps) / 10000;
+        // F-030 fix (2026-05-20): iterate the per-epoch approver list
+        // instead of the full reporterList. Previous O(reporterList.length)
+        // could exceed block gas with permissionless joining; now bounded
+        // to actual approvers for this specific epoch. Proposer is also
+        // in this list (pushed during proposeRoot) so the separate
+        // proposer-slash branch below is unnecessary — the loop covers
+        // them too. We dedupe by reading `_approvedBy[epoch][r]` to skip
+        // any hypothetical double-entry.
+        address[] storage approvers = _approversByEpoch[epoch];
+        for (uint256 i = 0; i < approvers.length; i++) {
+            address r = approvers[i];
+            if (!_approvedBy[epoch][r]) continue;       // defensive
+            _approvedBy[epoch][r] = false;              // dedupe across the loop
+            uint256 cut = reporterStake[r].amount * uint256(slashApproverBps) / 10000;
             if (cut > 0) {
-                reporterStake[p.proposer].amount -= cut;
-                if (reporterStake[p.proposer].exitProposedBlock == 0) {
+                reporterStake[r].amount -= cut;
+                if (reporterStake[r].exitProposedBlock == 0) {
                     totalReporterStake -= cut;
                 }
                 totalSlash += cut;
-                emit ApproverSlashed(epoch, p.proposer, cut);
+                emit ApproverSlashed(epoch, r, cut);
             }
         }
 

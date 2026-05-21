@@ -220,7 +220,12 @@ contract DatumMintAuthority is DatumUpgradable {
     /// @dev    Successor must subsequently call acceptIssuerRole() from its
     ///         own context to finalize. Proves the successor address exists
     ///         and controls itself — protects against typos / dead contracts.
-    function stageIssuerTransfer(address newAuthority) external onlyOwner {
+    /// @dev    F-027 fix (2026-05-20): phase-gated on OpenGov. The §5.5
+    ///         sunset is the most consequential lock-once in the system;
+    ///         pre-OpenGov deployer EOA must not be able to stage itself
+    ///         as canonical issuer. Matches the rest of the lock-once
+    ///         cluster.
+    function stageIssuerTransfer(address newAuthority) external onlyOwner whenOpenGovPhase {
         require(!issuerLocked, "issuer-locked");
         require(newAuthority != address(0), "E00");
         pendingIssuer = newAuthority;

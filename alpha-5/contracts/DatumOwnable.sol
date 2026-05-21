@@ -28,4 +28,17 @@ abstract contract DatumOwnable is Ownable2Step {
         require(msg.sender == pendingOwner(), "E18");
         _transferOwnership(msg.sender);
     }
+
+    /// @notice F-005 fix (2026-05-20): renounceOwnership is permanently
+    ///         disabled. OZ Ownable exposes it for credible-neutrality
+    ///         commitments, but every DATUM contract relies on a working
+    ///         owner for at least one of: setRouter (without which the
+    ///         contract can never reach the upgrade ladder), lock-once
+    ///         wiring, or migrate(). Firing renounce before all those
+    ///         are set bricks the contract irreversibly. The cypherpunk
+    ///         commitment surface is the per-contract `lock*()` cluster
+    ///         — phase-gated on OpenGov — not blanket renunciation.
+    function renounceOwnership() public pure override {
+        revert("renounce-disabled");
+    }
 }

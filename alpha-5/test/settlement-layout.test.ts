@@ -54,16 +54,25 @@ async function readStorageLayout(
   return entry.storageLayout;
 }
 
-/** Normalize a slot for cross-contract comparison: strip astId + contract
- *  (those legitimately differ across the three contracts since the AST
- *  nodes live in different files), keep label/offset/slot/type which are
- *  the load-bearing layout invariants. */
+/** Normalize a slot for cross-contract comparison.
+ *
+ * Strips astId + contract (those legitimately differ across the three
+ * contracts since the AST nodes live in different files). Also strips
+ * the AST identifier suffix from `type` strings (e.g.
+ * `t_contract(IDatumRouter_Upgradable)58410` → `t_contract(IDatumRouter_Upgradable)`)
+ * because solc emits a different ID per compilation unit even when the
+ * underlying storage layout is byte-identical. The load-bearing fields
+ * (slot index, offset, base type) survive the strip and are still
+ * checked. */
 function normalizeSlot(slot: Slot): Omit<Slot, "astId" | "contract"> {
   return {
     label: slot.label,
     offset: slot.offset,
     slot: slot.slot,
-    type: slot.type,
+    // Strip "(...)<digits>" suffix solc emits to disambiguate type
+    // references by AST node id. The suffix is build-state noise; the
+    // identical layout is what matters.
+    type: slot.type.replace(/\)\d+/g, ")"),
   };
 }
 

@@ -481,7 +481,12 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///         the lockLanes / lockSlashers / lockMintAuthority cluster.
     ///         Owner-only -- in production the owner is the OpenGov
     ///         Timelock so the lock decision flows through a 48h proposal.
-    function lockLogic() external onlyOwner {
+    /// @dev    F-003 fix (2026-05-20): phase-gated on OpenGov so the
+    ///         deployer EOA cannot accidentally fire the lock during
+    ///         alpha/beta and freeze Logic before audit. Matches the
+    ///         rest of the lock-once cluster (lockGuardianSet,
+    ///         lockOracleReporter, lockCouncil, lockBlocklistCurator).
+    function lockLogic() external onlyOwner whenOpenGovPhase {
         _logicLocked = true;
         emit LogicLocked();
     }
@@ -507,8 +512,13 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      double-lock the shared `_status` slot.
     function settleClaims(ClaimBatch[] calldata)
         external
+        whenNotFrozen
         returns (SettlementResult memory)
     {
+        // F-032 fix (2026-05-20): defense-in-depth — whenNotFrozen sits
+        // here as well as on LogicA's entry, so a future Logic rotation
+        // that drops the modifier on LogicA's side doesn't expose
+        // settlement during a frozen migration window.
         return _delegateToLogicA();
     }
 
@@ -517,6 +527,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      notes.
     function settleClaimsMulti(UserClaimBatch[] calldata)
         external
+        whenNotFrozen
         returns (SettlementResult memory)
     {
         return _delegateToLogicA();

@@ -8,6 +8,15 @@ interface IAssetHubPrecompile {
     function mint(uint256 assetId, address to, uint256 amount) external;
     function burn(uint256 assetId, address from, uint256 amount) external;
     function transfer(uint256 assetId, address to, uint256 amount) external;
+    /// @notice F-026 fix: pull canonical from `from` to `to` under
+    ///         allowance. Used by `DatumWrapper.wrap` to atomically deposit
+    ///         canonical at mint time, eliminating the open-commitment DoS
+    ///         surface that the previous two-step requestWrap/wrap flow
+    ///         carried (anyone could inflate `totalCommittedCanonical`).
+    ///         The user must call `precompile.approve(wrapper, amount)`
+    ///         off-chain first (Asset Hub pallet-assets exposes the standard
+    ///         ERC-20 approve/transferFrom surface).
+    function transferFrom(uint256 assetId, address from, address to, uint256 amount) external;
     function balanceOf(uint256 assetId, address who) external view returns (uint256);
 }
 
@@ -46,14 +55,17 @@ contract DatumWrapper is ERC20, DatumUpgradable {
     ///         accidentally shipping the mock shim path to mainnet.
     bool public immutable devnetUnwrapShimEnabled;
 
-    /// @notice H1 fix: per-user committed canonical amount awaiting wrap.
-    ///         Set by requestWrap; consumed by wrap. Prevents wrap() from
-    ///         minting against canonical slack the caller didn't deposit.
+    /// @notice F-026 fix: legacy commitment surface retained for read-only
+    ///         compatibility with off-chain monitoring. Always zero post-fix;
+    ///         wrap() now pulls canonical via precompile.transferFrom in a
+    ///         single atomic call, removing the open-commitment DoS vector.
     mapping(address => uint256) public pendingWrap;
 
-    /// @notice Sum of all outstanding pendingWrap commitments. Used in wrap()
-    ///         to reserve canonical for prior commitments so an attacker can't
-    ///         frontrun by depositing-and-claiming against someone else's slack.
+    /// @notice F-026 fix: kept at zero post-fix. The original H1 design
+    ///         used this to reserve canonical against simultaneous claims;
+    ///         the atomic transferFrom path makes that reservation
+    ///         unnecessary because canonical is debited from the user's
+    ///         own balance the moment wrap is called.
     uint256 public totalCommittedCanonical;
 
     event Wrapped(address indexed user, uint256 amount);
@@ -100,49 +112,50 @@ contract DatumWrapper is ERC20, DatumUpgradable {
     // User-initiated wrap / unwrap
     // -------------------------------------------------------------------------
 
-    /// @notice H1 step 1/2: declare intent to wrap `amount` canonical.
-    /// @dev    Caller must subsequently transfer `amount` canonical to this
-    ///         wrapper (via precompile.transfer from their own context), then
-    ///         call wrap() to mint. Commitment reserves canonical against
-    ///         simultaneous claims by other users.
+    /// @notice F-026 fix: deprecated no-op kept in the ABI so off-chain
+    ///         tooling and tests don't break across the upgrade. The atomic
+    ///         `wrap` below makes the intent-declaration step unnecessary
+    ///         and removes the DoS surface where any caller could inflate
+    ///         `totalCommittedCanonical` to brick the wrap path.
     function requestWrap(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
-        pendingWrap[msg.sender] += amount;
-        totalCommittedCanonical += amount;
-        emit WrapRequested(msg.sender, amount, pendingWrap[msg.sender]);
+        emit WrapRequested(msg.sender, amount, 0);
     }
 
-    /// @notice Cancel a pending wrap commitment. Refundable only as a release
-    ///         of the commitment slot; canonical the user already transferred
-    ///         to the wrapper is NOT returned by this call — they recover it
-    ///         by unwrap()ing the WDATUM they would otherwise mint, after
-    ///         claiming via wrap(). Cancel exists so a user who over-committed
-    ///         (e.g. RPC retry) can release the unfunded portion.
+    /// @notice F-026 fix: deprecated no-op kept in the ABI. With the atomic
+    ///         `wrap`, there is no commitment to cancel.
     function cancelWrapRequest(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
-        require(pendingWrap[msg.sender] >= amount, "E03");
-        pendingWrap[msg.sender] -= amount;
-        totalCommittedCanonical -= amount;
         emit WrapRequestCancelled(msg.sender, amount);
     }
 
-    /// @notice H1 step 2/2: redeem a prior commitment for WDATUM.
-    /// @dev    Mints up to the caller's pendingWrap. Canonical held by the
-    ///         wrapper must cover (totalSupply + totalCommittedCanonical) at
-    ///         all times — meaning every existing WDATUM plus every other
-    ///         user's outstanding commitment is reserved first. The caller
-    ///         can only mint against canonical THEY contributed.
+    /// @notice F-026 fix: atomically pulls canonical from the caller and
+    ///         mints WDATUM 1:1.
+    /// @dev    Replaces the H1 two-step requestWrap/wrap flow. The previous
+    ///         `pendingWrap` + `totalCommittedCanonical` machinery created
+    ///         an open-commitment DoS surface (any caller could inflate
+    ///         totalCommittedCanonical at zero cost, rendering the wrap
+    ///         invariant unsatisfiable). The atomic `transferFrom` from the
+    ///         caller debits canonical directly from their balance the
+    ///         moment WDATUM is minted, so simultaneous claims race the
+    ///         precompile's own balance accounting rather than a shared
+    ///         contract-level commitment slot.
+    ///
+    ///         Caller MUST call `precompile.approve(address(this), amount)`
+    ///         from their own context first (or have a pre-existing
+    ///         allowance). Asset Hub pallet-assets exposes the standard
+    ///         ERC-20 approve/transferFrom surface for this purpose.
     function wrap(uint256 amount) external whenNotFrozen {
         require(amount > 0, "E11");
-        require(pendingWrap[msg.sender] >= amount, "E03");
 
-        uint256 canonical = precompile.balanceOf(canonicalAssetId, address(this));
-        // Required: every already-minted WDATUM is backed, every other pending
-        // commitment is reserved, and this claim is backed too.
-        require(canonical >= totalSupply() + totalCommittedCanonical, "underfunded");
-
-        pendingWrap[msg.sender] -= amount;
-        totalCommittedCanonical -= amount;
+        // Snapshot canonical balance before the pull so we can verify the
+        // exact amount landed in this contract (defense against quirky
+        // precompile implementations that take a fee, round, or otherwise
+        // deliver less than requested).
+        uint256 balBefore = precompile.balanceOf(canonicalAssetId, address(this));
+        precompile.transferFrom(canonicalAssetId, msg.sender, address(this), amount);
+        uint256 balAfter = precompile.balanceOf(canonicalAssetId, address(this));
+        require(balAfter - balBefore == amount, "transferFrom-short");
 
         _mint(msg.sender, amount);
         _checkInvariant();
@@ -178,14 +191,38 @@ contract DatumWrapper is ERC20, DatumUpgradable {
     // Invariant
     // -------------------------------------------------------------------------
 
+    /// @notice F-028 fix (2026-05-20): sweep canonical held by the
+    ///         wrapper that exceeds `totalSupply` + `totalCommittedCanonical`.
+    ///         The two-step atomic mint flow (precompile.mint to wrapper →
+    ///         wrapper.mintTo) is one tx but two state changes; if the
+    ///         second step ever fails after the first, canonical can
+    ///         accumulate on the wrapper with no matching WDATUM. This
+    ///         entry point debits the excess and transfers to `recipient`.
+    ///         Owner-only — in production owner is Timelock so each
+    ///         sweep flows through a 48h proposal.
+    function sweepSurplus(address recipient, uint256 amount) external onlyOwner whenNotFrozen {
+        require(recipient != address(0), "E00");
+        uint256 canonical = precompile.balanceOf(canonicalAssetId, address(this));
+        uint256 floor = totalSupply() + totalCommittedCanonical;
+        require(canonical > floor, "no surplus");
+        uint256 surplus = canonical - floor;
+        require(amount > 0 && amount <= surplus, "E11");
+        precompile.transfer(canonicalAssetId, recipient, amount);
+        emit SurplusSwept(recipient, amount);
+        _checkInvariant();
+    }
+    event SurplusSwept(address indexed recipient, uint256 amount);
+
     /// @notice WDATUM supply must never exceed canonical held by this contract.
     /// @dev    Asserted after every state-changing operation. If this ever
     ///         reverts in production, something is seriously broken — the
     ///         wrapper's peg has been violated.
     function _checkInvariant() internal view {
         uint256 canonical = precompile.balanceOf(canonicalAssetId, address(this));
-        // H1: canonical must cover both circulating WDATUM and outstanding
-        // wrap commitments — any laxer check would re-open the slack-theft path.
+        // F-026 fix: totalCommittedCanonical is always zero post-fix
+        // (atomic wrap eliminated the commitment surface), but it remains
+        // in the check as a 0-add for explicit reads of the legacy field
+        // by audit / monitoring tooling.
         require(totalSupply() + totalCommittedCanonical <= canonical, "broken peg");
     }
 

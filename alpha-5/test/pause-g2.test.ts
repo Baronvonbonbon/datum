@@ -260,6 +260,9 @@ describe("DatumPauseRegistry G-2 first close", function () {
   });
 
   it("PG2-26: lockPauseParams freezes setters", async function () {
+    // F-004 fix: lockPauseParams is whenOpenGovPhase-guarded.
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(pauseReg);
     await pauseReg.connect(owner).lockPauseParams();
     expect(await pauseReg.pauseParamsLocked()).to.equal(true);
     await expect(pauseReg.connect(owner).setSoloMaxPauseBlocks(7200))
@@ -271,6 +274,8 @@ describe("DatumPauseRegistry G-2 first close", function () {
   });
 
   it("PG2-27: double lockPauseParams reverts", async function () {
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(pauseReg);
     await pauseReg.connect(owner).lockPauseParams();
     await expect(pauseReg.connect(owner).lockPauseParams())
       .to.be.revertedWith("already locked");

@@ -381,6 +381,8 @@ describe("Path A: DatumZKStake withdrawal lockup", function () {
     });
 
     it("lockSlashers freezes the role set permanently", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(zkStake);
       await zkStake.lockSlashers();
       await expect(
         zkStake.setSlasher(alice.address, true)

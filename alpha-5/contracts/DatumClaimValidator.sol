@@ -118,7 +118,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
 
     IDatumCampaigns public campaigns;
     IDatumPublishers public publishers;
-    address public immutable pauseRegistry;
+    /// @notice F-020 fix (2026-05-20): demoted from `immutable` so the
+    ///         upgrade ladder can swap the PauseRegistry without
+    ///         redeploying ClaimValidator. Lock-once via the existing
+    ///         `plumbingLocked` umbrella (see setPauseRegistry below).
+    address public pauseRegistry;
+    event PauseRegistrySet(address indexed registry);
     IDatumZKVerifier public zkVerifier;
     // FP-CPC: ClickRegistry for type-1 session validation (address(0) = disabled)
     IDatumClickRegistry public clickRegistry;
@@ -196,6 +201,16 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
         campaigns = IDatumCampaigns(addr);
+    }
+
+    /// @notice F-020 fix: rotatable PauseRegistry. Lock-once via the same
+    ///         `plumbingLocked` switch that covers the rest of this
+    ///         contract's protocol refs.
+    function setPauseRegistry(address addr) external onlyOwner {
+        require(!plumbingLocked, "locked");
+        require(addr != address(0), "E00");
+        pauseRegistry = addr;
+        emit PauseRegistrySet(addr);
     }
 
     function setPublishers(address addr) external onlyOwner {
@@ -310,9 +325,18 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         // mute. Reason 22 = "campaign muted by bond". try/catch keeps a
         // stale or misconfigured reference from bricking settlement.
         if (address(activationBonds) != address(0)) {
+            // F-019 fix (2026-05-20): fail-CLOSED on revert. The mute
+            // gate is the cheap challenge primitive for optimistic
+            // activation; ActivationBonds reverting on isMuted leaves
+            // the mute state undefined, and paying on undefined state
+            // neuters the muter's DoS authority for any campaign whose
+            // ActivationBonds module is briefly unhealthy. Reject the
+            // claim rather than fall through.
             try activationBonds.isMuted(claim.campaignId) returns (bool muted) {
                 if (muted) return (false, 22, 0, bytes32(0));
-            } catch { /* fail-open: untrusted view, prefer paying */ }
+            } catch {
+                return (false, 22, 0, bytes32(0));
+            }
         }
 
         // Check 3: publisher match — tri-state, unified through the allowlist.
@@ -436,6 +460,11 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         //   isn't wired (early bootstrap).
         if (powEngine != address(0)) {
             IPowEngineGate e = IPowEngineGate(powEngine);
+            // F-018 fix (2026-05-20): fail-CLOSED on enforcePow revert
+            // (was silent pass-through). A captured/buggy PowEngine that
+            // reverts on enforcePow() previously disabled PoW protection
+            // entirely; now treats any read failure the same as
+            // "enforce on" and rejects the claim.
             try e.enforcePow() returns (bool enf) {
                 if (enf) {
                     try e.powTargetForUser(user, claim.eventCount) returns (uint256 target) {
@@ -446,7 +475,9 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
                         return (false, 27, 0, bytes32(0));
                     }
                 }
-            } catch {}
+            } catch {
+                return (false, 27, 0, bytes32(0));
+            }
         }
 
         // Check 8c: #2-extension — proof-of-on-chain-history filter. The

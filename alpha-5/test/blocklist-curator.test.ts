@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { DatumCouncilBlocklistCurator, DatumPublishers, DatumPauseRegistry } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { fundSigners } from "./helpers/mine";
+import { wireOpenGovRouter } from "./helpers/openGovRouter";
 
 // B2: Council-driven IDatumBlocklistCurator implementation.
 // Verifies the curator can be wired into DatumPublishers and is consulted
@@ -34,6 +35,10 @@ describe("DatumCouncilBlocklistCurator (B2)", function () {
     await curator.connect(owner).setCouncil(councilEOA.address);
     // Wire: publishers' blocklistCurator = curator
     await publishers.connect(owner).setBlocklistCurator(await curator.getAddress());
+    // F-004 fix: lockCouncil is guarded by whenOpenGovPhase, fail-closed
+    // when router unset. Wire a MockOpenGovRouter (phase=2) so the lock
+    // tests can fire.
+    await wireOpenGovRouter(curator);
   });
 
   it("BC1: only council can block; non-council reverts E18", async function () {
@@ -68,6 +73,7 @@ describe("DatumCouncilBlocklistCurator (B2)", function () {
 
   it("BC7: lockCouncil with unset council reverts", async function () {
     const fresh = await (await ethers.getContractFactory("DatumCouncilBlocklistCurator")).deploy();
+    await wireOpenGovRouter(fresh);
     await expect(fresh.connect(owner).lockCouncil()).to.be.revertedWith("council unset");
   });
 });

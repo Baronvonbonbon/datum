@@ -244,14 +244,30 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumUpgradable,
     // ── Admin ────────────────────────────────────────────────────────────────────
 
     // AUDIT-004: Whitelist management
+    /// @notice F-036 fix (2026-05-20): one-way lock for the whitelist.
+    ///         Once `whitelistLocked`, the owner can no longer add or
+    ///         remove (target, selector) pairs — a captured owner can
+    ///         no longer route new admin functions through the
+    ///         parameter-governance pipeline. Phase-gated on OpenGov.
+    bool public whitelistLocked;
+    event WhitelistLocked();
+
     function setWhitelistedTarget(address target, bool allowed) external onlyOwner {
+        require(!whitelistLocked, "whitelist-locked");
         require(target != address(0), "E00");
         whitelistedTargets[target] = allowed;
     }
 
     function setPermittedSelector(address target, bytes4 selector, bool allowed) external onlyOwner {
+        require(!whitelistLocked, "whitelist-locked");
         require(target != address(0), "E00");
         permittedSelectors[target][selector] = allowed;
+    }
+
+    function lockWhitelist() external onlyOwner whenOpenGovPhase {
+        require(!whitelistLocked, "already-locked");
+        whitelistLocked = true;
+        emit WhitelistLocked();
     }
 
     /// @notice Bootstrap helper — owner-only, lets this contract accept Ownable2Step
@@ -272,12 +288,31 @@ contract DatumParameterGovernance is IDatumParameterGovernance, DatumUpgradable,
         require(ok, "E02");
     }
 
+    /// @notice F-035 fix (2026-05-20): hard floors so a captured owner
+    ///         cannot collapse the governance pipeline by setting
+    ///         quorum=0 / timelock=0 / votingPeriod=0 and then trivially
+    ///         pass any whitelisted parameter change in one block.
+    ///         Production values are set far above these floors; the
+    ///         floors exist purely as anti-bypass guards.
+    uint256 public constant MIN_VOTING_PERIOD_BLOCKS = 1;
+    uint256 public constant MIN_TIMELOCK_BLOCKS = 1;
+    uint256 public constant MIN_QUORUM = 1;
+    /// @notice Maximum value any window setter accepts. Prevents a captured
+    ///         owner from griefing governance by configuring absurdly long
+    ///         windows. ~30 days at 6s/block.
+    uint256 public constant MAX_GOVERNANCE_WINDOW_BLOCKS = 432_000;
+
     function setParams(
         uint256 _votingPeriodBlocks,
         uint256 _timelockBlocks,
         uint256 _quorum,
         uint256 _proposeBond
     ) external onlyOwner {
+        require(_votingPeriodBlocks >= MIN_VOTING_PERIOD_BLOCKS, "E11");
+        require(_votingPeriodBlocks <= MAX_GOVERNANCE_WINDOW_BLOCKS, "E11");
+        require(_timelockBlocks >= MIN_TIMELOCK_BLOCKS, "E11");
+        require(_timelockBlocks <= MAX_GOVERNANCE_WINDOW_BLOCKS, "E11");
+        require(_quorum >= MIN_QUORUM, "E11");
         votingPeriodBlocks = _votingPeriodBlocks;
         timelockBlocks = _timelockBlocks;
         quorum = _quorum;

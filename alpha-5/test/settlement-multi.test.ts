@@ -127,6 +127,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
     );
     await settlement.setClaimValidator(await validator.getAddress());
     await settlement.setPublishers(await mock.getAddress());
+    await settlement.setCampaigns(await mock.getAddress());
 
     await ledger.setCampaigns(await mock.getAddress());
     await ledger.setSettlement(await settlement.getAddress());

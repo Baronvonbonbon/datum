@@ -91,6 +91,8 @@ describe("People Chain identity gate", function () {
     });
 
     it("lockOracleReporter is one-way and clears the writer", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(reg);
       await reg.connect(owner).lockOracleReporter();
       expect(await reg.oracleReporterLocked()).to.equal(true);
       expect(await reg.oracleReporter()).to.equal(ethers.ZeroAddress);

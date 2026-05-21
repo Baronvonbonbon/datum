@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
+import "./lib/ParameterRetuneGuard.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -32,8 +33,13 @@ import "./interfaces/IDatumActivationBondsMinimal.sol";
 ///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
-contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
+contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneGuard {
     function version() public pure override returns (uint256) { return 1; }
+
+    /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
+    function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
+        _setRetuneCooldownBlocks(blocks_);
+    }
 
     uint8 public constant MAX_CONVICTION = 8;
 
@@ -285,12 +291,14 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
     event GraceParamsSet(uint256 baseGrace, uint256 gracePerQuorum, uint256 maxGrace);
 
     function setQuorumWeighted(uint256 v) external onlyOwner {
+        _guardRetune("quorumWeighted"); // F-031
         quorumWeighted = v;
         emit QuorumWeightedSet(v);
     }
 
     function setSlashBps(uint256 v) external onlyOwner {
         require(v < 10000, "E11");
+        _guardRetune("slashBps"); // F-031
         slashBps = v;
         emit SlashBpsSet(v);
     }
@@ -563,12 +571,29 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
         if (resolved[campaignId]) {
             slash = _computeSlash(campaignId, v.direction, v.lockAmount);
             if (slash > 0) {
-                slashCollected[campaignId] += slash;
+                // F-024 fix (2026-05-20): when the resolved campaign has
+                // no winning side (resolvedWinningWeight == 0 — typically
+                // a Completed campaign with no aye voters, or a Terminated
+                // campaign with no nay voters), distributing slash via
+                // slashCollected would strand the funds because
+                // finalizeSlash requires winningWeight > 0 and
+                // sweepSlashPool requires slashFinalized. Route the slash
+                // directly to ownerSweep so it remains claimable.
+                if (resolvedWinningWeight[campaignId] == 0) {
+                    pendingOwnerSweep += slash;
+                    emit OwnerSweepQueued(campaignId, slash);
+                } else {
+                    slashCollected[campaignId] += slash;
+                }
             }
         }
 
         uint256 refund = v.lockAmount - slash;
-        require(refund > 0, "E58");
+        // F-025 fix (2026-05-20): allow withdraw to proceed when refund
+        // rounds to zero (degenerate small-stake case with very high
+        // slashBps). Vote state is reset either way; slash is already
+        // routed to either slashCollected or ownerSweep above. Refund==0
+        // just skips the _safeSend.
 
         v.direction = 0;
         v.lockAmount = 0;
@@ -576,7 +601,9 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
         v.lockedUntilBlock = 0;
 
         emit VoteWithdrawn(campaignId, msg.sender, refund, slash);
-        _safeSend(msg.sender, refund);
+        if (refund > 0) {
+            _safeSend(msg.sender, refund);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -645,6 +672,15 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable {
             resolved[campaignId] = true;
             // SM-5: Snapshot winning weight (aye won → completed)
             resolvedWinningWeight[campaignId] = ayeWeighted[campaignId];
+            // F-024 fix (2026-05-20): if no aye voters exist on a Completed
+            // campaign, nay-voter slash residue would otherwise strand:
+            // finalizeSlash requires winningWeight > 0, and sweepSlashPool
+            // requires slashFinalized. Mirrors the Audit-5 H4 routing in the
+            // status==4 branch below — push residue to ownerSweep so funds
+            // remain claimable.
+            if (ayeWeighted[campaignId] == 0) {
+                _routeStuckPoolToOwnerSweep(campaignId);
+            }
             emit CampaignEvaluated(campaignId, 3);
         } else if (status == 4 && !resolved[campaignId]) {
             // Terminated -> mark resolved (e.g., terminated via lifecycle directly)

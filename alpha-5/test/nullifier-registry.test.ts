@@ -89,6 +89,7 @@ describe("Settlement Nullifier (inline)", function () {
     );
     await settlement.setClaimValidator(await validator.getAddress());
     await settlement.setPublishers(await mock.getAddress());
+    await settlement.setCampaigns(await mock.getAddress());
 
     nullifiers = await (await ethers.getContractFactory("DatumNullifierRegistry")).deploy();
     await nullifiers.setSettlement(await settlement.getAddress());

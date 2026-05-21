@@ -775,6 +775,11 @@ describe("Audit fixes", function () {
       await pubs.setStakeGate(ethers.ZeroAddress, 0n);
       expect(await pubs.stakeGateLocked()).to.equal(false);
 
+      // F-004 fix: lockStakeGate is whenOpenGovPhase-guarded; wire a
+      // Phase-2 router first.
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(pubs);
+
       // Freeze
       await pubs.lockStakeGate();
       expect(await pubs.stakeGateLocked()).to.equal(true);

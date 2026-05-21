@@ -240,12 +240,21 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       await expect(router.executeRegression())
         .to.emit(router, "RegressionExecuted").withArgs(1, council.address);
 
+      // F-008 fix: executeRegression now stages the candidate; the
+      // candidate must call acceptGovernor() to finalize. After execute,
+      // pendingGovernor is set but phase + governor remain unchanged.
+      expect(await router.phase()).to.equal(2n); // still OpenGov pre-accept
+      expect(await router.governor()).to.equal(openGov.address);
+      expect(await router.pendingGovernor()).to.equal(council.address);
+      // Soft floor follows down so re-promotion is unblocked.
+      expect(await router.phaseFloor()).to.equal(1n);
+      // Regression-pending state cleared.
+      expect(await router.pendingRegressionGovernor()).to.equal(ethers.ZeroAddress);
+
+      // Candidate accepts → phase + governor flip.
+      await router.connect(council).acceptGovernor();
       expect(await router.phase()).to.equal(1n);
       expect(await router.governor()).to.equal(council.address);
-      // Floor follows down so re-promotion is unblocked.
-      expect(await router.phaseFloor()).to.equal(1n);
-      // Pending state cleared.
-      expect(await router.pendingRegressionGovernor()).to.equal(ethers.ZeroAddress);
     });
 
     it("cancel by governor clears the pending state", async () => {
@@ -268,6 +277,8 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       await router.connect(openGov).proposeRegression(1, council.address);
       await mineBlocks(TIMELOCK_BLOCKS);
       await router.executeRegression();
+      // F-008: complete the regression handoff with acceptGovernor.
+      await router.connect(council).acceptGovernor();
       expect(await router.phase()).to.equal(1n);
 
       // Re-promote to OpenGov via the normal two-step

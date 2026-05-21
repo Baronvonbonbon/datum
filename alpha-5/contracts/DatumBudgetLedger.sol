@@ -29,8 +29,17 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     IDatumCampaigns public campaigns;
     address public settlement;
     address public lifecycle;
-    /// @dev SL-1: Dust recipient fixed at deploy — unaffected by ownership transfers.
-    address public immutable treasury;
+    /// @notice F-021 fix (2026-05-20): treasury demoted from `immutable` so
+    ///         a deployer-EOA bootstrap can rotate to a Safe before
+    ///         mainnet. Locked-once via `lockTreasury()` (phase-gated on
+    ///         OpenGov) when the production treasury is final. Pre-lock,
+    ///         owner can update. Default initialised to `msg.sender`
+    ///         (SL-1 legacy behavior) so existing deploy scripts that
+    ///         relied on the constructor-time treasury still work.
+    address public treasury;
+    bool public treasuryLocked;
+    event TreasurySet(address indexed treasury);
+    event TreasuryLocked();
 
     // -------------------------------------------------------------------------
     // State
@@ -66,7 +75,24 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     // -------------------------------------------------------------------------
 
     constructor() {
-        treasury = msg.sender; // SL-1: immutable dust recipient
+        treasury = msg.sender; // F-021: initial owner; rotate via setTreasury
+        emit TreasurySet(msg.sender);
+    }
+
+    /// @notice F-021 fix: rotate the treasury before lockTreasury. Owner-only.
+    function setTreasury(address newTreasury) external onlyOwner {
+        require(!treasuryLocked, "treasury-locked");
+        require(newTreasury != address(0), "E00");
+        treasury = newTreasury;
+        emit TreasurySet(newTreasury);
+    }
+
+    /// @notice F-021 fix: lock the treasury permanently. Phase-gated on
+    ///         OpenGov; production fires after rotating to the Safe.
+    function lockTreasury() external onlyOwner whenOpenGovPhase {
+        require(!treasuryLocked, "already-locked");
+        treasuryLocked = true;
+        emit TreasuryLocked();
     }
 
     // -------------------------------------------------------------------------

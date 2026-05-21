@@ -111,15 +111,17 @@ abstract contract DatumUpgradable is DatumOwnable {
     ///         upgradable through Admin and Council phases. Once OpenGov is
     ///         in charge, OpenGov can choose to fire locks per-contract,
     ///         ratifying the cypherpunk end-state.
-    /// @dev    When the router is not yet wired (pre-deploy.ts Stage 5 or in
-    ///         standalone unit tests), the modifier defers to the existing
-    ///         onlyOwner check on the function. This preserves
-    ///         backwards-compatibility for tests while enforcing the phase
-    ///         gate once Stage 5 calls setRouter on every contract.
+    /// @dev    F-004 fix (2026-05-20): fail-CLOSED when the router is not
+    ///         wired. The previous test-compat silent-pass let any
+    ///         lock-once call fire under just the onlyOwner gate if the
+    ///         deployer forgot setRouter; a misconfigured deploy could
+    ///         silently ratify cypherpunk commitments without the
+    ///         OpenGov-phase floor. Deploy scripts MUST call setRouter
+    ///         on every Upgradable before any lock fires (deploy.ts
+    ///         Stage 2.5 does this).
     modifier whenOpenGovPhase() {
-        if (address(router) != address(0)) {
-            require(router.phase() == 2, "not-opengov");
-        }
+        require(address(router) != address(0), "router-unset");
+        require(router.phase() == 2, "not-opengov");
         _;
     }
 

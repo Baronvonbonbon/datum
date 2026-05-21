@@ -355,6 +355,8 @@ describe("DatumRelayGovernance", function () {
   });
 
   it("RG33: lockPlumbing freezes wiring", async function () {
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(gov);
     await gov.connect(owner).lockPlumbing();
     expect(await gov.plumbingLocked()).to.equal(true);
     await expect(gov.connect(owner).lockPlumbing())

@@ -6,6 +6,7 @@ import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
+import "./lib/ParameterRetuneGuard.sol";
 
 /// @title DatumAdvertiserGovernance
 /// @notice CB4: Conviction-weighted fraud proposals targeting advertisers.
@@ -27,7 +28,16 @@ import "./PaseoSafeSender.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (mirrors PublisherGov) — they
 ///         simply cannot withdraw until lockup expires.
-contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSender, DatumUpgradable {
+contract DatumAdvertiserGovernance is
+    IDatumAdvertiserGovernance,
+    PaseoSafeSender,
+    DatumUpgradable,
+    ParameterRetuneGuard
+{
+    /// @notice F-031 fix (2026-05-20): per-key retune cooldown.
+    function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
+        _setRetuneCooldownBlocks(blocks_);
+    }
     function version() public pure override returns (uint256) { return 1; }
 
     uint8 public constant MAX_CONVICTION = 8;
@@ -193,6 +203,11 @@ contract DatumAdvertiserGovernance is IDatumAdvertiserGovernance, PaseoSafeSende
 
     function setParams(uint256 _quorum, uint256 _slashBps, uint256 _grace, uint256 _bond) external onlyOwner {
         require(_slashBps <= 10_000, "E11");
+        // F-031 fix: guard the slashBps key. setParams bundles multiple
+        // tunables but slashBps is the load-bearing economic parameter;
+        // a snap-retune would let a captured owner spike slashing in
+        // back-to-back blocks. The cooldown applies to this key.
+        _guardRetune("slashBps");
         quorum = _quorum;
         slashBps = _slashBps;
         minGraceBlocks = _grace;

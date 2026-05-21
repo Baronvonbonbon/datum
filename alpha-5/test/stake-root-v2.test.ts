@@ -518,6 +518,8 @@ describe("DatumStakeRootV2", function () {
         await pause.getAddress(),
       );
 
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(validator);
       await validator.lockPlumbing();
 
       await expect(
@@ -750,6 +752,8 @@ describe("DatumStakeRootV2", function () {
     });
 
     it("PL-2: lockPlumbing then setIdentityVerifier reverts", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(v2);
       await v2.lockPlumbing();
       await expect(
         v2.setIdentityVerifier(ethers.ZeroAddress)
@@ -757,6 +761,8 @@ describe("DatumStakeRootV2", function () {
     });
 
     it("PL-3: double-lockPlumbing reverts", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(v2);
       await v2.lockPlumbing();
       await expect(v2.lockPlumbing()).to.be.revertedWith("already locked");
     });

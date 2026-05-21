@@ -569,10 +569,14 @@ describe("DatumTagRegistry (StakeGated lane)", function () {
     });
 
     it("lockCampaigns requires the pointer to be set first", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(registry);
       await expect(registry.connect(owner).lockCampaigns()).to.be.revertedWith("T02");
     });
 
     it("after lockCampaigns, setter reverts T01 forever", async function () {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(registry);
       await registry.connect(owner).setCampaignsContract(campaigns.address);
       await expect(registry.connect(owner).lockCampaigns())
         .to.emit(registry, "CampaignsContractLocked");

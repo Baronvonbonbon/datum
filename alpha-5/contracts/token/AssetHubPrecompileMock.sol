@@ -112,6 +112,45 @@ contract AssetHubPrecompileMock is DatumOwnable {
     }
 
     // -------------------------------------------------------------------------
+    // ERC-20-style allowance + transferFrom (F-026 fix)
+    //
+    // Asset Hub pallet-assets exposes an approve/transferFrom surface on the
+    // EVM precompile side. The mock implements the same shape so DatumWrapper
+    // can pull canonical atomically during `wrap`.
+    // -------------------------------------------------------------------------
+
+    /// @dev (assetId, owner, spender) → allowance.
+    mapping(uint256 => mapping(address => mapping(address => uint256))) private _allowances;
+
+    event Approval(uint256 indexed assetId, address indexed owner, address indexed spender, uint256 amount);
+
+    function approve(uint256 assetId, address spender, uint256 amount) external {
+        require(spender != address(0), "E00");
+        _allowances[assetId][msg.sender][spender] = amount;
+        emit Approval(assetId, msg.sender, spender, amount);
+    }
+
+    function allowance(uint256 assetId, address owner, address spender) external view returns (uint256) {
+        return _allowances[assetId][owner][spender];
+    }
+
+    /// @notice F-026: pull `amount` from `from` to `to`, consuming caller's
+    ///         allowance. uint256.max is treated as infinite (no decrement) to
+    ///         match ERC-20 convention.
+    function transferFrom(uint256 assetId, address from, address to, uint256 amount) external {
+        require(from != address(0) && to != address(0), "E00");
+        require(_balances[assetId][from] >= amount, "E03");
+        uint256 a = _allowances[assetId][from][msg.sender];
+        require(a >= amount, "E03");
+        if (a != type(uint256).max) {
+            _allowances[assetId][from][msg.sender] = a - amount;
+        }
+        _balances[assetId][from] -= amount;
+        _balances[assetId][to] += amount;
+        emit Transferred(assetId, from, to, amount);
+    }
+
+    // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------
 

@@ -48,6 +48,30 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
         if (!(claims.length <= _maxBatchSize)) revert E28();
 
+        // F-010 fix (2026-05-20): require Campaigns is wired. Several
+        // assurance gates downstream (L3 ZK floor, AssuranceLevel, identity
+        // gate, user-blocks-advertiser, per-window cap) bail out as no-ops
+        // if `_campaigns == address(0)`. Settlement is not functional
+        // without it; fail-closed at the top so an unconfigured Settlement
+        // can never settle.
+        if (address(_campaigns) == address(0)) revert E00();
+
+        // F-001 / F-002 fix (2026-05-20): every claim in a batch must target
+        // the same publisher as claims[0]. Aggregate payment math credits
+        // agg.publisher = claims[0].publisher; a mixed-publisher batch would
+        // silently misallocate publisher revenue, miscount events on the
+        // bonding curve, mis-attribute reputation signal, and let a publisher
+        // under reputation-throttling evade the canSettle gate by submitting
+        // batches led by a clean publisher in slot 0. DualSig and Relay's
+        // open-campaign path already enforce this; LogicB closes the
+        // user-EOA / attestationVerifier / targeted-multi-publisher gaps.
+        if (claims.length > 1) {
+            address p0 = claims[0].publisher;
+            for (uint256 i = 1; i < claims.length; i++) {
+                if (claims[i].publisher != p0) revert E34();
+            }
+        }
+
         // CB2 (2026-05-13): user self-pause kill switch. Reject the whole
         // batch when the user has paused their own account — emits per-claim
         // ClaimRejected so observers can see the cause.
@@ -259,6 +283,11 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (claim.campaignId != campaignId) {
                 result.rejectedCount++;
                 emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 0);
+                // F-012 fix (2026-05-20): mismatched campaignId is a
+                // structurally malformed batch; abort the remainder so
+                // the chain state stays linear and downstream claims
+                // don't get processed against the wrong campaign.
+                gapFound = true;
                 continue;
             }
 
@@ -524,9 +553,15 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
-        // FP-1: Record settled events on publisher stake bonding curve
+        // FP-1: Record settled events on publisher stake bonding curve.
+        // F-011 fix (2026-05-20): fail-SOFT via try/catch. recordImpressions
+        // currently only reverts on `msg.sender != settlementContract`,
+        // which can't happen in normal operation — but a future
+        // PublisherStake upgrade could tighten auth or add other reverts;
+        // bonding-curve advancement is a secondary signal and must not
+        // DoS the primary DOT settlement.
         if (address(_publisherStake) != address(0) && agg.eventsSettled > 0 && agg.publisher != address(0)) {
-            _publisherStake.recordImpressions(agg.publisher, agg.eventsSettled);
+            try _publisherStake.recordImpressions(agg.publisher, agg.eventsSettled) {} catch {}
         }
 
         // CB4: Record DOT spent on advertiser stake bonding curve. Best-effort.
@@ -552,17 +587,23 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         }
 
         // FP-16: Record reputation stats via the carved-out module.
+        // F-011 fix: fail-SOFT — reputation signal is secondary; future
+        // upgrades shouldn't be able to DoS DOT settlement.
         if (address(_reputation) != address(0) && agg.publisher != address(0)) {
             uint256 batchSettled  = result.settledCount  - prevSettledCount;
             uint256 batchRejected = result.rejectedCount - prevRejectedCount;
             if (batchSettled > 0 || batchRejected > 0) {
-                _reputation.recordSettlement(agg.publisher, campaignId, batchSettled, batchRejected);
+                try _reputation.recordSettlement(agg.publisher, campaignId, batchSettled, batchRejected) {} catch {}
             }
         }
 
-        // Auto-complete campaign if budget exhausted
+        // Auto-complete campaign if budget exhausted.
+        // F-011 fix: fail-SOFT — DOT settlement has already credited
+        // PaymentVault; if lifecycle.completeCampaign reverts for any
+        // reason (future upgrade, status mismatch, etc.) we should not
+        // unwind that credit. Lifecycle can be advanced manually later.
         if (agg.exhausted) {
-            _lifecycle.completeCampaign(agg.campaignIdExhausted);
+            try _lifecycle.completeCampaign(agg.campaignIdExhausted) {} catch {}
         }
 
         // BM-10: Record block of last successful settlement

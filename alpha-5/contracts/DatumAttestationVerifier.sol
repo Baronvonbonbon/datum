@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "./DatumUpgradable.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaignsSettlement.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
@@ -20,7 +21,14 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///
 ///         R-M3: Inherits OZ EIP712 so the domain separator rebuilds on chainid
 ///               mismatch (chain-fork safe).
-contract DatumAttestationVerifier is EIP712 {
+contract DatumAttestationVerifier is EIP712, DatumUpgradable {
+    /// @notice F-033 fix (2026-05-20): on the upgrade ladder so a future
+    ///         bug in the on-chain ECDSA / EIP-712 verification surface
+    ///         can be hot-fixed via the standard
+    ///         `DatumGovernanceRouter.upgradeContract` path instead of
+    ///         requiring a full Settlement redeploy + state migration.
+    function version() public pure override returns (uint256) { return 1; }
+
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -80,6 +88,7 @@ contract DatumAttestationVerifier is EIP712 {
     ///         Open campaigns: verified against claims[0].publisher (the serving publisher).
     function settleClaimsAttested(AttestedBatch[] calldata batches)
         external
+        whenNotFrozen
         returns (IDatumSettlement.SettlementResult memory result)
     {
         // S4: Pause check (mirrors Settlement.settleClaims)
@@ -102,16 +111,22 @@ contract DatumAttestationVerifier is EIP712 {
                 // provided by DatumClaimValidator downstream, which checks publisher
                 // registration in DatumPublishers before accepting settlement.
                 expectedPublisher = ab.claims[0].publisher;
-                // R-M2 (SM-1): every claim must target the same publisher as
-                //              claims[0], matching DatumRelay's open-campaign
-                //              guard. Without this, the signing publisher
-                //              implicitly attests to claims attributed to other
-                //              publishers in the same batch.
-                for (uint256 i = 1; i < ab.claims.length; i++) {
-                    require(ab.claims[i].publisher == expectedPublisher, "E34");
-                }
             }
             require(expectedPublisher != address(0), "E00");
+            // F-034 fix (2026-05-20): every claim in the batch must target
+            // the SAME publisher as claims[0], for ALL paths (open and
+            // targeted). Without this on the targeted-multi-publisher
+            // path, the signing publisher's cosig would implicitly attest
+            // to claims attributed to other allowlisted publishers,
+            // letting an attacker exploit the multi-publisher payment
+            // misallocation in LogicB (F-001) via this entry point.
+            // LogicB's own check (F-001 fix) catches the same case
+            // downstream; this is defense-in-depth at the attestation
+            // boundary.
+            address p0 = ab.claims[0].publisher;
+            for (uint256 i = 1; i < ab.claims.length; i++) {
+                require(ab.claims[i].publisher == p0, "E34");
+            }
 
             // A1-fix: enforce deadline.
             require(block.number <= ab.deadlineBlock, "E81");

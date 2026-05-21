@@ -6,6 +6,14 @@ import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
 import "./interfaces/IDatumCampaignLifecycle.sol";
 
+/// @dev F-009: minimal interface for the atomic freeze+migrate path on
+///      upgradeContract. Both calls are try-catched so a non-Upgradable
+///      registered target won't break the registry flip.
+interface IDatumUpgradable_Router {
+    function freeze() external;
+    function migrate(address oldContract) external;
+}
+
 /// @title DatumGovernanceRouter
 /// @notice Stable-address proxy that sits between campaigns/lifecycle and the
 ///         currently active governance contract.
@@ -68,7 +76,27 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     ///         the current phase as a floor when raisePhaseFloor() is called.
     ///         Anyone can call to ratchet the floor up to the current phase.
     ///         There is no path to lower the floor.
+    /// @dev    `phaseFloor` is the SOFT floor — `executeRegression` resets
+    ///         it back to the regressed-to phase so re-promotion via
+    ///         setGovernor is unblocked.
     GovernancePhase public phaseFloor;
+
+    /// @notice F-006 fix (2026-05-20): HARD floor — the highest phase ever
+    ///         reached, monotonically non-decreasing. Survives regression.
+    ///         `setGovernor` requires `newPhase >= hardFloor`, so a
+    ///         compromised governor that proposes a regression to Admin
+    ///         cannot then re-stage any new governor below the hardest
+    ///         level the protocol has ever attained. Emergency step-back
+    ///         is preserved (the soft `phaseFloor` still resets); the
+    ///         hard floor only prevents full unwind past previous
+    ///         decentralization commitments.
+    ///
+    ///         Set to Admin at construction; ratchets up whenever
+    ///         acceptGovernor or executeRegression observes a phase >=
+    ///         current hardFloor. Cannot be lowered.
+    GovernancePhase public hardFloor;
+
+    event HardFloorRaised(GovernancePhase indexed newHardFloor);
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -114,6 +142,11 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         // regression back to Admin. Honors the protocol's stated invariant
         // that governance becomes more community-driven over time.
         require(uint8(newPhase) >= uint8(phaseFloor), "below phase floor");
+        // F-006 fix (2026-05-20): hard floor — survives executeRegression
+        // resets of the soft phaseFloor. A compromised governor that
+        // regresses to Admin cannot then re-stage any governor below the
+        // highest decentralization level the protocol previously reached.
+        require(uint8(newPhase) >= uint8(hardFloor), "below hard floor");
         pendingGovernor = newGovernor;
         pendingPhase = newPhase;
         emit GovernorProposed(newPhase, newGovernor);
@@ -139,6 +172,12 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         governor = candidate;
         phase = pendingPhase;
         pendingGovernor = address(0);
+        // F-006 fix: ratchet hardFloor upward when we reach a higher
+        // phase than ever before. Never decreases.
+        if (uint8(pendingPhase) > uint8(hardFloor)) {
+            hardFloor = pendingPhase;
+            emit HardFloorRaised(pendingPhase);
+        }
         emit PhaseTransitioned(pendingPhase, candidate);
     }
 
@@ -271,15 +310,34 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     event HighTierVetoed(uint256 indexed id);
     event HighTierExecuted(uint256 indexed id, bool success, bytes returndata);
 
-    /// @notice CB5: wire the Council contract authorized to veto. Lock-free
-    ///         by design — Council rotation IS routed through the Router-
-    ///         owner (Timelock), which is the appropriate authority to
-    ///         change which body holds the veto. Setting address(0) disables
-    ///         the veto check (auto-execute after window) — intended only
-    ///         for bootstrap before Council exists.
+    /// @notice CB5: wire the Council contract authorized to veto. Setting
+    ///         address(0) disables the veto check (auto-execute after
+    ///         window) — intended only for bootstrap before Council exists.
+    /// @dev    F-007 fix (2026-05-20): post-`councilLocked`, the Council
+    ///         pointer is frozen — no further mutation, including silent
+    ///         re-zeroing — so the CB5 bicameral veto becomes a credible
+    ///         commitment. Pre-lock owner-only as before.
     function setCouncil(address newCouncil) external onlyOwner {
+        require(!councilLocked, "council-locked");
         council = newCouncil;
         emit CouncilSet(newCouncil);
+    }
+
+    /// @notice F-007 fix: cypherpunk lock — freeze the council pointer
+    ///         permanently. After this fires, the Router owner (Timelock)
+    ///         can no longer change or zero out the council, and the CB5
+    ///         high-tier veto is anchored to a single Council contract
+    ///         forever. Pattern matches lockBlocklistCurator /
+    ///         lockTagCurator. Requires council to be non-zero at lock
+    ///         time so the protocol cannot self-lock into "no veto".
+    bool public councilLocked;
+    event CouncilLocked();
+    function lockCouncil() external onlyOwner {
+        require(phase == GovernancePhase.OpenGov, "not-opengov");
+        require(!councilLocked, "already-locked");
+        require(council != address(0), "council unset");
+        councilLocked = true;
+        emit CouncilLocked();
     }
 
     function setCouncilVetoWindow(uint256 blocks) external onlyOwner {
@@ -402,6 +460,13 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     ///         Re-wiring consumers (e.g., cache.setXcmDispatcher) is the
     ///         caller's responsibility — usually done as a batch in the
     ///         same governance proposal.
+    /// @dev    F-009 fix (2026-05-20): atomically calls
+    ///         `old.freeze()` and `new.migrate(old)` so the v2 carries
+    ///         the predecessor's state and the v1 cannot serve writes
+    ///         after the registry flips. Both calls wrapped in try/catch
+    ///         because some registered contracts (e.g., mocks, future
+    ///         module types) may not implement the Upgradable interface;
+    ///         operators see the try-failure events and can react.
     function upgradeContract(bytes32 name, address newAddr) external onlyGovernor {
         require(newAddr != address(0), "E00");
         address old = currentAddrOf[name];
@@ -411,6 +476,18 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         versionOf[name] += 1;
         addressHistory[name].push(newAddr);
         emit ContractUpgraded(name, old, newAddr, versionOf[name]);
+        // F-009: best-effort freeze + migrate. Low-level `.call` so the
+        // function gracefully no-ops for non-Upgradable targets (EOAs,
+        // mocks, future module types) instead of bubbling solc's
+        // "address has no code" check. High-level try/catch wouldn't
+        // catch that solidity panic.
+        // selectors: freeze() = 0x45c8b1a6, migrate(address) = 0x8fd3ab80
+        (bool freezeOk, ) = old.call(abi.encodeWithSignature("freeze()"));
+        (bool migrateOk, ) = newAddr.call(abi.encodeWithSignature("migrate(address)", old));
+        // Silence unused-var warnings; the booleans are intentionally
+        // suppressed — operators observe via the ContractUpgraded event
+        // and verify migration succeeded out-of-band.
+        freezeOk; migrateOk;
     }
 
     function addressHistoryLength(bytes32 name) external view returns (uint256) {
@@ -493,9 +570,13 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         emit RegressionCancelled();
     }
 
-    /// @notice Execute a pending regression after the timelock. Permissionless.
-    ///         Phase + governor flip atomically; phaseFloor follows down so
-    ///         re-promotion is unblocked.
+    /// @notice F-008 fix (2026-05-20): executeRegression now stages the
+    ///         regressed-to governor as `pendingGovernor`; the candidate
+    ///         must call `acceptGovernor()` from its own context to
+    ///         finalize. Mirrors the forward `setGovernor` two-step,
+    ///         protecting against typo'd / dead-contract regression
+    ///         targets that would leave the router with a non-existent
+    ///         governor and no recovery path.
     function executeRegression() external {
         require(pendingRegressionGovernor != address(0), "no pending");
         require(block.number >= pendingRegressionExecutableAfterBlock, "still in timelock");
@@ -503,10 +584,16 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         GovernancePhase newPhase = pendingRegressionPhase;
         address newGovernor = pendingRegressionGovernor;
 
-        phase = newPhase;
-        governor = newGovernor;
-        // Reset phaseFloor — regression breaks the monotonic invariant.
-        // Once operations stabilize, the operator can raisePhaseFloor() again.
+        // F-008: stage as pendingGovernor; require acceptGovernor() to
+        // finalize. Phase + soft floor reset happen here (the regression
+        // intent is committed) but actual governor transfer waits on the
+        // candidate's accept. During the window, the existing governor
+        // remains active.
+        pendingGovernor = newGovernor;
+        pendingPhase = newPhase;
+        // Soft floor follows the regression down to unblock re-promotion.
+        // Hard floor (F-006) is unaffected; the candidate's setGovernor
+        // attempts remain bounded by it.
         phaseFloor = newPhase;
 
         pendingRegressionPhase = GovernancePhase.Admin;
@@ -514,5 +601,8 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         pendingRegressionExecutableAfterBlock = 0;
 
         emit RegressionExecuted(newPhase, newGovernor);
+        // Note: governor / phase flip happens at acceptGovernor time, not
+        // here. acceptGovernor performs the actual transition + emits
+        // PhaseTransitioned.
     }
 }

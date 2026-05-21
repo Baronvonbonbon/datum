@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./DatumUpgradable.sol";
+import "./lib/ParameterRetuneGuard.sol";
 import "./interfaces/IDatumMintCoordinator.sol";
 
 /// @dev Inline interface to the optional Path-H emission engine.
@@ -33,8 +34,13 @@ interface IMintAuthority {
 /// @dev    Per-batch cost (not per-claim): the orchestration runs exactly
 ///         once at the end of `_processBatch` after the inner loop, so
 ///         carving it out adds a single external call per settled batch.
-contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable {
+contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, ParameterRetuneGuard {
     function version() public pure override returns (uint256) { return 1; }
+
+    /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
+    function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
+        _setRetuneCooldownBlocks(blocks_);
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -149,6 +155,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable {
 
     function setMintRate(uint256 newRate) external onlyOwner whenNotFrozen {
         if (newRate > MAX_MINT_RATE) revert AboveCap();
+        _guardRetune("mintRate"); // F-031: per-key retune cooldown
         uint256 old = mintRatePerDot;
         mintRatePerDot = newRate;
         emit MintRateUpdated(old, newRate);

@@ -79,10 +79,18 @@ contract DatumStakeRoot is DatumUpgradable {
 
     // ── Admin ────────────────────────────────────────────────────────────
 
+    /// @notice F-038 fix (2026-05-20): cap on reporter set size. V1 is
+    ///         targeted for ≤ 5 reporters per PRE-ALPHA-5-BACKLOG §1.2;
+    ///         bound at 32 to leave headroom while preventing unbounded
+    ///         growth in case of misconfiguration. linear-scan
+    ///         operations (removeReporter, isRecent) stay cheap.
+    uint256 public constant MAX_REPORTERS = 32;
+
     /// @notice Add a reporter. Owner-only; intended to be timelocked at deploy.
     function addReporter(address who) external onlyOwner {
         require(who != address(0), "E00");
         require(!isReporter[who], "E11");
+        require(reporters.length < MAX_REPORTERS, "max-reporters");
         isReporter[who] = true;
         reporters.push(who);
         emit ReporterAdded(who);

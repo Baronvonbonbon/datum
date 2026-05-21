@@ -417,6 +417,9 @@ describe("DatumBondedIdentityReporter", function () {
     it("setCache is lock-once", async () => {
       // Already wired in beforeEach. Try to swap.
       await expect(reporter.connect(owner).setCache(other.address)).to.not.be.reverted;
+      // F-004 fix: lockCache is phase-gated; wire a Phase-2 router.
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(reporter);
       await reporter.connect(owner).lockCache();
       await expect(reporter.connect(owner).setCache(other.address))
         .to.be.revertedWith("cache-locked");

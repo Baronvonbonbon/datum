@@ -7,6 +7,7 @@ import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
 import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
+import "./lib/ParameterRetuneGuard.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title DatumPublisherGovernance
@@ -30,8 +31,21 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///
 ///         Losing voters' DOT is NOT slashed (unlike GovernanceV2 campaign slash) —
 ///         they simply can't withdraw until lockup expires.
-contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender, DatumUpgradable {
+contract DatumPublisherGovernance is
+    IDatumPublisherGovernance,
+    PaseoSafeSender,
+    DatumUpgradable,
+    ParameterRetuneGuard
+{
     function version() public pure override returns (uint256) { return 1; }
+
+    /// @notice F-031 fix (2026-05-20): owner-settable cooldown between
+    ///         consecutive retunes on each high-impact parameter key.
+    ///         0 = disabled (testnet posture). Production sets a
+    ///         non-zero value (e.g. 14400 ≈ 24h) before mainnet.
+    function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
+        _setRetuneCooldownBlocks(blocks_);
+    }
 
     uint8 public constant MAX_CONVICTION = 8;
 
@@ -221,7 +235,12 @@ contract DatumPublisherGovernance is IDatumPublisherGovernance, PaseoSafeSender,
     event ProposeBondSet(uint256 value);
 
     function setQuorum(uint256 v) external onlyOwner { quorum = v; emit QuorumSet(v); }
-    function setSlashBps(uint256 v) external onlyOwner { require(v <= 10000, "E11"); slashBps = v; emit SlashBpsSet(v); }
+    function setSlashBps(uint256 v) external onlyOwner {
+        require(v <= 10000, "E11");
+        _guardRetune("slashBps"); // F-031: per-key retune cooldown
+        slashBps = v;
+        emit SlashBpsSet(v);
+    }
     function setBondBonusBps(uint256 v) external onlyOwner { require(v <= 10000, "E11"); bondBonusBps = v; emit BondBonusBpsSet(v); }
     function setMinGraceBlocks(uint256 v) external onlyOwner { minGraceBlocks = v; emit MinGraceBlocksSet(v); }
     function setProposeBond(uint256 v) external onlyOwner { proposeBond = v; emit ProposeBondSet(v); }

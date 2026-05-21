@@ -280,18 +280,19 @@ describe("DatumRelayStake", function () {
   it("RS30: lockPlumbing pre-OpenGov reverts not-opengov", async function () {
     await stake.connect(owner).setRelayContract(other.address);
     await stake.connect(owner).setGovernance(governance.address);
-    // No router wired — whenOpenGovPhase falls through to onlyOwner per
-    // DatumUpgradable spec. Owner can fire pre-router but tests that
-    // confirm "phase 2 required" require a router fixture. Here we just
-    // confirm the function works without router.
+    // F-004 fix: whenOpenGovPhase is fail-closed when router is unset.
+    // Pre-router, lockPlumbing reverts router-unset (not "PlumbingLocked"
+    // success any more). To exercise the lock-succeeds path, wire a
+    // MockOpenGovRouter (phase=2) via setRouter first.
     await expect(stake.connect(owner).lockPlumbing())
-      .to.emit(stake, "PlumbingLocked");
-    expect(await stake.plumbingLocked()).to.equal(true);
+      .to.be.revertedWith("router-unset");
   });
 
   it("RS31: setRelayContract reverts after lockPlumbing", async function () {
     await stake.connect(owner).setRelayContract(other.address);
     await stake.connect(owner).setGovernance(governance.address);
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(stake);
     await stake.connect(owner).lockPlumbing();
     await expect(stake.connect(owner).setRelayContract(other.address))
       .to.be.revertedWithCustomError(stake, "LockedAlready");
@@ -300,12 +301,16 @@ describe("DatumRelayStake", function () {
   it("RS32: setGovernance reverts after lockPlumbing", async function () {
     await stake.connect(owner).setRelayContract(other.address);
     await stake.connect(owner).setGovernance(governance.address);
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(stake);
     await stake.connect(owner).lockPlumbing();
     await expect(stake.connect(owner).setGovernance(governance.address))
       .to.be.revertedWithCustomError(stake, "LockedAlready");
   });
 
   it("RS33: lockStakeGate freezes relayMinStake", async function () {
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(stake);
     await stake.connect(owner).lockStakeGate();
     expect(await stake.stakeGateLocked()).to.equal(true);
     await expect(stake.connect(owner).setRelayMinStake(123n))
@@ -313,6 +318,8 @@ describe("DatumRelayStake", function () {
   });
 
   it("RS34: double lockStakeGate reverts LockedAlready", async function () {
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(stake);
     await stake.connect(owner).lockStakeGate();
     await expect(stake.connect(owner).lockStakeGate())
       .to.be.revertedWithCustomError(stake, "LockedAlready");

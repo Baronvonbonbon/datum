@@ -122,6 +122,8 @@ describe("DatumRelay G-1 integration", function () {
   // ── lockPlumbing ─────────────────────────────────────────────────────
 
   it("RI10: setRelayStake reverts after lockPlumbing", async function () {
+    const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+    await wireOpenGovRouter(relay);
     await relay.connect(owner).lockPlumbing();
     await expect(relay.connect(owner).setRelayStake(relayStake.target))
       .to.be.revertedWith("locked");

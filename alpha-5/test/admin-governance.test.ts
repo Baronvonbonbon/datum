@@ -135,9 +135,13 @@ describe("DatumGovernanceRouter (admin functions)", function () {
     expect(await router.phase()).to.equal(1n);
     expect(await router.pendingGovernor()).to.equal(ethers.ZeroAddress);
 
-    // Restore owner as governor (two-step again).
-    await router.connect(owner).setGovernor(0, owner.address);
-    await router.connect(owner).acceptGovernor();
+    // F-006 fix (2026-05-20): cannot revert to phase 0 via setGovernor
+    // any more — hardFloor was raised to 1 by acceptGovernor above.
+    // Regression to a lower phase requires proposeRegression +
+    // executeRegression (timelock), but even then setGovernor stays
+    // gated on hardFloor for any new staging.
+    await expect(router.connect(owner).setGovernor(0, owner.address))
+      .to.be.revertedWith("below hard floor");
   });
 
   it("R9: sweepTo forwards ETH balance to recipient", async function () {

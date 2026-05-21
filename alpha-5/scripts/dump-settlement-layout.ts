@@ -43,11 +43,15 @@ async function dump(contract: string): Promise<{
       `Storage layout missing for ${contract} -- check hardhat.config outputSelection`
     );
   }
+  // Strip solc AST-id suffixes from type strings (e.g.
+  // `t_contract(IDatumFoo)58410` → `t_contract(IDatumFoo)`). The suffix
+  // shifts per compilation unit even when the underlying layout is
+  // byte-identical, so we normalize it out for cross-contract comparison.
   return sl.storage.map((s) => ({
     label: s.label,
     offset: s.offset,
     slot: s.slot,
-    type: s.type,
+    type: s.type.replace(/\)\d+/g, ")"),
   }));
 }
 

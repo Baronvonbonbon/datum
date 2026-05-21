@@ -214,6 +214,9 @@ describe("DatumPeopleChainXcmBridge", function () {
   // ─────────────────────────────────────────────────────────────────────
   describe("lockSovereign", function () {
     it("blocks subsequent setSovereign", async () => {
+      // F-004 fix: lockSovereign is whenOpenGovPhase-guarded.
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(bridge);
       await bridge.connect(owner).lockSovereign();
       await expect(
         bridge.connect(owner).setSovereign(other.address)
@@ -223,10 +226,14 @@ describe("DatumPeopleChainXcmBridge", function () {
     it("reverts E00 if sovereign was never set", async () => {
       const BridgeF = await ethers.getContractFactory("DatumPeopleChainXcmBridge");
       const fresh = await BridgeF.deploy(await xcmMock.getAddress(), await cache.getAddress());
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(fresh);
       await expect(fresh.lockSovereign()).to.be.revertedWith("E00");
     });
 
     it("emits SovereignLocked", async () => {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(bridge);
       await expect(bridge.connect(owner).lockSovereign())
         .to.emit(bridge, "SovereignLocked");
     });
@@ -288,6 +295,8 @@ describe("DatumPeopleChainXcmBridge", function () {
   // ─────────────────────────────────────────────────────────────────────
   describe("cache.lockXcmDispatcher", function () {
     it("blocks subsequent setXcmDispatcher", async () => {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(cache);
       await cache.connect(owner).lockXcmDispatcher();
       await expect(
         cache.connect(owner).setXcmDispatcher(other.address)
@@ -297,6 +306,8 @@ describe("DatumPeopleChainXcmBridge", function () {
     it("reverts E00 if dispatcher was never set", async () => {
       const CacheF = await ethers.getContractFactory("DatumPeopleChainIdentity");
       const fresh = await CacheF.deploy();
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(fresh);
       await expect(fresh.lockXcmDispatcher()).to.be.revertedWith("E00");
     });
   });
@@ -331,6 +342,8 @@ describe("DatumPeopleChainXcmBridge", function () {
     });
 
     it("lockPalletCallIndices blocks subsequent edits", async () => {
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(bridge);
       await bridge.connect(owner).lockPalletCallIndices();
       await expect(
         bridge.connect(owner).setPalletCallIndices(1, 1)

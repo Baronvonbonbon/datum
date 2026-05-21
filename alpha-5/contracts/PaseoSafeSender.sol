@@ -75,6 +75,25 @@ abstract contract PaseoSafeSender is ReentrancyGuard {
         require(ok, "E02");
     }
 
+    /// @notice F-014 fix (2026-05-20): forfeit caller's accumulated dust.
+    ///         Use when the residue is below the Paseo-acceptable
+    ///         threshold (< 500_000 planck within the trailing 10^6) and
+    ///         the user wants to clean their slot. Sub-threshold residue
+    ///         could otherwise persist indefinitely. The forfeited amount
+    ///         stays in the contract's balance and is implicitly
+    ///         protocol-owned; contracts that inherit this base can sweep
+    ///         it via their own treasury/owner paths.
+    function forfeitPaseoDust() external {
+        uint256 d = pendingPaseoDust[msg.sender];
+        require(d > 0, "E03");
+        // Only allow forfeit when the residue is unsendable — preserves
+        // accidental-loss protection for users whose dust IS still
+        // claimable.
+        require(_cleanAmount(d) == 0, "E11");
+        pendingPaseoDust[msg.sender] = 0;
+        emit PaseoDustClaimed(msg.sender, address(this), d);
+    }
+
     /// @dev Return the largest amount ≤ `amount` that Paseo eth-rpc will accept.
     function _cleanAmount(uint256 amount) internal pure returns (uint256) {
         uint256 trailing = amount % PASEO_UNIT;

@@ -21,7 +21,15 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     uint16 public constant DEFAULT_TAKE_RATE_BPS = 5000;
 
     uint256 public takeRateUpdateDelayBlocks;
-    IDatumPauseRegistry public immutable pauseRegistry;
+    /// @notice F-020 fix (2026-05-20): demoted from `immutable` so the
+    ///         upgrade ladder can swap the PauseRegistry without
+    ///         redeploying Publishers. Locked-once via
+    ///         `lockPauseRegistry()` (phase-gated on OpenGov) when
+    ///         operators are confident the wiring is final.
+    IDatumPauseRegistry public pauseRegistry;
+    bool public pauseRegistryLocked;
+    event PauseRegistrySet(address indexed registry);
+    event PauseRegistryLocked();
 
     mapping(address => Publisher) private _publishers;
 
@@ -100,6 +108,22 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
         require(_pauseRegistry != address(0), "E00");
         takeRateUpdateDelayBlocks = _takeRateUpdateDelayBlocks;
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
+    }
+
+    /// @notice F-020 fix: governance-rotatable PauseRegistry pointer. Pre-lock,
+    ///         owner (Timelock) can update to follow a Stage-1 PauseRegistry
+    ///         upgrade. Post-`lockPauseRegistry()`, frozen permanently.
+    function setPauseRegistry(address addr) external onlyOwner {
+        require(!pauseRegistryLocked, "pause-registry-locked");
+        require(addr != address(0), "E00");
+        pauseRegistry = IDatumPauseRegistry(addr);
+        emit PauseRegistrySet(addr);
+    }
+
+    function lockPauseRegistry() external onlyOwner whenOpenGovPhase {
+        require(!pauseRegistryLocked, "already-locked");
+        pauseRegistryLocked = true;
+        emit PauseRegistryLocked();
     }
 
     modifier whenNotPaused() {

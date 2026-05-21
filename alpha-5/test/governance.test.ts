@@ -217,7 +217,13 @@ describe("DatumGovernanceV2", function () {
     const expectedSlash = stake * SLASH_BPS / 10000n;
     const expectedRefund = stake - expectedSlash;
     expect(balAfter - balBefore + gasUsed).to.equal(expectedRefund);
-    expect(await v2.slashCollected(cid)).to.equal(expectedSlash);
+    // F-024 fix (2026-05-20): when resolvedWinningWeight == 0 (no nay
+    // voters on this Terminated campaign), slash routes to
+    // pendingOwnerSweep instead of slashCollected — the legacy
+    // slashCollected path stranded funds because finalizeSlash requires
+    // winningWeight > 0.
+    expect(await v2.slashCollected(cid)).to.equal(0n);
+    expect(await v2.pendingOwnerSweep()).to.equal(expectedSlash);
   });
 
   it("W5: winning nay voter gets full refund on Terminated campaign", async function () {

@@ -50,12 +50,14 @@ describe("Stage 4: whenOpenGovPhase on lock functions", function () {
     await curator.connect(owner).setCouncil(other.address);
   });
 
-  it("pre-router: defers to onlyOwner (existing test surface preserved)", async () => {
-    // Router not wired on the curator. onlyOwner is the gate; non-owner
-    // reverts E18, owner succeeds.
-    await expect(curator.connect(other).lockCouncil()).to.be.revertedWith("E18");
-    await curator.connect(owner).lockCouncil();
-    expect(await curator.councilLocked()).to.equal(true);
+  it("pre-router: lock reverts 'router-unset' (F-004 fail-closed)", async () => {
+    // F-004 fix (2026-05-20): whenOpenGovPhase is fail-closed when the
+    // router is unset. The previous silent-pass-through-to-onlyOwner
+    // behavior let a deployer accidentally fire lock-once functions
+    // without OpenGov-phase gating. Both owner AND non-owner now revert,
+    // but with different reasons depending on which check fires first.
+    await expect(curator.connect(other).lockCouncil()).to.be.reverted; // E18 (onlyOwner before modifier)
+    await expect(curator.connect(owner).lockCouncil()).to.be.revertedWith("router-unset");
   });
 
   it("router wired in Admin phase: lock reverts 'not-opengov'", async () => {
@@ -96,6 +98,8 @@ describe("Stage 4: whenOpenGovPhase on lock functions", function () {
     await router.connect(openGov).proposeRegression(1, council.address);
     await ethers.provider.send("hardhat_mine", ["0x3840"]); // 14400
     await router.executeRegression();
+    // F-008: complete the regression handoff with acceptGovernor.
+    await router.connect(council).acceptGovernor();
     expect(await router.phase()).to.equal(1n);
 
     await expect(curator.connect(owner).lockCouncil()).to.be.revertedWith("not-opengov");
