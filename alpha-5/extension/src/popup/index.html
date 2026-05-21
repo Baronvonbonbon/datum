@@ -33,6 +33,31 @@
       --radius:    6px;
       --radius-sm: 4px;
     }
+    /* Light theme — activated by setting data-theme="light" on <html>.
+       SettingsTab does this and persists the choice in chrome.storage.local.
+       Tokens mirror the dark set so every screen using var(--*) flips
+       cleanly without per-component tweaks. */
+    html[data-theme="light"] {
+      --bg:            #f5f5f5;
+      --bg-surface:    #ffffff;
+      --bg-raised:     #ffffff;
+      --text:          rgba(0,0,0,0.70);
+      --text-strong:   #0a0a0a;
+      --text-muted:    rgba(0,0,0,0.45);
+      --border:        rgba(0,0,0,0.12);
+      --border-hover:  rgba(0,0,0,0.22);
+      --border-focus:  rgba(0,0,0,0.45);
+      --accent:        rgba(0,0,0,0.85);
+      --accent-dim:    rgba(0,0,0,0.25);
+      --ok:            #15803d;
+      --warn:          #b45309;
+      --error:         #b91c1c;
+      --role-user:        #15803d;
+      --role-publisher:   #b45309;
+      --role-advertiser:  #7c3aed;
+      --role-voter:       #b91c1c;
+    }
+    html[data-theme="light"] body { color-scheme: light; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       width: 360px;

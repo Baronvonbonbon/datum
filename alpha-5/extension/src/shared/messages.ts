@@ -60,7 +60,50 @@ export type PopupToBackground =
   | { type: "REPORT_PAGE"; campaignId: string; reason: number }
   | { type: "REPORT_AD"; campaignId: string; reason: number }
   | { type: "GET_IMPRESSION_LOG" }
-  | { type: "CLEAR_IMPRESSION_LOG" };
+  | { type: "CLEAR_IMPRESSION_LOG" }
+  // Self-contained wallet (Stage 1c). All popup ↔ background wallet
+  // calls flow through this single envelope so we don't bloat the
+  // PopupToBackground union with one type per op. The `op` field
+  // selects the dispatch path inside background/index.ts; `args` is
+  // shaped to whatever that op expects. Replies arrive on the
+  // WalletRpcResponse channel below, correlated by `requestId`.
+  | {
+      type: "WALLET_RPC_REQUEST";
+      requestId: string;
+      op: WalletRpcOp;
+      args?: unknown;
+    };
+
+/// Discriminator for WALLET_RPC_REQUEST. Each op maps to a handler in
+/// background/index.ts → background/wallet/{unlock,signing}.ts.
+export type WalletRpcOp =
+  | "getStatus"
+  | "createWallet"
+  | "importWallet"
+  | "unlock"
+  | "lock"
+  | "resetWallet"
+  | "addHdAccount"
+  | "addImportedAccount"
+  | "setActiveAccount"
+  | "setIdleTimeoutMinutes"
+  | "getNativeBalance"
+  | "sendNative"
+  | "signTransaction"
+  | "signTypedData"
+  | "personalSign";
+
+/// Reply envelope for WALLET_RPC_REQUEST. Background pushes this back
+/// via `sendResponse`; popupClient resolves the matching Promise.
+export type WalletRpcResponse = {
+  type: "WALLET_RPC_RESPONSE";
+  requestId: string;
+  ok: boolean;
+  /// Free-form payload — shape depends on the op. See the table in
+  /// popup/wallet/walletClient.ts for the per-op return types.
+  payload?: unknown;
+  error?: string;
+};
 
 // Messages sent FROM background TO offscreen document
 export type BackgroundToOffscreen =

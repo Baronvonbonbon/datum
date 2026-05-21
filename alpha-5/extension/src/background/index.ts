@@ -26,6 +26,8 @@ import { appendEvent, cleanupTerminalChains } from "./behaviorChain";
 import { computeQualityScore, meetsQualityThreshold } from "@shared/qualityScore";
 import { timelockMonitor } from "./timelockMonitor";
 import { ContentToBackground, PopupToBackground } from "@shared/messages";
+import { dispatchWalletRpc } from "./wallet/rpcDispatcher";
+import { loadIdleTimeoutSetting } from "./wallet/unlock";
 import { DEFAULT_SETTINGS, NETWORK_CONFIGS } from "@shared/networks";
 import { ClaimBatch, SerializedClaimBatch, StoredSettings } from "@shared/types";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
@@ -57,6 +59,7 @@ installIdleLockListener();
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[DATUM] Extension installed/updated");
+  await loadIdleTimeoutSetting();
   await initAlarms();
   await immediateInitialPoll();
 });
@@ -67,6 +70,10 @@ chrome.runtime.onStartup.addListener(async () => {
   await chrome.storage.local.set({ autoSubmitDeauthNotice: true });
   // XL-5: Clean up orphaned encrypted auto-submit key (session password is gone)
   await chrome.storage.local.remove("autoSubmitKeyEncrypted");
+  // Restore the user's auto-lock idle timeout into the wallet module's
+  // in-memory cache; offscreen wallet will re-lock if the previous
+  // session expired during the SW downtime.
+  await loadIdleTimeoutSetting();
   await initAlarms();
   await immediateInitialPoll();
 });
@@ -388,6 +395,12 @@ async function handleMessage(
   msg: ContentToBackground | PopupToBackground,
   sender: chrome.runtime.MessageSender,
 ): Promise<unknown> {
+  // Wallet RPC bypass — routes through a single envelope so the popup
+  // can address ~15 wallet ops without inflating the message union.
+  // See background/wallet/rpcDispatcher.ts for the op→handler table.
+  if (msg.type === "WALLET_RPC_REQUEST") {
+    return dispatchWalletRpc(msg.requestId, msg.op, msg.args);
+  }
   switch (msg.type) {
     case "IMPRESSION_RECORDED": {
       // Check rate limit before recording
