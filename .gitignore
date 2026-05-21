@@ -36,6 +36,9 @@ alpha-5/circuits/ptau13.ptau
 alpha-5/circuits/impression_0000.zkey
 alpha-5/circuits/impression.r1cs
 alpha-5/circuits/impression.sym
+alpha-5/circuits/identity_0000.zkey
+alpha-5/circuits/identity.r1cs
+alpha-5/circuits/identity.sym
 alpha-5/circom
 .env
 

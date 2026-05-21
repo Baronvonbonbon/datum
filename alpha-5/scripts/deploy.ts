@@ -345,8 +345,13 @@ async function validateSettlementLayoutMatchesSnapshot(): Promise<void> {
     if (!sl) throw new Error(
       `Storage layout missing for ${contract} -- enable outputSelection.storageLayout`
     );
+    // Normalize the AST-id suffix solc emits on `type` strings
+    // (e.g. `t_contract(IDatumRouter_Upgradable)58410` vs `…)58422`).
+    // The suffix is per-contract compilation-unit noise; the snapshot +
+    // the matching test in test/settlement-layout.test.ts both strip it.
     return sl.storage.map((s: any) => ({
-      label: s.label, offset: s.offset, slot: s.slot, type: s.type,
+      label: s.label, offset: s.offset, slot: s.slot,
+      type: String(s.type).replace(/\)\d+/g, ")"),
     }));
   }
 
@@ -1740,24 +1745,26 @@ async function main() {
   }
 
   // #5: Flip enforcePow ON at deploy. Defaults are sane (256 hashes @ easy band).
+  // `enforcePow` lives on DatumPowEngine (read by ClaimValidator via
+  // IDatumPowEngine.enforcePow()), not on Settlement.
   {
-    const settleIface = new ethers.Interface([
+    const powIface = new ethers.Interface([
       "function enforcePow() view returns (bool)",
       "function setEnforcePow(bool)",
     ]);
     const cur = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
-      await rawProvider.call({ to: addresses.settlement, data: settleIface.encodeFunctionData("enforcePow") })
+      await rawProvider.call({ to: addresses.powEngine, data: powIface.encodeFunctionData("enforcePow") })
     )[0];
     if (cur) {
-      console.log("  OK (already set): Settlement.enforcePow = true");
+      console.log("  OK (already set): PowEngine.enforcePow = true");
     } else {
       await sendCall(
-        addresses.settlement,
+        addresses.powEngine,
         ["function setEnforcePow(bool)"],
         "setEnforcePow",
         [true],
       );
-      console.log("  SET: Settlement.setEnforcePow(true)");
+      console.log("  SET: PowEngine.setEnforcePow(true)");
     }
   }
 
@@ -2197,22 +2204,23 @@ async function main() {
     console.log(`  SET: ${label}.lockPlumbing()`);
   }
 
-  await lockPlumbingIfNeeded("ClaimValidator",   addresses.claimValidator);
-  await lockPlumbingIfNeeded("Lifecycle",        addresses.campaignLifecycle);
-  await lockPlumbingIfNeeded("ClickRegistry",    addresses.clickRegistry);
-  await lockPlumbingIfNeeded("Relay",            addresses.relay);
-  // GovernanceRouter.lockPlumbing is intentionally gated on OpenGov phase.
-  // At deploy time we are in Admin phase, so it's a no-op (would revert).
-  // Governance calls it after the phase ladder advances to OpenGov.
+  // Every lockPlumbing on these contracts is `whenOpenGovPhase`-gated, so
+  // we only fire them when the router is in OpenGov (phase=2). Pre-OpenGov
+  // the calls would revert on-chain (silently, due to the Paseo eth-rpc
+  // null-receipt bug); governance fires them after the ladder advances.
   {
     const phaseIface = new ethers.Interface(["function phase() view returns (uint8)"]);
     const phaseVal = ethers.AbiCoder.defaultAbiCoder().decode(["uint8"],
       await rawProvider.call({ to: addresses.governanceRouter, data: phaseIface.encodeFunctionData("phase") })
     )[0];
     if (Number(phaseVal) === 2) {
+      await lockPlumbingIfNeeded("ClaimValidator",   addresses.claimValidator);
+      await lockPlumbingIfNeeded("Lifecycle",        addresses.campaignLifecycle);
+      await lockPlumbingIfNeeded("ClickRegistry",    addresses.clickRegistry);
+      await lockPlumbingIfNeeded("Relay",            addresses.relay);
       await lockPlumbingIfNeeded("GovernanceRouter", addresses.governanceRouter);
     } else {
-      console.log(`  SKIP: GovernanceRouter.lockPlumbing — phase=${phaseVal} (needs OpenGov=2)`);
+      console.log(`  SKIP: lockPlumbing on ClaimValidator/Lifecycle/ClickRegistry/Relay/Router — phase=${phaseVal} (needs OpenGov=2)`);
     }
   }
 
@@ -2693,23 +2701,23 @@ async function main() {
 
   // Alpha-4: NullifierRegistry + Reputation merged into Settlement (no separate checks needed)
 
-  // D1a (audit pass 3.6): every plumbing contract must be committed via lockPlumbing().
-  await checkBool("ClaimValidator.plumbingLocked",   addresses.claimValidator,    "plumbingLocked", true);
-  await checkBool("Lifecycle.plumbingLocked",        addresses.campaignLifecycle, "plumbingLocked", true);
-  await checkBool("ClickRegistry.plumbingLocked",    addresses.clickRegistry,     "plumbingLocked", true);
-  await checkBool("Relay.plumbingLocked",            addresses.relay,             "plumbingLocked", true);
-  // GovernanceRouter.lockPlumbing is phase-gated on OpenGov; only validate
-  // post-OpenGov. On testnet (Admin phase) it stays unlocked until governance
-  // advances the ladder and calls Router.lockPlumbing() itself.
+  // D1a (audit pass 3.6): every plumbing contract must be committed via
+  // lockPlumbing() — but only post-OpenGov, since lockPlumbing on all of
+  // these is `whenOpenGovPhase`-gated. Pre-OpenGov, skip the validation;
+  // governance fires the locks after the ladder advances.
   {
     const phaseIface = new ethers.Interface(["function phase() view returns (uint8)"]);
     const phaseVal = ethers.AbiCoder.defaultAbiCoder().decode(["uint8"],
       await rawProvider.call({ to: addresses.governanceRouter, data: phaseIface.encodeFunctionData("phase") })
     )[0];
     if (Number(phaseVal) === 2) {
-      await checkBool("GovernanceRouter.plumbingLocked", addresses.governanceRouter, "plumbingLocked", true);
+      await checkBool("ClaimValidator.plumbingLocked",   addresses.claimValidator,    "plumbingLocked", true);
+      await checkBool("Lifecycle.plumbingLocked",        addresses.campaignLifecycle, "plumbingLocked", true);
+      await checkBool("ClickRegistry.plumbingLocked",    addresses.clickRegistry,     "plumbingLocked", true);
+      await checkBool("Relay.plumbingLocked",            addresses.relay,             "plumbingLocked", true);
+      await checkBool("GovernanceRouter.plumbingLocked", addresses.governanceRouter,  "plumbingLocked", true);
     } else {
-      console.log(`  SKIP-VALIDATE: GovernanceRouter.plumbingLocked (phase=${phaseVal}, locks only at OpenGov)`);
+      console.log(`  SKIP-VALIDATE: plumbingLocked on ClaimValidator/Lifecycle/ClickRegistry/Relay/Router (phase=${phaseVal}, locks only at OpenGov)`);
     }
   }
 
