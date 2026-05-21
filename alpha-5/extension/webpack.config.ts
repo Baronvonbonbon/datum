@@ -16,7 +16,15 @@ const config = (
     entry: {
       background: "./src/background/index.ts",
       content: "./src/content/index.ts",
+      // Stage 2b: new wallet content scripts. walletInjector runs in
+      // MAIN world (declared in manifest.json) and exposes window.datum;
+      // walletBridge runs in ISOLATED world and relays to background.
+      // The legacy `provider` entry is left in for now — it backs the
+      // old window.datum binding used by the App.legacy popup and is
+      // removed alongside the legacy popup migration.
       provider: "./src/content/provider.ts",
+      walletInjector: "./src/content/walletInjector.ts",
+      walletBridge: "./src/content/walletBridge.ts",
       popup: "./src/popup/index.tsx",
       offscreen: "./src/offscreen/offscreen.ts",
       history: "./src/history/index.tsx",
