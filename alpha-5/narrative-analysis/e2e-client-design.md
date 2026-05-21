@@ -5,6 +5,11 @@ alpha-5 contract tree on Paseo. Sized for follow-up implementation.
 
 Date: 2026-05-21
 Status: Design — not implementation
+Revision: r2 (2026-05-21) — extension is now a self-contained wallet
+(BIP-39 HD, password-unlock, multi-account, send-to-external) and
+the *only* wallet surface. Webapp uses the extension as its EIP-1193
+provider. No HTTP RPC anywhere — pine/smoldot is the sole chain
+access path across all client surfaces.
 
 ---
 
@@ -20,11 +25,15 @@ Status: Design — not implementation
    publisher, governance, admin/protocol, me/user, token plane,
    identity bridge) gets a single dashboard route that is a global
    overview + recent telemetry. Same shape across all of them.
-3. **Pine/smoldot first.** Every read path should be writable
-   directly against the local smoldot light client (via `pine`)
-   without changing call sites. The Paseo HTTP gateway is the
-   fallback, not the default. Pine's session-scoped TxPool also
-   fixes the Paseo null-receipt bug for writes routed through it.
+3. **Pine/smoldot only.** Every read and every write goes through
+   the local smoldot light client (via `pine`). The Paseo HTTP
+   gateway is *not* used anywhere — webapp, extension, and relay-bot
+   all run pine. Pine's session-scoped TxPool also fixes the Paseo
+   null-receipt bug for writes routed through it. Cypherpunk
+   posture: the dApp never leaks a request to a centralized RPC
+   gateway. Trade-off: cold-install UX shows a "syncing…" state
+   until smoldot indexes its first finalized block (~10–30 s on
+   Paseo with warm peers).
 4. **Telemetry, not analytics.** Each dashboard ships a rolling
    window of meaningful events (recent settlements, governance
    actions, pauses, locks fired, upgrades). Built from `eth_getLogs`
@@ -57,59 +66,73 @@ client reads chain state. The current matrix lives in
 | `eth_getLogs` | Rolling ~10k-block window from connect time | Telemetry windows must be sized to Pine's window |
 | Historical blocks | Stubbed pre-window | Cannot rely on `getBlockByNumber(oldBlock)` |
 
-**Strategy: dual-rail provider with progressive smoldot adoption.**
+**Strategy: pine-only. No HTTP fallback anywhere.**
 
-- `web/src/lib/provider.ts` (new): exports `getProvider({ preferPine: true })`.
-- When pine is available + warm, route reads/writes there.
-- Fall back to `https://eth-rpc-testnet.polkadot.io/` for:
-  - Historical receipts not in TxPool
-  - Wide log windows that pre-date Pine connect time
-  - First-load before pine has subscribed
-- The fallback is the existing webapp default, so degrading is silent.
+- `web/src/lib/provider.ts` (new): exports `getProvider()` — wraps
+  pine, no alternative endpoint.
+- Cold start shows a `Syncing…` overlay until pine reaches
+  `peers ≥ 2 && finalizedHead != 0 && logIndexerReady`. Typically
+  10–30 s on Paseo with warm peers; first-ever install needs to
+  pull the chainspec checkpoint over P2P and can take up to ~60 s.
+- The webapp embeds pine directly for read-only paths (Explorer,
+  public dashboards). When the extension is installed, the webapp
+  *also* gets the extension's EIP-1193 provider — but that provider
+  is itself pine-backed (the extension routes everything through
+  its own offscreen smoldot). Two pine instances exist in that
+  case, which is fine: they're cheap to run and isolation is good
+  cypherpunk discipline.
 
-**Pine init flow (webapp + extension):**
+**Pine init flow (webapp):**
 
 ```
 on app start
-  ├─ load pine WASM (deferred — first paint should not wait)
-  ├─ start chainHead_v1_follow against `paseo-asset-hub`
-  ├─ subscribe LogIndexer to Revive::ContractEmitted on alpha-5 addresses
-  ├─ once first finalized block + LogIndexer ready → flip provider preference
-  └─ keep an HTTP fallback ref for the gaps above
+  ├─ render Explorer skeleton (no chain reads yet)
+  ├─ start pine in a Web Worker (smoldot WASM, ~600 KB, fetched separately)
+  ├─ chainHead_v1_follow against `paseo-asset-hub`
+  ├─ LogIndexer subscribes to Revive::ContractEmitted on alpha-5 addresses
+  ├─ once first finalized block + LogIndexer ready → flip to "connected"
+  └─ if window.datum is present → register as a secondary signer/provider
 ```
 
 **Pine init flow (extension):**
 
-- Service-worker context has no `wasm-eval` by default. Two options:
-  - Option A: load pine inside the offscreen document (already exists
-    for ZK proving). Offscreen owns smoldot. Service worker forwards
-    JSON-RPC calls via `chrome.runtime.sendMessage`.
-  - Option B: HTTP fallback only for the extension; pine for webapp
-    + relay-bot.
-  - Recommendation: **Option A.** The offscreen document is already a
-    persistent runtime context we control; one more job (smoldot
-    bridge) fits cleanly next to the existing Poseidon + Groth16 work.
+- Service-worker context has no `wasm-eval` by default. **Pine
+  lives in the offscreen document** (same context that already
+  hosts Poseidon + Groth16). Background service worker forwards
+  JSON-RPC calls via `chrome.runtime.sendMessage`. The offscreen
+  document also owns the keystore-unlock state machine — see §3.4.
+- Cold first-install: the popup shows a "Syncing chain — pine
+  fetching peers…" state. Earnings / impressions written *after*
+  install start showing as soon as pine indexes them. Earnings
+  *before* install are not visible (acceptable per "no HTTP, ever"
+  decision). A subtle "history begins at block N" footnote in the
+  popup makes the cutover explicit.
 
 **Telemetry-window contract.** All dashboards declare their window
 size upfront (`{ blocks: 14_400 }` ≈ 24 h on Paseo). The dashboard
 hook reads `eth_getLogs(fromBlock = max(currentBlock - window,
-pine.connectedAtBlock))` so the UI never asks pine for logs it can't
-serve. When the available window is shorter than the requested
-window, the dashboard shows a "Pine seeded N min ago — partial
-window" banner.
+pine.connectedAtBlock))` so the UI never asks pine for logs it
+can't serve. When the available window is shorter than the
+requested window, the dashboard shows a "Pine connected N min ago
+— partial window" banner. There is no HTTP fall-through.
 
 **Pine missing pieces to flag (issues, not blockers):**
 
-- `contractAddress` always null on receipts → deploy flows that
-  parse contract address from the receipt (mostly extension token
-  withdraw approvals, not core protocol) need to fall back to
-  `getCreateAddress(sender, nonce)`.
+- `contractAddress` always null on receipts → flows that parse
+  the contract address from a receipt must fall back to
+  `getCreateAddress(sender, nonce)`. (Used internally by the
+  extension when it deploys a token approval proxy, if ever.)
 - `logsBloom` always zero → don't filter on bloom in client code
   (we don't today).
 - Heuristic `Revive::ContractEmitted` pallet-index discovery → for
-  the dashboards' first few blocks, log results may be sparse. Show
-  a `Warming up...` chip until LogIndexer has confirmed the pallet
-  index and indexed ≥ 1 finalized block.
+  the dashboards' first few blocks, log results may be sparse.
+  Show a `Warming up…` chip until LogIndexer has confirmed the
+  pallet index and indexed ≥ 1 finalized block.
+- Receipt waits only work for txs submitted through *this* pine
+  instance. The extension's pine and the webapp's pine each have
+  their own TxPool. A tx the extension signed shows its receipt
+  in the extension's pine immediately; the webapp learns about
+  it via finalized log subscription (≤ 12 s extra).
 
 ---
 
@@ -121,7 +144,8 @@ window" banner.
 - 50+ pages across `pages/{advertiser,publisher,governance,admin,me,token,explorer,settings}`.
 - Wallet context + Settings context.
 - Provider plumbing today: extension daemon bridge + plain wallet
-  provider. **No pine integration.**
+  provider. **No pine integration.** Both go away in r2 — see
+  §2.4 for the new shape.
 - Addresses load from `web/src/lib/networks.ts` (still alpha-4
   addresses likely — confirm + cut over to alpha-5 addresses).
 - Per-role dashboards exist (Advertiser, Publisher, Governance) but
@@ -220,18 +244,61 @@ Page tree, reorganized by audience. (Slugs = router paths.)
 
 `*` = each marked page has the dashboard template defined in §6.
 
-### 2.4 Pine integration points
+### 2.4 Provider + wallet integration
 
-- `web/src/lib/provider.ts` (new): dual-rail Pine + HTTP.
+The webapp does *not* ship its own wallet. Signing and account
+management belong to the extension. The webapp's role is:
+
+- Render read-only pages (Explorer, public dashboards) for visitors
+  with no extension installed. Pine is the only chain access path.
+- When the extension is detected (`window.datum` injected on page
+  load by the extension's content script), bind it as the signer
+  and as a secondary read provider. Reads can come from either the
+  webapp's own pine or the extension's pine — they're equivalent.
+
+Files:
+
+- `web/src/lib/provider.ts` (new): wraps a single pine instance.
+  No HTTP rail. Throws cleanly if pine fails to connect after a
+  warm-up timeout (60 s).
+- `web/src/lib/walletConnector.ts` (new): detects `window.datum`,
+  exposes `connect()` / `getAccounts()` / `signAndSend()`. Uses the
+  same EIP-1193 message shape the extension serves. Falls through
+  to a "Install the DATUM extension" CTA when absent.
 - `web/src/hooks/useLogs.ts` (new): window-aware log fetcher with
   Pine warm-up handling.
-- `web/src/hooks/useContractRead.ts` (refactor): default to Pine.
-- `web/src/hooks/useBlockNumber.ts` (new): polls Pine's
-  `eth_blockNumber` from chainHead subscription. Every dashboard
-  pivots time displays on this hook.
+- `web/src/hooks/useContractRead.ts` (refactor): default to pine.
+- `web/src/hooks/useContractWrite.ts` (new): always routes through
+  `walletConnector.signAndSend()`. Pages that need signing
+  short-circuit with a "Install DATUM to use this page" panel when
+  no extension is bound.
+- `web/src/hooks/useBlockNumber.ts` (new): polls pine's
+  `eth_blockNumber` from chainHead subscription.
 - `web/src/components/PineStatus.tsx` (new): chip in the layout
-  footer showing Pine connection state + indexed-blocks-since
+  footer showing pine connection state + indexed-blocks-since
   connect.
+- `web/src/components/WalletStatus.tsx` (new): chip showing
+  connected extension account + chain.
+- **Removed:** `web/src/lib/extensionDaemon.ts`,
+  `web/src/lib/walletProvider.ts`, and any reliance on injected
+  `window.ethereum` from MetaMask-style wallets. The DATUM
+  extension's provider lives at `window.datum` so it never
+  collides with other wallets the user has installed.
+
+### Read-only fallback (no extension)
+
+Pages that don't require signing work without the extension. Pages
+that do (any `/advertiser/*`, `/publisher/*`, `/governance/vote`,
+`/me/*` writes) render a `<NeedsExtension>` panel instead of the
+form:
+
+```
+You need the DATUM extension to take this action.
+[ Install extension ]   [ Browse as visitor ]
+```
+
+The extension install link points at the unpacked-extension dev
+flow on testnet; the Chrome Web Store listing follows post-mainnet.
 
 ### 2.5 Dashboard surface (per the 7 starred pages)
 
@@ -275,6 +342,12 @@ user (own first, then optional admin view).
 
 ## 3. Extension (`alpha-5/extension/`)
 
+The extension is **the wallet**. It holds the user's keys, signs
+every tx, and exposes an EIP-1193 provider at `window.datum` for
+the webapp and SDK to talk to. It does *not* rely on any injected
+wallet (MetaMask, etc.) and does *not* rely on the existing webapp
+daemon bridge. It is its own self-contained client.
+
 ### 3.1 Current state
 
 - Service worker + content scripts + offscreen + popup (Manifest V3).
@@ -287,13 +360,18 @@ user (own first, then optional admin view).
   SDK, meta extractors, taxonomy.
 - Popup: Filters tab + claim queue + brand mark.
 - Test suite: 203 tests passing per memory.
+- **No keystore.** Today's extension presupposes an injected wallet
+  for any signing operation. The webapp daemon bridge fills the gap
+  on the webapp side. Both go away.
 
 ### 3.2 Gaps for alpha-5 E2E
 
 | Surface | Gap |
 |---------|-----|
-| Address sync | Extension `deployed-addresses.json` updated (already done by deploy.ts), but `shared/contracts.ts` needs the alpha-5 entries (relayStake, dualSig, activationBonds, peopleChainIdentity, mintCoordinator, etc.) |
-| Pine | No light-client; uses extension daemon + window provider |
+| Wallet | No keystore at all — needs full BIP-39 HD wallet, password unlock, multi-account, send-to-external |
+| EIP-1193 provider | Extension doesn't expose a provider — needs `window.datum` injection + JSON-RPC bridge |
+| Pine | No light-client — needs offscreen-hosted smoldot, no HTTP fallback |
+| Address sync | `shared/contracts.ts` needs the alpha-5 entries (relayStake, dualSig, activationBonds, peopleChainIdentity, mintCoordinator, etc.) |
 | Dual-sig | Claim builder always uses publisher-relay path; needs branch on `requireZkProof` + advertiser-cosig campaigns |
 | User-min-assurance | Popup has filters but no L0/L1/L2/L3 selector |
 | Identity attestation | Offscreen generates impression-claim ZK proofs; needs a second flow for identity proofs against IdentityVerifier |
@@ -309,7 +387,7 @@ src/
     behaviorChain.ts                 (existing)
     behaviorCommit.ts                (existing)
     campaignMatcher.ts               (existing)
-    campaignPoller.ts                (existing — re-target alpha-5 reads)
+    campaignPoller.ts                (existing — re-target alpha-5 reads via pineBridge)
     claimBuilder.ts                  (existing — branch on assurance level)
     claimQueue.ts                    (existing)
     earningsListener.ts              (existing — wire Settlement event ABI)
@@ -325,51 +403,206 @@ src/
     zkProofStub.ts                   (existing)
     identityProof.ts                 (NEW — identity circuit witness)
     pineBridge.ts                    (NEW — RPC over chrome.runtime → offscreen)
-    recoveryAddress.ts               (NEW — G-8 staging UI hooks)
-    selfPause.ts                     (NEW — CB1 self-pause hooks)
+    recoveryAddress.ts               (NEW — G-8 staging helpers)
+    selfPause.ts                     (NEW — CB1 self-pause helpers)
+    wallet/                          (NEW — self-contained wallet, §3.4)
+      keystore.ts                    — AES-GCM encrypted vault format
+      mnemonic.ts                    — BIP-39 generation + validation
+      derivation.ts                  — BIP-32 secp256k1 derivation
+      accounts.ts                    — multi-account state, active selection
+      signing.ts                     — sign EIP-1559 tx, EIP-712 typed data, raw messages
+      unlock.ts                      — password unlock + idle timeout + auto-lock
+      send.ts                        — high-level send-token + send-DOT helpers
+      provider.ts                    — EIP-1193 provider implementation
+      transport.ts                   — chrome.runtime / postMessage RPC transport
+      ratelimit.ts                   — per-origin signing rate limit
 
   offscreen/
     offscreen.ts                     (existing)
-    smoldot.ts                       (NEW — pine worker; subscribes to alpha-5 events)
+    smoldot.ts                       (NEW — pine WASM worker; subscribes to alpha-5 events)
+
+  content/
+    walletInjector.ts                (NEW — runs in MAIN world, injects window.datum)
+    walletBridge.ts                  (NEW — relays postMessage ↔ chrome.runtime)
+    adSlot.ts                        (existing)
+    engagement.ts                    (existing)
+    handshake.ts                     (existing — wallet handshake separate path)
+    index.ts                         (existing)
+    metaExtractors.ts                (existing)
+    provider.ts                      (existing — keep for SDK handshake; rename if conflicts)
+    sdkDetector.ts                   (existing)
+    taxonomy.ts                      (existing)
 
   popup/
-    App.tsx                          (existing)
+    App.tsx                          (existing — routes by wallet state: locked / no-wallet / unlocked)
     BrandMark.tsx                    (existing)
+    UnlockScreen.tsx                 (NEW — password entry)
+    OnboardingScreen.tsx             (NEW — first-run; generate or import wallet)
+    GenerateMnemonic.tsx             (NEW — generate + confirm 12/24-word phrase)
+    ImportWallet.tsx                 (NEW — import mnemonic or raw private key)
+    AccountsTab.tsx                  (NEW — list, switch, derive, label)
+    SendTab.tsx                      (NEW — send DOT + ERC-20 sidecars to external addr)
+    ReceiveTab.tsx                   (NEW — show address + QR + copy)
+    SettingsTab.tsx                  (NEW — change password, idle timeout, lock now, export, reset)
+    EarningsTab.tsx                  (NEW — protocol earnings & history)
+    AssuranceTab.tsx                 (NEW — userMinAssurance picker, self-pause toggle)
+    IdentityTab.tsx                  (NEW — identity proof status + refresh)
+    RecoveryTab.tsx                  (NEW — G-8 staging)
     ClaimQueue.tsx                   (existing)
     FiltersTab.tsx                   (existing)
-    EarningsTab.tsx                  (NEW)
-    AssuranceTab.tsx                 (NEW — userMinAssurance picker)
-    IdentityTab.tsx                  (NEW — proof status + refresh)
-    RecoveryTab.tsx                  (NEW — G-8 staging)
 ```
 
-### 3.4 Pine integration
+### 3.4 Self-contained wallet
 
-- `background/pineBridge.ts` defines a single `pineRpc(method, params)`
-  that posts to the offscreen document; offscreen's `smoldot.ts`
-  owns the WASM client and is the only place pine lives.
-- All chain reads (campaign poller, earnings listener, allowlist
-  check, blocklist check) route through `pineRpc`. Existing wallet
-  provider stays for writes; pine sends raw txs but signing remains
-  with the user's injected wallet.
-- Bundle impact: ~600 KB compressed for smoldot WASM. Lazy-load
-  on first user interaction with the popup; the impression path
-  doesn't need pine immediately (claims are local-queue first,
-  flushed via relay).
+#### 3.4.1 Cryptography
 
-### 3.5 Dashboard surface
+- **Mnemonic:** BIP-39, 12-word default with 24-word option at
+  generate time. Entropy from `crypto.getRandomValues`.
+- **Seed:** PBKDF2(mnemonic, "mnemonic" + passphrase, 2048) per
+  BIP-39. Passphrase (optional 25th word) supported on import +
+  generate.
+- **Derivation:** BIP-32 / BIP-44 on secp256k1, path
+  `m/44'/60'/0'/0/N` (Ethereum-compatible — matches what
+  Polkadot Hub's pallet-revive expects).
+- **At-rest vault:** AES-GCM-256, key derived from user password
+  via Argon2id (interactive params: 64 MB / 3 iters / 1 thread on
+  desktop; tunable). Salt + nonce per vault. Vault holds the
+  encrypted seed + account metadata; never holds raw keys outside
+  the unlock window.
+- **In-memory key handling:** raw private keys live in the
+  offscreen document while unlocked, derived on demand from the
+  in-memory seed. Service worker never holds raw keys.
 
-The extension popup has limited real estate; "dashboard" here means
-the **EarningsTab** as the catch-all overview:
+#### 3.4.2 Unlock + lock UX
 
-- Lifetime DOT credit, lifetime DATUM credit, lifetime token
+- First-run: user picks "Generate new wallet" or "Import existing".
+  Generate flow shows the 12-word phrase, requires confirmation
+  before proceeding, then asks the user to set a password.
+- Subsequent sessions: popup opens to `UnlockScreen` if locked.
+  Password unlocks the vault in the offscreen document.
+- Auto-lock: configurable idle timeout (default 30 min). Browser
+  close also locks. "Lock now" button in SettingsTab.
+- "Forgot password" path: only recoverable via mnemonic re-import.
+  The vault is destroyed; user supplies the phrase again.
+
+#### 3.4.3 Accounts + addresses
+
+- Multi-account from one seed. Default: 1 account on first install.
+- "Add account" derives the next path index (`m/44'/60'/0'/0/N+1`).
+- Labels are stored encrypted in the vault.
+- "Import additional key" (raw 0x… private key) — stored alongside
+  HD accounts in the vault, flagged as `source: "imported"` so the
+  UI can warn the user that this key isn't in their mnemonic backup.
+- Switching active account is a single click in AccountsTab and
+  emits an `accountsChanged` event on the EIP-1193 provider.
+
+#### 3.4.4 Send to external address
+
+`SendTab.tsx` supports:
+
+- **Native DOT (PAS on testnet):** standard EIP-1559 tx.
+- **ERC-20 tokens:** any token where the wallet has a non-zero
+  balance, surfaced from the user's interaction history. Users can
+  also paste an arbitrary token contract address to send tokens not
+  yet auto-discovered.
+- **Asset Hub native sidecars** (USDT, USDC) via the precompile
+  addresses in `assetRegistry.ts` — same `transfer(to, amount)`
+  shape since they're behind ERC-20 precompiles.
+
+The send flow:
+
+1. User picks token, recipient address, amount.
+2. Wallet runs `eth_estimateGas` (via pine) and shows fee.
+3. Wallet prompts for confirmation; PoW-style anti-misclick delay
+   (1 s minimum) on first-time recipients.
+4. User confirms; wallet signs EIP-1559 tx with the active account's
+   private key (derived in the offscreen document from the unlocked
+   seed), broadcasts via pine's `eth_sendRawTransaction`.
+5. Popup shows the receipt as soon as pine's TxPool sees it
+   (Paseo null-receipt bug doesn't apply because pine has the tx).
+
+#### 3.4.5 EIP-1193 provider
+
+The extension exposes `window.datum` (not `window.ethereum`,
+avoiding collision with MetaMask). Implements the minimum useful
+subset:
+
+- `datum_requestAccounts` (with permission prompt)
+- `eth_accounts`
+- `eth_chainId`
+- `eth_sendTransaction` (asks user to confirm in popup)
+- `eth_signTypedData_v4` (for EIP-712 — settlement cosigs, etc.)
+- `personal_sign`
+- `wallet_switchEthereumChain` / `wallet_addEthereumChain`
+  (return chain-not-supported gracefully on testnet; alpha-5 is
+  Paseo-only)
+- `eth_getBalance` / `eth_call` / `eth_getLogs` / etc. — read RPC
+  passed through to pine
+
+Plumbing:
+
+```
+webapp dApp page
+  │  window.datum.request({ method, params })
+  ▼
+content/walletInjector.ts        (MAIN world)
+  │  window.postMessage to ISOLATED world
+  ▼
+content/walletBridge.ts          (ISOLATED world)
+  │  chrome.runtime.sendMessage
+  ▼
+background/wallet/transport.ts   (service worker)
+  │
+  ├─ if read RPC          → background/pineBridge.ts → offscreen pine
+  └─ if signing required  → background/wallet/signing.ts (needs unlocked vault)
+       │
+       └─ unlocked? sign + send; locked? open popup, return after unlock
+```
+
+Origin permissioning: a per-origin allowlist in the vault. First
+time a site calls `datum_requestAccounts`, the popup pops up with a
+"Allow datum.example to see your accounts?" prompt. Allowed origins
+are remembered until revoked from SettingsTab.
+
+#### 3.4.6 Pine integration
+
+- `background/pineBridge.ts` defines `pineRpc(method, params)` that
+  forwards to the offscreen document; offscreen's `smoldot.ts` owns
+  the WASM client and is the only place pine lives.
+- **All chain reads route through pineRpc. No HTTP fallback.**
+- Cold install: popup boots into Onboarding (no pine needed yet);
+  once the user has a wallet + password, the EarningsTab is shown
+  with a "Syncing chain — N peers, M blocks finalized" indicator
+  until pine warms up.
+- Smoldot lifetime: the offscreen document persists across popup
+  open/close so pine keeps syncing in the background. Browser
+  restart cold-starts pine again (acceptable; ~30 s warm-up).
+- Bundle impact: ~600 KB smoldot WASM + chainspec, fetched once
+  on first install and cached in `chrome.storage.local`.
+
+### 3.5 Dashboard surface (popup)
+
+The popup is a multi-tab UI; the "dashboard" equivalent is
+**EarningsTab**, with the wallet-y tabs (Accounts, Send, Receive,
+Settings) as siblings. Top-bar:
+
+- Active account avatar + truncated address (click → AccountsTab)
+- Balance summary (DOT + DATUM headline)
+- Lock button + connection chip (Pine syncing / Pine ready)
+
+EarningsTab content:
+
+- Lifetime DOT credit, lifetime DATUM credit, lifetime ERC-20
   sidecars credit
 - Today (24 h) settled
-- Pending withdraw (Pull queue)
+- Pending withdraw (PaymentVault pull queue + TokenRewardVault per
+  token)
 - Recent settlements (last 10) — campaign, amount, time
 - Next claim flush ETA (queue depth + relay cadence)
-- AssuranceLevel selector (Always allow L0 … L3 ZK-only)
+- AssuranceLevel selector (L0 / L1 publisher-signed / L2 dual-sig /
+  L3 ZK-only)
 - Self-pause toggle (CB1 — opt-out without uninstalling)
+- "Stage recovery address" button (G-8) — opens RecoveryTab
 
 ---
 
@@ -471,7 +704,7 @@ in **`/publisher` dashboard** (see §2.5) and pulls from:
 | Click batching | Bulletin renewer is the only batching path; no DatumClickRegistry batcher |
 | StakeRootV2 reporter | Diana posts roots to StakeRootV2 in shadow mode; need a reliable cron + retry policy |
 | People Chain bridge | Diana acts as identity oracle reporter (current testnet posture); needs hardening of the request → XCM → callback loop |
-| Pine | Currently uses ethers + Paseo HTTP RPC; should be pine-first for reads |
+| Pine | Currently uses ethers + Paseo HTTP RPC; must move to pine-only (no HTTP) for reads + writes |
 
 ### 5.3 Target structure (checked into repo)
 
@@ -485,7 +718,7 @@ relay-bot/
   src/
     index.mjs                        (boot, signal handling)
     config.mjs                       (env + alpha-5 addresses load)
-    provider.mjs                     (pine + HTTP dual-rail)
+    provider.mjs                     (pine-only — no HTTP)
     poll/
       campaigns.mjs                  (campaign list, status, metadata)
       claims.mjs                     (incoming claims from publisher SDK)
@@ -516,14 +749,17 @@ gitignored.
 
 ### 5.4 Pine integration
 
-- `provider.mjs` exposes `getProvider({ preferPine: true })` same
-  shape as webapp.
+- `provider.mjs` exposes `getProvider()` backed by pine only.
+  Same single-rail shape as the webapp.
 - Pine in Node ships via `pine/dist` consumed as a normal package.
   Smoldot WASM is loaded once at startup; the relay process is
   long-lived so the 600 KB warm-up cost is amortized.
 - Receipt waits route through pine's session TxPool (this is the
   big win — the Paseo eth-rpc null-receipt bug is the #1 source
-  of relay-bot retries today).
+  of relay-bot retries today, and pine fixes it).
+- On boot, relay refuses to submit any tx until pine has reached
+  `peers ≥ 2 && finalizedHead != 0` to avoid sending into a
+  half-synced view. Status emitted via the `/health` endpoint.
 
 ### 5.5 Dashboard surface
 
@@ -636,8 +872,9 @@ the indexer:
 - Hooks declare interest at mount, unsubscribe on unmount.
 - New blocks tick once and refresh every active subscription via
   `pine.getLogs(prevHigh+1, newBlock)`.
-- Backpressure: if pine is warming up, fall back to HTTP RPC for a
-  one-shot fill, then resume pine.
+- Backpressure: if pine is warming up, hooks return a `loading`
+  state until pine reaches the requested `fromBlock`. No HTTP
+  fall-through.
 
 This pattern is required because Pine's `getLogs` is in-memory but
 not free — one call per dashboard per block ≈ 1.5 s of WASM work
@@ -649,47 +886,72 @@ total.
 ## 8. Rollout sequence
 
 Order matters because each layer assumes the one before it is in
-place.
+place. The wallet is now first — every other client surface depends
+on it (extension owns signing; webapp talks to extension; pine
+config + chainspec are loaded once by the extension and re-used).
 
-### Stage 1 — Foundation
+### Stage 1 — Extension foundation (wallet + pine)
 
-1. `web/src/lib/provider.ts` (Pine + HTTP dual-rail).
-2. `web/src/lib/eventBus.ts` (multicasted log subscriptions).
-3. `web/src/lib/networks.ts` (re-grounded on alpha-5 addresses).
-4. Shared dashboard template (`Dashboard.tsx` + hooks).
+1. Extension `offscreen/smoldot.ts` — pine WASM, chainspec, peer
+   bootstrap, event subscriptions on alpha-5 addresses.
+2. Extension `background/pineBridge.ts` — single RPC entry point.
+3. Extension `background/wallet/{keystore,mnemonic,derivation,accounts,unlock,signing}.ts`
+   — encrypted vault, BIP-39/BIP-32, multi-account, sign tx + EIP-712.
+4. Extension popup `OnboardingScreen`, `UnlockScreen`,
+   `GenerateMnemonic`, `ImportWallet` — first-run flows.
+5. Extension popup `AccountsTab`, `SendTab`, `ReceiveTab`,
+   `SettingsTab` — wallet UI.
 
-### Stage 2 — User + Publisher surfaces
+### Stage 2 — Extension as EIP-1193 provider
 
-5. `/me` dashboard.
-6. `/publisher` dashboard.
-7. Extension popup `EarningsTab` + `AssuranceTab` + `RecoveryTab`.
-8. Extension `pineBridge` + offscreen `smoldot.ts`.
+6. Extension `background/wallet/provider.ts` + `transport.ts` —
+   provider implementation, per-origin permission prompt.
+7. Extension `content/walletInjector.ts` + `walletBridge.ts` —
+   inject `window.datum`, postMessage relay to background.
+8. Webapp `lib/walletConnector.ts` — detect `window.datum`,
+   `connect()` / `signAndSend()` API.
+9. Webapp `<NeedsExtension>` panel + read-only fallback.
 
-### Stage 3 — Advertiser + Governance
+### Stage 3 — Webapp foundation
 
-9. `/advertiser` dashboard + ActivationBonds create-bond flow.
-10. `/governance` dashboard + new sub-pages (activation-bonds,
+10. Webapp `lib/provider.ts` — pine-only.
+11. Webapp `lib/eventBus.ts` — multicasted log subscriptions.
+12. Webapp `lib/networks.ts` — re-ground on alpha-5 addresses.
+13. Shared dashboard template (`Dashboard.tsx` + hooks).
+
+### Stage 4 — User + Publisher surfaces
+
+14. `/me` dashboard.
+15. `/publisher` dashboard.
+16. Extension popup `EarningsTab`, `AssuranceTab`, `RecoveryTab`.
+
+### Stage 5 — Advertiser + Governance
+
+17. `/advertiser` dashboard + ActivationBonds create-bond flow.
+18. `/governance` dashboard + new sub-pages (activation-bonds,
     advertiser-fraud).
-11. SDK Bulletin creative loader + click reporter.
+19. SDK Bulletin creative loader + click reporter.
 
-### Stage 4 — Protocol + Token + Identity
+### Stage 6 — Protocol + Token + Identity
 
-12. `/protocol` dashboard + sub-pages (tag curator + upgrades).
-13. `/token` dashboard + mint-coordinator log.
-14. `/identity` dashboard + extension `IdentityTab`.
+20. `/protocol` dashboard + sub-pages (tag curator + upgrades).
+21. `/token` dashboard + mint-coordinator log.
+22. `/identity` dashboard + extension `IdentityTab`.
 
-### Stage 5 — Relay-bot
+### Stage 7 — Relay-bot
 
-15. Relay-bot README + skeleton (`relay-bot.example/`).
-16. Relay-bot pine wiring.
-17. Relay-bot `/metrics` HTTP endpoint.
-18. StakeRootV2 reporter cron + clickRegistry batcher.
+23. Relay-bot README + skeleton (`relay-bot.example/`).
+24. Relay-bot pine wiring (no HTTP).
+25. Relay-bot `/metrics` HTTP endpoint.
+26. StakeRootV2 reporter cron + clickRegistry batcher.
 
-### Stage 6 — Polish
+### Stage 8 — Polish
 
-19. Pine status chip across all surfaces.
-20. Warm-up banners + partial-window indicators.
-21. Per-dashboard recent-action shortcuts.
+27. Pine status chip across all surfaces.
+28. Warm-up banners + partial-window indicators.
+29. Per-dashboard recent-action shortcuts.
+30. Wallet polish: account avatars (blockies), QR codes on Receive,
+    transaction history view.
 
 ---
 
@@ -697,31 +959,69 @@ place.
 
 These need answers before / during implementation:
 
-1. **Pine bundle hosting.** Webapp ships pine via Vite; do we
-   inline the WASM blob (~600 KB) or ship as a separate fetch?
-   Inline is simpler but worsens TTI. Recommendation: separate
-   fetch + service-worker cache for repeat visits.
-2. **Extension log-window seed.** When the extension first
-   installs, pine has zero history. Should the extension prime
-   its log window from a public HTTP RPC backfill (one-shot 24 h
-   window pull), then switch to pine? Recommendation: yes —
-   ~3 MB of logs, one-time.
-3. **Relay-bot multi-publisher.** The mainnet design (per backlog
+1. **Smoldot chainspec source.** The chainspec for `paseo-asset-hub`
+   needs to ship with the extension + webapp. Pine already vendors
+   one in `pine/src/chainspecs/`; we'll consume it directly. Open:
+   how often does the spec need to be refreshed (Paseo runtime
+   upgrades), and what's the update channel (extension auto-update
+   for Chrome Web Store, manual for unpacked)? Recommendation:
+   pin a known-good spec per release and rev with each protocol
+   upgrade.
+2. **History cutoff UX.** "No HTTP, ever" means earnings before
+   install are invisible. Popup must be explicit: "History begins
+   at block N (installed 2026-05-21)". Open: do we *also* offer a
+   "scan from genesis" power-user button that lets pine sync
+   backward? Pine doesn't support backward fills today; we'd need
+   to add it (out of scope for first cut). Recommendation: ship
+   without backward sync; add later if user demand justifies.
+3. **Vault password reset.** No recovery path other than the
+   mnemonic. If a user forgets both, funds are lost. Open: do we
+   offer a "destroy vault + re-import mnemonic" UI explicitly, or
+   require the user to uninstall + reinstall the extension?
+   Recommendation: explicit "Reset wallet" button in SettingsTab,
+   gated behind a "Type RESET to confirm" prompt. Same outcome as
+   uninstall, lower friction.
+4. **EIP-1193 namespace.** `window.datum` avoids MetaMask
+   collision but means existing dApps don't auto-discover us.
+   Open: do we also implement EIP-6963 (multi-injected-provider
+   discovery) so the webapp's wallet picker can list both DATUM
+   and other wallets, even though we only support DATUM ourselves?
+   Recommendation: yes — EIP-6963 announce-event, even though our
+   provider is the only one our webapp actually supports. Future-
+   proofs the interface.
+5. **Send-tab token discovery.** Auto-discover ERC-20 holdings via
+   pine event logs (Transfer events to this address). Open: do we
+   subscribe to *all* Transfer logs and filter (expensive), or
+   maintain a curated allowlist of tokens (DATUM, USDT, USDC, etc.)
+   plus user-pasted addresses? Recommendation: allowlist + paste,
+   no global subscription. Auto-discovery is a follow-on.
+6. **PoW + signing concurrency.** The extension already does PoW
+   solving in a worker. With the wallet in the offscreen document
+   too, we now have several long-running CPU consumers in one
+   place. Open: do we move PoW solving to a separate worker pool,
+   or keep it in offscreen with cooperative yielding?
+   Recommendation: keep in offscreen, add yield points to PoW
+   solver every N hashes so wallet unlock + signing stays
+   responsive.
+7. **Relay-bot multi-publisher.** The mainnet design (per backlog
    §1.8) is multi-publisher with HSM keys. For Paseo we stay
-   single-publisher Diana. Should the checked-in skeleton expose
-   the multi-publisher shape now (just disabled), or strictly
-   single-publisher? Recommendation: multi-publisher shape from
-   day one, with `publishers: [{ address, signerEnv }]` defaulting
-   to a single entry. Cheap to add; expensive to retrofit.
-4. **Dashboard data-freshness UX.** Block-level refresh (every ~6 s
+   single-publisher Diana. Recommendation: multi-publisher shape
+   from day one, with `publishers: [{ address, signerEnv }]`
+   defaulting to a single entry. Cheap to add; expensive to
+   retrofit.
+8. **Dashboard data-freshness UX.** Block-level refresh (every ~6 s
    on Paseo) is the right cadence for telemetry streams but feels
    chatty for hero stats. Recommendation: hero stats poll on
    block intervals but only re-render when a value changes;
    telemetry stream re-renders every block.
-5. **Mobile.** Webapp is desktop-first. The dashboard template
+9. **Mobile.** Webapp is desktop-first. The dashboard template
    assumes a wide hero-strip + side-by-side stream/actions. Mobile
-   reshuffles to vertical stack. Doable, but worth deciding the
-   responsive breakpoints up front.
+   reshuffles to vertical stack. The extension is desktop-only
+   for now (no mobile Chrome extension support yet). Open:
+   commit to a mobile-friendly webapp (read-only, since no
+   extension = no signing) or punt? Recommendation: responsive
+   read-only webapp; mobile signing waits for a future RN/PWA
+   wallet companion.
 
 ---
 
@@ -739,7 +1039,10 @@ These came up while scoping but belong in other docs:
 
 ## Appendix A — Contract → client owner matrix
 
-Which client(s) talk to each alpha-5 contract:
+Which client(s) talk to each alpha-5 contract. Note: every "R/W"
+entry on Webapp routes signing through the extension via
+`window.datum`; the webapp never holds a key. The Extension column
+is the canonical signer in every row where it appears as R/W.
 
 | Contract | Webapp | Extension | SDK | Relay |
 |----------|--------|-----------|-----|-------|
