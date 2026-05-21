@@ -329,6 +329,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
         // dominate quorum forever.
         uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
         require(maxWeight <= 1000, "E11");
+        _guardRetune("convictionCurve");
         convictionA = a;
         convictionB = b;
         emit ConvictionCurveSet(a, b);

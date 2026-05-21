@@ -222,6 +222,7 @@ contract DatumAdvertiserGovernance is
         require(a != 0 || b != 0, "E11");
         uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
         require(maxWeight <= 1000, "E11");
+        _guardRetune("convictionCurve");
         convictionA = a; convictionB = b;
         emit ConvictionCurveSet(a, b);
     }
@@ -251,6 +252,7 @@ contract DatumAdvertiserGovernance is
     ///         Bond refunded on upheld, forwarded to advertiser on dismissed.
     ///         Set to 0 to disable the Council-arbitrated track entirely.
     function setPublisherClaimBond(uint256 amount) external onlyOwner {
+        _guardRetune("publisherClaimBond");
         publisherClaimBond = amount;
         emit PublisherClaimBondSet(amount);
     }

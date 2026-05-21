@@ -241,7 +241,12 @@ contract DatumPublisherGovernance is
         slashBps = v;
         emit SlashBpsSet(v);
     }
-    function setBondBonusBps(uint256 v) external onlyOwner { require(v <= 10000, "E11"); bondBonusBps = v; emit BondBonusBpsSet(v); }
+    function setBondBonusBps(uint256 v) external onlyOwner {
+        require(v <= 10000, "E11");
+        _guardRetune("bondBonusBps");
+        bondBonusBps = v;
+        emit BondBonusBpsSet(v);
+    }
     function setMinGraceBlocks(uint256 v) external onlyOwner { minGraceBlocks = v; emit MinGraceBlocksSet(v); }
     function setProposeBond(uint256 v) external onlyOwner { proposeBond = v; emit ProposeBondSet(v); }
 
@@ -252,6 +257,7 @@ contract DatumPublisherGovernance is
         require(a != 0 || b != 0, "E11");
         uint256 maxWeight = (a * 64 + b * 8) / CONVICTION_SCALE + 1;
         require(maxWeight <= 1000, "E11");
+        _guardRetune("convictionCurve");
         convictionA = a; convictionB = b;
         emit ConvictionCurveSet(a, b);
     }

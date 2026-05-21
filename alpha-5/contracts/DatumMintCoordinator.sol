@@ -164,6 +164,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
     function setDustMintThreshold(uint256 newThreshold) external onlyOwner whenNotFrozen {
         // Same ≤ 1 DATUM cap as before.
         if (newThreshold > 1 * 10**10) revert AboveCap();
+        _guardRetune("dustMintThreshold");
         uint256 old = dustMintThreshold;
         dustMintThreshold = newThreshold;
         emit DustMintThresholdUpdated(old, newThreshold);
@@ -171,6 +172,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
 
     function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwner whenNotFrozen {
         if (uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) != 10000) revert E11();
+        _guardRetune("datumRewardSplit");
         datumRewardUserBps = userBps;
         datumRewardPublisherBps = publisherBps;
         datumRewardAdvertiserBps = advertiserBps;
