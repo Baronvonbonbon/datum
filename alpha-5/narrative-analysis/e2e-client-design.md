@@ -1210,6 +1210,22 @@ audit items above (inline-color audit, mobile spot-check) are
 the deliverables that produce the punch lists; everything else
 is downstream of them.
 
+### 10.4 Webapp test infrastructure
+
+The webapp has no test runner today. The extension is well-covered
+(Jest + jest-environment-jsdom, 368+ tests), but webapp library
+modules (walletConnector, useWallet, future provider/eventBus
+hooks) currently ship without unit tests.
+
+Plan: add Vitest + @testing-library/react during Stage 3 (Webapp
+foundation) before the dashboard template lands. Test infra is a
+prerequisite for the shared dashboard hooks since they encode the
+pine ↔ RPC fallback policy from §1 and need regression coverage.
+Until then, walletConnector logic is exercised indirectly via the
+extension-side `walletBroadcast.test.ts` (broadcast filter
+correctness) and `walletInjector.test.ts` (the provider surface the
+connector consumes).
+
 ---
 
 ## 11. Out-of-scope items (tracked elsewhere)

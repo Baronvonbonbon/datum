@@ -41,6 +41,16 @@ import type { MnemonicStrength } from "./mnemonic";
 import { walletRpc } from "./transport";
 import { clearAllPermissions } from "./permissions";
 import { denyAll as denyAllPending } from "./permissionQueue";
+import {
+  broadcastAccountsChanged,
+  broadcastConnect,
+  broadcastDisconnect,
+} from "./providerEvents";
+
+/// Paseo Hub EIP-155 chain id, hex-encoded — matches what the
+/// provider handler returns for eth_chainId. Connect/chainChanged
+/// payloads use this.
+const PASEO_CHAIN_ID_HEX = "0x190f1b41";
 
 // ─── Cached state (background process) ─────────────────────────────────
 
@@ -186,11 +196,18 @@ export async function unlock(args: { password: string }): Promise<WalletStatus> 
     activeAddress: result.activeAddress,
   });
   renewIdleTimer();
+  // EIP-1193 broadcasts: connect first (so dApps update chain
+  // state), then accountsChanged so they pick up the active address.
+  // Fire-and-forget so unlock returns to the popup promptly; the
+  // broadcasts are non-essential for the popup's own UI.
+  void broadcastConnect(PASEO_CHAIN_ID_HEX);
+  void broadcastAccountsChanged(result.activeAddress ? [result.activeAddress] : []);
   return getStatus();
 }
 
 export async function lock(): Promise<WalletStatus> {
-  if (_cache.unlocked) {
+  const wasUnlocked = _cache.unlocked;
+  if (wasUnlocked) {
     await walletRpc<{ locked: true }>({ type: "WALLET_LOCK" });
   }
   clearIdleTimer();
@@ -203,6 +220,13 @@ export async function lock(): Promise<WalletStatus> {
     activeIndex: 0,
     activeAddress: "",
   });
+  // Lock → EIP-1193 disconnect + accountsChanged(empty). Only fire
+  // when we were actually unlocked; double-locking shouldn't spam
+  // event listeners.
+  if (wasUnlocked) {
+    void broadcastAccountsChanged([]);
+    void broadcastDisconnect("DATUM wallet locked");
+  }
   return getStatus();
 }
 
@@ -303,6 +327,8 @@ export async function setActiveAccount(index: number): Promise<WalletStatus> {
   await updateVaultMetadata({ activeIndex: index });
   syncCache({ activeIndex: index, activeAddress: r.activeAddress });
   touchActivity();
+  // dApps in permitted tabs see the account switch.
+  void broadcastAccountsChanged(r.activeAddress ? [r.activeAddress] : []);
   return getStatus();
 }
 
