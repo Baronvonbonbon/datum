@@ -90,7 +90,65 @@ export type BackgroundToOffscreen =
       // finalized head). Background re-broadcasts these to interested
       // popup/UI listeners.
       type: "PINE_STATUS_SUBSCRIBE";
-    };
+    }
+  // ── Wallet ops ────────────────────────────────────────────────────
+  // All wallet messages route to the offscreen-hosted wallet host
+  // (`offscreen/wallet.ts`). The popup calls them via background's
+  // unlock/signing modules, which forward here. Replies follow the
+  // matching WALLET_*_RESULT shape on OffscreenToBackground.
+  | {
+      type: "WALLET_CREATE";
+      requestId: string;
+      password: string;
+      strength?: 128 | 256;
+      bip39Passphrase?: string;
+    }
+  | {
+      type: "WALLET_IMPORT";
+      requestId: string;
+      password: string;
+      phrase: string;
+      bip39Passphrase?: string;
+    }
+  | {
+      type: "WALLET_UNLOCK";
+      requestId: string;
+      // Background reads the persisted vault and forwards it here; the
+      // offscreen host doesn't touch chrome.storage directly so testing
+      // stays self-contained.
+      vault: import("../background/wallet/keystore").Vault;
+      password: string;
+    }
+  | { type: "WALLET_LOCK"; requestId: string }
+  | { type: "WALLET_IS_UNLOCKED"; requestId: string }
+  | { type: "WALLET_ADD_HD_ACCOUNT"; requestId: string; label?: string }
+  | {
+      type: "WALLET_ADD_IMPORTED";
+      requestId: string;
+      privateKey: string;
+      label?: string;
+    }
+  | { type: "WALLET_SET_ACTIVE"; requestId: string; index: number }
+  | {
+      type: "WALLET_REENCRYPT";
+      requestId: string;
+      password: string;
+    }
+  | {
+      type: "WALLET_SIGN_TRANSACTION";
+      requestId: string;
+      // ethers' TransactionRequest is intentionally untyped here so the
+      // message channel stays JSON-friendly (BigInts must be stringified).
+      tx: Record<string, unknown>;
+    }
+  | {
+      type: "WALLET_SIGN_TYPED_DATA";
+      requestId: string;
+      domain: Record<string, unknown>;
+      types: Record<string, unknown>;
+      value: Record<string, unknown>;
+    }
+  | { type: "WALLET_PERSONAL_SIGN"; requestId: string; message: string };
 
 // Messages sent FROM offscreen document TO background
 export type OffscreenToBackground =
@@ -109,6 +167,19 @@ export type OffscreenToBackground =
   | {
       type: "PINE_STATUS";
       status: PineStatus;
+    }
+  // ── Wallet replies ───────────────────────────────────────────────
+  // Single-shape envelope: { type, requestId, ok, error?, ...payload }.
+  // The popup correlates by requestId; background's wallet orchestrator
+  // unwraps and returns Promise<payload> to its callers.
+  | {
+      type: "WALLET_RESULT";
+      requestId: string;
+      ok: boolean;
+      error?: string;
+      /// Free-form payload, shape depends on the originating WALLET_* op.
+      /// See offscreen/wallet.ts for the shapes returned by each handler.
+      payload?: unknown;
     };
 
 /// Snapshot of the offscreen pine instance's lifecycle, broadcast to

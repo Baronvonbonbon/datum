@@ -6,6 +6,7 @@ import { BrowserProvider, Eip1193Provider } from "ethers";
 import { getSettlementContract } from "@shared/contracts";
 import { BackgroundToOffscreen, OffscreenToBackground } from "@shared/messages";
 import { handlePineMessage } from "./smoldot";
+import { handleWalletMessage } from "./wallet-dispatch";
 
 declare global {
   interface Window {
@@ -26,6 +27,31 @@ chrome.runtime.onMessage.addListener(
         const submitMsg = msg; // narrowed by the case guard
         handleSubmit(submitMsg).then(sendResponse).catch((err) => {
           sendResponse({ type: "OFFSCREEN_SUBMIT_RESULT", settledCount: 0, rejectedCount: 0, error: String(err) });
+        });
+        return true; // async
+      }
+      case "WALLET_CREATE":
+      case "WALLET_IMPORT":
+      case "WALLET_UNLOCK":
+      case "WALLET_LOCK":
+      case "WALLET_IS_UNLOCKED":
+      case "WALLET_ADD_HD_ACCOUNT":
+      case "WALLET_ADD_IMPORTED":
+      case "WALLET_SET_ACTIVE":
+      case "WALLET_REENCRYPT":
+      case "WALLET_SIGN_TRANSACTION":
+      case "WALLET_SIGN_TYPED_DATA":
+      case "WALLET_PERSONAL_SIGN": {
+        // Wallet ops follow a uniform { ok, payload?, error? } envelope so
+        // background's orchestrator can correlate by requestId and either
+        // resolve or reject the corresponding Promise cleanly.
+        handleWalletMessage(msg).then(sendResponse).catch((err) => {
+          sendResponse({
+            type: "WALLET_RESULT",
+            requestId: msg.requestId,
+            ok: false,
+            error: String(err?.message ?? err),
+          });
         });
         return true; // async
       }

@@ -11,6 +11,7 @@
     "test": "jest --config jest.config.ts"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@polkadot/extension-dapp": "^0.61.7",
     "@polkadot/extension-inject": "^0.61.7",
     "ethers": "^6.13.4",
