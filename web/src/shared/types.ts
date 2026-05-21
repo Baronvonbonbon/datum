@@ -275,7 +275,7 @@ export function buildCategoryHierarchy(): CategoryGroup[] {
 export type NetworkName = "local" | "polkadotTestnet" | "paseoEvm" | "westend" | "kusama" | "polkadotHub";
 
 export interface ContractAddresses {
-  // Core
+  // ── Core protocol ────────────────────────────────────────────────
   campaigns: string;
   publishers: string;
   governanceV2: string;
@@ -284,39 +284,99 @@ export interface ContractAddresses {
   pauseRegistry: string;
   timelock: string;
   zkVerifier: string;
-  // Satellites
+  // ── Satellites ───────────────────────────────────────────────────
   budgetLedger: string;
   paymentVault: string;
+  /// Alpha-5 calls this `campaignLifecycle` in deployed-addresses.json;
+  /// the webapp keeps the short `lifecycle` field name for backward
+  /// compatibility with existing call sites.
   lifecycle: string;
   attestationVerifier: string;
   claimValidator: string;
   tokenRewardVault: string;
-  // Fraud prevention
+  // ── Fraud prevention ─────────────────────────────────────────────
   publisherStake: string;
   challengeBonds: string;
   publisherGovernance: string;
   parameterGovernance: string;
   clickRegistry: string;
-  // Governance ladder
+  // ── Governance ladder ────────────────────────────────────────────
   governanceRouter: string;
   council: string;
-  // Curator (B2-fix delegated blocklist curator; optional)
+  // ── Optional: alpha-4 era ──────────────────────────────────────
+  /// B2-fix delegated blocklist curator (alpha-4). Alpha-5 renames
+  /// this to `blocklistCurator`; both fields are populated from the
+  /// same source so legacy code paths keep working.
   councilBlocklistCurator?: string;
-  // People Chain identity cache (optional — when absent, identity gate UI hidden)
+  /// People Chain identity cache. When absent, identity-gated UI is
+  /// hidden.
   peopleChainIdentity?: string;
-  // Trustless XCM-dispatched identity refresh bridge (optional). When set,
-  // the /me/identity Refresh button dispatches real XCM via the bridge;
-  // when absent, the legacy event-only requestIdentityRefresh() is used.
+  /// Trustless XCM-dispatched identity refresh bridge. When set, the
+  /// /me/identity Refresh button dispatches real XCM via the bridge;
+  /// when absent, the legacy event-only requestIdentityRefresh() is
+  /// used.
   peopleChainXcmBridge?: string;
-  // DATUM token system (optional — not yet on Paseo testnet deploy).
-  // When any of these is empty / zero, the corresponding UI surface is
-  // rendered in a disabled state with a "feature unavailable on this
-  // deployment" note.
+  /// DATUM token plane (optional — not yet deployed on Paseo). When
+  /// any of these is empty/zero, the corresponding UI surface
+  /// disables with a "feature unavailable on this deployment" note.
   wrapper?: string;
   mintAuthority?: string;
   bootstrapPool?: string;
   vesting?: string;
   feeShare?: string;
+  // ── Alpha-5 additions (2026-05-21 deploy) ─────────────────────
+  /// Bonded relay operator stake — used by alpha-5's three-path
+  /// settlement architecture (publisher direct / advertiser dual-sig
+  /// / DatumRelay).
+  relayStake?: string;
+  /// Conviction-weighted governance for slashing relay operators.
+  relayGovernance?: string;
+  /// PoW engine — anti-Sybil gate; ClaimValidator reads enforcePow()
+  /// to decide whether to require PoW solutions on claims.
+  powEngine?: string;
+  /// Per-publisher acceptance-rate reputation, updated by Settlement
+  /// inline during claim processing.
+  publisherReputation?: string;
+  /// Per-user per-campaign per-window ZK nullifier registry.
+  nullifierRegistry?: string;
+  /// Per-publisher impression rate limiter.
+  settlementRateLimiter?: string;
+  /// Bulletin Chain creative storage carve-out.
+  campaignCreative?: string;
+  /// Community reports — abuse/misleading content flags. Alpha-3 era
+  /// satellite, kept in alpha-5.
+  reports?: string;
+  /// Campaign allowlist (publisher-side opt-out per campaign).
+  campaignAllowlist?: string;
+  /// Tag system (publisher tag self-declaration + campaign requirement
+  /// matching). Replaces the alpha-3 TargetingRegistry.
+  tagSystem?: string;
+  /// Alpha-5 alias of councilBlocklistCurator — same logical contract.
+  /// Populated alongside the alpha-4 name so both fields resolve.
+  blocklistCurator?: string;
+  /// Optimistic activation bond escrow.
+  activationBonds?: string;
+  /// Path A oracle V1 (owner-managed reporter set).
+  stakeRoot?: string;
+  /// Path A oracle V2 (permissionless bonded reporters, in shadow
+  /// mode until cutover).
+  stakeRootV2?: string;
+  /// Groth16 verifier for the People Chain identity ZK circuit.
+  identityVerifier?: string;
+  /// Per-batch dynamic-rate emission engine (Path H).
+  emissionEngine?: string;
+  /// DATUM mint coordinator — orchestrates per-batch token rewards
+  /// alongside DOT settlement.
+  mintCoordinator?: string;
+  /// Hybrid dual-sig settlement entry (advertiser cosig path).
+  dualSig?: string;
+  /// Bonded identity reporter — fast-path identity cache.
+  peopleChainBondedReporter?: string;
+  /// Settlement two-Logic split internals — generally not directly
+  /// addressed by the UI (calls land on `settlement`), but exposed
+  /// for diagnostics + the /protocol/upgrades page.
+  settlementLogicA?: string;
+  settlementLogicB?: string;
 }
 
 export type IpfsProvider =

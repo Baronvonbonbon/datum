@@ -37,6 +37,75 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   council: "",
 };
 
+// Alpha-5 Paseo addresses — 43-contract deploy of 2026-05-21.
+//
+// Source of truth: alpha-5/deployed-addresses.json. When that file
+// changes (re-deploy), this block must be updated alongside. We keep
+// the values inline rather than importing the JSON so the webapp
+// build stays self-contained and works on Cloudflare's "cd web &&
+// npm install + vite build" runner where the alpha-5 tree may not be
+// available at module-resolution time.
+//
+// Field name mapping:
+//   JSON's `campaignLifecycle` → `lifecycle`            (legacy name)
+//   JSON's `blocklistCurator`  → both `blocklistCurator`
+//                                 AND `councilBlocklistCurator`
+//                                 (alpha-4 alias for back-compat)
+const ALPHA_5_PASEO: ContractAddresses = {
+  // Core
+  campaigns:            "0x34663ec5Dd63A4517eBb4C763FEE6966FfB47a2e",
+  publishers:           "0xBcF1ef361020dC430eb7460aFCa66709BCbcC883",
+  governanceV2:         "0xad7650335C401200f4b7eA51E1D813EFFc4A50f6",
+  settlement:           "0x4745230354F48610EF905424176A81685C93F62B",
+  relay:                "0xD0e8a663ab360e2df00a0999476A92eBb6303112",
+  pauseRegistry:        "0x7FF4E11716EE89c58DE46F2bA980FF6754Dac8cb",
+  timelock:             "0x299f5fb99A4b5498aAEB73E48C2fE26CF0ead78e",
+  zkVerifier:           "0xFfe6ca4D9e0A5ff38Ef697ad1553497F479daeDa",
+  // Satellites
+  budgetLedger:         "0xc679C24a283Ac580Ec3Ccd9A5BFc3C94acf61bA2",
+  paymentVault:         "0xED3B961df0Dc83b99FCF84D0501ea1E60245dCc2",
+  lifecycle:            "0x776E43ADd6C0b6E5F6CC07Af21DF4c9e5C8E04F1",
+  attestationVerifier:  "0x20f3ef882f876Cf80A42e7BBEf600AbB4Aa9736C",
+  claimValidator:       "0xA5795A1d40c9050268D0D63C3c9944BFc847988B",
+  tokenRewardVault:     "0x39a3dc4C0Fe66E49F651F8Fe3684BF1b6c613883",
+  // Fraud prevention
+  publisherStake:       "0x3ddc2d14BA89Fc1aC51c6c58D740e992A3cB043a",
+  challengeBonds:       "0x35f1787e82405C57F071b4CB607B92Be5889b70d",
+  publisherGovernance:  "0xdc7e54080253300eD5c2CA3BD50667fF3eA42eF0",
+  parameterGovernance:  "0x710a5f1D93D2F3a5C11cf3166D636cBBbAC50446",
+  clickRegistry:        "0x19Dc1CaA534676aAF3452FACe4Be5B9FF3d88345",
+  // Governance ladder
+  governanceRouter:     "0xfD25A6e7a239Fc37A57Aa99458B7Ecb24BE74d69",
+  council:              "0xad191e330C1cB497844213bf81B1A5305D99F244",
+  // Alpha-5 additions
+  relayStake:           "0xe7D5F794a126008157770b4bCbBcBf4Ad60D134a",
+  relayGovernance:      "0x804B6d37EA48cbDcB649f0b72ED3318d8D8200bC",
+  powEngine:            "0x395665da7517cfd8E85295021bfCc8bd90cfa9EC",
+  publisherReputation:  "0x7C463CCe043eE06f1608c3Bf7228e2E83B48Af3e",
+  nullifierRegistry:    "0x52D04561684c7F8C144D489De3C8D1Ee62C21F27",
+  settlementRateLimiter:"0x569d35047b0b00859236065948e62fAF28fb01E5",
+  campaignCreative:     "0x4e7a98E619c6579B6dD993a360B21580f10B4Cc9",
+  reports:              "0xB8937B2a896884335aFbedAaD73Bc2d63e9e95BE",
+  campaignAllowlist:    "0x2A9bF057E696d4982e1361542586ec0A7eC92eE0",
+  tagSystem:            "0x9C7FD74e2F3e280D0f8F5207c34bD97CAcB54e01",
+  blocklistCurator:     "0x00568E8FA775EF085AeD15d7bE514e58029C5dE0",
+  councilBlocklistCurator: "0x00568E8FA775EF085AeD15d7bE514e58029C5dE0",  // alpha-4 alias
+  activationBonds:      "0x638E46086a6D8246772b0b264F10ec73091305c8",
+  stakeRoot:            "0x7cFeF79601751A161d345eEE90f7cc9E54B5245c",
+  stakeRootV2:          "0x5dd39B7eDE7842131BD51524B9B3486338b55958",
+  identityVerifier:     "0xA993b68f79e3B0bF00c73a12f4C71CEC0AB92E62",
+  emissionEngine:       "0xC4699e9a163B6274256Da4DbDA6C9018ab822B3b",
+  mintCoordinator:      "0xb1D9EBEcF960F326b1e521c5E61568bb881ff2CA",
+  dualSig:              "0x7c1725B2b763623e49E2799FE140E4552956e088",
+  peopleChainIdentity:  "0x54BDDEd50B553445c3d4b9C35b7278403d0dd7F3",
+  peopleChainXcmBridge: "0x4CB3192E0c996FcaB4182138C5342453c94DCFF6",
+  peopleChainBondedReporter: "0xE2F08A297525F718654416754B0Cc5Bd33BD963e",
+  settlementLogicA:     "0x4DfB4327E35EaA0BF6f1Dc09AaFeFfD4951d5671",
+  settlementLogicB:     "0x9b6d0d8451116Ca88A04C345c61ea3f636753389",
+  // Token plane (not yet deployed on Paseo) — leave undefined so the
+  // UI surfaces the disabled state until a future deploy fills them in.
+};
+
 export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: number; rpcUrl: string; explorerUrl: string; addresses: ContractAddresses; pineChain?: string }> = {
   local: {
     name: "Local Devnet",
@@ -51,34 +120,13 @@ export const NETWORK_CONFIGS: Record<NetworkName, { name: string; chainId: numbe
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
     explorerUrl: "https://blockscout-testnet.polkadot.io",
     pineChain: "paseo-asset-hub",
-    addresses: {
-      // Alpha-4 v1 — 21-contract EVM deploy 2026-05-06
-      campaigns:           "0x364038B8d3E8fBEFA81D3D1249C4b62d5765880b",
-      publishers:          "0x4D6d100F139bF13081abb8037472cd67A89519B2",
-      governanceV2:        "0xE195CCC5dA11567b3501379985B5dfa4f0EC40b4",
-      settlement:          "0x16F1fB8e96840cb2E50Db3D165683807761f568C",
-      relay:               "0x82705970AF14754F61dAb6374a7ae9DC0a2706E1",
-      pauseRegistry:       "0x03458E616a9C9460f0A63023b63B18a84C51EC82",
-      timelock:            "0x0125909A25537422014eCE8b422A0c802f47b411",
-      zkVerifier:          "0xd3C086583581DaFd2226365A4B1E1bEb13b4f3a2",
-      budgetLedger:        "0xfF1DaA7CB3187EBb4D249567114e208fF4390B18",
-      paymentVault:        "0x4fdE02a4c0aFfef31DC36D741F6a596A2aA87Fb6",
-      lifecycle:           "0x4BE26c6078497C31f7310524F0e6F09d8A51C8b6",
-      attestationVerifier: "0x765c2e7D64680Ee0987368c8489E89474cF18b0E",
-      claimValidator:      "0x90EfB06Ad1f4c59a07863F2ddDe8e6cad411Ac84",
-      tokenRewardVault:    "0x2B141116d0c26e8DcBfE08841214147c2F10506d",
-      publisherStake:      "0xe5188a35c2dd926F1cCE35ee6f32a81A1aBa3108",
-      challengeBonds:      "0x16c9a2Fc8D32D4106db60B38bD1D631E1A654f4D",
-      publisherGovernance: "0x184254A2e51e3A92f840aCfDE292E926FFAf9DC1",
-      parameterGovernance: "0x7ee17C46B68808FE22CF4B7deBD86EeB14BdFdC4",
-      clickRegistry:       "0x2fe26529a4F3594Bcbccd36e200721e80349A5f4",
-      governanceRouter:    "0x99388a88b74Fc51c17A5B6Eb37F6Cc55BF4dD091",
-      council:             "0x90fe17488e1c17C1226F1c384a2Ef826dBFaa241",
-    },
+    addresses: ALPHA_5_PASEO,
   },
   paseoEvm: {
-    // Alpha-4 uses the same addresses as polkadotTestnet (EVM-only build)
-    name: "Paseo EVM",
+    // Same backend as polkadotTestnet — kept for the alpha-4 EVM
+    // build that ran in parallel during the alpha-3 → alpha-4
+    // transition. New code should use polkadotTestnet.
+    name: "Paseo EVM (alpha-4 legacy)",
     chainId: 420420417,
     rpcUrl: "https://eth-rpc-testnet.polkadot.io/",
     explorerUrl: "https://blockscout-testnet.polkadot.io",
