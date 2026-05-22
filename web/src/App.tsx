@@ -70,6 +70,8 @@ import { Wrapper as WrapperPage } from "./pages/token/Wrapper";
 import { FeeShare as FeeSharePage } from "./pages/token/FeeShare";
 import { Bootstrap as BootstrapPage } from "./pages/token/Bootstrap";
 import { Vesting as VestingPage } from "./pages/token/Vesting";
+import { TokenDashboard } from "./pages/token/Dashboard";
+import { MintCoordinatorPage } from "./pages/token/MintCoordinator";
 
 // Settings
 import { Settings } from "./pages/Settings";
@@ -169,11 +171,12 @@ export function App() {
               <Route path="/admin/mint-authority" element={<MintAuthorityAdmin />} />
 
               {/* DATUM token system */}
-              <Route path="/token" element={<Navigate to="/token/wrapper" replace />} />
+              <Route path="/token" element={<TokenDashboard />} />
               <Route path="/token/wrapper" element={<WrapperPage />} />
               <Route path="/token/fee-share" element={<FeeSharePage />} />
               <Route path="/token/bootstrap" element={<BootstrapPage />} />
               <Route path="/token/vesting" element={<VestingPage />} />
+              <Route path="/token/mint-coordinator" element={<MintCoordinatorPage />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
