@@ -19,6 +19,10 @@ import "dotenv/config";
 import { loadConfig } from "./config.mjs";
 import { log, setLogLevel } from "./logging/structured.mjs";
 import { snapshot } from "./logging/telemetry.mjs";
+import { RelayProvider } from "./provider.mjs";
+import { CampaignPoll } from "./poll/campaigns.mjs";
+import { ClaimQueue } from "./poll/claims.mjs";
+import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
 
 async function main() {
   let cfg;
@@ -46,25 +50,46 @@ async function main() {
     peopleChainIdentity: cfg.addresses.peopleChainIdentity,
   });
 
-  // Stages 7b/7c/7d hook in here. The current skeleton just idles
-  // so an operator can confirm config loads cleanly and the
-  // systemd unit stays Active before any submission machinery is
-  // wired up.
-  log.warn("relay running in skeleton mode — no submitters wired", {
-    next_stages: ["7b: pine provider", "7c: HTTP endpoints", "7d: submitters"],
+  // Stage 7b — pine provider + polling primitives.
+  const provider = new RelayProvider(cfg);
+  await provider.start();
+
+  const campaignPoll = new CampaignPoll(provider, cfg);
+  await campaignPoll.start();
+
+  const claimQueue = new ClaimQueue(campaignPoll);
+
+  const identityPoll = new IdentityRequestPoll(provider, cfg, ({ user }) => {
+    // Stage 7d will hand off to submit/identityOracle. For now we
+    // just observe.
+    log.trace("identity refresh observed", { user });
+  });
+  await identityPoll.start();
+
+  // Stages 7c/7d hook in next.
+  log.info("relay running — submitters not yet wired", {
+    next_stages: ["7c: HTTP endpoints", "7d: submitters"],
+    activeCampaigns: campaignPoll.snapshot().active.length,
+    claimQueue: claimQueue.size(),
   });
 
   let shutdownInProgress = false;
-  const shutdown = (reason) => {
+  const shutdown = async (reason) => {
     if (shutdownInProgress) return;
     shutdownInProgress = true;
     log.info("shutdown requested", { reason, snapshot: snapshot() });
-    // Stages 7b+ add: await pine.disconnect(), close HTTP, drain queues.
+    try {
+      identityPoll.stop();
+      campaignPoll.stop();
+      await provider.stop();
+    } catch (e) {
+      log.warn("shutdown cleanup error", { err: String(e?.message ?? e) });
+    }
     process.exit(0);
   };
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => { shutdown("SIGINT"); });
+  process.on("SIGTERM", () => { shutdown("SIGTERM"); });
   process.on("uncaughtException", (err) => {
     log.error("uncaughtException", { err: String(err?.stack ?? err) });
     process.exit(2);
