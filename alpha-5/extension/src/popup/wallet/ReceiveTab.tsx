@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import type { WalletStatus } from "./walletClient";
 import { heading, subText, card, mono, button } from "./styles";
+import { Blockie } from "./Blockie";
 
 export function ReceiveTab({ status }: { status: WalletStatus }) {
   const [qrSvg, setQrSvg] = useState<string>("");
@@ -76,8 +77,19 @@ export function ReceiveTab({ status }: { status: WalletStatus }) {
         )}
       </div>
 
-      <div style={{ ...card, ...mono, fontSize: 11, wordBreak: "break-all" }}>
-        {status.activeAddress}
+      <div
+        style={{
+          ...card,
+          ...mono,
+          fontSize: 11,
+          wordBreak: "break-all",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <Blockie address={status.activeAddress} size={20} />
+        <span>{status.activeAddress}</span>
       </div>
 
       <button style={button("primary")} onClick={copy}>

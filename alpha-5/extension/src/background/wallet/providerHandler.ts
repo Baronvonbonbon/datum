@@ -35,6 +35,7 @@ import {
   personalSign,
 } from "./signing";
 import { pineRpc } from "../pineBridge";
+import { recordWalletTx } from "@shared/walletTxHistory";
 
 /// EIP-1193 ProviderRpcError code values. Subset we use:
 ///   4001 = User Rejected Request
@@ -144,7 +145,7 @@ export async function handleProviderRequest(args: {
         error: { code: 4100, message: "DATUM wallet is locked" },
       };
     }
-    return handleSigningMethod(method, params, status.activeAddress);
+    return handleSigningMethod(method, params, status.activeAddress, origin);
   }
 
   // Read RPC pass-through.
@@ -215,7 +216,8 @@ async function handleRequestAccounts(origin: string): Promise<ProviderRpcResult>
 async function handleSigningMethod(
   method: string,
   params: unknown[],
-  activeAddress: string
+  activeAddress: string,
+  origin: string
 ): Promise<ProviderRpcResult> {
   try {
     if (method === "personal_sign") {
@@ -283,6 +285,16 @@ async function handleSigningMethod(
       // sends can be enriched in a follow-up.
       const raw = await signTransaction(tx);
       const txHash = await pineRpc<string>("eth_sendRawTransaction", [raw]);
+      void recordWalletTx(activeAddress, {
+        hash: txHash,
+        kind: "dapp",
+        to: String(tx.to ?? ""),
+        valueWei:
+          tx.value !== undefined && tx.value !== null
+            ? BigInt(String(tx.value)).toString()
+            : "0",
+        origin,
+      });
       return { ok: true, result: txHash };
     }
 

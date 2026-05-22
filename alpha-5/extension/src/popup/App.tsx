@@ -18,22 +18,31 @@ import { SendTab } from "./wallet/SendTab";
 import { ReceiveTab } from "./wallet/ReceiveTab";
 import { SettingsTab } from "./wallet/SettingsTab";
 import { EarningsTab } from "./wallet/EarningsTab";
+import { TxHistoryTab } from "./wallet/TxHistoryTab";
 import {
   PermissionRequest,
   usePendingPermission,
 } from "./wallet/PermissionRequest";
 import { walletClient, type WalletStatus } from "./wallet/walletClient";
 
-type Tab = "accounts" | "send" | "receive" | "earnings" | "settings";
+type Tab =
+  | "accounts"
+  | "send"
+  | "receive"
+  | "history"
+  | "earnings"
+  | "settings";
 
-// Five-tab layout fits a 360px popup at ~11px per label. Earnings
-// is the protocol-side catch-all per design doc §3.5; Accounts /
-// Send / Receive are the wallet primitives; Settings hosts the
+// Six-tab layout — labels stay short to fit the 360px popup at
+// ~10px per label. Earnings is the protocol-side catch-all per
+// design doc §3.5; Accounts / Send / Receive are the wallet
+// primitives; History is the broadcast-TX log; Settings hosts
 // AssuranceSection + RecoverySection alongside theme + permissions.
 const TAB_LABELS: Record<Tab, string> = {
   accounts: "Accounts",
   send: "Send",
   receive: "Receive",
+  history: "History",
   earnings: "Earnings",
   settings: "Settings",
 };
@@ -239,6 +248,7 @@ function Dashboard({
         )}
         {tab === "send" && <SendTab status={status} />}
         {tab === "receive" && <ReceiveTab status={status} />}
+        {tab === "history" && <TxHistoryTab status={status} />}
         {tab === "earnings" && <EarningsTab status={status} />}
         {tab === "settings" && (
           <SettingsTab status={status} onChange={onChange} />

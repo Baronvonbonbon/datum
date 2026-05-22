@@ -11,6 +11,8 @@
 
 import { useState, useEffect } from "react";
 import { walletClient, type WalletStatus } from "./walletClient";
+import { Blockie } from "./Blockie";
+import { recordWalletTx } from "@shared/walletTxHistory";
 import { formatDOT, weiToPlanck } from "@shared/dot";
 import {
   card,
@@ -99,6 +101,13 @@ export function SendTab({ status }: { status: WalletStatus }) {
         maxPriorityFeePerGas: gasPriceWei.toString(),
       });
       setTxHash(result.txHash);
+      void recordWalletTx(status.activeAddress, {
+        hash: result.txHash,
+        kind: "send",
+        to,
+        valueWei: valueWei.toString(),
+        label: "Native send",
+      });
       setAmountDot("");
       setTo("");
       // Refresh balance after broadcast.
@@ -139,13 +148,29 @@ export function SendTab({ status }: { status: WalletStatus }) {
 
       <div>
         <div style={fieldLabel}>Recipient</div>
-        <input
-          value={to}
-          onChange={(e) => setTo(e.target.value.trim())}
-          style={{ ...input, fontFamily: "var(--font-mono)", fontSize: 11 }}
-          placeholder="0x..."
-          spellCheck={false}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/^0x[0-9a-fA-F]{40}$/.test(to) ? (
+            <Blockie address={to} size={20} />
+          ) : (
+            <div
+              aria-hidden
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 3,
+                border: "1px dashed var(--border)",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value.trim())}
+            style={{ ...input, fontFamily: "var(--font-mono)", fontSize: 11, flex: 1 }}
+            placeholder="0x..."
+            spellCheck={false}
+          />
+        </div>
       </div>
 
       <div>

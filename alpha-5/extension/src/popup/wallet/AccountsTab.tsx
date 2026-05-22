@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { walletClient, type AccountMeta, type WalletStatus } from "./walletClient";
+import { Blockie } from "./Blockie";
 import {
   card,
   button,
@@ -118,16 +119,19 @@ function AccountRow({
         background: active ? "var(--bg-surface)" : "transparent",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: "var(--text-strong)", fontWeight: 500, fontSize: 12 }}>
-            {labelText}
-          </span>
-          {account.source === "imported" && (
-            <span style={{ fontSize: 9, color: "var(--warn)", letterSpacing: "0.05em" }}>
-              imported
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Blockie address={account.address} size={22} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ color: "var(--text-strong)", fontWeight: 500, fontSize: 12 }}>
+              {labelText}
             </span>
-          )}
+            {account.source === "imported" && (
+              <span style={{ fontSize: 9, color: "var(--warn)", letterSpacing: "0.05em" }}>
+                imported
+              </span>
+            )}
+          </div>
         </div>
         <span style={{ ...mono, fontSize: 11, color: "var(--text-muted)" }}>
           {truncated}
