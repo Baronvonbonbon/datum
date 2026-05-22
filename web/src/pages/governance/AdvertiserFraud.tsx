@@ -28,6 +28,7 @@ import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
 import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { walletConnector } from "../../lib/walletConnector";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
@@ -235,18 +236,13 @@ export function AdvertiserFraud() {
             Params unavailable — {paramsErr}
           </div>
         )}
-        {(propLogs.viaRpc || claimLogs.viaRpc) && (
-          <div
-            style={{
-              color: "var(--warn)",
-              fontSize: 11,
-              marginTop: 6,
-              fontStyle: "italic",
-            }}
-          >
-            ⚠ Older entries fetched via RPC fallback.
-          </div>
-        )}
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus
+            viaRpc={propLogs.viaRpc || claimLogs.viaRpc}
+            truncatedTo={propLogs.truncatedTo ?? claimLogs.truncatedTo}
+            hideWhileLoading
+          />
+        </div>
       </header>
 
       <FileClaimSection

@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -236,6 +237,15 @@ function Inner({ addrs }: { addrs: (typeof NETWORK_CONFIGS)["polkadotTestnet"]["
           Per-batch DATUM mint accounting. EmissionEngine.MintComputed
           fires on every settlement that earns DATUM. Effective mint may
           fall below raw mint when the per-day cap clamps.
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus
+            viaRpc={mintLogs.viaRpc || adjustLogs.viaRpc || coordLogs.viaRpc}
+            truncatedTo={
+              mintLogs.truncatedTo ?? adjustLogs.truncatedTo ?? coordLogs.truncatedTo
+            }
+            hideWhileLoading
+          />
         </div>
       </header>
 

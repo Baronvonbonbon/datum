@@ -16,6 +16,7 @@ import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
 import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { walletConnector } from "../../lib/walletConnector";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -102,23 +103,9 @@ export function ActivationBonds() {
           the timelock window to force a vote; activate after expiry to
           pull uncontested campaigns into Active state.
         </div>
-        {viaRpc && (
-          <div
-            style={{
-              color: "var(--warn)",
-              fontSize: 11,
-              marginTop: 6,
-              fontStyle: "italic",
-            }}
-          >
-            ⚠ Older entries fetched via RPC fallback.
-          </div>
-        )}
-        {truncatedTo !== undefined && (
-          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
-            History begins at block {truncatedTo}.
-          </div>
-        )}
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus viaRpc={viaRpc} truncatedTo={truncatedTo} hideWhileLoading />
+        </div>
       </header>
 
       {!ready ? (

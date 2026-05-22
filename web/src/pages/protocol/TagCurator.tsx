@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
 import { walletConnector } from "../../lib/walletConnector";
@@ -202,6 +203,15 @@ function Inner({
           }}
         >
           Curator {shorten(curator)} · Council {shorten(council)} · Appeal bond {formatDot(appealBond)}
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus
+            viaRpc={approvedLogs.viaRpc || filedLogs.viaRpc || resolvedLogs.viaRpc}
+            truncatedTo={
+              approvedLogs.truncatedTo ?? filedLogs.truncatedTo ?? resolvedLogs.truncatedTo
+            }
+            hideWhileLoading
+          />
         </div>
       </header>
 

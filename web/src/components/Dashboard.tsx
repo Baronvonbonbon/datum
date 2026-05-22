@@ -253,7 +253,6 @@ function TelemetryStreamPanel({ opts }: { opts: TelemetryStreamOpts }) {
             color: "var(--text-muted)",
             fontSize: 10,
             marginBottom: 6,
-            fontStyle: "italic",
           }}
         >
           History begins at block {truncatedTo}.

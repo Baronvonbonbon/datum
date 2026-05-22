@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -116,6 +117,9 @@ export function IdentityZk() {
           }}
         >
           Verifier {verifier.toLowerCase()}
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus viaRpc={logs.viaRpc} truncatedTo={logs.truncatedTo} hideWhileLoading />
         </div>
       </header>
 

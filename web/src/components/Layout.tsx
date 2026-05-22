@@ -13,6 +13,7 @@ import { PrivacyBanner } from "./PrivacyBanner";
 import { Footer } from "./Footer";
 import { BrandMark } from "./BrandMark";
 import { PineStatusChip } from "./PineStatusChip";
+import { PineWarmUpBanner } from "./PineWarmUpBanner";
 import { useContracts } from "../hooks/useContracts";
 import type { JsonRpcApiProvider } from "ethers";
 
@@ -247,6 +248,9 @@ export function Layout() {
         ⚠ Experimental build — Paseo testnet only. Do not connect a wallet holding real funds.
         If you don't know why, close this tab, step away from the computer, raise your hand, and wait for an adult.
       </div>
+
+      {/* ── Pine warm-up / offline indicator ────────────────────────────── */}
+      <PineWarmUpBanner />
 
       {/* ── Protocol paused banner ──────────────────────────────────────── */}
       {protocolPaused && (

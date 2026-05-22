@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
+import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -265,6 +266,23 @@ export function PeopleChain() {
           Trustless XCM-dispatched identity refresh + oracle-reporter
           attestation cache. User-side actions (refresh me, forget me)
           live on /me/identity.
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <TelemetryStatus
+            viaRpc={
+              dispatchedLogs.viaRpc ||
+              fromCampaignLogs.viaRpc ||
+              inFlightLogs.viaRpc ||
+              callbackLogs.viaRpc
+            }
+            truncatedTo={
+              dispatchedLogs.truncatedTo ??
+              fromCampaignLogs.truncatedTo ??
+              inFlightLogs.truncatedTo ??
+              callbackLogs.truncatedTo
+            }
+            hideWhileLoading
+          />
         </div>
       </header>
 
