@@ -36,6 +36,7 @@ import { PublisherStake } from "./pages/publisher/Stake";
 
 // Governance
 import { GovernanceDashboard } from "./pages/governance/Dashboard";
+import { ActivationBonds as GovernanceActivationBonds } from "./pages/governance/ActivationBonds";
 import { Vote } from "./pages/governance/Vote";
 import { MyVotes } from "./pages/governance/MyVotes";
 import { GovernanceParameters } from "./pages/governance/Parameters";
@@ -117,6 +118,7 @@ export function App() {
 
               {/* Governance */}
               <Route path="/governance" element={<GovernanceDashboard />} />
+              <Route path="/governance/activation-bonds" element={<GovernanceActivationBonds />} />
               <Route path="/governance/vote/:id" element={<Vote />} />
               <Route path="/governance/my-votes" element={<MyVotes />} />
               <Route path="/governance/parameters" element={<GovernanceParameters />} />

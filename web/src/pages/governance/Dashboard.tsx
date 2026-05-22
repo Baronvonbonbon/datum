@@ -1,399 +1,441 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
-import { ethers } from "ethers";
-import { useContracts } from "../../hooks/useContracts";
-import { useWallet } from "../../context/WalletContext";
-import { useBlock } from "../../hooks/useBlock";
-import { useSettings } from "../../context/SettingsContext";
-import { StatusBadge } from "../../components/StatusBadge";
-import { DOTAmount } from "../../components/DOTAmount";
-import { AddressDisplay } from "../../components/AddressDisplay";
-import { IPFSPreview } from "../../components/IPFSPreview";
-import { humanizeError } from "@shared/errorCodes";
-import { formatBlockDelta } from "@shared/conviction";
-import { useTx } from "../../hooks/useTx";
-import { queryFilterAll } from "@shared/eventQuery";
-import { useToast } from "../../context/ToastContext";
+// /governance dashboard — protocol-wide overview for voters,
+// council members, and observers. Public route — no wallet required;
+// signing-only actions (vote, file appeal, etc.) are gated downstream
+// on the per-action pages.
+//
+// Hero stats:
+//   - Phase + governor address (Router.phase + Router.governor)
+//   - Active campaigns in vote        (count of Pending campaigns
+//     this is tricky without a "list" view — proxied via
+//     CommitRevealWindowOpened in the 7d window)
+//   - Council blocklist appeals open  (count of BlocklistAppealFiled
+//     minus BlocklistAppealResolved)
+//   - Parameter retunes (7d)          (RetuneGuarded log count across
+//     guarded contracts)
+//
+// Telemetry stream:
+//   - GovernanceV2: VoteCast, CampaignEvaluated, OwnerSweepQueued
+//   - Router: PhaseTransitioned, HighTierProposed, HighTierExecuted,
+//     HighTierVetoed
+//   - CouncilBlocklistCurator: AddrBlocked, BlocklistAppealFiled,
+//     BlocklistAppealResolved
+//   - ActivationBonds: BondOpened (high-level signal of new
+//     campaigns entering the pipeline)
 
-interface GovCampaign {
-  id: number;
-  status: number;
-  advertiser: string;
-  bidCpmPlanck: bigint;
-  ayeWeighted: bigint;
-  nayWeighted: bigint;
-  resolved: boolean;
-  myVoteDir: number;
-  metadataHash: string;
-  lastSettlementBlock: number;
-  pageReports: number;
-  adReports: number;
-  rewardToken?: string;
-  rewardPerImpression?: bigint;
-  rewardSymbol?: string;
-  rewardDecimals?: number;
-  rewardBudget?: bigint;
-}
+import { useMemo } from "react";
+import { id as ethersId, Interface } from "ethers";
+import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { type HeroStat } from "../../hooks/useHeroStat";
+import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
+import { callContract } from "../../lib/contractRead";
+import { pineRpc } from "../../lib/provider";
+import { type EthLog } from "../../lib/eventBus";
+import { NETWORK_CONFIGS } from "../../shared/networks";
+
+const WINDOW_7D_BLOCKS = 14_400 * 7;
+
+const ROUTER_ABI = [
+  "function phase() view returns (uint8)",
+  "function governor() view returns (address)",
+];
+
+const TOPIC_VOTE_CAST = ethersId("VoteCast(uint256,address,bool,uint256,uint8)");
+const TOPIC_CAMPAIGN_EVALUATED = ethersId("CampaignEvaluated(uint256,uint8)");
+const TOPIC_COMMIT_REVEAL_OPENED = ethersId(
+  "CommitRevealWindowOpened(uint256,uint64,uint64)"
+);
+const TOPIC_PHASE_TRANSITIONED = ethersId(
+  "PhaseTransitioned(uint8,address)"
+);
+const TOPIC_HIGH_TIER_PROPOSED = ethersId(
+  "HighTierProposed(uint256,address,uint256)"
+);
+const TOPIC_HIGH_TIER_EXECUTED = ethersId(
+  "HighTierExecuted(uint256,bool,bytes)"
+);
+const TOPIC_HIGH_TIER_VETOED = ethersId("HighTierVetoed(uint256)");
+const TOPIC_BOND_OPENED = ethersId(
+  "BondOpened(uint256,address,uint256,uint64)"
+);
+const TOPIC_ADDR_BLOCKED = ethersId("AddrBlocked(address,bytes32)");
+const TOPIC_BLOCKLIST_APPEAL_FILED = ethersId(
+  "BlocklistAppealFiled(uint256,address,address,bytes32,uint256)"
+);
+const TOPIC_BLOCKLIST_APPEAL_RESOLVED = ethersId(
+  "BlocklistAppealResolved(uint256,address,bool,uint256)"
+);
+const TOPIC_RETUNE_GUARDED = ethersId(
+  "RetuneGuarded(bytes32,uint256,uint256)"
+);
+
+const GOV_IFACE = new Interface([
+  "event VoteCast(uint256 indexed campaignId, address indexed voter, bool aye, uint256 amount, uint8 conviction)",
+  "event CampaignEvaluated(uint256 indexed campaignId, uint8 result)",
+]);
+const ROUTER_IFACE = new Interface([
+  "event PhaseTransitioned(uint8 indexed newPhase, address indexed newGovernor)",
+  "event HighTierProposed(uint256 indexed id, address indexed target, uint256 executableAfterBlock)",
+  "event HighTierExecuted(uint256 indexed id, bool success, bytes returndata)",
+  "event HighTierVetoed(uint256 indexed id)",
+]);
+const BOND_IFACE = new Interface([
+  "event BondOpened(uint256 indexed campaignId, address indexed creator, uint256 bond, uint64 timelockExpiry)",
+]);
+const BLOCKLIST_IFACE = new Interface([
+  "event AddrBlocked(address indexed addr, bytes32 reasonHash)",
+  "event BlocklistAppealFiled(uint256 indexed appealId, address indexed appellant, address indexed blockedAddr, bytes32 evidenceHash, uint256 bond)",
+  "event BlocklistAppealResolved(uint256 indexed appealId, address indexed blockedAddr, bool upheld, uint256 bondDisposition)",
+]);
+
+const PHASE_NAMES: Record<number, string> = {
+  0: "Admin",
+  1: "Council",
+  2: "OpenGov",
+};
+const VOTE_RESULTS: Record<number, string> = {
+  0: "Pending",
+  1: "Active",
+  2: "Rejected",
+  3: "Completed",
+  4: "Terminated",
+  5: "Expired",
+};
+
+type Addrs = (typeof NETWORK_CONFIGS)["polkadotTestnet"]["addresses"];
 
 export function GovernanceDashboard() {
-  const contracts = useContracts();
-  const { address, signer } = useWallet();
-  const { blockNumber } = useBlock();
-  const { settings } = useSettings();
-  const { confirmTx } = useTx();
-  const { push } = useToast();
-  const loadGenRef = useRef(0);
-  const [campaigns, setCampaigns] = useState<GovCampaign[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [actionBusy, setActionBusy] = useState<number | null>(null);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"active" | "all" | "reported">("active");
-  const [searchQuery, setSearchQuery] = useState("");
+  const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
 
-  // Fetch a single campaign's governance data
-  const fetchCampaign = useCallback(async (id: number): Promise<GovCampaign | null> => {
-    try {
-      const [c, adv, aye, nay, resolved, viewBid] = await Promise.all([
-        contracts.campaigns.getCampaignForSettlement(BigInt(id)),
-        contracts.campaigns.getCampaignAdvertiser(BigInt(id)),
-        contracts.governanceV2.ayeWeighted(BigInt(id)).catch(() => 0n),
-        contracts.governanceV2.nayWeighted(BigInt(id)).catch(() => 0n),
-        contracts.governanceV2.resolved(BigInt(id)).catch(() => false),
-        contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
-      ]);
-
-      let myVoteDir = 0;
-      if (address) {
-        try {
-          const v = await contracts.governanceV2.getVote(BigInt(id), address);
-          myVoteDir = Number(v.direction ?? v[0] ?? 0);
-        } catch { /* no vote */ }
-      }
-
-      let metadataHash = "0x" + "0".repeat(64);
-      try {
-        const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-        const logs = await queryFilterAll(contracts.campaigns, filter);
-        if (logs.length > 0) metadataHash = (logs[logs.length - 1] as any).args?.metadataHash ?? metadataHash;
-      } catch { /* no events */ }
-
-      let lastSettlementBlock = 0;
-      try {
-        lastSettlementBlock = Number(await contracts.budgetLedger.lastSettlementBlock(BigInt(id)));
-      } catch { /* no budgetLedger */ }
-
-      let pageReports = 0, adReports = 0;
-      try {
-        if (contracts.campaigns) {
-          [pageReports, adReports] = await Promise.all([
-            contracts.campaigns.pageReports(BigInt(id)).then(Number),
-            contracts.campaigns.adReports(BigInt(id)).then(Number),
-          ]);
-        }
-      } catch { /* no campaigns contract */ }
-
-      let rewardToken: string | undefined;
-      let rewardPerImpression: bigint | undefined;
-      let rewardSymbol: string | undefined;
-      let rewardDecimals: number | undefined;
-      let rewardBudget: bigint | undefined;
-      try {
-        const [tok, perImp] = await Promise.all([
-          contracts.campaigns.getCampaignRewardToken(BigInt(id)).catch(() => ethers.ZeroAddress),
-          contracts.campaigns.getCampaignRewardPerImpression(BigInt(id)).catch(() => 0n),
-        ]);
-        if (tok && tok !== ethers.ZeroAddress) {
-          rewardToken = tok as string;
-          rewardPerImpression = BigInt(perImp);
-          const erc20 = new ethers.Contract(tok, ["function symbol() view returns (string)", "function decimals() view returns (uint8)"], contracts.readProvider);
-          const [sym2, dec] = await Promise.all([erc20.symbol().catch(() => "TOKEN"), erc20.decimals().catch(() => 18)]);
-          rewardSymbol = sym2 as string;
-          rewardDecimals = Number(dec);
-          try { rewardBudget = BigInt(await contracts.tokenRewardVault.campaignTokenBudget(tok, BigInt(id))); } catch { /* ok */ }
-        }
-      } catch { /* no token reward */ }
-
-      return {
-        id, status: Number(c[0]),
-        advertiser: adv as string,
-        bidCpmPlanck: BigInt(viewBid),
-        ayeWeighted: BigInt(aye),
-        nayWeighted: BigInt(nay),
-        resolved: Boolean(resolved),
-        myVoteDir,
-        metadataHash,
-        lastSettlementBlock,
-        pageReports,
-        adReports,
-        rewardToken,
-        rewardPerImpression,
-        rewardSymbol,
-        rewardDecimals,
-        rewardBudget,
-      };
-    } catch { return null; }
-  }, [address, contracts]);
-
-  const sortCampaigns = (list: GovCampaign[]) =>
-    [...list].sort((a, b) => {
-      const order = [0, 1, 2, 3, 4, 5];
-      return order.indexOf(a.status) - order.indexOf(b.status) || b.id - a.id;
-    });
-
-  // Batch size tuned for light-client RPCs (Pine/smoldot): ~15 campaigns × ~6 calls = ~90 concurrent
-  const BATCH_SIZE = 15;
-
-  const load = useCallback(async () => {
-    if (!settings.contractAddresses.campaigns) return;
-    // Increment generation so any in-flight load detects it's stale and stops writing
-    const gen = ++loadGenRef.current;
-    setLoading(true);
-    setCampaigns([]);
-    try {
-      const nextId = Number(await contracts.campaigns.nextCampaignId());
-      if (loadGenRef.current !== gen) return;
-      const ids = Array.from({ length: nextId }, (_, i) => nextId - 1 - i);
-
-      // Process in sequential batches; stream each batch into state as it completes
-      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-        if (loadGenRef.current !== gen) return; // newer load started — stop
-        const batch = ids.slice(i, i + BATCH_SIZE);
-        const fetched = (await Promise.all(batch.map((id) => fetchCampaign(id)))).filter(Boolean) as GovCampaign[];
-        if (loadGenRef.current !== gen) return; // check again after await
-        if (fetched.length > 0) {
-          setCampaigns((prev) => sortCampaigns([...prev, ...fetched]));
-        }
-      }
-    } finally {
-      if (loadGenRef.current === gen) setLoading(false);
-    }
-  }, [address, settings.contractAddresses.campaigns, fetchCampaign]);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function evaluate(id: number) {
-    if (!signer) return;
-    setActionBusy(id);
-    setActionMsg(null);
-    try {
-      const c = contracts.governanceV2.connect(signer);
-      const tx = await c.evaluateCampaign(BigInt(id));
-      await confirmTx(tx);
-      setActionMsg(`Campaign #${id} evaluated.`);
-      load();
-    } catch (err) {
-      push(humanizeError(err), "error");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function expireInactive(id: number) {
-    if (!signer) return;
-    setActionBusy(id);
-    try {
-      const lc = contracts.lifecycle.connect(signer);
-      const tx = await lc.expireInactiveCampaign(BigInt(id));
-      await confirmTx(tx);
-      setActionMsg(`Campaign #${id} expired (inactivity).`);
-      load();
-    } catch (err) {
-      push(humanizeError(err), "error");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function expirePending(id: number) {
-    if (!signer) return;
-    setActionBusy(id);
-    try {
-      const lc = contracts.lifecycle.connect(signer);
-      const tx = await lc.expirePendingCampaign(BigInt(id));
-      await confirmTx(tx);
-      setActionMsg(`Campaign #${id} expired (pending timeout).`);
-      load();
-    } catch (err) {
-      push(humanizeError(err), "error");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  const searchId = searchQuery.match(/^\d+$/) ? Number(searchQuery) : null;
-  const searchAddr = searchQuery.length >= 6 ? searchQuery.toLowerCase() : "";
-
-  const displayed = campaigns
-    .filter((c) => {
-      if (filter === "active") return c.status <= 2;
-      if (filter === "reported") return c.pageReports + c.adReports > 0;
-      return true;
-    })
-    .filter((c) => {
-      if (searchId !== null) return c.id === searchId;
-      if (searchAddr) return c.advertiser.toLowerCase().includes(searchAddr);
-      return true;
-    });
-
-  const hasPublisherGov = !!settings.contractAddresses.publisherGovernance;
-  const hasParameterGov = !!settings.contractAddresses.parameterGovernance;
-  const hasCouncil = !!settings.contractAddresses.council;
+  const heroStats = useMemo<HeroStat[]>(() => buildHeroStats(addrs), [addrs]);
+  const stream = useMemo<TelemetryStreamOpts>(() => buildStream(addrs), [addrs]);
+  const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <div className="nano-fade">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Governance</h1>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link to="/governance/my-votes" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>My Votes</Link>
-          <Link to="/governance/parameters" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Parameters</Link>
-          {hasPublisherGov && (
-            <Link to="/governance/publisher-fraud" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none", color: "var(--error)" }}>Publisher Fraud</Link>
-          )}
-          {hasParameterGov && (
-            <Link to="/governance/protocol" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none" }}>Protocol Changes</Link>
-          )}
-          {hasCouncil && (
-            <Link to="/governance/council" className="nano-btn" style={{ padding: "5px 12px", fontSize: 12, textDecoration: "none", color: "var(--warn)" }}>Council</Link>
-          )}
-        </div>
-      </div>
-
-      {/* Governance mode overview — shown when additional governance systems are active */}
-      {(hasPublisherGov || hasParameterGov) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 20 }}>
-          <Link to="/governance" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--accent)" }}>
-            <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Campaign Governance</div>
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Approve, reject, and monitor ad campaigns via conviction voting.</div>
-          </Link>
-          {hasPublisherGov && (
-            <Link to="/governance/publisher-fraud" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--error)" }}>
-              <div style={{ color: "var(--error)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Publisher Fraud</div>
-              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Accuse publishers of fraud. Aye majority slashes stake and distributes bond bonuses.</div>
-            </Link>
-          )}
-          {hasParameterGov && (
-            <Link to="/governance/protocol" className="nano-card" style={{ padding: "12px 14px", textDecoration: "none", borderLeft: "2px solid var(--role-advertiser)" }}>
-              <div style={{ color: "var(--role-advertiser)", fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Protocol Changes</div>
-              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Propose and vote on protocol parameter changes. Bond required; passed proposals enter timelock.</div>
-            </Link>
-          )}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <button onClick={() => setFilter("active")} className={filter === "active" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>Active / Pending</button>
-        <button onClick={() => setFilter("reported")} className={filter === "reported" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12, color: filter !== "reported" ? "var(--warn)" : undefined }}>Reported</button>
-        <button onClick={() => setFilter("all")} className={filter === "all" ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "5px 12px", fontSize: 12 }}>All Campaigns</button>
-        <div style={{ position: "relative", display: "flex", alignItems: "center", marginLeft: "auto" }}>
-          <input
-            type="text"
-            placeholder="Search ID or address…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="nano-input"
-            style={{ fontSize: 12, width: 190, paddingRight: searchQuery ? 24 : undefined }}
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 6, background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
-          )}
-        </div>
-        <button onClick={() => load()} className="nano-btn" style={{ padding: "5px 12px", fontSize: 12 }}>Refresh</button>
-      </div>
-
-      {actionMsg && (
-        <div className="nano-info nano-info--muted" style={{ marginBottom: 12 }}>
-          {actionMsg}
-        </div>
-      )}
-
-      {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading campaigns</div>}
-
-      {displayed.map((c) => {
-        const total = c.ayeWeighted + c.nayWeighted;
-        const ayePct = total > 0n ? Number(c.ayeWeighted * 100n / total) : 0;
-        const inactiveEligible = c.status === 1 && blockNumber && c.lastSettlementBlock > 0
-          && blockNumber - c.lastSettlementBlock > 432_000;
-
-        return (
-          <div key={c.id} className="nano-card" style={{ padding: 14, marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <Link to={`/campaigns/${c.id}`} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none", fontSize: 15 }}>#{c.id}</Link>
-                <StatusBadge status={c.status} />
-                <AddressDisplay address={c.advertiser} chars={4} style={{ fontSize: 11, color: "var(--text-muted)" }} />
-                {c.myVoteDir === 1 && <span style={{ fontSize: 11, color: "var(--ok)", fontWeight: 600 }}>✓ Aye</span>}
-                {c.myVoteDir === 2 && <span style={{ fontSize: 11, color: "var(--error)", fontWeight: 600 }}>✗ Nay</span>}
-                {c.resolved && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Resolved</span>}
-                {c.rewardToken && c.rewardSymbol && (
-                  <span title={`Token rewards: ${(Number(c.rewardPerImpression ?? 0) / Math.pow(10, c.rewardDecimals ?? 18)).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${c.rewardSymbol} per impression`}
-                    style={{ fontSize: 10, fontWeight: 600, color: "var(--role-advertiser)", background: "var(--role-advertiser-dim)", border: "1px solid var(--role-advertiser-border)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", cursor: "default" }}>
-                    {c.rewardSymbol}
-                  </span>
-                )}
-                {c.adReports > 0 && (
-                  <span title={`${c.adReports} ad report${c.adReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--warn)", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
-                    ⚑ {c.adReports} AD
-                  </span>
-                )}
-                {c.pageReports > 0 && (
-                  <span title={`${c.pageReports} page report${c.pageReports !== 1 ? "s" : ""}`} style={{ fontSize: 10, fontWeight: 700, color: "var(--error)", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>
-                    ⚑ {c.pageReports} PAGE
-                  </span>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <Link to={`/campaigns/${c.id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Detail</Link>
-                <Link to={`/governance/vote/${c.id}`} className="nano-btn nano-btn-accent" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>
-                  Vote →
-                </Link>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 8 }}>
-              <IPFSPreview metadataHash={c.metadataHash} compact />
-            </div>
-
-            {total > 0n && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ position: "relative", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 3, height: 8, overflow: "hidden", display: "flex" }}>
-                  <div style={{ width: `${ayePct}%`, height: "100%", background: "rgba(74,222,128,0.35)" }} />
-                  <div style={{ width: `${100 - ayePct}%`, height: "100%", background: "rgba(248,113,113,0.35)" }} />
-                  <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "var(--text-muted)", opacity: 0.4 }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                  <span style={{ color: "var(--ok)" }}>Aye {ayePct}% · <DOTAmount planck={c.ayeWeighted} /></span>
-                  <span style={{ color: "var(--error)" }}>Nay {100 - ayePct}% · <DOTAmount planck={c.nayWeighted} /></span>
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {(c.status <= 2) && signer && (
-                <button onClick={() => evaluate(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12 }}>
-                  Evaluate
-                </button>
-              )}
-              {inactiveEligible && signer && (
-                <button onClick={() => expireInactive(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, color: "var(--warn)" }}>
-                  Expire (Inactive)
-                </button>
-              )}
-              {c.status === 0 && signer && (
-                <button onClick={() => expirePending(c.id)} disabled={actionBusy === c.id} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12 }}>
-                  Expire (Pending Timeout)
-                </button>
-              )}
-              {actionBusy === c.id && <span style={{ color: "var(--text-muted)", fontSize: 11, alignSelf: "center" }}>Processing...</span>}
-            </div>
-          </div>
-        );
-      })}
-
-      {!loading && displayed.length === 0 && (
-        <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>
-          {filter === "active" ? "No active or pending campaigns." : filter === "reported" ? "No reported campaigns." : "No campaigns found."}
-        </div>
-      )}
-    </div>
+    <Dashboard
+      title="Governance"
+      subtitle="Protocol-wide voting, council appeals, and parameter tuning."
+      heroStats={heroStats}
+      stream={stream}
+      actions={actions}
+    />
   );
+}
+
+// ─── Hero stats ───────────────────────────────────────────────────
+
+function buildHeroStats(addrs: Addrs): HeroStat[] {
+  return [
+    {
+      label: "Phase",
+      value: async () => {
+        const phase = await callContract<bigint>({
+          address: addrs.governanceRouter,
+          abi: ROUTER_ABI,
+          method: "phase",
+        });
+        const gov = await callContract<string>({
+          address: addrs.governanceRouter,
+          abi: ROUTER_ABI,
+          method: "governor",
+        });
+        return `${Number(phase)}|${gov.toLowerCase()}`;
+      },
+      formatter: (v) => {
+        const [phaseStr, gov] = String(v).split("|");
+        const name = PHASE_NAMES[Number(phaseStr)] ?? `Phase ${phaseStr}`;
+        return `${name} (${shorten(gov)})`;
+      },
+      link: "/governance/phase-ladder",
+    },
+    {
+      label: "Vote windows (7d)",
+      value: async () =>
+        countLogs(addrs.governanceV2, TOPIC_COMMIT_REVEAL_OPENED),
+      formatter: (v) => String(v),
+    },
+    {
+      label: "Council appeals (7d)",
+      value: async () => {
+        if (!addrs.blocklistCurator) return 0;
+        const [filed, resolved] = await Promise.all([
+          countLogs(addrs.blocklistCurator, TOPIC_BLOCKLIST_APPEAL_FILED),
+          countLogs(addrs.blocklistCurator, TOPIC_BLOCKLIST_APPEAL_RESOLVED),
+        ]);
+        // Open ≈ filed − resolved in the same window. Negative
+        // values clamp to zero (we'd miss earlier "filed" events
+        // that resolved within the window).
+        return Math.max(0, filed - resolved);
+      },
+      formatter: (v) => String(v),
+      link: "/governance/council",
+    },
+    {
+      label: "Param retunes (7d)",
+      value: async () => {
+        // RetuneGuarded fires on every guarded setter call across
+        // ~7 contracts (GovernanceV2, PublisherGov, AdvertiserGov,
+        // RelayGov, MintCoordinator). We sum across the ones whose
+        // addresses are known.
+        const contracts: (string | undefined)[] = [
+          addrs.governanceV2,
+          addrs.publisherGovernance,
+          addrs.relayGovernance,
+          addrs.mintCoordinator,
+        ];
+        const counts = await Promise.all(
+          contracts.map((addr) =>
+            addr ? countLogs(addr, TOPIC_RETUNE_GUARDED) : Promise.resolve(0)
+          )
+        );
+        return counts.reduce((a, b) => a + b, 0);
+      },
+      formatter: (v) => String(v),
+      link: "/governance/parameters",
+    },
+  ];
+}
+
+async function countLogs(address: string, topic0: string): Promise<number> {
+  try {
+    const head = await pineRpc<string>("eth_blockNumber");
+    const headN = Number(BigInt(head));
+    const fromN = Math.max(0, headN - WINDOW_7D_BLOCKS);
+    const logs = await pineRpc<unknown[]>("eth_getLogs", [
+      {
+        address: address.toLowerCase(),
+        topics: [topic0],
+        fromBlock: "0x" + fromN.toString(16),
+        toBlock: "0x" + headN.toString(16),
+      },
+    ]);
+    return Array.isArray(logs) ? logs.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ─── Telemetry stream ─────────────────────────────────────────────
+
+function buildStream(addrs: Addrs): TelemetryStreamOpts {
+  const sources: TelemetryStreamOpts["sources"] = [
+    {
+      address: addrs.governanceV2.toLowerCase(),
+      topic0: TOPIC_VOTE_CAST,
+      formatter: voteCastRow,
+    },
+    {
+      address: addrs.governanceV2.toLowerCase(),
+      topic0: TOPIC_CAMPAIGN_EVALUATED,
+      formatter: campaignEvaluatedRow,
+    },
+    {
+      address: addrs.governanceRouter.toLowerCase(),
+      topic0: TOPIC_PHASE_TRANSITIONED,
+      formatter: phaseTransitionedRow,
+    },
+    {
+      address: addrs.governanceRouter.toLowerCase(),
+      topic0: TOPIC_HIGH_TIER_PROPOSED,
+      formatter: highTierProposedRow,
+    },
+    {
+      address: addrs.governanceRouter.toLowerCase(),
+      topic0: TOPIC_HIGH_TIER_EXECUTED,
+      formatter: highTierExecutedRow,
+    },
+  ];
+  if (addrs.activationBonds) {
+    sources.push({
+      address: addrs.activationBonds.toLowerCase(),
+      topic0: TOPIC_BOND_OPENED,
+      formatter: bondOpenedRow,
+    });
+  }
+  if (addrs.blocklistCurator) {
+    sources.push(
+      {
+        address: addrs.blocklistCurator.toLowerCase(),
+        topic0: TOPIC_ADDR_BLOCKED,
+        formatter: addrBlockedRow,
+      },
+      {
+        address: addrs.blocklistCurator.toLowerCase(),
+        topic0: TOPIC_BLOCKLIST_APPEAL_FILED,
+        formatter: blocklistAppealRow,
+      }
+    );
+  }
+  return {
+    windowBlocks: WINDOW_7D_BLOCKS,
+    historyAllowed: true,
+    sources,
+  };
+}
+
+function voteCastRow(log: EthLog): StreamRow {
+  const decoded = GOV_IFACE.decodeEventLog("VoteCast", log.data, log.topics);
+  const campaignId = decoded[0] as bigint;
+  const voter = topicAddress(log.topics[2]);
+  const aye = decoded[2] as boolean;
+  const conviction = decoded[4] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "vote",
+    title: `${aye ? "Aye" : "Nay"} on campaign ${campaignId} (conviction ${conviction})`,
+    subtitle: `Voter ${shorten(voter)} · block ${Number(BigInt(log.blockNumber))}`,
+    route: `/governance/vote?campaign=${campaignId}`,
+  };
+}
+
+function campaignEvaluatedRow(log: EthLog): StreamRow {
+  const decoded = GOV_IFACE.decodeEventLog(
+    "CampaignEvaluated",
+    log.data,
+    log.topics
+  );
+  const id = decoded[0] as bigint;
+  const result = decoded[1] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "evaluate",
+    title: `Campaign ${id} evaluated → ${VOTE_RESULTS[Number(result)] ?? `status ${result}`}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+    route: `/explorer/campaigns/${id}`,
+  };
+}
+
+function phaseTransitionedRow(log: EthLog): StreamRow {
+  const decoded = ROUTER_IFACE.decodeEventLog(
+    "PhaseTransitioned",
+    log.data,
+    log.topics
+  );
+  const phase = decoded[0] as bigint;
+  const gov = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "phase",
+    title: `Phase transitioned → ${PHASE_NAMES[Number(phase)] ?? phase}`,
+    subtitle: `New governor ${shorten(gov)}`,
+    route: "/governance/phase-ladder",
+  };
+}
+
+function highTierProposedRow(log: EthLog): StreamRow {
+  const decoded = ROUTER_IFACE.decodeEventLog(
+    "HighTierProposed",
+    log.data,
+    log.topics
+  );
+  const id = decoded[0] as bigint;
+  const target = topicAddress(log.topics[2]);
+  const after = decoded[2] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "high-tier-proposed",
+    title: `High-tier #${id} proposed → ${shorten(target)}`,
+    subtitle: `Executable at block ${after.toString()}`,
+    route: "/governance/council",
+  };
+}
+
+function highTierExecutedRow(log: EthLog): StreamRow {
+  const decoded = ROUTER_IFACE.decodeEventLog(
+    "HighTierExecuted",
+    log.data,
+    log.topics
+  );
+  const id = decoded[0] as bigint;
+  const success = decoded[1] as boolean;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "high-tier-exec",
+    title: `High-tier #${id} ${success ? "executed" : "execution failed"}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+  };
+}
+
+function bondOpenedRow(log: EthLog): StreamRow {
+  const decoded = BOND_IFACE.decodeEventLog("BondOpened", log.data, log.topics);
+  const id = decoded[0] as bigint;
+  const creator = topicAddress(log.topics[2]);
+  const bond = decoded[2] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "bond-open",
+    title: `Campaign ${id} bond opened`,
+    subtitle: `Creator ${shorten(creator)} · ${formatDot(bond)} · open for challenge`,
+    route: "/governance/activation-bonds",
+  };
+}
+
+function addrBlockedRow(log: EthLog): StreamRow {
+  const blocked = topicAddress(log.topics[1]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "blocked",
+    title: `Council blocked ${shorten(blocked)}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+    route: "/governance/council",
+  };
+}
+
+function blocklistAppealRow(log: EthLog): StreamRow {
+  const decoded = BLOCKLIST_IFACE.decodeEventLog(
+    "BlocklistAppealFiled",
+    log.data,
+    log.topics
+  );
+  const appealId = decoded[0] as bigint;
+  const appellant = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "appeal",
+    title: `Blocklist appeal #${appealId} filed`,
+    subtitle: `Appellant ${shorten(appellant)}`,
+    route: "/governance/council",
+  };
+}
+
+// ─── Action hooks ─────────────────────────────────────────────────
+
+function buildActions(): ActionHook[] {
+  return [
+    { label: "Vote", route: "/governance/vote", description: "Active campaign votes" },
+    { label: "My votes", route: "/governance/my-votes", description: "Locked DOT + withdraw" },
+    { label: "Activation bonds", route: "/governance/activation-bonds", description: "Contest / activate pending campaigns" },
+    { label: "Council", route: "/governance/council", description: "Blocklist + tag appeals" },
+    { label: "Parameters", route: "/governance/parameters", description: "Per-contract tuning" },
+    { label: "Phase ladder", route: "/governance/phase-ladder", description: "Admin → Council → OpenGov" },
+  ];
+}
+
+// ─── Format helpers ───────────────────────────────────────────────
+
+function formatDot(planck: bigint): string {
+  if (planck === 0n) return "0 DOT";
+  const whole = planck / 10n ** 10n;
+  const frac = planck % 10n ** 10n;
+  if (whole === 0n) {
+    const padded = frac.toString().padStart(10, "0");
+    const trimmed = padded.slice(0, 4).replace(/0+$/, "") || "0";
+    return `0.${trimmed} DOT`;
+  }
+  const fracStr = frac.toString().padStart(10, "0").slice(0, 4).replace(/0+$/, "");
+  return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
+}
+
+function topicAddress(topic: string | undefined): string {
+  if (!topic) return "";
+  return "0x" + topic.toLowerCase().slice(-40);
+}
+
+function shorten(addr: string): string {
+  if (!addr || addr.length < 10) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function tsForBlock(blockHex: string): number {
+  void blockHex;
+  return Math.floor(Date.now() / 1000);
 }
