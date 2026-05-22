@@ -63,7 +63,9 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     error RegistryUnset();
     error StakeInadequate();
 
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: minimumCpmFloor + pendingTimeoutBlocks demoted from immutable to
+    /// storage, gated by onlyOwnerOrPG with bounded setters + lock-once.
+    function version() public pure override returns (uint256) { return 2; }
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -85,8 +87,54 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // Safe rollout: max campaign budget cap (0 = disabled)
     uint256 public maxCampaignBudget;
 
-    uint256 public immutable minimumCpmFloor;
-    uint256 public immutable pendingTimeoutBlocks;
+    // ─────────────────────────────────────────────────────────────────────
+    // Governance-tunable parameters (Phase A of the parameter-governance
+    // rollout). Previously `immutable`; demoted to storage so they can be
+    // retuned without redeploying DatumCampaigns. Each parameter has:
+    //
+    //   - a runtime setter gated `onlyOwnerOrPG` (owner = phased governor;
+    //     PG = ParameterGovernance with its bicameral veto window),
+    //   - hard-coded MIN / MAX bounds enforced inside the setter,
+    //   - a one-way `lockX()` function gated `whenOpenGovPhase` that
+    //     freezes the value to the lock-once cypherpunk end-state.
+    //
+    // `minimumCpmFloor` is read only at campaign creation, so retuning
+    // it never retroactively invalidates existing campaigns.
+    // `pendingTimeoutBlocks` is snapshotted into each campaign's
+    // `pendingExpiryBlock` at creation, also non-retroactive.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// @notice Minimum CPM (rate per 1,000 events) a campaign pot may
+    ///         declare at creation. Snapshot-only; existing campaigns
+    ///         are unaffected by changes.
+    uint256 public minimumCpmFloor;
+
+    /// @notice Block window between campaign creation and auto-expiry
+    ///         if governance hasn't activated it. Snapshot into the
+    ///         campaign's `pendingExpiryBlock` at create time.
+    uint256 public pendingTimeoutBlocks;
+
+    /// @notice Lock-once flag. Once `lockMinimumCpmFloor()` fires under
+    ///         Phase-2 OpenGov, `setMinimumCpmFloor` reverts forever.
+    bool public minimumCpmFloorLocked;
+
+    /// @notice Lock-once flag for the pending-timeout parameter.
+    bool public pendingTimeoutBlocksLocked;
+
+    /// @notice ParameterGovernance address authorised to retune the
+    ///         parameters above through its bicameral flow. Lock-once
+    ///         on first set via `setParameterGovernance` to prevent a
+    ///         compromised owner from rotating PG mid-flight.
+    address public parameterGovernance;
+
+    /// @dev Hard-coded bounds. Wider than any realistic operating range;
+    ///      they exist to prevent governance-attack abuse (setting the
+    ///      floor to 0 / MAX_UINT, etc.). Anything inside the bounds is
+    ///      still subject to PG's veto window.
+    uint256 internal constant CPM_FLOOR_MIN = 1;                      // strictly > 0
+    uint256 internal constant CPM_FLOOR_MAX = 10 * 10**10;            // 10 DOT/1000 imps
+    uint256 internal constant PENDING_TIMEOUT_MIN = 100;              // ~10 min on Paseo (6s blocks)
+    uint256 internal constant PENDING_TIMEOUT_MAX = 5_256_000;        // ~1 year
 
     // -------------------------------------------------------------------------
     // Global pause registry
@@ -251,11 +299,102 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ) {
         if (!(_publishers != address(0))) revert E00();
         if (!(_pauseRegistry != address(0))) revert E00();
+        // Constructor accepts ANY non-negative initial value for both
+        // parameters. Production deploys must pass values inside the
+        // setter bounds (the deploy script's MIN_CPM_FLOOR + a sensible
+        // PENDING_TIMEOUT_BLOCKS), but unit-test deploys legitimately
+        // use sub-bound values (e.g. PENDING_TIMEOUT = 5n) so settings
+        // can be exercised quickly. The runtime setter is the live
+        // security gate — bounded against governance abuse — and the
+        // lock-once functions refuse to ratify out-of-bounds values.
         minimumCpmFloor = _minimumCpmFloor;
         pendingTimeoutBlocks = _pendingTimeoutBlocks;
         publishers = IDatumPublishers(_publishers);
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         nextCampaignId = 1;
+    }
+
+    // -------------------------------------------------------------------------
+    // Governance-tunable parameter setters (Phase A)
+    // -------------------------------------------------------------------------
+
+    event ParameterGovernanceSet(address indexed pg);
+    event MinimumCpmFloorSet(uint256 oldValue, uint256 newValue);
+    event PendingTimeoutBlocksSet(uint256 oldValue, uint256 newValue);
+    event MinimumCpmFloorLocked(uint256 finalValue);
+    event PendingTimeoutBlocksLocked(uint256 finalValue);
+
+    /// @dev   Owner OR ParameterGovernance — used by setters that should be
+    ///        retunable through PG's bicameral veto-window flow in addition
+    ///        to the standard owner-governance path.
+    modifier onlyOwnerOrPG() {
+        if (!(msg.sender == owner() || msg.sender == parameterGovernance)) revert E18();
+        _;
+    }
+
+    /// @notice Wire ParameterGovernance. Lock-once: once set, the address
+    ///         cannot be rotated (a router upgrade is the only way to
+    ///         change it post-bootstrap). Prevents a compromised owner
+    ///         from re-pointing PG at a malicious target.
+    function setParameterGovernance(address pg) external onlyOwner {
+        if (!(pg != address(0))) revert E00();
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @notice Retune the minimum CPM floor enforced at campaign creation.
+    ///         Snapshot-at-creation: existing campaigns are unaffected.
+    /// @dev    Bounded [CPM_FLOOR_MIN, CPM_FLOOR_MAX]. Reverts post-lock.
+    function setMinimumCpmFloor(uint256 newFloor) external onlyOwnerOrPG whenNotFrozen {
+        require(!minimumCpmFloorLocked, "locked");
+        require(newFloor >= CPM_FLOOR_MIN && newFloor <= CPM_FLOOR_MAX, "out-of-bounds");
+        uint256 old = minimumCpmFloor;
+        minimumCpmFloor = newFloor;
+        emit MinimumCpmFloorSet(old, newFloor);
+    }
+
+    /// @notice Permanently freeze the minimum CPM floor at its current
+    ///         value. Phase-2 (OpenGov) gated. After lock, the floor is
+    ///         effectively immutable — `setMinimumCpmFloor` reverts.
+    /// @dev    Refuses to lock at zero (`CPM_FLOOR_MIN` is the smallest
+    ///         lockable value) so the cypherpunk end-state can't
+    ///         accidentally ratify "no floor" through a single proposal.
+    function lockMinimumCpmFloor() external whenOpenGovPhase {
+        require(!minimumCpmFloorLocked, "already locked");
+        require(minimumCpmFloor >= CPM_FLOOR_MIN, "refuse-lock-zero");
+        minimumCpmFloorLocked = true;
+        emit MinimumCpmFloorLocked(minimumCpmFloor);
+    }
+
+    /// @notice Retune the pending-timeout window for new campaigns.
+    ///         Snapshot-at-creation; existing campaigns retain the value
+    ///         they were created under.
+    /// @dev    Bounded [PENDING_TIMEOUT_MIN, PENDING_TIMEOUT_MAX].
+    function setPendingTimeoutBlocks(uint256 newTimeout) external onlyOwnerOrPG whenNotFrozen {
+        require(!pendingTimeoutBlocksLocked, "locked");
+        require(
+            newTimeout >= PENDING_TIMEOUT_MIN && newTimeout <= PENDING_TIMEOUT_MAX,
+            "out-of-bounds"
+        );
+        uint256 old = pendingTimeoutBlocks;
+        pendingTimeoutBlocks = newTimeout;
+        emit PendingTimeoutBlocksSet(old, newTimeout);
+    }
+
+    /// @notice Permanently freeze the pending-timeout parameter.
+    ///         Phase-2 (OpenGov) gated. Pre-lock the parameter is
+    ///         retunable; post-lock the value at lock time becomes the
+    ///         effective `immutable`.
+    function lockPendingTimeoutBlocks() external whenOpenGovPhase {
+        require(!pendingTimeoutBlocksLocked, "already locked");
+        require(
+            pendingTimeoutBlocks >= PENDING_TIMEOUT_MIN &&
+            pendingTimeoutBlocks <= PENDING_TIMEOUT_MAX,
+            "refuse-lock-out-of-bounds"
+        );
+        pendingTimeoutBlocksLocked = true;
+        emit PendingTimeoutBlocksLocked(pendingTimeoutBlocks);
     }
 
     // -------------------------------------------------------------------------

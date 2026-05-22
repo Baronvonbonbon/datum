@@ -19,7 +19,9 @@ import "./interfaces/IDatumChallengeBonds.sol";
 ///         Termination: 10% slash to governance, 90% refund to advertiser.
 ///         Completion/Expiry: full remaining budget refund to advertiser.
 contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: inactivityTimeoutBlocks demoted from immutable to storage, gated
+    /// by onlyOwnerOrPG with bounded setter + lock-once.
+    function version() public pure override returns (uint256) { return 2; }
 
     // -------------------------------------------------------------------------
     // References
@@ -33,9 +35,29 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     // FP-2: optional challenge bonds contract (address(0) = disabled)
     IDatumChallengeBonds public challengeBonds;
 
-    /// @dev P20: Blocks of inactivity before a campaign can be expired.
-    ///      30 days at 6s blocks = 432,000 blocks.
-    uint256 public immutable inactivityTimeoutBlocks;
+    /// @notice Phase A governance-tunable parameter. Read **live** on every
+    ///         `terminateInactive` call, so changes apply to ALL campaigns
+    ///         retroactively. Hard bounds prevent adversarial governance
+    ///         from instant-expiring active campaigns (MIN ≥ 1 day) or
+    ///         disabling inactivity expiry entirely (MAX ≤ 1 year).
+    /// @dev    Previously `immutable`; demoted in v2 for tunability.
+    uint256 public inactivityTimeoutBlocks;
+
+    /// @notice Lock-once flag. Once set under Phase-2 OpenGov, the
+    ///         inactivity timeout becomes effectively immutable again.
+    bool public inactivityTimeoutBlocksLocked;
+
+    /// @notice ParameterGovernance address authorised to retune the
+    ///         inactivity timeout through its bicameral veto-window flow.
+    ///         Lock-once on first set.
+    address public parameterGovernance;
+
+    /// @dev Hard bounds on `inactivityTimeoutBlocks`. Tighter on the
+    ///      low end than the Campaigns parameters because this value is
+    ///      read live: lowering it below the MIN could instant-expire
+    ///      active campaigns mid-flight.
+    uint256 internal constant INACTIVITY_TIMEOUT_MIN = 14_400;        // 1 day at 6s blocks
+    uint256 internal constant INACTIVITY_TIMEOUT_MAX = 5_256_000;     // ~1 year
 
     /// @notice D1a cypherpunk plumbing lock. Lifecycle is a state-machine
     ///         plumbing contract; all protocol-ref setters live under this one
@@ -58,8 +80,70 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     constructor(address _pauseRegistry, uint256 _inactivityTimeoutBlocks) {
         require(_pauseRegistry != address(0), "E00");
         require(_inactivityTimeoutBlocks > 0, "E00");
+        // Phase A: constructor accepts any non-zero initial value to
+        // preserve compatibility with unit-test deploys that use small
+        // values for `mineBlocks` convenience. The runtime setter
+        // enforces the production bounds; this lets tests start outside
+        // the live bounds without bricking on construction.
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
         inactivityTimeoutBlocks = _inactivityTimeoutBlocks;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase A — governance-tunable inactivity timeout
+    // -------------------------------------------------------------------------
+
+    event ParameterGovernanceSet(address indexed pg);
+    event InactivityTimeoutBlocksSet(uint256 oldValue, uint256 newValue);
+    event InactivityTimeoutBlocksLocked(uint256 finalValue);
+
+    /// @dev Owner OR ParameterGovernance — used for the inactivity-timeout
+    ///      setter so PG's bicameral veto-window flow can retune it
+    ///      without escalating to a full Council / Timelock vote.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    /// @notice Wire ParameterGovernance. Lock-once: the address cannot be
+    ///         rotated after the first set. Mirrors the pattern used in
+    ///         DatumClaimValidator + DatumPowEngine.
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @notice Retune the inactivity timeout. Read live on every
+    ///         `terminateInactive` call — change applies to every
+    ///         campaign immediately. Bounds are tighter than the
+    ///         Campaigns parameters because of the retroactive effect.
+    /// @dev    Bounded [INACTIVITY_TIMEOUT_MIN, INACTIVITY_TIMEOUT_MAX].
+    function setInactivityTimeoutBlocks(uint256 newTimeout) external onlyOwnerOrPG whenNotFrozen {
+        require(!inactivityTimeoutBlocksLocked, "locked");
+        require(
+            newTimeout >= INACTIVITY_TIMEOUT_MIN && newTimeout <= INACTIVITY_TIMEOUT_MAX,
+            "out-of-bounds"
+        );
+        uint256 old = inactivityTimeoutBlocks;
+        inactivityTimeoutBlocks = newTimeout;
+        emit InactivityTimeoutBlocksSet(old, newTimeout);
+    }
+
+    /// @notice Permanently freeze the inactivity timeout. Phase-2
+    ///         (OpenGov) gated. Refuses to lock out-of-bounds values
+    ///         so the cypherpunk end-state can't be ratified with a
+    ///         broken parameter.
+    function lockInactivityTimeoutBlocks() external whenOpenGovPhase {
+        require(!inactivityTimeoutBlocksLocked, "already locked");
+        require(
+            inactivityTimeoutBlocks >= INACTIVITY_TIMEOUT_MIN &&
+            inactivityTimeoutBlocks <= INACTIVITY_TIMEOUT_MAX,
+            "refuse-lock-out-of-bounds"
+        );
+        inactivityTimeoutBlocksLocked = true;
+        emit InactivityTimeoutBlocksLocked(inactivityTimeoutBlocks);
     }
 
     // -------------------------------------------------------------------------
