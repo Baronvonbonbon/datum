@@ -23,6 +23,7 @@ import { RelayProvider } from "./provider.mjs";
 import { CampaignPoll } from "./poll/campaigns.mjs";
 import { ClaimQueue } from "./poll/claims.mjs";
 import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
+import { HttpServer } from "./http.mjs";
 
 async function main() {
   let cfg;
@@ -66,9 +67,19 @@ async function main() {
   });
   await identityPoll.start();
 
-  // Stages 7c/7d hook in next.
+  // Stage 7c — localhost HTTP endpoint.
+  const http = new HttpServer({
+    cfg,
+    provider,
+    claimQueue,
+    clickBatch: null,      // wired in Stage 7d
+    bulletinGateway: null, // out-of-scope for the skeleton
+  });
+  http.start();
+
+  // Stage 7d hooks in next.
   log.info("relay running — submitters not yet wired", {
-    next_stages: ["7c: HTTP endpoints", "7d: submitters"],
+    next_stages: ["7d: submitters"],
     activeCampaigns: campaignPoll.snapshot().active.length,
     claimQueue: claimQueue.size(),
   });
@@ -79,6 +90,7 @@ async function main() {
     shutdownInProgress = true;
     log.info("shutdown requested", { reason, snapshot: snapshot() });
     try {
+      await http.stop();
       identityPoll.stop();
       campaignPoll.stop();
       await provider.stop();
