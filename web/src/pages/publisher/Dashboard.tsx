@@ -1,261 +1,340 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { ethers } from "ethers";
-import { useContracts } from "../../hooks/useContracts";
-import { useWallet } from "../../context/WalletContext";
-import { DOTAmount } from "../../components/DOTAmount";
-import { humanizeError } from "@shared/errorCodes";
-import { useTx } from "../../hooks/useTx";
-import { useToast } from "../../context/ToastContext";
-import { tagLabel } from "@shared/tagDictionary";
-import { ConfirmModal } from "../../components/ConfirmModal";
+// /publisher dashboard — publisher-operator overview.
+//
+// Hero stats:
+//   - Pending DOT             (PaymentVault.publisherBalance)
+//   - Stake / required        (PublisherStake.staked / requiredStake)
+//   - Reputation              (PublisherReputation.getReputationScore, bps)
+//   - Blocklist status        (Publishers.isBlocked)
+//
+// Telemetry stream (operator route — historyAllowed: true so we can
+// splice in settlements past pine's rolling window via the operator's
+// configured RPC endpoint per design §1):
+//   - SettlementCredited where publisher == me
+//   - PublisherWithdrawal where publisher == me
+//   - PageReported where publisher == me  (when DatumReports is wired)
+//
+// Without a connected wallet: <NeedsExtension>. Same gate as /me.
+//
+// The legacy dashboard (withdraw flow, tag editing, IPFS profile
+// fetch) lives in Dashboard.legacy.tsx; its concerns will fold into
+// the new action-hook column during follow-up polish.
+
+import { useMemo } from "react";
+import { id as ethersId, Interface } from "ethers";
+import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { NeedsExtension } from "../../components/NeedsExtension";
+import { useWallet } from "../../hooks/useWallet";
+import { type HeroStat } from "../../hooks/useHeroStat";
+import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
+import { callContract } from "../../lib/contractRead";
+import { type EthLog } from "../../lib/eventBus";
+import { NETWORK_CONFIGS } from "../../shared/networks";
+
+const WINDOW_7D_BLOCKS = 14_400 * 7;
+
+const PAYMENT_VAULT_ABI = [
+  "function publisherBalance(address) view returns (uint256)",
+];
+const PUBLISHER_STAKE_ABI = [
+  "function staked(address) view returns (uint256)",
+  "function requiredStake(address) view returns (uint256)",
+];
+const PUBLISHER_REPUTATION_ABI = [
+  "function getReputationScore(address) view returns (uint16)",
+];
+const PUBLISHERS_ABI = [
+  "function isBlocked(address) view returns (bool)",
+];
+
+const TOPIC_SETTLEMENT_CREDITED = ethersId(
+  "SettlementCredited(address,address,uint256)"
+);
+const TOPIC_PUBLISHER_WITHDRAWAL = ethersId(
+  "PublisherWithdrawal(address,uint256)"
+);
+const TOPIC_PAGE_REPORTED = ethersId(
+  "PageReported(uint256,address,address,uint8)"
+);
+
+const SETTLEMENT_IFACE = new Interface([
+  "event SettlementCredited(address indexed publisher, address indexed user, uint256 total)",
+]);
+const WITHDRAWAL_IFACE = new Interface([
+  "event PublisherWithdrawal(address indexed publisher, uint256 amount)",
+]);
+const REPORT_IFACE = new Interface([
+  "event PageReported(uint256 indexed campaignId, address indexed publisher, address indexed reporter, uint8 reason)",
+]);
+
+const REPORT_REASONS: Record<number, string> = {
+  1: "spam",
+  2: "misleading",
+  3: "inappropriate",
+  4: "illegal",
+  5: "other",
+};
+
+type Addrs = (typeof NETWORK_CONFIGS)["polkadotTestnet"]["addresses"];
 
 export function PublisherDashboard() {
-  const contracts = useContracts();
-  const { address, signer } = useWallet();
-  const { confirmTx } = useTx();
-  const { push } = useToast();
-  const [info, setInfo] = useState<any>(null);
-  const [balance, setBalance] = useState<bigint | null>(null);
-  const [blocked, setBlocked] = useState(false);
-  const [tags, setTags] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [withdrawing, setWithdrawing] = useState(false);
-  const [reputation, setReputation] = useState<{ settled: bigint; rejected: bigint; scoreBps: bigint } | null>(null);
-  const [stakeStatus, setStakeStatus] = useState<{ adequate: boolean; staked: bigint; required: bigint } | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
-  const [withdrawToAddress, setWithdrawToAddress] = useState("");
+  const wallet = useWallet();
 
-
-  useEffect(() => { if (address) load(); }, [address]);
-
-  async function load() {
-    if (!address) return;
-    setLoading(true);
-    try {
-      const [pubData, bal, blk] = await Promise.all([
-        contracts.publishers.getPublisher(address).catch(() => null),
-        contracts.paymentVault.publisherBalance(address).catch(() => 0n),
-        contracts.publishers.isBlocked(address).catch(() => false),
-      ]);
-      setInfo(pubData);
-      setBalance(BigInt(bal));
-      setBlocked(Boolean(blk));
-
-      // Fetch tags (merged into Campaigns in alpha-4)
-      try {
-        if (contracts.campaigns) {
-          const hashes: string[] = await contracts.campaigns.getPublisherTags2(address);
-          setTags(hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean));
-        }
-      } catch { /* no campaigns contract */ }
-
-      // Fetch reputation stats (merged into Settlement in alpha-4)
-      try {
-        if (contracts.settlement) {
-          const stats = await contracts.settlement.getPublisherStats(address);
-          setReputation({
-            settled: BigInt(stats[0] ?? stats.totalSettled ?? 0),
-            rejected: BigInt(stats[1] ?? stats.totalRejected ?? 0),
-            scoreBps: BigInt(stats[2] ?? stats.scoreBps ?? 0),
-          });
-        }
-      } catch { /* no settlement contract */ }
-
-      // Stake adequacy — settlement rejects under-staked publishers (E15)
-      try {
-        if (contracts.publisherStake) {
-          const [adequate, staked, required] = await Promise.all([
-            contracts.publisherStake.isAdequatelyStaked(address),
-            contracts.publisherStake.staked(address),
-            contracts.publisherStake.requiredStake(address),
-          ]);
-          setStakeStatus({
-            adequate: Boolean(adequate),
-            staked: BigInt(staked),
-            required: BigInt(required),
-          });
-        }
-      } catch { /* stake contract not configured */ }
-    } finally {
-      setLoading(false);
-    }
+  if (!wallet.installed) {
+    return (
+      <NeedsExtension
+        title="Connect your DATUM wallet"
+        description="The publisher dashboard requires the DATUM browser extension to identify your publisher address."
+      />
+    );
+  }
+  if (!wallet.connected || !wallet.address) {
+    return (
+      <NeedsExtension
+        title="DATUM wallet not connected"
+        description="Click the extension icon and approve this site to view your publisher metrics."
+      />
+    );
   }
 
-  async function handleWithdraw() {
-    if (!signer) return;
-    setWithdrawing(true);
-    setMsg(null);
-    try {
-      const vault = contracts.paymentVault.connect(signer);
-      const dest = withdrawToAddress.trim();
-      const tx = dest && ethers.isAddress(dest)
-        ? await vault.withdrawPublisherTo(dest)
-        : await vault.withdrawPublisher();
-      await confirmTx(tx);
-      setMsg(dest && ethers.isAddress(dest) ? `Sent to ${dest.slice(0, 8)}...${dest.slice(-6)}.` : "Withdrawal successful!");
-      load();
-    } catch (err) {
-      push(humanizeError(err), "error");
-    } finally {
-      setWithdrawing(false);
-    }
-  }
-
-
-  if (!address) return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect your wallet to manage your publisher profile.</div>;
-  if (loading) return <div className="nano-pending-text" style={{ color: "var(--text-muted)", padding: 20 }}>Loading</div>;
-
-  const isRegistered = info?.registered === true || info?.[0] === true;
-  const takeRateBps = Number(info?.takeRateBps ?? info?.[1] ?? 0);
+  const me = wallet.address;
+  const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
+  const heroStats = useMemo<HeroStat[]>(() => buildHeroStats(me, addrs), [me, addrs]);
+  const stream = useMemo<TelemetryStreamOpts>(() => buildStream(me, addrs), [me, addrs]);
+  const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <div className="nano-fade">
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Publisher Dashboard</h1>
-
-      {blocked && (
-        <div className="nano-info nano-info--error" style={{ fontWeight: 600, marginBottom: 16 }}>
-          This address is blocked by the protocol admin. New registrations and campaigns are restricted.
-        </div>
-      )}
-
-      {stakeStatus && !stakeStatus.adequate && stakeStatus.required > 0n && (
-        <div className="nano-info nano-info--error" style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Settlement blocked — under-staked (E15)</div>
-          <div style={{ fontSize: 12, marginBottom: 8 }}>
-            Your stake is below the required minimum. Settlement rejects claims from under-staked publishers,
-            so earnings won't accrue until you top up.
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12 }}>
-              Need <DOTAmount planck={stakeStatus.required - stakeStatus.staked} /> more
-            </span>
-            <Link to="/publisher/stake" className="nano-btn nano-btn-accent" style={{ fontSize: 12, padding: "5px 12px", textDecoration: "none" }}>
-              Stake now
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {!isRegistered ? (
-        <div className="nano-card" style={{ padding: 20 }}>
-          <div style={{ color: "var(--text)", marginBottom: 12 }}>You are not registered as a publisher.</div>
-          <Link to="/publisher/register" className="nano-btn nano-btn-accent" style={{ padding: "8px 16px", fontSize: 13, textDecoration: "none" }}>
-            Register as Publisher
-          </Link>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
-            <InfoCard label="Take Rate" value={`${(takeRateBps / 100).toFixed(0)}%`} />
-            <InfoCard label="Tags" value={`${tags.length} active`} />
-            <InfoCard label="Status" value="Registered" color="var(--ok)" />
-          </div>
-
-          {tags.length > 0 && (
-            <div className="nano-card" style={{ padding: 12 }}>
-              <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 6 }}>Active Tags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {tags.map((tag, i) => (
-                  <span key={i} className="nano-badge" style={{ color: "var(--accent)" }}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Reputation */}
-          {reputation && (
-            <div className="nano-card" style={{ padding: 16 }}>
-              <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Reputation</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                <div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Settled</div>
-                  <div style={{ color: "var(--ok)", fontWeight: 700, fontSize: 18 }}>{reputation.settled.toString()}</div>
-                </div>
-                <div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Rejected</div>
-                  <div style={{ color: reputation.rejected > 0n ? "var(--error)" : "var(--text-strong)", fontWeight: 700, fontSize: 18 }}>{reputation.rejected.toString()}</div>
-                </div>
-                <div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Score</div>
-                  <div style={{ color: "var(--text-strong)", fontWeight: 700, fontSize: 18 }}>{(Number(reputation.scoreBps) / 100).toFixed(0)}%</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Earnings */}
-          <div className="nano-card" style={{ padding: 16 }}>
-            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Earnings</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-strong)", marginBottom: 10 }}>
-              {balance !== null ? <DOTAmount planck={balance} /> : "—"}
-            </div>
-            {msg && <div style={{ color: "var(--ok)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}
-            {signer && balance !== null && balance > 0n && (
-              <>
-                <div style={{ marginBottom: 8 }}>
-                  <input
-                    type="text"
-                    value={withdrawToAddress}
-                    onChange={(e) => setWithdrawToAddress(e.target.value.trim())}
-                    placeholder="Withdraw to address (leave empty = this wallet)"
-                    className="nano-input"
-                    style={{ width: "100%", fontSize: 12 }}
-                  />
-                  {withdrawToAddress && !ethers.isAddress(withdrawToAddress) && (
-                    <div style={{ color: "var(--error)", fontSize: 11, marginTop: 2 }}>Invalid address.</div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setShowWithdrawConfirm(true)}
-                  disabled={withdrawing || (!!withdrawToAddress && !ethers.isAddress(withdrawToAddress))}
-                  className="nano-btn nano-btn-accent"
-                  style={{ padding: "8px 16px", fontSize: 13 }}
-                >
-                  {withdrawing
-                    ? "Withdrawing..."
-                    : withdrawToAddress && ethers.isAddress(withdrawToAddress)
-                      ? `Send to ${withdrawToAddress.slice(0, 8)}...`
-                      : "Withdraw Earnings"}
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Quick links */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Link to="/publisher/rate" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Update Take Rate</Link>
-            <Link to="/publisher/categories" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Tags</Link>
-            <Link to="/publisher/allowlist" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Allowlist</Link>
-            <Link to="/publisher/earnings" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Full Earnings</Link>
-            <Link to="/publisher/stake" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Manage Stake</Link>
-            <Link to="/publisher/sdk" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>SDK Setup</Link>
-            <Link to="/publisher/profile" className="nano-btn" style={{ padding: "6px 12px", fontSize: 12, textDecoration: "none" }}>Profile</Link>
-          </div>
-        </div>
-      )}
-
-      {showWithdrawConfirm && (
-        <ConfirmModal
-          title="Withdraw Earnings?"
-          message="This will transfer your full available balance to your wallet."
-          confirmLabel="Withdraw"
-          onConfirm={() => { setShowWithdrawConfirm(false); handleWithdraw(); }}
-          onCancel={() => setShowWithdrawConfirm(false)}
-        />
-      )}
-    </div>
+    <Dashboard
+      title="Publisher dashboard"
+      subtitle={`Publisher address: ${me.slice(0, 6)}…${me.slice(-4)}`}
+      heroStats={heroStats}
+      stream={stream}
+      actions={actions}
+    />
   );
 }
 
-function InfoCard({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="nano-card" style={{ padding: "10px 14px" }}>
-      <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>{label}</div>
-      <div style={{ color: color ?? "var(--text-strong)", fontSize: 18, fontWeight: 700 }}>{value}</div>
-    </div>
+// ─── Hero stats ───────────────────────────────────────────────────
+
+function buildHeroStats(me: string, addrs: Addrs): HeroStat[] {
+  return [
+    {
+      label: "Pending DOT",
+      value: async () =>
+        callContract<bigint>({
+          address: addrs.paymentVault,
+          abi: PAYMENT_VAULT_ABI,
+          method: "publisherBalance",
+          args: [me],
+        }),
+      formatter: (v) => formatDot(v as bigint),
+      link: "/publisher/earnings",
+    },
+    {
+      label: "Stake",
+      value: async () => {
+        const [staked, required] = await Promise.all([
+          callContract<bigint>({
+            address: addrs.publisherStake,
+            abi: PUBLISHER_STAKE_ABI,
+            method: "staked",
+            args: [me],
+          }),
+          callContract<bigint>({
+            address: addrs.publisherStake,
+            abi: PUBLISHER_STAKE_ABI,
+            method: "requiredStake",
+            args: [me],
+          }),
+        ]);
+        // Encode both into one string so the formatter can render
+        // "current / required" without a second hook.
+        return `${staked.toString()}|${required.toString()}`;
+      },
+      formatter: (v) => formatStakeRatio(String(v)),
+      link: "/publisher/stake",
+    },
+    {
+      label: "Reputation",
+      value: async () => {
+        if (!addrs.publisherReputation) return 0;
+        const score = await callContract<bigint>({
+          address: addrs.publisherReputation,
+          abi: PUBLISHER_REPUTATION_ABI,
+          method: "getReputationScore",
+          args: [me],
+        });
+        return Number(score);
+      },
+      formatter: (v) => {
+        const bps = Number(v);
+        if (bps === 0 && !addrs.publisherReputation) return "—";
+        return `${(bps / 100).toFixed(1)}%`;
+      },
+    },
+    {
+      label: "Status",
+      value: async () => {
+        const blocked = await callContract<boolean>({
+          address: addrs.publishers,
+          abi: PUBLISHERS_ABI,
+          method: "isBlocked",
+          args: [me],
+        });
+        return blocked ? "blocked" : "active";
+      },
+      formatter: (v) => (v === "blocked" ? "🚫 Blocked" : "✓ Active"),
+    },
+  ];
+}
+
+// ─── Telemetry stream ─────────────────────────────────────────────
+
+function buildStream(me: string, addrs: Addrs): TelemetryStreamOpts {
+  const sources: TelemetryStreamOpts["sources"] = [
+    {
+      address: addrs.paymentVault.toLowerCase(),
+      topic0: TOPIC_SETTLEMENT_CREDITED,
+      formatter: (log) => settlementRow(log, me),
+    },
+    {
+      address: addrs.paymentVault.toLowerCase(),
+      topic0: TOPIC_PUBLISHER_WITHDRAWAL,
+      formatter: (log) => withdrawalRow(log, me),
+    },
+  ];
+  if (addrs.reports) {
+    sources.push({
+      address: addrs.reports.toLowerCase(),
+      topic0: TOPIC_PAGE_REPORTED,
+      formatter: (log) => reportRow(log, me),
+    });
+  }
+  // Note on filtering: the per-source object passed into
+  // useTelemetryStream doesn't currently forward topic1/topic2
+  // through to the eventBus channel — it only carries
+  // (address, topic0, formatter). For Stage 4b we filter by indexed
+  // publisher in the formatter (returns ts=0 + empty title for
+  // non-matching rows, which the Dashboard sorts to the bottom and
+  // the 50-row slice drops). A follow-up pass will plumb
+  // topic1/topic2 through the slot wrapper for the more efficient
+  // server-side filter.
+  return {
+    windowBlocks: WINDOW_7D_BLOCKS,
+    historyAllowed: true,
+    sources,
+  };
+}
+
+function settlementRow(log: EthLog, me: string): StreamRow {
+  const publisher = topicAddress(log.topics[1]);
+  if (publisher.toLowerCase() !== me.toLowerCase()) {
+    return { ts: 0, type: "skipped", title: "" };
+  }
+  const user = topicAddress(log.topics[2]);
+  const decoded = SETTLEMENT_IFACE.decodeEventLog(
+    "SettlementCredited",
+    log.data,
+    log.topics
   );
+  const total = decoded[2] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "settlement",
+    title: `Earned ${formatDot(total)} from ${shorten(user)}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+  };
+}
+
+function withdrawalRow(log: EthLog, me: string): StreamRow {
+  const publisher = topicAddress(log.topics[1]);
+  if (publisher.toLowerCase() !== me.toLowerCase()) {
+    return { ts: 0, type: "skipped", title: "" };
+  }
+  const decoded = WITHDRAWAL_IFACE.decodeEventLog(
+    "PublisherWithdrawal",
+    log.data,
+    log.topics
+  );
+  const amount = decoded[1] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "withdraw",
+    title: `Withdrew ${formatDot(amount)}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+  };
+}
+
+function reportRow(log: EthLog, me: string): StreamRow {
+  const publisher = topicAddress(log.topics[2]);
+  if (publisher.toLowerCase() !== me.toLowerCase()) {
+    return { ts: 0, type: "skipped", title: "" };
+  }
+  const decoded = REPORT_IFACE.decodeEventLog(
+    "PageReported",
+    log.data,
+    log.topics
+  );
+  const reason = decoded[3] as bigint;
+  const reasonLabel = REPORT_REASONS[Number(reason)] ?? `reason ${reason}`;
+  const campaignId = decoded[0] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "report",
+    title: `Reported (${reasonLabel})`,
+    subtitle: `Campaign ${campaignId} · block ${Number(BigInt(log.blockNumber))}`,
+  };
+}
+
+// ─── Action hooks ─────────────────────────────────────────────────
+
+function buildActions(): ActionHook[] {
+  return [
+    { label: "Withdraw", route: "/publisher/earnings", description: "Pull settled DOT" },
+    { label: "Manage stake", route: "/publisher/stake", description: "Top up or reduce stake" },
+    { label: "SDK setup", route: "/publisher/sdk-setup", description: "Embed the snippet" },
+    { label: "Tags", route: "/publisher/categories", description: "Set targeting tags" },
+  ];
+}
+
+// ─── Format helpers ───────────────────────────────────────────────
+
+function formatDot(wei: bigint): string {
+  const whole = wei / 10n ** 18n;
+  const frac = wei % 10n ** 18n;
+  if (wei === 0n) return "0 DOT";
+  if (whole === 0n) {
+    const padded = frac.toString().padStart(18, "0");
+    const trimmed = padded.slice(0, 6).replace(/0+$/, "") || "0";
+    return `0.${trimmed} DOT`;
+  }
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
+  return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
+}
+
+function formatStakeRatio(encoded: string): string {
+  const [stakedStr, requiredStr] = encoded.split("|");
+  const staked = BigInt(stakedStr || "0");
+  const required = BigInt(requiredStr || "0");
+  if (required === 0n) return formatDot(staked);
+  const ratio = Number((staked * 100n) / required);
+  return `${formatDot(staked)} (${ratio}% of req)`;
+}
+
+function topicAddress(topic: string | undefined): string {
+  if (!topic) return "";
+  return "0x" + topic.toLowerCase().slice(-40);
+}
+
+function shorten(addr: string): string {
+  if (!addr || addr.length < 10) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function tsForBlock(blockHex: string): number {
+  // Approximation — see /me Dashboard.tsx for context. Relative
+  // ordering by block number is preserved (which is what the stream
+  // sort actually uses). Per-block timestamp batching can land in a
+  // follow-up.
+  void blockHex;
+  return Math.floor(Date.now() / 1000);
 }
