@@ -14,6 +14,8 @@
 
 import { useState, useEffect } from "react";
 import { walletClient, type WalletStatus, type OriginPermission } from "./walletClient";
+import { AssuranceSection } from "./AssuranceSection";
+import { RecoverySection } from "./RecoverySection";
 import {
   card,
   button,
@@ -39,6 +41,8 @@ export function SettingsTab({
       <div style={{ ...heading, fontSize: 13 }}>Settings</div>
 
       <SecuritySection status={status} onChange={onChange} />
+      <AssuranceSection status={status} />
+      <RecoverySection status={status} />
       <PermissionsSection />
       <ThemeSection />
       <ResetSection onChange={onChange} />

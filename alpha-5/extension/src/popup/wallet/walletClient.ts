@@ -128,6 +128,36 @@ export const walletClient = {
     return call<SendNativeResult>("sendNative", args);
   },
 
+  /// Generic contract write. Caller pre-encodes calldata via an
+  /// ethers `Interface`; background fills nonce/chain/gas defaults,
+  /// signs, broadcasts via pine. Used by the protocol-side popup
+  /// tabs (Earnings withdraw, Assurance setter, Recovery setter).
+  sendContract(args: {
+    to: string;
+    /// 0x-prefixed hex calldata (ethers `iface.encodeFunctionData(...)`).
+    data: string;
+    /// Wei attached to the call (default "0"). For non-payable
+    /// methods this stays at 0.
+    valueWei?: string;
+    chainId?: number;
+    gasLimit?: number;
+    maxFeePerGas?: string;
+    maxPriorityFeePerGas?: string;
+  }): Promise<SendNativeResult> {
+    return call<SendNativeResult>("sendContract", args);
+  },
+
+  /// Generic chain read. Caller pre-encodes calldata; background
+  /// proxies to pine's eth_call. Returns the raw 0x-hex result —
+  /// caller decodes via ethers `Interface.decodeFunctionResult(...)`.
+  ethCall(args: {
+    to: string;
+    data: string;
+    block?: string;
+  }): Promise<string> {
+    return call<string>("ethCall", args);
+  },
+
   signTransaction(tx: unknown): Promise<string> {
     return call<string>("signTransaction", { tx });
   },

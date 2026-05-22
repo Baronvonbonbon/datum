@@ -17,18 +17,24 @@ import { AccountsTab } from "./wallet/AccountsTab";
 import { SendTab } from "./wallet/SendTab";
 import { ReceiveTab } from "./wallet/ReceiveTab";
 import { SettingsTab } from "./wallet/SettingsTab";
+import { EarningsTab } from "./wallet/EarningsTab";
 import {
   PermissionRequest,
   usePendingPermission,
 } from "./wallet/PermissionRequest";
 import { walletClient, type WalletStatus } from "./wallet/walletClient";
 
-type Tab = "accounts" | "send" | "receive" | "settings";
+type Tab = "accounts" | "send" | "receive" | "earnings" | "settings";
 
+// Five-tab layout fits a 360px popup at ~11px per label. Earnings
+// is the protocol-side catch-all per design doc §3.5; Accounts /
+// Send / Receive are the wallet primitives; Settings hosts the
+// AssuranceSection + RecoverySection alongside theme + permissions.
 const TAB_LABELS: Record<Tab, string> = {
   accounts: "Accounts",
   send: "Send",
   receive: "Receive",
+  earnings: "Earnings",
   settings: "Settings",
 };
 
@@ -233,6 +239,7 @@ function Dashboard({
         )}
         {tab === "send" && <SendTab status={status} />}
         {tab === "receive" && <ReceiveTab status={status} />}
+        {tab === "earnings" && <EarningsTab status={status} />}
         {tab === "settings" && (
           <SettingsTab status={status} onChange={onChange} />
         )}

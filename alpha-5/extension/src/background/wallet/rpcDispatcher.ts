@@ -124,6 +124,52 @@ async function runOp(op: WalletRpcOp, args: any): Promise<unknown> {
       const txHash = await pineRpc<string>("eth_sendRawTransaction", [rawSigned]);
       return { txHash, nonce };
     }
+    case "sendContract": {
+      // Generic contract call: caller pre-encodes calldata; we add
+      // nonce + chain + gas defaults, sign, broadcast. Used by the
+      // popup's protocol-side tabs (EarningsTab withdraw,
+      // AssuranceSection setter, RecoverySection setter).
+      const {
+        to,
+        data,
+        valueWei,
+        chainId,
+        gasLimit,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      } = args;
+      const fromAddress = (await getStatus()).activeAddress;
+      const nonceHex = await pineRpc<string>("eth_getTransactionCount", [
+        fromAddress,
+        "latest",
+      ]);
+      const nonce = Number(BigInt(nonceHex));
+      const tx = {
+        type: 2,
+        chainId: chainId ?? 420420417,
+        nonce,
+        to,
+        value: BigInt(valueWei ?? "0"),
+        data: data ?? "0x",
+        gasLimit: BigInt(gasLimit ?? 200_000),
+        maxFeePerGas: BigInt(maxFeePerGas ?? "0xe8d4a51000"),
+        maxPriorityFeePerGas: BigInt(
+          maxPriorityFeePerGas ?? maxFeePerGas ?? "0xe8d4a51000"
+        ),
+      };
+      const rawSigned = await signTransaction(tx);
+      const txHash = await pineRpc<string>("eth_sendRawTransaction", [rawSigned]);
+      return { txHash, nonce };
+    }
+    case "ethCall": {
+      // Generic read pass-through. Encodes the eth_call envelope on
+      // the dispatcher side so the popup doesn't need to know pine
+      // RPC mechanics. Caller pre-encodes calldata.
+      return pineRpc<string>("eth_call", [
+        { to: args.to, data: args.data },
+        args.block ?? "latest",
+      ]);
+    }
     case "signTransaction":
       return signTransaction(args.tx);
     case "signTypedData":

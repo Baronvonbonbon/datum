@@ -98,6 +98,8 @@ export type WalletRpcOp =
   | "setIdleTimeoutMinutes"
   | "getNativeBalance"
   | "sendNative"
+  | "sendContract"
+  | "ethCall"
   | "signTransaction"
   | "signTypedData"
   | "personalSign"
