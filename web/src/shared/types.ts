@@ -377,6 +377,13 @@ export interface ContractAddresses {
   /// for diagnostics + the /protocol/upgrades page.
   settlementLogicA?: string;
   settlementLogicB?: string;
+  /// CB4 conviction-weighted advertiser-slashing track. Mirrors
+  /// publisherGovernance for the advertiser direction. Not yet
+  /// deployed on Paseo — the /governance/advertiser-fraud page falls
+  /// back to a "not deployed" state when this is absent.
+  advertiserGovernance?: string;
+  /// Advertiser stake — escrow slashed by advertiserGovernance.
+  advertiserStake?: string;
 }
 
 export type IpfsProvider =

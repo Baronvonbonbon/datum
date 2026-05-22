@@ -67,6 +67,12 @@ const TOPIC_BLOCKLIST_APPEAL_RESOLVED = ethersId(
 const TOPIC_RETUNE_GUARDED = ethersId(
   "RetuneGuarded(bytes32,uint256,uint256)"
 );
+const TOPIC_ADV_FRAUD_PROPOSED = ethersId(
+  "AdvertiserFraudProposed(uint256,address,address,bytes32)"
+);
+const TOPIC_PUB_FRAUD_PROPOSED = ethersId(
+  "ProposalCreated(uint256,address,bytes32)"
+);
 
 const GOV_IFACE = new Interface([
   "event VoteCast(uint256 indexed campaignId, address indexed voter, bool aye, uint256 amount, uint8 conviction)",
@@ -80,6 +86,10 @@ const ROUTER_IFACE = new Interface([
 ]);
 const BOND_IFACE = new Interface([
   "event BondOpened(uint256 indexed campaignId, address indexed creator, uint256 bond, uint64 timelockExpiry)",
+]);
+const FRAUD_IFACE = new Interface([
+  "event AdvertiserFraudProposed(uint256 indexed id, address indexed advertiser, address indexed proposer, bytes32 evidenceHash)",
+  "event ProposalCreated(uint256 indexed proposalId, address indexed publisher, bytes32 evidenceHash)",
 ]);
 const BLOCKLIST_IFACE = new Interface([
   "event AddrBlocked(address indexed addr, bytes32 reasonHash)",
@@ -251,6 +261,20 @@ function buildStream(addrs: Addrs): TelemetryStreamOpts {
       formatter: bondOpenedRow,
     });
   }
+  if (addrs.advertiserGovernance) {
+    sources.push({
+      address: addrs.advertiserGovernance.toLowerCase(),
+      topic0: TOPIC_ADV_FRAUD_PROPOSED,
+      formatter: advertiserFraudProposedRow,
+    });
+  }
+  if (addrs.publisherGovernance) {
+    sources.push({
+      address: addrs.publisherGovernance.toLowerCase(),
+      topic0: TOPIC_PUB_FRAUD_PROPOSED,
+      formatter: publisherFraudProposedRow,
+    });
+  }
   if (addrs.blocklistCurator) {
     sources.push(
       {
@@ -355,6 +379,40 @@ function highTierExecutedRow(log: EthLog): StreamRow {
   };
 }
 
+function advertiserFraudProposedRow(log: EthLog): StreamRow {
+  const decoded = FRAUD_IFACE.decodeEventLog(
+    "AdvertiserFraudProposed",
+    log.data,
+    log.topics
+  );
+  const id = decoded[0] as bigint;
+  const advertiser = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "fraud-adv-proposed",
+    title: `Advertiser fraud proposal #${id} → ${shorten(advertiser)}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+    route: "/governance/advertiser-fraud",
+  };
+}
+
+function publisherFraudProposedRow(log: EthLog): StreamRow {
+  const decoded = FRAUD_IFACE.decodeEventLog(
+    "ProposalCreated",
+    log.data,
+    log.topics
+  );
+  const id = decoded[0] as bigint;
+  const publisher = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "fraud-pub-proposed",
+    title: `Publisher fraud proposal #${id} → ${shorten(publisher)}`,
+    subtitle: `Block ${Number(BigInt(log.blockNumber))}`,
+    route: "/governance/publisher-fraud",
+  };
+}
+
 function bondOpenedRow(log: EthLog): StreamRow {
   const decoded = BOND_IFACE.decodeEventLog("BondOpened", log.data, log.topics);
   const id = decoded[0] as bigint;
@@ -404,6 +462,8 @@ function buildActions(): ActionHook[] {
     { label: "Vote", route: "/governance/vote", description: "Active campaign votes" },
     { label: "My votes", route: "/governance/my-votes", description: "Locked DOT + withdraw" },
     { label: "Activation bonds", route: "/governance/activation-bonds", description: "Contest / activate pending campaigns" },
+    { label: "Advertiser fraud", route: "/governance/advertiser-fraud", description: "Slash fraudulent advertisers" },
+    { label: "Publisher fraud", route: "/governance/publisher-fraud", description: "Slash fraudulent publishers" },
     { label: "Council", route: "/governance/council", description: "Blocklist + tag appeals" },
     { label: "Parameters", route: "/governance/parameters", description: "Per-contract tuning" },
     { label: "Phase ladder", route: "/governance/phase-ladder", description: "Admin → Council → OpenGov" },
