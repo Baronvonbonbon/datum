@@ -1,9 +1,20 @@
 /**
- * DATUM Publisher SDK v3.3
+ * DATUM Publisher SDK v3.4
  *
- * Lightweight JS tag (~5 KB) for publishers to embed on their site.
+ * Lightweight JS tag for publishers to embed on their site.
  * Provides two-party attestation via challenge-response handshake
- * with the DATUM browser extension.
+ * with the DATUM browser extension, plus the alpha-5 additions:
+ *
+ *   - Bulletin Chain creative loader (listen for datum:bulletin-fetch,
+ *     fetch from `${relay}/bulletin/<cid>`, emit datum:bulletin-loaded).
+ *   - Click reporter (datum:click → POST ${relay}/click → relay batches
+ *     to DatumClickRegistry on-chain).
+ *   - Relay-path hint (`data-relay-mode="publisher"|"dualsig"|"datumrelay"`,
+ *     default "publisher") propagated in sdk-ready so the extension
+ *     knows which of the three settlement architectures the page
+ *     wants.
+ *   - Publisher telemetry on window.DATUM.metrics + optional inline
+ *     dev panel via `?datum-dev=1`.
  *
  * No-extension fallback: if no extension responds within 1.5s, each empty
  * slot is filled with an inline DATUM house ad pointing to datum.javcon.io,
@@ -37,7 +48,17 @@
 (function () {
   "use strict";
 
-  var VERSION = "3.3.0";
+  var VERSION = "3.4.0";
+
+  // Alpha-5 relay-path architecture. Three modes the publisher can opt
+  // into via data-relay-mode:
+  //   "publisher" — publisher-direct settlement (default; matches legacy
+  //                 behaviour).
+  //   "dualsig"   — advertiser + publisher EIP-712 co-sigs (DatumDualSig).
+  //   "datumrelay"— bonded DatumRelay operator with on-chain stake.
+  // Propagated in datum:sdk-ready so the extension knows which signing /
+  // settlement path to take.
+  var RELAY_MODES = { "publisher": 1, "dualsig": 1, "datumrelay": 1 };
 
   // No-extension fallback: how long to wait for the extension to fill a slot
   // before rendering an inline house ad that promotes DATUM.
@@ -315,6 +336,8 @@
 
   var publisherAddress = scriptTag ? scriptTag.getAttribute("data-publisher") || "" : "";
   var relayUrl = scriptTag ? scriptTag.getAttribute("data-relay") || "" : "";
+  var relayMode = scriptTag ? (scriptTag.getAttribute("data-relay-mode") || "publisher").toLowerCase() : "publisher";
+  if (!RELAY_MODES[relayMode]) relayMode = "publisher";
   // Legacy single-slot format (used as fallback if no [data-datum-slot] elements found)
   var legacySlotFormat = scriptTag ? scriptTag.getAttribute("data-slot") || "medium-rectangle" : "medium-rectangle";
 
@@ -570,6 +593,7 @@
             tags: tags,
             excludedTags: excludedTags,
             relay: relayUrl,
+            relayMode: relayMode,
             version: VERSION,
             slots: multiSlots,
             // For backward compat with older extension versions
@@ -587,6 +611,7 @@
             tags: tags,
             excludedTags: excludedTags,
             relay: relayUrl,
+            relayMode: relayMode,
             version: VERSION,
             slotFormat: legacySlotFormat,
           },
@@ -658,6 +683,242 @@
       );
     }
   });
+
+  // ─── Alpha-5: Bulletin Chain creative loader ────────────────────────────────
+  //
+  // Flow:
+  //   1. Extension resolves a campaign for a slot and reads
+  //      getCampaignCreativeCid(campaignId) on-chain.
+  //   2. Extension dispatches `datum:bulletin-fetch` with { slotId, cid,
+  //      campaignId }. The publisher's relay endpoint doubles as a
+  //      read-only Bulletin/IPFS HTTPS gateway.
+  //   3. SDK GETs `${relay}/bulletin/<cid>`, expecting an HTML/JSON
+  //      response describing the creative (`{ html?, imgUrl?, href?,
+  //      alt? }`). Anything else is treated as the rendered HTML body.
+  //   4. SDK dispatches `datum:bulletin-loaded` with the URL/HTML the
+  //      extension can paste into the slot DOM. Failures emit
+  //      `datum:bulletin-error` instead of throwing — the extension
+  //      falls back to its standard creative path.
+  //
+  // The SDK never reaches chain directly; the relay endpoint is the
+  // publisher's single point of trust for read-side gateway service.
+
+  function fetchBulletinCreative(detail) {
+    var slotId = detail && detail.slotId;
+    var cid = detail && detail.cid;
+    var campaignId = detail && detail.campaignId;
+    if (!slotId || !cid) return;
+    if (!relayUrl) {
+      document.dispatchEvent(
+        new CustomEvent("datum:bulletin-error", {
+          detail: { slotId: slotId, cid: cid, reason: "no-relay" },
+        })
+      );
+      return;
+    }
+    var gateway = relayUrl.replace(/\/+$/, "") + "/bulletin/" + encodeURIComponent(cid);
+    var started = (window.performance && performance.now) ? performance.now() : Date.now();
+    try {
+      fetch(gateway, { method: "GET", credentials: "omit" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          var ct = (res.headers.get("content-type") || "").toLowerCase();
+          if (ct.indexOf("application/json") !== -1) return res.json();
+          return res.text().then(function (t) { return { html: t }; });
+        })
+        .then(function (creative) {
+          var rtMs = ((window.performance && performance.now) ? performance.now() : Date.now()) - started;
+          DATUM_METRICS.bulletinFetchMs = Math.round(rtMs);
+          DATUM_METRICS.bulletinFetched += 1;
+          document.dispatchEvent(
+            new CustomEvent("datum:bulletin-loaded", {
+              detail: {
+                slotId: slotId,
+                campaignId: campaignId || 0,
+                cid: cid,
+                creative: creative,
+                rtMs: Math.round(rtMs),
+              },
+            })
+          );
+        })
+        .catch(function (err) {
+          DATUM_METRICS.bulletinErrors += 1;
+          document.dispatchEvent(
+            new CustomEvent("datum:bulletin-error", {
+              detail: {
+                slotId: slotId,
+                cid: cid,
+                reason: String(err && err.message || err),
+              },
+            })
+          );
+        });
+    } catch (err) {
+      DATUM_METRICS.bulletinErrors += 1;
+      document.dispatchEvent(
+        new CustomEvent("datum:bulletin-error", {
+          detail: { slotId: slotId, cid: cid, reason: String(err) },
+        })
+      );
+    }
+  }
+
+  document.addEventListener("datum:bulletin-fetch", function (e) {
+    fetchBulletinCreative(e.detail);
+  });
+
+  // ─── Alpha-5: Click reporter (DatumClickRegistry) ───────────────────────────
+  //
+  // When the user clicks an ad, the extension dispatches `datum:click`
+  // with { slotId, campaignId, href }. The SDK POSTs to
+  // `${relay}/click` so the relay can batch + submit
+  // DatumClickRegistry.recordClick on-chain.
+  //
+  // No-op when the publisher hasn't configured a relay endpoint — the
+  // legacy CPM-only path keeps working.
+
+  function reportClick(detail) {
+    var campaignId = detail && detail.campaignId;
+    if (!campaignId || !relayUrl) return;
+    var body = JSON.stringify({
+      publisher: publisherAddress,
+      campaignId: String(campaignId),
+      slotId: detail.slotId || "",
+      href: detail.href || "",
+      ts: Math.floor(Date.now() / 1000),
+      v: VERSION,
+    });
+    var url = relayUrl.replace(/\/+$/, "") + "/click";
+    DATUM_METRICS.clicksReported += 1;
+    try {
+      // Prefer sendBeacon — survives page unload on outbound clicks. Falls
+      // back to fetch keepalive when beacon isn't available.
+      if (navigator.sendBeacon) {
+        var ok = navigator.sendBeacon(
+          url,
+          new Blob([body], { type: "application/json" })
+        );
+        if (ok) return;
+      }
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+        keepalive: true,
+        credentials: "omit",
+      }).catch(function () {
+        DATUM_METRICS.clickErrors += 1;
+      });
+    } catch (_) {
+      DATUM_METRICS.clickErrors += 1;
+    }
+  }
+
+  document.addEventListener("datum:click", function (e) {
+    reportClick(e.detail || {});
+  });
+
+  // ─── Alpha-5: Telemetry surface (window.DATUM.metrics) ──────────────────────
+  //
+  // Read-only counters publishers can inspect from the page console
+  // or from analytics scripts. Updated in-place by the SDK as events
+  // flow through.
+
+  var DATUM_METRICS = {
+    impressionsServed: 0,
+    bulletinFetched: 0,
+    bulletinFetchMs: 0,
+    bulletinErrors: 0,
+    clicksReported: 0,
+    clickErrors: 0,
+    attestationRtMs: 0,
+    lastChallengeAt: 0,
+    lastResponseAt: 0,
+  };
+
+  // Count successful handshakes as impressions served. Hooked into the
+  // existing datum:response dispatch — the extension only requests a
+  // response after the slot has been allocated, so the response is
+  // proxy for "extension is about to render an ad here."
+  document.addEventListener("datum:fill", function (e) {
+    DATUM_METRICS.impressionsServed += 1;
+    if (e && e.detail && e.detail.slotId && devPanelEl) refreshDevPanel();
+  });
+
+  // Patch the handshake to record attestation latency. We instrument
+  // around the existing listener by adding our own that runs after it
+  // (DOM listeners fire in registration order; this file's earlier
+  // datum:challenge handler is registered above).
+  document.addEventListener("datum:challenge", function () {
+    DATUM_METRICS.lastChallengeAt = Date.now();
+  });
+  document.addEventListener("datum:response", function () {
+    var now = Date.now();
+    if (DATUM_METRICS.lastChallengeAt > 0) {
+      DATUM_METRICS.attestationRtMs = now - DATUM_METRICS.lastChallengeAt;
+    }
+    DATUM_METRICS.lastResponseAt = now;
+    if (devPanelEl) refreshDevPanel();
+  });
+
+  // Expose a frozen wrapper so consumers can read but not write.
+  var DATUM_API = {
+    version: VERSION,
+    relayMode: relayMode,
+    get metrics() {
+      // Return a shallow copy so callers can't mutate the internal map.
+      var out = {};
+      for (var k in DATUM_METRICS) {
+        if (Object.prototype.hasOwnProperty.call(DATUM_METRICS, k)) out[k] = DATUM_METRICS[k];
+      }
+      return out;
+    },
+  };
+  try { Object.freeze(DATUM_API); } catch (_) { /* old browsers */ }
+  window.DATUM = DATUM_API;
+
+  // ─── Alpha-5: Dev console panel (?datum-dev=1) ──────────────────────────────
+  //
+  // A floating panel publishers can enable on a query-string flag for
+  // debugging SDK ↔ extension wiring. No-op in production — hidden
+  // unless ?datum-dev=1 is in the URL.
+
+  var devPanelEl = null;
+  function maybeMountDevPanel() {
+    try {
+      if (window.location.search.indexOf("datum-dev=1") === -1) return;
+    } catch (_) { return; }
+    if (devPanelEl || !document.body) return;
+    var el = document.createElement("div");
+    el.setAttribute("data-datum-dev-panel", "");
+    el.style.cssText = [
+      "position:fixed", "right:12px", "bottom:12px", "z-index:2147483647",
+      "background:#0b0d12", "color:#e6e7eb", "font:11px/1.4 ui-monospace,Menlo,Consolas,monospace",
+      "border:1px solid #2a2f3a", "border-radius:6px", "padding:10px 12px",
+      "min-width:220px", "box-shadow:0 4px 12px rgba(0,0,0,0.35)", "pointer-events:auto",
+    ].join(";");
+    document.body.appendChild(el);
+    devPanelEl = el;
+    refreshDevPanel();
+  }
+  function refreshDevPanel() {
+    if (!devPanelEl) return;
+    var m = DATUM_METRICS;
+    devPanelEl.innerHTML =
+      '<div style="font-weight:600;margin-bottom:6px">DATUM SDK ' + VERSION + '</div>' +
+      '<div>relay-mode: <span style="color:#9aa">' + relayMode + '</span></div>' +
+      '<div>impressions: <span style="color:#9aa">' + m.impressionsServed + '</span></div>' +
+      '<div>attestation: <span style="color:#9aa">' + m.attestationRtMs + ' ms</span></div>' +
+      '<div>bulletin: <span style="color:#9aa">' + m.bulletinFetched + ' ok / ' + m.bulletinErrors + ' err</span></div>' +
+      '<div>clicks: <span style="color:#9aa">' + m.clicksReported + ' ok / ' + m.clickErrors + ' err</span></div>';
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", maybeMountDevPanel);
+  } else {
+    maybeMountDevPanel();
+  }
 
   // Signal ready on DOM load
   if (document.readyState === "loading") {
