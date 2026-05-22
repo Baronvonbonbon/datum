@@ -24,6 +24,8 @@ import { CampaignPoll } from "./poll/campaigns.mjs";
 import { ClaimQueue } from "./poll/claims.mjs";
 import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
 import { HttpServer } from "./http.mjs";
+import { ClickBatch } from "./submit/clickRegistry.mjs";
+import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 
 async function main() {
   let cfg;
@@ -67,21 +69,27 @@ async function main() {
   });
   await identityPoll.start();
 
+  // Stage 7d — submit pipelines.
+  const clickBatch = new ClickBatch({ provider, cfg, campaignPoll });
+  clickBatch.start();
+
+  const stakeRootCron = new StakeRootCron({ provider, cfg });
+  stakeRootCron.start();
+
   // Stage 7c — localhost HTTP endpoint.
   const http = new HttpServer({
     cfg,
     provider,
     claimQueue,
-    clickBatch: null,      // wired in Stage 7d
+    clickBatch,
     bulletinGateway: null, // out-of-scope for the skeleton
   });
   http.start();
 
-  // Stage 7d hooks in next.
-  log.info("relay running — submitters not yet wired", {
-    next_stages: ["7d: submitters"],
+  log.info("relay running", {
     activeCampaigns: campaignPoll.snapshot().active.length,
     claimQueue: claimQueue.size(),
+    clickQueue: clickBatch.size(),
   });
 
   let shutdownInProgress = false;
@@ -91,6 +99,8 @@ async function main() {
     log.info("shutdown requested", { reason, snapshot: snapshot() });
     try {
       await http.stop();
+      stakeRootCron.stop();
+      clickBatch.stop();
       identityPoll.stop();
       campaignPoll.stop();
       await provider.stop();

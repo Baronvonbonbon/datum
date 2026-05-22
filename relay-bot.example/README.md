@@ -169,9 +169,12 @@ host.
 | Stage | Component                                       | State |
 |-------|-------------------------------------------------|-------|
 | 7a    | README + skeleton + config + structured logging | shipped |
-| 7b    | pine provider + poll/* primitives                | planned |
-| 7c    | /metrics + /events + /health HTTP               | planned |
-| 7d    | StakeRootV2 cron + clickRegistry batcher        | planned |
+| 7b    | pine provider + poll/* primitives                | shipped |
+| 7c    | /metrics + /events + /health HTTP               | shipped |
+| 7d    | StakeRootV2 cron + clickRegistry batcher        | shipped |
+| —     | settleSignedClaims batcher                       | planned (`submit/settlement.mjs` stub for the live tree) |
+| —     | identity-oracle XCM submit                       | planned (`submit/identityOracle.mjs` stub) |
+| —     | bulletin gateway proxy                            | planned (`/bulletin/<cid>` 501s until wired) |
 
 See `alpha-5/narrative-analysis/e2e-client-design.md` §5 for the
 design discussion.
