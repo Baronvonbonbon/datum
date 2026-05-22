@@ -1,11 +1,11 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-19
-**Current Phase:** Alpha-4 v0.5.0 — upgrade ladder shipped (Stages 1–6); ~36 contracts upgradable via governance registry; lock-once cypherpunk commitments phase-gated on OpenGov; **testing-fresh posture during alpha-beta with locks deferred**; Settlement EIP-170 closed via two-Logic split (2026-05-19)
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-4 (EVM, solc) + alpha-3 (PVM, resolc 1.1.0) reference
-**Web App:** https://datum.javcon.io
-**Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (+6 token-plane via deploy-token.ts) — see `deployed-addresses.json`
-**Tests:** 1228 passing (+4 storage-layout invariant tests for the Settlement Logic split)
+**Last Updated:** 2026-05-22
+**Current Phase:** Alpha-5 v2 — Parameter Governance Phase A landed on Paseo (2026-05-22T21:07Z). DatumCampaigns v2 + DatumCampaignLifecycle v2 demote `minimumCpmFloor`, `pendingTimeoutBlocks`, and `inactivityTimeoutBlocks` from `immutable` to `onlyOwnerOrPG`-tunable with hard MIN/MAX bounds and lock-once OpenGov gating. Full clean redeploy of the ~30-contract surface; previous v1 addresses archived in `alpha-5/deployed-addresses.v1-pre-phase-a.json`.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v2 (EVM, solc) live; alpha-3 PVM reference frozen
+**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v2 addresses
+**Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
+**Tests:** 1564 passing, 0 failing, 1 pending (29 new Phase A cases in `parameter-governance-phase-a.test.ts`)
 
 ## Cypherpunk roadmap (2026-05-18)
 

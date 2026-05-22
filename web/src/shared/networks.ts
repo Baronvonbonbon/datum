@@ -51,57 +51,64 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 //   JSON's `blocklistCurator`  → both `blocklistCurator`
 //                                 AND `councilBlocklistCurator`
 //                                 (alpha-4 alias for back-compat)
+// Alpha-5 v2 Paseo deploy — 2026-05-22T21:07:58Z. DatumCampaigns v2 +
+// DatumCampaignLifecycle v2 ship the Phase A parameter-governance change
+// (minimumCpmFloor / pendingTimeoutBlocks / inactivityTimeoutBlocks
+// demoted from immutable to onlyOwnerOrPG-tunable with lock-once
+// cypherpunk end-state). Every other contract redeployed in the same
+// run for clean wiring; previous v1 addresses archived at
+// alpha-5/deployed-addresses.v1-pre-phase-a.json.
 const ALPHA_5_PASEO: ContractAddresses = {
   // Core
-  campaigns:            "0x34663ec5Dd63A4517eBb4C763FEE6966FfB47a2e",
-  publishers:           "0xBcF1ef361020dC430eb7460aFCa66709BCbcC883",
-  governanceV2:         "0xad7650335C401200f4b7eA51E1D813EFFc4A50f6",
-  settlement:           "0x4745230354F48610EF905424176A81685C93F62B",
-  relay:                "0xD0e8a663ab360e2df00a0999476A92eBb6303112",
-  pauseRegistry:        "0x7FF4E11716EE89c58DE46F2bA980FF6754Dac8cb",
-  timelock:             "0x299f5fb99A4b5498aAEB73E48C2fE26CF0ead78e",
-  zkVerifier:           "0xFfe6ca4D9e0A5ff38Ef697ad1553497F479daeDa",
+  campaigns:            "0xE91325865e1C46Eb9c610584f26e0C0F4360a681",
+  publishers:           "0xA6b7777d5D9cd67883F3167ab7b487400F0fe43B",
+  governanceV2:         "0xC5A2F5069AeB7d8c0BeF0334Ef5c374ECe18560b",
+  settlement:           "0x1B4A4A4dab241A351Ee126a981235b74f07Be4d4",
+  relay:                "0xC73e219e88e4A4af161B1f1273510BF128c3b2FF",
+  pauseRegistry:        "0x9dD575e2A35778E95bE512f7e7875157eF08c949",
+  timelock:             "0xB3DD01Cf5A9AeD364F2cC7aec3E286e7759A3C6b",
+  zkVerifier:           "0x516AC7236D8a6Bb1DaEDd9ea42054c7DFCF1c9Cb",
   // Satellites
-  budgetLedger:         "0xc679C24a283Ac580Ec3Ccd9A5BFc3C94acf61bA2",
-  paymentVault:         "0xED3B961df0Dc83b99FCF84D0501ea1E60245dCc2",
-  lifecycle:            "0x776E43ADd6C0b6E5F6CC07Af21DF4c9e5C8E04F1",
-  attestationVerifier:  "0x20f3ef882f876Cf80A42e7BBEf600AbB4Aa9736C",
-  claimValidator:       "0xA5795A1d40c9050268D0D63C3c9944BFc847988B",
-  tokenRewardVault:     "0x39a3dc4C0Fe66E49F651F8Fe3684BF1b6c613883",
+  budgetLedger:         "0x094CD6e9e3351d770aD6083c0B7b079a503FD4aB",
+  paymentVault:         "0x16f342F8413aD513B083685BBFd18e578ed6F96d",
+  lifecycle:            "0xC20b0d8E29A80b4D7f12B864551DAe9F4Fa1e79e",
+  attestationVerifier:  "0xdD6AB2F89AADE34aafecdcBbB8d46FA343C4749a",
+  claimValidator:       "0x460646538B8d550a86999058eC1394e7ddA11873",
+  tokenRewardVault:     "0xb99Ff78D7Ec9AB74964aB9260f4aa22f838E7b14",
   // Fraud prevention
-  publisherStake:       "0x3ddc2d14BA89Fc1aC51c6c58D740e992A3cB043a",
-  challengeBonds:       "0x35f1787e82405C57F071b4CB607B92Be5889b70d",
-  publisherGovernance:  "0xdc7e54080253300eD5c2CA3BD50667fF3eA42eF0",
-  parameterGovernance:  "0x710a5f1D93D2F3a5C11cf3166D636cBBbAC50446",
-  clickRegistry:        "0x19Dc1CaA534676aAF3452FACe4Be5B9FF3d88345",
+  publisherStake:       "0xc1f74Ba2c78eAB366AE980CbB4f5fD0fC481A50b",
+  challengeBonds:       "0xae8fEdE1411a33384797b3A47d454b27596F21b5",
+  publisherGovernance:  "0xd33c9d3c4575b0e870731374B982424302BC50EA",
+  parameterGovernance:  "0xd11F128EdB889299b6E4F1c8C7b2E791fA9BF964",
+  clickRegistry:        "0xe8c96c244a79b10793e890c6C9B1404b3A02B9eb",
   // Governance ladder
-  governanceRouter:     "0xfD25A6e7a239Fc37A57Aa99458B7Ecb24BE74d69",
-  council:              "0xad191e330C1cB497844213bf81B1A5305D99F244",
+  governanceRouter:     "0xc4Ba06C6beF787eE24152b23B81Af6b0e494c5a9",
+  council:              "0x505C4b82F2D5Dfcd110F83cb508064d9168dA281",
   // Alpha-5 additions
-  relayStake:           "0xe7D5F794a126008157770b4bCbBcBf4Ad60D134a",
-  relayGovernance:      "0x804B6d37EA48cbDcB649f0b72ED3318d8D8200bC",
-  powEngine:            "0x395665da7517cfd8E85295021bfCc8bd90cfa9EC",
-  publisherReputation:  "0x7C463CCe043eE06f1608c3Bf7228e2E83B48Af3e",
-  nullifierRegistry:    "0x52D04561684c7F8C144D489De3C8D1Ee62C21F27",
-  settlementRateLimiter:"0x569d35047b0b00859236065948e62fAF28fb01E5",
-  campaignCreative:     "0x4e7a98E619c6579B6dD993a360B21580f10B4Cc9",
-  reports:              "0xB8937B2a896884335aFbedAaD73Bc2d63e9e95BE",
-  campaignAllowlist:    "0x2A9bF057E696d4982e1361542586ec0A7eC92eE0",
-  tagSystem:            "0x9C7FD74e2F3e280D0f8F5207c34bD97CAcB54e01",
-  blocklistCurator:     "0x00568E8FA775EF085AeD15d7bE514e58029C5dE0",
-  councilBlocklistCurator: "0x00568E8FA775EF085AeD15d7bE514e58029C5dE0",  // alpha-4 alias
-  activationBonds:      "0x638E46086a6D8246772b0b264F10ec73091305c8",
-  stakeRoot:            "0x7cFeF79601751A161d345eEE90f7cc9E54B5245c",
-  stakeRootV2:          "0x5dd39B7eDE7842131BD51524B9B3486338b55958",
-  identityVerifier:     "0xA993b68f79e3B0bF00c73a12f4C71CEC0AB92E62",
-  emissionEngine:       "0xC4699e9a163B6274256Da4DbDA6C9018ab822B3b",
-  mintCoordinator:      "0xb1D9EBEcF960F326b1e521c5E61568bb881ff2CA",
-  dualSig:              "0x7c1725B2b763623e49E2799FE140E4552956e088",
-  peopleChainIdentity:  "0x54BDDEd50B553445c3d4b9C35b7278403d0dd7F3",
-  peopleChainXcmBridge: "0x4CB3192E0c996FcaB4182138C5342453c94DCFF6",
-  peopleChainBondedReporter: "0xE2F08A297525F718654416754B0Cc5Bd33BD963e",
-  settlementLogicA:     "0x4DfB4327E35EaA0BF6f1Dc09AaFeFfD4951d5671",
-  settlementLogicB:     "0x9b6d0d8451116Ca88A04C345c61ea3f636753389",
+  relayStake:           "0x41f472E1d4876Afd4F756869d007c6D59618a1d8",
+  relayGovernance:      "0x88b5bdaE96C2D83fF8e75bD2E4Be4E2400b4fB75",
+  powEngine:            "0x85AE43A70DF462b11726Cc4fedD90cCB6b2e38c8",
+  publisherReputation:  "0xb9fD77725f5DF9C9ECdE0Aa13a307f5a18410676",
+  nullifierRegistry:    "0x5635b7110D5cb478021e9B73A7ffe9C055a94f3d",
+  settlementRateLimiter:"0x5c0005f51dD65013ddE902C8958D8Cd72346B136",
+  campaignCreative:     "0xd4f9EedF7868626dBbe2171Fe3414e5B494D0111",
+  reports:              "0xd14BB4635B7Ea3F3345EB0dff333aE86b2C2F011",
+  campaignAllowlist:    "0xD25858d665FE2E5AeE6Ca882fCE42B29250c2E3D",
+  tagSystem:            "0x787a5D7F59CF3e3192d4F2e0e2C358Fa219D641c",
+  blocklistCurator:     "0x3e37895cfbd8f26953Eb5a78e09Cc1eC73b0cF3e",
+  councilBlocklistCurator: "0x3e37895cfbd8f26953Eb5a78e09Cc1eC73b0cF3e",  // alpha-4 alias
+  activationBonds:      "0xb909008D157C786b3B557100c9e1DaC62019fb1b",
+  stakeRoot:            "0xC59C5605D20651f155417058591824a0F5FD19cC",
+  stakeRootV2:          "0xED361e54227Bc54d893A2c80097592A047Baf1BA",
+  identityVerifier:     "0x39e75a66A072db8C9af2988eb4F1F38507C66CC3",
+  emissionEngine:       "0x79d22c1D966d46d0CAa733A69960bfAcfF8a5d21",
+  mintCoordinator:      "0xE5A3ADA49E7D05A164c5BA8d6AC3C8c5D32Ea279",
+  dualSig:              "0x9E5BCf0121ce01F715F99DCc1409169E8b634B54",
+  peopleChainIdentity:  "0xD08a2465461C0BD0F0b87eFC74719a7a92ba8A0e",
+  peopleChainXcmBridge: "0x4DF40984Ff458425eA812E8CbFf4eCE53d53cb48",
+  peopleChainBondedReporter: "0xCD6244fdBc087Bb60d4303D68c6D33125046b085",
+  settlementLogicA:     "0x374b07B937018B1dFB4DC2d984a4E0d8C4a71A52",
+  settlementLogicB:     "0xCBAAdF9a6132563047E5515b5Fa7e52155fc6BFe",
   // Token plane (not yet deployed on Paseo) — leave undefined so the
   // UI surfaces the disabled state until a future deploy fills them in.
 };
