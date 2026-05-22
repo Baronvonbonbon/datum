@@ -185,6 +185,54 @@ const ROLE_BASELINES: RoleBaseline[] = [
       { op: "pauseRegistry.approve (unpause)",      daily: 1/180, rationale: "Co-signer on each unpause" },
     ],
   },
+  {
+    role: "TokenHolder",
+    description: "DATUM token participant. Medium = monthly wrap + occasional stake, weekly fee-share claim.",
+    ops: [
+      { op: "wrapper.requestWrap",   daily: 1/30,  rationale: "Monthly intent to wrap DATUM → WDATUM" },
+      { op: "wrapper.wrap",          daily: 1/30,  rationale: "Monthly wrap completion" },
+      { op: "wrapper.unwrap",        daily: 1/90,  rationale: "Quarterly unwrap back to canonical DATUM" },
+      { op: "feeShare.stake",        daily: 1/90,  rationale: "Quarterly stake top-up" },
+      { op: "feeShare.claim",        daily: 1/7,   rationale: "Weekly fee-share claim" },
+      { op: "feeShare.unstake",      daily: 1/180, rationale: "Rare unstake (twice/yr)" },
+    ],
+  },
+  {
+    role: "Vesting",
+    description: "Founder / team vesting beneficiary. Medium = monthly release().",
+    ops: [
+      { op: "vesting.release", daily: 1/30, rationale: "Monthly release of vested DATUM" },
+    ],
+  },
+  {
+    role: "Bootstrap",
+    description: "House-ad / onboarding pool claimer (settlement-side caller).",
+    ops: [
+      { op: "bootstrap.claim", daily: 1/30, rationale: "One bootstrap claim per new user per month" },
+    ],
+  },
+  {
+    role: "EmissionOperator",
+    description: "Permissionless caller maintaining the EmissionEngine. Medium = daily rate adjust + per-epoch roll.",
+    ops: [
+      { op: "emissionEngine.adjustRate", daily: 1,        rationale: "Daily rate adjustment (governance-tunable [1, 90] days)" },
+      { op: "emissionEngine.rollEpoch",  daily: 1/2555,   rationale: "Once per epoch (7 calendar years = 2,555 days)" },
+    ],
+  },
+  {
+    role: "Settlement-CPC",
+    description: "CPC settle path: a single click-based claim per settle. Same hourly cadence as the CPM relay.",
+    ops: [
+      { op: "settleClaims (1 CPC click)",  daily: 24, rationale: "Hourly settlement of click-based pots" },
+    ],
+  },
+  {
+    role: "Settlement-CPA",
+    description: "CPA settle path: a single action-signed claim per settle. Generally lower cadence than CPC.",
+    ops: [
+      { op: "settleClaims (1 CPA action)", daily: 6, rationale: "~Every 4 hours; CPA flows are higher-value, lower-volume" },
+    ],
+  },
 ];
 
 // Flat list of (role, op, daily) tuples for projection tables. Built from
@@ -432,6 +480,50 @@ async function deployAll() {
   await (await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS)).wait();
   await (await publishers.connect(publisher2).registerPublisher(TAKE_RATE_BPS)).wait();
 
+  // ── Token plane (DATUM ERC-20 surface) ───────────────────────────────────
+  // Devnet stand-in for the Asset Hub precompile + the five token-plane
+  // contracts. Mirrors scripts/deploy-token.ts in shape; condensed here to
+  // keep the benchmark self-contained.
+  const ASSET_ID = 31337n;
+  let tokenPlane: any = {};
+  try {
+    const precompile = await (await F("AssetHubPrecompileMock")).deploy();
+    const authority  = await (await F("DatumMintAuthority")).deploy(await precompile.getAddress(), ASSET_ID);
+    await (await precompile.registerAsset(ASSET_ID, await authority.getAddress(), "DATUM", "DATUM", 10)).wait();
+    const wrapper    = await (await F("DatumWrapper")).deploy(
+      await authority.getAddress(), await precompile.getAddress(), ASSET_ID, true,
+    );
+    await (await authority.setWrapper(await wrapper.getAddress())).wait();
+    const latestBlk  = await ethers.provider.getBlock("latest");
+    const startTime  = BigInt(latestBlk!.timestamp);
+    const vesting    = await (await F("DatumVesting")).deploy(owner.address, await authority.getAddress(), startTime);
+    await (await authority.setVesting(await vesting.getAddress())).wait();
+    // BootstrapPool needs a settlement caller; we pass owner as a stand-in
+    // so we can directly invoke claim() in the measurement.
+    const bootstrap  = await (await F("DatumBootstrapPool")).deploy(owner.address, await authority.getAddress());
+    await (await authority.setBootstrapPool(await bootstrap.getAddress())).wait();
+    // FeeShare stakes the wrapper token; needs vault wiring for DOT fees.
+    const feeShare   = await (await F("DatumFeeShare")).deploy(await wrapper.getAddress());
+    try {
+      await (await feeShare.setPaymentVault(await vault.getAddress())).wait();
+    } catch { /* setter may not exist on this build */ }
+    // EmissionEngine + MintCoordinator (per-batch emission orchestrator).
+    let emissionEngine: any = null;
+    let mintCoordinator: any = null;
+    try {
+      emissionEngine  = await (await F("DatumEmissionEngine")).deploy();
+      mintCoordinator = await (await F("DatumMintCoordinator")).deploy();
+      // Wire coordinator → settlement + authority + engine (owner-only).
+      try { await (await mintCoordinator.setSettlement(await settlement.getAddress())).wait(); } catch {}
+      try { await (await mintCoordinator.setMintAuthority(await authority.getAddress())).wait(); } catch {}
+      try { await (await mintCoordinator.setEmissionEngine(await emissionEngine.getAddress())).wait(); } catch {}
+    } catch { /* engine/coordinator constructor drift; leave null */ }
+
+    tokenPlane = { precompile, authority, wrapper, vesting, bootstrap, feeShare, emissionEngine, mintCoordinator };
+  } catch (e: any) {
+    console.warn(`[token plane] deploy failed: ${(e?.shortMessage ?? e?.message ?? String(e)).slice(0, 200)}`);
+  }
+
   return {
     owner, advertiser, publisher, publisher2, user, voter, relay,
     councilA, councilB, councilC, councilGuardian,
@@ -442,6 +534,7 @@ async function deployAll() {
     clickReg, curatorContract, activationBonds, stakeRootV1, stakeRootV2,
     identityVer, mockToken, zkStake,
     reports,
+    ...tokenPlane,
   };
 }
 
@@ -459,15 +552,27 @@ function computeClaimHash(c: any): string {
   ));
 }
 
-function buildClaim(args: { cid: bigint; publisher: string; user: string; rate: bigint; events: bigint; nonce: bigint; prev: string }) {
+function buildClaim(args: {
+  cid: bigint;
+  publisher: string;
+  user: string;
+  rate: bigint;
+  events: bigint;
+  nonce: bigint;
+  prev: string;
+  /// Defaults to 0 (CPM view). Pass 1 for CPC, 2 for CPA.
+  actionType?: 0 | 1 | 2;
+  /// Required when actionType=1; computed via _sessionHash(user, cid, nonce).
+  clickSessionHash?: string;
+}) {
   const c: any = {
     campaignId: args.cid,
     publisher: args.publisher,
     user: args.user,
     eventCount: args.events,
     ratePlanck: args.rate,
-    actionType: 0,
-    clickSessionHash: ethers.ZeroHash,
+    actionType: args.actionType ?? 0,
+    clickSessionHash: args.clickSessionHash ?? ethers.ZeroHash,
     nonce: args.nonce,
     previousClaimHash: args.prev,
     claimHash: ethers.ZeroHash,
@@ -481,6 +586,20 @@ function buildClaim(args: { cid: bigint; publisher: string; user: string; rate: 
   return c;
 }
 
+/// Sign a CPA claim's claimHash with the `actionVerifier` EOA. Produces
+/// the [r, s, v-as-bytes32] tuple the ClaimValidator expects in
+/// `actionSig`. Uses EIP-191 personal-sign because the validator
+/// re-prepends "\x19Ethereum Signed Message:\n32" before ecrecover.
+async function signCpaClaim(claim: any, signer: any): Promise<string[]> {
+  const sig = await signer.signMessage(ethers.getBytes(claim.claimHash));
+  // ethers v6 signature is 0x{r}{s}{v}. v is 0x1b or 0x1c (27 / 28).
+  const r = "0x" + sig.slice(2, 66);
+  const s = "0x" + sig.slice(66, 130);
+  const v = parseInt(sig.slice(130, 132), 16);
+  const vAsBytes32 = "0x" + v.toString(16).padStart(64, "0");
+  return [r, s, vAsBytes32];
+}
+
 function buildClaimChain(cid: bigint, pub: string, user: string, rate: bigint, count: number, events: bigint, startNonce: bigint = 1n) {
   const claims = [];
   let prev = ethers.ZeroHash;
@@ -490,6 +609,30 @@ function buildClaimChain(cid: bigint, pub: string, user: string, rate: bigint, c
     prev = c.claimHash;
   }
   return claims;
+}
+
+interface PotSpec { actionType: 0 | 1 | 2; budget: bigint; dailyCap: bigint; rate: bigint; actionVerifier?: string }
+
+async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigint> {
+  const totalBudget = pots.reduce((s, p) => s + p.budget, 0n);
+  const potArray = pots.map((p) => ({
+    actionType: p.actionType,
+    budgetPlanck: p.budget,
+    dailyCapPlanck: p.dailyCap,
+    ratePlanck: p.rate,
+    actionVerifier: p.actionVerifier ?? ethers.ZeroAddress,
+  }));
+  const tx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
+    ctx.publisher.address,
+    potArray,
+    [], false, ethers.ZeroAddress, 0n, 0n, { value: totalBudget },
+  );
+  await tx.wait();
+  const cid = await ctx.campaigns.nextCampaignId() - 1n;
+  await (await ctx.governance.connect(ctx.voter).vote(cid, true, 0, { value: QUORUM })).wait();
+  await mineBlocks(MAX_GRACE + 1n);
+  await (await ctx.governance.evaluateCampaign(cid)).wait();
+  return cid;
 }
 
 async function activateCampaign(ctx: any, budget: bigint, dailyCap: bigint, cpm: bigint): Promise<bigint> {
@@ -568,6 +711,59 @@ async function measureAll(ctx: any) {
   const sc10 = buildClaimChain(cidR10, ctx.publisher.address, ctx.user.address, CPM, 10, 100n);
   await measure("Relay", "settleClaims (10 claims × 100 imps)",
     ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR10, claims: sc10 }]));
+
+  // ─── CPC settle (actionType=1) ──────────────────────────────────────────
+  // Click-based settlement requires (a) a multi-pot campaign with a CPC
+  // pot configured and (b) a click session pre-recorded in ClickRegistry
+  // keyed by (user, campaignId, impressionNonce). The relay-bot records
+  // the session when the user actually clicks; here we wire ClickRegistry
+  // → relay signer and emit a session ourselves.
+  try {
+    await (await ctx.clickReg.setRelay(ctx.relay.address)).wait();
+    await (await ctx.clickReg.setSettlement(await ctx.settlement.getAddress())).wait();
+    const CPC_RATE = parseDOT("0.005"); // per-click rate (5× the CPM equivalent)
+    const cidCPC = await activateCampaignWithPots(ctx, [
+      { actionType: 0, budget: BUDGET, dailyCap: DAILY, rate: CPM },
+      { actionType: 1, budget: parseDOT("5"), dailyCap: parseDOT("1"), rate: CPC_RATE },
+    ]);
+    const impressionNonce = ethers.keccak256(ethers.toUtf8Bytes("cpc-click-1"));
+    const clickSessionHash: string = await ctx.clickReg.sessionHash(ctx.user.address, cidCPC, impressionNonce);
+    await (await ctx.clickReg.connect(ctx.relay).recordClick(ctx.user.address, cidCPC, impressionNonce)).wait();
+    const cpcClaim = buildClaim({
+      cid: cidCPC, publisher: ctx.publisher.address, user: ctx.user.address,
+      rate: CPC_RATE, events: 1n, nonce: 1n, prev: ethers.ZeroHash,
+      actionType: 1, clickSessionHash,
+    });
+    await measure("Relay", "settleClaims (1 CPC click)",
+      ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidCPC, claims: [cpcClaim] }]));
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("Relay", "settleClaims (1 CPC click)", msg);
+  }
+
+  // ─── CPA settle (actionType=2) ──────────────────────────────────────────
+  // Remote-action settlement requires the pot's `actionVerifier` field to
+  // be set to a known EOA, and the claim's `actionSig` to be that EOA's
+  // EIP-191 signature over claimHash. We use a fresh hardhat signer.
+  try {
+    const actionSigner = (await ethers.getSigners())[15];
+    const CPA_RATE = parseDOT("0.05"); // per-action rate (50× CPM)
+    const cidCPA = await activateCampaignWithPots(ctx, [
+      { actionType: 0, budget: BUDGET, dailyCap: DAILY, rate: CPM },
+      { actionType: 2, budget: parseDOT("5"), dailyCap: parseDOT("1"), rate: CPA_RATE, actionVerifier: actionSigner.address },
+    ]);
+    const cpaClaim = buildClaim({
+      cid: cidCPA, publisher: ctx.publisher.address, user: ctx.user.address,
+      rate: CPA_RATE, events: 1n, nonce: 1n, prev: ethers.ZeroHash,
+      actionType: 2,
+    });
+    cpaClaim.actionSig = await signCpaClaim(cpaClaim, actionSigner);
+    await measure("Relay", "settleClaims (1 CPA action)",
+      ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidCPA, claims: [cpaClaim] }]));
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("Relay", "settleClaims (1 CPA action)", msg);
+  }
 
   // Now publisher and user have balances; withdraw measurements work.
   console.log("\n[Publisher withdraws]");
@@ -763,6 +959,152 @@ async function measureAll(ctx: any) {
     rows.push({ role: "Admin", op: "pauseRegistry.proposeCategoryUnpause", gas: 0n, note: `SKIPPED: ${msg}` });
     console.warn(`  Admin/proposeCategoryUnpause SKIPPED: ${msg}`);
   }
+
+  // ─── Token plane ─────────────────────────────────────────────────────────
+  // Three personas surface here:
+  //   - TokenHolder: end-user wrap/unwrap, fee-share staking
+  //   - TokenAdvertiser: depositCampaignBudget for ERC-20 reward sidecar
+  //   - EmissionOperator: rollEpoch / adjustRate on EmissionEngine
+  //   - Vesting: founder release()
+  //   - Bootstrap: house-ad claim()
+  console.log("\n[Token plane]");
+
+  // Mint some WDATUM to the user via the precompile shim so we can exercise
+  // wrap/stake/unwrap. The mock precompile lets the issuer (=authority) mint
+  // canonical DATUM directly; we'll bypass the authority by minting from
+  // the mock issuer itself (only works because authority is the issuer).
+  if (ctx.wrapper && ctx.authority && ctx.precompile) {
+    try {
+      // First mint canonical DATUM to wrapper so the invariant holds, then
+      // call wrapper.mintTo via authority.
+      // The authority's mintTo path requires going through wrap()/unwrap;
+      // for benchmarking we exercise requestWrap → wrap directly.
+
+      // wrap path needs the user to own canonical DATUM. Pre-fund via the
+      // mock precompile's owner-issuer.
+      await (await ctx.precompile.connect(ctx.owner).transferIssuer(31337n, ctx.owner.address)).wait();
+      await (await ctx.precompile.connect(ctx.owner).mint(31337n, ctx.user.address, parseDOT("10"))).wait();
+      // Restore issuer back to authority so wrap path stays consistent.
+      await (await ctx.precompile.connect(ctx.owner).transferIssuer(31337n, await ctx.authority.getAddress())).wait();
+
+      await measure("TokenHolder", "wrapper.requestWrap",
+        ctx.wrapper.connect(ctx.user).requestWrap(parseDOT("1")));
+      await measure("TokenHolder", "wrapper.wrap",
+        ctx.wrapper.connect(ctx.user).wrap(parseDOT("1")));
+      await measure("TokenHolder", "wrapper.unwrap",
+        ctx.wrapper.connect(ctx.user).unwrap(parseDOT("0.1"), ethers.ZeroHash));
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("TokenHolder", "wrapper.requestWrap", msg);
+      markSkipped("TokenHolder", "wrapper.wrap",       "SKIPPED: prerequisite wrapper.requestWrap failed");
+      markSkipped("TokenHolder", "wrapper.unwrap",     "SKIPPED: prerequisite wrap chain failed");
+    }
+  } else {
+    markSkipped("TokenHolder", "wrapper.requestWrap", "token plane not deployed");
+    markSkipped("TokenHolder", "wrapper.wrap",       "token plane not deployed");
+    markSkipped("TokenHolder", "wrapper.unwrap",     "token plane not deployed");
+  }
+
+  // FeeShare stake/unstake/claim — user stakes WDATUM, accumulates DOT
+  // dividends, claims. Requires WDATUM balance from the wrap path above.
+  if (ctx.feeShare && ctx.wrapper) {
+    try {
+      const stakeAmount = parseDOT("0.5");
+      await (await ctx.wrapper.connect(ctx.user).approve(await ctx.feeShare.getAddress(), stakeAmount)).wait();
+      await measure("TokenHolder", "feeShare.stake",
+        ctx.feeShare.connect(ctx.user).stake(stakeAmount));
+      // Fund the share pool with DOT so a claim has something to pull.
+      try { await (await ctx.feeShare.connect(ctx.owner).fund({ value: parseDOT("1") })).wait(); } catch {}
+      await measure("TokenHolder", "feeShare.claim",
+        ctx.feeShare.connect(ctx.user).claim());
+      await measure("TokenHolder", "feeShare.unstake",
+        ctx.feeShare.connect(ctx.user).unstake(parseDOT("0.1")));
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("TokenHolder", "feeShare.stake",   msg);
+      markSkipped("TokenHolder", "feeShare.claim",   "SKIPPED: prerequisite feeShare.stake failed");
+      markSkipped("TokenHolder", "feeShare.unstake", "SKIPPED: prerequisite feeShare.stake failed");
+    }
+  } else {
+    markSkipped("TokenHolder", "feeShare.stake",   "FeeShare not deployed");
+    markSkipped("TokenHolder", "feeShare.claim",   "FeeShare not deployed");
+    markSkipped("TokenHolder", "feeShare.unstake", "FeeShare not deployed");
+  }
+
+  // Founder vesting release — beneficiary-only. We pass `owner` as the
+  // beneficiary at deploy time, so owner.release() is the call.
+  if (ctx.vesting) {
+    try {
+      // Vesting requires elapsed time; bump 1 day worth of seconds.
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await measure("Vesting", "vesting.release",
+        ctx.vesting.connect(ctx.owner).release());
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("Vesting", "vesting.release", msg);
+    }
+  } else {
+    markSkipped("Vesting", "vesting.release", "Vesting not deployed");
+  }
+
+  // BootstrapPool — house-ad claim path. `settlement caller` was set to
+  // owner at deploy time so we can invoke directly.
+  if (ctx.bootstrap) {
+    try {
+      await measure("Bootstrap", "bootstrap.claim",
+        ctx.bootstrap.connect(ctx.owner).claim(ctx.user.address, 1n));
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("Bootstrap", "bootstrap.claim", msg);
+    }
+  } else {
+    markSkipped("Bootstrap", "bootstrap.claim", "BootstrapPool not deployed");
+  }
+
+  // TokenRewardVault — advertiser pre-funds an ERC-20 reward budget for a
+  // campaign. Exercised here as a one-off deposit by the advertiser.
+  if (ctx.tokenRewardVault && ctx.mockToken) {
+    try {
+      const amt = parseDOT("10");
+      await (await ctx.mockToken.mint(ctx.advertiser.address, amt)).wait();
+      await (await ctx.mockToken.connect(ctx.advertiser).approve(await ctx.tokenRewardVault.getAddress(), amt)).wait();
+      // Use a fresh campaign id (any uint256) — the vault doesn't gate on
+      // existence here, only on amount/token wiring.
+      await measure("Advertiser", "tokenRewardVault.depositCampaignBudget",
+        ctx.tokenRewardVault.connect(ctx.advertiser).depositCampaignBudget(999n, await ctx.mockToken.getAddress(), amt));
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("Advertiser", "tokenRewardVault.depositCampaignBudget", msg);
+    }
+  } else {
+    markSkipped("Advertiser", "tokenRewardVault.depositCampaignBudget", "TokenRewardVault not deployed");
+  }
+
+  // EmissionEngine — rollEpoch + adjustRate. These are permissionless
+  // (whenNotFrozen), but rollEpoch only fires if the epoch duration has
+  // elapsed; for the benchmark we accept the SKIPPED outcome on Hardhat
+  // (the time-based gate makes this a noop in-process unless we evm_warp
+  // by the HALVING_PERIOD).
+  if (ctx.emissionEngine) {
+    try {
+      await measure("EmissionOperator", "emissionEngine.adjustRate",
+        ctx.emissionEngine.adjustRate());
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("EmissionOperator", "emissionEngine.adjustRate", msg);
+    }
+    try {
+      await measure("EmissionOperator", "emissionEngine.rollEpoch",
+        ctx.emissionEngine.rollEpoch());
+    } catch (e: any) {
+      const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+      markSkipped("EmissionOperator", "emissionEngine.rollEpoch", msg);
+    }
+  } else {
+    markSkipped("EmissionOperator", "emissionEngine.adjustRate", "EmissionEngine not deployed");
+    markSkipped("EmissionOperator", "emissionEngine.rollEpoch",  "EmissionEngine not deployed");
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -781,7 +1123,7 @@ const COVERAGE_MATRIX: CoverageEntry[] = [
   { contract: "DatumCampaigns",              measuredOps: ["createCampaign"] },
   { contract: "DatumCampaignLifecycle",      measuredOps: [],                                                  notes: "Driven by Settlement and Governance" },
   { contract: "DatumClaimValidator",         measuredOps: [],                                                  notes: "Validation invoked inside settleClaims gas" },
-  { contract: "DatumSettlement",             measuredOps: ["settleClaims (1 claim × 100 imps)", "settleClaims (5 claims × 100 imps)", "settleClaims (10 claims × 100 imps)", "settlement.setUserMinAssurance"] },
+  { contract: "DatumSettlement",             measuredOps: ["settleClaims (1 claim × 100 imps)", "settleClaims (5 claims × 100 imps)", "settleClaims (10 claims × 100 imps)", "settleClaims (1 CPC click)", "settleClaims (1 CPA action)", "settlement.setUserMinAssurance"] },
   { contract: "DatumSettlementLogicA",       measuredOps: [],                                                  notes: "Delegate of Settlement; included in settleClaims gas" },
   { contract: "DatumSettlementLogicB",       measuredOps: [],                                                  notes: "Delegate of Settlement; included in settleClaims gas" },
   { contract: "DatumSettlementRateLimiter",  measuredOps: [],                                                  notes: "Read-only checks inside settleClaims; no separate write paths" },
@@ -793,7 +1135,7 @@ const COVERAGE_MATRIX: CoverageEntry[] = [
   { contract: "DatumRelayStake",             measuredOps: [],                                                  notes: "Deferred — needs relay operator harness" },
   { contract: "DatumRelayGovernance",        measuredOps: [],                                                  notes: "Deferred — same harness as RelayStake" },
   { contract: "DatumAttestationVerifier",    measuredOps: [],                                                  notes: "Pure verifier; invoked inside settleClaims" },
-  { contract: "DatumTokenRewardVault",       measuredOps: [],                                                  notes: "Deferred — token reward sidecar not yet exercised standalone" },
+  { contract: "DatumTokenRewardVault",       measuredOps: ["tokenRewardVault.depositCampaignBudget"] },
   { contract: "DatumPublisherStake",         measuredOps: ["publisherStake.stake"] },
   { contract: "DatumChallengeBonds",         measuredOps: ["challengeBonds.openBond"] },
   { contract: "DatumPublisherGovernance",    measuredOps: [],                                                  notes: "Deferred — full propose/vote/resolve cycle needs separate harness" },
@@ -818,11 +1160,18 @@ const COVERAGE_MATRIX: CoverageEntry[] = [
   { contract: "DatumIdentityVerifier",       measuredOps: [],                                                  notes: "Pure verifier; exercised via MockIdentityVerifier in this run" },
   { contract: "DatumZKVerifier",             measuredOps: [],                                                  notes: "Pure verifier; exercised via MockZKVerifier in this run" },
   { contract: "DatumZKStake",                measuredOps: ["zkStake.depositWith", "zkStake.requestWithdrawal"] },
-  { contract: "DatumClickRegistry",          measuredOps: [],                                                  notes: "Deferred — click-attestation path needs SDK harness" },
+  { contract: "DatumClickRegistry",          measuredOps: ["settleClaims (1 CPC click)"],                       notes: "Exercised via the CPC settle path (recordClick + markClaimed)" },
   { contract: "DatumInterestCommitments",    measuredOps: [],                                                  notes: "Deferred — extension-driven write path" },
   { contract: "DatumDualSigSettlement",      measuredOps: [],                                                  notes: "Deferred — advertiser cosig flow needs paired EIP-712 sigs" },
-  { contract: "DatumEmissionEngine",         measuredOps: [],                                                  notes: "Deferred — rollEpoch / adjustRate need time-based fixture setup" },
-  { contract: "DatumMintCoordinator",        measuredOps: [],                                                  notes: "Deferred — mint triggered inside settleClaims; engine wiring not exercised in this run" },
+  { contract: "DatumEmissionEngine",         measuredOps: ["emissionEngine.adjustRate", "emissionEngine.rollEpoch"], notes: "rollEpoch typically SKIPs in-process (time-gated; needs epoch-duration warp)" },
+  { contract: "DatumMintCoordinator",        measuredOps: [],                                                  notes: "Wired in deploy but no direct state-changing op exercised; mint happens inside settleClaims gas" },
+  // ── Token plane ─────────────────────────────────────────────────────────
+  { contract: "DatumWrapper",                measuredOps: ["wrapper.requestWrap", "wrapper.wrap", "wrapper.unwrap"] },
+  { contract: "DatumMintAuthority",          measuredOps: [],                                                  notes: "Owner-only setters exercised during deploy wiring; production mint paths go via Wrapper/Vesting/Bootstrap" },
+  { contract: "DatumBootstrapPool",          measuredOps: ["bootstrap.claim"] },
+  { contract: "DatumVesting",                measuredOps: ["vesting.release"] },
+  { contract: "DatumFeeShare",               measuredOps: ["feeShare.stake", "feeShare.claim", "feeShare.unstake"] },
+  { contract: "AssetHubPrecompileMock",      measuredOps: [],                                                  notes: "Devnet stand-in for Asset Hub precompile; not a production contract" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
