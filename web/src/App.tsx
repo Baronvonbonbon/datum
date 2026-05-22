@@ -73,6 +73,11 @@ import { Vesting as VestingPage } from "./pages/token/Vesting";
 import { TokenDashboard } from "./pages/token/Dashboard";
 import { MintCoordinatorPage } from "./pages/token/MintCoordinator";
 
+// Identity
+import { IdentityDashboard } from "./pages/identity/Dashboard";
+import { PeopleChain } from "./pages/identity/PeopleChain";
+import { IdentityZk } from "./pages/identity/Zk";
+
 // Settings
 import { Settings } from "./pages/Settings";
 import { HouseAdPreview } from "./pages/settings/HouseAdPreview";
@@ -177,6 +182,11 @@ export function App() {
               <Route path="/token/bootstrap" element={<BootstrapPage />} />
               <Route path="/token/vesting" element={<VestingPage />} />
               <Route path="/token/mint-coordinator" element={<MintCoordinatorPage />} />
+
+              {/* Identity */}
+              <Route path="/identity" element={<IdentityDashboard />} />
+              <Route path="/identity/people-chain" element={<PeopleChain />} />
+              <Route path="/identity/zk" element={<IdentityZk />} />
 
               {/* Settings */}
               <Route path="/settings" element={<Settings />} />
