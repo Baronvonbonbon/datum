@@ -73,6 +73,7 @@ import { History } from "./pages/me/History";
 import { AssurancePage } from "./pages/me/Assurance";
 import { IdentityPage } from "./pages/me/Identity";
 import { Dust } from "./pages/me/Dust";
+import { MeDashboard } from "./pages/me/Dashboard";
 
 // Demo
 import { Demo } from "./pages/Demo";
@@ -153,6 +154,7 @@ export function App() {
               <Route path="/settings/house-ads" element={<HouseAdPreview />} />
 
               {/* Me — wallet-scoped views */}
+              <Route path="/me" element={<MeDashboard />} />
               <Route path="/me/history" element={<History />} />
               <Route path="/me/assurance" element={<AssurancePage />} />
               <Route path="/me/identity" element={<IdentityPage />} />

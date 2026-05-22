@@ -57,10 +57,18 @@ export type LogEmission = {
 export type LogSubscriptionOpts = {
   /// Contract address to filter. Lower-case 0x-prefixed.
   address: string;
-  /// Single topic0 (event signature hash) — the bus dedupes by this.
-  /// Subscribers wanting multiple events register one subscription
-  /// per topic0.
+  /// Topic0 (event signature hash) — the bus dedupes channels by
+  /// (address, topic0, ...indexed). Subscribers wanting multiple
+  /// distinct events register one subscription per topic0.
   topic0: string;
+  /// Optional indexed-parameter filter for topics 1/2/3 (matching
+  /// eth_getLogs semantics). For events with indexed user/publisher/
+  /// campaign args, set the corresponding slot to the 32-byte left-
+  /// padded hex. Use null for "any". Cheaper than client-side
+  /// filtering for high-volume topics on busy contracts.
+  topic1?: string | null;
+  topic2?: string | null;
+  topic3?: string | null;
   /// Requested window in blocks. Used to compute fromBlock as
   /// `currentBlock - windowBlocks`. Truncated to pine's
   /// indexedFromBlock for end-user tiles.
@@ -71,12 +79,23 @@ export type LogSubscriptionOpts = {
   historyAllowed: boolean;
 };
 
+/// Convert an EVM address to the topic-encoded form (left-padded to
+/// 32 bytes). Use when filtering by an indexed `address`-typed event
+/// parameter via `topic1`/`topic2`/`topic3`.
+export function addressToTopic(addr: string): string {
+  const hex = addr.toLowerCase().replace(/^0x/, "");
+  return "0x" + hex.padStart(64, "0");
+}
+
 type Listener = (emission: LogEmission) => void;
 
 type Channel = {
-  key: string; // `${address}:${topic0}`
+  key: string; // `${address}:${topic0}:${t1}:${t2}:${t3}`
   address: string;
   topic0: string;
+  topic1: string | null;
+  topic2: string | null;
+  topic3: string | null;
   subscribers: Set<{ opts: LogSubscriptionOpts; listener: Listener }>;
   /// Highest block already fetched + emitted. We always poll from
   /// `lastFetchedBlock + 1` on the next tick.
@@ -117,13 +136,16 @@ export function subscribeLogs(
   opts: LogSubscriptionOpts,
   listener: Listener
 ): () => void {
-  const key = channelKey(opts.address, opts.topic0);
+  const key = channelKey(opts);
   let ch = _channels.get(key);
   if (!ch) {
     ch = {
       key,
       address: opts.address.toLowerCase(),
       topic0: opts.topic0.toLowerCase(),
+      topic1: opts.topic1 ?? null,
+      topic2: opts.topic2 ?? null,
+      topic3: opts.topic3 ?? null,
       subscribers: new Set(),
       lastFetchedBlock: 0,
       earliestFetchedBlock: 0,
@@ -195,7 +217,7 @@ async function pollChannel(ch: Channel, head: number): Promise<void> {
   ch.fetchInFlight = true;
   try {
     const fromBlock = ch.lastFetchedBlock + 1;
-    const newLogs = await pineGetLogs(ch.address, ch.topic0, fromBlock, head);
+    const newLogs = await pineGetLogs(ch, fromBlock, head);
     if (newLogs.length > 0) {
       ch.logs.push(...newLogs);
     }
@@ -247,12 +269,7 @@ async function bootstrapSubscriber(
 
     // Case A: pine's window covers the entire request.
     if (requestedFrom >= pineFloor) {
-      const logs = await pineGetLogsSafe(
-        ch.address,
-        ch.topic0,
-        requestedFrom,
-        head
-      );
+      const logs = await pineGetLogsSafe(ch, requestedFrom, head);
       ch.logs.push(...logs);
       ch.earliestFetchedBlock = requestedFrom;
       ch.lastFetchedBlock = head;
@@ -264,12 +281,7 @@ async function bootstrapSubscriber(
     // Case B: pine's window is short and the subscriber can't use
     // RPC. Truncate.
     if (!sub.opts.historyAllowed) {
-      const logs = await pineGetLogsSafe(
-        ch.address,
-        ch.topic0,
-        pineFloor,
-        head
-      );
+      const logs = await pineGetLogsSafe(ch, pineFloor, head);
       ch.logs.push(...logs);
       ch.earliestFetchedBlock = pineFloor;
       ch.lastFetchedBlock = head;
@@ -281,22 +293,11 @@ async function bootstrapSubscriber(
     // Case C: operator route + history allowed. Splice RPC + pine.
     let rpcSlice: EthLog[] = [];
     try {
-      rpcSlice = await rpcGetLogs(
-        getRpcEndpoint(),
-        ch.address,
-        ch.topic0,
-        requestedFrom,
-        pineFloor - 1
-      );
+      rpcSlice = await rpcGetLogs(getRpcEndpoint(), ch, requestedFrom, pineFloor - 1);
     } catch (err) {
       console.warn("[eventBus] bootstrap rpc fetch failed", err);
     }
-    const pineSlice = await pineGetLogsSafe(
-      ch.address,
-      ch.topic0,
-      pineFloor,
-      head
-    );
+    const pineSlice = await pineGetLogsSafe(ch, pineFloor, head);
     const merged = mergeUnique([...rpcSlice, ...pineSlice]);
     ch.logs.push(...merged);
     ch.earliestFetchedBlock =
@@ -323,13 +324,12 @@ function safeListener(
 }
 
 async function pineGetLogsSafe(
-  address: string,
-  topic0: string,
+  ch: Pick<Channel, "address" | "topic0" | "topic1" | "topic2" | "topic3">,
   fromBlock: number,
   toBlock: number
 ): Promise<EthLog[]> {
   try {
-    return await pineGetLogs(address, topic0, fromBlock, toBlock);
+    return await pineGetLogs(ch, fromBlock, toBlock);
   } catch (err) {
     console.warn("[eventBus] bootstrap pine fetch failed", err);
     return [];
@@ -350,16 +350,15 @@ async function waitForPineReady(): Promise<PineStatus> {
 // ─── Internals: RPC + pine fetch helpers ───────────────────────────
 
 async function pineGetLogs(
-  address: string,
-  topic0: string,
+  ch: Pick<Channel, "address" | "topic0" | "topic1" | "topic2" | "topic3">,
   fromBlock: number,
   toBlock: number
 ): Promise<EthLog[]> {
   if (fromBlock > toBlock) return [];
   const result = await pineRpc<EthLog[]>("eth_getLogs", [
     {
-      address,
-      topics: [topic0],
+      address: ch.address,
+      topics: topicsArrayFor(ch),
       fromBlock: "0x" + fromBlock.toString(16),
       toBlock: "0x" + toBlock.toString(16),
     },
@@ -369,8 +368,7 @@ async function pineGetLogs(
 
 async function rpcGetLogs(
   rpcUrl: string,
-  address: string,
-  topic0: string,
+  ch: Pick<Channel, "address" | "topic0" | "topic1" | "topic2" | "topic3">,
   fromBlock: number,
   toBlock: number
 ): Promise<EthLog[]> {
@@ -384,8 +382,8 @@ async function rpcGetLogs(
       method: "eth_getLogs",
       params: [
         {
-          address,
-          topics: [topic0],
+          address: ch.address,
+          topics: topicsArrayFor(ch),
           fromBlock: "0x" + fromBlock.toString(16),
           toBlock: "0x" + toBlock.toString(16),
         },
@@ -398,8 +396,29 @@ async function rpcGetLogs(
   return json.result ?? [];
 }
 
-function channelKey(address: string, topic0: string): string {
-  return `${address.toLowerCase()}:${topic0.toLowerCase()}`;
+/// Build the JSON-RPC `topics` array. eth_getLogs trims trailing nulls
+/// but accepts null for "match any" at any position; we preserve nulls
+/// in the middle (e.g. [topic0, null, userTopic]) so the indexed
+/// filter binds to the right slot.
+function topicsArrayFor(
+  ch: Pick<Channel, "topic0" | "topic1" | "topic2" | "topic3">
+): (string | null)[] {
+  const out: (string | null)[] = [ch.topic0];
+  let hasMore = ch.topic1 !== null || ch.topic2 !== null || ch.topic3 !== null;
+  if (!hasMore) return out;
+  out.push(ch.topic1);
+  if (ch.topic2 === null && ch.topic3 === null) return out;
+  out.push(ch.topic2);
+  if (ch.topic3 === null) return out;
+  out.push(ch.topic3);
+  return out;
+}
+
+function channelKey(opts: LogSubscriptionOpts): string {
+  const t1 = opts.topic1 ?? "*";
+  const t2 = opts.topic2 ?? "*";
+  const t3 = opts.topic3 ?? "*";
+  return `${opts.address.toLowerCase()}:${opts.topic0.toLowerCase()}:${t1}:${t2}:${t3}`;
 }
 
 function mergeUnique(logs: EthLog[]): EthLog[] {
