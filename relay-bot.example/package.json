@@ -1,0 +1,20 @@
+{
+  "name": "datum-relay-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DATUM relay-bot reference skeleton — pine-backed broker for settlement, clicks, stake-root attestations.",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "metrics": "node scripts/metrics.mjs",
+    "post-stake-root": "node scripts/post-stake-root.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "ethers": "^6.16.0",
+    "pine-rpc": "file:../pine"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

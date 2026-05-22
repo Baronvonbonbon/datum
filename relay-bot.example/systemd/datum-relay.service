@@ -1,0 +1,42 @@
+# systemd unit template for the DATUM relay-bot.
+#
+# Copy to /etc/systemd/system/datum-relay.service (or use a drop-in
+# at /etc/systemd/system/datum-relay.service.d/override.conf), edit
+# User, WorkingDirectory, and EnvironmentFile for your host, then:
+#
+#   systemctl daemon-reload
+#   systemctl enable --now datum-relay
+#   journalctl -u datum-relay -f -o json
+
+[Unit]
+Description=DATUM relay-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=datum
+WorkingDirectory=/opt/datum/relay-bot
+EnvironmentFile=/opt/datum/relay-bot/.env
+ExecStart=/usr/bin/node src/index.mjs
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Sandboxing — relay-bot only needs outbound network + its own dir.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/datum/relay-bot
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=false  # smoldot WASM needs RWX pages
+
+[Install]
+WantedBy=multi-user.target
