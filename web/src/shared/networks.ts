@@ -176,4 +176,10 @@ export const DEFAULT_SETTINGS: WebAppSettings = {
   ipfsApiKey: "",
   ipfsApiEndpoint: "",
   theme: "dark",
+  // Pine smoldot is the canonical chain access path; visitors get
+  // trustless reads without touching a centralized RPC. The Settings
+  // toggle lets operators turn it off if their browser can't host
+  // the WASM blob, but the default-on posture is what makes the
+  // anonymous preview surfaces useful out of the box.
+  usePine: true,
 };
