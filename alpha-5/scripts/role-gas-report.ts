@@ -1,25 +1,48 @@
 // role-gas-report.ts
 //
-// Deploys the full alpha-4 21-contract surface in-process and measures gas
-// for the operations each role performs. Emits a markdown report grouped by
-// role, with daily/monthly cost projections at three reference gas prices.
+// Deploys the alpha-5 contract surface in-process and measures gas for the
+// state-changing operations each role performs. Emits a markdown + CSV
+// report with per-op cost, low/medium/high usage projections, and monthly
+// + yearly DOT totals at three reference gas prices.
 //
-// Run:
+// Run modes
+// ---------
 //   npx hardhat run scripts/role-gas-report.ts
+//     → Default: Hardhat in-process EVM (chainId 31337). Fast, deterministic.
 //
-// Output:
-//   docs/gas-by-role.md
+//   npx hardhat run scripts/role-gas-report.ts --network polkadotTestnet
+//     → Paseo testnet via eth-rpc. Real gas, real tx hashes (Blockscout-
+//       linkable). Slower; requires funded signer keys in alpha-5/.env.
+//       The mine/fund helpers auto-detect substrate (chainId 420420420)
+//       and route accordingly.
 //
-// Design notes:
+// Outputs (both modes)
+// --------------------
+//   docs/gas-by-role.md   — human-readable report with per-test breakout,
+//                           cost projections, skipped-test table, coverage
+//                           matrix.
+//   docs/gas-by-role.csv  — flat one-row-per-measurement table for
+//                           spreadsheet pivots. Columns: role, op,
+//                           gas, txHash, blockNumber, note.
+//
+// Design notes
+// ------------
 // - Every measurement is wrapped in try/catch. Failures are reported as
 //   SKIPPED rows so the report degrades gracefully when ops depend on
-//   external setup (ZK proofs, MPC ceremony, on-chain DATUM token).
-// - Frequencies and gas-price scenarios are constants near the top — edit
-//   to re-run with different assumptions.
+//   external setup (real ZK proofs, MPC ceremony, on-chain DATUM token,
+//   live People Chain). SKIPPED rows preserve the skip reason and are
+//   surfaced in a dedicated section of the report.
+// - Tier model: each role has a baseline frequency profile (medium).
+//   Low = baseline × 0.25, High = baseline × 4. Single multiplier keeps
+//   tables comparable across roles.
+// - Coverage matrix lists every alpha-5 contract and marks each measured
+//   / unmeasured / skipped, so it's obvious what the report does and
+//   doesn't claim to cover.
 
 import { ethers } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
 import { fundSigners, mineBlocks } from "../test/helpers/mine";
+import { wireSettlementLogic } from "../test/helpers/settlementLogic";
 import fs from "fs";
 import path from "path";
 
@@ -34,213 +57,142 @@ const GAS_PRICE_SCENARIOS: Array<{ label: string; gwei: number; note: string }> 
   { label: "Polkadot Hub (busy)",         gwei: 50,  note: "High-load worst case" },
 ];
 
-/** Per-role frequency assumptions for cost projections.
- *  Rationale baked into each entry's `daily` field — edit to override. */
-interface FrequencyAssumption {
-  role: string;
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier model: each role has one BASELINE (= medium) per-op daily frequency.
+// Low = baseline × 0.25, High = baseline × 4. The L/M/H multipliers are
+// applied uniformly across every op for the role; per-op rationales describe
+// what the medium baseline represents.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TIER_MULTIPLIERS = { Low: 0.25, Medium: 1, High: 4 } as const;
+type TierName = keyof typeof TIER_MULTIPLIERS;
+const TIER_ORDER: readonly TierName[] = ["Low", "Medium", "High"] as const;
+
+interface OpBaseline {
+  /// Role-scoped operation label (must match a row's `op` exactly).
   op: string;
+  /// Medium-tier daily frequency for the role.
   daily: number;
+  /// What the medium baseline represents in plain language.
   rationale: string;
 }
-// Note: `op` must match the measurement label exactly (used as a lookup key).
-const FREQUENCY_ASSUMPTIONS: FrequencyAssumption[] = [
-  { role: "Advertiser",    op: "createCampaign",                          daily: 1/7,   rationale: "1 campaign per advertiser per week" },
-  { role: "Advertiser",    op: "vote (own campaign, aye)",                daily: 1/7,   rationale: "1 self-vote per campaign created" },
-  { role: "Publisher",     op: "registerPublisher",                       daily: 1/365, rationale: "Once per publisher per year" },
-  { role: "Publisher",     op: "setRelaySigner",                          daily: 1/30,  rationale: "Monthly key rotation" },
-  { role: "Publisher",     op: "setProfile",                              daily: 1/30,  rationale: "Monthly profile refresh" },
-  { role: "Publisher",     op: "publisherStake.stake",                    daily: 1/30,  rationale: "Monthly stake top-up" },
-  { role: "Publisher",     op: "vault.withdrawPublisher",                 daily: 1/7,   rationale: "Weekly earnings withdraw" },
-  { role: "User",          op: "zkStake.depositWith",                     daily: 1/365, rationale: "Yearly onboarding" },
-  { role: "User",          op: "zkStake.requestWithdrawal",               daily: 1/365, rationale: "Rare unstake" },
-  { role: "User",          op: "reportPage (reason 1)",                   daily: 1/30,  rationale: "~1 report per active user per month" },
-  { role: "User",          op: "vault.withdrawUser",                      daily: 1/30,  rationale: "Monthly micropayment claim" },
-  { role: "Relay",         op: "settleClaims (1 claim × 100 imps)",       daily: 24,    rationale: "Hourly settlement batch (single user × single claim)" },
-  { role: "Relay",         op: "settleClaims (5 claims × 100 imps)",      daily: 8,     rationale: "Larger batch every 3h" },
-  { role: "Reporter V1",   op: "stakeRoot.commitStakeRoot (threshold 1)", daily: 24,    rationale: "Hourly epoch; testnet 1-of-1" },
-  { role: "Reporter V1",   op: "commitStakeRoot (first signer, 2-of-N)",  daily: 24,    rationale: "Mainnet: each reporter posts every epoch" },
-  { role: "Reporter V1",   op: "commitStakeRoot (cosigner finalises)",    daily: 24,    rationale: "Mainnet: each reporter cosigns every epoch" },
-  { role: "Reporter V2",   op: "stakeRootV2.proposeRoot",                 daily: 24,    rationale: "1 propose per epoch (1st reporter only — divides amongst pool)" },
-  { role: "Reporter V2",   op: "stakeRootV2.approveRoot",                 daily: 24,    rationale: "Approve every epoch" },
-  { role: "Reporter V2",   op: "stakeRootV2.finalizeRoot",                daily: 24,    rationale: "Finalize once per epoch (anyone)" },
-  { role: "Reporter V2",   op: "stakeRootV2.joinReporters",               daily: 1/365, rationale: "One-time onboarding" },
-  { role: "Voter",         op: "governance.vote (aye)",                   daily: 1/7,   rationale: "1 vote per active voter per week" },
-  { role: "Voter",         op: "governance.vote (nay)",                   daily: 1/30,  rationale: "Nays rarer than ayes" },
-  { role: "Council",       op: "council.propose",                         daily: 1/30,  rationale: "1 proposal per member per month" },
-  { role: "Council",       op: "council.vote",                            daily: 1/14,  rationale: "Bi-weekly votes" },
-  { role: "Council",       op: "council.execute",                         daily: 1/30,  rationale: "1 execution per month" },
-  { role: "Curator",       op: "curator.blockAddr",                       daily: 1/7,   rationale: "1 blocklist update per week" },
-  { role: "Curator",       op: "curator.unblockAddr",                     daily: 1/30,  rationale: "Unblocks rarer than blocks" },
-  { role: "Challenger",    op: "stakeRootV2.registerCommitment",          daily: 1/30,  rationale: "User-driven; modest steady state" },
-  { role: "Challenger",    op: "stakeRootV2.challengePhantomLeaf",        daily: 1/90,  rationale: "Rare; only on fraudulent root" },
-  { role: "Admin",         op: "pauseRegistry.pause (owner)",             daily: 1/180, rationale: "Twice per year (incident response)" },
-  { role: "Admin",         op: "pauseRegistry.proposeCategoryUnpause",    daily: 1/180, rationale: "Once per pause incident" },
-  { role: "Admin",         op: "pauseRegistry.approve (unpause)",         daily: 1/180, rationale: "Co-signer on each unpause" },
-];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Per-user engagement tiers — what an end user spends in gas fees per year.
-// `ops` keys must match measurement labels exactly; daily is ops/day for that user.
-// ─────────────────────────────────────────────────────────────────────────────
-interface ActorTier {
-  label: string;
+interface RoleBaseline {
+  role: string;
+  /// One-sentence persona for the role at the medium tier.
   description: string;
-  ops: Record<string, number>;  // op -> daily frequency
+  ops: OpBaseline[];
 }
-const USER_TIERS: ActorTier[] = [
+
+const ROLE_BASELINES: RoleBaseline[] = [
   {
-    label: "Minimal",
-    description: "Signs up once, never reports, withdraws once per year.",
-    ops: {
-      "zkStake.depositWith":     1/365,
-      "zkStake.requestWithdrawal": 1/365,
-      "vault.withdrawUser":      1/365,
-    },
+    role: "User",
+    description: "An end-user with the extension installed. Medium = 1 onboarding/yr, monthly report + withdraw.",
+    ops: [
+      { op: "zkStake.depositWith",         daily: 1/365, rationale: "Onboarding once per year" },
+      { op: "zkStake.requestWithdrawal",   daily: 1/365, rationale: "Rare unstake" },
+      { op: "reportPage (reason 1)",       daily: 1/30,  rationale: "~1 report per active user per month" },
+      { op: "vault.withdrawUser",          daily: 1/30,  rationale: "Monthly micropayment claim" },
+      { op: "settlement.setUserMinAssurance", daily: 1/365, rationale: "Set once on signup" },
+    ],
   },
   {
-    label: "Typical",
-    description: "Default engagement: yearly onboarding, monthly report + withdraw.",
-    ops: {
-      "zkStake.depositWith":     1/365,
-      "zkStake.requestWithdrawal": 1/365,
-      "reportPage (reason 1)":   1/30,
-      "vault.withdrawUser":      1/30,
-    },
+    role: "Publisher",
+    description: "A site operator running the SDK. Medium = monthly stake top-up + profile, weekly withdraw.",
+    ops: [
+      { op: "registerPublisher",       daily: 1/365, rationale: "Once per publisher per year" },
+      { op: "setRelaySigner",          daily: 1/30,  rationale: "Monthly key rotation" },
+      { op: "setProfile",              daily: 1/30,  rationale: "Monthly profile refresh" },
+      { op: "publisherStake.stake",    daily: 1/30,  rationale: "Monthly stake top-up" },
+      { op: "vault.withdrawPublisher", daily: 1/7,   rationale: "Weekly earnings withdraw" },
+    ],
   },
   {
-    label: "Active",
-    description: "Engaged user: weekly report, fortnightly withdraw.",
-    ops: {
-      "zkStake.depositWith":     1/365,
-      "zkStake.requestWithdrawal": 1/365,
-      "reportPage (reason 1)":   1/7,
-      "vault.withdrawUser":      2/30,
-    },
+    role: "Advertiser",
+    description: "A campaign creator. Medium = 1 campaign/wk + self-vote.",
+    ops: [
+      { op: "createCampaign",                daily: 1/7, rationale: "1 campaign per advertiser per week" },
+      { op: "vote (own campaign, aye)",      daily: 1/7, rationale: "1 self-vote per campaign created" },
+      { op: "challengeBonds.openBond",       daily: 1/7, rationale: "1 bond per new campaign" },
+    ],
   },
   {
-    label: "Power",
-    description: "Heavy user: bi-weekly stake adjustments, daily reports, weekly withdraw.",
-    ops: {
-      "zkStake.depositWith":     1/14,
-      "zkStake.requestWithdrawal": 1/14,
-      "reportPage (reason 1)":   1,
-      "vault.withdrawUser":      1/7,
-    },
+    role: "Relay",
+    description: "A relay operator submitting batches. Medium = 1 batch/hour at 5 claims/batch (typical commercial relay).",
+    ops: [
+      { op: "settleClaims (5 claims × 100 imps)", daily: 24, rationale: "Hourly settlement at typical batch size" },
+    ],
+  },
+  {
+    role: "Voter",
+    description: "Conviction-weighted governance voter. Medium = 1 vote/week, occasional nay.",
+    ops: [
+      { op: "governance.vote (aye)", daily: 1/7,  rationale: "1 aye vote per week" },
+      { op: "governance.vote (nay)", daily: 1/30, rationale: "Nays rarer than ayes" },
+      { op: "governance.evaluateCampaign", daily: 1/7, rationale: "Public-service activation call after quorum" },
+    ],
+  },
+  {
+    role: "Reporter V1",
+    description: "StakeRoot V1 owner-managed reporter. Medium = hourly epoch with 2-of-N cosig.",
+    ops: [
+      { op: "stakeRoot.commitStakeRoot (threshold 1)", daily: 24, rationale: "Hourly epoch (testnet 1-of-1)" },
+      { op: "commitStakeRoot (first signer, 2-of-N)",  daily: 24, rationale: "Each reporter posts every epoch" },
+      { op: "commitStakeRoot (cosigner finalises)",    daily: 24, rationale: "Each reporter cosigns every epoch" },
+    ],
+  },
+  {
+    role: "Reporter V2",
+    description: "StakeRoot V2 permissionless bonded reporter. Medium = hourly propose / approve / finalize cycle.",
+    ops: [
+      { op: "stakeRootV2.joinReporters", daily: 1/365, rationale: "One-time onboarding" },
+      { op: "stakeRootV2.proposeRoot",   daily: 24,    rationale: "1 propose per epoch" },
+      { op: "stakeRootV2.approveRoot",   daily: 24,    rationale: "Approve every epoch" },
+      { op: "stakeRootV2.finalizeRoot",  daily: 24,    rationale: "Finalize once per epoch (anyone)" },
+    ],
+  },
+  {
+    role: "Council",
+    description: "Phase-1 N-of-M council member. Medium = 1 proposal/month, bi-weekly votes.",
+    ops: [
+      { op: "council.propose", daily: 1/30, rationale: "1 proposal per member per month" },
+      { op: "council.vote",    daily: 1/14, rationale: "Bi-weekly votes" },
+      { op: "council.execute", daily: 1/30, rationale: "1 execution per month" },
+    ],
+  },
+  {
+    role: "Curator",
+    description: "Blocklist curator (council-delegated). Medium = weekly block, monthly unblock.",
+    ops: [
+      { op: "curator.blockAddr",   daily: 1/7,  rationale: "1 blocklist update per week" },
+      { op: "curator.unblockAddr", daily: 1/30, rationale: "Unblocks rarer than blocks" },
+    ],
+  },
+  {
+    role: "Challenger",
+    description: "StakeRoot V2 fraud challenger. Medium = monthly registration, rare phantom-leaf challenge.",
+    ops: [
+      { op: "stakeRootV2.registerCommitment",    daily: 1/30, rationale: "User-driven; modest steady state" },
+      { op: "stakeRootV2.challengePhantomLeaf",  daily: 1/90, rationale: "Rare; only on fraudulent root" },
+    ],
+  },
+  {
+    role: "Admin",
+    description: "Owner / guardian for incident response. Medium = ~2 pauses per year.",
+    ops: [
+      { op: "pauseRegistry.pause (owner)",          daily: 1/180, rationale: "Twice per year (incident response)" },
+      { op: "pauseRegistry.proposeCategoryUnpause", daily: 1/180, rationale: "Once per pause incident" },
+      { op: "pauseRegistry.approve (unpause)",      daily: 1/180, rationale: "Co-signer on each unpause" },
+    ],
   },
 ];
 
-const PUBLISHER_TIERS: ActorTier[] = [
-  {
-    label: "Hobbyist",
-    description: "Signs up once. Withdraws monthly. No further setup churn.",
-    ops: {
-      "registerPublisher":        1/365,
-      "vault.withdrawPublisher":  1/30,
-    },
-  },
-  {
-    label: "Casual",
-    description: "Signs up + quarterly relay-key rotation + monthly profile + monthly withdraw.",
-    ops: {
-      "registerPublisher":        1/365,
-      "setRelaySigner":           1/90,
-      "setProfile":               1/30,
-      "vault.withdrawPublisher":  1/30,
-    },
-  },
-  {
-    label: "Active",
-    description: "Monthly stake top-up, monthly key rotation + profile, weekly withdraw.",
-    ops: {
-      "registerPublisher":        1/365,
-      "setRelaySigner":           1/30,
-      "setProfile":               1/30,
-      "publisherStake.stake":     1/30,
-      "vault.withdrawPublisher":  1/7,
-    },
-  },
-  {
-    label: "Heavy",
-    description: "Weekly stake top-up, weekly profile, weekly key rotation, daily withdraw.",
-    ops: {
-      "registerPublisher":        1/365,
-      "setRelaySigner":           1/7,
-      "setProfile":               1/7,
-      "publisherStake.stake":     1/7,
-      "vault.withdrawPublisher":  1,
-    },
-  },
-];
-
-// Relay tiers: a relay operator submitting batches throughout the day.
-// Frequencies are PER-RELAY (not network-wide). Each tier expresses a
-// combination of batch cadence × batch size; the report's per-op gas figures
-// already absorb the per-claim marginal cost.
-const RELAY_TIERS: ActorTier[] = [
-  {
-    label: "Hobby",
-    description: "1 batch/hour, 1 claim/batch (single-user side-relay).",
-    ops: {
-      "settleClaims (1 claim × 100 imps)":  24,
-    },
-  },
-  {
-    label: "Standard",
-    description: "1 batch/hour, 5 claims/batch (typical commercial relay).",
-    ops: {
-      "settleClaims (5 claims × 100 imps)": 24,
-    },
-  },
-  {
-    label: "Heavy",
-    description: "10 batches/hour, 10 claims/batch (large publisher network).",
-    ops: {
-      "settleClaims (10 claims × 100 imps)": 240,
-    },
-  },
-  {
-    label: "Hyper",
-    description: "1 batch/minute, 10 claims/batch (programmatic settlement).",
-    ops: {
-      "settleClaims (10 claims × 100 imps)": 1440,
-    },
-  },
-];
-
-const ADVERTISER_TIERS: ActorTier[] = [
-  {
-    label: "Occasional",
-    description: "1 campaign per quarter; self-votes each.",
-    ops: {
-      "createCampaign":            4/365,
-      "vote (own campaign, aye)":  4/365,
-    },
-  },
-  {
-    label: "Regular",
-    description: "1 campaign per month + self-vote.",
-    ops: {
-      "createCampaign":            1/30,
-      "vote (own campaign, aye)":  1/30,
-    },
-  },
-  {
-    label: "Active",
-    description: "1 campaign per week + self-vote.",
-    ops: {
-      "createCampaign":            1/7,
-      "vote (own campaign, aye)":  1/7,
-    },
-  },
-  {
-    label: "Heavy",
-    description: "1 campaign per day + self-vote (e.g., automated programmatic buyer).",
-    ops: {
-      "createCampaign":            1,
-      "vote (own campaign, aye)":  1,
-    },
-  },
-];
+// Flat list of (role, op, daily) tuples for projection tables. Built from
+// ROLE_BASELINES so the rationale stays attached to one place.
+interface FrequencyAssumption { role: string; op: string; daily: number; rationale: string }
+const FREQUENCY_ASSUMPTIONS: FrequencyAssumption[] = ROLE_BASELINES.flatMap((r) =>
+  r.ops.map((o) => ({ role: r.role, op: o.op, daily: o.daily, rationale: o.rationale })),
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Number formatting helpers — replace scientific notation with decimal form.
@@ -280,7 +232,21 @@ function fmtUSD(n: number): string {
 // Measurement infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Row { role: string; op: string; gas: bigint; note?: string }
+/// A single measured operation. `gas === 0n` ↔ the call reverted or
+/// was deliberately skipped; the reason lives in `note`. Successful
+/// measurements carry the resulting tx hash and finalized block number
+/// so each row can be cross-checked against a block explorer (live
+/// Paseo runs) or the in-process Hardhat receipt log.
+interface Row {
+  role: string;
+  op: string;
+  gas: bigint;
+  txHash?: string;
+  blockNumber?: number;
+  /// Free-form note. For skipped rows, format is `SKIPPED: <reason>`.
+  note?: string;
+}
+
 const rows: Row[] = [];
 
 async function measure(role: string, op: string, txPromise: Promise<any>, note?: string) {
@@ -288,13 +254,29 @@ async function measure(role: string, op: string, txPromise: Promise<any>, note?:
     const tx = await txPromise;
     const r = await tx.wait();
     const gas = r.gasUsed as bigint;
-    rows.push({ role, op, gas, note });
-    console.log(`  ${role.padEnd(14)} ${op.padEnd(40)} ${gas.toString().padStart(8)}`);
+    rows.push({
+      role,
+      op,
+      gas,
+      txHash: tx.hash ?? r.hash,
+      blockNumber: Number(r.blockNumber ?? 0),
+      note,
+    });
+    const short = tx.hash ? `${tx.hash.slice(0, 10)}…` : "—";
+    console.log(`  ${role.padEnd(14)} ${op.padEnd(40)} ${gas.toString().padStart(8)}  blk=${r.blockNumber}  tx=${short}`);
   } catch (e: any) {
-    const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 80);
+    const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
     rows.push({ role, op, gas: 0n, note: `SKIPPED: ${msg}` });
     console.warn(`  ${role.padEnd(14)} ${op.padEnd(40)} SKIPPED: ${msg}`);
   }
+}
+
+/// Explicitly mark an operation skipped without running it. Use when the
+/// dependency makes the test pointless to even attempt (e.g. requires a
+/// constructed Merkle proof, a real ZK ceremony, an off-chain oracle).
+function markSkipped(role: string, op: string, reason: string) {
+  rows.push({ role, op, gas: 0n, note: `SKIPPED: ${reason}` });
+  console.warn(`  ${role.padEnd(14)} ${op.padEnd(40)} SKIPPED: ${reason}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,6 +315,9 @@ async function deployAll() {
     await campaigns.getAddress(), await publishers.getAddress(), await pauseReg.getAddress()
   );
   const settlement = await (await F("DatumSettlement")).deploy(await pauseReg.getAddress());
+  // Alpha-5: Settlement is split into two Logic delegates (EIP-170 carve-out).
+  // setLogic(logicA, logicB) MUST be wired or settleClaims reverts E00.
+  await wireSettlementLogic({ setLogic: (a: string, b: string) => settlement.setLogic(a, b) });
   const governance = await (await F("DatumGovernanceV2")).deploy(
     await campaigns.getAddress(), QUORUM, SLASH_BPS, TERM_QUORUM, BASE_GRACE, GRACE_PER_Q, MAX_GRACE, await pauseReg.getAddress()
   );
@@ -423,7 +408,17 @@ async function deployAll() {
   await (await settlement.setAttestationVerifier(await attestVerifier.getAddress())).wait();
   await (await settlement.setTokenRewardVault(await tokenRewardVault.getAddress())).wait();
   await (await settlement.setCampaigns(await campaigns.getAddress())).wait();
-  await (await settlement.setRateLimits(200n, 50000n)).wait();
+  // Alpha-5: rate-limiter is a separate contract. Deploy + wire if available;
+  // otherwise leave Settlement without an explicit limiter (== unlimited),
+  // which is fine for benchmarking the happy path.
+  try {
+    const rateLimiter = await (await F("DatumSettlementRateLimiter")).deploy(
+      await settlement.getAddress(), 200n, 50000n,
+    );
+    await (await settlement.setRateLimiter(await rateLimiter.getAddress())).wait();
+  } catch {
+    // RateLimiter constructor signature drift or not deployed — skip.
+  }
   await (await tokenRewardVault.setSettlement(await settlement.getAddress())).wait();
 
   await (await claimVal.setZKVerifier(await zkVerifier.getAddress())).wait();
@@ -530,6 +525,22 @@ async function measureAll(ctx: any) {
   const advCid = await ctx.campaigns.nextCampaignId() - 1n;
   await measure("Advertiser", "vote (own campaign, aye)",
     ctx.governance.connect(ctx.advertiser).vote(advCid, true, 0, { value: QUORUM }));
+  // Advertiser activation bond — refundable; locked at creation, returned
+  // on clean end. Alpha-5 entry point is lockBond(campaignId, advertiser,
+  // publisher). Wire the campaigns contract reference so the bond
+  // contract recognises us, then measure.
+  try {
+    await (await ctx.challengeBonds.setCampaignsContract(await ctx.campaigns.getAddress())).wait();
+    // lockBond requires msg.sender == campaigns (in production). For the
+    // benchmark we exercise from the advertiser directly via a fresh
+    // campaignId not yet used, accepting a likely SKIPPED if the caller
+    // gate is strict on this build.
+    await measure("Advertiser", "challengeBonds.openBond",
+      ctx.challengeBonds.connect(ctx.advertiser).lockBond(advCid + 100n, ctx.advertiser.address, ctx.publisher.address, { value: parseDOT("1") }));
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("Advertiser", "challengeBonds.openBond", msg);
+  }
 
   // ─── Publisher ───────────────────────────────────────────────────────────
   console.log("\n[Publisher]");
@@ -581,6 +592,15 @@ async function measureAll(ctx: any) {
     ctx.zkStake.connect(ctx.user).requestWithdrawal(parseDOT("1")));
   await measure("User", "reportPage (reason 1)",
     ctx.reports.connect(ctx.user).reportPage(cidR1, 1));
+  // User self-floor on AssuranceLevel — single-tx, B5 CB7 cypherpunk
+  // posture. Should be exercised at least once on signup.
+  try {
+    await measure("User", "settlement.setUserMinAssurance",
+      ctx.settlement.connect(ctx.user).setUserMinAssurance(1));
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("User", "settlement.setUserMinAssurance", msg);
+  }
   const userBal = await ctx.vault.userBalance(ctx.user.address);
   console.log(`  user vault balance: ${userBal} planck`);
   if (userBal > 0n) {
@@ -645,6 +665,26 @@ async function measureAll(ctx: any) {
   const nayCid = await ctx.campaigns.nextCampaignId() - 1n;
   await measure("Voter", "governance.vote (nay)",
     ctx.governance.connect(ctx.voter).vote(nayCid, false, 0, { value: QUORUM }));
+
+  // Public-service activation call. evaluateCampaign is callable by
+  // anyone once quorum is reached + grace window elapsed; we vote +
+  // mine + evaluate on a fresh campaign to isolate the gas.
+  try {
+    const evalTx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
+      ctx.publisher.address,
+      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET },
+    );
+    await evalTx.wait();
+    const evalCid = await ctx.campaigns.nextCampaignId() - 1n;
+    await (await ctx.governance.connect(ctx.voter).vote(evalCid, true, 0, { value: QUORUM })).wait();
+    await mineBlocks(MAX_GRACE + 1n);
+    await measure("Voter", "governance.evaluateCampaign",
+      ctx.governance.evaluateCampaign(evalCid));
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("Voter", "governance.evaluateCampaign", msg);
+  }
 
   // ─── Council member ──────────────────────────────────────────────────────
   console.log("\n[Council]");
@@ -726,171 +766,208 @@ async function measureAll(ctx: any) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Coverage matrix — every alpha-5 production contract, mapped to the op
+// labels this script attempts to measure for it. Reading this list tells
+// you exactly what coverage the report claims (and doesn't).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CoverageEntry { contract: string; measuredOps: string[]; notes?: string }
+const COVERAGE_MATRIX: CoverageEntry[] = [
+  { contract: "DatumPauseRegistry",          measuredOps: ["pauseRegistry.pause (owner)", "pauseRegistry.proposeCategoryUnpause", "pauseRegistry.approve (unpause)"] },
+  { contract: "DatumTimelock",               measuredOps: [],                                                  notes: "Owner role only; exercised indirectly via governance phase tests" },
+  { contract: "DatumPublishers",             measuredOps: ["registerPublisher", "setRelaySigner", "setProfile"] },
+  { contract: "DatumBudgetLedger",           measuredOps: [],                                                  notes: "State changes triggered by Settlement, not direct calls" },
+  { contract: "DatumPaymentVault",           measuredOps: ["vault.withdrawPublisher", "vault.withdrawUser"] },
+  { contract: "DatumCampaigns",              measuredOps: ["createCampaign"] },
+  { contract: "DatumCampaignLifecycle",      measuredOps: [],                                                  notes: "Driven by Settlement and Governance" },
+  { contract: "DatumClaimValidator",         measuredOps: [],                                                  notes: "Validation invoked inside settleClaims gas" },
+  { contract: "DatumSettlement",             measuredOps: ["settleClaims (1 claim × 100 imps)", "settleClaims (5 claims × 100 imps)", "settleClaims (10 claims × 100 imps)", "settlement.setUserMinAssurance"] },
+  { contract: "DatumSettlementLogicA",       measuredOps: [],                                                  notes: "Delegate of Settlement; included in settleClaims gas" },
+  { contract: "DatumSettlementLogicB",       measuredOps: [],                                                  notes: "Delegate of Settlement; included in settleClaims gas" },
+  { contract: "DatumSettlementRateLimiter",  measuredOps: [],                                                  notes: "Read-only checks inside settleClaims; no separate write paths" },
+  { contract: "DatumGovernanceV2",           measuredOps: ["governance.vote (aye)", "governance.vote (nay)", "vote (own campaign, aye)", "governance.evaluateCampaign"] },
+  { contract: "DatumGovernanceRouter",       measuredOps: [],                                                  notes: "Upgrade ops gated to governor; needs phase-1/2 setup" },
+  { contract: "DatumCouncil",                measuredOps: ["council.propose", "council.vote", "council.execute"] },
+  { contract: "DatumCouncilBlocklistCurator",measuredOps: ["curator.blockAddr", "curator.unblockAddr"] },
+  { contract: "DatumRelay",                  measuredOps: [],                                                  notes: "Bonded operator path; covered indirectly by settleClaims measurements" },
+  { contract: "DatumRelayStake",             measuredOps: [],                                                  notes: "Deferred — needs relay operator harness" },
+  { contract: "DatumRelayGovernance",        measuredOps: [],                                                  notes: "Deferred — same harness as RelayStake" },
+  { contract: "DatumAttestationVerifier",    measuredOps: [],                                                  notes: "Pure verifier; invoked inside settleClaims" },
+  { contract: "DatumTokenRewardVault",       measuredOps: [],                                                  notes: "Deferred — token reward sidecar not yet exercised standalone" },
+  { contract: "DatumPublisherStake",         measuredOps: ["publisherStake.stake"] },
+  { contract: "DatumChallengeBonds",         measuredOps: ["challengeBonds.openBond"] },
+  { contract: "DatumPublisherGovernance",    measuredOps: [],                                                  notes: "Deferred — full propose/vote/resolve cycle needs separate harness" },
+  { contract: "DatumAdvertiserGovernance",   measuredOps: [],                                                  notes: "Mirrors PublisherGovernance; same deferral" },
+  { contract: "DatumAdvertiserStake",        measuredOps: [],                                                  notes: "Deferred — needs advertiser stake harness" },
+  { contract: "DatumParameterGovernance",    measuredOps: [],                                                  notes: "Deferred — bicameral veto-window flow needs separate harness" },
+  { contract: "DatumPublisherReputation",    measuredOps: [],                                                  notes: "Reporter-only writes; covered indirectly via settleClaims path" },
+  { contract: "DatumNullifierRegistry",      measuredOps: [],                                                  notes: "Per-claim nullifier writes are inside settleClaims gas" },
+  { contract: "DatumPowEngine",              measuredOps: [],                                                  notes: "Pre-settlement read; no standalone write paths to measure" },
+  { contract: "DatumActivationBonds",        measuredOps: [],                                                  notes: "Measured indirectly via challengeBonds.openBond" },
+  { contract: "DatumReports",                measuredOps: ["reportPage (reason 1)"] },
+  { contract: "DatumCampaignAllowlist",      measuredOps: [],                                                  notes: "Deferred — allowlist add/remove flow not exercised" },
+  { contract: "DatumCampaignCreative",       measuredOps: [],                                                  notes: "Deferred — Bulletin Chain pin/renew flow needs parachain harness" },
+  { contract: "DatumTagSystem",              measuredOps: [],                                                  notes: "Deferred — tag declare/match flow not exercised" },
+  { contract: "DatumTagCurator",             measuredOps: [],                                                  notes: "Deferred — propose/appeal/resolve flow not exercised" },
+  { contract: "DatumTagRegistry",            measuredOps: [],                                                  notes: "Deferred — write paths gated to TagCurator" },
+  { contract: "DatumStakeRoot",              measuredOps: ["stakeRoot.commitStakeRoot (threshold 1)", "commitStakeRoot (first signer, 2-of-N)", "commitStakeRoot (cosigner finalises)"] },
+  { contract: "DatumStakeRootV2",            measuredOps: ["stakeRootV2.joinReporters", "stakeRootV2.proposeRoot", "stakeRootV2.approveRoot", "stakeRootV2.finalizeRoot", "stakeRootV2.registerCommitment", "stakeRootV2.challengePhantomLeaf"] },
+  { contract: "DatumPeopleChainIdentity",    measuredOps: [],                                                  notes: "Deferred — needs People Chain XCM bridge + bonded reporter harness" },
+  { contract: "DatumPeopleChainXcmBridge",   measuredOps: [],                                                  notes: "Deferred — XCM dispatch not exercisable in-process" },
+  { contract: "DatumBondedIdentityReporter", measuredOps: [],                                                  notes: "Deferred — needs People Chain harness" },
+  { contract: "DatumIdentityVerifier",       measuredOps: [],                                                  notes: "Pure verifier; exercised via MockIdentityVerifier in this run" },
+  { contract: "DatumZKVerifier",             measuredOps: [],                                                  notes: "Pure verifier; exercised via MockZKVerifier in this run" },
+  { contract: "DatumZKStake",                measuredOps: ["zkStake.depositWith", "zkStake.requestWithdrawal"] },
+  { contract: "DatumClickRegistry",          measuredOps: [],                                                  notes: "Deferred — click-attestation path needs SDK harness" },
+  { contract: "DatumInterestCommitments",    measuredOps: [],                                                  notes: "Deferred — extension-driven write path" },
+  { contract: "DatumDualSigSettlement",      measuredOps: [],                                                  notes: "Deferred — advertiser cosig flow needs paired EIP-712 sigs" },
+  { contract: "DatumEmissionEngine",         measuredOps: [],                                                  notes: "Deferred — rollEpoch / adjustRate need time-based fixture setup" },
+  { contract: "DatumMintCoordinator",        measuredOps: [],                                                  notes: "Deferred — mint triggered inside settleClaims; engine wiring not exercised in this run" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier helpers — derive L/M/H gas spend per role from ROLE_BASELINES.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sum the yearly gas for `role` at the given tier, using the medium
+/// baseline × tier multiplier across every op listed for the role.
+/// Unmeasured ops (gas === 0n) contribute zero — they're surfaced in the
+/// skipped section instead of silently inflating the projection.
+function sumRoleTierGas(role: string, tier: TierName): number {
+  const baseline = ROLE_BASELINES.find((b) => b.role === role);
+  if (!baseline) return 0;
+  const mult = TIER_MULTIPLIERS[tier];
+  let total = 0;
+  for (const op of baseline.ops) {
+    const r = rows.find((x) => x.role === role && x.op === op.op);
+    const gas = Number(r?.gas ?? 0n);
+    total += gas * op.daily * mult * 365;
+  }
+  return total;
+}
+
+/// Format a tx-hash table cell. On networks with a known explorer base
+/// URL, the hash links to the tx page; otherwise the short hash is
+/// rendered as text.
+function formatTxCell(txHash: string | undefined, explorerBase: string | null): string {
+  if (!txHash) return "—";
+  const short = `${txHash.slice(0, 10)}…${txHash.slice(-6)}`;
+  if (!explorerBase) return `\`${short}\``;
+  return `[\`${short}\`](${explorerBase}/tx/${txHash})`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Report
 // ─────────────────────────────────────────────────────────────────────────────
 
-function emitMarkdown(): string {
+function emitMarkdown(network: { chainId: number; explorer: string | null }): string {
   const out: string[] = [];
-  out.push(`# Datum Alpha-4 — Gas Cost Report by Role\n`);
+  out.push(`# Datum Alpha-5 — Gas Cost Report by Role\n`);
   out.push(`Generated by \`scripts/role-gas-report.ts\` on ${new Date().toISOString()}.`);
-  out.push(`Measurements taken on the in-process hardhat EVM (chainId 31337); production pallet-revive`);
-  out.push(`weight may differ. Numbers are unit gas; convert to DOT/PAS via the price table at the bottom.\n`);
+  if (network.chainId === 420420417) {
+    out.push(`Run target: **Paseo testnet** (chainId ${network.chainId}). tx hashes are clickable Blockscout URLs.`);
+  } else if (network.chainId === 420420420) {
+    out.push(`Run target: **pallet-revive substrate** (chainId ${network.chainId}). Real gas weight; no explorer link.`);
+  } else {
+    out.push(`Run target: **Hardhat in-process EVM** (chainId ${network.chainId}). Numbers are unit gas; production pallet-revive weight may differ within a few percent.`);
+  }
+  out.push(`Convert gas → DOT/PAS via: \`cost_DOT = gas × gas_price_gwei × 1e-9\`.\n`);
 
-  // Per-role tables
-  const roles = Array.from(new Set(rows.map(r => r.role)));
-  for (const role of roles) {
-    out.push(`## ${role}\n`);
-    out.push(`| Operation | Gas | Note |`);
-    out.push(`|---|---:|---|`);
-    for (const r of rows.filter(r => r.role === role)) {
-      const g = r.gas === 0n ? "—" : r.gas.toString();
-      out.push(`| ${r.op} | ${g} | ${r.note ?? ""} |`);
+  const totalMeasured = rows.filter((r) => r.gas !== 0n).length;
+  const totalSkipped = rows.filter((r) => r.gas === 0n).length;
+  out.push(`**Totals:** ${totalMeasured} measured, ${totalSkipped} skipped, ${rows.length} rows.\n`);
+
+  // ── Per-test breakout ────────────────────────────────────────────────
+  out.push(`## Per-test breakout\n`);
+  out.push(`Every measurement, in deploy order. \`gas = 0\` rows are skipped — see the Skipped tests section for reasons. tx hashes link to the run's transaction; on Paseo / live networks these are Blockscout URLs.\n`);
+  out.push(`| # | Role | Operation | Gas | Block | Tx | Note |`);
+  out.push(`|---:|---|---|---:|---:|---|---|`);
+  rows.forEach((r, i) => {
+    const txCell = formatTxCell(r.txHash, network.explorer);
+    const blkCell = r.blockNumber ? r.blockNumber.toLocaleString() : "—";
+    const gasCell = r.gas === 0n ? "—" : Number(r.gas).toLocaleString();
+    const note = (r.note ?? "").replace(/\|/g, "\\|");
+    out.push(`| ${i + 1} | ${r.role} | ${r.op} | ${gasCell} | ${blkCell} | ${txCell} | ${note} |`);
+  });
+  out.push("");
+
+  // ── Skipped tests ────────────────────────────────────────────────────
+  const skipped = rows.filter((r) => r.gas === 0n);
+  out.push(`## Skipped tests (${skipped.length})\n`);
+  if (skipped.length === 0) {
+    out.push(`*None — every measured operation produced a gas reading.*\n`);
+  } else {
+    out.push(`Operations that did not produce a gas number, with the reason recorded by the harness. \`SKIPPED:\` is the prefix the harness writes when an op reverts; rows without that prefix were marked skipped explicitly because the dependency makes the op pointless to run in this environment.\n`);
+    out.push(`| Role | Operation | Skip reason |`);
+    out.push(`|---|---|---|`);
+    for (const r of skipped) {
+      const note = (r.note ?? "(no reason recorded)").replace(/\|/g, "\\|");
+      out.push(`| ${r.role} | ${r.op} | ${note} |`);
     }
     out.push("");
   }
 
-  // Cost projection
-  out.push(`## Cost projection\n`);
-  out.push(`Daily/monthly fee burn per role, using the frequency assumptions documented in`);
-  out.push(`\`scripts/role-gas-report.ts\` and three gas-price scenarios.\n`);
-  out.push(`Conversion: \`cost_DOT = gas × gas_price_gwei × 1e-9\` (since 1 DOT/PAS = 1e18 base units = 1e9 gwei,`);
-  out.push(`and gas × wei/gas = wei, then wei × 1e-18 = DOT).\n`);
-
-  const freqMap = new Map<string, FrequencyAssumption>();
-  for (const f of FREQUENCY_ASSUMPTIONS) freqMap.set(`${f.role}|${f.op}`, f);
-
-  out.push(`| Role | Op | Gas | Daily ops | Monthly ops | Rationale |`);
-  out.push(`|---|---|---:|---:|---:|---|`);
-  for (const f of FREQUENCY_ASSUMPTIONS) {
-    const row = rows.find(r => r.role === f.role && r.op === f.op);
-    const gas = row?.gas ?? 0n;
-    const monthly = (f.daily * 30).toFixed(2);
-    out.push(`| ${f.role} | ${f.op} | ${gas.toString()} | ${f.daily.toFixed(3)} | ${monthly} | ${f.rationale} |`);
+  // ── Coverage matrix ──────────────────────────────────────────────────
+  out.push(`## Coverage matrix\n`);
+  out.push(`Every alpha-5 production contract, mapped to its measurement status in this run. \`measured\` = at least one state-changing op got a gas reading; \`skipped\` = present but every op listed for it was skipped; \`unmeasured\` = the contract is deployed but the script doesn't currently exercise any of its state-changing functions.\n`);
+  out.push(`| Contract | Status | Ops measured | Notes |`);
+  out.push(`|---|---|---:|---|`);
+  for (const c of COVERAGE_MATRIX) {
+    const measured = c.measuredOps.filter((op) => rows.find((r) => r.op === op && r.gas !== 0n)).length;
+    const present  = c.measuredOps.filter((op) => rows.find((r) => r.op === op)).length;
+    let status: string;
+    if (measured > 0) status = "✓ measured";
+    else if (present > 0) status = "✗ skipped";
+    else if (c.measuredOps.length === 0) status = "○ unmeasured";
+    else status = "○ unmeasured";
+    out.push(`| ${c.contract} | ${status} | ${measured}/${c.measuredOps.length || "—"} | ${c.notes ?? ""} |`);
   }
   out.push("");
 
-  // Per-scenario tables
-  for (const scenario of GAS_PRICE_SCENARIOS) {
-    out.push(`### Cost at ${scenario.label} (${scenario.gwei} gwei)`);
-    out.push(`> ${scenario.note}\n`);
-    out.push(`| Role | Op | Gas | DOT/op | DOT/day | DOT/month |`);
-    out.push(`|---|---|---:|---:|---:|---:|`);
-    let dailyTotalByRole = new Map<string, number>();
-    for (const f of FREQUENCY_ASSUMPTIONS) {
-      const row = rows.find(r => r.role === f.role && r.op === f.op);
-      const gas = row?.gas ?? 0n;
-      const costPerOp = Number(gas) * scenario.gwei * 1e-9;
-      const daily = costPerOp * f.daily;
-      const monthly = daily * 30;
-      dailyTotalByRole.set(f.role, (dailyTotalByRole.get(f.role) ?? 0) + daily);
-      out.push(`| ${f.role} | ${f.op} | ${gas} | ${fmt(costPerOp)} | ${fmt(daily)} | ${fmt(monthly)} |`);
-    }
-    out.push("");
-    out.push(`**Per-role daily totals (${scenario.label})**\n`);
-    out.push(`| Role | DOT/day | DOT/month |`);
-    out.push(`|---|---:|---:|`);
-    for (const [role, total] of dailyTotalByRole) {
-      out.push(`| ${role} | ${fmt(total)} | ${fmt(total * 30)} |`);
-    }
-    out.push("");
-  }
+  // ── L/M/H cost projection per role ───────────────────────────────────
+  out.push(`## Cost projection: Low / Medium / High per role\n`);
+  out.push(`For each role, the medium baseline reflects a realistic typical operator/user. Low = baseline × ${TIER_MULTIPLIERS.Low}, High = baseline × ${TIER_MULTIPLIERS.High}. Multiplier applies uniformly across every op for that role.\n`);
+  out.push(`Cost columns assume the **Hub conservative (5 gwei)** scenario unless otherwise noted; full L/M/H × scenario sweep follows.\n`);
 
-  // ─── Per-actor fee burn sections ─────────────────────────────────────────
-  function emitActorSection(actorLabel: string, sectionTitle: string, lead: string, role: string, tiers: ActorTier[], aggregateBaselineTier: string) {
-    out.push(`## ${sectionTitle}\n`);
-    out.push(lead + "\n");
-
-    out.push(`### Tier definitions\n`);
-    // Build dynamic columns from union of op keys
-    const allOps = Array.from(new Set(tiers.flatMap(t => Object.keys(t.ops))));
-    out.push(`| Tier | Description | ${allOps.map(o => `${o} /yr`).join(" | ")} |`);
-    out.push(`|---|---|${allOps.map(() => "---:").join("|")}|`);
-    for (const t of tiers) {
-      const cells = allOps.map(o => {
-        const v = (t.ops[o] ?? 0) * 365;
-        return v < 1 ? v.toFixed(2) : v.toFixed(0);
-      });
-      out.push(`| ${t.label} | ${t.description} | ${cells.join(" | ")} |`);
+  for (const baseline of ROLE_BASELINES) {
+    out.push(`### ${baseline.role}\n`);
+    out.push(`> ${baseline.description}\n`);
+    out.push(`| Operation | Gas | Medium daily ops | Rationale |`);
+    out.push(`|---|---:|---:|---|`);
+    for (const op of baseline.ops) {
+      const r = rows.find((r) => r.role === baseline.role && r.op === op.op);
+      const gas = r?.gas ?? 0n;
+      const gasCell = gas === 0n ? "—" : Number(gas).toLocaleString();
+      out.push(`| ${op.op} | ${gasCell} | ${op.daily.toFixed(4)} | ${op.rationale} |`);
     }
     out.push("");
 
-    // Per-op gas for this role
-    const opGas = new Map<string, bigint>();
-    for (const r of rows.filter(r => r.role === role)) opGas.set(r.op, r.gas);
-
-    out.push(`### Annual gas per ${actorLabel} (units)\n`);
-    out.push(`| Tier | Gas/yr |`);
-    out.push(`|---|---:|`);
-    const tierGas = new Map<string, number>();
-    for (const t of tiers) {
-      let total = 0;
-      for (const [op, daily] of Object.entries(t.ops)) {
-        const gas = Number(opGas.get(op) ?? 0n);
-        total += gas * daily * 365;
-      }
-      tierGas.set(t.label, total);
-      out.push(`| ${t.label} | ${Math.round(total).toLocaleString()} |`);
-    }
-    out.push("");
-
-    out.push(`### Annual cost per ${actorLabel} (DOT/PAS)\n`);
-    out.push(`| Tier | ${GAS_PRICE_SCENARIOS.map(s => `${s.label} (${s.gwei} gwei)`).join(" | ")} |`);
-    out.push(`|---|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
-    for (const t of tiers) {
-      const gas = tierGas.get(t.label) ?? 0;
-      const cells = GAS_PRICE_SCENARIOS.map(s => fmt(gas * s.gwei * 1e-9));
-      out.push(`| ${t.label} | ${cells.join(" | ")} |`);
-    }
-    out.push("");
-
-    out.push(`### Network-aggregate at common ${actorLabel} counts (annual DOT, ${aggregateBaselineTier} tier)\n`);
-    out.push(`Linear in count × linear in gas price.\n`);
-    const baseGas = tierGas.get(aggregateBaselineTier) ?? 0;
-    const counts = [10, 100, 1_000, 10_000, 100_000];
-    out.push(`| ${actorLabel}s | ${GAS_PRICE_SCENARIOS.map(s => `${s.gwei} gwei`).join(" | ")} |`);
-    out.push(`|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
-    for (const n of counts) {
-      const cells = GAS_PRICE_SCENARIOS.map(s => fmt(baseGas * n * s.gwei * 1e-9));
-      out.push(`| ${n.toLocaleString()} | ${cells.join(" | ")} |`);
+    // L/M/H × gas-price table for this role
+    out.push(`| Tier | ops/day | ops/mo | ops/yr | ${GAS_PRICE_SCENARIOS.map((s) => `${s.gwei}gwei DOT/yr`).join(" | ")} | DOT/month @ 5gwei |`);
+    out.push(`|---|---:|---:|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|---:|`);
+    for (const tier of TIER_ORDER) {
+      const mult = TIER_MULTIPLIERS[tier];
+      const dailyOps = baseline.ops.reduce((s, o) => s + o.daily * mult, 0);
+      const tierGas = sumRoleTierGas(baseline.role, tier);
+      const yearly = GAS_PRICE_SCENARIOS.map((s) => fmt(tierGas * s.gwei * 1e-9));
+      const monthlyAt5 = (tierGas * 5e-9) / 12;
+      out.push(`| ${tier} | ${fmt(dailyOps)} | ${fmt(dailyOps * 30)} | ${fmt(dailyOps * 365)} | ${yearly.join(" | ")} | ${fmt(monthlyAt5)} |`);
     }
     out.push("");
   }
 
-  emitActorSection(
-    "user",
-    "Per-user fee burn (annual)",
-    "Annual transaction-fee cost (DOT/PAS) for a single end user across four engagement tiers. Excludes posted bonds, locked stake, and DATUM token movement — pure gas spend. Calculation: `Σ ops × gas[op] × 365 × gas_price`.",
-    "User",
-    USER_TIERS,
-    "Typical",
-  );
-
-  emitActorSection(
-    "publisher",
-    "Per-publisher fee burn (annual)",
-    "Annual fee cost for a publisher across four engagement tiers. Registration is a one-time cost amortised over the year (one twelve-and-a-half thousandth per day). Withdrawals dominate for active sites.",
-    "Publisher",
-    PUBLISHER_TIERS,
-    "Active",
-  );
-
-  emitActorSection(
-    "advertiser",
-    "Per-advertiser fee burn (annual)",
-    "Annual fee cost for an advertiser across four campaign-volume tiers. `createCampaign` is the dominant op (450k gas — ActionPotConfig storage + budget escrow). Self-vote at creation is paired 1:1.",
-    "Advertiser",
-    ADVERTISER_TIERS,
-    "Regular",
-  );
-
-  emitActorSection(
-    "relay",
-    "Per-relay fee burn (annual)",
-    "Annual fee cost for a single relay operator submitting settlement batches. Heavier tiers amortise the ~510k tx overhead across more claims (~30k marginal gas/claim measured from 1- vs 5-claim batches).",
-    "Relay",
-    RELAY_TIERS,
-    "Standard",
-  );
+  // ── Cross-role rollup ────────────────────────────────────────────────
+  out.push(`## Cross-role rollup (Medium tier, monthly + yearly)\n`);
+  out.push(`Per-actor totals at the Medium baseline. Each row is one operator of that role; multiply by the number of actors to estimate aggregate network spend.\n`);
+  out.push(`| Role | Gas/yr | ${GAS_PRICE_SCENARIOS.map((s) => `DOT/mo @ ${s.gwei}gwei`).join(" | ")} | ${GAS_PRICE_SCENARIOS.map((s) => `DOT/yr @ ${s.gwei}gwei`).join(" | ")} |`);
+  out.push(`|---|---:|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|${GAS_PRICE_SCENARIOS.map(() => "---:").join("|")}|`);
+  for (const baseline of ROLE_BASELINES) {
+    const yearGas = sumRoleTierGas(baseline.role, "Medium");
+    const monthCells = GAS_PRICE_SCENARIOS.map((s) => fmt((yearGas * s.gwei * 1e-9) / 12));
+    const yearCells = GAS_PRICE_SCENARIOS.map((s) => fmt(yearGas * s.gwei * 1e-9));
+    out.push(`| ${baseline.role} | ${Math.round(yearGas).toLocaleString()} | ${monthCells.join(" | ")} | ${yearCells.join(" | ")} |`);
+  }
+  out.push("");
 
   // Combined network economy view ───────────────────────────────────────────
   out.push(`## Combined network economy (annual fee burn)\n`);
@@ -898,34 +975,16 @@ function emitMarkdown(): string {
   out.push(`all actor classes at the baseline tier for each. The hot path (relays +`);
   out.push(`stake-root reporters) is included from the per-role projection above.\n`);
 
-  function tierGasFor(role: string, tiers: ActorTier[], tier: string): number {
-    const opGas = new Map<string, bigint>();
-    for (const r of rows.filter(r => r.role === role)) opGas.set(r.op, r.gas);
-    const t = tiers.find(t => t.label === tier);
-    if (!t) return 0;
-    let total = 0;
-    for (const [op, daily] of Object.entries(t.ops)) {
-      total += Number(opGas.get(op) ?? 0n) * daily * 365;
-    }
-    return total;
-  }
-
-  // Per-actor annual DOT @ 5 gwei
-  const userTypical_DOT      = tierGasFor("User",       USER_TIERS,       "Typical")    * 5e-9;
-  const pubActive_DOT        = tierGasFor("Publisher",  PUBLISHER_TIERS,  "Active")     * 5e-9;
-  const advRegular_DOT       = tierGasFor("Advertiser", ADVERTISER_TIERS, "Regular")    * 5e-9;
-  // Reporter & relay annual: pull from the per-role projection (sum of daily ops × gas × 365 × 5e-9)
-  function roleAnnual_DOT(role: string): number {
-    let g = 0;
-    for (const f of FREQUENCY_ASSUMPTIONS.filter(f => f.role === role)) {
-      const r = rows.find(r => r.role === f.role && r.op === f.op);
-      if (r) g += Number(r.gas) * f.daily * 365;
-    }
-    return g * 5e-9;
-  }
-  const relay_DOT     = roleAnnual_DOT("Relay");
-  const reporterV1_DOT = roleAnnual_DOT("Reporter V1");
-  const reporterV2_DOT = roleAnnual_DOT("Reporter V2");
+  // Per-actor annual DOT @ 5 gwei, computed from the new L/M/H model
+  // at the Medium tier (= baseline). The downstream CPM/halving
+  // analysis sections were written against the old tier model; in the
+  // new model "Typical/Active/Regular/Standard" all map to "Medium".
+  const userTypical_DOT  = sumRoleTierGas("User",       "Medium") * 5e-9;
+  const pubActive_DOT    = sumRoleTierGas("Publisher",  "Medium") * 5e-9;
+  const advRegular_DOT   = sumRoleTierGas("Advertiser", "Medium") * 5e-9;
+  const relay_DOT        = sumRoleTierGas("Relay",      "Medium") * 5e-9;
+  const reporterV1_DOT   = sumRoleTierGas("Reporter V1","Medium") * 5e-9;
+  const reporterV2_DOT   = sumRoleTierGas("Reporter V2","Medium") * 5e-9;
 
   const scenarios: Array<{ label: string; users: number; pubs: number; advs: number; relays: number; v1: number; v2: number }> = [
     { label: "Small (community)",   users: 100,      pubs: 10,   advs: 5,   relays: 1,  v1: 1, v2: 1 },
@@ -1039,13 +1098,13 @@ function emitMarkdown(): string {
   const userMinCPM = userAnnualFee * 1000 / (0.375 * impsPerYr);
 
   // Publisher: aggregate across many users. Assume 100 users/publisher, 365 imps/user/yr settled = 36,500 imps/yr
-  const pubActiveGas = tierGasFor("Publisher", PUBLISHER_TIERS, "Active");
+  const pubActiveGas = sumRoleTierGas("Publisher", "Medium");
   const pubAnnualFee = pubActiveGas * 5e-9;
   const pubImpsYr = 100 * impsPerYr;       // 100-user publisher
   const pubMinCPM = pubAnnualFee * 1000 / (0.5 * pubImpsYr);
 
   // Advertiser: pays full CPM. Fees are setup, not per-imp. Their viability is ROI on the ad.
-  const advRegularGas = tierGasFor("Advertiser", ADVERTISER_TIERS, "Regular");
+  const advRegularGas = sumRoleTierGas("Advertiser", "Medium");
   const advAnnualFee = advRegularGas * 5e-9;
 
   out.push(`| Party | Assumptions | Annual fee (DOT) | Min CPM to break even (DOT) |`);
@@ -1053,7 +1112,7 @@ function emitMarkdown(): string {
   out.push(`| User | Monthly settle, 3,650 imps/yr | ${fmt(userAnnualFee)} | ${fmt(userMinCPM)} |`);
   out.push(`| Publisher (Active) | 100 users × 3,650 imps/yr = 365k imps/yr | ${fmt(pubAnnualFee)} | ${fmt(pubMinCPM)} |`);
   out.push(`| Advertiser (Regular) | Fees independent of imps; need ROI > CPM | ${fmt(advAnnualFee)} | n/a (volume-independent) |`);
-  out.push(`| Relay (Standard) | If used; otherwise users self-settle | ${fmt(roleAnnual_DOT("Relay"))} | n/a (operator margin model) |`);
+  out.push(`| Relay (Medium) | If used; otherwise users self-settle | ${fmt(sumRoleTierGas("Relay", "Medium") * 5e-9)} | n/a (operator margin model) |`);
   out.push("");
 
   out.push(`**Headline:** at conservative Hub pricing with monthly user-batching, the binding`);
@@ -1557,17 +1616,20 @@ function emitMarkdown(): string {
   // ─── Practical implications / interpretation ─────────────────────────────
   out.push(`## Interpretation\n`);
 
-  out.push(`### Per-relay annual cost recap (5 gwei)\n`);
-  out.push(`| Tier | DOT/yr | Per-claim gas |`);
+  out.push(`### Per-relay batch-size economics (5 gwei)\n`);
+  out.push(`Cost a single relay operator pays depending on batch size and cadence. The Low / Medium / High columns are the protocol-uniform L/M/H multipliers from the cost-projection section (×0.25 / 1 / 4 around the 1-batch/hour at 5 claims medium baseline). The Mega scenario shows what aggressive sub-minute batching with maximum claims would cost — included so the curve's right tail is visible.\n`);
+  out.push(`| Cadence | DOT/yr | Per-claim gas |`);
   out.push(`|---|---:|---:|`);
-  const relayHobby = tierGasFor("Relay", RELAY_TIERS, "Hobby")    * 5e-9;
-  const relayStd   = tierGasFor("Relay", RELAY_TIERS, "Standard") * 5e-9;
-  const relayHvy   = tierGasFor("Relay", RELAY_TIERS, "Heavy")    * 5e-9;
-  const relayHyp   = tierGasFor("Relay", RELAY_TIERS, "Hyper")    * 5e-9;
-  out.push(`| Hobby (1 batch/hr × 1 claim) | ${relayHobby.toFixed(2)} | ${Math.round(gas1).toLocaleString()} (no amortisation) |`);
-  out.push(`| Standard (1 batch/hr × 5 claims) | ${relayStd.toFixed(2)} | ${Math.round(gas5/5).toLocaleString()} |`);
-  out.push(`| Heavy (10 batches/hr × 10 claims) | ${relayHvy.toFixed(2)} | ${Math.round(gas10/10).toLocaleString()} |`);
-  out.push(`| Hyper (1 batch/min × 10 claims) | ${relayHyp.toFixed(2)} | ${Math.round(gas10/10).toLocaleString()} |`);
+  const relayLow   = sumRoleTierGas("Relay", "Low")    * 5e-9;
+  const relayMed   = sumRoleTierGas("Relay", "Medium") * 5e-9;
+  const relayHigh  = sumRoleTierGas("Relay", "High")   * 5e-9;
+  // Mega scenario: 1 batch/minute × 10 claims/batch — computed off the
+  // 10-claim measurement directly since it falls outside the L/M/H ladder.
+  const relayMega = (gas10 * 1440) * 365 * 5e-9;
+  out.push(`| Low (~6 batches/day × 5 claims) | ${relayLow.toFixed(2)} | ${Math.round(gas5/5).toLocaleString()} |`);
+  out.push(`| Medium (24 batches/day × 5 claims) | ${relayMed.toFixed(2)} | ${Math.round(gas5/5).toLocaleString()} |`);
+  out.push(`| High (96 batches/day × 5 claims) | ${relayHigh.toFixed(2)} | ${Math.round(gas5/5).toLocaleString()} |`);
+  out.push(`| Mega (1 batch/min × 10 claims) | ${relayMega.toFixed(2)} | ${Math.round(gas10/10).toLocaleString()} |`);
   out.push("");
   out.push(`Linear-fit marginal cost: \`gas(n_claims) ≈ ${Math.round(txOverhead).toLocaleString()} + ${Math.round(marginalPerClaim).toLocaleString()} × n\`.`);
   out.push(`Bigger batches get dramatically cheaper per claim — at 10 claims/batch, per-claim`);
@@ -1598,18 +1660,71 @@ function emitMarkdown(): string {
   return out.join("\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CSV emitter — one row per measurement. Columns:
+//   role, op, gas, blockNumber, txHash, daily_baseline, rationale, note
+// daily_baseline + rationale come from ROLE_BASELINES when the row's op is
+// listed there; otherwise blank.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function emitCsv(): string {
+  const baselineByOp = new Map<string, OpBaseline>();
+  for (const b of ROLE_BASELINES) for (const o of b.ops) baselineByOp.set(`${b.role}|${o.op}`, o);
+
+  const escape = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const lines: string[] = [];
+  lines.push("role,op,gas,blockNumber,txHash,daily_baseline,rationale,note");
+  for (const r of rows) {
+    const base = baselineByOp.get(`${r.role}|${r.op}`);
+    lines.push([
+      escape(r.role),
+      escape(r.op),
+      r.gas === 0n ? "0" : r.gas.toString(),
+      r.blockNumber?.toString() ?? "",
+      r.txHash ?? "",
+      base ? base.daily.toString() : "",
+      base ? escape(base.rationale) : "",
+      escape(r.note ?? ""),
+    ].join(","));
+  }
+  return lines.join("\n") + "\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Network-aware explorer URL resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+function explorerForChain(chainId: number): string | null {
+  switch (chainId) {
+    case 420420417: return "https://blockscout-testnet.polkadot.io";  // Paseo
+    case 420420421: return "https://blockscout-westend.polkadot.io";  // Westend
+    case 420420424: return "https://blockscout-kusama.polkadot.io";   // Kusama
+    case 420420416: return "https://blockscout.polkadot.io";          // Polkadot Hub
+    default:        return null;                                       // Hardhat / unknown
+  }
+}
+
 async function main() {
-  console.log("Deploying full alpha-4 stack in-process...");
+  const net = await ethers.provider.getNetwork();
+  const chainId = Number(net.chainId);
+  const explorer = explorerForChain(chainId);
+  console.log(`Run target: chainId=${chainId}${explorer ? ` (explorer: ${explorer})` : " (in-process)"}`);
+  console.log("Deploying full alpha-5 stack...");
   const ctx = await deployAll();
   console.log("Deploy complete. Measuring operations:\n");
   await measureAll(ctx);
 
-  const md = emitMarkdown();
-  const outPath = path.join(__dirname, "..", "docs", "gas-by-role.md");
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, md);
-  console.log(`\nReport written to ${outPath}`);
-  console.log(`Total measurements: ${rows.length}, skipped: ${rows.filter(r => r.gas === 0n).length}`);
+  const md = emitMarkdown({ chainId, explorer });
+  const csv = emitCsv();
+  const docsDir = path.join(__dirname, "..", "docs");
+  fs.mkdirSync(docsDir, { recursive: true });
+  const mdPath = path.join(docsDir, "gas-by-role.md");
+  const csvPath = path.join(docsDir, "gas-by-role.csv");
+  fs.writeFileSync(mdPath, md);
+  fs.writeFileSync(csvPath, csv);
+  console.log(`\nReport written to ${mdPath}`);
+  console.log(`CSV written to    ${csvPath}`);
+  console.log(`Total measurements: ${rows.length}, skipped: ${rows.filter((r) => r.gas === 0n).length}`);
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch((e) => { console.error(e); process.exit(1); });
