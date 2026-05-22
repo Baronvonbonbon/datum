@@ -16,6 +16,9 @@ import { useWallet } from "../../context/WalletContext";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
+import { Link } from "react-router-dom";
 
 const LEVELS: Array<{ value: number; label: string; description: string }> = [
   { value: 0, label: "Permissive (default)", description: "Accept any settlement path. Maximum compatibility, minimum proof." },
@@ -69,6 +72,20 @@ export function AssurancePage() {
   return (
     <div style={{ padding: 24, maxWidth: 720 }}>
       <h2 style={{ marginTop: 0 }}>Your AssuranceLevel Floor</h2>
+      <PageExplainer slug="me-assurance" title="What is AssuranceLevel?">
+        <p style={{ margin: 0 }}>
+          AssuranceLevel is the minimum cryptographic-proof posture you
+          require for a settlement to credit your address. The protocol
+          OR-merges this with the campaign's own AssuranceLevel and
+          enforces the higher of the two. Most users leave this at
+          Permissive; raise it if you only want to settle on campaigns
+          that explicitly opt into stronger proof.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          For the related People Chain identity gate, see{" "}
+          <Link to="/me/identity">Identity →</Link>.
+        </p>
+      </PageExplainer>
       <p style={{ color: "var(--text-muted, #888)", fontSize: 14, lineHeight: 1.5 }}>
         Choose the minimum cryptographic proof you require for any settlement
         addressed to your wallet. The protocol enforces whichever is higher —
@@ -120,6 +137,7 @@ export function AssurancePage() {
           A single on-chain transaction. Self-only — no admin can change this for you.
         </span>
       </div>
+      <ContractsTouched contracts={["settlement", "attestationVerifier"]} />
     </div>
   );
 }

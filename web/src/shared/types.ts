@@ -410,6 +410,11 @@ export interface WebAppSettings {
   /** Only used when ipfsProvider === "custom" */
   ipfsApiEndpoint: string;
   theme: ThemeName;
-  /** Use Pine light client instead of centralized RPC (default: false) */
+  /** Use Pine light client as the primary chain-access path. Default: true.
+   *  Pine validates blocks in-browser; no third-party gateway sees your reads. */
   usePine?: boolean;
+  /** Allow falling back to a centralized RPC endpoint for historical lookups
+   *  that exceed pine's rolling window. Default: false. When off, pages that
+   *  need history-beyond-pine show an "Enable RPC" CTA instead. */
+  rpcEnabled?: boolean;
 }

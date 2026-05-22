@@ -182,4 +182,10 @@ export const DEFAULT_SETTINGS: WebAppSettings = {
   // the WASM blob, but the default-on posture is what makes the
   // anonymous preview surfaces useful out of the box.
   usePine: true,
+  // RPC fallback is off by default — pine handles the live pipeline.
+  // Users opt in explicitly when they want to load history beyond
+  // pine's rolling window. The opt-in is a per-browser preference and
+  // a hover tooltip in the header explains the metadata-exposure
+  // tradeoff before they flip it on.
+  rpcEnabled: false,
 };

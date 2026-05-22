@@ -22,7 +22,10 @@
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
 import { callContract } from "../../lib/contractRead";
@@ -74,14 +77,37 @@ export function IdentityDashboard() {
   const actions = useMemo<ActionHook[]>(() => buildActions(addrs), [addrs]);
 
   return (
-    <Dashboard
-      role="identity"
-      title="Identity"
-      subtitle="People-Chain attestation cache, XCM refresh bridge, identity ZK."
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      <PageExplainer slug="identity-dashboard" title="What is the Identity section?">
+        <p style={{ margin: 0 }}>
+          DATUM uses Polkadot People Chain for identity rather than rolling
+          its own. The hero cards show attestation activity, refresh
+          requests, and XCM dispatches over the last 7 days. The stream
+          shows every attestation, forget, and XCM-dispatched refresh as
+          they happen.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          For your own identity, see <Link to="/me/identity">My Identity →</Link>{" "}
+          · Full deep dive:{" "}
+          <Link to="/about/identity">About: Identity →</Link>
+        </p>
+      </PageExplainer>
+      <Dashboard
+        role="identity"
+        title="Identity"
+        subtitle="People-Chain attestation cache, XCM refresh bridge, identity ZK."
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+      <ContractsTouched contracts={[
+        "peopleChainIdentity",
+        "peopleChainXcmBridge",
+        "peopleChainBondedReporter",
+        "identityVerifier",
+        "nullifierRegistry",
+      ]} />
+    </>
   );
 }
 

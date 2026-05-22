@@ -12,15 +12,14 @@
 // so the stream splices RPC for windows past pine's reach.
 //
 // Without a connected wallet: <NeedsExtension>.
-//
-// Legacy dashboard preserved in Dashboard.legacy.tsx; its
-// per-campaign table + CSV export will fold into the new design's
-// action hooks during follow-up polish.
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
 import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -81,6 +80,18 @@ export function AdvertiserDashboard() {
   return (
     <>
       {anonymous && <AnonymousPreviewBanner surface="advertiser" />}
+      <PageExplainer slug="advertiser-dashboard" title="What is the Advertiser dashboard?">
+        <p style={{ margin: 0 }}>
+          Where you create, fund, and operate ad campaigns. The hero cards
+          show your activity over the last 7 days — campaigns created,
+          activated, challenged, and muted. The stream below tracks campaign
+          lifecycle and bond events; click any row to jump to the campaign
+          page.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Want the full breakdown? <Link to="/about/advertiser">About: Advertiser →</Link>
+        </p>
+      </PageExplainer>
       <Dashboard
         role="advertiser"
         title="Advertiser dashboard"
@@ -93,6 +104,15 @@ export function AdvertiserDashboard() {
         stream={stream}
         actions={actions}
       />
+      <ContractsTouched contracts={[
+        "campaigns",
+        "budgetLedger",
+        "challengeBonds",
+        "activationBonds",
+        "campaignAllowlist",
+        "tokenRewardVault",
+        "lifecycle",
+      ]} />
     </>
   );
 }
@@ -375,7 +395,7 @@ function bondMutedRow(log: EthLog): StreamRow {
 function buildActions(): ActionHook[] {
   return [
     { label: "Create campaign", route: "/advertiser/create", description: "New campaign + activation bond" },
-    { label: "Bulletin manager", route: "/advertiser/bulletin", description: "Manage creative storage" },
+    { label: "View campaigns", route: "/campaigns", description: "Browse every active campaign on-chain" },
     { label: "Analytics", route: "/advertiser/analytics", description: "Per-campaign breakdown" },
   ];
 }

@@ -12,6 +12,8 @@ import { ethers } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { useToast } from "../../context/ToastContext";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 
 interface CampaignRow {
   id: number;
@@ -122,6 +124,16 @@ export function Campaigns() {
           + Create Campaign
         </Link>
       </div>
+      <PageExplainer slug="explorer-campaigns" title="What you're looking at">
+        <p style={{ margin: 0 }}>
+          Every campaign ever created on this network, paginated by ID. The
+          status badge shows where it sits in the lifecycle: Pending
+          (awaiting governance vote), Active (currently serving), Paused,
+          Completed, Terminated, or Expired. Click any row for the full
+          campaign detail including creative preview, vote tallies, and
+          settlement history.
+        </p>
+      </PageExplainer>
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
@@ -244,6 +256,7 @@ export function Campaigns() {
           <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="nano-btn" style={{ fontSize: 12 }}>Next →</button>
         </div>
       )}
+      <ContractsTouched contracts={["campaigns", "campaignCreative", "tagSystem"]} />
     </div>
   );
 }

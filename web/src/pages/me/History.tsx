@@ -14,6 +14,9 @@ import { humanizeError } from "@shared/errorCodes";
 import { formatDOT } from "@shared/dot";
 import { DOTAmount } from "../../components/DOTAmount";
 import { TokenRewards } from "../../components/TokenRewards";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
+import { EnableRpcCta } from "../../components/EnableRpcCta";
 // @ts-ignore — @ext resolves to alpha-4/extension/src
 import {
   emptyIndex,
@@ -157,6 +160,16 @@ export function History() {
       <div style={{ color: "var(--text-dim)", fontSize: 12, marginBottom: 16 }}>
         Wallet: <code style={{ fontSize: 11 }}>{address}</code>
       </div>
+      <PageExplainer slug="me-history" title="What does this page scan?">
+        <p style={{ margin: 0 }}>
+          DATUM scans Settlement event logs for batches that credited your
+          address. Pine gives you live data from when you connected — the
+          "scan last N days" input below extends the window further back
+          via the centralized RPC fallback. RPC is off by default; flip
+          the header toggle (or use the CTA below) to enable it.
+        </p>
+      </PageExplainer>
+      <EnableRpcCta what="Earnings history" />
 
       {/* DOT earnings withdraw */}
       <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
@@ -382,6 +395,7 @@ export function History() {
         Indexed up to block {index.lastScannedBlock.toLocaleString()}.{" "}
         Tracking {Object.keys(index.byCampaign).length} campaigns.
       </div>
+      <ContractsTouched contracts={["settlement", "paymentVault", "tokenRewardVault", "campaigns"]} />
     </div>
   );
 }

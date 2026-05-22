@@ -32,6 +32,178 @@ export function Philosophy() {
         </P>
       </div>
 
+      {/* ── Vision · Mission · Values ──────────────────────────────────── */}
+      <div className="nano-fade">
+        <SectionHeader>Vision · Mission · Values</SectionHeader>
+
+        <div
+          className="nano-card"
+          style={{
+            padding: "22px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            borderLeft: "3px solid var(--accent, #a0a0ff)",
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--accent, #a0a0ff)",
+            }}
+          >
+            Vision
+          </div>
+          <P style={{ fontSize: 16, lineHeight: 1.7 }}>
+            A web that pays for the attention it asks for, lets every
+            participant set their own terms, and gives the smallest site
+            the same tools as the largest.
+          </P>
+          <P style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            The destination. True whether or not DATUM is the project that
+            takes us there.
+          </P>
+        </div>
+
+        <div
+          className="nano-card"
+          style={{
+            padding: "22px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            borderLeft: "3px solid var(--ok, #2c8a3a)",
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--ok, #2c8a3a)",
+            }}
+          >
+            Mission
+          </div>
+          <P style={{ fontSize: 15, lineHeight: 1.7 }}>
+            Prove the alternative — build the low-friction infrastructure
+            that enables peer-to-peer ad networks, and promote the Web3
+            philosophy both in spirit and in practice.
+          </P>
+          <P style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            The active bet. Specific, shippable, and falsifiable — if
+            adoption never happens, the mission has failed regardless of
+            how elegant the design is.
+          </P>
+        </div>
+
+        <div
+          className="nano-card"
+          style={{
+            padding: "22px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+            }}
+          >
+            Values
+          </div>
+          <P style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+            The guardrails. Each one names a stance and the alternative it
+            chose against — so when something has to give, the right thing
+            does.
+          </P>
+          <ol
+            style={{
+              listStyle: "none",
+              padding: 0,
+              margin: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            {[
+              {
+                title: "Privacy by default",
+                body: "Opt-in to disclosure, not opt-out of tracking. The system never asks who you are when the question can be answered with a proof instead.",
+              },
+              {
+                title: "Pay for attention, don't extract it",
+                body: "The attention budget belongs to the people who give attention. Advertisers fund the system; users and publishers are paid by it — no third party skims what wasn't agreed to.",
+              },
+              {
+                title: "Verify, don't trust",
+                body: "Proofs replace promises. Every claim the protocol makes — about an impression, a payment, a vote — is checkable on-chain by anyone, with no privileged observer.",
+              },
+              {
+                title: "Resilient by distribution",
+                body: "No single company, server, or signer is the system's single point of failure. The browser ships a light client; reads bypass middlemen; governance phases out to OpenGov.",
+              },
+              {
+                title: "Honest defaults over flexible knobs",
+                body: "The safe choice is the default. Power-user flexibility is available — but you have to opt into it, and the system tells you what you're trading away.",
+              },
+              {
+                title: "Patient over loud",
+                body: "Long runways beat loud launches. Build the working thing, ship it, listen, harden it. The internet rewards patience eventually; meanwhile, hype rots.",
+              },
+            ].map((v, i) => (
+              <li
+                key={v.title}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "32px 1fr",
+                  gap: 12,
+                  alignItems: "flex-start",
+                }}
+              >
+                <span
+                  style={{
+                    color: "var(--accent, #a0a0ff)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    paddingTop: 2,
+                    opacity: 0.7,
+                  }}
+                >
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "var(--text-strong)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    {v.title}
+                  </div>
+                  <P style={{ fontSize: 13, color: "var(--text)" }}>{v.body}</P>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+
       <div className="nano-fade">
         <SectionHeader>The Honest State of Web3</SectionHeader>
         <div className="nano-card" style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 14 }}>

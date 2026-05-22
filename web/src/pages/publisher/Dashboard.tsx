@@ -14,15 +14,14 @@
 //   - PageReported where publisher == me  (when DatumReports is wired)
 //
 // Without a connected wallet: <NeedsExtension>. Same gate as /me.
-//
-// The legacy dashboard (withdraw flow, tag editing, IPFS profile
-// fetch) lives in Dashboard.legacy.tsx; its concerns will fold into
-// the new action-hook column during follow-up polish.
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
 import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -95,6 +94,20 @@ export function PublisherDashboard() {
   return (
     <>
       {anonymous && <AnonymousPreviewBanner surface="publisher" />}
+      <PageExplainer slug="publisher-dashboard" title="What is the Publisher dashboard?">
+        <p style={{ margin: 0 }}>
+          The publisher operator view. Hero cards: pending DOT (what
+          settlement has credited you but you haven't withdrawn), your
+          current stake and the required-stake bonding-curve number,
+          on-chain reputation score, and blocklist status. Stream below
+          shows settlements, withdrawals, and reports tied to your address.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Not registered yet? <Link to="/publisher/register">Register →</Link>{" "}
+          ·{" "}
+          Want the full breakdown? <Link to="/about/publisher">About: Publisher →</Link>
+        </p>
+      </PageExplainer>
       <Dashboard
         role="publisher"
         title="Publisher dashboard"
@@ -107,6 +120,15 @@ export function PublisherDashboard() {
         stream={stream}
         actions={actions}
       />
+      <ContractsTouched contracts={[
+        "publishers",
+        "publisherStake",
+        "publisherReputation",
+        "tagSystem",
+        "settlementRateLimiter",
+        "paymentVault",
+        "campaignAllowlist",
+      ]} />
     </>
   );
 }
@@ -361,7 +383,7 @@ function buildActions(): ActionHook[] {
   return [
     { label: "Withdraw", route: "/publisher/earnings", description: "Pull settled DOT" },
     { label: "Manage stake", route: "/publisher/stake", description: "Top up or reduce stake" },
-    { label: "SDK setup", route: "/publisher/sdk-setup", description: "Embed the snippet" },
+    { label: "SDK setup", route: "/publisher/sdk", description: "Embed the snippet" },
     { label: "Tags", route: "/publisher/categories", description: "Set targeting tags" },
   ];
 }

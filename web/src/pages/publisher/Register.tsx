@@ -7,6 +7,8 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 
 export function Register() {
   const contracts = useContracts();
@@ -79,6 +81,23 @@ export function Register() {
     <div className="nano-fade" style={{ maxWidth: 480 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Publisher Dashboard</Link>
       <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>Register as Publisher</h1>
+      <PageExplainer slug="publisher-register" title="What does registration do?">
+        <p style={{ margin: 0 }}>
+          Registering creates an on-chain entry for your address in
+          DatumPublishers with the take-rate you set. From that point on,
+          campaigns can target you, and Settlement uses your take-rate as
+          the publisher share for every accepted impression. The rate is
+          adjustable from <Link to="/publisher/rate">Take Rate →</Link> at
+          any time; only future campaign activations pick up the new
+          rate, in-flight campaigns keep the snapshotted rate.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Next steps after registration: declare tags in{" "}
+          <Link to="/publisher/categories">Tags →</Link>, post a stake in{" "}
+          <Link to="/publisher/stake">Stake →</Link>, and drop the SDK
+          on your site at <Link to="/publisher/sdk">SDK Setup →</Link>.
+        </p>
+      </PageExplainer>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 20 }}>
         Set your take rate (30–80%). Campaigns targeting you will snapshot this rate at creation time.
       </p>
@@ -138,6 +157,7 @@ export function Register() {
           {txState === "pending" ? "Registering..." : !canRegister ? "Registration restricted" : "Register Publisher"}
         </button>
       </form>
+      <ContractsTouched contracts={["publishers", "publisherStake", "tagSystem"]} />
     </div>
   );
 }

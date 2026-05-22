@@ -28,7 +28,10 @@
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
 import { callContract } from "../../lib/contractRead";
@@ -89,14 +92,40 @@ export function TokenDashboard() {
   const actions = useMemo<ActionHook[]>(() => buildActions(addrs), [addrs]);
 
   return (
-    <Dashboard
-      role="token"
-      title="Token"
-      subtitle="DATUM mint engine + wrapper / bootstrap / vesting / fee-share."
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      <PageExplainer slug="token-dashboard" title="What is the Token plane?">
+        <p style={{ margin: 0 }}>
+          DATUM ships a parallel ERC-20 token plane on top of DOT
+          settlement. The hero cards show the current mint rate, daily
+          emission cap, current epoch, and 24-hour mint activity. The
+          stream below tracks every mint, rate adjustment, and epoch roll.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Note: parts of the token plane may not yet be deployed on this
+          network — sections degrade gracefully when their contract is
+          absent. Full deep dive:{" "}
+          <Link to="/about/token">About: Token →</Link>
+        </p>
+      </PageExplainer>
+      <Dashboard
+        role="token"
+        title="Token"
+        subtitle="DATUM mint engine + wrapper / bootstrap / vesting / fee-share."
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+      <ContractsTouched contracts={[
+        "mintCoordinator",
+        "emissionEngine",
+        "wrapper",
+        "mintAuthority",
+        "bootstrapPool",
+        "vesting",
+        "feeShare",
+        "tokenRewardVault",
+      ]} />
+    </>
   );
 }
 

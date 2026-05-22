@@ -13,6 +13,7 @@ import { PrivacyBanner } from "./PrivacyBanner";
 import { Footer } from "./Footer";
 import { BrandMark } from "./BrandMark";
 import { PineStatusChip } from "./PineStatusChip";
+import { RpcToggleChip } from "./RpcToggleChip";
 import { PineWarmUpBanner } from "./PineWarmUpBanner";
 import { useContracts } from "../hooks/useContracts";
 import type { JsonRpcApiProvider } from "ethers";
@@ -337,6 +338,7 @@ export function Layout() {
               : <span style={{ color: "var(--text-muted)" }}>Disconnected</span>
             }
             {pineStatus !== "off" && <PineStatusChip />}
+            <RpcToggleChip />
           </div>
         </div>
 

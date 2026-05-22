@@ -17,6 +17,8 @@ import { validateAndSanitize } from "@shared/contentSafety";
 import { pinToIPFS } from "@shared/ipfsPin";
 import { cidToBytes32 } from "@shared/ipfs";
 import { KNOWN_ASSETS, assetIdToAddress, getAssetMetadata, searchAssets, type NativeAsset } from "@shared/assetRegistry";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 
 const ERC20_MINIMAL_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -483,6 +485,22 @@ export function CreateCampaign() {
       <div style={{ marginBottom: 20 }}>
         <Link to="/advertiser" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← My Campaigns</Link>
         <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginTop: 8 }}>Create Campaign</h1>
+        <PageExplainer slug="create-campaign" title="How does campaign creation work?">
+          <p style={{ margin: 0 }}>
+            A campaign is created in two steps: (1) on-chain creation with
+            budget, daily cap, CPM bid, and (optionally) a token reward
+            sidecar; (2) IPFS-pinned metadata with the creative text, CTA,
+            and landing URL. Your budget is deposited into BudgetLedger
+            escrow and an activation bond is deposited into
+            ChallengeBonds. Once submitted, the campaign enters Pending
+            and governance voters review before activation.
+          </p>
+          <p style={{ margin: "8px 0 0" }}>
+            <strong>Open vs. targeted:</strong> leave Publisher blank for
+            open match (any publisher whose tags overlap can serve you);
+            set a specific publisher address to pin to one site.
+          </p>
+        </PageExplainer>
         {/* Wizard step indicator */}
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
           <StepIndicator n={1} label="Campaign" active={step === 1} done={step > 1} />
@@ -1185,6 +1203,15 @@ export function CreateCampaign() {
           </button>
         </form>
       )}
+      <ContractsTouched contracts={[
+        "campaigns",
+        "budgetLedger",
+        "challengeBonds",
+        "activationBonds",
+        "tokenRewardVault",
+        "tagSystem",
+        "campaignAllowlist",
+      ]} />
     </div>
   );
 }

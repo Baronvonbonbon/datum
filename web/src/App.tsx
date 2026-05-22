@@ -92,6 +92,16 @@ import { MeDashboard } from "./pages/me/Dashboard";
 // Demo
 import { Demo } from "./pages/Demo";
 
+// About — persona deep dives
+import { AboutIndex } from "./pages/about/Index";
+import { AboutMe } from "./pages/about/Me";
+import { AboutAdvertiser } from "./pages/about/Advertiser";
+import { AboutPublisher } from "./pages/about/Publisher";
+import { AboutToken } from "./pages/about/Token";
+import { AboutProtocol } from "./pages/about/Protocol";
+import { AboutGovernance } from "./pages/about/Governance";
+import { AboutIdentity } from "./pages/about/Identity";
+
 export function App() {
   return (
     <SettingsProvider>
@@ -206,6 +216,16 @@ export function App() {
               <Route path="/me/assurance" element={<AssurancePage />} />
               <Route path="/me/identity" element={<IdentityPage />} />
               <Route path="/me/dust" element={<Dust />} />
+
+              {/* About — persona deep dives */}
+              <Route path="/about" element={<AboutIndex />} />
+              <Route path="/about/me" element={<AboutMe />} />
+              <Route path="/about/advertiser" element={<AboutAdvertiser />} />
+              <Route path="/about/publisher" element={<AboutPublisher />} />
+              <Route path="/about/token" element={<AboutToken />} />
+              <Route path="/about/protocol" element={<AboutProtocol />} />
+              <Route path="/about/governance" element={<AboutGovernance />} />
+              <Route path="/about/identity" element={<AboutIdentity />} />
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />

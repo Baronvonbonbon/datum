@@ -28,6 +28,20 @@
 
 import { getPineProvider, getPineStatus } from "./provider";
 
+/// True iff the user has explicitly opted in to RPC history fallback
+/// from the header toggle. Default is false. Reading directly from
+/// localStorage keeps this module free of React-context dependencies.
+function isRpcOptIn(): boolean {
+  try {
+    const raw = localStorage.getItem("datum_web_settings");
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { rpcEnabled?: boolean };
+    return parsed.rpcEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export type QueryResult<T> = {
   /// The result of the underlying query.
   data: T;
@@ -91,6 +105,15 @@ export async function queryWithFallback<T>(
 
   // Case B: pine's window is short. End-user route — truncate.
   if (!q.historyAllowed) {
+    const data = await q.pine(pineFloor, currentBlock);
+    return { data, viaRpc: false, truncatedTo: pineFloor };
+  }
+
+  // Case B': route allows history, but the user hasn't opted into the
+  // RPC fallback (header toggle is off). Truncate the same way as an
+  // end-user page. Callers detect `truncatedTo` and render the
+  // "Enable RPC" CTA card.
+  if (!isRpcOptIn()) {
     const data = await q.pine(pineFloor, currentBlock);
     return { data, viaRpc: false, truncatedTo: pineFloor };
   }

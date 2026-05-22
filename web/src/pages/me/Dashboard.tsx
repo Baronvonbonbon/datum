@@ -19,6 +19,9 @@ import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
 import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
+import { Link } from "react-router-dom";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -85,6 +88,19 @@ export function MeDashboard() {
   return (
     <>
       {anonymous && <AnonymousPreviewBanner surface="me" />}
+      <PageExplainer slug="me-dashboard" title="What is the Me dashboard?">
+        <p style={{ margin: 0 }}>
+          Your wallet-scoped view of DATUM. The four hero cards show your
+          DOT balance, anything settlement has credited but you haven't
+          withdrawn yet, your current assurance level, and your identity
+          verification status. The telemetry stream below lists{" "}
+          <code>SettlementCredited</code> and <code>UserWithdrawal</code>{" "}
+          events tied to your address.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Want the full breakdown? <Link to="/about/me">About: Me →</Link>
+        </p>
+      </PageExplainer>
       <Dashboard
         role="me"
         title="Your account"
@@ -97,6 +113,13 @@ export function MeDashboard() {
         stream={stream}
         actions={actions}
       />
+      <ContractsTouched contracts={[
+        "settlement",
+        "paymentVault",
+        "tokenRewardVault",
+        "peopleChainIdentity",
+        "publisherStake",
+      ]} />
     </>
   );
 }

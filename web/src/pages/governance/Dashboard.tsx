@@ -24,7 +24,10 @@
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
 import { callContract } from "../../lib/contractRead";
@@ -121,14 +124,42 @@ export function GovernanceDashboard() {
   const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <Dashboard
-      role="governance"
-      title="Governance"
-      subtitle="Protocol-wide voting, council appeals, and parameter tuning."
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      <PageExplainer slug="governance-dashboard" title="What is Governance?">
+        <p style={{ margin: 0 }}>
+          DATUM governance is conviction-weighted, multi-track, and phased.
+          The hero cards show the current phase (0 = Admin, 1 = Council,
+          2 = OpenGov), open council appeals, and parameter retunes from
+          the last 7 days. The stream below records every vote, every
+          high-tier router proposal, and every appeal as it's filed and
+          resolved.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Want the full breakdown? <Link to="/about/governance">About: Governance →</Link>{" "}
+          ·{" "}
+          See the per-contract phase status: <Link to="/governance/phase-ladder">Phase Ladder →</Link>
+        </p>
+      </PageExplainer>
+      <Dashboard
+        role="governance"
+        title="Governance"
+        subtitle="Protocol-wide voting, council appeals, and parameter tuning."
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+      <ContractsTouched contracts={[
+        "governanceV2",
+        "governanceRouter",
+        "council",
+        "timelock",
+        "parameterGovernance",
+        "publisherGovernance",
+        "advertiserGovernance",
+        "activationBonds",
+        "blocklistCurator",
+      ]} />
+    </>
   );
 }
 
@@ -308,7 +339,7 @@ function voteCastRow(log: EthLog): StreamRow {
     type: "vote",
     title: `${aye ? "Aye" : "Nay"} on campaign ${campaignId} (conviction ${conviction})`,
     subtitle: `Voter ${shorten(voter)} · block ${Number(BigInt(log.blockNumber))}`,
-    route: `/governance/vote?campaign=${campaignId}`,
+    route: `/governance/vote/${campaignId}`,
   };
 }
 
@@ -460,7 +491,7 @@ function blocklistAppealRow(log: EthLog): StreamRow {
 
 function buildActions(): ActionHook[] {
   return [
-    { label: "Vote", route: "/governance/vote", description: "Active campaign votes" },
+    { label: "Active campaigns", route: "/campaigns", description: "Browse campaigns currently in vote" },
     { label: "My votes", route: "/governance/my-votes", description: "Locked DOT + withdraw" },
     { label: "Activation bonds", route: "/governance/activation-bonds", description: "Contest / activate pending campaigns" },
     { label: "Advertiser fraud", route: "/governance/advertiser-fraud", description: "Slash fraudulent advertisers" },

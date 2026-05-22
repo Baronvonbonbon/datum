@@ -15,6 +15,9 @@ import { useWallet } from "../../context/WalletContext";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
+import { Link } from "react-router-dom";
 
 const LEVELS: Array<{ value: number; label: string; description: string }> = [
   { value: 0, label: "Off (default)", description: "Engage with any campaign regardless of identity requirements. Maximum compatibility." },
@@ -155,6 +158,21 @@ export function IdentityPage() {
   return (
     <div style={{ padding: 24, maxWidth: 720 }}>
       <h2 style={{ marginTop: 0 }}>People Chain Identity</h2>
+      <PageExplainer slug="me-identity" title="What is the identity floor?">
+        <p style={{ margin: 0 }}>
+          DATUM reads your identity from Polkadot's People Chain via a cached
+          on-chain attestation. The "self-floor" lets you require a minimum
+          People Chain judgement level before settling any incoming claim —
+          even if the campaign itself doesn't require one. Useful if you
+          want to settle only on campaigns where you've verified your
+          identity.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          Refresh dispatches an XCM call to People Chain; the on-chain
+          cache updates a few blocks later. Deep dive:{" "}
+          <Link to="/about/identity">About: Identity →</Link>
+        </p>
+      </PageExplainer>
       <p style={{ color: "var(--text-muted, #888)", fontSize: 14, lineHeight: 1.5 }}>
         Your DOT identity registered on the Polkadot People Chain. Campaigns may
         require a minimum verification level for settlement, and you can demand
@@ -260,6 +278,7 @@ export function IdentityPage() {
           Self-only — no admin can change this for you.
         </span>
       </div>
+      <ContractsTouched contracts={["peopleChainIdentity", "peopleChainXcmBridge", "peopleChainBondedReporter"]} />
     </div>
   );
 }

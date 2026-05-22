@@ -20,7 +20,10 @@
 
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
+import { Link } from "react-router-dom";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
+import { PageExplainer } from "../../components/PageExplainer";
+import { ContractsTouched } from "../../components/ContractsTouched";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
 import { callContract } from "../../lib/contractRead";
@@ -77,14 +80,44 @@ export function ProtocolDashboard() {
   const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <Dashboard
-      role="protocol"
-      title="Protocol"
-      subtitle="Pause registry, tag curator, governance router registry, sybil defense, parameter governance."
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      <PageExplainer slug="protocol-dashboard" title="What is the Protocol section?">
+        <p style={{ margin: 0 }}>
+          Top-level view of the load-bearing satellites. The hero cards
+          show how many contracts the GovernanceRouter has registered,
+          how many pause events have fired in the last 7 days, how many
+          tag appeals are open, and total active campaigns. The stream
+          tracks router registration/upgrade events, pause events, and
+          tag-curator decisions.
+        </p>
+        <p style={{ margin: "8px 0 0" }}>
+          See the upgrade timeline:{" "}
+          <Link to="/protocol/upgrades">Upgrades →</Link> · Full deep dive:{" "}
+          <Link to="/about/protocol">About: Protocol →</Link>
+        </p>
+      </PageExplainer>
+      <Dashboard
+        role="protocol"
+        title="Protocol"
+        subtitle="Pause registry, tag curator, governance router registry, sybil defense, parameter governance."
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+      <ContractsTouched contracts={[
+        "governanceRouter",
+        "pauseRegistry",
+        "tagSystem",
+        "parameterGovernance",
+        "powEngine",
+        "blocklistCurator",
+        "publisherStake",
+        "challengeBonds",
+        "settlementRateLimiter",
+        "nullifierRegistry",
+        "publisherReputation",
+      ]} />
+    </>
   );
 }
 
