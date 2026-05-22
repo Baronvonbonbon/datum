@@ -104,6 +104,7 @@ export function PublisherDashboard() {
 
   return (
     <Dashboard
+      role="publisher"
       title="Publisher dashboard"
       subtitle={`Publisher address: ${me.slice(0, 6)}…${me.slice(-4)}`}
       heroStats={heroStats}

@@ -90,6 +90,7 @@ export function AdvertiserDashboard() {
 
   return (
     <Dashboard
+      role="advertiser"
       title="Advertiser dashboard"
       subtitle={`Campaigns owned by ${me.slice(0, 6)}…${me.slice(-4)}`}
       heroStats={heroStats}

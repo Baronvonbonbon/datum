@@ -88,6 +88,7 @@ export function MeDashboard() {
 
   return (
     <Dashboard
+      role="me"
       title="Your account"
       subtitle={`Connected as ${me.slice(0, 6)}…${me.slice(-4)}`}
       heroStats={heroStats}

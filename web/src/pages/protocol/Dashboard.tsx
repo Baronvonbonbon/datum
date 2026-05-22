@@ -78,6 +78,7 @@ export function ProtocolDashboard() {
 
   return (
     <Dashboard
+      role="protocol"
       title="Protocol"
       subtitle="Pause registry, tag curator, governance router registry, sybil defense, parameter governance."
       heroStats={heroStats}

@@ -90,6 +90,7 @@ export function TokenDashboard() {
 
   return (
     <Dashboard
+      role="token"
       title="Token"
       subtitle="DATUM mint engine + wrapper / bootstrap / vesting / fee-share."
       heroStats={heroStats}

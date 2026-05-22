@@ -23,6 +23,12 @@ import {
   type TelemetryStreamOpts,
   type StreamRow,
 } from "../hooks/useTelemetryStream";
+import { RecentActions } from "./RecentActions";
+import type { Role } from "../lib/recentActions";
+
+function RecentActionsForRole({ role }: { role: Role }) {
+  return <RecentActions role={role} />;
+}
 
 export type ActionHook = {
   label: string;
@@ -47,6 +53,10 @@ export type DashboardProps = {
   stream?: TelemetryStreamOpts;
   /// 0–4 primary action buttons.
   actions?: ActionHook[];
+  /// When provided, the RecentActions strip renders above the
+  /// hero stats with the wallet's last actions on this surface.
+  /// Omit on dashboards that don't have a clear role bucket.
+  role?: import("../lib/recentActions").Role;
 };
 
 export function Dashboard({
@@ -55,6 +65,7 @@ export function Dashboard({
   heroStats,
   stream,
   actions,
+  role,
 }: DashboardProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -76,6 +87,8 @@ export function Dashboard({
           </div>
         )}
       </header>
+
+      {role && <RecentActionsForRole role={role} />}
 
       {heroStats && heroStats.length > 0 && <HeroStatsRow stats={heroStats} />}
 

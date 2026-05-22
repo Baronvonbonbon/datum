@@ -122,6 +122,7 @@ export function GovernanceDashboard() {
 
   return (
     <Dashboard
+      role="governance"
       title="Governance"
       subtitle="Protocol-wide voting, council appeals, and parameter tuning."
       heroStats={heroStats}

@@ -18,6 +18,7 @@ import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
 import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { walletConnector } from "../../lib/walletConnector";
+import { recordAction } from "../../lib/recentActions";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
 const WINDOW_7D_BLOCKS = 14_400 * 7;
@@ -172,6 +173,11 @@ function BondRowView({
         params: [txParams],
       });
       setTxHash(hash);
+      recordAction("governance", wallet.address ?? null, {
+        label: `Challenged campaign #${row.campaignId}`,
+        route: "/governance/activation-bonds",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {
@@ -195,6 +201,11 @@ function BondRowView({
         params: [txParams],
       });
       setTxHash(hash);
+      recordAction("governance", wallet.address ?? null, {
+        label: `Activated campaign #${row.campaignId}`,
+        route: "/governance/activation-bonds",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {

@@ -30,6 +30,7 @@ import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
 import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { walletConnector } from "../../lib/walletConnector";
+import { recordAction } from "../../lib/recentActions";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -323,6 +324,11 @@ function FileClaimSection({
         ],
       });
       setTx(hash);
+      recordAction("governance", wallet.address ?? null, {
+        label: `Filed claim vs ${advertiser.slice(0, 6)}…`,
+        route: "/governance/advertiser-fraud",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {
@@ -522,6 +528,11 @@ function ProposalRowView({
         ],
       });
       setTx(hash);
+      recordAction("governance", wallet.address ?? null, {
+        label: `Voted ${aye ? "aye" : "nay"} on adv #${row.id}`,
+        route: "/governance/advertiser-fraud",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {
@@ -540,6 +551,11 @@ function ProposalRowView({
         params: [{ from: wallet.address!, to: govAddr, data }],
       });
       setTx(hash);
+      recordAction("governance", wallet.address ?? null, {
+        label: `Resolved adv #${row.id}`,
+        route: "/governance/advertiser-fraud",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {

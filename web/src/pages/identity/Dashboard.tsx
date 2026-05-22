@@ -75,6 +75,7 @@ export function IdentityDashboard() {
 
   return (
     <Dashboard
+      role="identity"
       title="Identity"
       subtitle="People-Chain attestation cache, XCM refresh bridge, identity ZK."
       heroStats={heroStats}

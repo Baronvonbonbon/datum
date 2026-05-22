@@ -22,6 +22,7 @@ import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
 import { walletConnector } from "../../lib/walletConnector";
+import { recordAction } from "../../lib/recentActions";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
 
@@ -274,6 +275,11 @@ function FileAppealSection({
         ],
       });
       setTx(hash);
+      recordAction("protocol", wallet.address ?? null, {
+        label: `Filed tag appeal ${tag.slice(0, 10)}…`,
+        route: "/protocol/tag-curator",
+        txHash: hash,
+      });
     } catch (e: any) {
       setErr(humanizeError(e));
     } finally {
