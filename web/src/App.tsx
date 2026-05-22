@@ -100,15 +100,23 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route element={<Layout />}>
-              {/* Explorer */}
+              {/* Explorer — flat paths and /explorer/* aliases per design doc §2.3 */}
               <Route path="/" element={<Overview />} />
+              <Route path="/explorer" element={<Overview />} />
               <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/explorer/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/:id" element={<CampaignDetail />} />
+              <Route path="/explorer/campaigns/:id" element={<CampaignDetail />} />
               <Route path="/publishers" element={<Publishers />} />
+              <Route path="/explorer/publishers" element={<Publishers />} />
               <Route path="/publishers/:address" element={<PublisherProfileExplorer />} />
+              <Route path="/explorer/publishers/:address" element={<PublisherProfileExplorer />} />
               <Route path="/advertisers/:address" element={<AdvertiserProfile />} />
+              <Route path="/explorer/advertisers/:address" element={<AdvertiserProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/explorer/how-it-works" element={<HowItWorks />} />
               <Route path="/philosophy" element={<Philosophy />} />
+              <Route path="/explorer/philosophy" element={<Philosophy />} />
 
               {/* Advertiser */}
               <Route path="/advertiser" element={<AdvertiserDashboard />} />
@@ -201,6 +209,12 @@ export function App() {
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />
+
+              {/* Catch-all: any unknown path renders the Overview rather
+                  than a blank page. SPA visitors who land on a stale
+                  bookmark, share link, or typo see the explorer instead
+                  of nothing. */}
+              <Route path="*" element={<Overview />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -20,7 +20,7 @@
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
-import { NeedsExtension } from "../../components/NeedsExtension";
+import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -64,40 +64,91 @@ type Addrs = (typeof NETWORK_CONFIGS)["polkadotTestnet"]["addresses"];
 
 export function AdvertiserDashboard() {
   const wallet = useWallet();
-
-  if (!wallet.installed) {
-    return (
-      <NeedsExtension
-        title="Connect your DATUM wallet"
-        description="The advertiser dashboard needs the DATUM browser extension to identify your campaigns."
-      />
-    );
-  }
-  if (!wallet.connected || !wallet.address) {
-    return (
-      <NeedsExtension
-        title="DATUM wallet not connected"
-        description="Click the extension icon and approve this site to view your campaign metrics."
-      />
-    );
-  }
-
-  const me = wallet.address;
   const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
-  const heroStats = useMemo<HeroStat[]>(() => buildHeroStats(me, addrs), [me, addrs]);
-  const stream = useMemo<TelemetryStreamOpts>(() => buildStream(me, addrs), [me, addrs]);
+  const me = wallet.address ?? null;
+  const anonymous = !me;
+
+  const heroStats = useMemo<HeroStat[]>(
+    () => (anonymous ? [] : buildHeroStats(me!, addrs)),
+    [anonymous, me, addrs]
+  );
+  const stream = useMemo<TelemetryStreamOpts>(
+    () => (anonymous ? buildGlobalStream(addrs) : buildStream(me!, addrs)),
+    [anonymous, me, addrs]
+  );
   const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <Dashboard
-      role="advertiser"
-      title="Advertiser dashboard"
-      subtitle={`Campaigns owned by ${me.slice(0, 6)}…${me.slice(-4)}`}
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      {anonymous && <AnonymousPreviewBanner surface="advertiser" />}
+      <Dashboard
+        role="advertiser"
+        title="Advertiser dashboard"
+        subtitle={
+          anonymous
+            ? "Preview mode — connect a DATUM wallet to personalize"
+            : `Campaigns owned by ${me!.slice(0, 6)}…${me!.slice(-4)}`
+        }
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+    </>
   );
+}
+
+// Global stream — system-wide campaign + bond events, unfiltered.
+function buildGlobalStream(addrs: Addrs): TelemetryStreamOpts {
+  const sources: TelemetryStreamOpts["sources"] = [
+    {
+      address: addrs.campaigns.toLowerCase(),
+      topic0: TOPIC_CAMPAIGN_CREATED,
+      formatter: globalCampaignCreatedRow,
+    },
+    {
+      address: addrs.campaigns.toLowerCase(),
+      topic0: TOPIC_CAMPAIGN_ACTIVATED,
+      formatter: campaignActivatedRow,
+    },
+  ];
+  if (addrs.activationBonds) {
+    const bond = addrs.activationBonds.toLowerCase();
+    sources.push(
+      { address: bond, topic0: TOPIC_BOND_OPENED, formatter: globalBondOpenedRow },
+      { address: bond, topic0: TOPIC_BOND_CHALLENGED, formatter: bondChallengedRow },
+      { address: bond, topic0: TOPIC_BOND_RESOLVED, formatter: bondResolvedRow },
+      { address: bond, topic0: TOPIC_MUTED, formatter: bondMutedRow }
+    );
+  }
+  return {
+    windowBlocks: WINDOW_7D_BLOCKS,
+    historyAllowed: true,
+    sources,
+  };
+}
+
+function globalCampaignCreatedRow(log: EthLog): StreamRow {
+  const id = BigInt(log.topics[1] ?? "0x0");
+  const advertiser = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "campaign-created",
+    title: `Campaign #${id} created`,
+    subtitle: `Advertiser ${shorten(advertiser)}`,
+    route: `/campaigns/${id}`,
+  };
+}
+
+function globalBondOpenedRow(log: EthLog): StreamRow {
+  const id = BigInt(log.topics[1] ?? "0x0");
+  const creator = topicAddress(log.topics[2]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "bond-open",
+    title: `Bond opened for campaign #${id}`,
+    subtitle: `Creator ${shorten(creator)}`,
+    route: "/governance/activation-bonds",
+  };
 }
 
 // ─── Hero stats ───────────────────────────────────────────────────

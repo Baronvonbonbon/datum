@@ -18,7 +18,7 @@
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
-import { NeedsExtension } from "../../components/NeedsExtension";
+import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -60,42 +60,98 @@ const ASSURANCE_LABELS: Record<number, string> = {
 
 export function MeDashboard() {
   const wallet = useWallet();
-
-  if (!wallet.installed) {
-    return (
-      <NeedsExtension
-        title="Connect your DATUM wallet"
-        description="Sign in with the DATUM browser extension to see your balance, recent settlements, and identity status."
-      />
-    );
-  }
-  if (!wallet.connected || !wallet.address) {
-    return (
-      <NeedsExtension
-        title="DATUM wallet not connected"
-        description="Click the extension icon and approve this site to view your account overview."
-      />
-    );
-  }
-
-  const me = wallet.address;
   const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
-  // The address-bound hero/stream configs are memoized so React doesn't
-  // resubscribe the eventBus channel on every render.
-  const heroStats = useMemo<HeroStat[]>(() => buildHeroStats(me, addrs.settlement, addrs.paymentVault), [me, addrs.settlement, addrs.paymentVault]);
-  const stream = useMemo<TelemetryStreamOpts>(() => buildStream(me, addrs.paymentVault), [me, addrs.paymentVault]);
+  const me = wallet.address ?? null;
+  const anonymous = !me;
+
+  // Hero stats are address-bound; render an empty row in preview mode
+  // (the AnonymousPreviewBanner above the dashboard explains why).
+  const heroStats = useMemo<HeroStat[]>(
+    () => (anonymous ? [] : buildHeroStats(me!, addrs.settlement, addrs.paymentVault)),
+    [anonymous, me, addrs.settlement, addrs.paymentVault]
+  );
+  // Stream uses the global PaymentVault feed; in anonymous mode we
+  // surface system-wide settlement activity instead of filtering to
+  // the current address.
+  const stream = useMemo<TelemetryStreamOpts>(
+    () =>
+      anonymous
+        ? buildGlobalStream(addrs.paymentVault)
+        : buildStream(me!, addrs.paymentVault),
+    [anonymous, me, addrs.paymentVault]
+  );
   const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <Dashboard
-      role="me"
-      title="Your account"
-      subtitle={`Connected as ${me.slice(0, 6)}…${me.slice(-4)}`}
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      {anonymous && <AnonymousPreviewBanner surface="me" />}
+      <Dashboard
+        role="me"
+        title="Your account"
+        subtitle={
+          anonymous
+            ? "Preview mode — connect a DATUM wallet to personalize"
+            : `Connected as ${me!.slice(0, 6)}…${me!.slice(-4)}`
+        }
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+    </>
   );
+}
+
+// Global stream — same payment-vault events but unfiltered by user.
+function buildGlobalStream(paymentVaultAddr: string): TelemetryStreamOpts {
+  return {
+    windowBlocks: WINDOW_24H_BLOCKS,
+    historyAllowed: false,
+    sources: [
+      {
+        address: paymentVaultAddr.toLowerCase(),
+        topic0: TOPIC_SETTLEMENT_CREDITED,
+        formatter: globalSettlementRow,
+      },
+      {
+        address: paymentVaultAddr.toLowerCase(),
+        topic0: TOPIC_USER_WITHDRAWAL,
+        formatter: globalWithdrawalRow,
+      },
+    ],
+  };
+}
+
+function globalSettlementRow(log: EthLog): StreamRow {
+  const decoded = SETTLEMENT_IFACE.decodeEventLog(
+    "SettlementCredited",
+    log.data,
+    log.topics
+  );
+  const total = decoded[2] as bigint;
+  const publisher = topicAddress(log.topics[1]);
+  const user = topicAddress(log.topics[2]);
+  return {
+    ts: pseudoTsFromBlock(log.blockNumber),
+    type: "settlement",
+    title: `Settlement: ${formatDot(total)}`,
+    subtitle: `Publisher ${shorten(publisher)} → user ${shorten(user)}`,
+  };
+}
+
+function globalWithdrawalRow(log: EthLog): StreamRow {
+  const decoded = WITHDRAWAL_IFACE.decodeEventLog(
+    "UserWithdrawal",
+    log.data,
+    log.topics
+  );
+  const amount = decoded[1] as bigint;
+  const user = topicAddress(log.topics[1]);
+  return {
+    ts: pseudoTsFromBlock(log.blockNumber),
+    type: "withdrawal",
+    title: `Withdraw ${formatDot(amount)}`,
+    subtitle: `User ${shorten(user)}`,
+  };
 }
 
 // ─── Hero stats ───────────────────────────────────────────────────

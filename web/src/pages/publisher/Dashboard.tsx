@@ -22,7 +22,7 @@
 import { useMemo } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { Dashboard, type ActionHook } from "../../components/Dashboard";
-import { NeedsExtension } from "../../components/NeedsExtension";
+import { AnonymousPreviewBanner } from "../../components/AnonymousPreviewBanner";
 import { useWallet } from "../../hooks/useWallet";
 import { type HeroStat } from "../../hooks/useHeroStat";
 import { type TelemetryStreamOpts, type StreamRow } from "../../hooks/useTelemetryStream";
@@ -78,40 +78,109 @@ type Addrs = (typeof NETWORK_CONFIGS)["polkadotTestnet"]["addresses"];
 
 export function PublisherDashboard() {
   const wallet = useWallet();
-
-  if (!wallet.installed) {
-    return (
-      <NeedsExtension
-        title="Connect your DATUM wallet"
-        description="The publisher dashboard requires the DATUM browser extension to identify your publisher address."
-      />
-    );
-  }
-  if (!wallet.connected || !wallet.address) {
-    return (
-      <NeedsExtension
-        title="DATUM wallet not connected"
-        description="Click the extension icon and approve this site to view your publisher metrics."
-      />
-    );
-  }
-
-  const me = wallet.address;
   const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
-  const heroStats = useMemo<HeroStat[]>(() => buildHeroStats(me, addrs), [me, addrs]);
-  const stream = useMemo<TelemetryStreamOpts>(() => buildStream(me, addrs), [me, addrs]);
+  const me = wallet.address ?? null;
+  const anonymous = !me;
+
+  const heroStats = useMemo<HeroStat[]>(
+    () => (anonymous ? [] : buildHeroStats(me!, addrs)),
+    [anonymous, me, addrs]
+  );
+  const stream = useMemo<TelemetryStreamOpts>(
+    () => (anonymous ? buildGlobalStream(addrs) : buildStream(me!, addrs)),
+    [anonymous, me, addrs]
+  );
   const actions = useMemo<ActionHook[]>(() => buildActions(), []);
 
   return (
-    <Dashboard
-      role="publisher"
-      title="Publisher dashboard"
-      subtitle={`Publisher address: ${me.slice(0, 6)}…${me.slice(-4)}`}
-      heroStats={heroStats}
-      stream={stream}
-      actions={actions}
-    />
+    <>
+      {anonymous && <AnonymousPreviewBanner surface="publisher" />}
+      <Dashboard
+        role="publisher"
+        title="Publisher dashboard"
+        subtitle={
+          anonymous
+            ? "Preview mode — connect a DATUM wallet to personalize"
+            : `Publisher address: ${me!.slice(0, 6)}…${me!.slice(-4)}`
+        }
+        heroStats={heroStats}
+        stream={stream}
+        actions={actions}
+      />
+    </>
   );
+}
+
+// Global stream — no publisher filter. Shows whatever the protocol is
+// emitting on the publisher-relevant channels right now.
+function buildGlobalStream(addrs: Addrs): TelemetryStreamOpts {
+  const sources: TelemetryStreamOpts["sources"] = [
+    {
+      address: addrs.paymentVault.toLowerCase(),
+      topic0: TOPIC_SETTLEMENT_CREDITED,
+      formatter: globalSettlementRow,
+    },
+    {
+      address: addrs.paymentVault.toLowerCase(),
+      topic0: TOPIC_PUBLISHER_WITHDRAWAL,
+      formatter: globalPublisherWithdrawalRow,
+    },
+  ];
+  if (addrs.reports) {
+    sources.push({
+      address: addrs.reports.toLowerCase(),
+      topic0: TOPIC_PAGE_REPORTED,
+      formatter: globalReportRow,
+    });
+  }
+  return {
+    windowBlocks: WINDOW_7D_BLOCKS,
+    historyAllowed: true,
+    sources,
+  };
+}
+
+function globalSettlementRow(log: EthLog): StreamRow {
+  const publisher = topicAddress(log.topics[1]);
+  const user = topicAddress(log.topics[2]);
+  const decoded = SETTLEMENT_IFACE.decodeEventLog(
+    "SettlementCredited",
+    log.data,
+    log.topics
+  );
+  const total = decoded[2] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "settlement",
+    title: `Settlement: ${formatDot(total)}`,
+    subtitle: `Publisher ${shorten(publisher)} → user ${shorten(user)}`,
+  };
+}
+
+function globalPublisherWithdrawalRow(log: EthLog): StreamRow {
+  const publisher = topicAddress(log.topics[1]);
+  const decoded = WITHDRAWAL_IFACE.decodeEventLog(
+    "PublisherWithdrawal",
+    log.data,
+    log.topics
+  );
+  const amount = decoded[1] as bigint;
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "withdrawal",
+    title: `Publisher withdraw ${formatDot(amount)}`,
+    subtitle: `Publisher ${shorten(publisher)}`,
+  };
+}
+
+function globalReportRow(log: EthLog): StreamRow {
+  const reporter = topicAddress(log.topics[1]);
+  return {
+    ts: tsForBlock(log.blockNumber),
+    type: "report",
+    title: "Page reported",
+    subtitle: `Reporter ${shorten(reporter)}`,
+  };
 }
 
 // ─── Hero stats ───────────────────────────────────────────────────
