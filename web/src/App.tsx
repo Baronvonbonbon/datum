@@ -47,6 +47,11 @@ import { AdvertiserFraudClaimsPage } from "./pages/governance/AdvertiserFraudCla
 import { AdvertiserFraud } from "./pages/governance/AdvertiserFraud";
 import { PhaseLadder } from "./pages/governance/PhaseLadder";
 
+// Protocol (template dashboard + new sub-pages)
+import { ProtocolDashboard } from "./pages/protocol/Dashboard";
+import { TagCurator } from "./pages/protocol/TagCurator";
+import { Upgrades } from "./pages/protocol/Upgrades";
+
 // Admin
 import { TimelockAdmin } from "./pages/admin/Timelock";
 import { PauseRegistryAdmin } from "./pages/admin/PauseRegistry";
@@ -130,6 +135,22 @@ export function App() {
               <Route path="/governance/advertiser-fraud" element={<AdvertiserFraud />} />
               <Route path="/governance/phase" element={<PhaseLadder />} />
               <Route path="/governance/phase-ladder" element={<PhaseLadder />} />
+
+              {/* Protocol — template dashboard + per-contract sub-pages.
+                  /admin/* paths kept as aliases for back-compat with
+                  bookmarks; new design-doc paths point at /protocol/*. */}
+              <Route path="/protocol" element={<ProtocolDashboard />} />
+              <Route path="/protocol/tag-curator" element={<TagCurator />} />
+              <Route path="/protocol/upgrades" element={<Upgrades />} />
+              <Route path="/protocol/timelock" element={<TimelockAdmin />} />
+              <Route path="/protocol/pause-registry" element={<PauseRegistryAdmin />} />
+              <Route path="/protocol/blocklist" element={<BlocklistAdmin />} />
+              <Route path="/protocol/protocol-fees" element={<ProtocolFeesAdmin />} />
+              <Route path="/protocol/parameter-governance" element={<ParameterGovernanceAdmin />} />
+              <Route path="/protocol/publisher-stake" element={<PublisherStakeAdmin />} />
+              <Route path="/protocol/challenge-bonds" element={<ChallengeBondsAdmin />} />
+              <Route path="/protocol/sybil-defense" element={<SybilDefenseAdmin />} />
+              <Route path="/protocol/mint-authority" element={<MintAuthorityAdmin />} />
 
               {/* Admin — hidden from nav, accessible via direct URL */}
               <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
