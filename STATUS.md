@@ -1,11 +1,11 @@
 # DATUM Project Status
 
 **Last Updated:** 2026-05-22
-**Current Phase:** Alpha-5 v2 — Parameter Governance Phase A landed on Paseo (2026-05-22T21:07Z). DatumCampaigns v2 + DatumCampaignLifecycle v2 demote `minimumCpmFloor`, `pendingTimeoutBlocks`, and `inactivityTimeoutBlocks` from `immutable` to `onlyOwnerOrPG`-tunable with hard MIN/MAX bounds and lock-once OpenGov gating. Full clean redeploy of the ~30-contract surface; previous v1 addresses archived in `alpha-5/deployed-addresses.v1-pre-phase-a.json`.
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v2 (EVM, solc) live; alpha-3 PVM reference frozen
-**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v2 addresses
+**Current Phase:** Alpha-5 v3 — Parameter Governance Phase A fully wired on Paseo (2026-05-22T23:49Z). DatumCampaigns v2 + DatumCampaignLifecycle v2 demote `minimumCpmFloor`, `pendingTimeoutBlocks`, and `inactivityTimeoutBlocks` from `immutable` to `onlyOwnerOrPG`-tunable with hard MIN/MAX bounds and lock-once OpenGov gating. `DatumParameterGovernance` whitelist now includes the three new setters, so retunes can route through the bicameral veto-window flow alongside the owner/Timelock path. Second redeploy of the day was required because PG self-owns its whitelist post-bootstrap (a deliberate rug-protection); previous v2 addresses archived at `alpha-5/deployed-addresses.v2-pre-pg-whitelist.json`.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v3 (EVM, solc) live; alpha-3 PVM reference frozen
+**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v3 addresses
 **Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
-**Tests:** 1564 passing, 0 failing, 1 pending (29 new Phase A cases in `parameter-governance-phase-a.test.ts`)
+**Tests:** 1564 passing, 0 failing, 1 pending (29 Phase A cases in `parameter-governance-phase-a.test.ts`)
 
 ## Cypherpunk roadmap (2026-05-18)
 

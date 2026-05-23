@@ -2497,6 +2497,12 @@ async function main() {
     { contractKey: "settlement",           sig: "setPowDifficultyCurve(uint8,uint32,uint32,uint32)", viaParamGovernanceField: true },
     // DatumClaimValidator — per-claim event cap (dual-permission, NOT owned by PG)
     { contractKey: "claimValidator",       sig: "setMaxClaimEvents(uint256)", viaParamGovernanceField: true },
+    // Parameter governance Phase A — CPM floor + pending-timeout on Campaigns,
+    // inactivity-timeout on Lifecycle. Dual-permission (onlyOwnerOrPG). Setters
+    // bounded inside the contract; lock-once cypherpunk gate via lockX().
+    { contractKey: "campaigns",            sig: "setMinimumCpmFloor(uint256)",         viaParamGovernanceField: true },
+    { contractKey: "campaigns",            sig: "setPendingTimeoutBlocks(uint256)",    viaParamGovernanceField: true },
+    { contractKey: "campaignLifecycle",    sig: "setInactivityTimeoutBlocks(uint256)", viaParamGovernanceField: true },
     // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST among ownership-transfer entries.
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];
