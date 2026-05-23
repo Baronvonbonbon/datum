@@ -99,7 +99,7 @@ async function immediateInitialPoll() {
 
     if (settings.contractAddresses.campaigns) {
       console.log("[DATUM] Running immediate campaign poll...");
-      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined, settings.rpcEnabled ?? false);
     } else {
       console.log("[DATUM] Skipping initial poll — no campaigns contract address configured");
     }
@@ -200,7 +200,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_STATUS_REFRESH) {
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
-      await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
+      await campaignPoller.refreshStatus(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined, settings.rpcEnabled ?? false);
     }
     // Periodic auto-sweep: runs every minute regardless of settlement activity.
     // Requires wallet authorized for auto-submit (session key in memory).
@@ -209,7 +209,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       const userAddress: string | undefined = stored.connectedAddress;
       const privateKey = await getAutoSubmitKey();
       if (userAddress && privateKey) {
-        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain, { rpcAllowed: settings.rpcEnabled ?? false });
         const wallet = new Wallet(privateKey, provider);
         await tryAutoSweep(settings, wallet, userAddress);
       }
@@ -221,7 +221,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await refreshPhishingList();
     const settings = await getSettings();
     if (settings.contractAddresses.campaigns) {
-      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
+      await campaignPoller.poll(settings.rpcUrl, settings.contractAddresses, settings.ipfsGateway, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined, settings.rpcEnabled ?? false);
       // Prune claims for campaigns that are no longer active (withdrawn, terminated, etc.)
       const active = await campaignPoller.getCachedSerialized();
       const activeIds = new Set(active.map((c) => c.id));
@@ -263,7 +263,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     try {
       const stored = await chrome.storage.local.get("signedBatches");
       if (stored.signedBatches?.deadline) {
-        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain, { rpcAllowed: settings.rpcEnabled ?? false });
         const currentBlock = await provider.getBlockNumber();
         if (stored.signedBatches.deadline <= currentBlock) {
           await chrome.storage.local.remove("signedBatches");
@@ -274,7 +274,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     // H2: Poll timelock for pending admin changes
     if (settings.contractAddresses.timelock) {
-      await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined);
+      await timelockMonitor.poll(settings.rpcUrl, settings.contractAddresses, settings.usePine ? NETWORK_CONFIGS[settings.network]?.pineChain : undefined, settings.rpcEnabled ?? false);
     }
   }
   if (alarm.name === ALARM_FLUSH_CLAIMS) {
@@ -723,7 +723,7 @@ async function handleMessage(
     case "POLL_CAMPAIGNS": {
       const s = await getSettings();
       if (s.contractAddresses.campaigns) {
-        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway, s.usePine ? NETWORK_CONFIGS[s.network]?.pineChain : undefined);
+        await campaignPoller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway, s.usePine ? NETWORK_CONFIGS[s.network]?.pineChain : undefined, s.rpcEnabled ?? false);
         const refreshed = await campaignPoller.getCachedSerialized();
         const activeIds = new Set(refreshed.map((c) => c.id));
         const pruned = await claimQueue.pruneInactiveCampaigns(activeIds);
@@ -731,6 +731,47 @@ async function handleMessage(
         return { campaigns: refreshed, ok: true };
       }
       return { campaigns: [], error: "No campaigns contract address configured" };
+    }
+
+    case "EARNINGS_REFRESH_ONESHOT": {
+      // One-shot historical earnings backfill. Temporarily enables RPC for
+      // the duration of the scan (matches the webapp's EnableRpcCta one-shot
+      // pattern). Settings revert in try/finally so the user's rpcEnabled
+      // posture is preserved even if the scan errors.
+      const stored = await chrome.storage.local.get("connectedAddress");
+      const userAddress: string | undefined = stored.connectedAddress;
+      if (!userAddress) return { ok: false, error: "wallet-not-connected" };
+
+      const s = await getSettings();
+      if (!s.contractAddresses.settlement) {
+        return { ok: false, error: "settlement-not-configured" };
+      }
+      const wasRpcEnabled = s.rpcEnabled ?? false;
+      try {
+        if (!wasRpcEnabled) {
+          await chrome.storage.local.set({
+            settings: { ...s, rpcEnabled: true },
+          });
+        }
+        await startEarningsListener({
+          rpcUrl: s.rpcUrl,
+          chainId: chainIdForNetwork(s.network),
+          contractAddresses: s.contractAddresses,
+          userAddress,
+        });
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, error: String(err?.message ?? err).slice(0, 200) };
+      } finally {
+        if (!wasRpcEnabled) {
+          // Restore the user's original rpcEnabled = false posture.
+          const fresh = await chrome.storage.local.get("settings");
+          const cur = (fresh.settings as StoredSettings) ?? s;
+          await chrome.storage.local.set({
+            settings: { ...cur, rpcEnabled: false },
+          });
+        }
+      }
     }
 
     case "WALLET_CONNECTED": {
@@ -1296,7 +1337,30 @@ async function handleMessage(
 
 async function getSettings(): Promise<StoredSettings> {
   const stored = await chrome.storage.local.get("settings");
-  return (stored.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
+  const s = (stored.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
+  // Migration: existing users (pre-rpcEnabled-toggle) get rpcEnabled=true
+  // so their current behaviour continues. Absence of the field is the
+  // marker for "existed before the toggle". usePine defaulting to true
+  // is symmetric — pre-toggle users had `usePine` either explicitly
+  // false (kept) or unset (treated as false in old code; now true).
+  // To preserve old behaviour for users who explicitly set usePine=false,
+  // only flip usePine when the field is absent entirely.
+  let migrated = false;
+  if (s.rpcEnabled === undefined && stored.settings !== undefined) {
+    s.rpcEnabled = true;  // existing user → preserve current RPC reliance
+    migrated = true;
+  }
+  if (s.usePine === undefined && stored.settings !== undefined) {
+    // Existing user with no explicit usePine → keep the legacy posture
+    // (RPC-served reads). Don't surprise them by flipping pine on.
+    s.usePine = false;
+    migrated = true;
+  }
+  if (migrated) {
+    await chrome.storage.local.set({ settings: s });
+    console.log("[DATUM] Migrated existing settings: rpcEnabled=true, usePine kept at legacy value");
+  }
+  return s;
 }
 
 // -------------------------------------------------------------------------
@@ -1400,7 +1464,7 @@ async function autoFlushDirect() {
     // Check global pause before submission
     if (settings.contractAddresses.pauseRegistry) {
       try {
-        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
+        const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain, { rpcAllowed: settings.rpcEnabled ?? false });
         const { getPauseRegistryContract } = await import("@shared/contracts");
         const pauseRegistry = getPauseRegistryContract(settings.contractAddresses, provider);
         const paused = await pauseRegistry.paused();
@@ -1438,7 +1502,7 @@ async function autoFlushDirect() {
       return;
     }
 
-    const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain);
+    const provider = await getReadProvider(settings.rpcUrl, settings.usePine ?? false, NETWORK_CONFIGS[settings.network]?.pineChain, { rpcAllowed: settings.rpcEnabled ?? false });
     const wallet = new Wallet(privateKey, provider);
     const attestationVerifier = new Contract(
       settings.contractAddresses.attestationVerifier,

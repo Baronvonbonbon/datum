@@ -390,8 +390,19 @@ export interface StoredSettings {
   contractAddresses: ContractAddresses;
   ipfsGateway: string;
   pinataApiKey: string;
-  /** Use Pine light client instead of centralized RPC (default: false) */
+  /** Use Pine light client as the primary read path. Default: true.
+   *  Pine validates blocks in-browser; no third-party gateway sees your
+   *  reads. Bumped from the legacy `false` default to match the webapp's
+   *  cypherpunk posture. */
   usePine?: boolean;
+  /** Allow falling back to a centralized RPC endpoint for reads beyond
+   *  pine's window. Default: false. Writes (transaction broadcast)
+   *  inherently need RPC and bypass this gate — the user's signature
+   *  is their opt-in moment. Migrations: existing users who had the
+   *  legacy `usePine: false` posture get `rpcEnabled: true` on first
+   *  load after the upgrade so their behavior continues; the absence
+   *  of the field in stored settings is the marker. */
+  rpcEnabled?: boolean;
 }
 
 export type NetworkName = "local" | "polkadotTestnet" | "westend" | "kusama" | "polkadotHub";

@@ -27,6 +27,24 @@ export function HistoryTab({ address }: Props) {
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
   const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
   const [webAppUrl, setWebAppUrl] = useState<string>("https://datum.javcon.io");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  async function refreshHistoryOneShot() {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const resp: { ok: boolean; error?: string } =
+        await chrome.runtime.sendMessage({ type: "EARNINGS_REFRESH_ONESHOT" });
+      if (!resp?.ok) {
+        setRefreshError(resp?.error ?? "refresh failed");
+      }
+    } catch (e: any) {
+      setRefreshError(String(e?.message ?? e).slice(0, 120));
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   // Resolve the active network's chainId so we read the right slice.
   // NETWORK_CONFIGS doesn't currently expose chainId, so we keep a small map.
@@ -82,15 +100,49 @@ export function HistoryTab({ address }: Props) {
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>
           Settled-claim history
         </div>
-        <a
-          href={`${webAppUrl}/me/history?address=${address}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}
-        >
-          Deeper history →
-        </a>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={refreshHistoryOneShot}
+            disabled={refreshing}
+            title="Pull historical earnings via RPC for this one fetch. RPC turns back off when the scan completes."
+            style={{
+              fontSize: 10,
+              padding: "3px 8px",
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm, 4px)",
+              color: refreshing ? "var(--text-dim)" : "var(--accent)",
+              cursor: refreshing ? "default" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {refreshing ? "Pulling…" : "Refresh history"}
+          </button>
+          <a
+            href={`${webAppUrl}/me/history?address=${address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}
+          >
+            Deeper history →
+          </a>
+        </div>
       </div>
+      {refreshError && (
+        <div
+          className="nano-card"
+          style={{
+            padding: 8,
+            background: "rgba(248,113,113,0.06)",
+            borderColor: "rgba(248,113,113,0.3)",
+            color: "var(--error, #f87171)",
+            fontSize: 11,
+          }}
+        >
+          Refresh failed: {refreshError}
+        </div>
+      )}
 
       {!hasAny && (
         <div className="nano-card" style={{ padding: 12, color: "var(--text-dim)", fontSize: 12 }}>

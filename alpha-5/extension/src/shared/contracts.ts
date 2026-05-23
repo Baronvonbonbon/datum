@@ -132,18 +132,44 @@ export async function getPineProvider(
 }
 
 /**
- * Get a read-only provider, preferring Pine when usePine is true and the
- * network has a pineChain configured. Falls back to centralized RPC.
+ * Get a read-only provider.
+ *
+ * Resolution order:
+ *   1. If `usePine && pineChain && pine is ready` → pine (no metadata
+ *      leak to a centralized gateway).
+ *   2. Else if `rpcAllowed !== false` → JsonRpcProvider over `rpcUrl`.
+ *   3. Else throw "rpc-disabled" — the caller is on a background read
+ *      path with rpc explicitly off. They should skip this cycle and
+ *      surface state to the popup if appropriate.
+ *
+ * Writes don't use this chokepoint — see `getProvider` directly. Pine
+ * can't broadcast, so a tx-broadcast caller always wants RPC. The
+ * `rpcAllowed` gate is for reads only.
+ *
+ * Back-compat: when called with no `rpcAllowed` option, defaults to
+ * `true` so existing call-sites work unchanged. Migrating a call-site
+ * means adding `{ rpcAllowed: settings.rpcEnabled ?? false }` and
+ * handling the thrown "rpc-disabled" error.
  */
 export async function getReadProvider(
   rpcUrl: string,
   usePine: boolean,
   pineChain?: string,
-  onStep?: (step: import("pine-rpc").SyncStep) => void,
+  onStepOrOptions?: ((step: import("pine-rpc").SyncStep) => void) | {
+    rpcAllowed?: boolean;
+    onStep?: (step: import("pine-rpc").SyncStep) => void;
+  },
 ): Promise<Provider> {
+  // Legacy 4th-arg-as-callback form vs new options-object form
+  const opts = typeof onStepOrOptions === "function"
+    ? { onStep: onStepOrOptions }
+    : (onStepOrOptions ?? {});
   if (usePine && pineChain) {
-    const pine = await getPineProvider(pineChain, onStep);
+    const pine = await getPineProvider(pineChain, opts.onStep);
     if (pine) return pine;
+  }
+  if (opts.rpcAllowed === false) {
+    throw new Error("rpc-disabled");
   }
   return getProvider(rpcUrl);
 }

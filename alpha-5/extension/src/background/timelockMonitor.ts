@@ -15,13 +15,13 @@ export interface PendingTimelockChange {
 }
 
 export const timelockMonitor = {
-  async poll(rpcUrl: string, addresses: ContractAddresses, pineChain?: string): Promise<void> {
+  async poll(rpcUrl: string, addresses: ContractAddresses, pineChain?: string, rpcAllowed: boolean = true): Promise<void> {
     try {
       if (!addresses.timelock || !addresses.timelock.startsWith("0x")) {
         return;
       }
 
-      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain, { rpcAllowed });
       const timelock = getTimelockContract(addresses, provider);
 
       // Query ChangeProposed events (last ~14400 blocks ≈ 24h on Polkadot Hub)

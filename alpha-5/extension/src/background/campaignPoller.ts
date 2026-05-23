@@ -66,7 +66,7 @@ async function batchParallel<T>(tasks: (() => Promise<T>)[], size: number): Prom
 }
 
 export const campaignPoller = {
-  async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string, pineChain?: string): Promise<void> {
+  async poll(rpcUrl: string, addresses: ContractAddresses, ipfsGateway?: string, pineChain?: string, rpcAllowed: boolean = true): Promise<void> {
     if (_polling) {
       console.log("[DATUM] poll() skipped — already in progress");
       return;
@@ -80,7 +80,7 @@ export const campaignPoller = {
 
       await refreshPhishingList();
 
-      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain, { rpcAllowed });
       const contract = getCampaignsContract(addresses, provider);
       if (!contract) return;
       const ledger = addresses.budgetLedger
@@ -474,12 +474,12 @@ export const campaignPoller = {
    * Runs Phase 2+3 only — no event scan, no IPFS fetch.
    * Yields immediately if a full poll() is in progress.
    */
-  async refreshStatus(rpcUrl: string, addresses: ContractAddresses, pineChain?: string): Promise<void> {
+  async refreshStatus(rpcUrl: string, addresses: ContractAddresses, pineChain?: string, rpcAllowed: boolean = true): Promise<void> {
     if (_polling) return; // full poll in progress — it will update status too
     if (!addresses.campaigns || !addresses.campaigns.startsWith("0x")) return;
 
     try {
-      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain);
+      const provider = await getReadProvider(rpcUrl, !!pineChain, pineChain, { rpcAllowed });
       const contract = getCampaignsContract(addresses, provider);
       if (!contract) return;
       const ledger = addresses.budgetLedger

@@ -541,6 +541,28 @@ export function Settings({ address }: { address: string | null }) {
         </div>
       )}
 
+      {/* RPC fallback toggle — symmetric with the webapp's header chip.
+          OFF means background reads use pine only; if pine isn't ready,
+          they skip. Writes (tx broadcast) always use RPC and bypass this
+          gate. */}
+      <div style={sectionStyle}>
+        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={!!settings.rpcEnabled}
+            onChange={(e) => setSettings((s) => ({ ...s, rpcEnabled: e.target.checked }))}
+          />
+          Allow RPC fallback for reads
+        </label>
+        <div style={{ color: "var(--text-dim)", fontSize: 10, marginTop: 2, marginLeft: 20, lineHeight: 1.4 }}>
+          Pine validates blocks in your browser; RPC reaches a centralized
+          gateway that sees your query metadata. When off, historical data
+          beyond pine's rolling window is unavailable — use the "Refresh
+          history" button on the History tab for a one-shot opt-in.
+          Transactions you sign always use RPC regardless of this setting.
+        </div>
+      </div>
+
       {/* Contract addresses */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>

@@ -100,4 +100,13 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   contractAddresses: NETWORK_CONFIGS.polkadotTestnet.addresses,
   ipfsGateway: "https://dweb.link/ipfs/",
   pinataApiKey: "",
+  /// Pine smoldot is the canonical read path on fresh installs;
+  /// validates blocks in-browser, no third-party gateway sees the
+  /// queries. Cypherpunk default.
+  usePine: true,
+  /// RPC fallback is off by default. Users opt in explicitly when
+  /// they need history beyond pine's window (e.g. the HistoryTab
+  /// "Refresh history" button). Writes (tx broadcast) bypass this
+  /// flag — they always use RPC since smoldot can't broadcast.
+  rpcEnabled: false,
 };
