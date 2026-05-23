@@ -1,11 +1,11 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-22
-**Current Phase:** Alpha-5 v3 — Parameter Governance Phase A fully wired on Paseo (2026-05-22T23:49Z). DatumCampaigns v2 + DatumCampaignLifecycle v2 demote `minimumCpmFloor`, `pendingTimeoutBlocks`, and `inactivityTimeoutBlocks` from `immutable` to `onlyOwnerOrPG`-tunable with hard MIN/MAX bounds and lock-once OpenGov gating. `DatumParameterGovernance` whitelist now includes the three new setters, so retunes can route through the bicameral veto-window flow alongside the owner/Timelock path. Second redeploy of the day was required because PG self-owns its whitelist post-bootstrap (a deliberate rug-protection); previous v2 addresses archived at `alpha-5/deployed-addresses.v2-pre-pg-whitelist.json`.
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v3 (EVM, solc) live; alpha-3 PVM reference frozen
-**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v3 addresses
+**Last Updated:** 2026-05-23
+**Current Phase:** Alpha-5 v4 — Parameter Governance Phase A + Phase B both live on Paseo (2026-05-23T02:21Z). Twenty governable setters across five contracts (DatumCampaigns, DatumCampaignLifecycle, DatumActivationBonds, DatumGovernanceV2, DatumMintCoordinator) are now retunable via two governance paths: the owner/Timelock route (48h delay) and the ParameterGovernance bicameral veto-window route. Every governable parameter exercised end-to-end on Paseo with an up/down/restore sweep — 7/9 round-trips succeeded (the 2 fails are DatumAdvertiserStake setters; the contract isn't deployed by the base `deploy.ts` surface yet — known gap). Previous v3 addresses archived at `alpha-5/deployed-addresses.v3-pre-phase-b.json`.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v4 (EVM, solc) live; alpha-3 PVM reference frozen
+**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v4 addresses
 **Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
-**Tests:** 1564 passing, 0 failing, 1 pending (29 Phase A cases in `parameter-governance-phase-a.test.ts`)
+**Tests:** 1579 passing, 0 failing, 1 pending (29 Phase A + 15 Phase B cases)
 
 ## Cypherpunk roadmap (2026-05-18)
 

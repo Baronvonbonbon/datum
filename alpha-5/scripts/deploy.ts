@@ -2537,13 +2537,22 @@ async function main() {
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];
 
-  // Group target addresses we need to whitelist + transfer
-  const PG_TARGETS = Array.from(new Set(PARAM_SETTERS.map((s) => s.contractKey)));
+  // Group target addresses we need to whitelist + transfer.
+  // Filter to entries whose contract is actually deployed in this run; some
+  // contracts (e.g. DatumAdvertiserStake, DatumAdvertiserGovernance) are
+  // referenced in PARAM_SETTERS so the wiring is ready when they DO get
+  // deployed, but they don't ship in the base deploy.ts surface yet.
+  const PARAM_SETTERS_LIVE = PARAM_SETTERS.filter((s) => {
+    const ok = addresses[s.contractKey] && addresses[s.contractKey] !== ZERO_ADDRESS;
+    if (!ok) console.log(`  [skip PG entry] ${s.contractKey}.${s.sig} — contract not deployed in this run`);
+    return ok;
+  });
+  const PG_TARGETS = Array.from(new Set(PARAM_SETTERS_LIVE.map((s) => s.contractKey)));
   // Split: contracts that transfer ownership to PG vs contracts that use the
   // `parameterGovernance` field (dual-permission). A contract is field-only
   // if EVERY one of its PARAM_SETTERS entries is marked viaParamGovernanceField.
   const PG_FIELD_TARGETS = PG_TARGETS.filter((k) =>
-    PARAM_SETTERS.filter((s) => s.contractKey === k).every((s) => s.viaParamGovernanceField === true)
+    PARAM_SETTERS_LIVE.filter((s) => s.contractKey === k).every((s) => s.viaParamGovernanceField === true)
   );
   const PG_OWNERSHIP_TARGETS = PG_TARGETS.filter((k) => !PG_FIELD_TARGETS.includes(k));
 
@@ -2584,7 +2593,7 @@ async function main() {
   for (const targetKey of PG_TARGETS) {
     await pgSetWhitelistTarget(addresses[targetKey], true);
   }
-  for (const setter of PARAM_SETTERS) {
+  for (const setter of PARAM_SETTERS_LIVE) {
     await pgSetSelector(addresses[setter.contractKey], selectorOf(setter.sig), true);
   }
 
