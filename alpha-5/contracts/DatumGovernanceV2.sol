@@ -34,12 +34,40 @@ import "./interfaces/IDatumActivationBondsMinimal.sol";
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
 contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneGuard {
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: parameter-governance Phase B — routes the seven parameter setters
+    /// (setQuorumWeighted, setSlashBps, setTerminationQuorum, setGraceParams,
+    /// setConvictionCurve, setConvictionLockups, setCommitRevealPhases)
+    /// through `onlyOwnerOrPG`. Wiring setters (setLifecycle, setCampaigns,
+    /// setActivationBonds) stay owner-only / lock-once.
+    function version() public pure override returns (uint256) { return 2; }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
         _setRetuneCooldownBlocks(blocks_);
     }
+
+    /// @notice ParameterGovernance address authorised to retune Phase B
+    ///         parameters via its bicameral veto-window flow. Lock-once.
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    /// @dev Owner OR ParameterGovernance.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @dev Phase B abuse-protection caps. Quorum values are stake-denominated
+    ///      (planck); 10^17 = ~10M DOT — well above any realistic governance
+    ///      voting volume on a single proposal.
+    uint256 internal constant MAX_QUORUM_CEILING = 10**17;
 
     uint8 public constant MAX_CONVICTION = 8;
 
@@ -290,25 +318,27 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
     event TerminationQuorumSet(uint256 value);
     event GraceParamsSet(uint256 baseGrace, uint256 gracePerQuorum, uint256 maxGrace);
 
-    function setQuorumWeighted(uint256 v) external onlyOwner {
+    function setQuorumWeighted(uint256 v) external onlyOwnerOrPG {
+        require(v <= MAX_QUORUM_CEILING, "out-of-bounds");
         _guardRetune("quorumWeighted"); // F-031
         quorumWeighted = v;
         emit QuorumWeightedSet(v);
     }
 
-    function setSlashBps(uint256 v) external onlyOwner {
+    function setSlashBps(uint256 v) external onlyOwnerOrPG {
         require(v < 10000, "E11");
         _guardRetune("slashBps"); // F-031
         slashBps = v;
         emit SlashBpsSet(v);
     }
 
-    function setTerminationQuorum(uint256 v) external onlyOwner {
+    function setTerminationQuorum(uint256 v) external onlyOwnerOrPG {
+        require(v <= MAX_QUORUM_CEILING, "out-of-bounds");
         terminationQuorum = v;
         emit TerminationQuorumSet(v);
     }
 
-    function setGraceParams(uint256 _baseGrace, uint256 _gracePerQuorum, uint256 _maxGrace) external onlyOwner {
+    function setGraceParams(uint256 _baseGrace, uint256 _gracePerQuorum, uint256 _maxGrace) external onlyOwnerOrPG {
         require(_maxGrace >= _baseGrace, "E11");
         baseGraceBlocks = _baseGrace;
         gracePerQuorum = _gracePerQuorum;
@@ -318,7 +348,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
 
     /// @notice Update the quadratic conviction curve coefficients.
     ///         weight(c) = (a*c² + b*c) / CONVICTION_SCALE + 1
-    function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+    function setConvictionCurve(uint256 a, uint256 b) external onlyOwnerOrPG {
         // AUDIT-PASS-5 L6: reject (0, 0) so the per-campaign snapshot guard
         // in commitVote/vote can use "(A == 0 && B == 0)" as a sentinel for
         // "not yet snapshotted" without colliding with a legitimate curve.
@@ -341,7 +371,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
     /// @notice Adjust the commit and reveal phase lengths. Each bounded to
     ///         MAX_PHASE_BLOCKS so governance can't grief voters with absurd
     ///         windows (mirrors the conviction-lockup bound).
-    function setCommitRevealPhases(uint64 _commit, uint64 _reveal) external onlyOwner {
+    function setCommitRevealPhases(uint64 _commit, uint64 _reveal) external onlyOwnerOrPG {
         require(_commit > 0 && _commit <= MAX_PHASE_BLOCKS, "E11");
         require(_reveal > 0 && _reveal <= MAX_PHASE_BLOCKS, "E11");
         commitBlocks = _commit;
@@ -349,7 +379,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
         emit CommitRevealPhasesSet(_commit, _reveal);
     }
 
-    function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
+    function setConvictionLockups(uint256[9] calldata l) external onlyOwnerOrPG {
         for (uint256 i = 0; i < 9; i++) {
             require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
             convictionLockup[i] = l[i];

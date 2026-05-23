@@ -35,11 +35,33 @@ interface IMintAuthority {
 ///         once at the end of `_processBatch` after the inner loop, so
 ///         carving it out adds a single external call per settled batch.
 contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, ParameterRetuneGuard {
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: parameter-governance Phase B — routes the three parameter setters
+    /// (setMintRate, setDustMintThreshold, setDatumRewardSplit) through
+    /// `onlyOwnerOrPG`. Wiring setters (setSettlement, setMintAuthority,
+    /// setEmissionEngine) stay owner-only.
+    function version() public pure override returns (uint256) { return 2; }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
         _setRetuneCooldownBlocks(blocks_);
+    }
+
+    /// @notice ParameterGovernance address authorised to retune Phase B
+    ///         parameters via its bicameral veto-window flow. Lock-once.
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    /// @dev Owner OR ParameterGovernance.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -153,7 +175,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
     // Tunable parameters
     // ─────────────────────────────────────────────────────────────────────
 
-    function setMintRate(uint256 newRate) external onlyOwner whenNotFrozen {
+    function setMintRate(uint256 newRate) external onlyOwnerOrPG whenNotFrozen {
         if (newRate > MAX_MINT_RATE) revert AboveCap();
         _guardRetune("mintRate"); // F-031: per-key retune cooldown
         uint256 old = mintRatePerDot;
@@ -161,7 +183,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
         emit MintRateUpdated(old, newRate);
     }
 
-    function setDustMintThreshold(uint256 newThreshold) external onlyOwner whenNotFrozen {
+    function setDustMintThreshold(uint256 newThreshold) external onlyOwnerOrPG whenNotFrozen {
         // Same ≤ 1 DATUM cap as before.
         if (newThreshold > 1 * 10**10) revert AboveCap();
         _guardRetune("dustMintThreshold");
@@ -170,7 +192,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
         emit DustMintThresholdUpdated(old, newThreshold);
     }
 
-    function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwner whenNotFrozen {
+    function setDatumRewardSplit(uint16 userBps, uint16 publisherBps, uint16 advertiserBps) external onlyOwnerOrPG whenNotFrozen {
         if (uint256(userBps) + uint256(publisherBps) + uint256(advertiserBps) != 10000) revert E11();
         _guardRetune("datumRewardSplit");
         datumRewardUserBps = userBps;

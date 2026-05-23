@@ -26,7 +26,34 @@ interface IDatumCampaignsForMute {
 ///         set exactly once and frozen. Treasury and governable parameters
 ///         are owner-mutable (owner is Timelock/Router in the ladder).
 contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: parameter-governance Phase B — routes the five parameter setters
+    /// (setMinBond, setTimelockBlocks, setPunishmentBps, setMuteMinBond,
+    /// setMuteMaxBlocks) through `onlyOwnerOrPG`. Wiring setters
+    /// (setCampaignsContract, setTreasury) stay owner-only / lock-once.
+    function version() public pure override returns (uint256) { return 2; }
+
+    /// @notice ParameterGovernance address authorised to retune Phase B
+    ///         parameters via its bicameral veto-window flow. Lock-once.
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    /// @dev Owner OR ParameterGovernance.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    /// @notice Lock-once: PG cannot be rotated post-bootstrap.
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @dev Phase B bound: cap on min-bond values to prevent governance from
+    ///      pricing all campaign creation out of reach.
+    uint256 internal constant MAX_BOND_CEILING = 10**16; // ~1M DOT
 
     // ── Wiring ────────────────────────────────────────────────────────────────
 
@@ -141,18 +168,19 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         treasury = addr;
     }
 
-    function setMinBond(uint256 v) external onlyOwner {
+    function setMinBond(uint256 v) external onlyOwnerOrPG {
+        require(v <= MAX_BOND_CEILING, "out-of-bounds");
         _minBond = v;
         emit MinBondSet(v);
     }
 
-    function setTimelockBlocks(uint64 v) external onlyOwner {
+    function setTimelockBlocks(uint64 v) external onlyOwnerOrPG {
         require(v > 0 && v <= MAX_TIMELOCK_BLOCKS, "E11");
         _timelockBlocks = v;
         emit TimelockBlocksSet(v);
     }
 
-    function setPunishmentBps(uint16 winnerBps, uint16 treasuryBps_) external onlyOwner {
+    function setPunishmentBps(uint16 winnerBps, uint16 treasuryBps_) external onlyOwnerOrPG {
         require(uint32(winnerBps) + uint32(treasuryBps_) <= MAX_PUNISHMENT_BPS, "E11");
         require(treasuryBps_ == 0 || treasury != address(0), "E00");
         _winnerBonusBps = winnerBps;
@@ -161,12 +189,13 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         emit TreasuryBpsSet(treasuryBps_);
     }
 
-    function setMuteMinBond(uint256 v) external onlyOwner {
+    function setMuteMinBond(uint256 v) external onlyOwnerOrPG {
+        require(v <= MAX_BOND_CEILING, "out-of-bounds");
         _muteMinBond = v;
         emit MuteMinBondSet(v);
     }
 
-    function setMuteMaxBlocks(uint64 v) external onlyOwner {
+    function setMuteMaxBlocks(uint64 v) external onlyOwnerOrPG {
         require(v > 0 && v <= MAX_TIMELOCK_BLOCKS, "E11");
         _muteMaxBlocks = v;
         emit MuteMaxBlocksSet(v);

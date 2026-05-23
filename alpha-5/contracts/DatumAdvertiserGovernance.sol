@@ -38,7 +38,29 @@ contract DatumAdvertiserGovernance is
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
         _setRetuneCooldownBlocks(blocks_);
     }
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: parameter-governance Phase B — routes parameter setters
+    /// (setParams, setConvictionCurve, setConvictionLockups,
+    /// setPublisherClaimBond) through `onlyOwnerOrPG`. Wiring setters
+    /// (setAdvertiserStake, setCouncilArbiter) remain owner-only.
+    function version() public pure override returns (uint256) { return 2; }
+
+    /// @notice ParameterGovernance address authorised to retune Phase B
+    ///         parameters via its bicameral veto-window flow. Lock-once.
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    /// @dev Owner OR ParameterGovernance.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
 
     uint8 public constant MAX_CONVICTION = 8;
 
@@ -201,7 +223,7 @@ contract DatumAdvertiserGovernance is
 
     event ParamsSet(uint256 quorum, uint256 slashBps, uint256 grace, uint256 bond);
 
-    function setParams(uint256 _quorum, uint256 _slashBps, uint256 _grace, uint256 _bond) external onlyOwner {
+    function setParams(uint256 _quorum, uint256 _slashBps, uint256 _grace, uint256 _bond) external onlyOwnerOrPG {
         require(_slashBps <= 10_000, "E11");
         // F-031 fix: guard the slashBps key. setParams bundles multiple
         // tunables but slashBps is the load-bearing economic parameter;
@@ -215,7 +237,7 @@ contract DatumAdvertiserGovernance is
         emit ParamsSet(_quorum, _slashBps, _grace, _bond);
     }
 
-    function setConvictionCurve(uint256 a, uint256 b) external onlyOwner {
+    function setConvictionCurve(uint256 a, uint256 b) external onlyOwnerOrPG {
         // Mirrors the AUDIT-PASS-5 L6 guard in DatumGovernanceV2: keep the
         // (0, 0) pair reserved as a "not yet set" sentinel even though this
         // contract does not currently use per-proposal snapshots.
@@ -227,7 +249,7 @@ contract DatumAdvertiserGovernance is
         emit ConvictionCurveSet(a, b);
     }
 
-    function setConvictionLockups(uint256[9] calldata l) external onlyOwner {
+    function setConvictionLockups(uint256[9] calldata l) external onlyOwnerOrPG {
         for (uint256 i = 0; i < 9; i++) {
             require(l[i] <= MAX_LOCKUP_BLOCKS, "E11");
             convictionLockup[i] = l[i];
@@ -251,7 +273,7 @@ contract DatumAdvertiserGovernance is
     /// @notice Set the bond required for filing a publisher fraud claim.
     ///         Bond refunded on upheld, forwarded to advertiser on dismissed.
     ///         Set to 0 to disable the Council-arbitrated track entirely.
-    function setPublisherClaimBond(uint256 amount) external onlyOwner {
+    function setPublisherClaimBond(uint256 amount) external onlyOwnerOrPG {
         _guardRetune("publisherClaimBond");
         publisherClaimBond = amount;
         emit PublisherClaimBondSet(amount);

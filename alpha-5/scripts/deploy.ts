@@ -2503,6 +2503,36 @@ async function main() {
     { contractKey: "campaigns",            sig: "setMinimumCpmFloor(uint256)",         viaParamGovernanceField: true },
     { contractKey: "campaigns",            sig: "setPendingTimeoutBlocks(uint256)",    viaParamGovernanceField: true },
     { contractKey: "campaignLifecycle",    sig: "setInactivityTimeoutBlocks(uint256)", viaParamGovernanceField: true },
+    // Parameter governance Phase B — broader Tier-1 batch. Dual-permission
+    // (onlyOwnerOrPG). Wiring setters on each contract remain owner-only.
+    //
+    //   DatumAdvertiserStake — three bonding-curve / cap setters
+    { contractKey: "advertiserStake",      sig: "setParams(uint256,uint256,uint256)",                viaParamGovernanceField: true },
+    { contractKey: "advertiserStake",      sig: "setMaxRequiredStake(uint256)",                      viaParamGovernanceField: true },
+    { contractKey: "advertiserStake",      sig: "setMaxSlashBpsPerCall(uint16)",                     viaParamGovernanceField: true },
+    //   DatumAdvertiserGovernance — four governance economics setters
+    { contractKey: "advertiserGovernance", sig: "setParams(uint256,uint256,uint256,uint256)",        viaParamGovernanceField: true },
+    { contractKey: "advertiserGovernance", sig: "setConvictionCurve(uint256,uint256)",               viaParamGovernanceField: true },
+    { contractKey: "advertiserGovernance", sig: "setConvictionLockups(uint256[9])",                  viaParamGovernanceField: true },
+    { contractKey: "advertiserGovernance", sig: "setPublisherClaimBond(uint256)",                    viaParamGovernanceField: true },
+    //   DatumActivationBonds — five bond economics setters
+    { contractKey: "activationBonds",      sig: "setMinBond(uint256)",                               viaParamGovernanceField: true },
+    { contractKey: "activationBonds",      sig: "setTimelockBlocks(uint64)",                         viaParamGovernanceField: true },
+    { contractKey: "activationBonds",      sig: "setPunishmentBps(uint16,uint16)",                   viaParamGovernanceField: true },
+    { contractKey: "activationBonds",      sig: "setMuteMinBond(uint256)",                           viaParamGovernanceField: true },
+    { contractKey: "activationBonds",      sig: "setMuteMaxBlocks(uint64)",                          viaParamGovernanceField: true },
+    //   DatumGovernanceV2 — seven core governance economics setters
+    { contractKey: "governanceV2",         sig: "setQuorumWeighted(uint256)",                        viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setSlashBps(uint256)",                              viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setTerminationQuorum(uint256)",                     viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setGraceParams(uint256,uint256,uint256)",           viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setConvictionCurve(uint256,uint256)",               viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setConvictionLockups(uint256[9])",                  viaParamGovernanceField: true },
+    { contractKey: "governanceV2",         sig: "setCommitRevealPhases(uint64,uint64)",              viaParamGovernanceField: true },
+    //   DatumMintCoordinator — three token-plane economics setters
+    { contractKey: "mintCoordinator",      sig: "setMintRate(uint256)",                              viaParamGovernanceField: true },
+    { contractKey: "mintCoordinator",      sig: "setDustMintThreshold(uint256)",                     viaParamGovernanceField: true },
+    { contractKey: "mintCoordinator",      sig: "setDatumRewardSplit(uint16,uint16,uint16)",         viaParamGovernanceField: true },
     // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST among ownership-transfer entries.
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];

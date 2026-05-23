@@ -27,13 +27,30 @@ import "./PaseoSafeSender.sol";
 ///         so a fraud-anticipating advertiser can't shield funds via
 ///         requestUnstake (same R-H1 pattern as DatumPublisherStake).
 contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    /// v2: parameter-governance Phase B — adds parameterGovernance field
+    /// and routes the three parameter setters (setParams, setMaxRequiredStake,
+    /// setMaxSlashBpsPerCall) through onlyOwnerOrPG so PG's bicameral
+    /// retune flow can adjust them in addition to the owner/Timelock path.
+    function version() public pure override returns (uint256) { return 2; }
 
     /// @notice Settlement contract — authorised to record cumulative budget spent.
     address public settlementContract;
 
     /// @notice Slash contract — authorised to slash advertiser stakes (AdvertiserGovernance).
     address public slashContract;
+
+    /// @notice ParameterGovernance address authorised to retune the parameter
+    ///         setters via its bicameral veto-window flow. Lock-once on first set.
+    address public parameterGovernance;
+    event ParameterGovernanceSet(address indexed pg);
+
+    /// @dev Owner OR ParameterGovernance — used by the parameter setters that
+    ///      should be retunable through PG in addition to the standard
+    ///      owner-governance path. Wiring setters remain `onlyOwner` only.
+    modifier onlyOwnerOrPG() {
+        require(msg.sender == owner() || msg.sender == parameterGovernance, "E18");
+        _;
+    }
 
     // ── Bonding curve params ───────────────────────────────────────────────────
 
@@ -44,6 +61,14 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     /// @notice Cap on requiredStake to prevent bonding curve runaway. Default
     ///         10^14 planck = 10,000 DOT, same as publisher stake.
     uint256 public maxRequiredStake = 10**14;
+
+    /// @dev Phase B bounds for the new dual-permission setters. Wide enough
+    ///      for any realistic operational range, narrow enough to block
+    ///      governance-attack abuse.
+    uint256 internal constant MAX_BASE_STAKE              = 10**16;     // ~1M DOT
+    uint256 internal constant MAX_PLANCK_PER_DOT_SPENT    = 10**12;     // ~100 DOT per DOT-spent (very aggressive curve ceiling)
+    uint256 internal constant MAX_UNSTAKE_DELAY_BLOCKS    = 5_256_000;  // ~1 year
+    uint256 internal constant MAX_REQUIRED_STAKE_CEILING  = 10**17;     // ~10M DOT
 
     // ── State ──────────────────────────────────────────────────────────────────
 
@@ -80,16 +105,31 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
         slashContract = addr;
     }
 
-    function setParams(uint256 _base, uint256 _perDOTSpent, uint256 _delay) external onlyOwner {
-        require(_delay > 0, "E00");
+    /// @notice Lock-once: wire DatumParameterGovernance as the dual-permission
+    ///         retune authority. A captured owner cannot rotate PG to a
+    ///         malicious target post-bootstrap.
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        require(parameterGovernance == address(0), "already set");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    /// @dev Phase B: dual-permission. Bounds tightened — bonding-curve coefficients
+    ///      capped to prevent governance from setting absurd values that block all
+    ///      stake operations or drive requiredStake arithmetic to overflow.
+    function setParams(uint256 _base, uint256 _perDOTSpent, uint256 _delay) external onlyOwnerOrPG {
+        require(_delay > 0 && _delay <= MAX_UNSTAKE_DELAY_BLOCKS, "out-of-bounds");
+        require(_base <= MAX_BASE_STAKE, "out-of-bounds");
+        require(_perDOTSpent <= MAX_PLANCK_PER_DOT_SPENT, "out-of-bounds");
         baseStakePlanck = _base;
         planckPerDOTSpent = _perDOTSpent;
         unstakeDelayBlocks = _delay;
         emit ParamsUpdated(_base, _perDOTSpent, _delay);
     }
 
-    function setMaxRequiredStake(uint256 cap) external onlyOwner {
-        require(cap > 0, "E00");
+    function setMaxRequiredStake(uint256 cap) external onlyOwnerOrPG {
+        require(cap > 0 && cap <= MAX_REQUIRED_STAKE_CEILING, "out-of-bounds");
         maxRequiredStake = cap;
     }
 
@@ -98,7 +138,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     uint16 public maxSlashBpsPerCall = 5000;
     event MaxSlashBpsPerCallSet(uint16 bps);
 
-    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwner {
+    function setMaxSlashBpsPerCall(uint16 bps) external onlyOwnerOrPG {
         require(bps > 0 && bps <= 10000, "E11");
         maxSlashBpsPerCall = bps;
         emit MaxSlashBpsPerCallSet(bps);
