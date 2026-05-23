@@ -169,7 +169,7 @@ export function History() {
           the header toggle (or use the CTA below) to enable it.
         </p>
       </PageExplainer>
-      <EnableRpcCta what="Earnings history" />
+      <EnableRpcCta what="Earnings history" onOneShot={runScan} />
 
       {/* DOT earnings withdraw */}
       <div className="nano-card" style={{ padding: 14, marginBottom: 12 }}>
