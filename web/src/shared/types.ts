@@ -384,6 +384,14 @@ export interface ContractAddresses {
   advertiserGovernance?: string;
   /// Advertiser stake — escrow slashed by advertiserGovernance.
   advertiserStake?: string;
+  /// Alpha-5 v5 (2026-05-23): on-chain user interest commitment registry.
+  /// Optional ZK Path-A input. When absent, claim validation falls back
+  /// to the off-chain path.
+  interestCommitments?: string;
+  /// Alpha-5 v5: governance-curated tag dictionary. Distinct from the
+  /// stake-gated `tagRegistry` (not deployed by base deploy.ts) which
+  /// uses bonded jurors instead of a council.
+  tagCurator?: string;
 }
 
 export type IpfsProvider =

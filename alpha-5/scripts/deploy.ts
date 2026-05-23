@@ -197,6 +197,17 @@ const PUB_GOV_BOND_BONUS_BPS = 2000n;                // 20% of slash forwarded t
 const PUB_GOV_GRACE_BLOCKS = 14400n;                 // ~24h grace period after first nay vote
 const PUB_GOV_PROPOSE_BOND = parseDOT("1");          // 1 DOT bond to open a fraud proposal
 
+// CB4 advertiser fraud track — mirrors publisher-stake / publisher-governance
+// in the advertiser direction. Advertiser stake grows with cumulative spend;
+// AdvertiserGovernance conviction-votes slashing on advertiser misconduct.
+const ADV_STAKE_BASE = parseDOT("1");                // 1 DOT minimum required stake
+const ADV_STAKE_PER_DOT_SPENT = 10n ** 8n;           // 0.01 DOT additional stake per DOT spent
+const ADV_UNSTAKE_DELAY = 100_800n;                  // ~7 days
+const ADV_GOV_QUORUM = parseDOT("100");              // 100 DOT conviction-weighted
+const ADV_GOV_SLASH_BPS = 5000n;                     // 50% slash on fraud upheld
+const ADV_GOV_GRACE_BLOCKS = 14400n;                 // ~24h grace
+const ADV_GOV_PROPOSE_BOND = parseDOT("1");          // 1 DOT bond to propose
+
 // G-1 relay accountability deployment parameters (relay-accountability proposal)
 // Trial posture: stake gate disabled at deploy (RELAY_MIN_STAKE = 0). Operators
 // opt-in to staking; relayMinStake is raised via governance setter once the
@@ -741,6 +752,47 @@ async function main() {
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumPublisherGovernance — ${err}`);
+  }
+
+  // ── CB4: advertiser fraud track (stake + governance) ──────────────────
+  try {
+    logStep("Deploying DatumAdvertiserStake (CB4)");
+    await deployOrReuse("advertiserStake", "DatumAdvertiserStake", [
+      ADV_STAKE_BASE,
+      ADV_STAKE_PER_DOT_SPENT,
+      ADV_UNSTAKE_DELAY,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumAdvertiserStake — ${err}`);
+  }
+
+  try {
+    logStep("Deploying DatumAdvertiserGovernance (CB4)");
+    await deployOrReuse("advertiserGovernance", "DatumAdvertiserGovernance", [
+      ADV_GOV_QUORUM,
+      ADV_GOV_SLASH_BPS,
+      ADV_GOV_GRACE_BLOCKS,
+      ADV_GOV_PROPOSE_BOND,
+      addresses.pauseRegistry,
+    ]);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumAdvertiserGovernance — ${err}`);
+  }
+
+  // ── Interest commitments (Path A: ZK-friendly user interest roots) ────
+  try {
+    logStep("Deploying DatumInterestCommitments");
+    await deployOrReuse("interestCommitments", "DatumInterestCommitments", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumInterestCommitments — ${err}`);
+  }
+
+  // ── Tag curator (governance-curated tag lane) ─────────────────────────
+  try {
+    logStep("Deploying DatumTagCurator");
+    await deployOrReuse("tagCurator", "DatumTagCurator", []);
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumTagCurator — ${err}`);
   }
 
   // Alpha-4: NullifierRegistry merged into Settlement
@@ -1928,6 +1980,48 @@ async function main() {
     "publisherStake", "setPublisherStake",
     addresses.publisherStake,
   );
+
+  // ── CB4: AdvertiserStake ↔ AdvertiserGovernance ↔ Settlement (lock-once) ──
+  if (addresses.advertiserStake && addresses.advertiserGovernance) {
+    await wireIfNeeded(
+      "AdvertiserStake.settlementContract",
+      "DatumAdvertiserStake", addresses.advertiserStake,
+      "settlementContract", "setSettlementContract",
+      addresses.settlement,
+    );
+    await wireIfNeeded(
+      "AdvertiserStake.slashContract",
+      "DatumAdvertiserStake", addresses.advertiserStake,
+      "slashContract", "setSlashContract",
+      addresses.advertiserGovernance,
+    );
+    await wireIfNeeded(
+      "AdvertiserGovernance.advertiserStake",
+      "DatumAdvertiserGovernance", addresses.advertiserGovernance,
+      "advertiserStake", "setAdvertiserStake",
+      addresses.advertiserStake,
+    );
+  }
+
+  // ── ClaimValidator.interestCommitments — optional ZK Path-A input ───────
+  if (addresses.interestCommitments) {
+    await wireIfNeeded(
+      "ClaimValidator.interestCommitments",
+      "DatumClaimValidator", addresses.claimValidator,
+      "interestCommitments", "setInterestCommitments",
+      addresses.interestCommitments,
+    );
+  }
+
+  // ── TagSystem.tagCurator — wire the governance-curated tag lane ────────
+  if (addresses.tagCurator) {
+    await wireIfNeeded(
+      "TagSystem.tagCurator",
+      "DatumTagSystem", addresses.tagSystem,
+      "tagCurator", "setTagCurator",
+      addresses.tagCurator,
+    );
+  }
 
   // ── G-1 relay accountability wiring ──
   // RelayStake gets two pointers: the relay contract (for clarity / future

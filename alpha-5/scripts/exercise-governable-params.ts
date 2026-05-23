@@ -63,11 +63,14 @@ async function main() {
     { contract: "campaignLifecycle", setter: "setInactivityTimeoutBlocks(uint256)", getter: "inactivityTimeoutBlocks",
       upValue: 1_000_000n, downValue: 300_000n },
 
-    // Phase B — DatumAdvertiserStake
+    // Phase B — DatumAdvertiserStake (now deployed in alpha-5 v5)
     { contract: "advertiserStake",   setter: "setMaxRequiredStake(uint256)",       getter: "maxRequiredStake",
       upValue: 10n ** 15n, downValue: 10n ** 14n },
     { contract: "advertiserStake",   setter: "setMaxSlashBpsPerCall(uint16)",      getter: "maxSlashBpsPerCall",
       upValue: 7000n, downValue: 3000n },
+    // Phase B — DatumAdvertiserGovernance
+    { contract: "advertiserGovernance", setter: "setPublisherClaimBond(uint256)",  getter: "publisherClaimBond",
+      upValue: parseDOT("0.5"), downValue: parseDOT("0.1") },
 
     // Phase B — DatumActivationBonds
     { contract: "activationBonds",   setter: "setMinBond(uint256)",                getter: "minBond",

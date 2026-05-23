@@ -1,10 +1,10 @@
 # DATUM Project Status
 
 **Last Updated:** 2026-05-23
-**Current Phase:** Alpha-5 v4 — Parameter Governance Phase A + Phase B both live on Paseo (2026-05-23T02:21Z). Twenty governable setters across five contracts (DatumCampaigns, DatumCampaignLifecycle, DatumActivationBonds, DatumGovernanceV2, DatumMintCoordinator) are now retunable via two governance paths: the owner/Timelock route (48h delay) and the ParameterGovernance bicameral veto-window route. Every governable parameter exercised end-to-end on Paseo with an up/down/restore sweep — 7/9 round-trips succeeded (the 2 fails are DatumAdvertiserStake setters; the contract isn't deployed by the base `deploy.ts` surface yet — known gap). Previous v3 addresses archived at `alpha-5/deployed-addresses.v3-pre-phase-b.json`.
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v4 (EVM, solc) live; alpha-3 PVM reference frozen
-**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v4 addresses
-**Contract count:** 30 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
+**Current Phase:** Alpha-5 v5 — full advertiser fraud track + interest commitments + tag curator now deployed on Paseo (2026-05-23T12:23Z). Closes the AdvertiserStake/AdvertiserGovernance gap from v4; adds DatumInterestCommitments (ZK Path-A user-interest roots) and DatumTagCurator (governance-curated tag lane). Twenty governable parameters across seven contracts (DatumCampaigns, DatumCampaignLifecycle, DatumActivationBonds, DatumGovernanceV2, DatumMintCoordinator, DatumAdvertiserStake, DatumAdvertiserGovernance) retunable via the owner/Timelock route (48h delay) AND the ParameterGovernance bicameral veto-window route. **10/10 governable parameters round-tripped end-to-end on Paseo** via `scripts/exercise-governable-params.ts` (up/down/restore). Previous v4 addresses archived at `alpha-5/deployed-addresses.v4-pre-advertiser-track.json`. **Pre-mainnet upgrade-machinery work** (router `msg.sender` wedge, per-contract `_migrate()` overrides, paginated migration, migration test harness) documented in `alpha-4/PRE-MAINNET-CHECKLIST.md` §U1-U7.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v5 (EVM, solc) live; alpha-3 PVM reference frozen
+**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v5 addresses (now exposes `advertiserStake`, `advertiserGovernance`, `interestCommitments`, `tagCurator`)
+**Contract count:** 34 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
 **Tests:** 1579 passing, 0 failing, 1 pending (29 Phase A + 15 Phase B cases)
 
 ## Cypherpunk roadmap (2026-05-18)
