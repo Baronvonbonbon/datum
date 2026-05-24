@@ -158,8 +158,9 @@ export function App() {
               <Route path="/governance/council" element={<Council />} />
               <Route path="/governance/fraud-claims" element={<AdvertiserFraudClaimsPage />} />
               <Route path="/governance/advertiser-fraud" element={<AdvertiserFraud />} />
-              <Route path="/governance/phase" element={<PhaseLadder />} />
               <Route path="/governance/phase-ladder" element={<PhaseLadder />} />
+              {/* W-LEG-3: /governance/phase was the original path; canonical is now /phase-ladder. */}
+              <Route path="/governance/phase" element={<Navigate to="/governance/phase-ladder" replace />} />
 
               {/* Protocol — template dashboard + per-contract sub-pages.
                   /admin/* paths kept as aliases for back-compat with
@@ -176,22 +177,30 @@ export function App() {
               <Route path="/protocol/challenge-bonds" element={<ChallengeBondsAdmin />} />
               <Route path="/protocol/sybil-defense" element={<SybilDefenseAdmin />} />
               <Route path="/protocol/mint-authority" element={<MintAuthorityAdmin />} />
+              {/* Pages that previously only existed at /admin/*. Promoted
+                  to /protocol/* so the canonical path is consistent
+                  across the section (per PROCESS-FLOW-AUDIT W-LEG-1). */}
+              <Route path="/protocol/rate-limiter" element={<RateLimiterAdmin />} />
+              <Route path="/protocol/reputation" element={<ReputationAdmin />} />
+              <Route path="/protocol/publisher-governance" element={<PublisherGovernanceAdmin />} />
+              <Route path="/protocol/nullifier-registry" element={<NullifierRegistryAdmin />} />
 
-              {/* Admin — hidden from nav, accessible via direct URL */}
-              <Route path="/admin" element={<Navigate to="/admin/timelock" replace />} />
-              <Route path="/admin/timelock" element={<TimelockAdmin />} />
-              <Route path="/admin/pause" element={<PauseRegistryAdmin />} />
-              <Route path="/admin/blocklist" element={<BlocklistAdmin />} />
-              <Route path="/admin/protocol" element={<ProtocolFeesAdmin />} />
-              <Route path="/admin/rate-limiter" element={<RateLimiterAdmin />} />
-              <Route path="/admin/reputation" element={<ReputationAdmin />} />
-              <Route path="/admin/parameter-governance" element={<ParameterGovernanceAdmin />} />
-              <Route path="/admin/publisher-stake" element={<PublisherStakeAdmin />} />
-              <Route path="/admin/publisher-governance" element={<PublisherGovernanceAdmin />} />
-              <Route path="/admin/challenge-bonds" element={<ChallengeBondsAdmin />} />
-              <Route path="/admin/nullifier-registry" element={<NullifierRegistryAdmin />} />
-              <Route path="/admin/sybil-defense" element={<SybilDefenseAdmin />} />
-              <Route path="/admin/mint-authority" element={<MintAuthorityAdmin />} />
+              {/* /admin/* — back-compat redirects for stale bookmarks.
+                  Per W-LEG-1: no in-app navigation points here. */}
+              <Route path="/admin" element={<Navigate to="/protocol/timelock" replace />} />
+              <Route path="/admin/timelock" element={<Navigate to="/protocol/timelock" replace />} />
+              <Route path="/admin/pause" element={<Navigate to="/protocol/pause-registry" replace />} />
+              <Route path="/admin/blocklist" element={<Navigate to="/protocol/blocklist" replace />} />
+              <Route path="/admin/protocol" element={<Navigate to="/protocol/protocol-fees" replace />} />
+              <Route path="/admin/rate-limiter" element={<Navigate to="/protocol/rate-limiter" replace />} />
+              <Route path="/admin/reputation" element={<Navigate to="/protocol/reputation" replace />} />
+              <Route path="/admin/parameter-governance" element={<Navigate to="/protocol/parameter-governance" replace />} />
+              <Route path="/admin/publisher-stake" element={<Navigate to="/protocol/publisher-stake" replace />} />
+              <Route path="/admin/publisher-governance" element={<Navigate to="/protocol/publisher-governance" replace />} />
+              <Route path="/admin/challenge-bonds" element={<Navigate to="/protocol/challenge-bonds" replace />} />
+              <Route path="/admin/nullifier-registry" element={<Navigate to="/protocol/nullifier-registry" replace />} />
+              <Route path="/admin/sybil-defense" element={<Navigate to="/protocol/sybil-defense" replace />} />
+              <Route path="/admin/mint-authority" element={<Navigate to="/protocol/mint-authority" replace />} />
 
               {/* DATUM token system */}
               <Route path="/token" element={<TokenDashboard />} />

@@ -1,4 +1,8 @@
-# DATUM Alpha-4 — Pre-Mainnet Checklist
+# DATUM — Pre-Mainnet Checklist
+
+Active across all alpha lines. Moved to repo root 2026-05-23 (per
+PROCESS-FLOW-AUDIT.md §X-LEG-1) so the title no longer claims to be
+alpha-4-specific.
 
 Required hardening steps that are correct to defer on testnet but **must** run
 before any mainnet (Polkadot Hub) deploy. Each item is gated by a separate

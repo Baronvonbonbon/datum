@@ -85,12 +85,12 @@ Items in this snapshot that are NOT mainnet-ready and have follow-up
 work tracked elsewhere:
 
 - `whitelistLocked = false` on PG — deferred until OpenGov phase, per
-  `alpha-4/PRE-MAINNET-CHECKLIST.md` §Permission lock-downs.
+  `PRE-MAINNET-CHECKLIST.md` §Permission lock-downs.
 - `minimumCpmFloorLocked = false`, `inactivityTimeoutBlocksLocked = false`
   — same reason.
 - `owner = deployer` on most contracts — pendingOwner staged to Timelock
   but `acceptOwnership()` not yet called by Timelock.
 - All migration machinery (`_migrate()` overrides, router `msg.sender`
-  wedge) — per `alpha-4/PRE-MAINNET-CHECKLIST.md` §U1-U7.
+  wedge) — per `PRE-MAINNET-CHECKLIST.md` §U1-U7.
 - `DatumTagRegistry` and `DatumZKStake` — deferred to token-plane deploy,
   per `alpha-5/DEPLOY-COVERAGE.md`.

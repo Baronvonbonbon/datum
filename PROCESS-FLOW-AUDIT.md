@@ -673,11 +673,10 @@ these are accidentally in `deployOrReuse` calls (cross-checked
   is reference.
 - `alpha-5/` — active.
 
-**Recommendation:** consolidate `alpha-4/PRE-MAINNET-CHECKLIST.md`
-into `alpha-5/` (or move to a top-level `PRE-MAINNET-CHECKLIST.md`)
-to avoid the "is alpha-4 still active?" confusion when reading the
-checklist title. Otherwise alpha-3 and alpha-4 trees are reasonable
-to keep as historical reference.
+**Resolved 2026-05-23:** moved to top-level `PRE-MAINNET-CHECKLIST.md`
+in the same commit that landed these legacy cleanups. alpha-3 and
+alpha-4 trees remain as historical reference but no longer host
+active documents.
 
 #### X-LEG-2: `PROCESS-FLOW-AUDIT.md` (this document)
 
