@@ -357,5 +357,55 @@ contract MockCampaigns {
         return (false, 0, 0);
     }
 
+    // Configurable envelope storage so tests can exercise C1 validator paths.
+    struct MockEnvelope {
+        uint16 allowedPolicies;
+        uint16 priceFloorBps;
+        uint16 minRelevanceBps;
+        bool   requirePolicyAttest;
+    }
+    mapping(uint256 => MockEnvelope) internal _envelope;
+
+    function setCampaignPolicyEnvelope(
+        uint256 campaignId,
+        uint16 allowedPolicies,
+        uint16 priceFloorBps,
+        uint16 minRelevanceBps,
+        bool requirePolicyAttest
+    ) external {
+        _envelope[campaignId] = MockEnvelope({
+            allowedPolicies: allowedPolicies,
+            priceFloorBps: priceFloorBps,
+            minRelevanceBps: minRelevanceBps,
+            requirePolicyAttest: requirePolicyAttest
+        });
+    }
+
+    function getCampaignPolicyEnvelope(uint256 campaignId)
+        external
+        view
+        returns (uint16 allowedPolicies, uint16 priceFloorBps, uint16 minRelevanceBps, bool requirePolicyAttest)
+    {
+        MockEnvelope storage e = _envelope[campaignId];
+        return (e.allowedPolicies, e.priceFloorBps, e.minRelevanceBps, e.requirePolicyAttest);
+    }
+
+    // Configurable per-advertiser pacing.
+    struct MockPacing { uint32 maxEvents; uint32 windowBlocks; }
+    mapping(address => MockPacing) internal _pacing;
+
+    function setAdvertiserPacing(address advertiser, uint32 maxEvents, uint32 windowBlocks) external {
+        _pacing[advertiser] = MockPacing({ maxEvents: maxEvents, windowBlocks: windowBlocks });
+    }
+
+    function getAdvertiserPacing(address advertiser)
+        external
+        view
+        returns (uint32 maxEventsPerWindow, uint32 windowBlocks)
+    {
+        MockPacing storage p = _pacing[advertiser];
+        return (p.maxEvents, p.windowBlocks);
+    }
+
     receive() external payable {}
 }

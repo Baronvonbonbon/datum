@@ -1,7 +1,7 @@
 {
   "note": "Storage layout snapshot for the Settlement two-Logic split. DatumSettlement, DatumSettlementLogicA, and DatumSettlementLogicB must all share this exact layout (DELEGATECALL invariant). Regenerate via scripts/dump-settlement-layout.ts after any intentional change to DatumSettlementStorage; the file is checked in test/settlement-layout.test.ts (CI) and at the top of scripts/deploy.ts (pre-deploy gate).",
   "contract": "DatumSettlement, DatumSettlementLogicA, DatumSettlementLogicB",
-  "slotCount": 47,
+  "slotCount": 48,
   "storage": [
     {
       "label": "_owner",
@@ -19,7 +19,7 @@
       "label": "router",
       "offset": 0,
       "slot": "2",
-      "type": "t_contract(IDatumRouter_Upgradable)5172"
+      "type": "t_contract(IDatumRouter_Upgradable)25746"
     },
     {
       "label": "frozen",
@@ -49,19 +49,19 @@
       "label": "_budgetLedger",
       "offset": 0,
       "slot": "54",
-      "type": "t_contract(IDatumBudgetLedger)5656"
+      "type": "t_contract(IDatumBudgetLedger)28085"
     },
     {
       "label": "_paymentVault",
       "offset": 0,
       "slot": "55",
-      "type": "t_contract(IDatumPaymentVault)6398"
+      "type": "t_contract(IDatumPaymentVault)29227"
     },
     {
       "label": "_lifecycle",
       "offset": 0,
       "slot": "56",
-      "type": "t_contract(IDatumCampaignLifecycle)5709"
+      "type": "t_contract(IDatumCampaignLifecycle)28224"
     },
     {
       "label": "_relayContract",
@@ -73,7 +73,7 @@
       "label": "_pauseRegistry",
       "offset": 0,
       "slot": "58",
-      "type": "t_contract(IDatumPauseRegistry)6309"
+      "type": "t_contract(IDatumPauseRegistry)29138"
     },
     {
       "label": "_attestationVerifier",
@@ -85,31 +85,31 @@
       "label": "_claimValidator",
       "offset": 0,
       "slot": "60",
-      "type": "t_contract(IDatumClaimValidator)6179"
+      "type": "t_contract(IDatumClaimValidator)28976"
     },
     {
       "label": "_publishers",
       "offset": 0,
       "slot": "61",
-      "type": "t_contract(IDatumPublishers)6834"
+      "type": "t_contract(IDatumPublishers)29663"
     },
     {
       "label": "_tokenRewardVault",
       "offset": 0,
       "slot": "62",
-      "type": "t_contract(IDatumTokenRewardVault)7150"
+      "type": "t_contract(IDatumTokenRewardVault)30139"
     },
     {
       "label": "_campaigns",
       "offset": 0,
       "slot": "63",
-      "type": "t_contract(IDatumCampaigns)6153"
+      "type": "t_contract(IDatumCampaigns)28690"
     },
     {
       "label": "_publisherStake",
       "offset": 0,
       "slot": "64",
-      "type": "t_contract(IDatumPublisherStake)6632"
+      "type": "t_contract(IDatumPublisherStake)29461"
     },
     {
       "label": "_advertiserStake",
@@ -121,31 +121,31 @@
       "label": "_clickRegistry",
       "offset": 0,
       "slot": "66",
-      "type": "t_contract(IDatumClickRegistry)6239"
+      "type": "t_contract(IDatumClickRegistry)29036"
     },
     {
       "label": "_mintCoordinator",
       "offset": 0,
       "slot": "67",
-      "type": "t_contract(IDatumMintCoordinator)6255"
+      "type": "t_contract(IDatumMintCoordinator)29084"
     },
     {
       "label": "_rateLimiter",
       "offset": 0,
       "slot": "68",
-      "type": "t_contract(IDatumSettlementRateLimiter)7033"
+      "type": "t_contract(IDatumSettlementRateLimiter)29900"
     },
     {
       "label": "_nullifiers",
       "offset": 0,
       "slot": "69",
-      "type": "t_contract(IDatumNullifierRegistry)6275"
+      "type": "t_contract(IDatumNullifierRegistry)29104"
     },
     {
       "label": "_reputation",
       "offset": 0,
       "slot": "70",
-      "type": "t_contract(IDatumPublisherReputation)6489"
+      "type": "t_contract(IDatumPublisherReputation)29318"
     },
     {
       "label": "_maxBatchSize",
@@ -169,7 +169,7 @@
       "label": "_identityRegistry",
       "offset": 0,
       "slot": "74",
-      "type": "t_contract(IDatumPeopleChainIdentity)6437"
+      "type": "t_contract(IDatumPeopleChainIdentity)29266"
     },
     {
       "label": "_userBlocksPublisher",
@@ -193,7 +193,7 @@
       "label": "_powEngine",
       "offset": 0,
       "slot": "78",
-      "type": "t_contract(IDatumPowEngine)6465"
+      "type": "t_contract(IDatumPowEngine)29294"
     },
     {
       "label": "_userTotalSettled",
@@ -226,63 +226,69 @@
       "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_mapping(t_uint256,t_uint256))))"
     },
     {
-      "label": "_userShareBps",
+      "label": "_advertiserUserWindowEvents",
       "offset": 0,
       "slot": "84",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_mapping(t_uint256,t_uint256)))"
+    },
+    {
+      "label": "_userShareBps",
+      "offset": 0,
+      "slot": "85",
       "type": "t_uint16"
     },
     {
       "label": "_minClaimInterval",
       "offset": 2,
-      "slot": "84",
+      "slot": "85",
       "type": "t_uint16"
     },
     {
       "label": "_lastSettlementBlock",
       "offset": 0,
-      "slot": "85",
+      "slot": "86",
       "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_uint256)))"
     },
     {
       "label": "_maxSettlementPerBlock",
       "offset": 0,
-      "slot": "86",
+      "slot": "87",
       "type": "t_uint256"
     },
     {
       "label": "_cbBlock",
       "offset": 0,
-      "slot": "87",
+      "slot": "88",
       "type": "t_uint256"
     },
     {
       "label": "_cbTotal",
       "offset": 0,
-      "slot": "88",
+      "slot": "89",
       "type": "t_uint256"
     },
     {
       "label": "_dualSig",
       "offset": 0,
-      "slot": "89",
+      "slot": "90",
       "type": "t_address"
     },
     {
       "label": "_logicA",
       "offset": 0,
-      "slot": "90",
+      "slot": "91",
       "type": "t_address"
     },
     {
       "label": "_logicB",
       "offset": 0,
-      "slot": "91",
+      "slot": "92",
       "type": "t_address"
     },
     {
       "label": "_logicLocked",
       "offset": 20,
-      "slot": "91",
+      "slot": "92",
       "type": "t_bool"
     }
   ]

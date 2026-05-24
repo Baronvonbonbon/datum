@@ -27,6 +27,166 @@
       "type": "constructor"
     },
     {
+      "inputs": [],
+      "name": "AboveCap",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "AlreadySet",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "CuratorLocked",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E00",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E01",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E11",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E12",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E15",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E18",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E19",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E20",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E21",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E22",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E23",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E25",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E27",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E62",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E64",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E65",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E66",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E67",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E68",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E71",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E80",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E81",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E82",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E83",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E84",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E88",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E93",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "LaneLocked",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotRegistered",
+      "type": "error"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -50,7 +210,22 @@
     },
     {
       "inputs": [],
+      "name": "Paused",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "RegistryUnset",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "StakeInadequate",
       "type": "error"
     },
     {
@@ -58,30 +233,24 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "advertiser",
           "type": "address"
         },
         {
-          "indexed": true,
-          "internalType": "address",
-          "name": "reporter",
-          "type": "address"
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "maxEvents",
+          "type": "uint32"
         },
         {
           "indexed": false,
-          "internalType": "uint8",
-          "name": "reason",
-          "type": "uint8"
+          "internalType": "uint32",
+          "name": "windowBlocks",
+          "type": "uint32"
         }
       ],
-      "name": "AdReported",
+      "name": "AdvertiserPacingSet",
       "type": "event"
     },
     {
@@ -118,263 +287,21 @@
     },
     {
       "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "allowlist",
+          "type": "address"
+        }
+      ],
+      "name": "AllowlistSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
       "inputs": [],
       "name": "BootstrapLocked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "BulletinCreativeExpired",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "renewer",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "newBlock",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "newIndex",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "newExpiryHubBlock",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "version",
-          "type": "uint32"
-        }
-      ],
-      "name": "BulletinCreativeRenewed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "cidDigest",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "codec",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "bulletinBlock",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "bulletinIndex",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "expiryHubBlock",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "retentionHorizonBlock",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "version",
-          "type": "uint32"
-        }
-      ],
-      "name": "BulletinCreativeSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "expiryHubBlock",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "escrowBalance",
-          "type": "uint256"
-        }
-      ],
-      "name": "BulletinRenewalDue",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "funder",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "totalEscrow",
-          "type": "uint256"
-        }
-      ],
-      "name": "BulletinRenewalEscrowFunded",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "recipient",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "BulletinRenewalEscrowWithdrawn",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "bool",
-          "name": "open",
-          "type": "bool"
-        }
-      ],
-      "name": "BulletinRenewalModeChanged",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "renewer",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bool",
-          "name": "authorized",
-          "type": "bool"
-        }
-      ],
-      "name": "BulletinRenewerAuthorized",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "oldReward",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "newReward",
-          "type": "uint256"
-        }
-      ],
-      "name": "BulletinRenewerRewardUpdated",
       "type": "event"
     },
     {
@@ -444,31 +371,6 @@
         }
       ],
       "name": "CampaignCreated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "metadataHash",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "version",
-          "type": "uint64"
-        }
-      ],
-      "name": "CampaignMetadataSet",
       "type": "event"
     },
     {
@@ -552,6 +454,43 @@
         },
         {
           "indexed": false,
+          "internalType": "uint16",
+          "name": "allowedPolicies",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "priceFloorBps",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "minRelevanceBps",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "requirePolicyAttest",
+          "type": "bool"
+        }
+      ],
+      "name": "CampaignPolicyEnvelopeSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
           "internalType": "bytes32",
           "name": "category",
           "type": "bytes32"
@@ -571,25 +510,6 @@
         }
       ],
       "name": "CampaignResumed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "mode",
-          "type": "uint8"
-        }
-      ],
-      "name": "CampaignTagModeSet",
       "type": "event"
     },
     {
@@ -669,12 +589,6 @@
     },
     {
       "anonymous": false,
-      "inputs": [],
-      "name": "LanesLocked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
       "inputs": [
         {
           "indexed": false,
@@ -691,51 +605,12 @@
       "inputs": [
         {
           "indexed": false,
-          "internalType": "uint16",
-          "name": "value",
-          "type": "uint16"
-        }
-      ],
-      "name": "MaxAllowedPublishersSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
           "internalType": "uint256",
           "name": "amount",
           "type": "uint256"
         }
       ],
       "name": "MaxCampaignBudgetSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "value",
-          "type": "uint16"
-        }
-      ],
-      "name": "MaxCampaignTagsSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "value",
-          "type": "uint16"
-        }
-      ],
-      "name": "MaxPublisherTagsSet",
       "type": "event"
     },
     {
@@ -799,37 +674,6 @@
         }
       ],
       "name": "OwnershipTransferred",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "reporter",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "reason",
-          "type": "uint8"
-        }
-      ],
-      "name": "PageReported",
       "type": "event"
     },
     {
@@ -906,50 +750,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "takeRateBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "PublisherAllowed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "PublisherRemoved",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "router",
           "type": "address"
@@ -973,25 +773,6 @@
     },
     {
       "anonymous": false,
-      "inputs": [],
-      "name": "TagCuratorLocked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "curator",
-          "type": "address"
-        }
-      ],
-      "name": "TagCuratorSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
       "inputs": [
         {
           "indexed": false,
@@ -1008,50 +789,25 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "address",
-          "name": "registry",
-          "type": "address"
-        }
-      ],
-      "name": "TagRegistrySet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "tag",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "effectiveBlock",
-          "type": "uint256"
-        }
-      ],
-      "name": "TagRemovalScheduled",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "bytes32",
           "name": "tag",
           "type": "bytes32"
         }
       ],
       "name": "TagRemoved",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tagSystem",
+          "type": "address"
+        }
+      ],
+      "name": "TagSystemSet",
       "type": "event"
     },
     {
@@ -1081,116 +837,12 @@
     },
     {
       "inputs": [],
-      "name": "BULLETIN_RENEWAL_LEAD_BLOCKS",
-      "outputs": [
-        {
-          "internalType": "uint64",
-          "name": "",
-          "type": "uint64"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_ADD_PUBLISHERS_BATCH",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_ALLOWED_PUBLISHERS_CEILING",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_BULLETIN_RENEWER_REWARD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_CAMPAIGN_TAGS_CEILING",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "MAX_DEFAULT_TAKE_RATE_BPS",
       "outputs": [
         {
           "internalType": "uint16",
           "name": "",
           "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_PUBLISHER_TAGS_CEILING",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_RETENTION_ADVANCE_BLOCKS",
-      "outputs": [
-        {
-          "internalType": "uint64",
-          "name": "",
-          "type": "uint64"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "METADATA_COOLDOWN_BLOCKS",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -1217,32 +869,6 @@
           "internalType": "uint16",
           "name": "",
           "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MIN_EVENTS_TO_REPORT",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "TAG_REMOVAL_GRACE_BLOCKS",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -1312,66 +938,6 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "adReports",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "addAllowedPublisher",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address[]",
-          "name": "pubs",
-          "type": "address[]"
-        },
-        {
-          "internalType": "uint256[]",
-          "name": "bondAmounts",
-          "type": "uint256[]"
-        }
-      ],
-      "name": "addAllowedPublishers",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
           "name": "",
           "type": "address"
@@ -1383,25 +949,6 @@
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "advertiserReports",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -1421,69 +968,13 @@
       "type": "function"
     },
     {
-      "inputs": [
+      "inputs": [],
+      "name": "allowlist",
+      "outputs": [
         {
-          "internalType": "bytes32",
-          "name": "tag",
-          "type": "bytes32"
-        }
-      ],
-      "name": "approveTag",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "tags",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "approveTags",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
+          "internalType": "contract IDatumCampaignAllowlist",
           "name": "",
           "type": "address"
-        }
-      ],
-      "name": "approvedBulletinRenewer",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "name": "approvedTags",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -1510,81 +1001,6 @@
           "internalType": "contract IDatumBudgetLedger",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "bulletinRenewalEscrow",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "bulletinRenewerReward",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "campaignAllowedPublisher",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "campaignAllowedPublisherCount",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -1660,93 +1076,6 @@
           "type": "uint256"
         }
       ],
-      "name": "campaignBulletin",
-      "outputs": [
-        {
-          "internalType": "bytes32",
-          "name": "cidDigest",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint8",
-          "name": "cidCodec",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint32",
-          "name": "bulletinBlock",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "bulletinIndex",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "expiryHubBlock",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "retentionHorizonBlock",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "version",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "campaignMetadataLastSetBlock",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "campaignMetadataVersion",
-      "outputs": [
-        {
-          "internalType": "uint64",
-          "name": "",
-          "type": "uint64"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
       "name": "campaignMinIdentityLevel",
       "outputs": [
         {
@@ -1781,49 +1110,6 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "campaignMode",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "campaignPublisherTakeRate",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
           "name": "",
           "type": "uint256"
         }
@@ -1834,25 +1120,6 @@
           "internalType": "bytes32",
           "name": "",
           "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "campaignTagMode",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
         }
       ],
       "stateMutability": "view",
@@ -1887,29 +1154,6 @@
         }
       ],
       "name": "claimPaseoDustTo",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint32",
-          "name": "newBulletinBlock",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "newBulletinIndex",
-          "type": "uint32"
-        }
-      ],
-      "name": "confirmBulletinRenewal",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2086,19 +1330,6 @@
     },
     {
       "inputs": [],
-      "name": "enforceTagRegistry",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "freeze",
       "outputs": [],
       "stateMutability": "nonpayable",
@@ -2120,14 +1351,25 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
+          "internalType": "address",
+          "name": "advertiser",
+          "type": "address"
         }
       ],
-      "name": "fundBulletinRenewalEscrow",
-      "outputs": [],
-      "stateMutability": "payable",
+      "name": "getAdvertiserPacing",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "maxEventsPerWindow",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "windowBlocks",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -2144,62 +1386,6 @@
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getBulletinCreative",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "cidDigest",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint8",
-              "name": "cidCodec",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint32",
-              "name": "bulletinBlock",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "bulletinIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "expiryHubBlock",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint64",
-              "name": "retentionHorizonBlock",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "version",
-              "type": "uint32"
-            }
-          ],
-          "internalType": "struct DatumCampaigns.BulletinRef",
-          "name": "",
-          "type": "tuple"
         }
       ],
       "stateMutability": "view",
@@ -2232,11 +1418,59 @@
           "type": "uint256"
         }
       ],
+      "name": "getCampaignAdvertiserSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "advertiser",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
       "name": "getCampaignAssuranceLevel",
       "outputs": [
         {
           "internalType": "uint8",
           "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignAssuranceLevelSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint8",
+          "name": "level",
           "type": "uint8"
         }
       ],
@@ -2280,12 +1514,12 @@
           "type": "uint256"
         }
       ],
-      "name": "getCampaignMetadata",
+      "name": "getCampaignMinIdentityLevel",
       "outputs": [
         {
-          "internalType": "bytes32",
+          "internalType": "uint8",
           "name": "",
-          "type": "bytes32"
+          "type": "uint8"
         }
       ],
       "stateMutability": "view",
@@ -2299,11 +1533,16 @@
           "type": "uint256"
         }
       ],
-      "name": "getCampaignMinIdentityLevel",
+      "name": "getCampaignMinIdentityLevelSafe",
       "outputs": [
         {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
           "internalType": "uint8",
-          "name": "",
+          "name": "level",
           "type": "uint8"
         }
       ],
@@ -2324,6 +1563,40 @@
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignPolicyEnvelope",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "allowedPolicies",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "priceFloorBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "minRelevanceBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "bool",
+          "name": "requirePolicyAttest",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -2470,30 +1743,6 @@
           "internalType": "uint256",
           "name": "campaignId",
           "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "getCampaignPublisherTakeRate",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
         }
       ],
       "name": "getCampaignRelaySigner",
@@ -2553,6 +1802,30 @@
           "type": "uint256"
         }
       ],
+      "name": "getCampaignRequiresZkProofSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "requires",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
       "name": "getCampaignRewardPerImpression",
       "outputs": [
         {
@@ -2572,11 +1845,59 @@
           "type": "uint256"
         }
       ],
+      "name": "getCampaignRewardPerImpressionSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "rate",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
       "name": "getCampaignRewardToken",
       "outputs": [
         {
           "internalType": "address",
           "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getCampaignRewardTokenSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "token",
           "type": "address"
         }
       ],
@@ -2629,6 +1950,35 @@
           "type": "uint256"
         }
       ],
+      "name": "getCampaignUserCapSafe",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint32",
+          "name": "maxEvents",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "windowBlocks",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        }
+      ],
       "name": "getCampaignViewBid",
       "outputs": [
         {
@@ -2660,25 +2010,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "getPublisherTags2",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "",
-          "type": "bytes32[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "governanceContract",
       "outputs": [
@@ -2686,86 +2017,6 @@
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "internalType": "bytes32[]",
-          "name": "requiredTags",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "hasAllTags",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "isAllowedPublisher",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "isBulletinRenewalDue",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "lanesLocked",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -2786,47 +2037,7 @@
     },
     {
       "inputs": [],
-      "name": "listApprovedTags",
-      "outputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "",
-          "type": "bytes32[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "lockBootstrap",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "lockLanes",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "lockTagCurator",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "markBulletinExpired",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2846,51 +2057,12 @@
     },
     {
       "inputs": [],
-      "name": "maxAllowedPublishers",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "maxCampaignBudget",
       "outputs": [
         {
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "maxCampaignTags",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "maxPublisherTags",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -2981,25 +2153,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "openBulletinRenewal",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "owner",
       "outputs": [
@@ -3007,25 +2160,6 @@
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "pageReports",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -3142,25 +2276,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "publisherReports",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "publishers",
       "outputs": [
@@ -3174,88 +2289,8 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "removeAllowedPublisher",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "tag",
-          "type": "bytes32"
-        }
-      ],
-      "name": "removeApprovedTag",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "renounceOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "reason",
-          "type": "uint8"
-        }
-      ],
-      "name": "reportAd",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "reason",
-          "type": "uint8"
-        }
-      ],
-      "name": "reportPage",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "requestBulletinRenewal",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3289,6 +2324,24 @@
     {
       "inputs": [
         {
+          "internalType": "uint32",
+          "name": "maxEventsPerWindow",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "windowBlocks",
+          "type": "uint32"
+        }
+      ],
+      "name": "setAdvertiserPacing",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "address",
           "name": "signer",
           "type": "address"
@@ -3315,22 +2368,12 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
           "internalType": "address",
-          "name": "renewer",
+          "name": "addr",
           "type": "address"
-        },
-        {
-          "internalType": "bool",
-          "name": "approved",
-          "type": "bool"
         }
       ],
-      "name": "setApprovedBulletinRenewer",
+      "name": "setAllowlist",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3344,57 +2387,6 @@
         }
       ],
       "name": "setBudgetLedger",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "cidDigest",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint8",
-          "name": "cidCodec",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint32",
-          "name": "bulletinBlock",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "bulletinIndex",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "retentionHorizonBlock",
-          "type": "uint64"
-        }
-      ],
-      "name": "setBulletinCreative",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "newReward",
-          "type": "uint256"
-        }
-      ],
-      "name": "setBulletinRenewerReward",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3479,6 +2471,39 @@
           "type": "uint256"
         },
         {
+          "internalType": "uint16",
+          "name": "allowedPolicies",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "priceFloorBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "minRelevanceBps",
+          "type": "uint16"
+        },
+        {
+          "internalType": "bool",
+          "name": "requirePolicyAttest",
+          "type": "bool"
+        }
+      ],
+      "name": "setCampaignPolicyEnvelope",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
           "internalType": "bytes32",
           "name": "category",
           "type": "bytes32"
@@ -3503,24 +2528,6 @@
         }
       ],
       "name": "setCampaignStatus",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint8",
-          "name": "mode",
-          "type": "uint8"
-        }
-      ],
-      "name": "setCampaignTagMode",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3577,19 +2584,6 @@
     {
       "inputs": [
         {
-          "internalType": "bool",
-          "name": "enforced",
-          "type": "bool"
-        }
-      ],
-      "name": "setEnforceTagRegistry",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
           "name": "addr",
           "type": "address"
@@ -3629,87 +2623,12 @@
     {
       "inputs": [
         {
-          "internalType": "uint16",
-          "name": "v",
-          "type": "uint16"
-        }
-      ],
-      "name": "setMaxAllowedPublishers",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "uint256",
           "name": "amount",
           "type": "uint256"
         }
       ],
       "name": "setMaxCampaignBudget",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint16",
-          "name": "v",
-          "type": "uint16"
-        }
-      ],
-      "name": "setMaxCampaignTags",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint16",
-          "name": "v",
-          "type": "uint16"
-        }
-      ],
-      "name": "setMaxPublisherTags",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "metadataHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "setMetadata",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bool",
-          "name": "open",
-          "type": "bool"
-        }
-      ],
-      "name": "setOpenBulletinRenewal",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3728,19 +2647,6 @@
         }
       ],
       "name": "setPendingExpiryBlock",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32[]",
-          "name": "tagHashes",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "setPublisherTags",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3788,24 +2694,11 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "curator",
+          "name": "addr",
           "type": "address"
         }
       ],
-      "name": "setTagCurator",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "registry",
-          "type": "address"
-        }
-      ],
-      "name": "setTagRegistry",
+      "name": "setTagSystem",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3843,62 +2736,12 @@
     },
     {
       "inputs": [],
-      "name": "tagCurator",
+      "name": "tagSystem",
       "outputs": [
         {
-          "internalType": "address",
+          "internalType": "contract IDatumTagSystem",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "tagCuratorLocked",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "tagRegistry",
-      "outputs": [
-        {
-          "internalType": "contract IDatumTagRegistry",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "name": "tagRemovalEffectiveBlock",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -3991,29 +2834,6 @@
         }
       ],
       "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "recipient",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "withdrawBulletinRenewalEscrow",
-      "outputs": [],
-      "stateMutability": "nonpayable",
       "type": "function"
     }
   ]

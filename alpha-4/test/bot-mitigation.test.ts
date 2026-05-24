@@ -71,7 +71,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
         nullifier: ethers.ZeroHash,
         stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        powNonce: ethers.ZeroHash,        policyId: 0,        interestWeightBps: 0,        auctionRootCommit: ethers.ZeroHash,
       });
       prevHash = hash;
     }
@@ -240,7 +240,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        powNonce: ethers.ZeroHash,        policyId: 0,        interestWeightBps: 0,        auctionRootCommit: ethers.ZeroHash,
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([

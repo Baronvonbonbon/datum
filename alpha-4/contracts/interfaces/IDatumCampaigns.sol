@@ -194,6 +194,14 @@ interface IDatumCampaigns {
     function getCampaignRewardTokenSafe(uint256 campaignId) external view returns (bool ok, address token);
     function getCampaignRewardPerImpressionSafe(uint256 campaignId) external view returns (bool ok, uint256 rate);
     function getCampaignUserCapSafe(uint256 campaignId) external view returns (bool ok, uint32 maxEvents, uint32 windowBlocks);
+    function getCampaignPolicyEnvelope(uint256 campaignId)
+        external
+        view
+        returns (uint16 allowedPolicies, uint16 priceFloorBps, uint16 minRelevanceBps, bool requirePolicyAttest);
+    function getAdvertiserPacing(address advertiser)
+        external
+        view
+        returns (uint32 maxEventsPerWindow, uint32 windowBlocks);
     function minimumCpmFloor() external view returns (uint256);
     function pendingTimeoutBlocks() external view returns (uint256);
     function settlementContract() external view returns (address);

@@ -289,13 +289,14 @@ export const campaignPoller = {
       // Batch status + settlement data refresh
       const statusTasks = refreshIds.map(id => async () => {
         try {
-          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof] = await Promise.all([
+          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof, envelope] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
             contract.getCampaignForSettlement(BigInt(id)),
             contract.getCampaignViewBid(BigInt(id)).catch(() => 0n),
             contract.getCampaignPots(BigInt(id)).catch(() => [] as any[]),
             contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
             contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
+            contract.getCampaignPolicyEnvelope(BigInt(id)).catch(() => null as any),
           ]);
 
           const camp = index[id];
@@ -303,6 +304,15 @@ export const campaignPoller = {
           camp.publisher = settlementData[1] ?? camp.publisher;
           camp.snapshotTakeRateBps = Number(settlementData[2]).toString();
           camp.viewBid = BigInt(viewBid).toString();
+
+          // C1: cache policy envelope hints so the client-side auction can
+          // pre-filter ineligible policies before submitting claims.
+          if (envelope) {
+            (camp as any).allowedPolicies = Number(envelope[0] ?? envelope.allowedPolicies ?? 0);
+            (camp as any).priceFloorBps = Number(envelope[1] ?? envelope.priceFloorBps ?? 0);
+            (camp as any).minRelevanceBps = Number(envelope[2] ?? envelope.minRelevanceBps ?? 0);
+            (camp as any).requirePolicyAttest = Boolean(envelope[3] ?? envelope.requirePolicyAttest ?? false);
+          }
 
           // Extract click (type-1) and remote-action (type-2) pot rates
           if (Array.isArray(pots)) {
@@ -497,13 +507,14 @@ export const campaignPoller = {
 
       const statusTasks = refreshIds.map(id => async () => {
         try {
-          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof] = await Promise.all([
+          const [status, settlementData, viewBid, pots, relaySigner, requiresZkProof, envelope] = await Promise.all([
             contract.getCampaignStatus(BigInt(id)).then(Number),
             contract.getCampaignForSettlement(BigInt(id)),
             contract.getCampaignViewBid(BigInt(id)).catch(() => 0n),
             contract.getCampaignPots(BigInt(id)).catch(() => [] as any[]),
             contract.getCampaignRelaySigner(BigInt(id)).catch(() => null),
             contract.getCampaignRequiresZkProof(BigInt(id)).catch(() => false),
+            contract.getCampaignPolicyEnvelope(BigInt(id)).catch(() => null as any),
           ]);
 
           const camp = index[id];
@@ -511,6 +522,15 @@ export const campaignPoller = {
           camp.publisher = settlementData[1] ?? camp.publisher;
           camp.snapshotTakeRateBps = Number(settlementData[2]).toString();
           camp.viewBid = BigInt(viewBid).toString();
+
+          // C1: cache policy envelope hints so the client-side auction can
+          // pre-filter ineligible policies before submitting claims.
+          if (envelope) {
+            (camp as any).allowedPolicies = Number(envelope[0] ?? envelope.allowedPolicies ?? 0);
+            (camp as any).priceFloorBps = Number(envelope[1] ?? envelope.priceFloorBps ?? 0);
+            (camp as any).minRelevanceBps = Number(envelope[2] ?? envelope.minRelevanceBps ?? 0);
+            (camp as any).requirePolicyAttest = Boolean(envelope[3] ?? envelope.requirePolicyAttest ?? false);
+          }
 
           if (Array.isArray(pots)) {
             for (const pot of pots) {

@@ -89,7 +89,7 @@ describe("Settlement DELEGATECALL chain msg.sender semantics (phase 8d hedge #2)
       nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-      powNonce: ethers.ZeroHash,
+      powNonce: ethers.ZeroHash,      policyId: 0,      interestWeightBps: 0,      auctionRootCommit: ethers.ZeroHash,
     }];
   }
 
@@ -218,7 +218,7 @@ describe("Settlement DELEGATECALL chain msg.sender semantics (phase 8d hedge #2)
       nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
       actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-      powNonce: ethers.ZeroHash,
+      powNonce: ethers.ZeroHash,      policyId: 0,      interestWeightBps: 0,      auctionRootCommit: ethers.ZeroHash,
     };
     const batch = { user: user.address, campaignId: 1n, claims: [claim] };
     await settlement.connect(relayEoa).settleClaims([batch]);

@@ -136,6 +136,14 @@ abstract contract DatumSettlementStorage is
     mapping(address => mapping(uint256 => mapping(uint8 => mapping(uint256 => uint256))))
         internal _userCampaignWindowEvents;
 
+    // ── C1 per-(advertiser, user, window) event tracker ─────────────────
+    // Cross-campaign frequency cap. The advertiser sets a portfolio-wide
+    // (maxEvents, windowBlocks) via DatumCampaigns.setAdvertiserPacing;
+    // this mapping counts user events against that single bucket regardless
+    // of which campaign the impression was on. Reject reason 35.
+    mapping(address => mapping(address => mapping(uint256 => uint256)))
+        internal _advertiserUserWindowEvents;
+
     // ── Revenue split (DOT) ─────────────────────────────────────────────
     uint16  internal _userShareBps = 7500;
     uint16  public constant MIN_USER_SHARE_BPS = 5000;

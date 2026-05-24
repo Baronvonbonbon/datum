@@ -372,6 +372,27 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 }
             }
 
+            // C1: Per-advertiser cross-campaign user pacing cap. The
+            // advertiser publishes one (maxEvents, windowBlocks) bucket
+            // applying across their entire portfolio. Reject reason 35.
+            if (address(_campaigns) != address(0)) {
+                address advertiser = _campaigns.getCampaignAdvertiser(claim.campaignId);
+                if (advertiser != address(0)) {
+                    (uint32 advMax, uint32 advWin) = _campaigns.getAdvertiserPacing(advertiser);
+                    if (advMax > 0 && advWin > 0) {
+                        uint256 awid = block.number / uint256(advWin);
+                        uint256 acur = _advertiserUserWindowEvents[advertiser][user][awid];
+                        if (acur + claim.eventCount > uint256(advMax)) {
+                            result.rejectedCount++;
+                            emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 35);
+                            gapFound = true;
+                            continue;
+                        }
+                        _advertiserUserWindowEvents[advertiser][user][awid] = acur + claim.eventCount;
+                    }
+                }
+            }
+
             // BM-5: Per-publisher window rate limit (view claims only).
             //       Delegated to DatumSettlementRateLimiter (atomic try-consume).
             if (address(_rateLimiter) != address(0) && claim.actionType == 0) {

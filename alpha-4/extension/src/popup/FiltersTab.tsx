@@ -104,6 +104,45 @@ export function FiltersTab() {
         </div>
       </div>
 
+      {/* C0: selection-policy picker. Advertiser-declared envelopes restrict
+          which policies they accept; campaigns that don't accept your active
+          policy are automatically filtered out before the auction. */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={headingStyle}>Selection policy</div>
+        <div style={mutedStyle}>
+          How the extension picks an ad among eligible candidates. Advertisers
+          publish which policies they accept; ineligible campaigns are skipped.
+        </div>
+        <select
+          value={String(prefs.selectionPolicyId ?? 2)}
+          onChange={(e) => update({ selectionPolicyId: Number(e.target.value) })}
+          style={{
+            width: "100%", padding: "6px 8px", fontSize: 12,
+            background: "var(--bg-raised)", color: "var(--text)",
+            border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+            fontFamily: "inherit",
+          }}
+        >
+          <option value="2">Interest-weighted (Vickrey + interest weight) — default</option>
+          <option value="1">Max-price (always pick highest-paying eligible ad)</option>
+          <option value="3">Contextual (page tags only, no profile)</option>
+          <option value="4">Lottery (weighted random over effective bids)</option>
+          <option value="5">Relevance-only (skip low-interest ads)</option>
+        </select>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 11, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={Boolean(prefs.commitAuctionTranscript)}
+            onChange={(e) => update({ commitAuctionTranscript: e.target.checked })}
+            style={{ accentColor: "var(--accent)" }}
+          />
+          <span style={{ color: "var(--text)" }}>Commit auction transcript</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+            (publishes a Merkle root of eligible bids so advertisers can audit later)
+          </span>
+        </label>
+      </div>
+
       <div style={{ marginBottom: 14 }}>
         <div style={headingStyle}>Ad Topics</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>

@@ -244,6 +244,9 @@ async function main() {
     const match = selectionResponse?.selected ?? null;
     const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
     const auctionMechanism: string | undefined = selectionResponse?.mechanism;
+    const policyId: number | undefined = selectionResponse?.policyId;
+    const interestWeightBps: number | undefined = selectionResponse?.interestWeightBps;
+    const auctionRootCommit: string | undefined = selectionResponse?.auctionRootCommit;
 
     // Dispatch auction debug event (one per slot)
     try {
@@ -349,6 +352,9 @@ async function main() {
         clearingCpmPlanck,
         attestation: attestation ?? undefined,
         campaignTags,
+        policyId,
+        interestWeightBps,
+        auctionRootCommit,
       });
       impressionNonce = impResp?.impressionNonce ?? null;
     } catch {}

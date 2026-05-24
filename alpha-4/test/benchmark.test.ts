@@ -123,7 +123,7 @@ function buildClaims(
       nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
       actionSig: NO_SIG,
-      powNonce: ethers.ZeroHash,
+      powNonce: ethers.ZeroHash,      policyId: 0,      interestWeightBps: 0,      auctionRootCommit: ethers.ZeroHash,
     });
     prevHash = hash;
   }
@@ -574,7 +574,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         nullifier: ethers.ZeroHash,
         stakeRootUsed: ethers.ZeroHash,
         actionSig: NO_SIG,
-      powNonce: ethers.ZeroHash,
+      powNonce: ethers.ZeroHash,      policyId: 0,      interestWeightBps: 0,      auctionRootCommit: ethers.ZeroHash,
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }

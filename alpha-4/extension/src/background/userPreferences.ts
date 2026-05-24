@@ -15,6 +15,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   sweepAddress: "",
   sweepThresholdPlanck: "0",
   contextualMode: false,
+  selectionPolicyId: 2,         // POLICY_INTEREST_WEIGHTED
+  commitAuctionTranscript: false,
 };
 
 export async function getPreferences(): Promise<UserPreferences> {

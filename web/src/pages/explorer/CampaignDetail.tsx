@@ -114,6 +114,26 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [minHistoryBusy, setMinHistoryBusy] = useState(false);
   const [minHistoryMsg, setMinHistoryMsg] = useState<string | null>(null);
 
+  // C1: Policy envelope. Bitmask + floors + attest flag.
+  const [envAllowedPolicies, setEnvAllowedPolicies] = useState<number>(0);
+  const [envPriceFloorBps, setEnvPriceFloorBps] = useState<number>(0);
+  const [envMinRelevanceBps, setEnvMinRelevanceBps] = useState<number>(0);
+  const [envRequireAttest, setEnvRequireAttest] = useState<boolean>(false);
+  const [envPriceFloorInput, setEnvPriceFloorInput] = useState<string>("0");
+  const [envMinRelevanceInput, setEnvMinRelevanceInput] = useState<string>("0");
+  const [envBusy, setEnvBusy] = useState(false);
+  const [envMsg, setEnvMsg] = useState<string | null>(null);
+
+  // C1: Per-advertiser cross-campaign pacing. Lives on the advertiser EOA
+  // not the campaign, so it round-trips against contracts.campaigns
+  // getAdvertiserPacing / setAdvertiserPacing.
+  const [advPacingMax, setAdvPacingMax] = useState<number>(0);
+  const [advPacingWindow, setAdvPacingWindow] = useState<number>(0);
+  const [advPacingMaxInput, setAdvPacingMaxInput] = useState<string>("0");
+  const [advPacingWindowInput, setAdvPacingWindowInput] = useState<string>("0");
+  const [advPacingBusy, setAdvPacingBusy] = useState(false);
+  const [advPacingMsg, setAdvPacingMsg] = useState<string | null>(null);
+
   // Per-pot configuration (CPM/CPC/CPA) — drives the Bid Configuration section
   interface PotInfo { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string; remaining: bigint; }
   const [pots, setPots] = useState<PotInfo[]>([]);
@@ -342,6 +362,34 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         setMinHistoryInput(String(Number(mh)));
       } catch { /* leave defaults */ }
 
+      // C1: load policy envelope.
+      try {
+        const env: any = await contracts.campaigns.getCampaignPolicyEnvelope(BigInt(campaignId));
+        const ap = Number(env[0] ?? env.allowedPolicies ?? 0);
+        const pf = Number(env[1] ?? env.priceFloorBps ?? 0);
+        const mr = Number(env[2] ?? env.minRelevanceBps ?? 0);
+        const ra = Boolean(env[3] ?? env.requirePolicyAttest ?? false);
+        setEnvAllowedPolicies(ap);
+        setEnvPriceFloorBps(pf);
+        setEnvMinRelevanceBps(mr);
+        setEnvRequireAttest(ra);
+        setEnvPriceFloorInput(String(pf));
+        setEnvMinRelevanceInput(String(mr));
+      } catch { /* envelope getter unavailable on older deploys */ }
+
+      // C1: load advertiser pacing for the connected wallet.
+      if (address) {
+        try {
+          const pacing: any = await contracts.campaigns.getAdvertiserPacing(address);
+          const m = Number(pacing[0] ?? pacing.maxEventsPerWindow ?? 0);
+          const w = Number(pacing[1] ?? pacing.windowBlocks ?? 0);
+          setAdvPacingMax(m);
+          setAdvPacingWindow(w);
+          setAdvPacingMaxInput(String(m));
+          setAdvPacingWindowInput(String(w));
+        } catch { /* leave defaults */ }
+      }
+
       // Per-pot configuration — fetch all pots + remaining per pot
       try {
         const rawPots: any[] = await contracts.campaigns.getCampaignPots(BigInt(campaignId));
@@ -504,6 +552,57 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
     } finally {
       setMinHistoryBusy(false);
     }
+  }
+
+  async function handleSetPolicyEnvelope() {
+    if (!signer || !campaign) return;
+    setEnvBusy(true);
+    setEnvMsg(null);
+    try {
+      const pf = Number(envPriceFloorInput || "0");
+      const mr = Number(envMinRelevanceInput || "0");
+      if (pf < 0 || pf > 10_000) throw new Error("priceFloorBps must be 0..10000");
+      if (mr < 0 || mr > 10_000) throw new Error("minRelevanceBps must be 0..10000");
+      const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
+      const tx = await c.setCampaignPolicyEnvelope(
+        BigInt(campaign.id), envAllowedPolicies, pf, mr, envRequireAttest
+      );
+      await confirmTx(tx);
+      setEnvPriceFloorBps(pf);
+      setEnvMinRelevanceBps(mr);
+      setEnvMsg("Policy envelope updated.");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setEnvMsg(humanizeError(err));
+    } finally {
+      setEnvBusy(false);
+    }
+  }
+
+  async function handleSetAdvertiserPacing() {
+    if (!signer) return;
+    setAdvPacingBusy(true);
+    setAdvPacingMsg(null);
+    try {
+      const m = Number(advPacingMaxInput || "0");
+      const w = Number(advPacingWindowInput || "0");
+      const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
+      const tx = await c.setAdvertiserPacing(m, w);
+      await confirmTx(tx);
+      setAdvPacingMax(m);
+      setAdvPacingWindow(w);
+      setAdvPacingMsg(m === 0 && w === 0 ? "Advertiser pacing disabled." : "Advertiser pacing updated.");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setAdvPacingMsg(humanizeError(err));
+    } finally {
+      setAdvPacingBusy(false);
+    }
+  }
+
+  function togglePolicyBit(bit: number) {
+    const mask = 1 << bit;
+    setEnvAllowedPolicies((prev) => (prev & mask) ? prev & ~mask : prev | mask);
   }
 
   async function handleReclaimBudget() {
@@ -1184,6 +1283,164 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>{minHistoryMsg}</div>
             )}
           </div>
+        </section>
+      )}
+
+      {/* C1: Selection-policy envelope — accepted user-side policies, price
+          floor, min-relevance floor, mandatory attestation. */}
+      {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
+            Selection Policy Envelope
+          </h2>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 12 }}>
+            Declare which user-side selection policies you accept. Bitmask of allowed policies
+            (0 = no restriction); priceFloorBps caps the clearing rate to a fraction of the pot
+            ceiling; minRelevanceBps gates the client's claimed interest weight; requirePolicyAttest
+            mandates that claims carry a non-zero policyId. Tightening is Pending-only; loosening
+            is allowed any time.
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              Allowed policies (current bitmask: {envAllowedPolicies})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {[
+                { bit: 1, label: "Max-price" },
+                { bit: 2, label: "Interest-weighted" },
+                { bit: 3, label: "Contextual" },
+                { bit: 4, label: "Lottery" },
+                { bit: 5, label: "Relevance-only" },
+              ].map(({ bit, label }) => {
+                const active = (envAllowedPolicies & (1 << bit)) !== 0;
+                return (
+                  <button
+                    key={bit}
+                    onClick={() => togglePolicyBit(bit)}
+                    className="nano-btn"
+                    style={{
+                      fontSize: 11, padding: "4px 10px",
+                      background: active ? "rgba(160,160,255,0.12)" : undefined,
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                      border: active ? "1px solid rgba(160,160,255,0.35)" : "1px solid var(--border)",
+                    }}
+                  >
+                    {label} {active ? "✓" : ""}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>
+              0 selected = no restriction (all policies accepted, status quo).
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 10 }}>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+              priceFloorBps (0..10000)
+              <input
+                className="nano-input"
+                type="number"
+                min={0}
+                max={10000}
+                value={envPriceFloorInput}
+                onChange={(e) => setEnvPriceFloorInput(e.target.value)}
+                style={{ width: 130, fontSize: 12 }}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+              minRelevanceBps (0..10000)
+              <input
+                className="nano-input"
+                type="number"
+                min={0}
+                max={10000}
+                value={envMinRelevanceInput}
+                onChange={(e) => setEnvMinRelevanceInput(e.target.value)}
+                style={{ width: 150, fontSize: 12 }}
+              />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text)", paddingBottom: 4 }}>
+              <input
+                type="checkbox"
+                checked={envRequireAttest}
+                onChange={(e) => setEnvRequireAttest(e.target.checked)}
+                style={{ accentColor: "var(--accent)" }}
+              />
+              requirePolicyAttest
+            </label>
+            <button
+              className="nano-btn"
+              onClick={handleSetPolicyEnvelope}
+              disabled={envBusy}
+              style={{ fontSize: 12, padding: "6px 14px" }}
+            >
+              {envBusy ? "Saving..." : "Set Envelope"}
+            </button>
+          </div>
+          {envMsg && (
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>{envMsg}</div>
+          )}
+        </section>
+      )}
+
+      {/* C1: Advertiser-level cross-campaign pacing (lives on the advertiser
+          EOA, not on this campaign — but surfaced here because this is where
+          advertisers manage campaign behavior). */}
+      {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
+            Advertiser Pacing (cross-campaign)
+          </h2>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 10 }}>
+            One bucket of (maxEvents, windowBlocks) applied to your entire portfolio. A user who
+            participates in any of your campaigns counts against this single bucket — protects
+            against budget burn when one user churns through everything you've published. Setting
+            both to 0 disables the cap.
+          </div>
+          <div style={{ marginBottom: 8, color: "var(--text)", fontSize: 12 }}>
+            Current: {advPacingMax === 0 && advPacingWindow === 0
+              ? "disabled"
+              : `${advPacingMax} events / ${advPacingWindow} blocks`}
+          </div>
+          {signer && (
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+                Max events
+                <input
+                  className="nano-input"
+                  type="number"
+                  min={0}
+                  value={advPacingMaxInput}
+                  onChange={(e) => setAdvPacingMaxInput(e.target.value)}
+                  style={{ width: 100, fontSize: 12 }}
+                />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+                Window (blocks)
+                <input
+                  className="nano-input"
+                  type="number"
+                  min={0}
+                  value={advPacingWindowInput}
+                  onChange={(e) => setAdvPacingWindowInput(e.target.value)}
+                  style={{ width: 120, fontSize: 12 }}
+                />
+              </label>
+              <button
+                className="nano-btn"
+                onClick={handleSetAdvertiserPacing}
+                disabled={advPacingBusy}
+                style={{ fontSize: 12, padding: "6px 14px" }}
+              >
+                {advPacingBusy ? "Saving..." : "Set Pacing"}
+              </button>
+            </div>
+          )}
+          {advPacingMsg && (
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>{advPacingMsg}</div>
+          )}
         </section>
       )}
 

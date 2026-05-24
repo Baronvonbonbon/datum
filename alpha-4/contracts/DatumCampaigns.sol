@@ -222,6 +222,49 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // permitted any time. The check itself happens in DatumSettlement, which
     // reads campaignMinIdentityLevel(id) + identity.isVerified(user, level).
     mapping(uint256 => uint8) public campaignMinIdentityLevel;
+
+    // C1 (2026-05-24): per-campaign selection-policy envelope. Lets the
+    // advertiser declare which user-side selection policies they accept,
+    // a price floor as a fraction of the pot ceiling, a min-relevance
+    // floor on the client's claimed interestWeightBps, and whether the
+    // claim must explicitly attest its policyId.
+    //
+    // allowedPolicies is a bitmask over policyId. Bit 0 unused (policyId=0
+    // means "unspecified"); bits 1..15 enumerate the registered policies.
+    // allowedPolicies == 0 means "no restriction" — all policies accepted
+    // (matches today's behavior so existing campaigns aren't disturbed).
+    //
+    // Advertiser-settable. Tightening (raising priceFloor, raising
+    // minRelevance, narrowing allowedPolicies, enabling requirePolicyAttest)
+    // is Pending-only — same rule as setCampaignUserCap. Loosening is
+    // permitted any time.
+    struct PolicyEnvelope {
+        uint16 allowedPolicies;       // bitmask; 0 = no restriction
+        uint16 priceFloorBps;         // ratePlanck >= (pot.ratePlanck * floorBps) / 10_000
+        uint16 minRelevanceBps;       // claim.interestWeightBps >= minRelevanceBps
+        bool   requirePolicyAttest;   // if true, claim.policyId must be non-zero
+    }
+    mapping(uint256 => PolicyEnvelope) internal _policyEnvelope;
+    event CampaignPolicyEnvelopeSet(
+        uint256 indexed campaignId,
+        uint16 allowedPolicies,
+        uint16 priceFloorBps,
+        uint16 minRelevanceBps,
+        bool requirePolicyAttest
+    );
+
+    // C1: per-advertiser pacing — cross-campaign frequency cap. Advertiser
+    // sets a max-events / window across ALL of their campaigns combined
+    // (vs. the existing per-campaign userCap). Same advertiser, many
+    // campaigns, one budget — this is the lever that prevents an
+    // advertiser from being burned by users who churn through every
+    // campaign in their portfolio. 0/0 = disabled.
+    struct AdvertiserPacing {
+        uint32 maxEventsPerWindow;
+        uint32 windowBlocks;
+    }
+    mapping(address => AdvertiserPacing) internal _advertiserPacing;
+    event AdvertiserPacingSet(address indexed advertiser, uint32 maxEvents, uint32 windowBlocks);
     event CampaignMinIdentityLevelSet(uint256 indexed campaignId, uint8 level);
 
     // Metadata (IPFS) + bulletin creative storage moved to
@@ -782,6 +825,98 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     /// @notice Effective People Chain identity gate level for a campaign.
     function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8) {
         return campaignMinIdentityLevel[campaignId];
+    }
+
+    // -------------------------------------------------------------------------
+    // C1: Selection-policy envelope + advertiser pacing
+    // -------------------------------------------------------------------------
+
+    /// @notice Set the selection-policy envelope for a campaign. Tightening
+    ///         (any field made more restrictive) is Pending-only; loosening
+    ///         allowed any time. Use allowedPolicies=0 / floors=0 / attest=false
+    ///         to disable (matches today's no-envelope behavior).
+    function setCampaignPolicyEnvelope(
+        uint256 campaignId,
+        uint16 allowedPolicies,
+        uint16 priceFloorBps,
+        uint16 minRelevanceBps,
+        bool requirePolicyAttest
+    ) external whenNotFrozen {
+        Campaign storage c = _campaigns[campaignId];
+        if (!(c.advertiser != address(0))) revert E01();
+        if (!(msg.sender == c.advertiser)) revert E21();
+        if (priceFloorBps > 10_000) revert E11();
+        if (minRelevanceBps > 10_000) revert E11();
+
+        PolicyEnvelope storage env = _policyEnvelope[campaignId];
+
+        // Detect tightening across any axis.
+        bool tighter = false;
+        // 1) priceFloor raised
+        if (priceFloorBps > env.priceFloorBps) tighter = true;
+        // 2) minRelevance raised
+        if (minRelevanceBps > env.minRelevanceBps) tighter = true;
+        // 3) requirePolicyAttest flipped on
+        if (requirePolicyAttest && !env.requirePolicyAttest) tighter = true;
+        // 4) allowedPolicies narrowed — every bit set in new must already
+        //    be set in old (== new is a subset of old). If we'd be removing
+        //    bits that were previously allowed, that's tightening. Special-case:
+        //    old==0 (no restriction → anything) vs new!=0 (now restricted) is
+        //    a tightening; new==0 always loosens.
+        if (allowedPolicies != 0) {
+            if (env.allowedPolicies == 0) {
+                tighter = true;
+            } else if ((env.allowedPolicies & ~allowedPolicies) != 0) {
+                // some previously-allowed policy is no longer in the new set
+                tighter = true;
+            }
+        }
+
+        if (tighter) {
+            if (!(c.status == CampaignStatus.Pending)) revert E22();
+        }
+
+        env.allowedPolicies = allowedPolicies;
+        env.priceFloorBps = priceFloorBps;
+        env.minRelevanceBps = minRelevanceBps;
+        env.requirePolicyAttest = requirePolicyAttest;
+        emit CampaignPolicyEnvelopeSet(
+            campaignId, allowedPolicies, priceFloorBps, minRelevanceBps, requirePolicyAttest
+        );
+    }
+
+    /// @notice Read the selection-policy envelope for a campaign. All-zero =
+    ///         disabled (no restriction; all policies accepted; no floors).
+    function getCampaignPolicyEnvelope(uint256 campaignId)
+        external
+        view
+        returns (uint16 allowedPolicies, uint16 priceFloorBps, uint16 minRelevanceBps, bool requirePolicyAttest)
+    {
+        PolicyEnvelope storage env = _policyEnvelope[campaignId];
+        return (env.allowedPolicies, env.priceFloorBps, env.minRelevanceBps, env.requirePolicyAttest);
+    }
+
+    /// @notice Set per-advertiser cross-campaign pacing. 0/0 disables.
+    ///         Loosening (raising maxEvents or windowBlocks) allowed any
+    ///         time; tightening also allowed (caller eats their own
+    ///         portfolio's enforcement — they're the advertiser).
+    function setAdvertiserPacing(uint32 maxEventsPerWindow, uint32 windowBlocks) external whenNotFrozen {
+        if (maxEventsPerWindow != 0 || windowBlocks != 0) {
+            if (!(maxEventsPerWindow > 0 && windowBlocks > 0)) revert E11();
+        }
+        _advertiserPacing[msg.sender] =
+            AdvertiserPacing({ maxEventsPerWindow: maxEventsPerWindow, windowBlocks: windowBlocks });
+        emit AdvertiserPacingSet(msg.sender, maxEventsPerWindow, windowBlocks);
+    }
+
+    /// @notice Read the per-advertiser pacing config.
+    function getAdvertiserPacing(address advertiser)
+        external
+        view
+        returns (uint32 maxEventsPerWindow, uint32 windowBlocks)
+    {
+        AdvertiserPacing storage p = _advertiserPacing[advertiser];
+        return (p.maxEventsPerWindow, p.windowBlocks);
     }
 
     // -------------------------------------------------------------------------

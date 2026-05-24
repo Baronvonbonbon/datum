@@ -61,6 +61,14 @@ export const claimBuilder = {
     category: string;
     publisherAddress: string;
     clearingCpmPlanck?: string; // auction-determined clearing CPM (falls back to viewBid)
+    // C1: selection-policy attestation. Defaults to 0 ("unspecified") so
+    // pre-C1 callers stay compatible. Validator's envelope check accepts
+    // policyId=0 only when the campaign envelope.requirePolicyAttest is false.
+    policyId?: number;
+    interestWeightBps?: number;
+    // C2: optional Merkle root over the eligible-bid set. ZeroHash = no
+    // transcript commitment (skip future dispute path).
+    auctionRootCommit?: string;
   }): Promise<string | null> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
@@ -121,10 +129,18 @@ export const claimBuilder = {
       // this claim. The ZK proof generator overwrites it when staking is used.
       let stakeRootUsed = ZeroHash;
 
-      // keccak256; 10-field preimage matches DatumClaimValidator.validateClaim():
-      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash, stakeRootUsed)
+      // C1/C2: selection-policy + auction-transcript attestation. Defaults
+      // are zero/ZeroHash; the impression poller fills these in when the
+      // user has opted into the policy-aware auction path.
+      const policyIdView = msg.policyId ?? 0;
+      const interestWeightBpsView = msg.interestWeightBps ?? 0;
+      const auctionRootCommitView = msg.auctionRootCommit ?? ZeroHash;
+
+      // keccak256; 13-field preimage matches DatumClaimValidator.validateClaim():
+      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash,
+      //  nonce, previousHash, stakeRootUsed, policyId, interestWeightBps, auctionRootCommit)
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32", "uint8", "uint16", "bytes32"],
         [
           campaignId,
           msg.publisherAddress,
@@ -136,6 +152,9 @@ export const claimBuilder = {
           nonce,
           previousClaimHash,
           stakeRootUsed,
+          policyIdView,
+          interestWeightBpsView,
+          auctionRootCommitView,
         ]
       );
 
@@ -167,6 +186,9 @@ export const claimBuilder = {
         stakeRootUsed,
         actionSig: SIG_EMPTY,
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
+        policyId: policyIdView,
+        interestWeightBps: interestWeightBpsView,
+        auctionRootCommit: auctionRootCommitView,
       };
 
       // Persist updated chain state
@@ -220,9 +242,18 @@ export const claimBuilder = {
       const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
 
       const stakeRootUsed = ZeroHash; // click claims don't use ZK stake gate
+      // Click claims inherit the impression's policy attestation context:
+      // currently zeroed since clicks don't route through the auction.
+      // The advertiser's envelope is permissive for clicks by convention
+      // (allowedPolicies=0 means no restriction); if a future deployment
+      // gates clicks via policy, threading from msg becomes mandatory.
+      const policyIdClick = 0;
+      const interestWeightBpsClick = 0;
+      const auctionRootCommitClick = ZeroHash;
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32", "uint8", "uint16", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
+         policyIdClick, interestWeightBpsClick, auctionRootCommitClick]
       );
 
       const claim: Claim = {
@@ -240,6 +271,9 @@ export const claimBuilder = {
         stakeRootUsed,
         actionSig: SIG_EMPTY,
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
+        policyId: policyIdClick,
+        interestWeightBps: interestWeightBpsClick,
+        auctionRootCommit: auctionRootCommitClick,
       };
 
       await setChainState(userAddress, msg.campaignId, 1, {
@@ -285,9 +319,13 @@ export const claimBuilder = {
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
       const stakeRootUsed = ZeroHash; // remote-action claims don't use ZK stake gate
+      const policyIdAction = 0;
+      const interestWeightBpsAction = 0;
+      const auctionRootCommitAction = ZeroHash;
       const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash, stakeRootUsed]
+        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32", "uint8", "uint16", "bytes32"],
+        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash, stakeRootUsed,
+         policyIdAction, interestWeightBpsAction, auctionRootCommitAction]
       );
 
       const claim: Claim = {
@@ -305,6 +343,9 @@ export const claimBuilder = {
         stakeRootUsed,
         actionSig: parseSigToArray(msg.actionSig),
         powNonce: ZeroHash, // #5: extension solves PoW lazily at submit time
+        policyId: policyIdAction,
+        interestWeightBps: interestWeightBpsAction,
+        auctionRootCommit: auctionRootCommitAction,
       };
 
       await setChainState(userAddress, msg.campaignId, 2, {

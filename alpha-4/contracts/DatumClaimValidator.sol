@@ -402,6 +402,42 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
         if (potRate == 0) return (false, 3, 0, bytes32(0));
         if (claim.ratePlanck > potRate) return (false, 6, 0, bytes32(0));
 
+        // Check 5b (C1): selection-policy envelope. When the advertiser has
+        // published a non-default envelope, validate the claim's policyId,
+        // interestWeightBps, and ratePlanck floor against it. All-zero
+        // envelope is "no restriction" and the block becomes a no-op.
+        // Rejection codes:
+        //   31 = missing policyId attestation (envelope requires it)
+        //   32 = policyId not in envelope's allowedPolicies bitmask
+        //   33 = interestWeightBps below envelope's minRelevanceBps
+        //   34 = ratePlanck below envelope's priceFloor (floorBps × potRate / 10_000)
+        try campaigns.getCampaignPolicyEnvelope(claim.campaignId)
+            returns (uint16 allowedPolicies, uint16 priceFloorBps, uint16 minRelevanceBps, bool requirePolicyAttest)
+        {
+            if (requirePolicyAttest && claim.policyId == 0) {
+                return (false, 31, 0, bytes32(0));
+            }
+            if (allowedPolicies != 0 && claim.policyId != 0) {
+                uint16 mask = uint16(1) << uint16(claim.policyId);
+                if ((allowedPolicies & mask) == 0) {
+                    return (false, 32, 0, bytes32(0));
+                }
+            }
+            if (claim.interestWeightBps < minRelevanceBps) {
+                return (false, 33, 0, bytes32(0));
+            }
+            if (priceFloorBps != 0) {
+                uint256 floor = (potRate * uint256(priceFloorBps)) / 10_000;
+                if (claim.ratePlanck < floor) {
+                    return (false, 34, 0, bytes32(0));
+                }
+            }
+        } catch {
+            // Older Campaigns deploys without the envelope getter: behave
+            // as if no envelope is set (fail-open). Matches the pattern used
+            // for other optional-getter probes in this validator.
+        }
+
         // Check 6: nonce chain
         if (claim.nonce != expectedNonce) return (false, 7, 0, bytes32(0));
 
@@ -412,11 +448,15 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
             if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0, bytes32(0));
         }
 
-        // Check 8: claim hash (9-field preimage: campaignId, publisher, user,
-        // eventCount, ratePlanck, actionType, clickSessionHash, nonce, prevHash).
-        // L-2: Uses abi.encode (32-byte aligned) rather than abi.encodePacked so the
-        // schema is unambiguous if fields are added later. Off-chain mirrors must use
+        // Check 8: claim hash (13-field preimage: campaignId, publisher, user,
+        // eventCount, ratePlanck, actionType, clickSessionHash, nonce, prevHash,
+        // stakeRootUsed, policyId, interestWeightBps, auctionRootCommit).
+        // L-2: Uses abi.encode (32-byte aligned) rather than abi.encodePacked so
+        // the schema is unambiguous. Off-chain mirrors must use
         // ethers AbiCoder.defaultAbiCoder().encode(...) — not solidityPacked.
+        // C1/C2 (2026-05-24): policyId + interestWeightBps + auctionRootCommit
+        // added to bind the client's selection-policy attestation and
+        // auction-transcript commitment under the user's signature.
         bytes32 computedHash = keccak256(abi.encode(
             claim.campaignId,
             claim.publisher,
@@ -427,7 +467,10 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
             claim.clickSessionHash,
             claim.nonce,
             claim.previousClaimHash,
-            claim.stakeRootUsed
+            claim.stakeRootUsed,
+            claim.policyId,
+            claim.interestWeightBps,
+            claim.auctionRootCommit
         ));
         if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
 

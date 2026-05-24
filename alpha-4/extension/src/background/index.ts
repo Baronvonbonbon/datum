@@ -19,7 +19,33 @@ import { claimQueue } from "./claimQueue";
 import { claimBuilder } from "./claimBuilder";
 import { interestProfile } from "./interestProfile";
 import { selectCampaign } from "./campaignMatcher";
-import { auctionForPage, CampaignCandidate } from "./auction";
+import { auctionForPage, CampaignCandidate, AuctionLeaf } from "./auction";
+
+/// C2 transcript-retention store. Keyed by Merkle root; value is the leaf set
+/// so the user can respond to a future advertiser challenge. The retention
+/// horizon is 30d and the cap is 200 transcripts to bound chrome.storage use.
+const AUCTION_TRANSCRIPT_KEY = "auctionTranscripts";
+const AUCTION_TRANSCRIPT_CAP = 200;
+const AUCTION_TRANSCRIPT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+async function persistAuctionTranscript(root: string, leaves: AuctionLeaf[]) {
+  const stored = await chrome.storage.local.get(AUCTION_TRANSCRIPT_KEY);
+  const map: Record<string, { leaves: AuctionLeaf[]; ts: number }> =
+    (stored as any)[AUCTION_TRANSCRIPT_KEY] ?? {};
+  const now = Date.now();
+  // Prune expired entries
+  for (const k of Object.keys(map)) {
+    if (now - map[k].ts > AUCTION_TRANSCRIPT_TTL_MS) delete map[k];
+  }
+  map[root] = { leaves, ts: now };
+  // Cap by FIFO (oldest first) — sort by ts ascending and drop the head.
+  const entries = Object.entries(map).sort((a, b) => a[1].ts - b[1].ts);
+  while (entries.length > AUCTION_TRANSCRIPT_CAP) {
+    const [k] = entries.shift()!;
+    delete map[k];
+  }
+  await chrome.storage.local.set({ [AUCTION_TRANSCRIPT_KEY]: map });
+}
+
 import { requestPublisherAttestation } from "./publisherAttestation";
 import { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed, checkRateLimit, recordImpressionTime } from "./userPreferences";
 import { appendEvent, cleanupTerminalChains } from "./behaviorChain";
@@ -899,21 +925,38 @@ async function handleMessage(
       const pageTags: string[] = [...(msg.pageTags ?? [])];
       if (msg.slotFormat) pageTags.push(`format:${msg.slotFormat}`);
 
+      const policyId =
+        prefs.selectionPolicyId !== undefined
+          ? prefs.selectionPolicyId
+          : (prefs.contextualMode ? 3 /* POLICY_CONTEXTUAL */ : 2 /* POLICY_INTEREST_WEIGHTED */);
       const auctionResult = auctionForPage(
         safeAllowed as CampaignCandidate[],
         {},
         profile,
         pageTags,
-        prefs.contextualMode,
+        { policyId: policyId as any, commitTranscript: Boolean(prefs.commitAuctionTranscript) },
       );
 
       if (auctionResult) {
+        // Persist transcript leaves for future advertiser dispute response (C2).
+        // Bound to the most recent N impressions to cap storage growth.
+        if (prefs.commitAuctionTranscript && auctionResult.auctionRootCommit !== "0x" + "0".repeat(64)) {
+          try {
+            await persistAuctionTranscript(
+              auctionResult.auctionRootCommit,
+              auctionResult.auctionLeaves,
+            );
+          } catch { /* non-critical */ }
+        }
         return {
           selected: auctionResult.winner,
           clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
           mechanism: auctionResult.mechanism,
           participants: auctionResult.participants,
           allBids: auctionResult.allScored,
+          policyId: auctionResult.policyId,
+          interestWeightBps: auctionResult.interestWeightBps,
+          auctionRootCommit: auctionResult.auctionRootCommit,
         };
       }
 
@@ -1603,8 +1646,12 @@ function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
       claimHash: c.claimHash,
       zkProof: c.zkProof,
       nullifier: c.nullifier,
+      stakeRootUsed: c.stakeRootUsed,
       actionSig: c.actionSig,
       powNonce: c.powNonce,
+      policyId: c.policyId.toString(),
+      interestWeightBps: c.interestWeightBps.toString(),
+      auctionRootCommit: c.auctionRootCommit,
     })),
   }));
 }

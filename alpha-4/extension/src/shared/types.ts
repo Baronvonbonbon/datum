@@ -24,6 +24,11 @@ export interface Claim {
   stakeRootUsed: string;      // Path A: bytes32 stake-root the proof was generated against; ZeroHash for no stake gate
   actionSig: string[];        // bytes32[3] — [r, s, v_as_bytes32]; all ZeroHash for type-0/1
   powNonce: string;           // #5: bytes32 PoW nonce; ZeroHash when enforcePow=false or solved lazily at submit
+  // C1 (2026-05-24): selection-policy attestation. Bound in the claim hash.
+  policyId: number;           // uint8: 0 = unspecified; 1..15 = registered policies
+  interestWeightBps: number;  // uint16: 0..10_000 claimed interest weight
+  // C2: optional Merkle commitment over the eligible-bid set. ZeroHash = no commit.
+  auctionRootCommit: string;  // bytes32 hex
 }
 
 export interface ClaimBatch {
@@ -373,6 +378,9 @@ export interface SerializedClaim {
   stakeRootUsed: string;       // Path A: bytes32 stake-root the proof was generated against
   actionSig: string[];         // bytes32[3] — [r, s, v_as_bytes32]
   powNonce: string;            // #5: bytes32 PoW nonce
+  policyId: string;            // C1: uint8 as decimal string
+  interestWeightBps: string;   // C1: uint16 as decimal string
+  auctionRootCommit: string;   // C2: bytes32 hex
 }
 
 export interface SerializedClaimBatch {
@@ -441,6 +449,13 @@ export interface UserPreferences {
   sweepThresholdPlanck: string;   // auto-sweep when balance exceeds this (in planck, as string; "0" = manual only)
   /** Contextual mode: ads matched to current page only. No profile data collected, no rewards earned. */
   contextualMode?: boolean;
+  /** C0 selection-policy. Default 2 = interest-weighted (historic behavior).
+   *  See alpha-4/extension/src/background/auction.ts POLICY_* constants. */
+  selectionPolicyId?: number;
+  /** C2 transcript commit toggle. Default off — opting in publishes a Merkle
+   *  root of the eligible-bid set so advertisers can request the transcript
+   *  off-chain for dispute resolution. */
+  commitAuctionTranscript?: boolean;
 }
 
 // Engagement tracking (Phase 6 / P16)

@@ -28,12 +28,21 @@ interface Claim {
   campaignId: string;
   publisher: string;
   eventCount: string;
+  ratePlanck?: string;
+  actionType?: string | number;
   clickSessionHash: string;
   nonce: string;
+  previousClaimHash?: string;
   claimHash: string;
+  zkProof?: string[] | string;
   nullifier: string;
-  zkProof?: string;
+  stakeRootUsed?: string;
+  actionSig?: string[];
   powNonce: string;
+  // C1/C2
+  policyId?: string | number;
+  interestWeightBps?: string | number;
+  auctionRootCommit?: string;
 }
 
 interface SignedClaimBatch {
@@ -180,6 +189,8 @@ export function AdvertiserCosign() {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
+      const emptyZkProof = new Array(8).fill(ethers.ZeroHash);
+      const emptyActionSig = [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash];
       const batch = {
         user: parsed.user,
         campaignId: BigInt(parsed.campaignId),
@@ -187,12 +198,20 @@ export function AdvertiserCosign() {
           campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
           eventCount: BigInt(c.eventCount),
+          ratePlanck: BigInt(c.ratePlanck ?? "0"),
+          actionType: Number(c.actionType ?? 0),
           clickSessionHash: c.clickSessionHash || ethers.ZeroHash,
           nonce: BigInt(c.nonce),
+          previousClaimHash: c.previousClaimHash || ethers.ZeroHash,
           claimHash: c.claimHash,
+          zkProof: Array.isArray(c.zkProof) ? c.zkProof : emptyZkProof,
           nullifier: c.nullifier || ethers.ZeroHash,
-          zkProof: c.zkProof ?? "0x",
+          stakeRootUsed: c.stakeRootUsed || ethers.ZeroHash,
+          actionSig: Array.isArray(c.actionSig) ? c.actionSig : emptyActionSig,
           powNonce: c.powNonce || ethers.ZeroHash,
+          policyId: Number(c.policyId ?? 0),
+          interestWeightBps: Number(c.interestWeightBps ?? 0),
+          auctionRootCommit: c.auctionRootCommit || ethers.ZeroHash,
         })),
         deadlineBlock: BigInt(parsed.deadlineBlock),
         expectedRelaySigner: parsed.expectedRelaySigner || ZERO_ADDRESS,
@@ -265,6 +284,18 @@ export function AdvertiserCosign() {
           <Row label="Expected publisher relay" value={<code>{parsed.expectedRelaySigner || ZERO_ADDRESS}</code>} />
           <Row label="Expected advertiser relay" value={<code>{parsed.expectedAdvertiserRelaySigner || ZERO_ADDRESS}</code>} />
           <Row label="claimsHash (computed)" value={<code style={{ wordBreak: "break-all" }}>{claimsHash ?? "—"}</code>} />
+          {/* C1/C2: surface the policy attestation on the first claim
+              so the advertiser can sanity-check what they're cosigning. */}
+          {parsed.claims[0] && (
+            <>
+              <Row label="claim[0].policyId" value={String(parsed.claims[0].policyId ?? 0)} />
+              <Row label="claim[0].interestWeightBps" value={String(parsed.claims[0].interestWeightBps ?? 0)} />
+              <Row
+                label="claim[0].auctionRootCommit"
+                value={<code style={{ wordBreak: "break-all" }}>{parsed.claims[0].auctionRootCommit ?? "0x" + "0".repeat(64)}</code>}
+              />
+            </>
+          )}
           <Row
             label="Advertiser-of-record"
             value={

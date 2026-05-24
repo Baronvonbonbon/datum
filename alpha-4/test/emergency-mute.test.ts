@@ -274,7 +274,7 @@ describe("DatumActivationBonds: emergency mute (Phase 2b)", function () {
         nullifier: ethers.ZeroHash,
         stakeRootUsed: ethers.ZeroHash,
         actionSig: Array(3).fill(ethers.ZeroHash) as any,
-        powNonce: ethers.ZeroHash,
+        powNonce: ethers.ZeroHash,        policyId: 0,        interestWeightBps: 0,        auctionRootCommit: ethers.ZeroHash,
       };
       const [ok, reason] = await validator.validateClaim(claim, muter.address, 1n, ethers.ZeroHash);
       expect(ok).to.equal(false);

@@ -480,7 +480,7 @@ function buildClaim(args: { cid: bigint; publisher: string; user: string; rate: 
     nullifier: ethers.ZeroHash,
     stakeRootUsed: ethers.ZeroHash,
     actionSig: ZERO_ACTION(),
-    powNonce: ethers.ZeroHash,
+    powNonce: ethers.ZeroHash,    policyId: 0,    interestWeightBps: 0,    auctionRootCommit: ethers.ZeroHash,
   };
   c.claimHash = computeClaimHash(c);
   return c;

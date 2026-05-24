@@ -173,7 +173,7 @@ async function main() {
     nullifier: ethers.ZeroHash,
     stakeRootUsed: ethers.ZeroHash,
     actionSig: new Array(3).fill(ethers.ZeroHash),
-    powNonce: ethers.ZeroHash,
+    powNonce: ethers.ZeroHash,    policyId: 0,    interestWeightBps: 0,    auctionRootCommit: ethers.ZeroHash,
   };
   claim.claimHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
     ["uint256","address","address","uint256","uint256","uint8","bytes32","uint256","bytes32","bytes32"],

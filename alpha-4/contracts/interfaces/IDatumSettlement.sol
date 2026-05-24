@@ -24,6 +24,17 @@ interface IDatumSettlement {
         bytes32 stakeRootUsed;       // Path A: stake-root the proof was generated against; bytes32(0) = skip stake gate
         bytes32[3] actionSig;        // type-2 only: ECDSA [r, s, v-as-bytes32]; all-zero = no sig
         bytes32 powNonce;            // #5: PoW solver output; keccak256(claimHash||powNonce) must satisfy target when enforcePow is on
+        // C1: Selection-policy attestation. The client commits to which
+        //     policy it ran under and what interest-weight it claimed, so
+        //     advertisers can validate the ratePlanck against the envelope
+        //     they published. 0 = unspecified (only accepted when the
+        //     campaign's envelope.requirePolicyAttest is false).
+        uint8   policyId;            // policy ID per PolicyRegistry (1=max-price, 2=interest-weighted, 3=contextual, 4=lottery, 5=relevance-only)
+        uint16  interestWeightBps;   // 0..10_000; client's claimed interest weight
+        // C2: Optional Merkle commitment over the eligible-bid set the
+        //     client used to clear this claim. bytes32(0) = no commitment
+        //     (skip the transcript-dispute path).
+        bytes32 auctionRootCommit;
     }
 
     struct ClaimBatch {

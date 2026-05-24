@@ -4,7 +4,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_pauseRegistry",
+          "name": "pauseRegistry_",
           "type": "address"
         }
       ],
@@ -13,34 +13,82 @@
     },
     {
       "inputs": [],
-      "name": "ECDSAInvalidSignature",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "length",
-          "type": "uint256"
-        }
-      ],
-      "name": "ECDSAInvalidSignatureLength",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "s",
-          "type": "bytes32"
-        }
-      ],
-      "name": "ECDSAInvalidSignatureS",
+      "name": "AboveCap",
       "type": "error"
     },
     {
       "inputs": [],
-      "name": "InvalidShortString",
+      "name": "AlreadySet",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E00",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E11",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E18",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E28",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E32",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E34",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E80",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E81",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E82",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E83",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E84",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "E85",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "IsFrozen",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "OnlyDualSig",
       "type": "error"
     },
     {
@@ -67,18 +115,12 @@
     },
     {
       "inputs": [],
-      "name": "ReentrancyGuardReentrantCall",
+      "name": "Paused",
       "type": "error"
     },
     {
-      "inputs": [
-        {
-          "internalType": "string",
-          "name": "str",
-          "type": "string"
-        }
-      ],
-      "name": "StringTooLong",
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
       "type": "error"
     },
     {
@@ -236,92 +278,11 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "user",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "advertiser",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "totalMint",
-          "type": "uint256"
-        }
-      ],
-      "name": "DatumMintFailed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "userBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "publisherBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "advertiserBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "DatumRewardSplitSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "oldThreshold",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "newThreshold",
-          "type": "uint256"
-        }
-      ],
-      "name": "DustMintThresholdUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [],
-      "name": "EIP712DomainChanged",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "engine",
+          "name": "dualSig",
           "type": "address"
         }
       ],
-      "name": "EmissionEngineSet",
+      "name": "DualSigSet",
       "type": "event"
     },
     {
@@ -341,6 +302,31 @@
         }
       ],
       "name": "IdentityRegistrySet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [],
+      "name": "LogicLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "logicA",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "logicB",
+          "type": "address"
+        }
+      ],
+      "name": "LogicSet",
       "type": "event"
     },
     {
@@ -387,30 +373,11 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "authority",
+          "name": "coordinator",
           "type": "address"
         }
       ],
-      "name": "MintAuthoritySet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "oldRate",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "newRate",
-          "type": "uint256"
-        }
-      ],
-      "name": "MintRateUpdated",
+      "name": "MintCoordinatorSet",
       "type": "event"
     },
     {
@@ -418,37 +385,12 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "nullifier",
-          "type": "bytes32"
+          "internalType": "address",
+          "name": "registry",
+          "type": "address"
         }
       ],
-      "name": "NullifierSubmitted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "oldValue",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "newValue",
-          "type": "uint256"
-        }
-      ],
-      "name": "NullifierWindowBlocksUpdated",
+      "name": "NullifierRegistrySet",
       "type": "event"
     },
     {
@@ -495,74 +437,37 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "pg",
+          "name": "engine",
           "type": "address"
         }
       ],
-      "name": "ParameterGovernanceSet",
+      "name": "PowEngineSet",
       "type": "event"
     },
     {
       "anonymous": false,
       "inputs": [
         {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "baseShift",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "linearDivisor",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "quadDivisor",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "bucketLeakPerN",
-          "type": "uint32"
+          "indexed": true,
+          "internalType": "address",
+          "name": "limiter",
+          "type": "address"
         }
       ],
-      "name": "PowDifficultyCurveSet",
+      "name": "RateLimiterSet",
       "type": "event"
     },
     {
       "anonymous": false,
       "inputs": [
         {
-          "indexed": false,
-          "internalType": "bool",
-          "name": "enforced",
-          "type": "bool"
+          "indexed": true,
+          "internalType": "address",
+          "name": "reputation",
+          "type": "address"
         }
       ],
-      "name": "PowEnforcementSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "windowBlocks",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "maxEventsPerWindow",
-          "type": "uint256"
-        }
-      ],
-      "name": "RateLimitsUpdated",
+      "name": "ReputationContractSet",
       "type": "event"
     },
     {
@@ -638,37 +543,6 @@
         }
       ],
       "name": "SettlementConfigured",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "settled",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "rejected",
-          "type": "uint256"
-        }
-      ],
-      "name": "SettlementRecorded",
       "type": "event"
     },
     {
@@ -850,19 +724,6 @@
     },
     {
       "inputs": [],
-      "name": "MAX_MINT_RATE",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "MAX_USER_EVENTS",
       "outputs": [
         {
@@ -889,64 +750,12 @@
     },
     {
       "inputs": [],
-      "name": "MIN_RL_WINDOW_SIZE",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "MIN_USER_SHARE_BPS",
       "outputs": [
         {
           "internalType": "uint16",
           "name": "",
           "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "POW_MAX_SHIFT",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "REP_ANOMALY_FACTOR",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "REP_MIN_SAMPLE",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -1041,22 +850,22 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_budgetLedger",
+          "name": "budgetLedger_",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "_paymentVault",
+          "name": "paymentVault_",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "_lifecycle",
+          "name": "lifecycle_",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "_relay",
+          "name": "relay_",
           "type": "address"
         }
       ],
@@ -1066,150 +875,13 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "currentWindowUsage",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "windowId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "events",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "limit",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
-      "name": "datumRewardAdvertiserBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "datumRewardPublisherBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "datumRewardUserBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "dustMintThreshold",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "eip712Domain",
-      "outputs": [
-        {
-          "internalType": "bytes1",
-          "name": "fields",
-          "type": "bytes1"
-        },
-        {
-          "internalType": "string",
-          "name": "name",
-          "type": "string"
-        },
-        {
-          "internalType": "string",
-          "name": "version",
-          "type": "string"
-        },
-        {
-          "internalType": "uint256",
-          "name": "chainId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "verifyingContract",
-          "type": "address"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "salt",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint256[]",
-          "name": "extensions",
-          "type": "uint256[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "emissionEngine",
+      "name": "dualSig",
       "outputs": [
         {
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "enforcePow",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -1236,83 +908,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "getCampaignRepStats",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "settled",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "rejected",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "getPublisherStats",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "settled",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "rejected",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint16",
-          "name": "score",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "publisher",
-          "type": "address"
-        }
-      ],
-      "name": "getReputationScore",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "identityRegistry",
       "outputs": [
@@ -1329,65 +924,17 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "publisher",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "uint256",
           "name": "campaignId",
-          "type": "uint256"
-        }
-      ],
-      "name": "isAnomaly",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "campaignId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "nullifier",
-          "type": "bytes32"
-        }
-      ],
-      "name": "isNullifierUsed",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "",
           "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "",
+          "name": "actionType",
           "type": "uint8"
         }
       ],
@@ -1406,17 +953,17 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "campaignId",
           "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "",
+          "name": "actionType",
           "type": "uint8"
         }
       ],
@@ -1435,17 +982,17 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "campaignId",
           "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "",
+          "name": "actionType",
           "type": "uint8"
         }
       ],
@@ -1468,6 +1015,52 @@
           "internalType": "contract IDatumCampaignLifecycle",
           "name": "",
           "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lockLogic",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "logicA",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "logicB",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "logicLocked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -1553,23 +1146,10 @@
     },
     {
       "inputs": [],
-      "name": "minReputationScore",
+      "name": "mintCoordinator",
       "outputs": [
         {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "mintAuthority",
-      "outputs": [
-        {
-          "internalType": "address",
+          "internalType": "contract IDatumMintCoordinator",
           "name": "",
           "type": "address"
         }
@@ -1579,25 +1159,12 @@
     },
     {
       "inputs": [],
-      "name": "mintRatePerDot",
+      "name": "nullifiers",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "contract IDatumNullifierRegistry",
           "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "nullifierWindowBlocks",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -1606,19 +1173,6 @@
     {
       "inputs": [],
       "name": "owner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "parameterGovernance",
       "outputs": [
         {
           "internalType": "address",
@@ -1670,51 +1224,12 @@
     },
     {
       "inputs": [],
-      "name": "powBaseShift",
+      "name": "powEngine",
       "outputs": [
         {
-          "internalType": "uint8",
+          "internalType": "contract IDatumPowEngine",
           "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "powBucketLeakPerN",
-      "outputs": [
-        {
-          "internalType": "uint32",
-          "name": "",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "powLinearDivisor",
-      "outputs": [
-        {
-          "internalType": "uint32",
-          "name": "",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "powQuadDivisor",
-      "outputs": [
-        {
-          "internalType": "uint32",
-          "name": "",
-          "type": "uint32"
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -1729,19 +1244,128 @@
         },
         {
           "internalType": "uint256",
-          "name": "eventCount",
+          "name": "campaignId",
           "type": "uint256"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "campaignId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "publisher",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "eventCount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "ratePlanck",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint8",
+              "name": "actionType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "clickSessionHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint256",
+              "name": "nonce",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "previousClaimHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "claimHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32[8]",
+              "name": "zkProof",
+              "type": "bytes32[8]"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "nullifier",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "stakeRootUsed",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32[3]",
+              "name": "actionSig",
+              "type": "bytes32[3]"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "powNonce",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "policyId",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint16",
+              "name": "interestWeightBps",
+              "type": "uint16"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "auctionRootCommit",
+              "type": "bytes32"
+            }
+          ],
+          "internalType": "struct IDatumSettlement.Claim[]",
+          "name": "claims",
+          "type": "tuple[]"
         }
       ],
-      "name": "powTargetForUser",
+      "name": "processVerifiedBatch",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "settledCount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "rejectedCount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalPaid",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct IDatumSettlement.SettlementResult",
+          "name": "result",
+          "type": "tuple"
         }
       ],
-      "stateMutability": "view",
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -1758,24 +1382,13 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "publisherWindowEvents",
+      "inputs": [],
+      "name": "publishers",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "contract IDatumPublishers",
           "name": "",
-          "type": "uint256"
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -1783,10 +1396,10 @@
     },
     {
       "inputs": [],
-      "name": "publishers",
+      "name": "rateLimiter",
       "outputs": [
         {
-          "internalType": "contract IDatumPublishers",
+          "internalType": "contract IDatumSettlementRateLimiter",
           "name": "",
           "type": "address"
         }
@@ -1815,112 +1428,13 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "repCampaignRejected",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "repCampaignSettled",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "repTotalRejected",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "repTotalSettled",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
-      "name": "rlMaxEventsPerWindow",
+      "name": "reputation",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "contract IDatumPublisherReputation",
           "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "rlWindowBlocks",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -2007,61 +1521,12 @@
     {
       "inputs": [
         {
-          "internalType": "uint16",
-          "name": "userBps",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint16",
-          "name": "publisherBps",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint16",
-          "name": "advertiserBps",
-          "type": "uint16"
-        }
-      ],
-      "name": "setDatumRewardSplit",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "newThreshold",
-          "type": "uint256"
-        }
-      ],
-      "name": "setDustMintThreshold",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "address",
-          "name": "engine",
+          "name": "addr",
           "type": "address"
         }
       ],
-      "name": "setEmissionEngine",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bool",
-          "name": "enforced",
-          "type": "bool"
-        }
-      ],
-      "name": "setEnforcePow",
+      "name": "setDualSig",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2075,6 +1540,24 @@
         }
       ],
       "name": "setIdentityRegistry",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "logicA_",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "logicB_",
+          "type": "address"
+        }
+      ],
+      "name": "setLogic",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2121,12 +1604,12 @@
     {
       "inputs": [
         {
-          "internalType": "uint16",
-          "name": "score",
-          "type": "uint16"
+          "internalType": "address",
+          "name": "coordinator",
+          "type": "address"
         }
       ],
-      "name": "setMinReputationScore",
+      "name": "setMintCoordinator",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2135,37 +1618,11 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_mintAuthority",
+          "name": "addr",
           "type": "address"
         }
       ],
-      "name": "setMintAuthority",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "newRate",
-          "type": "uint256"
-        }
-      ],
-      "name": "setMintRate",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_windowBlocks",
-          "type": "uint256"
-        }
-      ],
-      "name": "setNullifierWindowBlocks",
+      "name": "setNullifierRegistry",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2174,39 +1631,11 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "pg",
+          "name": "engine",
           "type": "address"
         }
       ],
-      "name": "setParameterGovernance",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint8",
-          "name": "baseShift",
-          "type": "uint8"
-        },
-        {
-          "internalType": "uint32",
-          "name": "linearDivisor",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "quadDivisor",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "bucketLeakPerN",
-          "type": "uint32"
-        }
-      ],
-      "name": "setPowDifficultyCurve",
+      "name": "setPowEngine",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2240,17 +1669,25 @@
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "_windowBlocks",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_maxEventsPerWindow",
-          "type": "uint256"
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
         }
       ],
-      "name": "setRateLimits",
+      "name": "setRateLimiter",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "rep",
+          "type": "address"
+        }
+      ],
+      "name": "setReputationContract",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2454,6 +1891,21 @@
                   "internalType": "bytes32",
                   "name": "powNonce",
                   "type": "bytes32"
+                },
+                {
+                  "internalType": "uint8",
+                  "name": "policyId",
+                  "type": "uint8"
+                },
+                {
+                  "internalType": "uint16",
+                  "name": "interestWeightBps",
+                  "type": "uint16"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "auctionRootCommit",
+                  "type": "bytes32"
                 }
               ],
               "internalType": "struct IDatumSettlement.Claim[]",
@@ -2462,7 +1914,7 @@
             }
           ],
           "internalType": "struct IDatumSettlement.ClaimBatch[]",
-          "name": "batches",
+          "name": "",
           "type": "tuple[]"
         }
       ],
@@ -2487,7 +1939,7 @@
             }
           ],
           "internalType": "struct IDatumSettlement.SettlementResult",
-          "name": "result",
+          "name": "",
           "type": "tuple"
         }
       ],
@@ -2581,6 +2033,21 @@
                       "internalType": "bytes32",
                       "name": "powNonce",
                       "type": "bytes32"
+                    },
+                    {
+                      "internalType": "uint8",
+                      "name": "policyId",
+                      "type": "uint8"
+                    },
+                    {
+                      "internalType": "uint16",
+                      "name": "interestWeightBps",
+                      "type": "uint16"
+                    },
+                    {
+                      "internalType": "bytes32",
+                      "name": "auctionRootCommit",
+                      "type": "bytes32"
                     }
                   ],
                   "internalType": "struct IDatumSettlement.Claim[]",
@@ -2594,7 +2061,7 @@
             }
           ],
           "internalType": "struct IDatumSettlement.UserClaimBatch[]",
-          "name": "batches",
+          "name": "",
           "type": "tuple[]"
         }
       ],
@@ -2619,162 +2086,7 @@
             }
           ],
           "internalType": "struct IDatumSettlement.SettlementResult",
-          "name": "result",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "user",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "campaignId",
-              "type": "uint256"
-            },
-            {
-              "components": [
-                {
-                  "internalType": "uint256",
-                  "name": "campaignId",
-                  "type": "uint256"
-                },
-                {
-                  "internalType": "address",
-                  "name": "publisher",
-                  "type": "address"
-                },
-                {
-                  "internalType": "uint256",
-                  "name": "eventCount",
-                  "type": "uint256"
-                },
-                {
-                  "internalType": "uint256",
-                  "name": "ratePlanck",
-                  "type": "uint256"
-                },
-                {
-                  "internalType": "uint8",
-                  "name": "actionType",
-                  "type": "uint8"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "clickSessionHash",
-                  "type": "bytes32"
-                },
-                {
-                  "internalType": "uint256",
-                  "name": "nonce",
-                  "type": "uint256"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "previousClaimHash",
-                  "type": "bytes32"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "claimHash",
-                  "type": "bytes32"
-                },
-                {
-                  "internalType": "bytes32[8]",
-                  "name": "zkProof",
-                  "type": "bytes32[8]"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "nullifier",
-                  "type": "bytes32"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "stakeRootUsed",
-                  "type": "bytes32"
-                },
-                {
-                  "internalType": "bytes32[3]",
-                  "name": "actionSig",
-                  "type": "bytes32[3]"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "powNonce",
-                  "type": "bytes32"
-                }
-              ],
-              "internalType": "struct IDatumSettlement.Claim[]",
-              "name": "claims",
-              "type": "tuple[]"
-            },
-            {
-              "internalType": "uint256",
-              "name": "deadlineBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "expectedRelaySigner",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "expectedAdvertiserRelaySigner",
-              "type": "address"
-            },
-            {
-              "internalType": "bytes",
-              "name": "userSig",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "publisherSig",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "advertiserSig",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct IDatumSettlement.SignedClaimBatch[]",
-          "name": "batches",
-          "type": "tuple[]"
-        }
-      ],
-      "name": "settleSignedClaims",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "settledCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "rejectedCount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalPaid",
-              "type": "uint256"
-            }
-          ],
-          "internalType": "struct IDatumSettlement.SettlementResult",
-          "name": "result",
+          "name": "",
           "type": "tuple"
         }
       ],
@@ -2818,12 +2130,12 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "",
+          "name": "advertiser_",
           "type": "address"
         }
       ],
@@ -2842,12 +2154,12 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "",
+          "name": "publisher_",
           "type": "address"
         }
       ],
@@ -2866,17 +2178,17 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "campaignId",
           "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "",
+          "name": "actionType",
           "type": "uint8"
         }
       ],
@@ -2895,22 +2207,22 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "campaignId",
           "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "",
+          "name": "actionType",
           "type": "uint8"
         },
         {
           "internalType": "uint256",
-          "name": "",
+          "name": "windowId",
           "type": "uint256"
         }
       ],
@@ -2929,7 +2241,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         }
       ],
@@ -2948,7 +2260,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         }
       ],
@@ -2967,7 +2279,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         }
       ],
@@ -2977,63 +2289,6 @@
           "internalType": "bool",
           "name": "",
           "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "userPowBucket",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        }
-      ],
-      "name": "userPowBucketEffective",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "userPowBucketLastUpdate",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -3056,7 +2311,7 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "user",
           "type": "address"
         }
       ],

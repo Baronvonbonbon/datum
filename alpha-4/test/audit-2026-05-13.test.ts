@@ -142,8 +142,8 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
   function buildClaim(cid: bigint, pub: string, usr: string, nonce: bigint, prev: string) {
     const eventCount = 1000n;
     const hash = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-      [cid, pub, usr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prev, ethers.ZeroHash]
+      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32", "uint8", "uint16", "bytes32"],
+      [cid, pub, usr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prev, ethers.ZeroHash, 0, 0, ethers.ZeroHash]
     );
     const claimHash = ethers.keccak256(hash);
     return {
@@ -151,7 +151,7 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
       clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prev, claimHash,
       zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash,
+      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash, policyId: 0, interestWeightBps: 0, auctionRootCommit: ethers.ZeroHash,
     };
   }
 

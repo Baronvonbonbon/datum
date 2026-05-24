@@ -240,7 +240,7 @@ describe("Audit fixes", function () {
         nullifier: ethers.ZeroHash,
         stakeRootUsed: ethers.ZeroHash,
         actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        powNonce: ethers.ZeroHash,        policyId: 0,        interestWeightBps: 0,        auctionRootCommit: ethers.ZeroHash,
       };
     }
 

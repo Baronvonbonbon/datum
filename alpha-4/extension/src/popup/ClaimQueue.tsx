@@ -393,6 +393,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
             stakeRootUsed: c.stakeRootUsed ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
             actionSig: c.actionSig,
             powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+            policyId: Number(c.policyId ?? 0),
+            interestWeightBps: Number(c.interestWeightBps ?? 0),
+            auctionRootCommit: c.auctionRootCommit ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
           })),
           deadlineBlock: flushDeadlineBlock,
           publisherSig,
@@ -508,7 +511,10 @@ export function ClaimQueue({ address, onSettled }: Props) {
               nullifier: c.nullifier,
               stakeRootUsed: c.stakeRootUsed ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
               actionSig: c.actionSig,
-            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+              powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+              policyId: Number(c.policyId ?? 0),
+              interestWeightBps: Number(c.interestWeightBps ?? 0),
+              auctionRootCommit: c.auctionRootCommit ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
             })),
           }));
           await resyncFromChain(address, settings, contractBatches);
