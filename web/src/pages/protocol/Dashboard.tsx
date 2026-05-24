@@ -372,6 +372,7 @@ function buildActions(): ActionHook[] {
     { label: "Pause registry", route: "/protocol/pause-registry", description: "Guardian set + category caps" },
     { label: "Parameter governance", route: "/protocol/parameter-governance", description: "Per-contract retunes" },
     { label: "Sybil defense", route: "/protocol/sybil-defense", description: "PoW, nullifiers, rate limit, ZK" },
+    { label: "Relay", route: "/protocol/relay", description: "Authorized relayer set + open-mode lock" },
   ];
 }
 

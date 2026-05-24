@@ -160,6 +160,20 @@ export function BulletinManager() {
     } finally { setBusy(null); }
   }
 
+  async function markExpired() {
+    if (!signer || !id) return;
+    try {
+      setBusy("Clearing expired bulletin ref...");
+      const c = contracts.campaigns.connect(signer);
+      const tx = await c.markBulletinExpired(BigInt(id));
+      await confirmTx(tx);
+      push("Bulletin ref cleared", "ok");
+      await refresh();
+    } catch (err) {
+      push(humanizeError(err), "error");
+    } finally { setBusy(null); }
+  }
+
   async function renewNow() {
     if (!signer || !id || !snapshot) return;
     try {
@@ -227,10 +241,15 @@ export function BulletinManager() {
 
           <Section title="Expiry">
             {isExpired ? (
-              <div className="nano-info nano-info--warn">
-                Retention has lapsed. Anyone can call <code>markBulletinExpired</code> to clear the on-chain ref;
-                the frontend will fall back to the legacy IPFS hash.
-              </div>
+              <>
+                <div className="nano-info nano-info--warn">
+                  Retention has lapsed. Anyone can call <code>markBulletinExpired</code> to clear the on-chain ref;
+                  the frontend will fall back to the legacy IPFS hash.
+                </div>
+                <button className="nano-btn" onClick={markExpired} disabled={busy !== null} style={{ marginTop: 8, marginRight: 8 }}>
+                  {busy ?? "Mark Expired"}
+                </button>
+              </>
             ) : isRenewalDue ? (
               <div className="nano-info nano-info--warn">
                 Renewal due in {blocksUntilExpiry.toString()} blocks (~{(Number(blocksUntilExpiry) * 6 / 3600).toFixed(1)} h).

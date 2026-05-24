@@ -22,6 +22,7 @@ import { AdvertiserCampaignDetail } from "./pages/advertiser/CampaignDetail";
 import { SetMetadata } from "./pages/advertiser/SetMetadata";
 import { CampaignAnalytics } from "./pages/advertiser/Analytics";
 import { BulletinManager } from "./pages/advertiser/BulletinManager";
+import { AdvertiserCosign } from "./pages/advertiser/Cosign";
 
 // Publisher
 import { PublisherDashboard } from "./pages/publisher/Dashboard";
@@ -66,6 +67,7 @@ import { ChallengeBondsAdmin } from "./pages/admin/ChallengeBonds";
 import { NullifierRegistryAdmin } from "./pages/admin/NullifierRegistry";
 import { SybilDefenseAdmin } from "./pages/admin/SybilDefense";
 import { MintAuthorityAdmin } from "./pages/admin/MintAuthority";
+import { RelayAdmin } from "./pages/admin/Relay";
 import { Wrapper as WrapperPage } from "./pages/token/Wrapper";
 import { FeeShare as FeeSharePage } from "./pages/token/FeeShare";
 import { Bootstrap as BootstrapPage } from "./pages/token/Bootstrap";
@@ -135,6 +137,7 @@ export function App() {
               <Route path="/advertiser/campaign/:id/metadata" element={<SetMetadata />} />
               <Route path="/advertiser/campaign/:id/bulletin" element={<BulletinManager />} />
               <Route path="/advertiser/analytics" element={<CampaignAnalytics />} />
+              <Route path="/advertiser/cosign" element={<AdvertiserCosign />} />
 
               {/* Publisher */}
               <Route path="/publisher" element={<PublisherDashboard />} />
@@ -177,6 +180,8 @@ export function App() {
               <Route path="/protocol/challenge-bonds" element={<ChallengeBondsAdmin />} />
               <Route path="/protocol/sybil-defense" element={<SybilDefenseAdmin />} />
               <Route path="/protocol/mint-authority" element={<MintAuthorityAdmin />} />
+              <Route path="/protocol/relay" element={<RelayAdmin />} />
+              <Route path="/admin/relay" element={<Navigate to="/protocol/relay" replace />} />
               {/* Pages that previously only existed at /admin/*. Promoted
                   to /protocol/* so the canonical path is consistent
                   across the section (per PROCESS-FLOW-AUDIT W-LEG-1). */}

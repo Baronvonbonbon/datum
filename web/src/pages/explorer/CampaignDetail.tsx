@@ -102,6 +102,18 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [requiresDualSig, setRequiresDualSig] = useState(false);
   const [dualSigBusy, setDualSigBusy] = useState(false);
 
+  // Per-user event cap (maxEvents per windowBlocks) + min history (cumulative settled events)
+  const [userCapMax, setUserCapMax] = useState<number>(0);
+  const [userCapWindow, setUserCapWindow] = useState<number>(0);
+  const [userCapMaxInput, setUserCapMaxInput] = useState<string>("");
+  const [userCapWindowInput, setUserCapWindowInput] = useState<string>("");
+  const [userCapBusy, setUserCapBusy] = useState(false);
+  const [userCapMsg, setUserCapMsg] = useState<string | null>(null);
+  const [minHistory, setMinHistory] = useState<number>(0);
+  const [minHistoryInput, setMinHistoryInput] = useState<string>("");
+  const [minHistoryBusy, setMinHistoryBusy] = useState(false);
+  const [minHistoryMsg, setMinHistoryMsg] = useState<string | null>(null);
+
   // Per-pot configuration (CPM/CPC/CPA) — drives the Bid Configuration section
   interface PotInfo { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string; remaining: bigint; }
   const [pots, setPots] = useState<PotInfo[]>([]);
@@ -315,6 +327,21 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         setRequiresDualSig(Number(lvl) >= 2);
       } catch { setRequiresDualSig(false); }
 
+      // Per-user cap + min history — load from public storage getters
+      try {
+        const [capMax, capWin, mh] = await Promise.all([
+          contracts.campaigns.userEventCapPerWindow(BigInt(campaignId)).catch(() => 0),
+          contracts.campaigns.userCapWindowBlocks(BigInt(campaignId)).catch(() => 0),
+          contracts.campaigns.minUserSettledHistory(BigInt(campaignId)).catch(() => 0),
+        ]);
+        setUserCapMax(Number(capMax));
+        setUserCapWindow(Number(capWin));
+        setUserCapMaxInput(String(Number(capMax)));
+        setUserCapWindowInput(String(Number(capWin)));
+        setMinHistory(Number(mh));
+        setMinHistoryInput(String(Number(mh)));
+      } catch { /* leave defaults */ }
+
       // Per-pot configuration — fetch all pots + remaining per pot
       try {
         const rawPots: any[] = await contracts.campaigns.getCampaignPots(BigInt(campaignId));
@@ -436,6 +463,46 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       push(humanizeError(err), "error");
     } finally {
       setDualSigBusy(false);
+    }
+  }
+
+  async function handleSetUserCap() {
+    if (!signer || !campaign) return;
+    setUserCapBusy(true);
+    setUserCapMsg(null);
+    try {
+      const maxE = Number(userCapMaxInput || "0");
+      const winB = Number(userCapWindowInput || "0");
+      const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
+      const tx = await c.setCampaignUserCap(BigInt(campaign.id), maxE, winB);
+      await confirmTx(tx);
+      setUserCapMax(maxE);
+      setUserCapWindow(winB);
+      setUserCapMsg(maxE === 0 && winB === 0 ? "Per-user cap disabled." : "Per-user cap updated.");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setUserCapMsg(humanizeError(err));
+    } finally {
+      setUserCapBusy(false);
+    }
+  }
+
+  async function handleSetMinHistory() {
+    if (!signer || !campaign) return;
+    setMinHistoryBusy(true);
+    setMinHistoryMsg(null);
+    try {
+      const mh = Number(minHistoryInput || "0");
+      const c = contracts.campaigns.connect(signer) as typeof contracts.campaigns;
+      const tx = await c.setCampaignMinHistory(BigInt(campaign.id), mh);
+      await confirmTx(tx);
+      setMinHistory(mh);
+      setMinHistoryMsg(mh === 0 ? "Min history disabled." : "Min history updated.");
+    } catch (err) {
+      push(humanizeError(err), "error");
+      setMinHistoryMsg(humanizeError(err));
+    } finally {
+      setMinHistoryBusy(false);
     }
   }
 
@@ -1014,6 +1081,109 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               Settlement path is locked once the campaign activates.
             </div>
           )}
+          {requiresDualSig && (
+            <div style={{ marginTop: 10, fontSize: 12 }}>
+              <a href="/advertiser/cosign" style={{ color: "var(--accent)" }}>
+                Open cosign tool →
+              </a>
+              <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+                Paste a publisher-signed batch to produce your advertiserSig.
+              </span>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Fraud policy: per-user cap + minimum publisher tenure */}
+      {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
+        <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Fraud Policy</h2>
+
+          {/* Per-user event cap */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Per-user cap: {userCapMax === 0 && userCapWindow === 0 ? "disabled" : `${userCapMax} events / ${userCapWindow} blocks`}
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 8 }}>
+              Caps how many of this campaign's events one user can settle per window.
+              Both 0 disables the cap. Raising the cap (tighter limit) is only allowed while Pending;
+              lowering (looser limit) is allowed anytime.
+            </div>
+            {signer && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+                  Max events
+                  <input
+                    className="nano-input"
+                    type="number"
+                    min={0}
+                    value={userCapMaxInput}
+                    onChange={(e) => setUserCapMaxInput(e.target.value)}
+                    style={{ width: 100, fontSize: 12 }}
+                  />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+                  Window (blocks)
+                  <input
+                    className="nano-input"
+                    type="number"
+                    min={0}
+                    value={userCapWindowInput}
+                    onChange={(e) => setUserCapWindowInput(e.target.value)}
+                    style={{ width: 120, fontSize: 12 }}
+                  />
+                </label>
+                <button
+                  className="nano-btn"
+                  onClick={handleSetUserCap}
+                  disabled={userCapBusy}
+                  style={{ fontSize: 12, padding: "6px 14px" }}
+                >
+                  {userCapBusy ? "Saving..." : "Set Per-User Cap"}
+                </button>
+              </div>
+            )}
+            {userCapMsg && (
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>{userCapMsg}</div>
+            )}
+          </div>
+
+          {/* Min publisher tenure (cumulative settled history) */}
+          <div>
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Min user history: {minHistory === 0 ? "disabled" : `${minHistory} cumulative settled events`}
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 8 }}>
+              Minimum cumulative settled events a user must have (across any campaign) before participating
+              in this campaign. 0 disables. Raising the floor is Pending-only.
+            </div>
+            {signer && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
+                  Min history (events)
+                  <input
+                    className="nano-input"
+                    type="number"
+                    min={0}
+                    value={minHistoryInput}
+                    onChange={(e) => setMinHistoryInput(e.target.value)}
+                    style={{ width: 160, fontSize: 12 }}
+                  />
+                </label>
+                <button
+                  className="nano-btn"
+                  onClick={handleSetMinHistory}
+                  disabled={minHistoryBusy}
+                  style={{ fontSize: 12, padding: "6px 14px" }}
+                >
+                  {minHistoryBusy ? "Saving..." : "Set Min History"}
+                </button>
+              </div>
+            )}
+            {minHistoryMsg && (
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>{minHistoryMsg}</div>
+            )}
+          </div>
         </section>
       )}
 

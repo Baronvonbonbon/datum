@@ -27,6 +27,7 @@ interface PendingProposal {
 }
 
 function blocklistLocks(addrs: import("@shared/types").ContractAddresses): LockEntry[] {
+  const curatorAddr = addrs.blocklistCurator ?? addrs.councilBlocklistCurator ?? "";
   return [
     {
       label: "Blocklist curator",
@@ -34,6 +35,13 @@ function blocklistLocks(addrs: import("@shared/types").ContractAddresses): LockE
       contractAddr: addrs.publishers,
       getter: "blocklistCuratorLocked",
       locker: "lockBlocklistCurator",
+    },
+    {
+      label: "Curator → Council pointer",
+      description: "Freezes which Council contract the BlocklistCurator delegates to. After lock, even the Timelock owner cannot reroute blocklist authority to a different council.",
+      contractAddr: curatorAddr,
+      getter: "councilLocked",
+      locker: "lockCouncil",
     },
     {
       label: "Whitelist mode",

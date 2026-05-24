@@ -397,6 +397,7 @@ function buildActions(): ActionHook[] {
     { label: "Create campaign", route: "/advertiser/create", description: "New campaign + activation bond" },
     { label: "View campaigns", route: "/campaigns", description: "Browse every active campaign on-chain" },
     { label: "Analytics", route: "/advertiser/analytics", description: "Per-campaign breakdown" },
+    { label: "Cosign batch", route: "/advertiser/cosign", description: "EIP-712 cosign a publisher-signed batch (dual-sig path)" },
   ];
 }
 

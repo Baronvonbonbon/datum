@@ -46,7 +46,13 @@ const IFACE = new Interface([
 const READ_ABI = [
   "function appealBond() view returns (uint256)",
   "function council() view returns (address)",
+  "function councilLocked() view returns (bool)",
+  "function owner() view returns (address)",
 ];
+
+const LOCK_IFACE = new Interface([
+  "function lockCouncil()",
+]);
 
 type ActivityRow =
   | { kind: "approved"; tag: string; block: number }
@@ -218,6 +224,8 @@ function Inner({
 
       <FileAppealSection curator={curator} bond={appealBond} wallet={wallet} />
 
+      <CouncilLockSection curator={curator} wallet={wallet} />
+
       <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <h2 style={{ color: "var(--text-strong)", fontSize: 15, fontWeight: 600, margin: 0 }}>
           Recent activity
@@ -331,6 +339,112 @@ function FileAppealSection({
           {busy ? "Filing…" : `File appeal (${formatDot(bond)})`}
         </button>
       </div>
+      {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
+      {tx && (
+        <div style={{ color: "var(--ok)", fontSize: 11 }}>
+          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 10)}…{tx.slice(-6)}</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CouncilLockSection({
+  curator,
+  wallet,
+}: {
+  curator: string;
+  wallet: ReturnType<typeof useWallet>;
+}) {
+  const [locked, setLocked] = useState<boolean | null>(null);
+  const [owner, setOwner] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [tx, setTx] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [l, o] = await Promise.all([
+          callContract<boolean>({ address: curator, abi: READ_ABI, method: "councilLocked" }),
+          callContract<string>({ address: curator, abi: READ_ABI, method: "owner" }),
+        ]);
+        if (cancelled) return;
+        setLocked(Boolean(l));
+        setOwner(String(o).toLowerCase());
+      } catch (e: any) {
+        if (!cancelled) setErr(String(e?.message ?? e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [curator, tx]);
+
+  const isOwner = wallet.address && owner && wallet.address.toLowerCase() === owner;
+
+  async function lockNow() {
+    setBusy(true);
+    setErr(null);
+    setTx(null);
+    try {
+      const data = LOCK_IFACE.encodeFunctionData("lockCouncil", []);
+      const hash = await walletConnector.request<string>({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet.address!, to: curator, data }],
+      });
+      setTx(hash);
+      recordAction("protocol", wallet.address ?? null, {
+        label: `Locked TagCurator council pointer`,
+        route: "/protocol/tag-curator",
+        txHash: hash,
+      });
+    } catch (e: any) {
+      setErr(humanizeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--bg-surface)",
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <h2 style={{ color: "var(--text-strong)", fontSize: 15, fontWeight: 600, margin: 0 }}>
+        Council pointer
+      </h2>
+      <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+        State: <strong style={{ color: locked ? "var(--ok)" : "var(--warn)" }}>
+          {locked === null ? "…" : locked ? "Locked" : "Mutable"}
+        </strong>
+        {locked === false && (
+          <> — owner can still reroute the Council pointer. Locking is one-way and freezes which Council contract this curator delegates to.</>
+        )}
+        {locked === true && <> — Council pointer is frozen. No further rerouting possible.</>}
+      </div>
+      {!locked && isOwner && (
+        <div>
+          <button
+            disabled={busy}
+            onClick={lockNow}
+            style={primaryButton(busy)}
+          >
+            {busy ? "Locking…" : "Lock council pointer"}
+          </button>
+        </div>
+      )}
+      {!locked && !isOwner && wallet.connected && (
+        <div style={{ color: "var(--text-muted)", fontSize: 11, fontStyle: "italic" }}>
+          Owner-only call. Connected wallet is not the curator owner.
+        </div>
+      )}
       {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
       {tx && (
         <div style={{ color: "var(--ok)", fontSize: 11 }}>

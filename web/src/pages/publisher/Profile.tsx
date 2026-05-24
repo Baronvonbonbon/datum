@@ -23,16 +23,20 @@ export function PublisherProfile() {
   const [relaySigner, setRelaySigner] = useState<string>("");
   const [profileHash, setProfileHash] = useState<string>("");
   const [sdkVersion, setSdkVersion] = useState<string>("");
+  const [maxAssurance, setMaxAssurance] = useState<number>(0);
   const [newRelaySigner, setNewRelaySigner] = useState("");
   const [newProfileHash, setNewProfileHash] = useState("");
   const [newSdkVersionInput, setNewSdkVersionInput] = useState("");
+  const [newMaxAssurance, setNewMaxAssurance] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [relayState, setRelayState] = useState<TxState>("idle");
   const [profileState, setProfileState] = useState<TxState>("idle");
   const [sdkState, setSdkState] = useState<TxState>("idle");
+  const [maxAssuranceState, setMaxAssuranceState] = useState<TxState>("idle");
   const [relayMsg, setRelayMsg] = useState<string | null>(null);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
   const [sdkMsg, setSdkMsg] = useState<string | null>(null);
+  const [maxAssuranceMsg, setMaxAssuranceMsg] = useState<string | null>(null);
   const [relayRotatedBlock, setRelayRotatedBlock] = useState<number>(0);
   const [relayCooldownBlocks, setRelayCooldownBlocks] = useState<number>(600);
 
@@ -45,18 +49,21 @@ export function PublisherProfile() {
     if (!address) return;
     setLoading(true);
     try {
-      const [rs, ph, sv, rotated, cooldown] = await Promise.all([
+      const [rs, ph, sv, rotated, cooldown, ma] = await Promise.all([
         contracts.publishers.relaySigner(address).catch(() => ZERO),
         contracts.publishers.profileHash(address).catch(() => ZERO_HASH),
         contracts.publishers.getSdkVersion(address).catch(() => ZERO_HASH),
         contracts.publishers.relaySignerRotatedBlock(address).catch(() => 0),
         contracts.publishers.RELAY_SIGNER_ROTATION_COOLDOWN().catch(() => 600),
+        contracts.publishers.publisherMaxAssurance(address).catch(() => 0),
       ]);
       setRelaySigner(rs);
       setProfileHash(ph);
       setSdkVersion(sv);
       setRelayRotatedBlock(Number(rotated));
       setRelayCooldownBlocks(Number(cooldown));
+      setMaxAssurance(Number(ma));
+      setNewMaxAssurance(Number(ma));
     } finally {
       setLoading(false);
     }
@@ -98,6 +105,24 @@ export function PublisherProfile() {
       setProfileState("error");
       push(humanizeError(err), "error");
       setProfileMsg(humanizeError(err));
+    }
+  }
+
+  async function handleSetMaxAssurance() {
+    if (!signer) return;
+    setMaxAssuranceState("pending");
+    setMaxAssuranceMsg(null);
+    try {
+      const pub = contracts.publishers.connect(signer);
+      const tx = await pub.setPublisherMaxAssurance(newMaxAssurance);
+      await confirmTx(tx);
+      setMaxAssuranceState("success");
+      setMaxAssuranceMsg("Max assurance updated.");
+      load();
+    } catch (err) {
+      setMaxAssuranceState("error");
+      push(humanizeError(err), "error");
+      setMaxAssuranceMsg(humanizeError(err));
     }
   }
 
@@ -238,6 +263,49 @@ export function PublisherProfile() {
         {(sdkMsg || sdkState !== "idle") && (
           <div style={{ marginTop: 8 }}>
             <TransactionStatus state={sdkState} message={sdkMsg ?? undefined} />
+          </div>
+        )}
+      </div>
+
+      {/* Max Assurance — publisher self-cap on which AssuranceLevel campaigns they'll serve */}
+      <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
+        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8 }}>Max Assurance Level</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
+          Cap the AssuranceLevel of campaigns you're willing to serve. Settlement rejects claims for any
+          campaign whose level exceeds this cap. L0 = relay-only, L1 = publisher cosig, L2 = publisher + advertiser cosig,
+          L3 = attested. Set to the highest tier your relay tooling supports.
+        </div>
+        <div style={{ marginBottom: 10, color: "var(--text)", fontSize: 12 }}>
+          Current: <strong>L{maxAssurance}</strong>
+        </div>
+        {signer && (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <select
+                className="nano-input"
+                value={newMaxAssurance}
+                onChange={(e) => setNewMaxAssurance(Number(e.target.value))}
+                style={{ width: "100%", fontSize: 12 }}
+              >
+                <option value={0}>L0 — relay only</option>
+                <option value={1}>L1 — publisher cosig</option>
+                <option value={2}>L2 — publisher + advertiser cosig (dual-sig)</option>
+                <option value={3}>L3 — attested (TEE / ZK)</option>
+              </select>
+            </div>
+            <button
+              className="nano-btn nano-btn-accent"
+              onClick={handleSetMaxAssurance}
+              disabled={maxAssuranceState === "pending" || newMaxAssurance === maxAssurance}
+              style={{ padding: "6px 14px", fontSize: 12 }}
+            >
+              {maxAssuranceState === "pending" ? "Setting..." : "Set Max Assurance"}
+            </button>
+          </div>
+        )}
+        {(maxAssuranceMsg || maxAssuranceState !== "idle") && (
+          <div style={{ marginTop: 8 }}>
+            <TransactionStatus state={maxAssuranceState} message={maxAssuranceMsg ?? undefined} />
           </div>
         )}
       </div>
