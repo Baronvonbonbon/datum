@@ -1696,24 +1696,26 @@ async function main() {
   }
 
   // #5: Flip enforcePow ON at deploy. Defaults are sane (256 hashes @ easy band).
+  // NOTE: enforcePow lives on DatumPowEngine (the EIP-170 carve-out),
+  // not on Settlement. Read/write against addresses.powEngine.
   {
-    const settleIface = new ethers.Interface([
+    const powIface = new ethers.Interface([
       "function enforcePow() view returns (bool)",
       "function setEnforcePow(bool)",
     ]);
     const cur = ethers.AbiCoder.defaultAbiCoder().decode(["bool"],
-      await rawProvider.call({ to: addresses.settlement, data: settleIface.encodeFunctionData("enforcePow") })
+      await rawProvider.call({ to: addresses.powEngine, data: powIface.encodeFunctionData("enforcePow") })
     )[0];
     if (cur) {
-      console.log("  OK (already set): Settlement.enforcePow = true");
+      console.log("  OK (already set): PowEngine.enforcePow = true");
     } else {
       await sendCall(
-        addresses.settlement,
+        addresses.powEngine,
         ["function setEnforcePow(bool)"],
         "setEnforcePow",
         [true],
       );
-      console.log("  SET: Settlement.setEnforcePow(true)");
+      console.log("  SET: PowEngine.setEnforcePow(true)");
     }
   }
 
