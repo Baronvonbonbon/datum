@@ -4,6 +4,7 @@ import { useWallet } from "../../context/WalletContext";
 import { useContracts } from "../../hooks/useContracts";
 import { tagLabel } from "@shared/tagDictionary";
 import { RequirePublisher } from "../../components/RequirePublisher";
+import { StepTooltip } from "../../components/StepTooltip";
 
 export function SDKSetup() {
   const { address } = useWallet();
@@ -41,7 +42,22 @@ export function SDKSetup() {
     <RequirePublisher>
     <div className="nano-fade" style={{ maxWidth: 640 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0" }}>SDK Setup</h1>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0", display: "flex", alignItems: "center", gap: 8 }}>
+        SDK Setup
+        <StepTooltip
+          required
+          side="below"
+          summary="Final step — drop the snippet on your site so the extension can detect your ad slots."
+          details={
+            <>
+              The snippet has two parameters: <code>data-publisher</code> (your address, used by the extension to
+              attribute claims) and <code>data-tags</code> (the tag set the extension matches against active
+              campaigns). Without this snippet your publisher registration is on-chain but invisible — no
+              impressions can be served.
+            </>
+          }
+        />
+      </h1>
 
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 20 }}>
         Add this snippet to your site. The DATUM browser extension will detect it and inject ads into the <code style={{ color: "var(--accent)" }}>#datum-ad-slot</code> div.

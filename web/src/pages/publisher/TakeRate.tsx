@@ -9,6 +9,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { useToast } from "../../context/ToastContext";
+import { StepTooltip } from "../../components/StepTooltip";
 
 export function TakeRate() {
   const contracts = useContracts();
@@ -135,8 +136,13 @@ export function TakeRate() {
       {!pending && (
         <form onSubmit={handleQueue} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>
+            <label style={{ color: "var(--text)", fontSize: 13, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
               New Rate: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{newRate}%</span>
+              <StepTooltip
+                required
+                summary="Your new publisher share for future campaigns."
+                details="Queued, then applied after the ~7-day timelock. Existing in-flight campaigns keep their snapshot rate; only new campaigns pick up the new rate. The 2-step delay protects advertisers from sudden surprise changes after they've already committed budget."
+              />
             </label>
             <input type="range" min={30} max={80} value={newRate} onChange={(e) => setNewRate(Number(e.target.value))} style={{ width: "100%", accentColor: "var(--accent)" }} />
           </div>

@@ -21,6 +21,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 import { getAssetMetadata } from "@shared/assetRegistry";
+import { StepTooltip } from "../../components/StepTooltip";
 
 const ACTION_LABELS: Record<number, string> = { 0: "View", 1: "Click", 2: "Action" };
 
@@ -1152,7 +1153,23 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       {/* Settlement Path (dual-sig flag) */}
       {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Settlement Path</h2>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            Settlement Path
+            <StepTooltip
+              optional
+              side="below"
+              summary="Choose how settlement batches are signed."
+              details={
+                <>
+                  <strong>Single-sig</strong> — the relay submits user+publisher signed batches; advertiser is hands-off.
+                  Faster but trusts the publisher's relay to be honest about clearing rates.{" "}
+                  <strong>Dual-sig</strong> — every batch also requires your EIP-712 cosignature; you can refuse to
+                  cosign batches that look fraudulent. Stronger fraud resistance, slower coordination. Locked once
+                  the campaign goes Active.
+                </>
+              }
+            />
+          </h2>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
@@ -1196,12 +1213,36 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       {/* Fraud policy: per-user cap + minimum publisher tenure */}
       {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Fraud Policy</h2>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            Fraud Policy
+            <StepTooltip
+              optional
+              side="below"
+              summary="Per-campaign caps that reject suspicious activity at settlement."
+              details={
+                <>
+                  Settlement validators check these before paying out. Tightening (a smaller cap, a larger min history)
+                  is only allowed while Pending; loosening is permitted any time. Both default to disabled.
+                </>
+              }
+            />
+          </h2>
 
           {/* Per-user event cap */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
               Per-user cap: {userCapMax === 0 && userCapWindow === 0 ? "disabled" : `${userCapMax} events / ${userCapWindow} blocks`}
+              <StepTooltip
+                optional
+                summary="Limit per-user events within a rolling block window."
+                details={
+                  <>
+                    Caps how many of this campaign's events a single user can settle per window. Set both 0 to disable.
+                    Typical use: pair with View Pot Daily Cap to make sure no single user burns through your budget on
+                    rapid-fire impressions. Validator rejects with code 29 over the cap.
+                  </>
+                }
+              />
             </div>
             <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 8 }}>
               Caps how many of this campaign's events one user can settle per window.
@@ -1249,8 +1290,18 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
 
           {/* Min publisher tenure (cumulative settled history) */}
           <div>
-            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
               Min user history: {minHistory === 0 ? "disabled" : `${minHistory} cumulative settled events`}
+              <StepTooltip
+                optional
+                summary="Require N prior settled events (across any campaign) before this campaign accepts the user."
+                details={
+                  <>
+                    Soft proof-of-history sybil bar. A user with 0 prior events is rejected at code 30 if you set
+                    a floor above 0. Tightening Pending-only.
+                  </>
+                }
+              />
             </div>
             <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 8 }}>
               Minimum cumulative settled events a user must have (across any campaign) before participating
@@ -1290,8 +1341,21 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           floor, min-relevance floor, mandatory attestation. */}
       {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
             Selection Policy Envelope
+            <StepTooltip
+              optional
+              side="below"
+              summary="Restrict which client-side ad-selection policies you accept."
+              details={
+                <>
+                  C1 protocol layer. The user's extension picks a selection policy (max-price, interest-weighted,
+                  contextual, lottery, relevance-only) and commits to it in the claim hash. Your envelope tells the
+                  validator which policies you accept and what minimum quality bar (priceFloor, minRelevance).
+                  Claims that violate the envelope reject with codes 31–34.
+                </>
+              }
+            />
           </h2>
           <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 12 }}>
             Declare which user-side selection policies you accept. Bitmask of allowed policies
@@ -1302,8 +1366,19 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+            <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
               Allowed policies (current bitmask: {envAllowedPolicies})
+              <StepTooltip
+                optional
+                summary="Bitmask of accepted client-side selection policies."
+                details={
+                  <>
+                    Each toggle is a bit; the validator rejects with code 32 if a claim's policyId isn't in this set.
+                    Leaving all toggles off = bitmask 0 = no restriction (accept all policies, status-quo).
+                    For high-trust campaigns, allow only Interest-weighted or Relevance-only and disable Max-price.
+                  </>
+                }
+              />
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {[
@@ -1338,7 +1413,14 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 10 }}>
             <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
-              priceFloorBps (0..10000)
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                priceFloorBps (0..10000)
+                <StepTooltip
+                  optional
+                  summary="Min clearing rate as a fraction of pot ceiling, in basis points."
+                  details="Validator rejects with code 34 when claim.ratePlanck < (pot.ratePlanck × floorBps / 10000). 6500 = 65% floor. 0 = no floor."
+                />
+              </span>
               <input
                 className="nano-input"
                 type="number"
@@ -1350,7 +1432,14 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
               />
             </label>
             <label style={{ display: "flex", flexDirection: "column", fontSize: 11, color: "var(--text-muted)" }}>
-              minRelevanceBps (0..10000)
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                minRelevanceBps (0..10000)
+                <StepTooltip
+                  optional
+                  summary="Minimum claimed interest weight, in basis points."
+                  details="Validator rejects with code 33 when claim.interestWeightBps < this floor. Forces the user's extension to surface only well-matched campaigns; pairs naturally with the Relevance-only policy."
+                />
+              </span>
               <input
                 className="nano-input"
                 type="number"
@@ -1369,6 +1458,11 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                 style={{ accentColor: "var(--accent)" }}
               />
               requirePolicyAttest
+              <StepTooltip
+                optional
+                summary="Reject claims with policyId=0 (no policy attested)."
+                details="When on, any claim that doesn't explicitly declare its selection policy is rejected with code 31. Use to force the user's client to attest, so you have a per-claim record of what selection logic produced it."
+              />
             </label>
             <button
               className="nano-btn"
@@ -1390,8 +1484,20 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           advertisers manage campaign behavior). */}
       {address && campaign.advertiser.toLowerCase() === address.toLowerCase() && (
         <section className="nano-card" style={{ padding: 16, marginBottom: 16 }}>
-          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
+          <h2 style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
             Advertiser Pacing (cross-campaign)
+            <StepTooltip
+              optional
+              side="below"
+              summary="One frequency bucket across your entire portfolio."
+              details={
+                <>
+                  Lives on your advertiser EOA, not on any single campaign. Every event on any of your campaigns counts
+                  against this single (maxEvents, windowBlocks) bucket. Protects against a user farming all of your
+                  campaigns simultaneously. Reject code 35. Set both 0 to disable.
+                </>
+              }
+            />
           </h2>
           <div style={{ color: "var(--text-muted)", fontSize: 11, maxWidth: 560, marginBottom: 10 }}>
             One bucket of (maxEvents, windowBlocks) applied to your entire portfolio. A user who

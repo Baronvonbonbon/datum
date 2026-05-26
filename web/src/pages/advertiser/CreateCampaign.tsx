@@ -19,6 +19,7 @@ import { cidToBytes32 } from "@shared/ipfs";
 import { KNOWN_ASSETS, assetIdToAddress, getAssetMetadata, searchAssets, type NativeAsset } from "@shared/assetRegistry";
 import { PageExplainer } from "../../components/PageExplainer";
 import { ContractsTouched } from "../../components/ContractsTouched";
+import { StepTooltip } from "../../components/StepTooltip";
 
 const ERC20_MINIMAL_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -541,27 +542,27 @@ export function CreateCampaign() {
                   <Link to={`/advertiser/campaign/${createdId}/metadata`} style={{ color: "var(--accent)" }}>set metadata later</Link>.
                 </div>
               )}
-              <WizardField label="Title" maxLen={128}>
+              <WizardField label="Title" maxLen={128} tooltip={{ required: true, summary: "Short campaign name shown in the ad slot and explorer.", details: "Shown to users in the ad UI and to voters during governance review. Keep it specific — 'Polkadot Hub — Build the Future' beats 'Click here'." }}>
                 <input value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} maxLength={128} required className="nano-input" placeholder="e.g. Polkadot Hub — Build the Future" />
               </WizardField>
-              <WizardField label="Description" maxLen={256}>
+              <WizardField label="Description" maxLen={256} tooltip={{ required: true, summary: "One-line subtitle shown under the title.", details: "Helps voters and users understand what the ad is about at a glance. Used as the 'subtitle' in larger ad slots." }}>
                 <textarea value={metaDesc} onChange={(e) => setMetaDesc(e.target.value)} maxLength={256} required rows={2} className="nano-input" style={{ resize: "vertical" }} placeholder="Brief description" />
               </WizardField>
-              <WizardField label="Category" maxLen={64}>
+              <WizardField label="Category" maxLen={64} tooltip={{ required: true, summary: "Human-readable category label.", details: "Used by governance to bucket campaigns and by frontends for filtering. Separate from the on-chain Targeting Tags — this is display only." }}>
                 <input value={metaCategory} onChange={(e) => setMetaCategory(e.target.value)} maxLength={64} required className="nano-input" placeholder="e.g. Crypto & Web3" />
               </WizardField>
-              <WizardField label="Ad Text" maxLen={512}>
+              <WizardField label="Ad Text" maxLen={512} tooltip={{ required: true, summary: "Main body copy of the ad shown to users.", details: "Rendered in the extension's ad slot. Plain text only (no HTML or markup); the extension wraps it with CTA + branding chrome." }}>
                 <textarea value={metaText} onChange={(e) => setMetaText(e.target.value)} maxLength={512} required rows={3} className="nano-input" style={{ resize: "vertical" }} placeholder="Main body text of your ad" />
               </WizardField>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <WizardField label="CTA Button" maxLen={64}>
+                <WizardField label="CTA Button" maxLen={64} tooltip={{ required: true, summary: "Action button label (e.g. 'Learn More', 'Get Started').", details: "Keep verbs short. Long labels truncate in compact slot formats." }}>
                   <input value={metaCta} onChange={(e) => setMetaCta(e.target.value)} maxLength={64} required className="nano-input" />
                 </WizardField>
-                <WizardField label="CTA URL" maxLen={2048}>
+                <WizardField label="CTA URL" maxLen={2048} tooltip={{ required: true, summary: "Where the user lands when they click the CTA.", details: "Must be HTTPS. Click-event registration ties this URL to the click claim on-chain — change it after activation and the click chain will reset." }}>
                   <input type="url" value={metaCtaUrl} onChange={(e) => setMetaCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
                 </WizardField>
               </div>
-              <WizardField label="Fallback Image URL (optional)">
+              <WizardField label="Fallback Image URL (optional)" tooltip={{ optional: true, summary: "Image shown when no format-specific creative matches the publisher's slot.", details: "Use an IPFS CID or HTTPS URL. Format-specific overrides below take priority when available. If both are empty, the slot renders text-only." }}>
                 <input value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — used when no per-format image matches" />
               </WizardField>
 
@@ -635,8 +636,19 @@ export function CreateCampaign() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>
+                <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
                   Deposit Amount ({tokenSymbol})
+                  <StepTooltip
+                    required
+                    summary="Total token budget escrowed for per-impression rewards."
+                    details={
+                      <>
+                        Approves and transfers <code>{tokenSymbol}</code> into <code>DatumTokenRewardVault</code>.
+                        Users withdraw their accrued share via pull payments. Refundable to you if the campaign
+                        ends with unspent budget.
+                      </>
+                    }
+                  />
                 </label>
                 <input
                   type="text"
@@ -693,7 +705,21 @@ export function CreateCampaign() {
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Campaign type */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Campaign Type</label>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+              Campaign Type
+              <StepTooltip
+                required
+                summary="Pick who can serve your ad."
+                details={
+                  <>
+                    <strong>Open</strong> — any registered publisher whose tags match your targeting can serve the campaign;
+                    take rate snapshots the protocol default at creation time.{" "}
+                    <strong>Targeted</strong> — you specify one publisher up front; their take rate snapshots from their profile.
+                    Targeted gives you a known counterparty with a known reputation history; Open trades that for reach.
+                  </>
+                }
+              />
+            </label>
             <div style={{ display: "flex", gap: 10 }}>
               <button type="button" onClick={() => setIsOpen(true)} className={isOpen ? "nano-btn nano-btn-accent" : "nano-btn"} style={{ padding: "8px 14px", fontSize: 13 }}>
                 Open (any publisher)
@@ -714,7 +740,21 @@ export function CreateCampaign() {
           {/* Publisher picker */}
           {!isOpen && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Publisher</label>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                Publisher
+                <StepTooltip
+                  required
+                  summary="The single publisher who will serve this campaign."
+                  details={
+                    <>
+                      Their reputation (rep score, community report count) and take-rate are snapshotted here.
+                      The address you choose must be a registered publisher; otherwise the contract reverts.
+                      <br /><br />Search by address or by tag (e.g. <code>topic:defi</code>) to find a publisher
+                      whose declared audience matches yours.
+                    </>
+                  }
+                />
+              </label>
               {pubListLoading && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading publishers...</div>}
               {!pubListLoading && pubOptions.length > 0 && (
                 <>
@@ -800,18 +840,58 @@ export function CreateCampaign() {
 
           {/* View Pot (CPM) — always required */}
           <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ color: "var(--text-strong)", fontSize: 13, fontWeight: 600 }}>View Pot — CPM (required)</div>
+            <div style={{ color: "var(--text-strong)", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              View Pot — CPM (required)
+              <StepTooltip
+                required
+                summary="The mandatory CPM pot pays publishers per ad view."
+                details={
+                  <>
+                    Every campaign must have a CPM pot. Budget is escrowed in PAS;
+                    Daily Cap stops settlements from draining the budget faster than this per 24h;
+                    Rate/1k views is the price ceiling — the auction may clear below it but never above.
+                  </>
+                }
+              />
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                  Budget ({sym})
+                  <StepTooltip
+                    required
+                    summary="Total PAS escrowed for view payouts."
+                    details="Locked in the BudgetLedger at campaign creation. Refunded to you on clean campaign end; deducted as views settle."
+                  />
+                </label>
                 <input type="number" value={viewBudget} onChange={(e) => setViewBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                  Daily Cap ({sym})
+                  <StepTooltip
+                    required
+                    summary="Maximum PAS that can settle per 24h block window."
+                    details="Pacing knob — protects you from being fully drained on a single high-traffic day. Must be ≤ Budget. Resets every 14,400 blocks (~24h)."
+                  />
+                </label>
                 <input type="number" value={viewDailyCap} onChange={(e) => setViewDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/1k views ({sym})</label>
+                <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                  Rate/1k views ({sym})
+                  <StepTooltip
+                    required
+                    summary="Your maximum price for every 1,000 ad views."
+                    details={
+                      <>
+                        The CPM ceiling. The auction may clear below this when there's competition; never above. The client-side
+                        Vickrey + interest-weight clearing typically prices at 65–85% of this ceiling — the floor is
+                        configurable per-campaign in the policy envelope after creation.
+                      </>
+                    }
+                  />
+                </label>
                 <input type="number" value={viewBidCpm} onChange={(e) => setViewBidCpm(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
               </div>
             </div>
@@ -825,20 +905,44 @@ export function CreateCampaign() {
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <input type="checkbox" checked={enableClick} onChange={(e) => setEnableClick(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
               <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Enable Click Pot — CPC (optional)</span>
+              <StepTooltip
+                optional
+                summary="Pay-per-click pot, on top of the view pot."
+                details={
+                  <>
+                    A second budget pot that pays when a user clicks the ad. Each click first requires a registered view
+                    impression in the same session, so click claims chain to a prior view (no orphan clicks).
+                    Skip this pot if you only care about reach.
+                  </>
+                }
+              />
             </label>
             {enableClick && (
               <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Budget ({sym})
+                      <StepTooltip required summary="Total PAS escrowed for click payouts." />
+                    </label>
                     <input type="number" value={clickBudget} onChange={(e) => setClickBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Daily Cap ({sym})
+                      <StepTooltip required summary="Max click payouts per 24h block window." />
+                    </label>
                     <input type="number" value={clickDailyCap} onChange={(e) => setClickDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/click ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Rate/click ({sym})
+                      <StepTooltip
+                        required
+                        summary="Flat PAS payout per click."
+                        details="Unlike CPM (per-1000), this is paid flat per click event. Set lower than the CPM rate per impression — clicks are rare relative to views."
+                      />
+                    </label>
                     <input type="number" value={clickRate} onChange={(e) => setClickRate(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                 </div>
@@ -854,25 +958,58 @@ export function CreateCampaign() {
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <input type="checkbox" checked={enableAction} onChange={(e) => setEnableAction(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
               <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Enable Action Pot — CPA (optional)</span>
+              <StepTooltip
+                optional
+                summary="Pay-per-action pot, on top of view/click."
+                details={
+                  <>
+                    Pays when a remote action (e.g. signup, purchase) completes off-platform. Settlement requires an
+                    ECDSA signature from your <strong>Action Verifier</strong> contract attesting the action happened —
+                    so this pot needs a verifier you control.
+                  </>
+                }
+              />
             </label>
             {enableAction && (
               <div style={{ padding: "12px 14px", background: "var(--surface2)", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Budget ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Budget ({sym})
+                      <StepTooltip required summary="Total PAS escrowed for action payouts." />
+                    </label>
                     <input type="number" value={actionBudget} onChange={(e) => setActionBudget(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Daily Cap ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Daily Cap ({sym})
+                      <StepTooltip required summary="Max action payouts per 24h block window." />
+                    </label>
                     <input type="number" value={actionDailyCap} onChange={(e) => setActionDailyCap(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Rate/action ({sym})</label>
+                    <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                      Rate/action ({sym})
+                      <StepTooltip required summary="Flat PAS payout per verified action." />
+                    </label>
                     <input type="number" value={actionRate} onChange={(e) => setActionRate(e.target.value)} min="0.0001" step="0.0001" className="nano-input" required />
                   </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  <label style={{ color: "var(--text-muted)", fontSize: 11 }}>Action Verifier Address (0x...)</label>
+                  <label style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                    Action Verifier Address (0x...)
+                    <StepTooltip
+                      required
+                      summary="Contract whose ECDSA signature gates action settlement."
+                      details={
+                        <>
+                          For every action claim, settlement recovers the action signer from the claim's <code>actionSig</code>
+                          and checks it matches this verifier address. You deploy a verifier that signs only legitimate
+                          actions (e.g. confirmed conversions in your backend).
+                        </>
+                      }
+                    />
+                  </label>
                   <input type="text" value={actionVerifier} onChange={(e) => setActionVerifier(e.target.value)} placeholder="0x... contract that verifies the action occurred" className="nano-input" required />
                 </div>
                 {Number(actionDailyCap) > Number(actionBudget) && (
@@ -895,7 +1032,21 @@ export function CreateCampaign() {
           {/* Tag-based targeting */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Targeting Tags</label>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                Targeting Tags
+                <StepTooltip
+                  optional
+                  summary="Filter who can serve your campaign by tag."
+                  details={
+                    <>
+                      Each selected tag is a hard requirement — a publisher must declare <em>all</em> of them on their
+                      profile to be eligible. Empty = no tag gate (maximum reach). Max 8 tags.
+                      Use the <code>topic:*</code> dimension for content, <code>locale:*</code> for region,
+                      <code>format:*</code> for ad slot type, or add custom <code>dimension:value</code> pairs.
+                    </>
+                  }
+                />
+              </label>
               <button type="button" onClick={() => setShowTags(!showTags)} style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 12, cursor: "pointer", padding: 0 }}>
                 {showTags ? "▼ Hide" : "▶ Configure"}
               </button>
@@ -1001,8 +1152,19 @@ export function CreateCampaign() {
               style={{ marginTop: 2, cursor: "pointer", accentColor: "var(--accent)" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <label htmlFor="requireZkProof" style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+              <label htmlFor="requireZkProof" style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                 Require ZK proof of impression
+                <StepTooltip
+                  optional
+                  summary="Reject claims without a Groth16 proof of honest impression."
+                  details={
+                    <>
+                      Strong fraud guarantee: only impressions that include a valid zero-knowledge proof
+                      settle. Adds ~50ms of client-side proof generation and ~2× the gas per claim.
+                      Recommended for high-value campaigns or where you suspect coordinated farming.
+                    </>
+                  }
+                />
               </label>
               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
                 When enabled, impressions must include a zero-knowledge proof that the user genuinely saw the ad and the second-price clearing was computed honestly. Stronger fraud guarantee; slightly higher settlement overhead.
@@ -1012,7 +1174,21 @@ export function CreateCampaign() {
 
           {/* People Chain identity gate (optional) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>People Chain Identity Requirement</label>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+              People Chain Identity Requirement
+              <StepTooltip
+                optional
+                summary="Restrict claimants to users with a verified Polkadot identity."
+                details={
+                  <>
+                    Reads <code>DatumPeopleChainIdentity.isVerified(user, level)</code>. Off = anyone can claim;
+                    Reasonable = basic registrar judgment ≈ vetted Polkadot account; KnownGood = stronger judgment.
+                    Strong sybil resistance — attackers can't farm impressions from anonymous wallets.
+                    Raising the level is locked once the campaign goes Active.
+                  </>
+                }
+              />
+            </label>
             <select
               value={minIdentityLevel}
               onChange={(e) => setMinIdentityLevel(Number(e.target.value))}
@@ -1031,8 +1207,19 @@ export function CreateCampaign() {
           {/* Identity-refresh subsidy (optional; bridge required) */}
           {contracts.peopleChainXcmBridge && minIdentityLevel > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>
+              <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
                 Identity-refresh subsidy (optional, planck)
+                <StepTooltip
+                  optional
+                  summary="Pre-fund your campaign's escrow so users can refresh People Chain attestations for free."
+                  details={
+                    <>
+                      Drawn at ~0.1 DOT per refresh from this campaign-specific bucket. Withdrawable by you any time.
+                      Useful when you require an identity level — without a subsidy, users on the margin (who'd otherwise
+                      participate) may skip rather than pay for the cross-chain refresh.
+                    </>
+                  }
+                />
               </label>
               <input
                 type="number"
@@ -1052,7 +1239,20 @@ export function CreateCampaign() {
 
           {/* Challenge bond (optional — FP-2) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Challenge Bond (optional, {sym})</label>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+              Challenge Bond (optional, {sym})
+              <StepTooltip
+                optional
+                summary="PAS locked alongside the campaign; you get bonus on upheld fraud rulings."
+                details={
+                  <>
+                    Refunded automatically on clean campaign end. If a publisher fraud governance proposal is upheld,
+                    you receive a proportional share of the publisher's slashed stake. Signals serious intent to
+                    governance voters — campaigns with bonds get faster activation under optimistic-activation rules.
+                  </>
+                }
+              />
+            </label>
             <input
               type="number"
               value={bondAmount}
@@ -1071,7 +1271,21 @@ export function CreateCampaign() {
 
           {/* Token reward (optional — native Asset Hub token or ERC-20) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>Token Reward (optional)</label>
+            <label style={{ color: "var(--text)", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+              Token Reward (optional)
+              <StepTooltip
+                optional
+                summary="Reward users with an ERC-20 or Asset Hub token per impression."
+                details={
+                  <>
+                    Paid alongside the DOT settlement — your DOT budget still covers publisher/user/protocol splits;
+                    the token reward is a bonus credited via <code>DatumTokenRewardVault</code>. You deposit the token
+                    budget in step 3 after campaign creation. Use Asset Hub Token for native Polkadot assets (DOT precompiles),
+                    ERC-20 Contract for any deployed token on Asset Hub.
+                  </>
+                }
+              />
+            </label>
             <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
               Reward users with a token per impression, in addition to DOT settlement.
               You'll deposit the token budget after campaign creation.
@@ -1233,11 +1447,29 @@ function StepIndicator({ n, label, active, done }: { n: number; label: string; a
   );
 }
 
-function WizardField({ label, maxLen, children }: { label: string; maxLen?: number; children: React.ReactNode }) {
+function WizardField({
+  label,
+  maxLen,
+  children,
+  tooltip,
+}: {
+  label: string;
+  maxLen?: number;
+  children: React.ReactNode;
+  tooltip?: { summary: string; details?: React.ReactNode; required?: boolean; optional?: boolean };
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <label style={{ color: "var(--text)", fontSize: 12 }}>
+      <label style={{ color: "var(--text)", fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
         {label}{maxLen ? <span style={{ color: "var(--text-muted)", fontSize: 10 }}> ({maxLen})</span> : ""}
+        {tooltip && (
+          <StepTooltip
+            summary={tooltip.summary}
+            details={tooltip.details}
+            required={tooltip.required}
+            optional={tooltip.optional}
+          />
+        )}
       </label>
       {children}
     </div>

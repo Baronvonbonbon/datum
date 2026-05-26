@@ -8,6 +8,7 @@ import { useTx } from "../../hooks/useTx";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, tagLabel, validateCustomTag, tagDisplayLabel } from "@shared/tagDictionary";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { useToast } from "../../context/ToastContext";
+import { StepTooltip } from "../../components/StepTooltip";
 
 export function Categories() {
   const contracts = useContracts();
@@ -85,7 +86,21 @@ export function Categories() {
     <div className="nano-fade">
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 16px" }}>
-        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Publisher Tags</h1>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+          Publisher Tags
+          <StepTooltip
+            optional
+            side="below"
+            summary="Declare what audience your site reaches — campaigns match on this."
+            details={
+              <>
+                A targeted campaign with required tags <code>topic:defi</code> + <code>locale:en</code> will only
+                serve on publishers who declare both. More tags = bigger eligibility surface, but each tag is a
+                claim about your site that an advertiser can verify off-chain. Max 32 tags.
+              </>
+            }
+          />
+        </h1>
         <span style={{ color: "var(--text)", fontSize: 13 }}>{selected.size} / 32 selected</span>
       </div>
       <p style={{ color: "var(--text)", fontSize: 13, marginBottom: 16 }}>

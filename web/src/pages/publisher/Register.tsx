@@ -9,6 +9,7 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { PageExplainer } from "../../components/PageExplainer";
 import { ContractsTouched } from "../../components/ContractsTouched";
+import { StepTooltip } from "../../components/StepTooltip";
 
 export function Register() {
   const contracts = useContracts();
@@ -134,8 +135,19 @@ export function Register() {
 
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
-          <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>
+          <label style={{ color: "var(--text)", fontSize: 13, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
             Take Rate: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{takeRate}%</span>
+            <StepTooltip
+              required
+              summary="Your share of every settled impression."
+              details={
+                <>
+                  Allowed range 30–80%. Snapshotted into each campaign at the time the campaign is created or
+                  becomes Active. In-flight campaigns keep their snapshot rate; changes here only affect future
+                  activations. The remainder (100 − takeRate)% splits 75/25 user / protocol.
+                </>
+              }
+            />
           </label>
           <input
             type="range" min={30} max={80} value={takeRate}

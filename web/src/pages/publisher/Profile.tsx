@@ -10,6 +10,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { useToast } from "../../context/ToastContext";
 import { formatBlockDelta } from "@shared/conviction";
+import { StepTooltip } from "../../components/StepTooltip";
 
 type TxState = "idle" | "pending" | "success" | "error";
 
@@ -177,7 +178,21 @@ export function PublisherProfile() {
 
       {/* Relay Signer */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
-        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8 }}>Relay Signer (Hot Key)</div>
+        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          Relay Signer (Hot Key)
+          <StepTooltip
+            optional
+            summary="Separate hot key your relay node uses to sign attestations."
+            details={
+              <>
+                Lets you keep your cold wallet offline. The relay signer is snapshotted into each campaign at
+                creation, so rotating it invalidates in-flight cosignatures (intentional A1 protection).
+                Rotation has a ~600-block cooldown to make key-compromise detection easier.
+                Leave unset to attest with your wallet key directly.
+              </>
+            }
+          />
+        </div>
         <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
           Separate attestation signing key used by your relay node. Snapshotted into campaigns at creation.
           Setting this allows key separation between your hot relay key and cold wallet.
@@ -226,7 +241,20 @@ export function PublisherProfile() {
 
       {/* SDK Version */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
-        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8 }}>SDK Version Hash</div>
+        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          SDK Version Hash
+          <StepTooltip
+            optional
+            summary="Attest which SDK build you're serving so consumers can verify integrity."
+            details={
+              <>
+                Submit either a 0x-prefixed bytes32 or a free-form version string (e.g. <code>datum-sdk@1.4.2</code>) —
+                the page keccak-hashes the string for you. Lets users + advertisers cryptographically verify the
+                SDK delivered to their browser hasn't been tampered with. No on-chain enforcement; signal only.
+              </>
+            }
+          />
+        </div>
         <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
           Attest the SDK build you serve so consumers can verify your delivery hasn't been tampered with.
           Enter a version label (e.g. <code>datum-sdk@1.4.2</code>) and we'll keccak256 it for you, or paste a 0x-prefixed bytes32 directly.
@@ -269,7 +297,21 @@ export function PublisherProfile() {
 
       {/* Max Assurance — publisher self-cap on which AssuranceLevel campaigns they'll serve */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
-        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8 }}>Max Assurance Level</div>
+        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          Max Assurance Level
+          <StepTooltip
+            optional
+            summary="Cap the AssuranceLevel of campaigns you'll serve."
+            details={
+              <>
+                Settlement rejects claims for any campaign whose level exceeds this cap. L0 = relay-only;
+                L1 = publisher cosig; L2 = publisher + advertiser cosig (dual-sig); L3 = attested.
+                Set to the highest tier your relay tooling supports — defending you from being forced into
+                a workflow you can't actually run.
+              </>
+            }
+          />
+        </div>
         <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
           Cap the AssuranceLevel of campaigns you're willing to serve. Settlement rejects claims for any
           campaign whose level exceeds this cap. L0 = relay-only, L1 = publisher cosig, L2 = publisher + advertiser cosig,
@@ -312,7 +354,19 @@ export function PublisherProfile() {
 
       {/* Profile Hash */}
       <div className="nano-card" style={{ padding: 16 }}>
-        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8 }}>Profile Hash (IPFS Metadata)</div>
+        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          Profile Hash (IPFS Metadata)
+          <StepTooltip
+            optional
+            summary="On-chain pointer (bytes32 IPFS CID) to your publisher metadata JSON."
+            details={
+              <>
+                Holds your display name, website, content policy, and contact info. Advertisers and governance voters
+                fetch this to evaluate you. Off-chain content; on-chain commitment. Update anytime.
+              </>
+            }
+          />
+        </div>
         <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
           IPFS CID (as bytes32) pointing to your publisher metadata: name, website, content policy.
         </div>

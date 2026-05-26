@@ -10,6 +10,7 @@ import { ethers } from "ethers";
 import { queryFilterBounded } from "@shared/eventQuery";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { useToast } from "../../context/ToastContext";
+import { StepTooltip } from "../../components/StepTooltip";
 
 export function Allowlist() {
   const contracts = useContracts();
@@ -102,7 +103,21 @@ export function Allowlist() {
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" }}>
-        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Advertiser Allowlist</h1>
+        <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+          Advertiser Allowlist
+          <StepTooltip
+            optional
+            side="below"
+            summary="Curate which advertisers can create targeted campaigns against you."
+            details={
+              <>
+                Disabled by default — any advertiser can target your address. Enable + add specific advertiser
+                addresses to lock down your inventory to a known set. Open campaigns (publisher=0x0) always
+                bypass this gate, so enabling it doesn't cost you open-campaign reach.
+              </>
+            }
+          />
+        </h1>
         <button onClick={() => load()} disabled={loading} className="nano-btn" style={{ fontSize: 12, padding: "5px 12px" }}>
           {loading ? "Refreshing..." : "Refresh"}
         </button>

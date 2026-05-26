@@ -14,6 +14,7 @@ import { getCurrencySymbol } from "@shared/networks";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { formatBlockDelta } from "@shared/conviction";
+import { StepTooltip } from "../../components/StepTooltip";
 
 type TxState = "idle" | "pending" | "success" | "error";
 
@@ -237,7 +238,21 @@ export function PublisherStake() {
 
           {/* Stake form */}
           <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>
-            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Deposit Stake</div>
+            <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              Deposit Stake
+              <StepTooltip
+                optional
+                summary="Lock PAS to back your publisher claims. Often required for settlement to accept claims at all."
+                details={
+                  <>
+                    Required stake = base + cumulativeImpressions × perImpression (bonding curve). Settlement rejects
+                    claims with code 15 if the publisher's stake is below the curve at claim time.
+                    Stake is also at-risk during fraud governance — upheld proposals slash a fraction of your stake
+                    to the advertiser's challenge bond pool.
+                  </>
+                }
+              />
+            </div>
             <form onSubmit={handleStake} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
                 <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
@@ -288,7 +303,14 @@ export function PublisherStake() {
           {/* Request unstake form */}
           {!pending && staked !== null && staked > 0n && (
             <div className="nano-card" style={{ padding: 16 }}>
-              <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>Request Unstake</div>
+              <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                Request Unstake
+                <StepTooltip
+                  optional
+                  summary="Withdraw your stake surplus after a cooldown."
+                  details="Only the amount above your required-stake floor is withdrawable — you can't unstake yourself out of being a valid publisher mid-flight. Funds are locked for the delay period before they're claimable."
+                />
+              </div>
               <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
                 Only the surplus above your required stake can be withdrawn. Funds are locked for{" "}
                 {params ? formatBlockDelta(Number(params.delay)) : "the delay period"} after requesting.
