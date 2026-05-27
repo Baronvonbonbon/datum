@@ -51,6 +51,20 @@ export interface AdSlotConfig {
   onNotInterested?: () => void;
   /** First topic tag label for "Hide [topic] ads" button */
   topicLabel?: string;
+  /** Advertiser EOA. When set, the ad slot renders a small brand strip
+   *  ("From: <chip>") in the footer so the user sees who paid for the ad
+   *  shown on this publisher's page. The chip is hydrated asynchronously
+   *  via DatumBrandRegistry; if no brand is set, it shows an identicon
+   *  + truncated address. */
+  advertiserAddress?: string;
+  /** Optional brand-registry / brand-curator / people-chain addresses
+   *  pulled from settings.contractAddresses. The ad-slot fetches without
+   *  these to avoid coupling the content script to the full network
+   *  config. */
+  brandRegistry?: string;
+  brandCurator?: string;
+  peopleChainIdentity?: string;
+  rpcUrl?: string;
 }
 
 const SLOT_ID = "datum-ad-slot";
@@ -223,10 +237,26 @@ function creativeBodyHtml(
         padding:${isHorizontal ? "4px 10px" : "6px 14px"};font-size:12px;
       ">${escapeHtml(c.cta)}</span>`;
 
+  // Brand strip — hydrated post-render. Uses a stable id keyed on the
+  // campaign so the hydrate call can find the right element when multiple
+  // slots are on the page.
+  const brandStripId = `datum-ad-brand-${escapeHtml(config.campaignId)}`;
+  const brandStripHtml = config.advertiserAddress
+    ? `<div id="${brandStripId}" data-datum-advertiser="${escapeHtml(config.advertiserAddress)}" style="
+         display:flex;align-items:center;gap:6px;margin-top:6px;font-size:10px;color:${D.textFaint};
+       ">
+         <span>From:</span>
+         <span class="datum-ad-brand-placeholder" style="
+           font-family:var(--font-mono,ui-monospace);color:${D.textMuted};
+         ">${escapeHtml(config.advertiserAddress.slice(0, 6) + "…" + config.advertiserAddress.slice(-4))}</span>
+       </div>`
+    : "";
+
   const footerHtml = `
     <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
       Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
     </div>
+    ${brandStripHtml}
     ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
   `;
 
@@ -607,6 +637,11 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
   // CTA click capture (type-1 CPC claim)
   attachCtaClickCapture(shadow, config, injectedAt);
 
+  // Brand hydration — fetch and render the advertiser brand chip in the
+  // footer. Runs asynchronously so the slot paints instantly with the
+  // address fallback, then upgrades to the brand once the network resolves.
+  hydrateAdvertiserBrand(shadow, config).catch(() => { /* non-fatal */ });
+
   return host;
 }
 
@@ -688,7 +723,81 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
   // CTA click capture (type-1 CPC claim)
   attachCtaClickCapture(shadow, config, injectedAt);
 
+  // Brand hydration (see injectAdSlot for rationale)
+  hydrateAdvertiserBrand(shadow, config).catch(() => { /* non-fatal */ });
+
   return target;
+}
+
+// ── Brand hydration ───────────────────────────────────────────────────────────
+
+/** Resolves the advertiser's BrandProfile (name + logo) and upgrades the
+ *  pre-rendered brand-strip placeholder. Fails silently — the placeholder
+ *  already shows the truncated address, so the worst case is "no upgrade". */
+async function hydrateAdvertiserBrand(shadow: ShadowRoot, config: AdSlotConfig): Promise<void> {
+  if (!config.advertiserAddress || !config.brandRegistry || !config.rpcUrl) return;
+  const stripId = `datum-ad-brand-${config.campaignId}`;
+  const strip = shadow.getElementById(stripId);
+  if (!strip) return;
+
+  // Local import (top-of-file would create a cycle through @shared paths
+  // when the content bundle splits — keep the import lazy).
+  const { fetchBrand, fetchCouncilVerified, fetchIdentityVerified, fetchDomainVerified, deriveLevel } =
+    await import("@shared/brandCache");
+  const { identiconDataUrl } = await import("@shared/identicon");
+  const { JsonRpcProvider } = await import("ethers");
+  const provider = new JsonRpcProvider(config.rpcUrl);
+  const hot = await fetchBrand(config.brandRegistry, config.advertiserAddress, provider);
+  const cv = await fetchCouncilVerified(config.brandCurator, config.advertiserAddress, provider);
+  const idOk = await fetchIdentityVerified(config.peopleChainIdentity, config.advertiserAddress, provider);
+  let domainOK = false;
+  if (hot.homepage) {
+    try { domainOK = await fetchDomainVerified(hot.homepage, config.advertiserAddress); } catch { /* skip */ }
+  }
+  const level = deriveLevel({
+    hasBrand: Boolean(hot.name || hot.homepage),
+    councilVerified: cv.verified, revoked: cv.revoked,
+    identityVerified: idOk, domainVerified: domainOK,
+  });
+
+  // Build logo URL or identicon.
+  let logoSrc = identiconDataUrl(config.advertiserAddress, 16);
+  const ZERO_HASH = "0x" + "0".repeat(64);
+  const ipfsGateway = (config.ipfsGateway || "https://dweb.link/ipfs/").replace(/\/$/, "");
+  if (hot.logoCid && hot.logoCid !== ZERO_HASH) {
+    const hex = hot.logoCid.replace(/^0x/, "");
+    if (hex.length === 64) logoSrc = `${ipfsGateway}/ipfs/f01551220${hex}`;
+  }
+
+  // Verify badge HTML.
+  const badge = level === "council"
+    ? `<span style="padding:0 4px;border-radius:6px;font-size:9px;color:#0a3;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.35);">✓C</span>`
+    : level === "identity"
+    ? `<span style="padding:0 4px;border-radius:6px;font-size:9px;color:#48a;background:rgba(96,165,250,0.10);border:1px solid rgba(96,165,250,0.30);">✓ID</span>`
+    : level === "domain"
+    ? `<span style="padding:0 4px;border-radius:6px;font-size:9px;color:#96f;background:rgba(167,139,250,0.10);border:1px solid rgba(167,139,250,0.30);">✓D</span>`
+    : "";
+
+  const revoked = cv.revoked;
+  const name = hot.name || `${config.advertiserAddress.slice(0, 6)}…${config.advertiserAddress.slice(-4)}`;
+  const accentColor = hot.brandColor && hot.brandColor !== 0
+    ? `#${hot.brandColor.toString(16).padStart(6, "0")}`
+    : D.border;
+
+  strip.innerHTML = `
+    <span>From:</span>
+    <img src="${escapeHtml(logoSrc)}" alt="" style="
+      width:16px;height:16px;border-radius:3px;border:1px solid ${accentColor};
+      object-fit:cover;flex-shrink:0;
+    "/>
+    <span style="
+      color:${revoked ? D.textMuted : D.text};font-weight:600;font-size:10px;
+      ${revoked ? "text-decoration:line-through;" : ""}
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;
+    ">${escapeHtml(name)}</span>
+    ${badge}
+    ${revoked ? `<span title="Council-flagged" style="color:#f80;font-size:10px;">⚠</span>` : ""}
+  `;
 }
 
 // ── House / default ad ────────────────────────────────────────────────────────

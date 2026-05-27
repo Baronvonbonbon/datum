@@ -202,6 +202,8 @@ async function main() {
 
   const ipfsGateway = settingsStored.settings?.ipfsGateway || "https://dweb.link/ipfs/";
   const currencySymbol = getCurrencySymbol((settingsStored.settings?.network ?? "polkadotHub") as NetworkName);
+  const rpcUrl = settingsStored.settings?.rpcUrl;
+  const addrs = settingsStored.settings?.contractAddresses;
 
   // Push relay URL to background once (not per slot)
   if (sdkInfo?.relay && sdkInfo.publisher) {
@@ -372,6 +374,14 @@ async function main() {
       topicLabel: firstTopicTag?.label,
       slotFormat,
       impressionNonce: impressionNonce ?? undefined,
+      // Brand-strip wiring: the slot footer hydrates this asynchronously
+      // from DatumBrandRegistry. When the advertiser hasn't set a brand,
+      // the strip degrades to an identicon + truncated address.
+      advertiserAddress: match.advertiser ?? undefined,
+      brandRegistry: addrs?.brandRegistry,
+      brandCurator: addrs?.brandCurator,
+      peopleChainIdentity: addrs?.peopleChainIdentity,
+      rpcUrl,
       onCtaClick: impressionNonce ? () => {
         try {
           chrome.runtime.sendMessage({

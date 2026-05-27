@@ -433,6 +433,12 @@ export interface ContractAddresses {
   bootstrapPool?: string;       // DatumBootstrapPool (house-ad bonus)
   vesting?: string;             // DatumVesting (founder + ops vesting)
   feeShare?: string;            // DatumFeeShare (stake WDATUM, earn DOT)
+  // Brand layer — per-address profile (name + logo + homepage) and
+  // Council-curated verification flags. Optional; extension renders
+  // identicon fallback when brandRegistry is unset.
+  brandRegistry?: string;
+  brandCurator?: string;
+  peopleChainIdentity?: string; // shared with the people-chain identity gate
 }
 
 // User ad preferences — persisted in chrome.storage.local

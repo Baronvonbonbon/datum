@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
+import { Contract, JsonRpcProvider } from "ethers";
 import { ImpressionLogEntry } from "../background/impressionLog";
+import { BrandChip } from "../popup/BrandChip";
+import { DEFAULT_SETTINGS } from "@shared/networks";
+import { StoredSettings } from "@shared/types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,13 +127,70 @@ export function HistoryPage() {
   const [sortImp, setSortImp] = useState<SortImpression>("time");
   const [sortCamp, setSortCamp] = useState<SortCampaign>("count");
   const [cleared, setCleared] = useState(false);
+  const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
+  const [campaignAdvertisers, setCampaignAdvertisers] = useState<Record<string, string>>({});
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "GET_IMPRESSION_LOG" }).then((resp: any) => {
       setLog(resp?.log ?? []);
       setLoading(false);
     });
+    chrome.storage.local.get(["settings"]).then((s) => {
+      setSettings((s.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS);
+    });
   }, []);
+
+  // Resolve campaign → advertiser for every campaignId visible. Cached
+  // per-(chainId, campaignId) in chrome.storage.local so re-opens are cheap.
+  useEffect(() => {
+    if (log.length === 0) return;
+    if (!settings.contractAddresses.campaigns || !settings.rpcUrl) return;
+    const ids = new Set<string>(log.map((e) => e.campaignId));
+    const missing = Array.from(ids).filter((id) => !campaignAdvertisers[id]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const NETWORK_CHAIN_IDS: Record<string, number> = {
+        polkadotTestnet: 420420417, paseoEvm: 420420422, local: 31337,
+      };
+      const chainId = NETWORK_CHAIN_IDS[settings.network ?? "polkadotTestnet"] ?? 0;
+      const cacheKeys = missing.map((id) => `campaign_advertiser:${chainId}:${id}`);
+      const cached = await chrome.storage.local.get(cacheKeys);
+      const next: Record<string, string> = {};
+      const stillMissing: string[] = [];
+      for (const id of missing) {
+        const k = `campaign_advertiser:${chainId}:${id}`;
+        if (cached[k]) next[id] = cached[k] as string;
+        else stillMissing.push(id);
+      }
+      if (stillMissing.length > 0) {
+        try {
+          const provider = new JsonRpcProvider(settings.rpcUrl);
+          const c = new Contract(
+            settings.contractAddresses.campaigns,
+            ["function getCampaignAdvertiser(uint256) view returns (address)"],
+            provider
+          );
+          // Process serially to avoid hammering Paseo with bursts.
+          for (const id of stillMissing) {
+            try {
+              const addr = await c.getCampaignAdvertiser(BigInt(id));
+              const a = String(addr);
+              if (a && a !== "0x0000000000000000000000000000000000000000") {
+                next[id] = a;
+                await chrome.storage.local.set({ [`campaign_advertiser:${chainId}:${id}`]: a });
+              }
+            } catch { /* skip */ }
+            if (cancelled) return;
+          }
+        } catch { /* RPC unavailable */ }
+      }
+      if (!cancelled && Object.keys(next).length > 0) {
+        setCampaignAdvertisers((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [log, settings.network, settings.rpcUrl, settings.contractAddresses.campaigns]);
 
   async function handleClear() {
     await chrome.runtime.sendMessage({ type: "CLEAR_IMPRESSION_LOG" });
@@ -338,34 +399,58 @@ export function HistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedLog.map((e) => (
-                <tr key={e.id} style={{ transition: "background 0.1s" }}
-                  onMouseEnter={(el) => (el.currentTarget.style.background = "rgba(255,255,255,0.02)")}
-                  onMouseLeave={(el) => (el.currentTarget.style.background = "transparent")}
-                >
-                  <td style={{ ...cellStyle, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>
-                    {shortId(e.campaignId)}
-                  </td>
-                  <td style={{ ...cellStyle, color: "var(--ok)", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                    {fmtPlanck(e.payoutPlanck)}
-                  </td>
-                  <td style={cellStyle}>
-                    <span style={pill(ACTION_COLORS[e.actionType] ?? "var(--text-muted)")}>
-                      {ACTION_LABELS[e.actionType] ?? "?"}
-                    </span>
-                  </td>
-                  <td style={{ ...cellStyle, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-                    {fmtPlanck(e.ratePlanck)}
-                  </td>
-                  <td style={{ ...cellStyle, color: "var(--text-muted)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    title={e.url}>
-                    {fmtUrl(e.url)}
-                  </td>
-                  <td style={{ ...cellStyle, color: "var(--text-muted)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-                    {fmtTime(e.timestamp)}
-                  </td>
-                </tr>
-              ))}
+              {sortedLog.map((e) => {
+                const adv = campaignAdvertisers[e.campaignId];
+                return (
+                  <tr key={e.id} style={{ transition: "background 0.1s" }}
+                    onMouseEnter={(el) => (el.currentTarget.style.background = "rgba(255,255,255,0.02)")}
+                    onMouseLeave={(el) => (el.currentTarget.style.background = "transparent")}
+                  >
+                    <td style={{ ...cellStyle, fontSize: 11 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>{shortId(e.campaignId)}</span>
+                        {adv && (
+                          <BrandChip
+                            address={adv}
+                            size="xs"
+                            rpcUrl={settings.rpcUrl}
+                            addresses={settings.contractAddresses}
+                            ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                          />
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ ...cellStyle, color: "var(--ok)", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                      {fmtPlanck(e.payoutPlanck)}
+                    </td>
+                    <td style={cellStyle}>
+                      <span style={pill(ACTION_COLORS[e.actionType] ?? "var(--text-muted)")}>
+                        {ACTION_LABELS[e.actionType] ?? "?"}
+                      </span>
+                    </td>
+                    <td style={{ ...cellStyle, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+                      {fmtPlanck(e.ratePlanck)}
+                    </td>
+                    <td style={{ ...cellStyle, fontSize: 11, overflow: "hidden" }} title={e.url}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {fmtUrl(e.url)}
+                        </span>
+                        <BrandChip
+                          address={e.publisherAddress}
+                          size="xs"
+                          rpcUrl={settings.rpcUrl}
+                          addresses={settings.contractAddresses}
+                          ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                        />
+                      </div>
+                    </td>
+                    <td style={{ ...cellStyle, color: "var(--text-muted)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                      {fmtTime(e.timestamp)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -395,8 +480,21 @@ export function HistoryPage() {
                   onMouseEnter={(el) => (el.currentTarget.style.background = "rgba(255,255,255,0.02)")}
                   onMouseLeave={(el) => (el.currentTarget.style.background = "transparent")}
                 >
-                  <td style={{ ...cellStyle, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>
-                    {shortId(c.campaignId)}
+                  <td style={{ ...cellStyle, fontSize: 11 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>
+                        {shortId(c.campaignId)}
+                      </span>
+                      {campaignAdvertisers[c.campaignId] && (
+                        <BrandChip
+                          address={campaignAdvertisers[c.campaignId]}
+                          size="xs"
+                          rpcUrl={settings.rpcUrl}
+                          addresses={settings.contractAddresses}
+                          ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                        />
+                      )}
+                    </div>
                   </td>
                   <td style={{ ...cellStyle, color: "var(--text-strong)", fontWeight: 600 }}>
                     {c.count}

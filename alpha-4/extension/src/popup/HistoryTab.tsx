@@ -10,6 +10,10 @@ import {
   TopSortKey,
   EarningsIndex,
 } from "@shared/earningsIndex";
+import { BrandChip } from "./BrandChip";
+import { DEFAULT_SETTINGS } from "@shared/networks";
+import { StoredSettings } from "@shared/types";
+import { Contract, JsonRpcProvider } from "ethers";
 
 const SORT_LABELS: Record<TopSortKey, string> = {
   totalUserPlanck: "Total earned",
@@ -27,9 +31,12 @@ export function HistoryTab({ address }: Props) {
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
   const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
   const [webAppUrl, setWebAppUrl] = useState<string>("https://datum.javcon.io");
+  const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
+  // Map: campaignId -> advertiser address. Resolved lazily from chain so the
+  // chip can label both who served the ad (publisher, already in the row)
+  // and who paid for it (advertiser).
+  const [campaignAdvertisers, setCampaignAdvertisers] = useState<Record<string, string>>({});
 
-  // Resolve the active network's chainId so we read the right slice.
-  // NETWORK_CONFIGS doesn't currently expose chainId, so we keep a small map.
   const NETWORK_CHAIN_IDS: Record<string, number> = {
     polkadotTestnet: 420420417,
     paseoEvm: 420420422,
@@ -37,8 +44,10 @@ export function HistoryTab({ address }: Props) {
   };
   useEffect(() => {
     chrome.storage.local.get(["settings"]).then((s) => {
-      const network = (s.settings?.network ?? "polkadotTestnet") as string;
+      const stored = (s.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
+      const network = stored.network ?? "polkadotTestnet";
       setChainId(NETWORK_CHAIN_IDS[network] ?? 0);
+      setSettings(stored);
       setWebAppUrl("https://datum.javcon.io");
     });
   }, []);
@@ -64,6 +73,65 @@ export function HistoryTab({ address }: Props) {
 
   const top = useMemo(() => topCampaigns(index, sortBy, 10), [index, sortBy]);
   const recent = useMemo(() => index.recent.slice(0, 10), [index]);
+
+  // Lazily resolve campaignId → advertiser for the rows currently visible.
+  // Cached in chrome.storage.local under "campaign_advertiser:<chainId>:<cid>"
+  // so the same lookup doesn't run every popup open. Per-popup-open the
+  // first lookup spans one RPC roundtrip per unique campaign.
+  useEffect(() => {
+    if (!settings.contractAddresses.campaigns || !settings.rpcUrl) return;
+    const ids = new Set<string>();
+    recent.forEach((r) => ids.add(r.campaignId));
+    top.forEach((r) => ids.add(row(r).campaignId));
+    if (ids.size === 0) return;
+    const missing = Array.from(ids).filter((id) => !campaignAdvertisers[id]);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      // Try cache first.
+      const cacheKeys = missing.map((id) => `campaign_advertiser:${chainId}:${id}`);
+      const cached = await chrome.storage.local.get(cacheKeys);
+      const next: Record<string, string> = {};
+      const stillMissing: string[] = [];
+      for (const id of missing) {
+        const k = `campaign_advertiser:${chainId}:${id}`;
+        if (cached[k]) {
+          next[id] = cached[k] as string;
+        } else {
+          stillMissing.push(id);
+        }
+      }
+
+      if (stillMissing.length > 0) {
+        try {
+          const provider = new JsonRpcProvider(settings.rpcUrl);
+          const c = new Contract(
+            settings.contractAddresses.campaigns,
+            ["function getCampaignAdvertiser(uint256) view returns (address)"],
+            provider
+          );
+          await Promise.all(stillMissing.map(async (id) => {
+            try {
+              const addr = await c.getCampaignAdvertiser(BigInt(id));
+              const a = String(addr);
+              if (a && a !== "0x0000000000000000000000000000000000000000") {
+                next[id] = a;
+                await chrome.storage.local.set({ [`campaign_advertiser:${chainId}:${id}`]: a });
+              }
+            } catch { /* skip; will retry next render */ }
+          }));
+        } catch { /* RPC unavailable */ }
+      }
+
+      if (!cancelled && Object.keys(next).length > 0) {
+        setCampaignAdvertisers((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [recent, top, chainId, settings.rpcUrl, settings.contractAddresses.campaigns]);
+
+  function row(r: any) { return r as { campaignId: string }; }
 
   if (!address) {
     return (
@@ -104,32 +172,60 @@ export function HistoryTab({ address }: Props) {
       {recent.length > 0 && (
         <Section title="Recent">
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {recent.map((r) => (
-              <div
-                key={`${r.txHash}:${r.logIndex}`}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "auto 1fr auto",
-                  gap: 8,
-                  padding: "6px 0",
-                  fontSize: 11,
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>
-                  {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleDateString() : `#${r.blockNumber}`}
-                </span>
-                <span style={{ color: "var(--text)" }}>
-                  Campaign #{r.campaignId}
-                  <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
-                    {actionTypeLabel(r.actionType)}
-                  </span>
-                </span>
-                <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  +{formatDOT(BigInt(r.userPaymentPlanck))}
-                </span>
-              </div>
-            ))}
+            {recent.map((r) => {
+              const adv = campaignAdvertisers[r.campaignId];
+              return (
+                <div
+                  key={`${r.txHash}:${r.logIndex}`}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                    padding: "8px 0",
+                    fontSize: 11,
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
+                    <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>
+                      {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleDateString() : `#${r.blockNumber}`}
+                    </span>
+                    <span style={{ color: "var(--text)" }}>
+                      Campaign #{r.campaignId}
+                      <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>{actionTypeLabel(r.actionType)}</span>
+                    </span>
+                    <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
+                      +{formatDOT(BigInt(r.userPaymentPlanck))}
+                    </span>
+                  </div>
+                  {/* Brand row: who served vs. who paid. */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: 0 }}>
+                    {adv && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)" }}>
+                        <span style={{ minWidth: 56 }}>from:</span>
+                        <BrandChip
+                          address={adv}
+                          size="xs"
+                          rpcUrl={settings.rpcUrl}
+                          addresses={settings.contractAddresses}
+                          ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                        />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)" }}>
+                      <span style={{ minWidth: 56 }}>served by:</span>
+                      <BrandChip
+                        address={r.publisher}
+                        size="xs"
+                        rpcUrl={settings.rpcUrl}
+                        addresses={settings.contractAddresses}
+                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Section>
       )}
@@ -152,33 +248,48 @@ export function HistoryTab({ address }: Props) {
           }
         >
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {top.map((row, i) => (
-              <div
-                key={row.campaignId}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "20px 1fr auto",
-                  gap: 8,
-                  padding: "6px 0",
-                  fontSize: 11,
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>
-                  {i + 1}.
-                </span>
-                <span style={{ color: "var(--text)" }}>
-                  Campaign #{row.campaignId}
-                  <span style={{ color: "var(--text-muted)", marginLeft: 6, fontSize: 10 }}>
-                    {row.totals.claimCount} claim{row.totals.claimCount === 1 ? "" : "s"}
-                    {" · "}{row.totals.totalEvents} events
-                  </span>
-                </span>
-                <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  {formatDOT(BigInt(row.totals.totalUserPlanck))}
-                </span>
-              </div>
-            ))}
+            {top.map((row, i) => {
+              const adv = campaignAdvertisers[row.campaignId];
+              return (
+                <div
+                  key={row.campaignId}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                    padding: "8px 0",
+                    fontSize: 11,
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 8, alignItems: "center" }}>
+                    <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>{i + 1}.</span>
+                    <span style={{ color: "var(--text)" }}>
+                      Campaign #{row.campaignId}
+                      <span style={{ color: "var(--text-muted)", marginLeft: 6, fontSize: 10 }}>
+                        {row.totals.claimCount} claim{row.totals.claimCount === 1 ? "" : "s"}
+                        {" · "}{row.totals.totalEvents} events
+                      </span>
+                    </span>
+                    <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
+                      {formatDOT(BigInt(row.totals.totalUserPlanck))}
+                    </span>
+                  </div>
+                  {adv && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)", marginLeft: 28 }}>
+                      <span>from:</span>
+                      <BrandChip
+                        address={adv}
+                        size="xs"
+                        rpcUrl={settings.rpcUrl}
+                        addresses={settings.contractAddresses}
+                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </Section>
       )}

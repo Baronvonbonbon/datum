@@ -17,6 +17,7 @@ import { TokenRewards } from "../../components/TokenRewards";
 import { PageExplainer } from "../../components/PageExplainer";
 import { ContractsTouched } from "../../components/ContractsTouched";
 import { EnableRpcCta } from "../../components/EnableRpcCta";
+import { BrandChip } from "../../components/BrandChip";
 // @ts-ignore — @ext resolves to alpha-4/extension/src
 import {
   emptyIndex,
@@ -46,6 +47,7 @@ export function History() {
 
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
   const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
+  const [campaignAdvertisers, setCampaignAdvertisers] = useState<Record<string, string>>({});
 
   // PaymentVault DOT balance + withdraw state
   const [dotBalance, setDotBalance] = useState<bigint>(0n);
@@ -138,6 +140,35 @@ export function History() {
 
   const top = useMemo(() => topCampaigns(index, sortBy, 20), [index, sortBy]);
   const recent = useMemo(() => index.recent, [index]);
+
+  // Resolve campaign → advertiser for every row visible so the brand
+  // chip below can show who paid for each ad the user earned from.
+  useEffect(() => {
+    const ids = new Set<string>();
+    recent.forEach((r: any) => ids.add(r.campaignId));
+    top.forEach((r: any) => ids.add(r.campaignId));
+    if (ids.size === 0) return;
+    const missing = Array.from(ids).filter((id) => !campaignAdvertisers[id]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, string> = {};
+      for (const id of missing) {
+        try {
+          const a = await contracts.campaigns.getCampaignAdvertiser(BigInt(id));
+          const addr = String(a);
+          if (addr && addr !== "0x0000000000000000000000000000000000000000") {
+            next[id] = addr;
+          }
+        } catch { /* skip — chain hiccup */ }
+        if (cancelled) return;
+      }
+      if (!cancelled && Object.keys(next).length > 0) {
+        setCampaignAdvertisers((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [recent, top, contracts.campaigns]);
 
   if (!address) {
     return (
@@ -311,30 +342,46 @@ export function History() {
               <span>Type</span>
               <span>Tx</span>
             </div>
-            {recent.map((r) => (
-              <div
-                key={`${r.txHash}:${r.logIndex}`}
-                style={{
-                  display: "grid", gridTemplateColumns: "120px 1fr 100px 60px 80px",
-                  gap: 8, fontSize: 12, padding: "6px 0",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>
-                  {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleString() : `#${r.blockNumber}`}
-                </span>
-                <span style={{ color: "var(--text)" }}>Campaign #{r.campaignId}</span>
-                <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                  +{formatDOT(BigInt(r.userPaymentPlanck))}
-                </span>
-                <span style={{ color: "var(--text-muted)" }}>
-                  {r.actionType === 0 ? "view" : r.actionType === 1 ? "click" : "action"}
-                </span>
-                <span style={{ fontFamily: "monospace", fontSize: 10 }}>
-                  <code style={{ color: "var(--text-dim)" }}>{r.txHash.slice(0, 8)}…</code>
-                </span>
-              </div>
-            ))}
+            {recent.map((r) => {
+              const adv = campaignAdvertisers[r.campaignId];
+              return (
+                <div
+                  key={`${r.txHash}:${r.logIndex}`}
+                  style={{
+                    display: "grid", gridTemplateColumns: "120px 1fr 100px 60px 80px",
+                    gap: 8, fontSize: 12, padding: "8px 0",
+                    borderBottom: "1px solid var(--border)",
+                    alignItems: "start",
+                  }}
+                >
+                  <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>
+                    {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleString() : `#${r.blockNumber}`}
+                  </span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                    <span style={{ color: "var(--text)" }}>Campaign #{r.campaignId}</span>
+                    {adv && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
+                        <span style={{ minWidth: 56 }}>From:</span>
+                        <BrandChip address={adv} size="sm" role="advertiser" />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
+                      <span style={{ minWidth: 56 }}>Served by:</span>
+                      <BrandChip address={r.publisher} size="sm" role="publisher" />
+                    </div>
+                  </div>
+                  <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
+                    +{formatDOT(BigInt(r.userPaymentPlanck))}
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>
+                    {r.actionType === 0 ? "view" : r.actionType === 1 ? "click" : "action"}
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 10 }}>
+                    <code style={{ color: "var(--text-dim)" }}>{r.txHash.slice(0, 8)}…</code>
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -363,30 +410,37 @@ export function History() {
         )}
         {top.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {top.map((row, i) => (
-              <div
-                key={row.campaignId}
-                style={{
-                  display: "grid", gridTemplateColumns: "30px 1fr 100px 100px 100px",
-                  gap: 8, fontSize: 12, padding: "6px 0",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>
-                  {i + 1}.
-                </span>
-                <span style={{ color: "var(--text)" }}>Campaign #{row.campaignId}</span>
-                <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                  {formatDOT(BigInt(row.totals.totalUserPlanck))}
-                </span>
-                <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
-                  {row.totals.claimCount} claims
-                </span>
-                <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
-                  {row.totals.totalEvents} evts
-                </span>
-              </div>
-            ))}
+            {top.map((row, i) => {
+              const adv = campaignAdvertisers[row.campaignId];
+              return (
+                <div
+                  key={row.campaignId}
+                  style={{
+                    display: "grid", gridTemplateColumns: "30px 1fr 100px 100px 100px",
+                    gap: 8, fontSize: 12, padding: "8px 0",
+                    borderBottom: "1px solid var(--border)",
+                    alignItems: "start",
+                  }}
+                >
+                  <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>
+                    {i + 1}.
+                  </span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                    <span style={{ color: "var(--text)" }}>Campaign #{row.campaignId}</span>
+                    {adv && <BrandChip address={adv} size="sm" role="advertiser" />}
+                  </div>
+                  <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
+                    {formatDOT(BigInt(row.totals.totalUserPlanck))}
+                  </span>
+                  <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
+                    {row.totals.claimCount} claims
+                  </span>
+                  <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
+                    {row.totals.totalEvents} evts
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
