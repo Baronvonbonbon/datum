@@ -152,7 +152,8 @@ export function Campaigns() {
     return true;
   });
 
-  const totalPages = Math.ceil(totalCampaigns / PAGE_SIZE);
+  // Campaign IDs start at 1, so "live" count is totalCampaigns - 1.
+  const totalPages = Math.max(1, Math.ceil(Math.max(0, totalCampaigns - 1) / PAGE_SIZE));
 
   return (
     <div className="nano-fade">
