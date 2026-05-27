@@ -42,9 +42,10 @@ export function SybilDefenseAdmin() {
 
   async function load() {
     try {
-      const s: any = contracts.settlement;
+      const pe: any = contracts.powEngine;
+      if (!pe) { push("PowEngine not deployed on this network", "warn"); return; }
       const [enf, bShift, lDiv, qDiv, leak] = await Promise.all([
-        s.enforcePow(), s.powBaseShift(), s.powLinearDivisor(), s.powQuadDivisor(), s.powBucketLeakPerN(),
+        pe.enforcePow(), pe.powBaseShift(), pe.powLinearDivisor(), pe.powQuadDivisor(), pe.powBucketLeakPerN(),
       ]);
       setEnforcePow(Boolean(enf));
       setBaseShift(Number(bShift));
@@ -56,17 +57,19 @@ export function SybilDefenseAdmin() {
       setNewQuad(Number(qDiv));
       setNewLeak(Number(leak));
     } catch (err) {
-      push({ kind: "error", text: `Load failed: ${humanizeError(err)}` });
+      push(`Load failed: ${humanizeError(err)}`, "error");
     }
   }
 
   async function inspect() {
-    if (!ethers.isAddress(inspectAddr)) { push({ kind: "error", text: "Invalid address" }); return; }
+    if (!ethers.isAddress(inspectAddr)) { push("Invalid address", "error"); return; }
     try {
+      const pe: any = contracts.powEngine;
       const s: any = contracts.settlement;
+      if (!pe) { push("PowEngine not deployed", "warn"); return; }
       const [bucket, target1, totalSettled] = await Promise.all([
-        s.userPowBucketEffective(inspectAddr),
-        s.powTargetForUser(inspectAddr, 1),
+        pe.userPowBucketEffective(inspectAddr),
+        pe.powTargetForUser(inspectAddr, 1),
         s.userTotalSettled(inspectAddr),
       ]);
       setInspectResult({
@@ -75,36 +78,36 @@ export function SybilDefenseAdmin() {
         totalSettled: BigInt(totalSettled.toString()),
       });
     } catch (err) {
-      push({ kind: "error", text: humanizeError(err) });
+      push(humanizeError(err), "error");
     }
   }
 
   async function toggleEnforce() {
-    if (!signer) return;
+    if (!signer || !contracts.powEngine) return;
     setBusy(true);
     try {
-      const s: any = contracts.settlement.connect(signer);
-      const tx = await s.setEnforcePow(!enforcePow);
+      const pe: any = contracts.powEngine.connect(signer);
+      const tx = await pe.setEnforcePow(!enforcePow);
       await confirmTx(tx);
-      push({ kind: "success", text: `enforcePow set to ${!enforcePow}` });
+      push(`enforcePow set to ${!enforcePow}`, "ok");
       await load();
     } catch (err) {
-      push({ kind: "error", text: humanizeError(err) });
+      push(humanizeError(err), "error");
     }
     setBusy(false);
   }
 
   async function applyCurve() {
-    if (!signer) return;
+    if (!signer || !contracts.powEngine) return;
     setBusy(true);
     try {
-      const s: any = contracts.settlement.connect(signer);
-      const tx = await s.setPowDifficultyCurve(newBase, newLin, newQuad, newLeak);
+      const pe: any = contracts.powEngine.connect(signer);
+      const tx = await pe.setPowDifficultyCurve(newBase, newLin, newQuad, newLeak);
       await confirmTx(tx);
-      push({ kind: "success", text: "Curve updated" });
+      push("Curve updated", "ok");
       await load();
     } catch (err) {
-      push({ kind: "error", text: humanizeError(err) });
+      push(humanizeError(err), "error");
     }
     setBusy(false);
   }

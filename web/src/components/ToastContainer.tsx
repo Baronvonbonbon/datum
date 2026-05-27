@@ -1,5 +1,20 @@
 import { useToast, ToastLevel } from "../context/ToastContext";
 
+// Defensive: a few call sites pass push() the wrong shape (e.g. an
+// {kind, text} object). React would throw "Objects are not valid as a
+// React child" and blank the page. Coerce to a printable string here so
+// the toast still renders something useful instead of crashing the tree.
+function safeStringify(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text;
+    if (typeof o.message === "string") return o.message;
+    try { return JSON.stringify(v); } catch { return String(v); }
+  }
+  return String(v);
+}
+
 const LEVEL_STYLES: Record<ToastLevel, { bg: string; border: string; color: string; icon: string }> = {
   error: { bg: "rgba(25,8,8,0.97)",  border: "#f87171", color: "#fca5a5", icon: "✕" },
   warn:  { bg: "rgba(24,18,4,0.97)", border: "#fbbf24", color: "#fde68a", icon: "!" },
@@ -72,7 +87,7 @@ export function ToastContainer() {
               fontFamily: "var(--font-sans)",
               wordBreak: "break-word",
             }}>
-              {t.message}
+              {typeof t.message === "string" ? t.message : safeStringify(t.message)}
             </span>
 
             {/* Dismiss */}
