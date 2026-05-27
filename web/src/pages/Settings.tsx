@@ -7,6 +7,8 @@ import { TransactionStatus } from "../components/TransactionStatus";
 import { NETWORK_CONFIGS, getExplorerUrl } from "@shared/networks";
 import { IPFS_PROVIDERS, SELFHOSTED_GATEWAY_URL, testPinConfig } from "@shared/ipfsPin";
 import { IpfsProvider } from "@shared/types";
+import { BulletinStatusCard } from "../components/BulletinStatusCard";
+import { StepTooltip } from "../components/StepTooltip";
 
 // Field metadata: label + which group + whether optional.
 //
@@ -161,7 +163,23 @@ export function Settings() {
       <Section title="IPFS Pinning">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <label style={{ color: "var(--text)", fontSize: 12, display: "block", marginBottom: 4 }}>Pinning Service</label>
+            <label style={{ color: "var(--text)", fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              Pinning Service
+              {provider === "bulletin" && (
+                <StepTooltip
+                  required
+                  summary="Bulletin Chain needs a separate Polkadot wallet + faucet auth."
+                  details={
+                    <>
+                      Unlike Pinata / Web3.Storage, Bulletin Chain is a substrate chain. You'll need a
+                      Polkadot-native extension (polkadot{`{.js}`}, Talisman, SubWallet, or Fearless) — not
+                      MetaMask — to sign uploads, and a one-time authorization from the Paseo Bulletin
+                      faucet. The card below detects your extensions and shows each account's auth state.
+                    </>
+                  }
+                />
+              )}
+            </label>
             <select
               value={provider}
               onChange={(e) => {
@@ -268,6 +286,8 @@ export function Settings() {
             </code>
             {" "}— creatives are fetched from this URL. Must be HTTPS when accessing from a remote device.
           </div>
+
+          {provider === "bulletin" && <BulletinStatusCard />}
         </div>
       </Section>
 

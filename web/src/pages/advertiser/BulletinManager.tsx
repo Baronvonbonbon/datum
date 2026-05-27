@@ -25,6 +25,7 @@ import {
   connectExtension,
   signerFor,
   renewOnBulletin,
+  getAuthorization,
 } from "@shared/bulletinChainClient";
 import { formatDOT, parseDOT } from "@shared/dot";
 
@@ -179,10 +180,26 @@ export function BulletinManager() {
     try {
       setBusy("Looking for wallet extension...");
       const exts = await listInjectedExtensions();
-      if (exts.length === 0) throw new Error("No Polkadot wallet extension detected.");
+      if (exts.length === 0) {
+        throw new Error(
+          "No Polkadot wallet extension detected. Install polkadot{.js}, Talisman, SubWallet, or Fearless. Your existing EVM wallet (MetaMask etc.) cannot sign Bulletin Chain extrinsics.",
+        );
+      }
       const { accounts } = await connectExtension(exts[0]);
-      if (accounts.length === 0) throw new Error(`No accounts in ${exts[0]}.`);
+      if (accounts.length === 0) throw new Error(`No accounts in ${exts[0]}. Open the extension and create / unlock an account.`);
       const account = accounts[0];
+
+      // Pre-flight: verify Bulletin authorization. Catches the common
+      // "I forgot to faucet" case before the user signs anything; without
+      // this the renew extrinsic reverts on Bulletin with a less-clear
+      // BadOrigin / NotAuthorized error.
+      setBusy(`Checking Bulletin authorization for ${account.address.slice(0, 10)}...`);
+      const auth = await getAuthorization(account.address);
+      if (!auth.authorized) {
+        throw new Error(
+          `${account.address.slice(0, 10)}… is not authorized on Bulletin Chain. Visit the Paseo faucet (https://paritytech.github.io/polkadot-bulletin-chain/) to authorize this account, then retry.`,
+        );
+      }
 
       setBusy(`Renewing on Bulletin Chain via ${account.address.slice(0, 10)}...`);
       const renewRes = await renewOnBulletin(
