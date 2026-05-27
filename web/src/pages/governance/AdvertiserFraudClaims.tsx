@@ -13,6 +13,7 @@ import { useWallet } from "../../context/WalletContext";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
+import { BrandChip } from "../../components/BrandChip";
 import { humanizeError } from "@shared/errorCodes";
 import { formatDOT } from "@shared/dot";
 import { ethers } from "ethers";
@@ -199,11 +200,11 @@ export function AdvertiserFraudClaimsPage() {
                   <div>
                     <div style={{ fontSize: 13 }}>
                       <span style={{ color: "var(--text-muted)" }}>vs. publisher</span>{" "}
-                      <AddressDisplay address={c.publisher} short />
+                      <BrandChip address={c.publisher} size="sm" role="publisher" />
                       {c.campaignId > 0n && <span style={{ marginLeft: 8 }}>campaign #{c.campaignId.toString()}</span>}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                      filed by <AddressDisplay address={c.advertiser} short /> · bond {formatDOT(c.bond)} DOT · evidence{" "}
+                      filed by <BrandChip address={c.advertiser} size="sm" role="advertiser" /> · bond {formatDOT(c.bond)} DOT · evidence{" "}
                       <span style={{ fontFamily: "monospace" }}>{c.evidenceHash.slice(0, 12)}…</span>
                     </div>
                   </div>

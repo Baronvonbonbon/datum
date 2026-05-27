@@ -28,18 +28,22 @@ export function identiconDataUrl(addr: string, size = 64): string {
     cells.push(byte > 127);
   }
 
-  const cell = size / 5;
+  // Pixel-align rectangle coordinates so small renders (sm-chip size 18)
+  // stay crisp without anti-aliasing artifacts at row boundaries.
+  // We compute the row/col integer boundaries from size, which guarantees
+  // every cell starts and ends on an integer SVG coordinate.
+  const stops: number[] = [];
+  for (let i = 0; i <= 5; i++) stops.push(Math.round((i * size) / 5));
   const rects: string[] = [];
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 3; col++) {
       if (!cells[row * 3 + col]) continue;
-      const x = col * cell;
-      const y = row * cell;
-      rects.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="${color}"/>`);
+      const x0 = stops[col], x1 = stops[col + 1];
+      const y0 = stops[row], y1 = stops[row + 1];
+      rects.push(`<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="${color}"/>`);
       if (col < 2) {
-        // mirror to the right (cols 3 + 4)
-        const mx = (4 - col) * cell;
-        rects.push(`<rect x="${mx.toFixed(2)}" y="${y.toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="${color}"/>`);
+        const mx0 = stops[4 - col], mx1 = stops[5 - col];
+        rects.push(`<rect x="${mx0}" y="${y0}" width="${mx1 - mx0}" height="${y1 - y0}" fill="${color}"/>`);
       }
     }
   }

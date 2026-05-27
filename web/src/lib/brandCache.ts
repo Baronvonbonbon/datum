@@ -149,26 +149,74 @@ export async function fetchIdentityVerified(
 
 /** Best-effort domain verification. Fetches /.well-known/datum-verify.json
  *  from the brand's homepage; the file should contain a JSON object with
- *  an "addresses" array including (case-insensitive) the EOA address. */
+ *  an "addresses" array including (case-insensitive) the EOA address.
+ *
+ *  Caches results in localStorage keyed on (origin, addr). A failure
+ *  (404, network error, malformed JSON) caches a negative result with a
+ *  short TTL; a positive result caches with a longer TTL. The short
+ *  negative TTL means a brand that drops the verify file gets flagged
+ *  within an hour; the long positive TTL means we don't hammer their
+ *  server on every page view. */
+const DOMAIN_CACHE_PREFIX = "datum_domain_verify:";
+const DOMAIN_POSITIVE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const DOMAIN_NEGATIVE_TTL_MS = 1 * 60 * 60 * 1000;  // 1h
+
+interface DomainCacheEntry { v: number; ok: boolean; ts: number; }
+
+function domainCacheKey(origin: string, addr: string): string {
+  return `${DOMAIN_CACHE_PREFIX}${origin.toLowerCase()}:${addr.toLowerCase()}`;
+}
+
+function readDomainCache(origin: string, addr: string): boolean | null {
+  try {
+    const raw = localStorage.getItem(domainCacheKey(origin, addr));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DomainCacheEntry;
+    if (parsed.v !== 1) return null;
+    const ttl = parsed.ok ? DOMAIN_POSITIVE_TTL_MS : DOMAIN_NEGATIVE_TTL_MS;
+    if (Date.now() - parsed.ts > ttl) return null;
+    return parsed.ok;
+  } catch {
+    return null;
+  }
+}
+
+function writeDomainCache(origin: string, addr: string, ok: boolean) {
+  try {
+    const entry: DomainCacheEntry = { v: 1, ok, ts: Date.now() };
+    localStorage.setItem(domainCacheKey(origin, addr), JSON.stringify(entry));
+  } catch { /* localStorage disabled — skip */ }
+}
+
 export async function fetchDomainVerified(homepage: string, addr: string): Promise<boolean> {
   if (!homepage || !addr) return false;
+  let origin: string;
+  try { origin = new URL(homepage).origin; } catch { return false; }
+
+  // Cache-aside.
+  const cached = readDomainCache(origin, addr);
+  if (cached !== null) return cached;
+
+  let ok = false;
   try {
-    const url = new URL(homepage);
-    const verifyUrl = `${url.origin}/.well-known/datum-verify.json`;
+    const verifyUrl = `${origin}/.well-known/datum-verify.json`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     try {
       const res = await fetch(verifyUrl, { signal: controller.signal, redirect: "follow" });
-      if (!res.ok) return false;
-      const body = await res.json();
-      const list: string[] = Array.isArray(body?.addresses) ? body.addresses : [];
-      return list.map((s) => String(s).toLowerCase()).includes(addr.toLowerCase());
+      if (res.ok) {
+        const body = await res.json();
+        const list: string[] = Array.isArray(body?.addresses) ? body.addresses : [];
+        ok = list.map((s) => String(s).toLowerCase()).includes(addr.toLowerCase());
+      }
     } finally {
       clearTimeout(timeout);
     }
   } catch {
-    return false;
+    ok = false;
   }
+  writeDomainCache(origin, addr, ok);
+  return ok;
 }
 
 /** Convenience — derive the highest applicable verification level. */

@@ -7,6 +7,7 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { ConvictionSlider } from "../../components/ConvictionSlider";
 import { AddressDisplay } from "../../components/AddressDisplay";
+import { BrandChip } from "../../components/BrandChip";
 import { humanizeError } from "@shared/errorCodes";
 import { parseDOTSafe, parseDOT, formatDOT } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
@@ -645,7 +646,7 @@ export function ProtocolParams() {
             <div style={{ marginBottom: 10, display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12 }}>
               <div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Proposer</div>
-                <AddressDisplay address={p.proposer} chars={6} style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }} />
+                <BrandChip address={p.proposer} size="sm" />
               </div>
               <div>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>Target</div>

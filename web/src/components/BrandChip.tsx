@@ -150,7 +150,7 @@ export function BrandChip({
   })();
 
   const inner = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, maxWidth: "100%" }}>
       <img
         src={logoSrc}
         alt=""
@@ -172,11 +172,11 @@ export function BrandChip({
       />
       <span style={{ display: "flex", flexDirection: effectiveLayout === "inline" ? "row" : "column", gap: effectiveLayout === "inline" ? 8 : 0, alignItems: effectiveLayout === "inline" ? "center" : "flex-start", minWidth: 0 }}>
         {hot.name ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: council.revoked ? "var(--text-muted)" : "var(--text-strong)", fontSize: sizeSpec.nameSize, fontWeight: 600, lineHeight: 1.2 }}>
-            <span style={{ textDecoration: council.revoked ? "line-through" : "none" }}>{hot.name}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: council.revoked ? "var(--text-muted)" : "var(--text-strong)", fontSize: sizeSpec.nameSize, fontWeight: 600, lineHeight: 1.2, minWidth: 0 }}>
+            <span style={{ textDecoration: council.revoked ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{hot.name}</span>
             <VerifyBadge level={level} size={sizeSpec.badgeSize} />
             {council.revoked && (
-              <span title="This brand has been flagged by the Council. Use caution." style={{ color: "var(--warn)", fontSize: sizeSpec.badgeSize }}>⚠</span>
+              <span title="This brand has been flagged by the Council. Use caution." style={{ color: "var(--warn)", fontSize: sizeSpec.badgeSize, flexShrink: 0 }}>⚠</span>
             )}
           </span>
         ) : (
@@ -184,7 +184,7 @@ export function BrandChip({
             (unregistered)
           </span>
         )}
-        <span style={{ color: "var(--text-muted)", fontSize: sizeSpec.addrSize, fontFamily: "var(--font-mono, ui-monospace)" }}>
+        <span style={{ color: "var(--text-muted)", fontSize: sizeSpec.addrSize, fontFamily: "var(--font-mono, ui-monospace)", flexShrink: 0 }}>
           {shortAddr}
         </span>
       </span>

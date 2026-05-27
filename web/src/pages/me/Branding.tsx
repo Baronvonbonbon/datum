@@ -6,11 +6,12 @@
 // rendered everywhere picks up changes within 24h (TTL) or as soon as
 // lastUpdateBlock advances (whichever is sooner).
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ethers } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
+import { useSettings } from "../../context/SettingsContext";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
@@ -19,16 +20,28 @@ import { BrandChip } from "../../components/BrandChip";
 import { PageExplainer } from "../../components/PageExplainer";
 import { StepTooltip } from "../../components/StepTooltip";
 import { cidToBytes32, bytes32ToCid } from "@shared/ipfs";
+import { pinBlobToIPFS, PinConfig } from "@shared/ipfsPin";
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 
 type TxState = "idle" | "pending" | "success" | "error";
 
+const LOGO_MAX_BYTES = 256 * 1024;     // 256 KB
+const LOGO_MIN_DIM = 32;
+const LOGO_MAX_DIM = 1024;
+const LOGO_ACCEPT = "image/png,image/jpeg,image/webp";
+
 export function Branding() {
   const contracts = useContracts();
   const { signer, address } = useWallet();
+  const { settings } = useSettings();
   const { confirmTx } = useTx();
   const { push } = useToast();
+  const logoFileRef = useRef<HTMLInputElement>(null);
+  const jsonFileRef = useRef<HTMLInputElement>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [jsonUploading, setJsonUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [logoCid, setLogoCid] = useState(""); // bytes32 hex or IPFS CID
@@ -116,6 +129,85 @@ export function Branding() {
     }
   }
 
+  /** Read image dimensions from a Blob via a hidden <img>. Rejects when
+   *  the Blob isn't an image the browser can decode. */
+  function readImageDims(blob: Blob): Promise<{ w: number; h: number }> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Not a valid image.")); };
+      img.src = url;
+    });
+  }
+
+  function pinConfig(): PinConfig | null {
+    const provider = settings.ipfsProvider;
+    const apiKey = settings.ipfsApiKey ?? "";
+    const endpoint = settings.ipfsApiEndpoint ?? "";
+    if (!provider) return null;
+    return { provider, apiKey, endpoint };
+  }
+
+  async function handleLogoFile(file: File) {
+    setUploadMsg(null);
+    setLogoUploading(true);
+    try {
+      // Validation
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+        throw new Error("Logo must be PNG, JPEG, or WEBP. SVG is rejected for safety.");
+      }
+      if (file.size > LOGO_MAX_BYTES) {
+        throw new Error(`Logo too large: ${(file.size / 1024).toFixed(1)} KB > ${LOGO_MAX_BYTES / 1024} KB.`);
+      }
+      const dims = await readImageDims(file);
+      if (dims.w < LOGO_MIN_DIM || dims.h < LOGO_MIN_DIM) {
+        throw new Error(`Logo too small: ${dims.w}×${dims.h}. Min ${LOGO_MIN_DIM}×${LOGO_MIN_DIM}.`);
+      }
+      if (dims.w > LOGO_MAX_DIM || dims.h > LOGO_MAX_DIM) {
+        throw new Error(`Logo too large: ${dims.w}×${dims.h}. Max ${LOGO_MAX_DIM}×${LOGO_MAX_DIM}.`);
+      }
+      const cfg = pinConfig();
+      if (!cfg) throw new Error("Set an IPFS provider in Settings first.");
+      const result = await pinBlobToIPFS(cfg, file, file.name);
+      if (!result.ok || !result.cid) throw new Error(result.error ?? "Pin failed");
+      // Convert the CID to bytes32 and fill the form.
+      const bytes32 = cidToBytes32(result.cid);
+      setLogoCid(bytes32);
+      setUploadMsg(`Logo pinned: ${result.cid}`);
+    } catch (err) {
+      setUploadMsg(`Logo upload failed: ${(err as Error).message}`);
+      push((err as Error).message, "error");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  async function handleJsonFile(file: File) {
+    setUploadMsg(null);
+    setJsonUploading(true);
+    try {
+      if (file.size > 64 * 1024) throw new Error("Profile JSON > 64 KB.");
+      const text = await file.text();
+      let parsed: any;
+      try { parsed = JSON.parse(text); } catch { throw new Error("Not valid JSON."); }
+      if (typeof parsed !== "object" || parsed === null) throw new Error("JSON must be an object.");
+      const cfg = pinConfig();
+      if (!cfg) throw new Error("Set an IPFS provider in Settings first.");
+      const blob = new Blob([JSON.stringify(parsed)], { type: "application/json" });
+      const result = await pinBlobToIPFS(cfg, blob, "brand-profile.json");
+      if (!result.ok || !result.cid) throw new Error(result.error ?? "Pin failed");
+      const bytes32 = cidToBytes32(result.cid);
+      setProfileHash(bytes32);
+      setUploadMsg(`Profile JSON pinned: ${result.cid}`);
+    } catch (err) {
+      setUploadMsg(`JSON upload failed: ${(err as Error).message}`);
+      push((err as Error).message, "error");
+    } finally {
+      setJsonUploading(false);
+    }
+  }
+
   if (!address) {
     return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect a wallet to manage your brand profile.</div>;
   }
@@ -199,13 +291,38 @@ export function Branding() {
               }
             />
           </label>
-          <input
-            value={logoCid}
-            onChange={(e) => setLogoCid(e.target.value)}
-            className="nano-input"
-            placeholder="baf… or 0x… (bytes32)"
-            style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}
-          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={logoCid}
+              onChange={(e) => setLogoCid(e.target.value)}
+              className="nano-input"
+              placeholder="baf… or 0x… (bytes32)"
+              style={{ fontFamily: "var(--font-mono)", fontSize: 11, flex: 1 }}
+            />
+            <input
+              type="file"
+              ref={logoFileRef}
+              accept={LOGO_ACCEPT}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleLogoFile(f);
+                if (e.target) e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => logoFileRef.current?.click()}
+              className="nano-btn"
+              disabled={logoUploading}
+              style={{ fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }}
+            >
+              {logoUploading ? "Pinning…" : "Upload"}
+            </button>
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
+            PNG/JPG/WEBP only, 32×32 to 1024×1024, ≤256 KB. Pinned via your Settings → IPFS provider.
+          </div>
         </div>
 
         {/* Homepage */}
@@ -274,19 +391,47 @@ export function Branding() {
               }
             />
           </label>
-          <input
-            value={profileHash}
-            onChange={(e) => setProfileHash(e.target.value)}
-            className="nano-input"
-            placeholder="baf… or 0x… (bytes32)"
-            style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}
-          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={profileHash}
+              onChange={(e) => setProfileHash(e.target.value)}
+              className="nano-input"
+              placeholder="baf… or 0x… (bytes32)"
+              style={{ fontFamily: "var(--font-mono)", fontSize: 11, flex: 1 }}
+            />
+            <input
+              type="file"
+              ref={jsonFileRef}
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleJsonFile(f);
+                if (e.target) e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => jsonFileRef.current?.click()}
+              className="nano-btn"
+              disabled={jsonUploading}
+              style={{ fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }}
+            >
+              {jsonUploading ? "Pinning…" : "Upload JSON"}
+            </button>
+          </div>
         </div>
 
         {/* Helper: convert hex → CID for verification */}
         {logoCid.startsWith("0x") && logoCid.length === 66 && (
           <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
             Logo CID (decoded): {bytes32ToCid(logoCid)}
+          </div>
+        )}
+
+        {uploadMsg && (
+          <div style={{ fontSize: 11, color: uploadMsg.includes("failed") ? "var(--error)" : "var(--ok)" }}>
+            {uploadMsg}
           </div>
         )}
 

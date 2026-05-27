@@ -296,6 +296,112 @@ async function pinViaCustom(apiKey: string, endpoint: string, metadata: Campaign
 /**
  * Pin a CampaignMetadata object via the configured IPFS provider.
  */
+/**
+ * Pin an arbitrary Blob (file or JSON) via the configured provider. Used
+ * by the brand-profile upload widget and any future place that needs to
+ * pin non-campaign content. Mirrors the dispatch logic of `pinToIPFS`
+ * but takes a Blob + name instead of a typed campaign object.
+ *
+ * Web3.Storage, Filebase, NFT.Storage, and self-hosted endpoints already
+ * accept arbitrary blobs in their existing helpers; for Pinata we use
+ * pinFileToIPFS (multipart/form-data) so binary uploads work. Kubo uses
+ * its multipart /api/v0/add endpoint.
+ */
+export async function pinBlobToIPFS(config: PinConfig, blob: Blob, name: string): Promise<PinResult> {
+  const key = config.apiKey.trim();
+  const noKeyProviders: IpfsProvider[] = ["custom", "selfhosted", "localipfs"];
+  if (!key && !noKeyProviders.includes(config.provider)) {
+    return { ok: false, error: `No API key configured for ${IPFS_PROVIDERS[config.provider].label}. Add it in Settings.` };
+  }
+  try {
+    switch (config.provider) {
+      case "pinata": {
+        const form = new FormData();
+        form.append("file", blob, name);
+        form.append("pinataMetadata", JSON.stringify({ name }));
+        const response = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}` },
+          body: form,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          return { ok: false, error: `Pinata ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        return data.IpfsHash ? { ok: true, cid: data.IpfsHash } : { ok: false, error: "Pinata returned no CID" };
+      }
+      case "web3storage": {
+        const response = await fetch("https://api.web3.storage/upload", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "X-Name": name },
+          body: blob,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          return { ok: false, error: `Web3.Storage ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        return data.cid ? { ok: true, cid: data.cid } : { ok: false, error: "Web3.Storage returned no CID" };
+      }
+      case "nftstorage": {
+        const response = await fetch("https://api.nft.storage/upload", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}` },
+          body: blob,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          return { ok: false, error: `NFT.Storage ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        const cid = data.value?.cid ?? data.cid;
+        return cid ? { ok: true, cid } : { ok: false, error: "NFT.Storage returned no CID" };
+      }
+      case "selfhosted":
+      case "localipfs":
+      case "custom": {
+        const endpoint =
+          config.provider === "selfhosted" ? SELFHOSTED_UPLOAD_URL :
+          config.provider === "localipfs" ? (config.endpoint || "").trim().replace(/\/$/, "") + "/api/v0/add" :
+          (config.endpoint || "").trim();
+        if (!endpoint) return { ok: false, error: "No endpoint configured" };
+        const form = new FormData();
+        form.append("file", blob, name);
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: key ? { Authorization: `Bearer ${key}` } : undefined,
+          body: form,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          return { ok: false, error: `Upload ${response.status}: ${text.slice(0, 200)}` };
+        }
+        // Kubo returns NDJSON with {Hash} per line; self-hosted/custom may return JSON {Hash} or {cid}.
+        const text = await response.text();
+        const lines = text.trim().split("\n").filter(Boolean);
+        const lastLine = lines[lines.length - 1] || text;
+        try {
+          const obj = JSON.parse(lastLine);
+          const cid = obj.Hash ?? obj.cid ?? obj.IpfsHash;
+          if (cid) return { ok: true, cid };
+        } catch { /* fall through */ }
+        return { ok: false, error: "Endpoint returned no CID" };
+      }
+      case "filebase": {
+        // Filebase pinning API doesn't accept raw blob uploads via the IPFS pin endpoint;
+        // require their S3 API for files. Pin JSON only via their API.
+        return { ok: false, error: "Filebase requires S3 API for binary uploads — use Pinata or self-hosted for logos." };
+      }
+      case "bulletin": {
+        return { ok: false, error: "Bulletin Chain pinning routes through bulletinChainClient, not pinBlobToIPFS." };
+      }
+    }
+  } catch (err) {
+    return { ok: false, error: `Pin failed: ${String(err).slice(0, 200)}` };
+  }
+}
+
 export async function pinToIPFS(config: PinConfig, metadata: CampaignMetadata): Promise<PinResult> {
   const key = config.apiKey.trim();
   const noKeyProviders: IpfsProvider[] = ["custom", "selfhosted", "localipfs"];

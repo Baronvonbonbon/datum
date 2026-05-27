@@ -4,6 +4,8 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
+import { BrandChip } from "../../components/BrandChip";
+import { BrandLongTailCard } from "../../components/BrandLongTailCard";
 import { DOTAmount } from "../../components/DOTAmount";
 import { StatusBadge } from "../../components/StatusBadge";
 import { getExplorerUrl } from "@shared/networks";
@@ -121,9 +123,9 @@ export function AdvertiserProfile() {
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Advertiser Profile</h1>
+          <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Advertiser Profile</h1>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <AddressDisplay address={paramAddress} chars={10} style={{ fontSize: 14, color: "var(--text)" }} />
+            <BrandChip address={paramAddress} size="lg" role="advertiser" verifyDomain layout="stacked" />
             {explorerUrl && (
               <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 11, color: "var(--text-muted)", textDecoration: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "2px 8px" }}>
@@ -140,6 +142,9 @@ export function AdvertiserProfile() {
       </div>
 
       {loading && <div className="nano-pending-text" style={{ color: "var(--text-muted)" }}>Loading</div>}
+
+      {/* Brand profile (off-chain JSON; renders nothing if unset) */}
+      <BrandLongTailCard address={paramAddress} />
 
       {!loading && stats && (
         <>

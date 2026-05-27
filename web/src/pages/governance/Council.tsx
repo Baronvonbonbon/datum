@@ -15,6 +15,7 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
+import { BrandChip } from "../../components/BrandChip";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { humanizeError } from "@shared/errorCodes";
 import { formatBlockDelta } from "@shared/conviction";
@@ -390,7 +391,7 @@ export function Council() {
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {members.map((m) => (
                 <div key={m} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <AddressDisplay address={m} chars={8} style={{ fontSize: 12 }} />
+                  <BrandChip address={m} size="sm" />
                   {address && m.toLowerCase() === address.toLowerCase() && (
                     <span className="nano-badge" style={{ color: "var(--ok)", fontSize: 10 }}>you</span>
                   )}
@@ -525,7 +526,7 @@ export function Council() {
                 )}
 
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
-                  <div>Proposer: <AddressDisplay address={p.proposer} chars={6} style={{ fontSize: 11 }} /></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>Proposer: <BrandChip address={p.proposer} size="sm" /></div>
                   {p.targets[0] && (
                     <div>Target: <code style={{ color: "var(--text)" }}>{p.targets[0].slice(0, 10)}…{p.targets[0].slice(-4)}</code> ({p.callDataLengths[0]}B calldata)</div>
                   )}
