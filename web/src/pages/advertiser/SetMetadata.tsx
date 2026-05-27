@@ -117,7 +117,10 @@ export function SetMetadata() {
       if (pinResult.warning) push(pinResult.warning, "warn");
 
       const metadataHash = cidToBytes32(pinResult.cid);
-      const c = contracts.campaigns.connect(signer!);
+      if (!contracts.campaignCreative) {
+        throw new Error("DatumCampaignCreative not available on this network");
+      }
+      const c = contracts.campaignCreative.connect(signer!);
       const tx = await c.setMetadata(BigInt(id!), metadataHash);
       await confirmTx(tx);
 
@@ -168,8 +171,11 @@ export function SetMetadata() {
       setPinStatus(`Stored: ${storeRes.cid} (block ${storeRes.bulletinBlock}, idx ${storeRes.bulletinIndex})`);
 
       // 4. Record the reference on Hub.
-      const c = contracts.campaigns.connect(signer!);
-      const horizonBlock = BigInt(await contracts.campaigns.runner!.provider!.getBlockNumber())
+      if (!contracts.campaignCreative) {
+        throw new Error("DatumCampaignCreative not available on this network");
+      }
+      const c = contracts.campaignCreative.connect(signer!);
+      const horizonBlock = BigInt(await contracts.campaignCreative.runner!.provider!.getBlockNumber())
         + DEFAULT_RETENTION_HORIZON_BLOCKS;
       const tx = await c.setBulletinCreative(
         BigInt(id!),

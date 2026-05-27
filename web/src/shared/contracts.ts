@@ -11,6 +11,7 @@ import DatumTimelockAbi from "./abis/DatumTimelock.json";
 import DatumBudgetLedgerAbi from "./abis/DatumBudgetLedger.json";
 import DatumPaymentVaultAbi from "./abis/DatumPaymentVault.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
+import DatumCampaignCreativeAbi from "./abis/DatumCampaignCreative.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
 import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
@@ -254,6 +255,11 @@ export function getLifecycleContract(addresses: ContractAddresses, provider: Pro
   return make(addresses.lifecycle, abi(DatumCampaignLifecycleAbi), provider);
 }
 
+export function getCampaignCreativeContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.campaignCreative) return null;
+  return make(addresses.campaignCreative, abi(DatumCampaignCreativeAbi), provider);
+}
+
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
 }
@@ -397,6 +403,7 @@ const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
   "peopleChainBondedReporter",
   "governanceV2",
   "timelock",
+  "campaignCreative",
 ];
 
 /// Maps a few keys whose JSON name in ContractAddresses differs from the

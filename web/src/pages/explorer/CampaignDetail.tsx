@@ -275,19 +275,18 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         setAdReportCount(BigInt(ar));
       } catch { /* no campaigns contract */ }
 
-      // Metadata hash from events
-      try {
-        const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(campaignId));
-        const logs = await queryFilterAll(contracts.campaigns, filter);
-        if (logs.length > 0) {
-          const last = logs[logs.length - 1] as any;
-          setMetadataHash(last.args?.metadataHash ?? "0x" + "0".repeat(64));
-        }
-      } catch { /* no events */ }
+      // Metadata hash from DatumCampaignCreative (alpha-4 EIP-170 carve-out).
+      if (contracts.campaignCreative) {
+        try {
+          const hash = await contracts.campaignCreative.campaignMetadata(BigInt(campaignId));
+          setMetadataHash(hash ?? "0x" + "0".repeat(64));
+        } catch { /* contract unavailable */ }
+      }
 
       // Bulletin Chain creative ref (Phase A): prefer when set.
       try {
-        const ref = await contracts.campaigns.getBulletinCreative(BigInt(campaignId));
+        if (!contracts.campaignCreative) throw new Error("no creative contract");
+        const ref = await contracts.campaignCreative.getBulletinCreative(BigInt(campaignId));
         // ethers v6 returns Result tuple; tolerate either struct-style or array-style.
         const digest = (ref as any).cidDigest ?? (ref as any)[0];
         const codec = Number((ref as any).cidCodec ?? (ref as any)[1] ?? 0);

@@ -70,11 +70,12 @@ export function Vote() {
         } catch { /* no vote */ }
       }
 
-      try {
-        const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(cid));
-        const logs = await queryFilterAll(contracts.campaigns, filter);
-        if (logs.length > 0) setMetadataHash((logs[logs.length - 1] as any).args?.metadataHash ?? "0x" + "0".repeat(64));
-      } catch { /* no events */ }
+      if (contracts.campaignCreative) {
+        try {
+          const hash = await contracts.campaignCreative.campaignMetadata(BigInt(cid));
+          if (hash) setMetadataHash(hash);
+        } catch { /* contract unavailable */ }
+      }
 
       // Required tags
       try {

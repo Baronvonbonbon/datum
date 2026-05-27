@@ -46,8 +46,9 @@ export function Campaigns() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  const campaignsAddr = contracts.campaigns?.target as string | undefined;
   const load = useCallback(async () => {
-    if (!settings.contractAddresses.campaigns) return;
+    if (!campaignsAddr) return;
     setLoading(true);
     setError(null);
     try {
@@ -66,16 +67,13 @@ export function Campaigns() {
             contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
           ]);
 
-          // Try to get metadata hash from events (scan recent logs)
+          // Metadata hash from DatumCampaignCreative (alpha-4 EIP-170 carve-out).
           let metadataHash = "0x" + "0".repeat(64);
-          try {
-            const filter = contracts.campaigns.filters.CampaignMetadataSet(BigInt(id));
-            const logs = await queryFilterAll(contracts.campaigns, filter);
-            if (logs.length > 0) {
-              const last = logs[logs.length - 1] as any;
-              metadataHash = last.args?.metadataHash ?? metadataHash;
-            }
-          } catch { /* events unavailable */ }
+          if (contracts.campaignCreative) {
+            try {
+              metadataHash = await contracts.campaignCreative.campaignMetadata(BigInt(id));
+            } catch { /* contract unavailable */ }
+          }
 
           return {
             id,
@@ -97,7 +95,7 @@ export function Campaigns() {
     } finally {
       setLoading(false);
     }
-  }, [settings.contractAddresses.campaigns, page]);
+  }, [campaignsAddr, page]);
 
   useEffect(() => { load(); }, [load]);
 
