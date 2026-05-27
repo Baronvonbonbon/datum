@@ -121,7 +121,7 @@ function formatCpm(planckStr?: string): string {
   } catch { return "?"; }
 }
 
-function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
+export function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
   try {
     const parsed = new URL(imageUrl);
     if (parsed.protocol === "https:") return parsed.href;
@@ -140,7 +140,7 @@ function resolveImageUrl(imageUrl: string, gateway?: string): string | null {
  * Pick the best creative image URL for a given slot format.
  * Priority: exact format match → any available image → legacy imageUrl field.
  */
-function resolveCreativeImage(
+export function resolveCreativeImage(
   creative: CampaignCreative["creative"],
   slotFormat: string | undefined,
   gateway: string | undefined,
