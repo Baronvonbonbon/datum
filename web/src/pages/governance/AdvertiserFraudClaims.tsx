@@ -84,17 +84,17 @@ export function AdvertiserFraudClaimsPage() {
       list.reverse();
       setClaims(list);
     } catch (err) {
-      push({ kind: "error", text: `Load failed: ${humanizeError(err)}` });
+      push(`Load failed: ${humanizeError(err)}`, "error");
     }
     setLoading(false);
   }
 
   async function fileClaim() {
-    if (!signer) { push({ kind: "error", text: "Connect your wallet" }); return; }
-    if (advBond === 0n) { push({ kind: "error", text: "Advertiser claim track is disabled (bond=0)" }); return; }
-    if (!ethers.isAddress(filePublisher)) { push({ kind: "error", text: "Invalid publisher address" }); return; }
+    if (!signer) { push("Connect your wallet", "error"); return; }
+    if (advBond === 0n) { push("Advertiser claim track is disabled (bond=0)", "error"); return; }
+    if (!ethers.isAddress(filePublisher)) { push("Invalid publisher address", "error"); return; }
     if (!fileEvidence.startsWith("0x") || fileEvidence.length !== 66) {
-      push({ kind: "error", text: "Evidence must be a 0x-prefixed 32-byte hash (IPFS CID-as-bytes32)" });
+      push("Evidence must be a 0x-prefixed 32-byte hash (IPFS CID-as-bytes32)", "error");
       return;
     }
     setFiling(true);
@@ -102,11 +102,11 @@ export function AdvertiserFraudClaimsPage() {
       const gov: any = contracts.publisherGovernance.connect(signer);
       const tx = await gov.fileAdvertiserFraudClaim(filePublisher, BigInt(fileCampaignId || "0"), fileEvidence, { value: advBond });
       await confirmTx(tx);
-      push({ kind: "success", text: `Fraud claim filed against ${filePublisher.slice(0, 8)}…` });
+      push(`Fraud claim filed against ${filePublisher.slice(0, 8)}…`, "ok");
       setFilePublisher(""); setFileCampaignId("0"); setFileEvidence("");
       await load();
     } catch (err) {
-      push({ kind: "error", text: humanizeError(err) });
+      push(humanizeError(err), "error");
     }
     setFiling(false);
   }

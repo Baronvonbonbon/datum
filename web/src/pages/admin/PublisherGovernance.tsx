@@ -64,7 +64,7 @@ export function PublisherGovernanceAdmin() {
         ayeWeight: p.ayeWeight, nayWeight: p.nayWeight, state: Number(p.state),
       });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
@@ -135,7 +135,7 @@ export function PublisherGovernanceAdmin() {
       ]);
       setParams({ quorum: formatEther(q), slashBps: slash.toString(), bonusBps: bonus.toString(), grace: grace.toString() });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     }
   }
 

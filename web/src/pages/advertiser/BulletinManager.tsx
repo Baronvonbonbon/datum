@@ -62,14 +62,14 @@ export function BulletinManager() {
   const [renewerAddr, setRenewerAddr] = useState("");
 
   async function refresh() {
-    if (!id) return;
+    if (!id || !contracts.campaignCreative) return;
     try {
       const [ref, esc, open, rw, blk] = await Promise.all([
-        contracts.campaigns.getBulletinCreative(BigInt(id)),
-        contracts.campaigns.bulletinRenewalEscrow(BigInt(id)),
-        contracts.campaigns.openBulletinRenewal(BigInt(id)),
-        contracts.campaigns.bulletinRenewerReward(),
-        contracts.campaigns.runner!.provider!.getBlockNumber(),
+        contracts.campaignCreative!.getBulletinCreative(BigInt(id)),
+        contracts.campaignCreative!.bulletinRenewalEscrow(BigInt(id)),
+        contracts.campaignCreative!.openBulletinRenewal(BigInt(id)),
+        contracts.campaignCreative!.bulletinRenewerReward(),
+        contracts.campaignCreative!.runner!.provider!.getBlockNumber(),
       ]);
       setSnapshot({
         cidDigest: (ref as any).cidDigest ?? (ref as any)[0],
@@ -105,7 +105,7 @@ export function BulletinManager() {
     try {
       setBusy("Funding escrow...");
       const v = parseDOT(fundAmount);
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.fundBulletinRenewalEscrow(BigInt(id), { value: v });
       await confirmTx(tx);
       push("Escrow funded", "ok");
@@ -122,7 +122,7 @@ export function BulletinManager() {
       const v = parseDOT(withdrawAmount);
       const recipient = (withdrawRecipient.trim() || address) as string;
       if (!ethers.isAddress(recipient)) throw new Error("Invalid recipient address");
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.withdrawBulletinRenewalEscrow(BigInt(id), recipient, v);
       await confirmTx(tx);
       push("Escrow withdrawn", "ok");
@@ -136,7 +136,7 @@ export function BulletinManager() {
     if (!signer || !id) return;
     try {
       setBusy(`${openMode ? "Disabling" : "Enabling"} open renewal...`);
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.setOpenBulletinRenewal(BigInt(id), !openMode);
       await confirmTx(tx);
       push(`Open renewal ${openMode ? "disabled" : "enabled"}`, "ok");
@@ -152,7 +152,7 @@ export function BulletinManager() {
       const addr = renewerAddr.trim();
       if (!ethers.isAddress(addr)) throw new Error("Invalid renewer address");
       setBusy(`${approve ? "Approving" : "Revoking"} renewer...`);
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.setApprovedBulletinRenewer(BigInt(id), addr, approve);
       await confirmTx(tx);
       push(`Renewer ${approve ? "approved" : "revoked"}`, "ok");
@@ -165,7 +165,7 @@ export function BulletinManager() {
     if (!signer || !id) return;
     try {
       setBusy("Clearing expired bulletin ref...");
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.markBulletinExpired(BigInt(id));
       await confirmTx(tx);
       push("Bulletin ref cleared", "ok");
@@ -208,7 +208,7 @@ export function BulletinManager() {
         signerFor(account),
       );
       setBusy(`Confirming on Hub (new block ${renewRes.newBulletinBlock})...`);
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.confirmBulletinRenewal(
         BigInt(id),
         renewRes.newBulletinBlock,

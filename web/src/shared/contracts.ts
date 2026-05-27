@@ -13,6 +13,9 @@ import DatumPaymentVaultAbi from "./abis/DatumPaymentVault.json";
 import DatumCampaignLifecycleAbi from "./abis/DatumCampaignLifecycle.json";
 import DatumCampaignCreativeAbi from "./abis/DatumCampaignCreative.json";
 import DatumPowEngineAbi from "./abis/DatumPowEngine.json";
+import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
+import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
+import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
 import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
@@ -266,6 +269,21 @@ export function getPowEngineContract(addresses: ContractAddresses, provider: Pro
   return make(addresses.powEngine, abi(DatumPowEngineAbi), provider);
 }
 
+export function getNullifierRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.nullifierRegistry) return null;
+  return make(addresses.nullifierRegistry, abi(DatumNullifierRegistryAbi), provider);
+}
+
+export function getSettlementRateLimiterContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.settlementRateLimiter) return null;
+  return make(addresses.settlementRateLimiter, abi(DatumSettlementRateLimiterAbi), provider);
+}
+
+export function getPublisherReputationContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.publisherReputation) return null;
+  return make(addresses.publisherReputation, abi(DatumPublisherReputationAbi), provider);
+}
+
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
 }
@@ -411,6 +429,9 @@ const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
   "timelock",
   "campaignCreative",
   "powEngine",
+  "nullifierRegistry",
+  "settlementRateLimiter",
+  "publisherReputation",
 ];
 
 /// Maps a few keys whose JSON name in ContractAddresses differs from the

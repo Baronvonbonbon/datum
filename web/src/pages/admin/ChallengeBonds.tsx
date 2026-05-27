@@ -51,7 +51,7 @@ export function ChallengeBondsAdmin() {
       ]);
       setBondInfo({ owner, publisher, bond, claimed });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
@@ -68,7 +68,7 @@ export function ChallengeBondsAdmin() {
       ]);
       setPoolInfo({ totalBonds, bonusPool });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setPoolLoading(false);
     }

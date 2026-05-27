@@ -45,23 +45,23 @@ export function AssurancePage() {
       setCurrent(Number(lvl));
       setChosen(Number(lvl));
     } catch (err) {
-      push({ kind: "error", text: `Failed to read current AssuranceLevel: ${humanizeError(err)}` });
+      push(`Failed to read current AssuranceLevel: ${humanizeError(err)}`, "error");
     }
     setLoading(false);
   }
 
   async function save() {
-    if (!signer) { push({ kind: "error", text: "Connect your wallet first." }); return; }
+    if (!signer) { push("Connect your wallet first.", "error"); return; }
     if (chosen === current) return;
     setSubmitting(true);
     try {
       const c = contracts.settlement.connect(signer);
       const tx = await c.setUserMinAssurance(chosen);
       await confirmTx(tx);
-      push({ kind: "success", text: `AssuranceLevel set to ${LEVELS[chosen].label}` });
+      push(`AssuranceLevel set to ${LEVELS[chosen].label}`, "ok");
       await load();
     } catch (err) {
-      push({ kind: "error", text: humanizeError(err) });
+      push(humanizeError(err), "error");
     }
     setSubmitting(false);
   }

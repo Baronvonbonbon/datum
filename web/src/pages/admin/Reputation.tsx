@@ -29,20 +29,20 @@ export function ReputationAdmin() {
   const [lookupLoading, setLookupLoading] = useState(false);
 
   async function handleLookup() {
-    if (!contracts.settlement) return;
+    if (!contracts.publisherReputation) return;
     if (!lookupAddr) return;
     setLookupLoading(true);
     setLookupResult(null);
     try {
-      const [settled, rejected, score] = await contracts.settlement.getPublisherStats(lookupAddr);
+      const [settled, rejected, score] = await contracts.publisherReputation.getPublisherStats(lookupAddr);
       const result: typeof lookupResult = {
         settled: settled.toString(),
         rejected: rejected.toString(),
         score: Number(score),
       };
       if (lookupCampaign) {
-        const [cs, cr] = await contracts.settlement.getCampaignRepStats(lookupAddr, BigInt(lookupCampaign));
-        const anomaly = await contracts.settlement.isAnomaly(lookupAddr, BigInt(lookupCampaign));
+        const [cs, cr] = await contracts.publisherReputation.getCampaignRepStats(lookupAddr, BigInt(lookupCampaign));
+        const anomaly = await contracts.publisherReputation.isAnomaly(lookupAddr, BigInt(lookupCampaign));
         result.cs = cs.toString();
         result.cr = cr.toString();
         result.anomaly = anomaly;
@@ -55,7 +55,7 @@ export function ReputationAdmin() {
     }
   }
 
-  const notDeployed = !contracts.settlement;
+  const notDeployed = !contracts.publisherReputation;
 
   return (
     <div className="nano-fade" style={{ maxWidth: 580 }}>
@@ -72,7 +72,7 @@ export function ReputationAdmin() {
 
       {notDeployed && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
-          Settlement contract address not configured — check networks.ts.
+          PublisherReputation contract address not configured — check networks.ts.
         </div>
       )}
 

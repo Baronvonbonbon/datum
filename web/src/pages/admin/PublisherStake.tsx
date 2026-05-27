@@ -59,7 +59,7 @@ export function PublisherStakeAdmin() {
         pendingBlock: pending.releaseBlock ?? pending[1],
       });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
@@ -75,7 +75,7 @@ export function PublisherStakeAdmin() {
       ]);
       setParams({ base: base.toString(), perImp: perImp.toString(), delay: delay.toString() });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     }
   }
 
@@ -109,7 +109,7 @@ export function PublisherStakeAdmin() {
       setGateContract(contractAddr);
       setGateThreshold(threshold.toString());
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     }
   }
 

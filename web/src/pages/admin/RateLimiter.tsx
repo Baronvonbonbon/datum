@@ -27,9 +27,12 @@ export function RateLimiterAdmin() {
   async function load() {
     setLoading(true);
     try {
+      if (!contracts.settlementRateLimiter) {
+        setWindowBlocks(null); setMaxPerWindow(null); return;
+      }
       const [wb, mp] = await Promise.all([
-        contracts.settlement.rlWindowBlocks().catch(() => null),
-        contracts.settlement.rlMaxEventsPerWindow().catch(() => null),
+        contracts.settlementRateLimiter.rlWindowBlocks().catch(() => null),
+        contracts.settlementRateLimiter.rlMaxEventsPerWindow().catch(() => null),
       ]);
       setWindowBlocks(wb !== null ? wb.toString() : null);
       setMaxPerWindow(mp !== null ? mp.toString() : null);
@@ -39,12 +42,12 @@ export function RateLimiterAdmin() {
   }
 
   async function handleAdjust() {
-    if (!signer) return;
+    if (!signer || !contracts.settlementRateLimiter) return;
     if (!windowInput || !maxInput) { setAdjustTxMsg("Enter both values."); setAdjustTxState("error"); return; }
     setAdjustTxState("pending");
     setAdjustTxMsg("");
     try {
-      const c = contracts.settlement.connect(signer);
+      const c = contracts.settlementRateLimiter.connect(signer);
       const tx = await c.setRateLimits(BigInt(windowInput), BigInt(maxInput));
       await confirmTx(tx);
       setAdjustTxState("success");

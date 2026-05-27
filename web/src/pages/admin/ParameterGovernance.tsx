@@ -69,7 +69,7 @@ export function ParameterGovernanceAdmin() {
         ayeWeight: p.ayeWeight, nayWeight: p.nayWeight, bond: p.bond, state: Number(p.state),
       });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
@@ -177,7 +177,7 @@ export function ParameterGovernanceAdmin() {
         bond: formatEther(b),
       });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     }
   }
 

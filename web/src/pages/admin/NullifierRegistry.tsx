@@ -29,38 +29,38 @@ export function NullifierRegistryAdmin() {
   const [windowTxMsg, setWindowTxMsg] = useState("");
 
   async function loadConfig() {
-    if (!contracts.settlement) return;
+    if (!contracts.nullifierRegistry) return;
     setConfigLoading(true);
     try {
-      const windowBlocks = await contracts.settlement.nullifierWindowBlocks();
+      const windowBlocks = await contracts.nullifierRegistry.nullifierWindowBlocks();
       setConfig({ windowBlocks });
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setConfigLoading(false);
     }
   }
 
   async function handleLookup() {
-    if (!contracts.settlement) return;
+    if (!contracts.nullifierRegistry) return;
     setLookupLoading(true);
     setIsUsed(null);
     try {
-      const used = await contracts.settlement.isNullifierUsed(BigInt(lookupCampaign), lookupNullifier as `0x${string}`);
+      const used = await contracts.nullifierRegistry.isNullifierUsed(BigInt(lookupCampaign), lookupNullifier as `0x${string}`);
       setIsUsed(used);
     } catch (err) {
-      push({ message: humanizeError(err), type: "error" });
+      push(humanizeError(err), "error");
     } finally {
       setLookupLoading(false);
     }
   }
 
   async function handleSetWindowBlocks() {
-    if (!contracts.settlement || !signer) return;
+    if (!contracts.nullifierRegistry || !signer) return;
     setWindowTxState("pending");
     setWindowTxMsg("Updating window…");
     try {
-      const s = contracts.settlement.connect(signer);
+      const s = contracts.nullifierRegistry.connect(signer);
       const tx = await confirmTx(() => s.setNullifierWindowBlocks(BigInt(newWindow)));
       if (!tx) { setWindowTxState("idle"); return; }
       await tx.wait();
