@@ -4,6 +4,7 @@ import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerC
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
+import { CampaignChip } from "./CampaignChip";
 import { getSigner, getUnlockedWallet } from "@shared/walletManager";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 import { humanizeError } from "@shared/errorCodes";
@@ -106,6 +107,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [attestationWarnings, setAttestationWarnings] = useState<Record<string, string>>({});
   const [sym, setSym] = useState("DOT");
+  // Settings snapshot used by CampaignChip + child render paths.
+  const [chipSettings, setChipSettings] = useState<StoredSettings | null>(null);
   const [stalePruned, setStalePruned] = useState(0); // CL-2: stale claims notification
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -151,8 +154,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
   useEffect(() => {
     loadState();
     chrome.storage.local.get("settings").then((s) => {
-      const network = (s.settings ?? DEFAULT_SETTINGS).network;
-      setSym(getCurrencySymbol(network));
+      const ss = (s.settings as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
+      setSym(getCurrencySymbol(ss.network));
+      setChipSettings(ss);
     });
     // Poll every 3s so newly recorded impressions appear without manual refresh.
     const id = setInterval(loadState, 3000);
@@ -992,9 +996,20 @@ export function ClaimQueue({ address, onSettled }: Props) {
             const anyBusy = submitting || signing || submittingCampaign !== null || discardingCampaign !== null;
             return (
               <div key={cid} style={claimRowStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "var(--accent)" }}>Campaign #{cid}</span>
-                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  {chipSettings ? (
+                    <CampaignChip
+                      campaignId={cid}
+                      size="sm"
+                      rpcUrl={chipSettings.rpcUrl}
+                      network={chipSettings.network}
+                      addresses={chipSettings.contractAddresses}
+                      ipfsGateway={chipSettings.ipfsGateway || "https://dweb.link/ipfs/"}
+                    />
+                  ) : (
+                    <span style={{ color: "var(--accent)" }}>Campaign #{cid}</span>
+                  )}
+                  <span style={{ color: "var(--text-muted)", fontSize: 12, flexShrink: 0 }}>
                     {count} impression{count !== 1 ? "s" : ""}
                   </span>
                 </div>

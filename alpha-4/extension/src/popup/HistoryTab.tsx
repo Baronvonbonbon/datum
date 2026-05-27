@@ -11,6 +11,7 @@ import {
   EarningsIndex,
 } from "@shared/earningsIndex";
 import { BrandChip } from "./BrandChip";
+import { CampaignChip } from "./CampaignChip";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { StoredSettings } from "@shared/types";
 import { Contract, JsonRpcProvider } from "ethers";
@@ -190,28 +191,25 @@ export function HistoryTab({ address }: Props) {
                     <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>
                       {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleDateString() : `#${r.blockNumber}`}
                     </span>
-                    <span style={{ color: "var(--text)" }}>
-                      Campaign #{r.campaignId}
-                      <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>{actionTypeLabel(r.actionType)}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <CampaignChip
+                        campaignId={r.campaignId}
+                        size="xs"
+                        rpcUrl={settings.rpcUrl}
+                        network={settings.network}
+                        addresses={settings.contractAddresses}
+                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                      />
+                      <span style={{ color: "var(--text-muted)", fontSize: 10, flexShrink: 0 }}>{actionTypeLabel(r.actionType)}</span>
                     </span>
                     <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
                       +{formatDOT(BigInt(r.userPaymentPlanck))}
                     </span>
                   </div>
-                  {/* Brand row: who served vs. who paid. */}
+                  {/* Publisher brand under the campaign chip — CampaignChip
+                       already shows the advertiser, so we only need the
+                       served-by line here. */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: 0 }}>
-                    {adv && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)" }}>
-                        <span style={{ minWidth: 56 }}>from:</span>
-                        <BrandChip
-                          address={adv}
-                          size="xs"
-                          rpcUrl={settings.rpcUrl}
-                          addresses={settings.contractAddresses}
-                          ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
-                        />
-                      </div>
-                    )}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)" }}>
                       <span style={{ minWidth: 56 }}>served by:</span>
                       <BrandChip
@@ -264,9 +262,16 @@ export function HistoryTab({ address }: Props) {
                 >
                   <div style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 8, alignItems: "center" }}>
                     <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>{i + 1}.</span>
-                    <span style={{ color: "var(--text)" }}>
-                      Campaign #{row.campaignId}
-                      <span style={{ color: "var(--text-muted)", marginLeft: 6, fontSize: 10 }}>
+                    <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                      <CampaignChip
+                        campaignId={row.campaignId}
+                        size="xs"
+                        rpcUrl={settings.rpcUrl}
+                        network={settings.network}
+                        addresses={settings.contractAddresses}
+                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                      />
+                      <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
                         {row.totals.claimCount} claim{row.totals.claimCount === 1 ? "" : "s"}
                         {" · "}{row.totals.totalEvents} events
                       </span>
@@ -275,18 +280,6 @@ export function HistoryTab({ address }: Props) {
                       {formatDOT(BigInt(row.totals.totalUserPlanck))}
                     </span>
                   </div>
-                  {adv && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-muted)", marginLeft: 28 }}>
-                      <span>from:</span>
-                      <BrandChip
-                        address={adv}
-                        size="xs"
-                        rpcUrl={settings.rpcUrl}
-                        addresses={settings.contractAddresses}
-                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
-                      />
-                    </div>
-                  )}
                 </div>
               );
             })}

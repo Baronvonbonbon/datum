@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Contract, JsonRpcProvider } from "ethers";
 import { ImpressionLogEntry } from "../background/impressionLog";
 import { BrandChip } from "../popup/BrandChip";
+import { CampaignChip } from "../popup/CampaignChip";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import { StoredSettings } from "@shared/types";
 
@@ -407,18 +408,14 @@ export function HistoryPage() {
                     onMouseLeave={(el) => (el.currentTarget.style.background = "transparent")}
                   >
                     <td style={{ ...cellStyle, fontSize: 11 }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>{shortId(e.campaignId)}</span>
-                        {adv && (
-                          <BrandChip
-                            address={adv}
-                            size="xs"
-                            rpcUrl={settings.rpcUrl}
-                            addresses={settings.contractAddresses}
-                            ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
-                          />
-                        )}
-                      </div>
+                      <CampaignChip
+                        campaignId={e.campaignId}
+                        size="xs"
+                        rpcUrl={settings.rpcUrl}
+                        network={settings.network}
+                        addresses={settings.contractAddresses}
+                        ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                      />
                     </td>
                     <td style={{ ...cellStyle, color: "var(--ok)", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: 11 }}>
                       {fmtPlanck(e.payoutPlanck)}
@@ -481,20 +478,14 @@ export function HistoryPage() {
                   onMouseLeave={(el) => (el.currentTarget.style.background = "transparent")}
                 >
                   <td style={{ ...cellStyle, fontSize: 11 }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>
-                        {shortId(c.campaignId)}
-                      </span>
-                      {campaignAdvertisers[c.campaignId] && (
-                        <BrandChip
-                          address={campaignAdvertisers[c.campaignId]}
-                          size="xs"
-                          rpcUrl={settings.rpcUrl}
-                          addresses={settings.contractAddresses}
-                          ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
-                        />
-                      )}
-                    </div>
+                    <CampaignChip
+                      campaignId={c.campaignId}
+                      size="xs"
+                      rpcUrl={settings.rpcUrl}
+                      network={settings.network}
+                      addresses={settings.contractAddresses}
+                      ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                    />
                   </td>
                   <td style={{ ...cellStyle, color: "var(--text-strong)", fontWeight: 600 }}>
                     {c.count}

@@ -10,6 +10,7 @@ import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
+import { CampaignChip } from "../../components/CampaignChip";
 import { StatusBadge } from "../../components/StatusBadge";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_BLOCKS, formatBlockDelta } from "@shared/conviction";
@@ -350,9 +351,13 @@ export function MyVotes() {
                     <span className="nano-badge" style={{ color: KIND_COLORS[v.kind], borderColor: KIND_COLORS[v.kind], fontSize: 10 }}>
                       {KIND_LABELS[v.kind]}
                     </span>
-                    <Link to={detailLink} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
-                      {titleLabel}
-                    </Link>
+                    {v.kind === "campaign" ? (
+                      <CampaignChip campaignId={v.id} size="md" link />
+                    ) : (
+                      <Link to={detailLink} style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
+                        {titleLabel}
+                      </Link>
+                    )}
                     {v.kind === "campaign" && v.campaignStatus !== undefined && (
                       <StatusBadge status={v.campaignStatus} />
                     )}

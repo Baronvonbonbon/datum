@@ -3,6 +3,7 @@ import { Contract, ZeroAddress, isAddress } from "ethers";
 import { getPaymentVaultContract, getTokenRewardVaultContract, getCampaignsContract, getProvider } from "@shared/contracts";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
+import { CampaignChip } from "./CampaignChip";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
@@ -38,6 +39,8 @@ export function UserPanel({ address, refreshTrigger }: Props) {
   // Snapshot of settings.rpcUrl + contractAddresses for child components.
   const [rpcUrl, setRpcUrl] = useState<string>("");
   const [contractAddresses, setContractAddresses] = useState<typeof DEFAULT_SETTINGS.contractAddresses | null>(null);
+  const [network, setNetwork] = useState<string>("polkadotTestnet");
+  const [ipfsGateway, setIpfsGateway] = useState<string>("https://dweb.link/ipfs/");
 
   // Sweep config
   const [sweepAddress, setSweepAddress] = useState("");
@@ -63,6 +66,8 @@ export function UserPanel({ address, refreshTrigger }: Props) {
       const settings = await getSettings();
       setRpcUrl(settings.rpcUrl);
       setContractAddresses(settings.contractAddresses);
+      setNetwork(settings.network ?? "polkadotTestnet");
+      setIpfsGateway(settings.ipfsGateway || "https://dweb.link/ipfs/");
       if (!settings.contractAddresses.paymentVault) return;
       const provider = getProvider(settings.rpcUrl);
       const vault = getPaymentVaultContract(settings.contractAddresses, provider);
@@ -380,7 +385,19 @@ export function UserPanel({ address, refreshTrigger }: Props) {
                   marginBottom: 2, fontSize: 11, color: "var(--text-muted)",
                   display: "flex", justifyContent: "space-between",
                 }}>
-                  <span>Campaign #{c.campaignId}</span>
+                  {contractAddresses ? (
+                    <CampaignChip
+                      campaignId={c.campaignId}
+                      size="xs"
+                      rpcUrl={rpcUrl}
+                      network={network}
+                      addresses={contractAddresses}
+                      ipfsGateway={ipfsGateway}
+                      hideAdvertiser
+                    />
+                  ) : (
+                    <span>Campaign #{c.campaignId}</span>
+                  )}
                   <span>
                     {c.eventCount} events &middot;
                     {(c.eventCount > 0 ? c.cumulativeDwellMs / c.eventCount / 1000 : 0).toFixed(1)}s avg

@@ -13,6 +13,8 @@ import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { useToast } from "../../context/ToastContext";
 import { PageExplainer } from "../../components/PageExplainer";
+import { CampaignChip } from "../../components/CampaignChip";
+import { BrandChip } from "../../components/BrandChip";
 import { ContractsTouched } from "../../components/ContractsTouched";
 
 interface CampaignRow {
@@ -196,7 +198,7 @@ export function Campaigns() {
           <table className="nano-table" style={{ width: "100%" }}>
             <thead>
               <tr>
-                {["ID", "Status", "Advertiser", "Publisher", "Bid CPM", "Take Rate", ""].map((h) => (
+                {["Campaign", "Status", "Publisher", "Bid CPM", "Take Rate", ""].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -209,17 +211,14 @@ export function Campaigns() {
                     style={{ cursor: "pointer" }}
                     onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
                   >
-                    <td>
-                      <Link to={`/campaigns/${row.id}`} onClick={(e) => e.stopPropagation()} style={{ color: "var(--accent)" }}>
-                        #{row.id}
-                      </Link>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <CampaignChip campaignId={row.id} size="sm" />
                     </td>
                     <td><StatusBadge status={row.status} /></td>
-                    <td><AddressDisplay address={row.advertiser} chars={4} style={{ fontSize: 12 }} /></td>
                     <td>
                       {row.publisher === ZERO_ADDR
                         ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Open</span>
-                        : <AddressDisplay address={row.publisher} chars={4} style={{ fontSize: 12 }} />}
+                        : <BrandChip address={row.publisher} size="sm" role="publisher" />}
                     </td>
                     <td><DOTAmount planck={row.bidCpmPlanck} style={{ fontSize: 12 }} /></td>
                     <td><span style={{ fontSize: 12, color: "var(--text)" }}>{(row.snapshotTakeRateBps / 100).toFixed(0)}%</span></td>
@@ -232,7 +231,7 @@ export function Campaigns() {
                   </tr>
                   {expandedId === row.id && (
                     <tr key={`${row.id}-expanded`} style={{ background: "var(--bg-raised)" }}>
-                      <td colSpan={7} style={{ padding: "12px 16px" }}>
+                      <td colSpan={6} style={{ padding: "12px 16px" }}>
                         <IPFSPreview metadataHash={row.metadataHash} />
                       </td>
                     </tr>

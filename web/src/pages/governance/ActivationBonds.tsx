@@ -16,6 +16,7 @@ import { id as ethersId, Interface } from "ethers";
 import { useLogs } from "../../hooks/useLogs";
 import { useWallet } from "../../hooks/useWallet";
 import { NeedsExtension } from "../../components/NeedsExtension";
+import { CampaignChip } from "../../components/CampaignChip";
 import { TelemetryStatus } from "../../components/TelemetryStatus";
 import { walletConnector } from "../../lib/walletConnector";
 import { recordAction } from "../../lib/recentActions";
@@ -233,8 +234,8 @@ function BondRowView({
           gap: 12,
         }}
       >
-        <div style={{ color: "var(--text-strong)", fontSize: 14, fontWeight: 600 }}>
-          Campaign #{row.campaignId.toString()}
+        <div style={{ fontSize: 14, fontWeight: 600, minWidth: 0 }}>
+          <CampaignChip campaignId={row.campaignId.toString()} size="sm" link />
         </div>
         <div
           style={{

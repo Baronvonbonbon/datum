@@ -18,6 +18,7 @@ import { PageExplainer } from "../../components/PageExplainer";
 import { ContractsTouched } from "../../components/ContractsTouched";
 import { EnableRpcCta } from "../../components/EnableRpcCta";
 import { BrandChip } from "../../components/BrandChip";
+import { CampaignChip } from "../../components/CampaignChip";
 // @ts-ignore — @ext resolves to alpha-4/extension/src
 import {
   emptyIndex,
@@ -358,13 +359,7 @@ export function History() {
                     {r.blockTimestamp ? new Date(r.blockTimestamp * 1000).toLocaleString() : `#${r.blockNumber}`}
                   </span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-                    <span style={{ color: "var(--text)" }}>Campaign #{r.campaignId}</span>
-                    {adv && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
-                        <span style={{ minWidth: 56 }}>From:</span>
-                        <BrandChip address={adv} size="sm" role="advertiser" />
-                      </div>
-                    )}
+                    <CampaignChip campaignId={r.campaignId} size="sm" />
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
                       <span style={{ minWidth: 56 }}>Served by:</span>
                       <BrandChip address={r.publisher} size="sm" role="publisher" />
@@ -426,8 +421,7 @@ export function History() {
                     {i + 1}.
                   </span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-                    <span style={{ color: "var(--text)" }}>Campaign #{row.campaignId}</span>
-                    {adv && <BrandChip address={adv} size="sm" role="advertiser" />}
+                    <CampaignChip campaignId={row.campaignId} size="sm" />
                   </div>
                   <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
                     {formatDOT(BigInt(row.totals.totalUserPlanck))}

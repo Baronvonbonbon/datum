@@ -33,6 +33,8 @@ import { walletConnector } from "../../lib/walletConnector";
 import { recordAction } from "../../lib/recentActions";
 import { callContract } from "../../lib/contractRead";
 import { NETWORK_CONFIGS } from "../../shared/networks";
+import { CampaignChip } from "../../components/CampaignChip";
+import { BrandChip } from "../../components/BrandChip";
 
 const WINDOW_7D_BLOCKS = 14_400 * 7;
 
@@ -699,13 +701,17 @@ function ClaimsSection({ claims, ready }: { claims: ClaimRow[]; ready: boolean }
                   Bond {formatDot(c.bond)} · block {c.block}
                 </div>
               </div>
-              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                Publisher{" "}
-                <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{c.publisher}</span>
-                {c.campaignId > 0n ? ` · campaign #${c.campaignId.toString()}` : ""} · evidence{" "}
-                <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>
-                  {c.evidenceHash.slice(0, 12)}…
-                </span>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span>Publisher</span>
+                <BrandChip address={c.publisher} size="sm" role="publisher" />
+                {c.campaignId > 0n && (
+                  <>
+                    <span>·</span>
+                    <CampaignChip campaignId={c.campaignId.toString()} size="sm" hideAdvertiser link />
+                  </>
+                )}
+                <span>· evidence</span>
+                <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{c.evidenceHash.slice(0, 12)}…</span>
               </div>
             </div>
           ))}

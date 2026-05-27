@@ -14,6 +14,7 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { BrandChip } from "../../components/BrandChip";
+import { CampaignChip } from "../../components/CampaignChip";
 import { humanizeError } from "@shared/errorCodes";
 import { formatDOT } from "@shared/dot";
 import { ethers } from "ethers";
@@ -201,7 +202,11 @@ export function AdvertiserFraudClaimsPage() {
                     <div style={{ fontSize: 13 }}>
                       <span style={{ color: "var(--text-muted)" }}>vs. publisher</span>{" "}
                       <BrandChip address={c.publisher} size="sm" role="publisher" />
-                      {c.campaignId > 0n && <span style={{ marginLeft: 8 }}>campaign #{c.campaignId.toString()}</span>}
+                      {c.campaignId > 0n && (
+                        <span style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          on <CampaignChip campaignId={c.campaignId.toString()} size="sm" hideAdvertiser link />
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                       filed by <BrandChip address={c.advertiser} size="sm" role="advertiser" /> · bond {formatDOT(c.bond)} DOT · evidence{" "}

@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { ethers } from "ethers";
 import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
+import { CampaignChip } from "../../components/CampaignChip";
 import { useSettings } from "../../context/SettingsContext";
 import { getExplorerUrl } from "@shared/networks";
 import { ConvictionSlider } from "../../components/ConvictionSlider";
@@ -134,9 +135,12 @@ export function Vote() {
       <Link to="/governance" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Governance</Link>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 16px" }}>
-        <div>
-          <span style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700 }}>Vote on Campaign #{id}</span>
-          <StatusBadge status={campaign.status} style={{ marginLeft: 10 }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>Vote on</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <CampaignChip campaignId={id ?? "0"} size="lg" link={false} />
+            <StatusBadge status={campaign.status} />
+          </div>
         </div>
         <Link to={`/campaigns/${id}`} className="nano-btn" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>Campaign Detail</Link>
       </div>

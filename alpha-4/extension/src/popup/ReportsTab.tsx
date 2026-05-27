@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { CampaignChip } from "./CampaignChip";
+import { DEFAULT_SETTINGS } from "@shared/networks";
+import { StoredSettings } from "@shared/types";
 
 const REASONS = [
   { value: 1, label: "Spam" },
@@ -14,12 +17,14 @@ export function ReportsTab() {
   const [status, setStatus] = useState<"idle" | "pending" | "ok" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
   const [activeCampaigns, setActiveCampaigns] = useState<{ id: string; title?: string }[]>([]);
+  const [settings, setSettings] = useState<StoredSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    chrome.storage.local.get("activeCampaigns").then((s) => {
+    chrome.storage.local.get(["activeCampaigns", "settings"]).then((s) => {
       const campaigns: any[] = s.activeCampaigns ?? [];
       setActiveCampaigns(campaigns.map((c) => ({ id: c.id, title: c.title })));
       if (campaigns.length > 0) setCampaignId(campaigns[0].id);
+      if (s.settings) setSettings(s.settings as StoredSettings);
     });
   }, []);
 
@@ -66,6 +71,18 @@ export function ReportsTab() {
                 <option key={c.id} value={c.id}>#{c.id}{c.title ? ` — ${c.title}` : ""}</option>
               ))}
             </select>
+            {campaignId && (
+              <div style={{ marginTop: 4, padding: "6px 8px", background: "var(--bg-raised)", borderRadius: 4, border: "1px solid var(--border)" }}>
+                <CampaignChip
+                  campaignId={campaignId}
+                  size="sm"
+                  rpcUrl={settings.rpcUrl}
+                  network={settings.network}
+                  addresses={settings.contractAddresses}
+                  ipfsGateway={settings.ipfsGateway || "https://dweb.link/ipfs/"}
+                />
+              </div>
+            )}
           </div>
 
           <div style={{ marginBottom: 12 }}>
