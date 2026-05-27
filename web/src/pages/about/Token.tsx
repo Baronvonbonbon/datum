@@ -8,17 +8,19 @@ export function AboutToken() {
       accent="#f59e0b"
       tagline={
         "DATUM operates with DOT as the primary settlement currency, but " +
-        "ships a parallel ERC-20 token plane for protocol-aligned " +
-        "rewards, staking, and fee-sharing. The token plane is fully " +
-        "upgradable during alpha/beta and lock-once cypherpunk after " +
-        "OpenGov ratification — see the Phase Ladder for the timeline."
+        "ships a parallel ERC-20 token plane — the protocol's own native " +
+        "token — for protocol-aligned rewards, staking, and fee-sharing. " +
+        "The token plane is fully upgradable during alpha/beta and " +
+        "lock-once cypherpunk after OpenGov ratification — see the Phase " +
+        "Ladder for the timeline. (For advertiser-funded per-campaign " +
+        "ERC-20 rewards in any third-party token, see Sidecar Rewards.)"
       }
       whatYouGet={[
-        "A path to earn the protocol's native token on top of DOT — useful for projects seeding adoption of their own ERC-20.",
-        "A wrapper contract that mints DATUM under cap-controlled mint authority, with the commit-fund-claim flow protecting against price-front-run.",
+        "DATUM, the protocol's own ERC-20, minted alongside DOT settlement under a cap-controlled mint authority.",
+        "A wrapper contract that mints DATUM with a commit-fund-claim flow that resists price-front-run on mint.",
         "Linear-vesting tooling for treasury and team allocations on the same plane.",
         "Fee-share contract that routes a configurable share of settlement fees to DATUM stakers.",
-        "Mint coordinator that orchestrates per-batch token emission alongside DOT settlement.",
+        "Mint coordinator that orchestrates per-batch DATUM emission alongside DOT settlement.",
       ]}
       primaryCta={{ label: "Open Token Dashboard", to: "/token" }}
       secondaryCta={{ label: "Wrapper / mint flow", to: "/token/wrapper" }}
@@ -30,9 +32,9 @@ export function AboutToken() {
         "bootstrapPool",
         "vesting",
         "feeShare",
-        "tokenRewardVault",
       ]}
       related={[
+        { label: "Sidecar Rewards (third-party ERC-20s)", to: "/about/rewards" },
         { label: "Protocol deep dive", to: "/about/protocol" },
         { label: "Governance", to: "/about/governance" },
       ]}
@@ -75,21 +77,6 @@ export function AboutToken() {
                 page for live phase status.
               </p>
             </>
-          ),
-        },
-        {
-          heading: "Per-batch token rewards alongside DOT",
-          body: (
-            <p>
-              An advertiser can seed an ERC-20 token budget into{" "}
-              <code>TokenRewardVault</code> at campaign creation. Each
-              settled batch credits a configurable amount of those tokens
-              to each user in addition to their DOT share. If the token
-              budget runs out before DOT does, DOT settlement continues
-              unaffected — token credit is a non-critical path on the
-              advertiser side and a pure bonus on the user side. Users
-              withdraw via the same pull-payment pattern as DOT.
-            </p>
           ),
         },
       ]}

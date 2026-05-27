@@ -95,10 +95,11 @@ export function TokenDashboard() {
     <>
       <PageExplainer slug="token-dashboard" title="What is the Token plane?">
         <p style={{ margin: 0 }}>
-          DATUM ships a parallel ERC-20 token plane on top of DOT
-          settlement. The hero cards show the current mint rate, daily
-          emission cap, current epoch, and 24-hour mint activity. The
-          stream below tracks every mint, rate adjustment, and epoch roll.
+          DATUM ships its own native ERC-20 token, minted alongside DOT
+          settlement. This dashboard is the native plane only — mint
+          coordinator, emission engine, wrapper, vesting, fee-share. For
+          advertiser-funded per-campaign rewards in any third-party
+          ERC-20, see <Link to="/about/rewards">Sidecar Rewards →</Link>.
         </p>
         <p style={{ margin: "8px 0 0" }}>
           Note: parts of the token plane may not yet be deployed on this
@@ -123,7 +124,6 @@ export function TokenDashboard() {
         "bootstrapPool",
         "vesting",
         "feeShare",
-        "tokenRewardVault",
       ]} />
     </>
   );

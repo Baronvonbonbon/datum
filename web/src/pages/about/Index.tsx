@@ -8,7 +8,8 @@ const PERSONAS = [
   { to: "/about/advertiser",  icon: "📢", label: "Advertiser",  tagline: "Create, fund, and operate ad campaigns." },
   { to: "/about/publisher",   icon: "🌐", label: "Publisher",   tagline: "Earn DOT for serving ads with the SDK." },
   { to: "/about/governance",  icon: "⚖️", label: "Governance",  tagline: "Conviction-voting, slash pools, phase ladder." },
-  { to: "/about/token",       icon: "🪙", label: "Token",       tagline: "DATUM ERC-20 plane — mint, vest, fee-share." },
+  { to: "/about/token",       icon: "🪙", label: "DATUM Token", tagline: "The protocol's native ERC-20 — mint, vest, fee-share." },
+  { to: "/about/rewards",     icon: "🎁", label: "Sidecar Rewards", tagline: "Advertiser-funded per-campaign rewards in any third-party ERC-20." },
   { to: "/about/identity",    icon: "🪪", label: "Identity",    tagline: "People Chain bridge + ZK tooling." },
   { to: "/about/protocol",    icon: "🛠", label: "Protocol",    tagline: "Contracts, upgrades, parameters, pauses." },
 ];

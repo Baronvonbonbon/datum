@@ -102,6 +102,7 @@ import { AboutMe } from "./pages/about/Me";
 import { AboutAdvertiser } from "./pages/about/Advertiser";
 import { AboutPublisher } from "./pages/about/Publisher";
 import { AboutToken } from "./pages/about/Token";
+import { AboutRewards } from "./pages/about/Rewards";
 import { AboutProtocol } from "./pages/about/Protocol";
 import { AboutGovernance } from "./pages/about/Governance";
 import { AboutIdentity } from "./pages/about/Identity";
@@ -241,6 +242,7 @@ export function App() {
               <Route path="/about/advertiser" element={<AboutAdvertiser />} />
               <Route path="/about/publisher" element={<AboutPublisher />} />
               <Route path="/about/token" element={<AboutToken />} />
+              <Route path="/about/rewards" element={<AboutRewards />} />
               <Route path="/about/protocol" element={<AboutProtocol />} />
               <Route path="/about/governance" element={<AboutGovernance />} />
               <Route path="/about/identity" element={<AboutIdentity />} />

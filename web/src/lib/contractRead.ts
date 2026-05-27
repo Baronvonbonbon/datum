@@ -13,6 +13,27 @@
 
 import { Interface, type InterfaceAbi } from "ethers";
 import { pineRpc } from "./provider";
+import { NETWORK_CONFIGS } from "@shared/networks";
+
+// Direct centralized-RPC fallback for when pine returns an empty / undecodable
+// payload (most commonly a half-synced smoldot LogIndexer returning "0x" for
+// eth_call on a contract that exists). Lets dashboard reads degrade
+// gracefully instead of throwing BAD_DATA and breaking the page.
+async function rpcCall(to: string, data: string): Promise<string> {
+  const url = NETWORK_CONFIGS.polkadotTestnet.rpcUrl;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const json = await resp.json();
+  if (json.error) throw new Error(json.error.message ?? "rpc error");
+  return json.result as string;
+}
+
+function isEmpty(result: string | null | undefined): boolean {
+  return !result || result === "0x";
+}
 
 /// Call a read-only contract function via pine.
 ///
@@ -31,10 +52,13 @@ export async function callContract<T = unknown>(args: {
 }): Promise<T> {
   const iface = new Interface(args.abi);
   const data = iface.encodeFunctionData(args.method, args.args ?? []);
-  const result = await pineRpc<string>("eth_call", [
-    { to: args.address, data },
-    "latest",
-  ]);
+  let result: string;
+  try {
+    result = await pineRpc<string>("eth_call", [{ to: args.address, data }, "latest"]);
+    if (isEmpty(result)) throw new Error("empty response");
+  } catch {
+    result = await rpcCall(args.address, data);
+  }
   const decoded = iface.decodeFunctionResult(args.method, result);
   // ethers returns a Result tuple. Most reads return a single value;
   // when the function has one output we unwrap. Multi-output reads
