@@ -110,6 +110,9 @@ const ALPHA_5_PASEO: ContractAddresses = {
   peopleChainBondedReporter: "0x0dE7Bb3B1Bb13DD70a542F92509A191f127c7621",
   settlementLogicA:     "0xc4FD146Afa3Ab29c29d75b6B2A23846c01675821",
   settlementLogicB:     "0xF4e1b55aac177b381Fd0a1B780C91EE20A811011",
+  // Brand layer (deployed 2026-05-26)
+  brandRegistry:        "0x1d1370E261dca558962b176FaD5851E0d5Ef388e",
+  brandCurator:         "0x8E7F392aB97D2D9c099820aa0aB2c6255d0d307B",
   // Not deployed in this run (alpha-5 future scope): advertiserStake/Governance,
   // interestCommitments, tagCurator, relayStake/Governance, token plane.
 };

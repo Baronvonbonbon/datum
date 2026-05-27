@@ -51,6 +51,7 @@ import { PhaseLadder } from "./pages/governance/PhaseLadder";
 // Protocol (template dashboard + new sub-pages)
 import { ProtocolDashboard } from "./pages/protocol/Dashboard";
 import { TagCurator } from "./pages/protocol/TagCurator";
+import { ProtocolBrandCurator } from "./pages/protocol/BrandCurator";
 import { Upgrades } from "./pages/protocol/Upgrades";
 
 // Admin
@@ -90,6 +91,7 @@ import { AssurancePage } from "./pages/me/Assurance";
 import { IdentityPage } from "./pages/me/Identity";
 import { Dust } from "./pages/me/Dust";
 import { MeDashboard } from "./pages/me/Dashboard";
+import { Branding } from "./pages/me/Branding";
 
 // Demo
 import { Demo } from "./pages/Demo";
@@ -170,6 +172,7 @@ export function App() {
                   bookmarks; new design-doc paths point at /protocol/*. */}
               <Route path="/protocol" element={<ProtocolDashboard />} />
               <Route path="/protocol/tag-curator" element={<TagCurator />} />
+              <Route path="/protocol/brand-curator" element={<ProtocolBrandCurator />} />
               <Route path="/protocol/upgrades" element={<Upgrades />} />
               <Route path="/protocol/timelock" element={<TimelockAdmin />} />
               <Route path="/protocol/pause-registry" element={<PauseRegistryAdmin />} />
@@ -230,6 +233,7 @@ export function App() {
               <Route path="/me/assurance" element={<AssurancePage />} />
               <Route path="/me/identity" element={<IdentityPage />} />
               <Route path="/me/dust" element={<Dust />} />
+              <Route path="/me/branding" element={<Branding />} />
 
               {/* About — persona deep dives */}
               <Route path="/about" element={<AboutIndex />} />

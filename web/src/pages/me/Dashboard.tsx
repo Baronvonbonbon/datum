@@ -310,6 +310,7 @@ function buildActions(): ActionHook[] {
     { label: "Verify identity", route: "/me/identity", description: "Bind your People Chain identity" },
     { label: "Tune assurance", route: "/me/assurance", description: "Choose how strict your claims are" },
     { label: "View history", route: "/me/history", description: "Per-campaign breakdown" },
+    { label: "Brand profile", route: "/me/branding", description: "Set your logo, name, and homepage" },
   ];
 }
 

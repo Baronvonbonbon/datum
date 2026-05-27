@@ -42,5 +42,8 @@
   "peopleChainIdentity": "0xe9eC0D3cD531B41cd121FF6Def7a6a1B3691EFA7",
   "peopleChainXcmBridge": "0x3f1fB73bC40D93081f21343570cC9EE1Adcc113C",
   "peopleChainBondedReporter": "0x0dE7Bb3B1Bb13DD70a542F92509A191f127c7621",
-  "deployedAt": "2026-05-25T01:55:59.737Z"
+  "deployedAt": "2026-05-25T01:55:59.737Z",
+  "brandRegistry": "0x1d1370E261dca558962b176FaD5851E0d5Ef388e",
+  "brandCurator": "0x8E7F392aB97D2D9c099820aa0aB2c6255d0d307B",
+  "brandsDeployedAt": "2026-05-26T23:48:35.713Z"
 }

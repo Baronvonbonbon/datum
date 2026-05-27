@@ -27,6 +27,8 @@ import {
   getZKVerifierContract,
   getPeopleChainIdentityContract,
   getPeopleChainXcmBridgeContract,
+  getBrandRegistryContract,
+  getBrandCuratorContract,
   resolveAddressesFromRouter,
   getProvider,
   getPineProvider,
@@ -129,6 +131,8 @@ export function useContracts() {
       zkVerifier: getZKVerifierContract(addrs, provider),
       peopleChainIdentity: getPeopleChainIdentityContract(addrs, provider),
       peopleChainXcmBridge: getPeopleChainXcmBridgeContract(addrs, provider),
+      brandRegistry: getBrandRegistryContract(addrs, provider),
+      brandCurator: getBrandCuratorContract(addrs, provider),
       readProvider,
       /** True when Pine light client is active */
       usingPine: !!pineProvider,

@@ -28,6 +28,8 @@ import DatumBootstrapPoolAbi from "./abis/DatumBootstrapPool.json";
 import DatumVestingAbi from "./abis/DatumVesting.json";
 import DatumFeeShareAbi from "./abis/DatumFeeShare.json";
 import DatumCouncilBlocklistCuratorAbi from "./abis/DatumCouncilBlocklistCurator.json";
+import DatumBrandRegistryAbi from "./abis/DatumBrandRegistry.json";
+import DatumBrandCuratorAbi from "./abis/DatumBrandCurator.json";
 import DatumPeopleChainIdentityAbi from "./abis/DatumPeopleChainIdentity.json";
 import DatumPeopleChainXcmBridgeAbi from "./abis/DatumPeopleChainXcmBridge.json";
 import { ContractAddresses } from "./types";
@@ -330,6 +332,16 @@ export function getFeeShareContract(addresses: ContractAddresses, provider: Prov
 export function getCouncilBlocklistCuratorContract(addresses: ContractAddresses, provider: Provider | Signer) {
   if (!addresses.councilBlocklistCurator) return null;
   return make(addresses.councilBlocklistCurator, abi(DatumCouncilBlocklistCuratorAbi), provider);
+}
+
+export function getBrandRegistryContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.brandRegistry) return null;
+  return make(addresses.brandRegistry, abi(DatumBrandRegistryAbi), provider);
+}
+
+export function getBrandCuratorContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.brandCurator) return null;
+  return make(addresses.brandCurator, abi(DatumBrandCuratorAbi), provider);
 }
 
 export function getPeopleChainIdentityContract(addresses: ContractAddresses, provider: Provider | Signer) {

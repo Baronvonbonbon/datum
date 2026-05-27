@@ -22,6 +22,7 @@ import { toCSV, downloadCSV } from "@shared/csvExport";
 import { formatDOT } from "@shared/dot";
 import { getAssetMetadata } from "@shared/assetRegistry";
 import { StepTooltip } from "../../components/StepTooltip";
+import { BrandChip } from "../../components/BrandChip";
 
 const ACTION_LABELS: Record<number, string> = { 0: "View", 1: "Click", 2: "Action" };
 
@@ -724,19 +725,13 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
       {/* Core info grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
         <InfoCard label="Advertiser">
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <AddressDisplay address={campaign.advertiser} explorerBase={EXPLORER} />
-            <Link to={`/advertisers/${campaign.advertiser}`} style={{ fontSize: 11, color: "var(--text-muted)" }}>View profile →</Link>
-          </div>
+          <BrandChip address={campaign.advertiser} size="md" role="advertiser" />
         </InfoCard>
         <InfoCard label="Publisher">
           {isOpen
             ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Open (any publisher)</span>
             : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <AddressDisplay address={campaign.publisher} explorerBase={EXPLORER} />
-                <Link to={`/publishers/${campaign.publisher}`} style={{ fontSize: 11, color: "var(--text-muted)" }}>View profile →</Link>
-              </div>
+              <BrandChip address={campaign.publisher} size="md" role="publisher" />
             )}
         </InfoCard>
         <InfoCard label="Bid CPM">

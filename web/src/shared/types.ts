@@ -392,6 +392,12 @@ export interface ContractAddresses {
   /// stake-gated `tagRegistry` (not deployed by base deploy.ts) which
   /// uses bonded jurors instead of a council.
   tagCurator?: string;
+  /// 2026-05-26: brand registry holds per-address display fields
+  /// (name, logoCid, homepage, brandColor, profileHash). Self-only writes.
+  brandRegistry?: string;
+  /// 2026-05-26: council-curated verified-brand list. Mutations via
+  /// DatumCouncil propose/vote/execute.
+  brandCurator?: string;
 }
 
 export type IpfsProvider =

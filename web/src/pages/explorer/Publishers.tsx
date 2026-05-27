@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useSettings } from "../../context/SettingsContext";
 import { AddressDisplay } from "../../components/AddressDisplay";
+import { BrandChip } from "../../components/BrandChip";
 import { getExplorerUrl } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
@@ -118,7 +119,7 @@ export function Publishers() {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
             <div>
-              <AddressDisplay address={pub.address} chars={8} explorerBase={EXPLORER} style={{ fontSize: 14, color: "var(--text-strong)" }} />
+              <BrandChip address={pub.address} size="md" role="publisher" />
               {pub.blocked && (
                 <span style={{ marginLeft: 8, fontSize: 11, color: "var(--error)", fontWeight: 600 }}>BLOCKED</span>
               )}

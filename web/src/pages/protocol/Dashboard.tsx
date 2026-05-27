@@ -373,6 +373,7 @@ function buildActions(): ActionHook[] {
     { label: "Parameter governance", route: "/protocol/parameter-governance", description: "Per-contract retunes" },
     { label: "Sybil defense", route: "/protocol/sybil-defense", description: "PoW, nullifiers, rate limit, ZK" },
     { label: "Relay", route: "/protocol/relay", description: "Authorized relayer set + open-mode lock" },
+    { label: "Brand curator", route: "/protocol/brand-curator", description: "Council-verified brands + revocations" },
   ];
 }
 
