@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useContracts } from "../../hooks/useContracts";
 import { useSettings } from "../../context/SettingsContext";
+import { getProvider } from "@shared/contracts";
 import { CampaignStatus } from "@shared/types";
 import { StatusBadge } from "../../components/StatusBadge";
 import { AddressDisplay } from "../../components/AddressDisplay";
@@ -47,16 +48,54 @@ export function Campaigns() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const campaignsAddr = contracts.campaigns?.target as string | undefined;
-  const load = useCallback(async () => {
+
+  // Fetch the campaign count once per address change. Pagination must not
+  // re-issue this call -- whatever read provider is active (pine or
+  // centralized RPC) occasionally returns 0x for eth_call mid-navigation,
+  // and rewinding totalCampaigns to 0 blanks the table and breaks the page
+  // math. On empty response retry, then fall back to the centralized RPC
+  // directly so a half-synced pine light client can't lock the page out.
+  useEffect(() => {
     if (!campaignsAddr) return;
+    let cancelled = false;
+    (async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const n = Number(await contracts.campaigns.nextCampaignId());
+          if (!Number.isFinite(n) || n <= 0) throw new Error("empty response");
+          if (!cancelled) setTotalCampaigns(n);
+          return;
+        } catch {
+          await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
+      // Final attempt: skip whatever provider is wired to the contract and
+      // hit the centralized RPC directly. Works even when pine is mid-sync.
+      try {
+        const rpc = getProvider(settings.rpcUrl);
+        const c = new ethers.Contract(
+          campaignsAddr,
+          ["function nextCampaignId() view returns (uint256)"],
+          rpc,
+        );
+        const n = Number(await c.nextCampaignId());
+        if (!Number.isFinite(n) || n <= 0) throw new Error("empty response");
+        if (!cancelled) setTotalCampaigns(n);
+      } catch (err) {
+        if (!cancelled) push(humanizeError(err), "error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [campaignsAddr, settings.rpcUrl]);
+
+  const loadPage = useCallback(async () => {
+    if (!campaignsAddr || totalCampaigns <= 0) return;
     setLoading(true);
     setError(null);
     try {
-      const nextId = Number(await contracts.campaigns.nextCampaignId());
-      setTotalCampaigns(nextId);
-
-      const start = Math.max(0, nextId - PAGE_SIZE * (page + 1));
-      const end = nextId - PAGE_SIZE * page;
+      const start = Math.max(1, totalCampaigns - PAGE_SIZE * (page + 1));
+      const end = totalCampaigns - PAGE_SIZE * page;
+      if (end <= start) { setRows([]); return; }
       const ids = Array.from({ length: end - start }, (_, i) => end - 1 - i);
 
       const results = await Promise.all(ids.map(async (id) => {
@@ -67,7 +106,6 @@ export function Campaigns() {
             contracts.campaigns.getCampaignViewBid(BigInt(id)).catch(() => 0n),
           ]);
 
-          // Metadata hash from DatumCampaignCreative (alpha-4 EIP-170 carve-out).
           let metadataHash = "0x" + "0".repeat(64);
           if (contracts.campaignCreative) {
             try {
@@ -95,9 +133,9 @@ export function Campaigns() {
     } finally {
       setLoading(false);
     }
-  }, [campaignsAddr, page]);
+  }, [campaignsAddr, page, totalCampaigns]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadPage(); }, [loadPage]);
 
   const searchId = searchQuery.match(/^\d+$/) ? Number(searchQuery) : null;
   const searchAddr = searchQuery.length >= 6 ? searchQuery.toLowerCase() : "";
@@ -179,7 +217,7 @@ export function Campaigns() {
           <option value="open">Open Campaigns</option>
           <option value="targeted">Targeted Campaigns</option>
         </select>
-        <button onClick={() => load()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
+        <button onClick={() => loadPage()} className="nano-btn" style={{ fontSize: 12 }}>Refresh</button>
       </div>
 
       {!settings.contractAddresses.campaigns && (
