@@ -11,6 +11,10 @@ interface GovParams {
   terminationQuorum: bigint;
   baseGraceBlocks: number;
   slashBps: number;
+  // Optimistic-activation path (DatumActivationBonds) — coexists with the
+  // legacy always-vote path. New campaigns typically use this lane.
+  activationMinBond: bigint | null;
+  activationTimelockBlocks: number | null;
 }
 
 export function GovernanceParameters() {
@@ -25,17 +29,31 @@ export function GovernanceParameters() {
   async function load() {
     setLoading(true);
     try {
-      const [quorum, termQuorum, baseGrace, slash] = await Promise.all([
+      const ab = settings.contractAddresses.activationBonds
+        ? new (await import("ethers")).Contract(
+            settings.contractAddresses.activationBonds,
+            [
+              "function minBond() view returns (uint256)",
+              "function timelockBlocks() view returns (uint64)",
+            ],
+            contracts.readProvider,
+          )
+        : null;
+      const [quorum, termQuorum, baseGrace, slash, minBond, tlBlocks] = await Promise.all([
         contracts.governanceV2.quorumWeighted().catch(() => 0n),
         contracts.governanceV2.terminationQuorum().catch(() => 0n),
         contracts.governanceV2.baseGraceBlocks().catch(() => 0),
         contracts.governanceV2.slashBps().catch(() => 0),
+        ab ? ab.minBond().catch(() => null) : Promise.resolve(null),
+        ab ? ab.timelockBlocks().catch(() => null) : Promise.resolve(null),
       ]);
       setParams({
         quorumWeighted: BigInt(quorum),
         terminationQuorum: BigInt(termQuorum),
         baseGraceBlocks: Number(baseGrace),
         slashBps: Number(slash),
+        activationMinBond: minBond != null ? BigInt(minBond) : null,
+        activationTimelockBlocks: tlBlocks != null ? Number(tlBlocks) : null,
       });
     } finally {
       setLoading(false);
@@ -53,7 +71,22 @@ export function GovernanceParameters() {
         <div style={{ color: "var(--text-muted)" }}>Could not load parameters.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Section title="Voting Thresholds">
+          <Section title="Optimistic Activation (default path)">
+            <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, lineHeight: 1.5 }}>
+              <code>createCampaignWithActivation</code> posts a bond that opens a challenge window.
+              If no one contests during the timelock, anyone can call <code>activate()</code> to
+              flip the campaign Active — no governance vote needed. A contest forces the campaign
+              back into the legacy quorum lane below.
+            </div>
+            {params.activationMinBond != null
+              ? <Row label="Minimum Bond" value={<DOTAmount planck={params.activationMinBond} />} hint="Locked by the advertiser at creation; refunded on clean activation" />
+              : <Row label="Minimum Bond" value="—" hint="DatumActivationBonds not deployed on this network" />}
+            {params.activationTimelockBlocks != null
+              ? <Row label="Challenge Window" value={formatBlockDelta(params.activationTimelockBlocks)} hint="Blocks during which any holder can post a counter-bond to contest" />
+              : <Row label="Challenge Window" value="—" />}
+          </Section>
+
+          <Section title="Always-Vote Thresholds (legacy / contested path)">
             <Row label="Activation Quorum" value={<DOTAmount planck={params.quorumWeighted} />} hint="Conviction-weighted votes needed to activate a campaign" />
             <Row label="Termination Quorum" value={<DOTAmount planck={params.terminationQuorum} />} hint="Nay votes needed to trigger termination" />
             <Row label="Termination Grace (base)" value={formatBlockDelta(params.baseGraceBlocks)} hint="Minimum blocks between first nay and termination execution" />

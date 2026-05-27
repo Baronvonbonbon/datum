@@ -37,7 +37,12 @@ const CAMPAIGNS_ABI = [
   "function getCampaignAdvertiser(uint256) view returns (address)",
   "function getCampaignViewBid(uint256) view returns (uint256)",
   "function getCampaignTags(uint256) view returns (bytes32[])",
-  "function getCampaignMetadata(uint256) view returns (bytes32)",
+];
+
+// Alpha-4 EIP-170 carve-out: metadata moved off DatumCampaigns into
+// DatumCampaignCreative. Title fetch now needs both addresses.
+const CREATIVE_ABI = [
+  "function campaignMetadata(uint256) view returns (bytes32)",
 ];
 
 function key(chainKey: string, campaignId: string): string {
@@ -71,10 +76,11 @@ export async function fetchCampaignInfo(opts: {
   campaignId: string;
   chainKey: string;            // e.g. "polkadotTestnet"
   campaignsAddr: string;
+  campaignCreativeAddr?: string;
   provider: JsonRpcProvider;
   ipfsGateway: string;
 }): Promise<CampaignInfo> {
-  const { campaignId, chainKey, campaignsAddr, provider, ipfsGateway } = opts;
+  const { campaignId, chainKey, campaignsAddr, campaignCreativeAddr, provider, ipfsGateway } = opts;
   const cached = readCache(chainKey, campaignId);
   if (cached && Date.now() - cached.ts < TTL_MS) {
     return cached;
@@ -89,12 +95,17 @@ export async function fetchCampaignInfo(opts: {
 
   try {
     const c = new Contract(campaignsAddr, CAMPAIGNS_ABI, provider);
+    const creative = campaignCreativeAddr
+      ? new Contract(campaignCreativeAddr, CREATIVE_ABI, provider)
+      : null;
     const [cfs, advertiser, viewBid, tags, metadataHash] = await Promise.all([
       c.getCampaignForSettlement(BigInt(campaignId)).catch(() => [0, "0x0000000000000000000000000000000000000000", 0]),
       c.getCampaignAdvertiser(BigInt(campaignId)).catch(() => "0x0000000000000000000000000000000000000000"),
       c.getCampaignViewBid(BigInt(campaignId)).catch(() => 0n),
       c.getCampaignTags(BigInt(campaignId)).catch(() => [] as string[]),
-      c.getCampaignMetadata(BigInt(campaignId)).catch(() => ZERO_HASH),
+      creative
+        ? creative.campaignMetadata(BigInt(campaignId)).catch(() => ZERO_HASH)
+        : Promise.resolve(ZERO_HASH),
     ]);
 
     let title = "";

@@ -75,6 +75,7 @@ export function CampaignChip({
       campaignId: cid,
       chainKey: settings.network,
       campaignsAddr: settings.contractAddresses.campaigns,
+      campaignCreativeAddr: contracts.campaignCreative?.target as string | undefined,
       provider: contracts.readProvider as any,
       ipfsGateway: settings.ipfsGateway || "https://ipfs.io",
     }).then((i) => {
@@ -84,7 +85,7 @@ export function CampaignChip({
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [cid, settings.network, settings.contractAddresses.campaigns, settings.ipfsGateway, contracts.readProvider]);
+  }, [cid, settings.network, settings.contractAddresses.campaigns, settings.ipfsGateway, contracts.readProvider, contracts.campaignCreative]);
 
   const title = info?.title?.trim() || `Campaign #${cid}`;
   const hasTitle = Boolean(info?.title);
