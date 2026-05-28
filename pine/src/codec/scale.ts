@@ -83,11 +83,15 @@ export function encodeU256(value: bigint): Uint8Array {
   return bytes;
 }
 
-/** Decode a U256 from 32 little-endian bytes */
+/** Decode a U256 from 32 little-endian bytes. Tolerates short buffers (treats
+ *  missing trailing bytes as zero) so smaller scalars like `Nonce = u32` or
+ *  `Index = u32` returned by runtime APIs decode correctly without a
+ *  per-type variant. */
 export function decodeU256(data: Uint8Array, offset = 0): bigint {
   let value = 0n;
-  for (let i = 31; i >= 0; i--) {
-    value = (value << 8n) | BigInt(data[offset + i]);
+  const end = Math.min(data.length, offset + 32);
+  for (let i = end - 1; i >= offset; i--) {
+    value = (value << 8n) | BigInt(data[i]);
   }
   return value;
 }
