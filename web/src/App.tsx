@@ -107,6 +107,7 @@ import { AboutRewards } from "./pages/about/Rewards";
 import { AboutProtocol } from "./pages/about/Protocol";
 import { AboutGovernance } from "./pages/about/Governance";
 import { AboutIdentity } from "./pages/about/Identity";
+import { AboutEconomics } from "./pages/about/Economics";
 
 export function App() {
   return (
@@ -248,6 +249,7 @@ export function App() {
               <Route path="/about/protocol" element={<AboutProtocol />} />
               <Route path="/about/governance" element={<AboutGovernance />} />
               <Route path="/about/identity" element={<AboutIdentity />} />
+              <Route path="/about/economics" element={<AboutEconomics />} />
 
               {/* Demo */}
               <Route path="/demo" element={<Demo />} />

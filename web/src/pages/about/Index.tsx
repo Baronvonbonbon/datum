@@ -12,6 +12,7 @@ const PERSONAS = [
   { to: "/about/rewards",     icon: "🎁", label: "Sidecar Rewards", tagline: "Advertiser-funded per-campaign rewards in any third-party ERC-20." },
   { to: "/about/identity",    icon: "🪪", label: "Identity",    tagline: "People Chain bridge + ZK tooling." },
   { to: "/about/protocol",    icon: "🛠", label: "Protocol",    tagline: "Contracts, upgrades, parameters, pauses." },
+  { to: "/about/economics",   icon: "📊", label: "Economics",   tagline: "Per-role cost + revenue model from measured Paseo gas." },
 ];
 
 export function AboutIndex() {

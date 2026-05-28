@@ -64,6 +64,12 @@
   --role-voter:           #f87171;
   --role-voter-dim:       rgba(248,113,113,0.12);
   --role-voter-border:    rgba(248,113,113,0.25);
+  --role-relay:           #38bdf8;
+  --role-relay-dim:       rgba(56,189,248,0.12);
+  --role-relay-border:    rgba(56,189,248,0.25);
+  --role-protocol:        #f472b6;
+  --role-protocol-dim:    rgba(244,114,182,0.12);
+  --role-protocol-border: rgba(244,114,182,0.25);
 
   /* Fonts */
   --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
@@ -105,6 +111,12 @@
   --role-voter:           #b91c1c;
   --role-voter-dim:       rgba(185,28,28,0.10);
   --role-voter-border:    rgba(185,28,28,0.30);
+  --role-relay:           #0369a1;
+  --role-relay-dim:       rgba(3,105,161,0.10);
+  --role-relay-border:    rgba(3,105,161,0.30);
+  --role-protocol:        #be185d;
+  --role-protocol-dim:    rgba(190,24,93,0.10);
+  --role-protocol-border: rgba(190,24,93,0.30);
 
   /* Tints — flip to black-based */
   --tint-subtle:    rgba(0,0,0,0.03);
