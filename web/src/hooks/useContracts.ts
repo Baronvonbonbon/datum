@@ -43,6 +43,7 @@ import {
   type SyncStep,
   type PineRpcTest,
 } from "@shared/contracts";
+import { setHistoricalLogFallback } from "@shared/eventQuery";
 
 export type PineStatus = "off" | "connecting" | "connected" | "error";
 export type { SyncStep, PineRpcTest };
@@ -94,6 +95,15 @@ export function useContracts() {
     tryConnect(3);
     return () => { cancelled = true; };
   }, [pineChain]);
+
+  // Pine's LogIndexer is forward-only (only sees blocks after smoldot connects).
+  // Register the gateway URL as the historical-log fallback so queryFilter calls
+  // for events older than the smoldot connection still resolve. State reads +
+  // sendRawTransaction continue to use Pine; only the log path swaps providers.
+  useEffect(() => {
+    setHistoricalLogFallback(pineProvider ? settings.rpcUrl : null);
+    return () => setHistoricalLogFallback(null);
+  }, [pineProvider, settings.rpcUrl]);
 
   // Stage 5b: once a read provider is available, ask the router for the live
   // address of every registered contract. Falls back to JSON until then.

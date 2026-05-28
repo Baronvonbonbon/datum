@@ -101,6 +101,8 @@ function createPineEthersProvider(pine: PineRequestable, chain: string): JsonRpc
   const network = new Network(chain, chainId);
 
   class PineEthersProvider extends JsonRpcApiProvider {
+    /** Marker so callers can detect Pine without instanceof through a closure. */
+    readonly __isPine = true;
     constructor() {
       super(network, { staticNetwork: network });
       this._start();
