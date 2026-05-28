@@ -25,13 +25,14 @@ export function SDKSetup() {
   ]);
 
   useEffect(() => {
-    if (!address || !contracts.campaigns) return;
-    contracts.campaigns.getPublisherTags2(address)
+    // getPublisherTags2 lives on DatumTagSystem (alpha-4 EIP-170 carve-out).
+    if (!address || !contracts.tagSystem) return;
+    contracts.tagSystem.getPublisherTags2(address)
       .then((hashes: string[]) => {
         setTags(hashes.map((h: string) => tagLabel(h) ?? "").filter(Boolean));
       })
       .catch(() => {});
-  }, [address]);
+  }, [address, contracts.tagSystem]);
 
   const pubAddr = address ?? "0xYOUR_PUBLISHER_ADDRESS";
   const tagStr = tags.length > 0 ? tags.join(",") : "crypto-web3,en";

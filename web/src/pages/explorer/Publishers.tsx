@@ -53,15 +53,15 @@ export function Publishers() {
           const relayRaw = await contracts.publishers.relaySigner(addr).catch(() => ZERO);
           let tags: string[] = [];
           try {
-            if (contracts.campaigns) {
-              const hashes: string[] = await contracts.campaigns.getPublisherTags2(addr);
+            if (contracts.tagSystem) {
+              const hashes: string[] = await contracts.tagSystem.getPublisherTags2(addr);
               tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean);
             }
-          } catch { /* no campaigns contract */ }
+          } catch { /* no tagSystem contract */ }
           let repScore: number | null = null;
           try {
-            if (contracts.settlement) {
-              const stats = await contracts.settlement.getPublisherStats(addr);
+            if (contracts.publisherReputation) {
+              const stats = await contracts.publisherReputation.getPublisherStats(addr);
               const total = Number(stats[0]) + Number(stats[1]);
               if (total > 0) repScore = Number(stats[2]);
             }

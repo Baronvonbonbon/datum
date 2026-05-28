@@ -14,6 +14,11 @@ export function RequirePublisher({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!address) { setState("no-wallet"); return; }
+    // contracts.publishers can be null on cold render before the router
+    // resolves the live address. Reading .getPublisher off a null contract
+    // throws synchronously, which the .catch() can't see -- it would blank
+    // the route subtree. Stay in "loading" and let the next effect tick fire.
+    if (!contracts.publishers) { setState("loading"); return; }
     let cancelled = false;
     contracts.publishers.getPublisher(address).then((data: any) => {
       if (cancelled) return;
@@ -21,7 +26,7 @@ export function RequirePublisher({ children }: { children: React.ReactNode }) {
       setState(registered ? "ok" : "unregistered");
     }).catch(() => { if (!cancelled) setState("unregistered"); });
     return () => { cancelled = true; };
-  }, [address, contracts]);
+  }, [address, contracts.publishers]);
 
   if (state === "no-wallet") {
     return <div style={{ padding: 20, color: "var(--text-muted)" }}>Connect your wallet to access publisher features.</div>;

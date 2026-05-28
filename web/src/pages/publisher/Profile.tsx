@@ -171,10 +171,47 @@ export function PublisherProfile() {
   const hasProfileHash = profileHash && profileHash !== ZERO_HASH;
   const hasSdkVersion = sdkVersion && sdkVersion !== ZERO_HASH;
 
+  // Compact onboarding checklist — anchors the user to the minimal setup path.
+  // Profile + SDK version are "optional but recommended"; Relay signer / Max
+  // assurance are operator-only knobs that 80% of publishers don't touch.
+  const steps: { done: boolean; label: string; href?: string; tag?: "required" | "recommended" | "optional" }[] = [
+    { done: true,            label: "Wallet connected",                                                    tag: "required" },
+    { done: true,            label: "Publisher registered on-chain",       href: "/publisher/register",    tag: "required" },
+    { done: hasProfileHash,  label: "Profile metadata pinned (this page)",                                 tag: "recommended" },
+    { done: hasSdkVersion,   label: "SDK build attested (this page)",                                      tag: "recommended" },
+    { done: hasRelaySigner,  label: "Relay signer set (operator-only)",                                    tag: "optional" },
+    { done: maxAssurance > 0,label: "Max assurance level chosen",                                          tag: "optional" },
+    { done: false,           label: "SDK snippet added to your site",      href: "/publisher/sdk",         tag: "required" },
+  ];
+
   return (
     <div className="nano-fade" style={{ maxWidth: 560 }}>
       <Link to="/publisher" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Dashboard</Link>
-      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0 20px" }}>Publisher Profile</h1>
+      <h1 style={{ color: "var(--text-strong)", fontSize: 20, fontWeight: 700, margin: "12px 0 12px" }}>Publisher Profile</h1>
+
+      {/* Setup walkthrough */}
+      <div className="nano-card" style={{ padding: 14, marginBottom: 16, borderColor: "var(--accent)" }}>
+        <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Setup walkthrough</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+          Fill in the cards below in order. Required steps unlock impressions; recommended ones
+          unlock visibility and trust; optional ones are for operators running a relay or fine-tuning
+          which campaigns they'll serve. The last step (the SDK snippet) ships your site live.
+        </div>
+        <ol style={{ paddingLeft: 18, margin: 0, color: "var(--text)", fontSize: 12, lineHeight: 1.9 }}>
+          {steps.map((s, i) => (
+            <li key={i} style={{ color: s.done ? "var(--ok)" : "var(--text)" }}>
+              <span style={{ display: "inline-block", width: 14 }}>{s.done ? "✓" : "○"}</span>
+              {s.href ? <Link to={s.href} style={{ color: "inherit" }}>{s.label}</Link> : s.label}
+              {s.tag && (
+                <span style={{
+                  marginLeft: 8, fontSize: 10, color: "var(--text-muted)",
+                  textTransform: "uppercase", letterSpacing: "0.05em",
+                }}>{s.tag}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
 
       {/* Relay Signer */}
       <div className="nano-card" style={{ padding: 16, marginBottom: 12 }}>

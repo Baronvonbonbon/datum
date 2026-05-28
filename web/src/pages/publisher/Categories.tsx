@@ -29,8 +29,8 @@ export function Categories() {
     if (!address) return;
     setLoading(true);
     try {
-      if (contracts.campaigns) {
-        const hashes: string[] = await contracts.campaigns.getPublisherTags2(address);
+      if (contracts.tagSystem) {
+        const hashes: string[] = await contracts.tagSystem.getPublisherTags2(address);
         const tags = new Set<string>();
         for (const h of hashes) {
           let found = false;
@@ -65,11 +65,11 @@ export function Categories() {
   }
 
   async function handleSave() {
-    if (!signer || !contracts.campaigns) return;
+    if (!signer || !contracts.tagSystem) return;
     setTxState("pending");
     try {
       const hashes = [...selected].map((t) => tagHash(t));
-      const c = contracts.campaigns.connect(signer);
+      const c = contracts.tagSystem.connect(signer);
       const tx = await c.setPublisherTags(hashes);
       await confirmTx(tx);
       setTxState("success");
@@ -110,7 +110,7 @@ export function Categories() {
         attribute to filter unwanted content.
       </p>
 
-      {!contracts.campaigns && (
+      {!contracts.tagSystem && (
         <div className="nano-info nano-info--warn" style={{ marginBottom: 16 }}>
           Campaigns contract not configured. Check Settings.
         </div>
@@ -210,7 +210,7 @@ export function Categories() {
 
           <div style={{ marginTop: 16 }}>
             <TransactionStatus state={txState} message={txMsg} />
-            <button onClick={handleSave} disabled={txState === "pending" || !signer || !contracts.campaigns} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>
+            <button onClick={handleSave} disabled={txState === "pending" || !signer || !contracts.tagSystem} className="nano-btn nano-btn-accent" style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}>
               {txState === "pending" ? "Saving..." : "Save Tags"}
             </button>
           </div>

@@ -92,6 +92,27 @@ export function AdvertiserDashboard() {
           Want the full breakdown? <Link to="/about/advertiser">About: Advertiser →</Link>
         </p>
       </PageExplainer>
+
+      {/* Setup walkthrough — distinct from the Publisher path, advertisers
+          have no separate registration step on the current Paseo deploy. */}
+      {!anonymous && (
+        <div className="nano-card" style={{ padding: 14, margin: "12px 0 16px", borderColor: "var(--accent)" }}>
+          <div style={{ color: "var(--accent)", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Setup walkthrough</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+            There is no separate "register advertiser" step on this deploy — a connected wallet
+            with PAS can create a campaign directly. The advertiser-stake contract
+            (<code>DatumAdvertiserStake</code>) is deployed but not yet wired into Campaigns on
+            Paseo, so the on-chain gate is disabled here. Mainnet will require staking.
+          </div>
+          <ol style={{ paddingLeft: 18, margin: 0, color: "var(--text)", fontSize: 12, lineHeight: 1.9 }}>
+            <li><span style={{ display: "inline-block", width: 14 }}>✓</span>Wallet connected <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>required</span></li>
+            <li><span style={{ display: "inline-block", width: 14 }}>—</span>Brand metadata via <Link to="/me/branding" style={{ color: "inherit" }}>/me/branding</Link> <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>recommended</span></li>
+            <li><span style={{ display: "inline-block", width: 14 }}>○</span><Link to="/advertiser/create" style={{ color: "inherit" }}>Create your first campaign</Link> — set budget, CPM, optional bond, optional ERC-20 reward sidecar <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>required</span></li>
+            <li><span style={{ display: "inline-block", width: 14 }}>○</span>Pin creative metadata to IPFS via <Link to="/advertiser/create" style={{ color: "inherit" }}>Set Metadata</Link> after creation <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>required</span></li>
+            <li><span style={{ display: "inline-block", width: 14 }}>○</span>Optional: register a Bulletin Chain creative via <Link to="/advertiser" style={{ color: "inherit" }}>Bulletin Manager</Link> <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>optional</span></li>
+          </ol>
+        </div>
+      )}
       <Dashboard
         role="advertiser"
         title="Advertiser dashboard"

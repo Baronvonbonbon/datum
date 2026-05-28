@@ -16,6 +16,7 @@ import DatumPowEngineAbi from "./abis/DatumPowEngine.json";
 import DatumNullifierRegistryAbi from "./abis/DatumNullifierRegistry.json";
 import DatumSettlementRateLimiterAbi from "./abis/DatumSettlementRateLimiter.json";
 import DatumPublisherReputationAbi from "./abis/DatumPublisherReputation.json";
+import DatumTagSystemAbi from "./abis/DatumTagSystem.json";
 import DatumAttestationVerifierAbi from "./abis/DatumAttestationVerifier.json";
 import DatumClaimValidatorAbi from "./abis/DatumClaimValidator.json";
 import DatumTokenRewardVaultAbi from "./abis/DatumTokenRewardVault.json";
@@ -284,6 +285,11 @@ export function getPublisherReputationContract(addresses: ContractAddresses, pro
   return make(addresses.publisherReputation, abi(DatumPublisherReputationAbi), provider);
 }
 
+export function getTagSystemContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  if (!addresses.tagSystem) return null;
+  return make(addresses.tagSystem, abi(DatumTagSystemAbi), provider);
+}
+
 export function getAttestationVerifierContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return make(addresses.attestationVerifier, abi(DatumAttestationVerifierAbi), provider);
 }
@@ -432,6 +438,7 @@ const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
   "nullifierRegistry",
   "settlementRateLimiter",
   "publisherReputation",
+  "tagSystem",
 ];
 
 /// Maps a few keys whose JSON name in ContractAddresses differs from the

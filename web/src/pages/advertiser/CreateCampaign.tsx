@@ -141,14 +141,14 @@ export function CreateCampaign() {
             if (blocked) return null;
             let tags: string[] = [];
             try {
-              if (contracts.campaigns) {
-                const hashes: string[] = await contracts.campaigns.getPublisherTags2(addr);
+              if (contracts.tagSystem) {
+                const hashes: string[] = await contracts.tagSystem.getPublisherTags2(addr);
                 tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 8) + "…").filter(Boolean);
               }
             } catch { /* */ }
             let repScore: number | null = null;
             try {
-              if (contracts.settlement) repScore = Number((await contracts.settlement.getPublisherStats(addr))[2]);
+              if (contracts.publisherReputation) repScore = Number((await contracts.publisherReputation.getPublisherStats(addr))[2]);
             } catch { /* */ }
             let reportCount = 0;
             try {

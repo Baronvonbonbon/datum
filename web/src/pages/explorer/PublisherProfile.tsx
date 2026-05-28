@@ -65,18 +65,18 @@ export function PublisherProfile() {
 
       let tags: string[] = [];
       try {
-        if (contracts.campaigns) {
-          const hashes: string[] = await contracts.campaigns.getPublisherTags2(addr);
+        if (contracts.tagSystem) {
+          const hashes: string[] = await contracts.tagSystem.getPublisherTags2(addr);
           tags = hashes.map((h) => tagLabel(h) ?? h.slice(0, 10) + "...").filter(Boolean);
         }
-      } catch { /* no campaigns contract */ }
+      } catch { /* no tagSystem contract */ }
 
       let repScore: number | null = null;
       let repSettled = 0;
       let repRejected = 0;
       try {
-        if (contracts.settlement) {
-          const stats = await contracts.settlement.getPublisherStats(addr);
+        if (contracts.publisherReputation) {
+          const stats = await contracts.publisherReputation.getPublisherStats(addr);
           repSettled = Number(stats[0]);
           repRejected = Number(stats[1]);
           const total = repSettled + repRejected;
