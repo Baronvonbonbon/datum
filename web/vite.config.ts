@@ -25,7 +25,7 @@ export default defineConfig({
     // @polkadot-api/substrate-bindings needs 2.x (imports "@noble/hashes/blake2.js"
     // which only exists in 2.x). Deduping forces everyone onto the hoisted 1.3.2
     // and breaks the bulletin-chain client build.
-    dedupe: ["ethers", "react", "react-dom", "pine-rpc"],
+    dedupe: ["ethers", "react", "react-dom", "pine-rpc", "qrcode"],
 
     alias: [
       /**
