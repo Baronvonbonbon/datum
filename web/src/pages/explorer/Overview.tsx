@@ -47,8 +47,11 @@ export function Overview() {
     try {
       const filter = contracts.settlement.filters.ClaimSettled();
       const logs = await queryFilterAll(contracts.settlement, filter);
-      const total = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
-      const paid = logs.reduce((s: bigint, log: any) => s + BigInt(log.args?.amountPaid ?? 0n), 0n);
+      const total = logs.reduce((s: number, log: any) => s + Number(log.args?.eventCount ?? 0), 0);
+      const paid = logs.reduce((s: bigint, log: any) =>
+        s + BigInt(log.args?.publisherPayment ?? 0n)
+          + BigInt(log.args?.userPayment ?? 0n)
+          + BigInt(log.args?.protocolFee ?? 0n), 0n);
       setStats((prev) => prev ? { ...prev, totalImpressions: total, totalSettledPlanck: paid } : prev);
     } catch { /* settlement not configured */ }
   }
@@ -57,12 +60,27 @@ export function Overview() {
     setLoading(true);
     setError(null);
     try {
-      const [nextId, paused, pubCountRaw, councilSizeRaw] = await Promise.all([
+      // Alpha-5 DatumPublishers has no registeredCount() — count unique
+      // addresses that have ever emitted PublisherRegistered. queryFilterAll
+      // de-dupes inside the page's render loop already; just count uniques.
+      async function countRegisteredPublishers(): Promise<number> {
+        try {
+          const filter = contracts.publishers.filters.PublisherRegistered();
+          const logs = await queryFilterAll(contracts.publishers, filter);
+          const uniq = new Set<string>();
+          for (const log of logs) {
+            const addr = (log as any).args?.publisher as string | undefined;
+            if (addr) uniq.add(addr.toLowerCase());
+          }
+          return uniq.size;
+        } catch {
+          return 0;
+        }
+      }
+      const [nextId, paused, pubCountNum, councilSizeRaw] = await Promise.all([
         contracts.campaigns.nextCampaignId().catch(() => 0n),
         contracts.pauseRegistry.paused().catch(() => false),
-        // DatumPublishers exposes registeredCount() in some builds; tolerate
-        // a missing method by falling back to 0.
-        (contracts.publishers as any).registeredCount?.().catch(() => 0n) ?? Promise.resolve(0n),
+        countRegisteredPublishers(),
         (contracts.council as any).memberCount?.().catch(() => 0n) ?? Promise.resolve(0n),
       ]);
 
@@ -81,14 +99,20 @@ export function Overview() {
         } catch { /* skip */ }
       }));
 
-      // Count total impressions + total DOT settled from ClaimSettled events
+      // Count total impressions + total DOT settled from ClaimSettled events.
+      // Alpha-5 split the old `amountPaid` field into three: publisherPayment
+      // + userPayment + protocolFee. Total settled is the sum of all three.
       let totalImpressions = 0;
       let totalSettledPlanck = 0n;
       try {
         const filter = contracts.settlement.filters.ClaimSettled();
         const logs = await queryFilterAll(contracts.settlement, filter);
-        totalImpressions = logs.reduce((s: number, log: any) => s + Number(log.args?.impressionCount ?? 0), 0);
-        totalSettledPlanck = logs.reduce((s: bigint, log: any) => s + BigInt(log.args?.amountPaid ?? 0n), 0n);
+        totalImpressions = logs.reduce((s: number, log: any) =>
+          s + Number(log.args?.eventCount ?? 0), 0);
+        totalSettledPlanck = logs.reduce((s: bigint, log: any) =>
+          s + BigInt(log.args?.publisherPayment ?? 0n)
+            + BigInt(log.args?.userPayment ?? 0n)
+            + BigInt(log.args?.protocolFee ?? 0n), 0n);
       } catch { /* settlement not configured */ }
 
       setStats({
@@ -97,7 +121,7 @@ export function Overview() {
         pendingCampaigns: pending,
         totalImpressions,
         totalSettledPlanck,
-        publishersRegistered: Number(pubCountRaw ?? 0n),
+        publishersRegistered: pubCountNum,
         councilMembers: Number(councilSizeRaw ?? 0n),
         paused: Boolean(paused),
       });

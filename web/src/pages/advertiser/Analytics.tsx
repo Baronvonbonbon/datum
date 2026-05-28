@@ -74,7 +74,7 @@ export function CampaignAnalytics() {
             const userSet = new Set<string>();
             for (const log of sLogs) {
               const args = (log as any).args;
-              totalImpressions += BigInt(args?.impressionCount ?? 0);
+              totalImpressions += BigInt(args?.eventCount ?? 0);
               totalUserPaid += BigInt(args?.userPayment ?? 0);
               totalPublisherPaid += BigInt(args?.publisherPayment ?? 0);
               userSet.add((args?.user ?? "").toLowerCase());
