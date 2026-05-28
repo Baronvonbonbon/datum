@@ -1,126 +1,234 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-23
-**Current Phase:** Alpha-5 v5 — full advertiser fraud track + interest commitments + tag curator now deployed on Paseo (2026-05-23T12:23Z). Closes the AdvertiserStake/AdvertiserGovernance gap from v4; adds DatumInterestCommitments (ZK Path-A user-interest roots) and DatumTagCurator (governance-curated tag lane). Twenty governable parameters across seven contracts (DatumCampaigns, DatumCampaignLifecycle, DatumActivationBonds, DatumGovernanceV2, DatumMintCoordinator, DatumAdvertiserStake, DatumAdvertiserGovernance) retunable via the owner/Timelock route (48h delay) AND the ParameterGovernance bicameral veto-window route. **10/10 governable parameters round-tripped end-to-end on Paseo** via `scripts/exercise-governable-params.ts` (up/down/restore). Previous v4 addresses archived at `alpha-5/deployed-addresses.v4-pre-advertiser-track.json`. **Pre-mainnet upgrade-machinery work** (router `msg.sender` wedge, per-contract `_migrate()` overrides, paginated migration, migration test harness) documented in `PRE-MAINNET-CHECKLIST.md` §U1-U7.
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v5 (EVM, solc) live; alpha-3 PVM reference frozen
-**Web App:** https://datum.javcon.io — `web/src/shared/networks.ts` updated to alpha-5 v5 addresses (now exposes `advertiserStake`, `advertiserGovernance`, `interestCommitments`, `tagCurator`)
-**Contract count:** 34 deployed + 2 Logic delegates (LogicA + LogicB) for Settlement (token plane via separate `deploy-token.ts`) — see `alpha-5/deployed-addresses.json`
-**Tests:** 1579 passing, 0 failing, 1 pending (29 Phase A + 15 Phase B cases)
+**Last Updated:** 2026-05-28
+**Current Phase:** Alpha-5 v5 — full advertiser fraud track + interest commitments + tag curator deployed on Paseo (2026-05-23T12:23Z). Twenty governable parameters across seven contracts retunable via the Timelock route (48h delay) AND the `DatumParameterGovernance` bicameral veto-window route. 10/10 governable parameters round-tripped end-to-end on Paseo via `scripts/exercise-governable-params.ts`. Pre-mainnet upgrade-machinery work tracked in `PRE-MAINNET-CHECKLIST.md` §U1-U7.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v5 (EVM, solc) live; alpha-3 PVM reference frozen in `archive/`
+**Web App:** https://datum.javcon.io
+**Contract count:** 53 deployable production contracts + 2 Logic delegates (LogicA + LogicB) for Settlement. Token plane (5 contracts in `contracts/token/`) deployed separately via `deploy-token.ts`.
+**Tests:** 1579 passing, 0 failing, 1 pending
 
-## Cypherpunk roadmap (2026-05-18)
+---
+
+## Cypherpunk Roadmap
 
 The system is **upgradable today, locked tomorrow**. Two-phase commitment:
 
-1. **Alpha + beta (current):** Every contract is replaceable via governance.
-   The deployer (Phase 0 = Admin) can `upgradeContract(name, v2)` instantly;
-   Council (Phase 1) and OpenGov (Phase 2) gate the same flow with their
-   respective delays. Lock-once functions revert pre-OpenGov so the system
-   stays malleable while we iterate. This includes the token plane
-   (MintAuthority, Wrapper, Vesting, BootstrapPool, FeeShare) — previously
-   "irrevocable post-sunset" by design, now phase-conditional.
+1. **Alpha + beta (current):** Every contract is replaceable via governance. Deployer (Phase 0 = Admin) can `upgradeContract(name, v2)` instantly; Council (Phase 1) and OpenGov (Phase 2) gate the same flow with their respective delays. Lock-once functions revert pre-OpenGov so the system stays malleable while iterating. Token plane (MintAuthority, Wrapper, Vesting, BootstrapPool, FeeShare) is phase-conditional.
 
-2. **Production (when OpenGov is in charge):** Governance can fire
-   `lock*()` functions per-contract, ratifying cypherpunk commitments
-   one by one. The original "code-is-law" guarantees become OpenGov-
-   choice commitments rather than baked-in invariants.
+2. **Production (when OpenGov is in charge):** Governance can fire `lock*()` functions per-contract, ratifying cypherpunk commitments piecemeal. The original "code-is-law" guarantees become OpenGov-choice commitments rather than baked-in invariants.
 
-This trades short-term "code is law" certainty for long-term operational
-flexibility during testing. The end-state (every lock fired,
-oracleReporter lock-once retired, parachain sunset finalized) remains the
-roadmap target — see `alpha-4/MAINNET-DEFERRED-ITEMS.md` §1 and §7.5.
+End-state target: every lock fired, oracleReporter retired, parachain sunset finalized. See `alpha-5/narrative-analysis/upgrade-ladder-design.md`.
 
 ---
 
 ## Summary
 
-DATUM is a decentralized ad exchange on Polkadot Hub. Users earn DOT for viewing ads, publishers set their own take rates, advertisers get verifiable impressions, and governance voters curate campaign quality with conviction-weighted staking.
+DATUM is a decentralized ad exchange on Polkadot Hub. Users earn DOT and DATUM tokens for viewing ads; publishers set their own take rates; advertisers fund campaigns from on-chain budgets; governance voters curate campaign quality with conviction-weighted staking; disputes resolve via on-chain slash. Alpha-5 is the rename + clean checkpoint of alpha-4 v0.5.0 (`bd59fa4`, 2026-05-19) — all contract sources, tests, scripts, and the narrative-analysis tree carry over byte-for-byte. The version bump declares "alpha-4 contract surface is the alpha-5 baseline."
 
-**Alpha-4** is the active line. **EVM-only build** (Solidity 0.8.24, solc, evmVersion `cancun`) — pallet-revive on Polkadot Hub executes EVM bytecode directly, so dropping the PVM resolc bytecode-size constraint enabled merging 9 alpha-3 satellites into core contracts (29 → 21). That makes Settlement and other complex contracts materially cheaper to deploy and call. Deployed to Paseo Hub on 2026-05-06; webapp migrated to 21-contract addressing.
-
-**Alpha-3** remains in-tree as the canonical 29-contract reference. It is dual-target: a PVM build via resolc 1.1.0 (`alpha-3/hardhat.config.ts`, deployed v9 2026-05-02) and an EVM dual-target build via stock solc (`alpha-3/hardhat.config.evm.ts`, deployed 2026-05-03). The EVM addresses are mirrored into `alpha-4/deployed-addresses-evm.json` so the webapp can switch between layouts.
-
-Newest unreleased work (committed `b85fcf7`): **hybrid dual-sig settlement** — `DatumSettlement.settleSignedClaims()` adds a permissionless path requiring publisher + advertiser EIP-712 co-sigs over the same `ClaimBatch` envelope, alongside the existing relay (`userSig + optional publisherSig`) path. Either party can refute by withholding their signature. 8 new tests (D1–D8) green; full alpha-4 suite 532/532.
+**Build:** Solidity 0.8.24, EVM-only (`evmVersion: cancun`, viaIR, optimizer 200 runs). Single build target — pallet-revive on Polkadot Hub runs EVM bytecode directly, so no resolc/PVM step. Alpha-3 PVM and alpha-3 EVM dual-target deploys remain in `archive/` as the canonical 29-contract reference and the PVM-vs-EVM cost benchmark that motivated the satellite merge.
 
 ---
 
 ## Components
 
-### Smart Contracts — `alpha-4/contracts/` (canonical, EVM)
+### Smart Contracts — `alpha-5/contracts/` (canonical, EVM)
 
-**21 production contracts**, EVM bytecode (solc 0.8.24, evmVersion `cancun`, viaIR, optimizer 200 runs). Executed on Paseo Hub via pallet-revive's EVM compatibility path. **532/532 alpha-4 contract tests passing.**
+**53 production contracts** + token plane (5 contracts in `contracts/token/`). Executed on Paseo Hub via pallet-revive's EVM compatibility path. **1579/1579 alpha-5 tests passing.**
 
-The merge from 29 → 21 is what makes alpha-4 cost-optimized: dropping resolc PVM bytecode-size pressure lets nine alpha-3 satellites fold into their parents, eliminating cross-contract staticcalls in the hot settlement path.
+#### Settlement core (4)
 
-| Contract | Group | Role | Absorbs (alpha-3 satellite) |
-|----------|-------|------|------------------------------|
-| ZKVerifier | Infrastructure | Real Groth16/BN254 verifier; verifying key set | — |
-| PauseRegistry | Infrastructure | Global emergency pause; 2-of-3 guardian unpause | — |
-| Timelock | Infrastructure | 48h admin delay for sensitive config | — |
-| PaymentVault | Infrastructure | Pull-payment vault (publisher/user/protocol DOT) | — |
-| TokenRewardVault | Infrastructure | Pull-payment vault for ERC-20 sidecar token rewards | — |
-| BudgetLedger | Campaign | Campaign escrow + daily caps | — |
-| Campaigns | Campaign | Creation, metadata, status, snapshots, token reward config | **TargetingRegistry**, **CampaignValidator**, **Reports** |
-| CampaignLifecycle | Campaign | complete / terminate / expire + 30d inactivity timeout | — |
-| ClaimValidator | Settlement | Chain continuity, blocklist, rate-limit, ZK, publisher stake | — |
-| Settlement | Settlement | Hash-chain + Blake2 + 3-way DOT split + dual-sig path | **SettlementRateLimiter**, **NullifierRegistry**, **PublisherReputation** |
-| AttestationVerifier | Settlement | EIP-712 mandatory publisher co-signature | — |
-| Publishers | Publisher | Registration, take rates, relay signer, profile, S12 blocklist | — |
-| Relay | Publisher | Gasless relay path with `userSig` + optional `publisherSig` | — |
-| GovernanceV2 | Governance | Conviction voting (9 levels), symmetric slash | **GovernanceHelper**, **GovernanceSlash** |
-| GovernanceRouter | Governance | Stable-address proxy; Phase 0 → 1 → 2+ via Timelock | **AdminGovernance** |
-| Council | Governance | Phase 1: N-of-M trusted council voting | — |
-| PublisherStake | FP | FP-1+FP-4: publisher DOT bonding curve; settlement enforces | — |
-| ChallengeBonds | FP | FP-2: advertiser bonds at creation; bonus on fraud upheld | — |
-| PublisherGovernance | FP | FP-3: conviction-weighted fraud governance targeting publishers | — |
-| ParameterGovernance | FP | FP-15: conviction-vote DAO for protocol parameters | — |
-| ClickRegistry | FP | FP-6: click-fraud detection (impression → click session tracking) | — |
+| Contract | Role |
+|---|---|
+| `DatumSettlement` | Thin shell + storage + DELEGATECALL router |
+| `DatumSettlementStorage` | Shared storage base (Settlement / LogicA / LogicB) |
+| `DatumSettlementLogicA` | Relay-path entries (`settleClaims`, `settleClaimsMulti`) + auth |
+| `DatumSettlementLogicB` | `_processBatch` + dual-sig entry + helpers |
 
-Nine alpha-3 satellites merged into 4 parents: TargetingRegistry / CampaignValidator / Reports → Campaigns; SettlementRateLimiter / NullifierRegistry / PublisherReputation → Settlement; GovernanceHelper / GovernanceSlash → GovernanceV2; AdminGovernance → GovernanceRouter.
+The two-Logic split (2026-05-19) closed the EIP-170 gap: `DatumSettlement` is a thin shell holding state via `DatumSettlementStorage` and routing via DELEGATECALL through LogicA → LogicB. DualSig submissions enter LogicB directly, bypassing LogicA. All three contracts share an identical storage layout asserted by `test/settlement-layout.test.ts` against `settlement-layout.snapshot.json`. Layout drift is a deploy-time revert via `validateSettlementLayoutMatchesSnapshot()`.
 
-**Hybrid settlement (committed `b85fcf7`):**
-- `Settlement.settleSignedClaims(SignedClaimBatch[])` — permissionless dual-sig path. Both parties sign EIP-712 `ClaimBatch(user, campaignId, claimsHash, deadline)` on the **DatumSettlement** domain. Publisher sig accepts EOA *or* its registered `relaySigner`; advertiser sig must match `campaigns.getCampaignAdvertiser`. Errors: `E81` deadline, `E82` publisher sig, `E83` advertiser sig.
-- `SignedClaimBatch` struct gains `userSig` (renamed from `signature`) and new `advertiserSig`. Existing relay path uses `userSig + publisherSig`.
+Sizes after the split (all under EIP-170):
+- `DatumSettlement` — 11,338 B
+- `DatumSettlementLogicA` — 5,289 B
+- `DatumSettlementLogicB` — 12,507 B
+- `DatumCampaigns` — 20,767 B
 
-**Toolchain:** Solidity 0.8.24, solc only (`@nomicfoundation/hardhat-toolbox`), Hardhat 2.22, OZ 5.0, viaIR + optimizer 200 runs, evmVersion `cancun`.
+#### Settlement satellites (8)
 
-### Alpha-3 Reference (PVM + EVM dual-target)
+| Contract | Role |
+|---|---|
+| `DatumDualSigSettlement` | EIP-712 dual-sig path (publisher + advertiser cosig) |
+| `DatumClaimValidator` | Per-claim hash chain, nonce, PoW, ZK, attestation |
+| `DatumPowEngine` | PoW difficulty + leaky-bucket per-publisher |
+| `DatumNullifierRegistry` | ZK replay prevention per-(user, campaign, window) |
+| `DatumSettlementRateLimiter` | Per-publisher per-window event cap |
+| `DatumPublisherReputation` | Settlement acceptance counters + anomaly detection |
+| `DatumMintCoordinator` | Per-claim DATUM emission orchestration |
+| `DatumEmissionEngine` | DATUM emission schedule + per-claim mint computation |
 
-`alpha-3/contracts/` keeps the canonical 29-contract layout. It builds two ways:
-- **PVM** via `alpha-3/hardhat.config.ts` (`@parity/hardhat-polkadot-resolc`, resolc 1.1.0, `target: "pvm"`) — deployed v9 2026-05-02. **546/546 tests** under the EVM Hardhat runner.
-- **EVM dual-target** via `alpha-3/hardhat.config.evm.ts` (stock solc) — deployed 2026-05-03 for the PVM-vs-EVM cost benchmark that motivated the alpha-4 merge.
+#### Campaign (5)
+
+| Contract | Role |
+|---|---|
+| `DatumCampaigns` | Per-campaign object: budget, caps, AssuranceLevel, tag refs |
+| `DatumCampaignAllowlist` | Multi-publisher allowlist + take-rate snapshots |
+| `DatumCampaignCreative` | IPFS + Bulletin Chain creative reference + renewer escrow |
+| `DatumCampaignLifecycle` | Status transitions: Active / Terminated / Expired / Demoted |
+| `DatumReports` | Community page / ad reports |
+
+#### Payments (3)
+
+| Contract | Role |
+|---|---|
+| `DatumBudgetLedger` | Advertiser DOT escrow |
+| `DatumPaymentVault` | Pull-payment vault (publisher / user / protocol); recovery-address support |
+| `DatumTokenRewardVault` | Pull-payment vault for ERC-20 side-rewards |
+
+#### Tag policy (3)
+
+| Contract | Role |
+|---|---|
+| `DatumTagSystem` | Tag dictionary + per-publisher tag sets + per-campaign required tags |
+| `DatumTagRegistry` | WDATUM-staked namespace + Schelling-jury arbitration |
+| `DatumTagCurator` | Council-curated tag-approval registry |
+
+#### Publisher (3)
+
+| Contract | Role |
+|---|---|
+| `DatumPublishers` | Registry, take rate, relaySigner, blocklist curator integration |
+| `DatumPublisherStake` | Bonding-curve stake gate |
+| `DatumPublisherGovernance` | Conviction-vote fraud proposals against publishers |
+
+#### Advertiser (3)
+
+| Contract | Role |
+|---|---|
+| `DatumAdvertiserStake` | Bonding-curve stake gate for advertisers (CB4) |
+| `DatumAdvertiserGovernance` | Fraud proposals against advertisers (G-3 mirror) |
+| `DatumChallengeBonds` | Optional advertiser bonds; pay out on fraud upheld |
+
+#### Governance (8)
+
+| Contract | Role |
+|---|---|
+| `DatumGovernanceRouter` | Stable-address phase router + contract registry |
+| `DatumGovernanceV2` | Open conviction voting on campaigns; commit-reveal for optimistic |
+| `DatumParameterGovernance` | Conviction voting on protocol parameters |
+| `DatumCouncil` | N-of-M trusted-member council (Phase 1) |
+| `DatumCouncilBlocklistCurator` | Council-driven blocklist with bonded-appeal mechanism |
+| `DatumTimelock` | 48-hour delay on owner-gated admin changes |
+| `DatumActivationBonds` | Optimistic activation creator bonds + challenge + mute |
+| `ParameterRetuneGuard` (mixin) | Per-key cooldown defense-in-depth on economic setters |
+
+#### Relay accountability (2) — G-1 first close, 2026-05-20
+
+| Contract | Role |
+|---|---|
+| `DatumRelayStake` | Flat-minimum bond + slash hook; `isAuthorized` consumed by `DatumRelay` |
+| `DatumRelayGovernance` | Conviction-vote fraud proposals against relays (censorship / front-run / MEV / collusion) |
+
+#### Identity (5)
+
+| Contract | Role |
+|---|---|
+| `DatumIdentityVerifier` | ZK identity circuit (Groth16, single public input) |
+| `DatumPeopleChainIdentity` | XCM bridge state machine to People Chain identity |
+| `DatumPeopleChainXcmBridge` | XCM dispatcher (outbound + callback) for the bridge |
+| `DatumBondedIdentityReporter` | Bonded-reporter alternative identity feed |
+| `DatumInterestCommitments` | Per-user interest-category Merkle commitments for ZK targeting |
+
+#### Stake-root system (3)
+
+| Contract | Role |
+|---|---|
+| `DatumStakeRoot` | V1 reporter-committed Merkle roots |
+| `DatumStakeRootV2` | Fraud-proof system on top of V1 (bonded reporters, phantom-leaf challenge) |
+| `DatumZKStake` | DATUM stake + 30-day lockup for ZK gate |
+
+#### Verifiers / attestation (3)
+
+| Contract | Role |
+|---|---|
+| `DatumZKVerifier` | Groth16 BN254 verifier (7 public inputs) for impression circuit |
+| `DatumAttestationVerifier` | Mandatory publisher-cosig wrapper upstream of Settlement |
+| `DatumClickRegistry` | Impression → click-session tracking for CPC |
+
+#### Infrastructure / safety (5)
+
+| Contract | Role |
+|---|---|
+| `DatumPauseRegistry` | Global per-category emergency pause; 3-guardian set |
+| `DatumRelay` | Publisher-cosigned batch relay path (open-mode pre-`lockRelayerOpen`) |
+| `DatumUpgradable` | Inheritance base for registry + pause + migrate + lockOpenGov |
+| `DatumOwnable` | Ownable2Step base (manual implementation) |
+| `PaseoSafeSender` | DOT-transfer helper; defeats Paseo eth-rpc denomination bug |
+
+#### Token plane (5, under `contracts/token/`)
+
+| Contract | Role |
+|---|---|
+| `DatumMintAuthority` | Sole bridge contract for DATUM mints; 95M cap |
+| `DatumWrapper` | WDATUM ERC-20 wrapper over canonical DATUM |
+| `DatumBootstrapPool` | One-time onboarding grant of WDATUM to new users |
+| `DatumFeeShare` | Stake WDATUM, earn DOT fee share (MasterChef pattern) |
+| `DatumVesting` | Single-beneficiary linear vesting with cliff |
 
 ---
 
-### Browser Extension — `alpha-4/extension/`
+### Settlement Entry Points
 
-v0.4.0, 21-contract support. **212 Jest tests passing.** Manifest V3, Chrome/Chromium. ABIs synced from alpha-4 artifacts (incl. updated `DatumRelay`/`DatumSettlement` after dual-sig refactor).
+`DatumSettlement` exposes three entry points that all converge on `_processBatch` in LogicB:
+
+1. **`settleClaims(ClaimBatch[])`** — relay path. `msg.sender` is the user themselves, `DatumRelay`, `DatumAttestationVerifier`, or a publisher's `relaySigner` hot key. Satisfies AssuranceLevel ≤ 1.
+2. **`settleClaimsMulti(UserClaimBatch[])`** — batch variant; one tx, multiple users × campaigns.
+3. **`settleSignedClaims(SignedClaimBatch[])`** — dual-sig path delegated to `DatumDualSigSettlement` (EIP-712 publisher + advertiser cosig over `(user, campaignId, claimsHash, deadline, expectedRelaySigner, expectedAdvertiserRelaySigner)`). Only path that satisfies AssuranceLevel = 2.
+
+AssuranceLevel gradient:
+- **L0** — open; user signature only
+- **L1** — relay-mediated; sig + liveness check via `DatumRelay`
+- **L2** — dual-sig path required
+- **L3** — ZK-only floor (users may demand via `userMinAssurance`)
+
+---
+
+### Browser Extension — `alpha-5/extension/`
+
+v0.2.0, alpha-5 contract support. **212+ Jest tests passing.** Manifest V3, Chrome/Chromium. ABIs synced from alpha-5 artifacts.
 
 **4-tab popup:** Claims, Earnings, Settings, Filters.
 
-Key features (carried forward from alpha-3, retargeted at alpha-4 contracts):
-- **IAB ad format system** — 7 standard sizes; SDK sizes placeholder div to exact dimensions; format-priority creative image selection
-- **Per-format creative images** — `creative.images[]` with `{ format, url, alt? }` entries; horizontal layout for leaderboard/mobile-banner, vertical for the rest
+Key features:
+- **IAB ad format system** — 7 standard sizes; SDK sizes placeholder div to exact dimensions
+- **Per-format creative images** — `creative.images[]` with `{ format, url, alt? }`
 - **Event-driven campaign polling** — incremental from lastBlock, O(1) Map index
-- **Batch-parallel RPC** — 20 concurrent status refreshes, 5 concurrent IPFS fetches
-- **Blake2-256 claim hashing** — `@noble/hashes/blake2.js` matches Settlement on PolkaVM
-- **P1 attestation path** — `AttestationVerifier.settleClaimsAttested()` with publisher EIP-712 co-sig
+- **Blake2-256 claim hashing** — matches Settlement on Polkadot Hub
+- **All three settlement paths** — `publisher` / `dualsig` / `datumrelay` modes from SDK propagated via `datum:sdk-ready`
 - **Filters tab** — tag-based campaign filtering, silenced campaigns
 - **In-ad dismiss / Report** — popover with topic-level mute and reason picker
 - **Publisher profile + FP state** in Settings (relay signer, profile hash, stake balance, challenge bond)
 - **Second-price Vickrey auction** — interest-weighted bids, mechanism badge
 - **Native Asset Hub token metadata** — registry fallback for ERC-20 precompile addresses
-- **Hybrid sig support** — `SignedClaimBatch` interface now carries `userSig`, `publisherSig`, `advertiserSig`
+- **ZK proof generation** — impression circuit (Groth16/BN254) + identity circuit (single-input)
+- **Interest commitments** — local leaf storage + on-chain Merkle root publication
 - EIP-1193 provider bridge, IPFS multi-gateway, Shadow DOM injection, AES-256-GCM multi-account wallet, auto-submit, claim export, timelock monitor
 
 ---
 
 ### Web App — `web/`
 
-v0.4.x, React 18 + Vite 6 + TypeScript + ethers v6. **41 page TSX files**, 0 TS errors. **Migrated to alpha-4 21-contract addressing.**
+React 18 + Vite 6 + TypeScript + ethers v6. **82 page TSX files.** Alpha-5 contract addressing throughout.
 
-Core sections: Explorer, Advertiser, Publisher, Governance, Admin, Demo + Settings. Native Asset Hub token precompile support in CreateCampaign. Challenge bond display in CampaignDetail. Theme toggle, role badges, live Vickrey auction simulation.
-
-**ABIs synced:** 21 entries in `web/src/shared/abis/` matching alpha-4. `DatumRelay.json` and `DatumSettlement.json` re-synced today after dual-sig struct change.
+Sections:
+- **Explorer** — Overview, HowItWorks, Philosophy, Campaigns, CampaignDetail, Publishers, PublisherProfile, AdvertiserProfile
+- **Advertiser** — Dashboard, Profile, CreateCampaign, CampaignDetail, SetMetadata, Analytics
+- **Publisher** — Dashboard, Register, TakeRate, Categories, Allowlist, Earnings, SDKSetup, Profile, Stake
+- **Governance** — Dashboard, Vote, MyVotes, Parameters, ProtocolParams, PublisherFraud, AdvertiserFraud, RelayFraud
+- **Admin** — Timelock, PauseRegistry, Blocklist, ProtocolFees, RateLimiter, Reputation, PublisherStake, PublisherGovernance, ChallengeBonds, NullifierRegistry, ParameterGovernance, AdvertiserStake, RelayStake
+- **Identity** — Dashboard, PeopleChain, Zk
+- **Token** — Dashboard, Wrapper, FeeShare, Bootstrap, Vesting, MintCoordinator
+- **Protocol** — Dashboard, TagCurator, BrandCurator, Upgrades
+- **Me** — Dashboard, History, Assurance, Branding, Dust, Identity
+- **Settings / Demo**
 
 ---
 
@@ -143,13 +251,30 @@ See `pine/CAPABILITIES.md` for the full method support matrix.
 
 ### Publisher SDK — `sdk/`
 
-Lightweight JS tag (~3 KB). `<script data-publisher="0x..." data-slot="medium-rectangle">` + `<div id="datum-ad-slot">`. Sizes placeholder div to exact IAB dimensions. Challenge-response handshake with extension for two-party attestation.
+`datum-sdk.js` v3.4 — lightweight JS tag. `<script data-publisher="0x..." data-slot="medium-rectangle" data-relay-mode="publisher|dualsig|datumrelay">` + `<div id="datum-ad-slot">`. Sizes placeholder div to exact IAB dimensions. Challenge-response handshake with extension for two-party attestation. Alpha-5 additions:
+- Bulletin Chain creative loader (`${relay}/bulletin/<cid>`)
+- Click reporter (`datum:click` → POST `${relay}/click` → `DatumClickRegistry` on-chain; no user wallet address sent)
+- Relay-path hint propagated in `datum:sdk-ready`
+- Publisher telemetry on `window.DATUM.metrics`
+- No-extension fallback: inline DATUM house ads sized to slot
 
 ---
 
-### Publisher Relay — `relay-bot/` (gitignored)
+### WordPress Plugin — `wordpress-plugin/datum-publisher/`
 
-Live systemd service for Diana on localhost:3400. Co-signs attestations and forwards claim batches via `DatumRelay.settleClaimsFor()` using the EIP-712 `userSig` + optional `publisherSig` envelope. After each batch: parses `ClaimSettled`/`ClaimRejected` events, aggregates per `(publisher, campaignId)` pair, calls `recordSettlement` on the Settlement reputation slot. Accepts legacy `signature` payloads transparently for backward compatibility.
+PHP plugin (`datum-publisher.php`) that wraps the SDK. Provides shortcode, Gutenberg block, and sidebar widget placement. Stores publisher configuration in WP options. Inherits all SDK privacy properties (zero cookies, no third-party tracking).
+
+---
+
+### Publisher Relay — `relay-bot/` (gitignored, example at `relay-bot.example/`)
+
+Live systemd service for Diana on localhost:3400. Co-signs attestations and forwards claim batches via `DatumRelay.settleClaimsFor()` using the EIP-712 `userSig` + optional `publisherSig` envelope. After each batch: parses `ClaimSettled`/`ClaimRejected` events, aggregates per `(publisher, campaignId)` pair, calls `recordSettlement` on the reputation slot. Click endpoint (`POST /click`) batches and submits to `DatumClickRegistry`. Bulletin endpoint (`GET /bulletin/<cid>`) fetches creative for the SDK.
+
+---
+
+### IPFS Node — `ipfs-node/`
+
+Local Kubo IPFS daemon (1 GB cap, localhost-only API + gateway) fronted by Cloudflare Tunnel at `ipfs.datum.javcon.io`. Authenticated upload proxy (`ipfs-proxy.mjs`) on port 5050 with Bearer-token auth. Two systemd user services.
 
 ---
 
@@ -159,48 +284,10 @@ Live systemd service for Diana on localhost:3400. Co-signs attestations and forw
 
 ---
 
-## Testnet Deployments
+## Testnet Deployment (Paseo — Alpha-5 v5, 2026-05-23)
 
-### Alpha-4 EVM (Paseo Hub via pallet-revive) — 2026-05-06
-
-| Contract | Address |
-|----------|---------|
-| PauseRegistry | `0x03458E616a9C9460f0A63023b63B18a84C51EC82` |
-| Timelock | `0x0125909A25537422014eCE8b422A0c802f47b411` |
-| ZKVerifier | `0xd3C086583581DaFd2226365A4B1E1bEb13b4f3a2` |
-| Publishers | `0x4D6d100F139bF13081abb8037472cd67A89519B2` |
-| BudgetLedger | `0xfF1DaA7CB3187EBb4D249567114e208fF4390B18` |
-| PaymentVault | `0x4fdE02a4c0aFfef31DC36D741F6a596A2aA87Fb6` |
-| Campaigns | `0x364038B8d3E8fBEFA81D3D1249C4b62d5765880b` |
-| CampaignLifecycle | `0x4BE26c6078497C31f7310524F0e6f09d8A51C8b6` |
-| Settlement | `0x16F1fB8e96840cb2E50Db3D165683807761f568C` |
-| ClaimValidator | `0x90EfB06Ad1f4c59a07863F2ddDe8e6cad411Ac84` |
-| GovernanceV2 | `0xE195CCC5dA11567b3501379985B5dfa4f0EC40b4` |
-| Relay | `0x82705970AF14754F61dAb6374a7ae9DC0a2706E1` |
-| AttestationVerifier | `0x765c2e7D64680Ee0987368c8489E89474cF18b0E` |
-| TokenRewardVault | `0x2B141116d0c26e8DcBfE08841214147c2F10506d` |
-| PublisherStake | `0xe5188a35c2dd926F1cCE35ee6f32a81A1aBa3108` |
-| ChallengeBonds | `0x16c9a2Fc8D32D4106db60B38bD1D631E1A654f4D` |
-| PublisherGovernance | `0x184254A2e51e3A92f840aCfDE292E926FFAf9DC1` |
-| ParameterGovernance | `0x7ee17C46B68808FE22CF4B7deBD86EeB14BdFdC4` |
-| GovernanceRouter | `0x99388a88b74Fc51c17A5B6Eb37F6Cc55BF4dD091` |
-| Council | `0x90fe17488e1c17C1226F1c384a2Ef826dBFaa241` |
-| ClickRegistry | `0x2fe26529a4F3594Bcbccd36e200721e80349A5f4` |
-
-Source: `alpha-4/deployed-addresses.json` (authoritative for alpha-4).
-
-### Alpha-3 PVM (Paseo Hub) — 2026-05-02 (v9, resolc 1.1.0)
-
-29-contract reference deploy. Source: `alpha-3/deployed-addresses.json`. Used as the canonical comparison target for alpha-4 functional parity and the source of the PVM half of the cost benchmark.
-
-### Alpha-3 EVM dual-target (Paseo Hub) — 2026-05-03
-
-29-contract solc/EVM compile of the alpha-3 layout. Source: `alpha-3/deployed-addresses-evm.json`. Mirrored into `alpha-4/deployed-addresses-evm.json` so the webapp can switch between the alpha-3 layout and the alpha-4 21-contract layout. This is the EVM half of the PVM-vs-EVM benchmark that motivated the alpha-4 merge.
-
-### Common parameters
-
-| Item | Value |
-|------|-------|
+| Resource | Value |
+|---|---|
 | RPC | `https://eth-rpc-testnet.polkadot.io/` |
 | Explorer | `https://blockscout-testnet.polkadot.io/` |
 | Faucet | `https://faucet.polkadot.io/` (select Paseo) |
@@ -209,77 +296,145 @@ Source: `alpha-4/deployed-addresses.json` (authoritative for alpha-4).
 | Deployer | Alice `0x94CC36412EE0c099BfE7D61a35092e40342F62D7` |
 | Publisher | Diana (50% take rate, relay signer) |
 
+### Key addresses (alpha-5 v5)
+
+| Contract | Address |
+|---|---|
+| PauseRegistry | `0xfC4B9b1c47EbF4F7A3f2a274C57F6C7Ab307FbD0` |
+| Timelock | `0x33578f113FF1502f90A9A98683ce66735Cae9B6e` |
+| ZKVerifier | `0x8698D81C63Bc7DAf5F578bD9Aa232d79069f9981` |
+| Publishers | `0xAAED2e515574b330A16320A6Df5669274c6Abb80` |
+| BudgetLedger | `0xA7FBB6ef2EFb509764E38EB5396f597346524592` |
+| PaymentVault | `0xfc7e1Cd05EdB4d7203eF6cbfE07762FA4B09eD73` |
+| Campaigns | `0x3a7AB32f47f789A59c0dd659fd2DB08E4662E149` |
+| CampaignLifecycle | `0x99A876954Bf4294e59938f5A031e41D508e372b4` |
+| Settlement | `0x19562f8808d4e382e5B4d28c787271f384f96c35` |
+| SettlementLogicA | `0x2931dA48e191cA767449fe4E8C80c8B4C716A26f` |
+| SettlementLogicB | `0x896a56d7d6b3538ba241733863993A7c418f732D` |
+| ClaimValidator | `0xF7E64A7124050d4322d26C6AB653C0414D96D2f6` |
+| GovernanceV2 | `0x7974823244F2c46b8b952F6F84B8AcA811353ecB` |
+| Relay | `0xB06CB43977d9691ED220f434EEa730425BfF03ec` |
+| RelayStake | `0x14fE1aB5ceeDb6dEb1ec2afEe2e7b8267d899539` |
+| RelayGovernance | `0xe2D0572333A2A5B7EA288F5De941c0E685EaE3e0` |
+| AttestationVerifier | `0xc8F5c55754c8D40157A4b51A09eB768f4c0af459` |
+| TokenRewardVault | `0x27D55103394f2E69E8Ae867290e0F0F4FD50933f` |
+| PublisherStake | `0x1A7903Af6B47E6d0a071DD7a70Ffb89Fe5A39147` |
+| ChallengeBonds | `0xB50FBF1D919e3EAc2F096b78206cCB59F791F4e8` |
+| PublisherGovernance | `0xd046c9a9B5E1Ad97e8f2d290F16611B0f4C45EE9` |
+| AdvertiserStake | `0xda5e6D741C210eD6AE63Da2cd6d57f0Dd81d70cE` |
+| AdvertiserGovernance | `0xf27324C6093e5C45309cE4F84B72BA967EFe9A18` |
+| InterestCommitments | `0xc05d837C35122523022AaA14AeaF9AAbB4C20aa6` |
+| TagCurator | `0x54bd74f71F24e41d065A6f233D2a28Eb5598E672` |
+| ParameterGovernance | `0xE28851Fd4CFD71A16Be7AAb80e953f53bB6b3102` |
+| GovernanceRouter | `0xeeeD1f19c9ff23B7b1C748c96ab7FC853ee57062` |
+| Council | `0xD474805bc19aCc0BDaA3bdDAf73DA17787C6c150` |
+| ClickRegistry | `0x9Eca5ce274AFAFbC8D0B7E56CbdaD3106Bf55f27` |
+| PowEngine | `0x94De8B916D68d154365762925ef29C04Fa5f0378` |
+| PublisherReputation | `0xdD56e1947B713d29CefAC302946a1c9B7959cF27` |
+| NullifierRegistry | `0xE6a853105e170C0B72EEF8aD632941f71d07C258` |
+| SettlementRateLimiter | `0xc27c028b53390f80e10FF5e14645F6ed442dcb00` |
+| CampaignCreative | `0xBfA458a72d86860973697ac5291DC1C5fEFFbC81` |
+| Reports | `0x5FD07CCaDba4863A50CCF17e8D5645a23812Ec60` |
+| CampaignAllowlist | `0x53B3DA56aE87fc3893555ef4e2ae8DB2B0EDce3c` |
+| TagSystem | `0xA3548857670E5DF54cc06ab3bBBbf0F12233a406` |
+| BlocklistCurator | `0x106a8a54BcF6fAdF80f44D6EBb0b2C515E4dAaeC` |
+| ActivationBonds | `0xeb3ffFD9eaAF7E7fb56BB166ce5f300143c0c59A` |
+| StakeRoot | `0x4C63C5C8751cdb8dD316070c8d40C00D13911fa8` |
+| StakeRootV2 | `0x55310eddE16743Bc0F7FD5aC396351FcA5cF8047` |
+| IdentityVerifier | `0xC9905F505f74b65c9445B8bC3d958523AA935CC1` |
+| EmissionEngine | `0xa1b78B668155b76ABc4B8Ba40d87ed58181608bC` |
+| MintCoordinator | `0xAb66b639F61C10746BC4C876Fc9d6a2Df1759aF2` |
+| DualSig | `0x9B4c0f81cF2a46c5C52a91D33EA022dbF7E8e04b` |
+| PeopleChainIdentity | `0x858dd5fCC448A023F12810E016187D6912247FCc` |
+| PeopleChainXcmBridge | `0x4118c4c6cd5F88DA032Fc17317f779218Fc71230` |
+| PeopleChainBondedReporter | `0x69B897773B3FB5d7238b211AA0DBC844bb4c85DC` |
+
+Authoritative source: `alpha-5/deployed-addresses.json`. Previous v4 addresses archived at `alpha-5/deployed-addresses.v4-pre-advertiser-track.json`. Earlier archived snapshots in `deployed-addresses.v{1,2,3}-*.json`.
+
 ---
 
 ## Test Totals
 
 | Component | Tests | Status |
-|-----------|-------|--------|
+|---|---|---|
 | Alpha contracts (archived) | 132 | Passing |
 | Alpha-2 contracts (archived) | 187 | Passing |
-| Alpha-3 contracts | 546 / 546 | All passing |
-| Alpha-4 contracts | 1228 / 1228 | All passing (incl. 4 storage-layout invariant tests for the Settlement Logic split) |
-| Alpha-4 extension | 212 | Passing |
+| Alpha-3 contracts (archived) | 546 / 546 | All passing |
+| Alpha-4 contracts (archived) | 1228 / 1228 | All passing |
+| **Alpha-5 contracts** | **1579 / 1579** | **All passing (1 pending)** |
+| Alpha-5 extension | 212+ | Passing |
+
+---
+
+## Recent Major Milestones
+
+### ✅ Alpha-5 v5 deployment (2026-05-23)
+Full advertiser fraud track + interest commitments + tag curator deployed on Paseo. Adds `DatumAdvertiserStake`, `DatumAdvertiserGovernance` (closes G-3 publisher-side dispute initiation), `DatumInterestCommitments` (ZK Path-A user-interest roots), `DatumTagCurator` (governance-curated tag lane). 20 governable parameters across 7 contracts.
+
+### ✅ Settlement EIP-170 two-Logic split (2026-05-19)
+After 10 carve-outs Settlement was still 9.8 KB over the 24,576 B mainnet cap. Closed via Storage/LogicA/LogicB split. Storage layout asserted by `test/settlement-layout.test.ts`.
+
+### ✅ Upgrade ladder (Stages 1–6, 2026-05-18, commit `bd59fa4`)
+~36 contracts inherit `DatumUpgradable`; ~28 user-facing mutators get `whenNotFrozen`; every lock-once function gates on `whenOpenGovPhase`. Web app reads addresses from the on-chain registry.
+
+### ✅ G-1 through G-10 gaps closure (2026-05-20)
+- G-1 Relay accountability — `DatumRelayStake` + `DatumRelayGovernance` (partial close)
+- G-2 Guardian cabal — solo-fast-pause window, per-category caps, re-engagement cooldown (partial close)
+- G-3 Publisher-side dispute initiation — `DatumAdvertiserGovernance.filePublisherFraudClaim`
+- G-4 Reporter cabal fast eviction — `DatumStakeRootV2.markInactive`
+- G-6 Bonded blocklist appeal — `DatumCouncilBlocklistCurator.fileBlocklistAppeal`
+- G-7 L3 ZK-only assurance floor — `userMinAssurance` accepts level ≤ 3
+- G-8 Time-locked recovery address — `DatumPaymentVault.setRecoveryAddress`
+- G-10 ParameterRetuneGuard mixin
+
+### ✅ People Chain identity bridge Phase B + Bonded Reporter (earlier this cycle)
+`80d5ca6` Phase B, `1d52b8c` reporter, `1847e46` Tier 5 token plane.
+
+### ✅ Hybrid dual-sig settlement
+`DatumDualSigSettlement.settleSignedClaims` with EIP-712 publisher + advertiser cosigs over `ClaimBatch(user, campaignId, claimsHash, deadline, expectedRelaySigner, expectedAdvertiserRelaySigner)`. A1 + M6 anti-staleness: relay-key rotations on either side invalidate in-flight cosigs.
+
+### ✅ Token plane (DATUM ERC-20)
+Five-contract sidecar: `DatumMintAuthority` (95M cap), `DatumWrapper` (WDATUM), `DatumBootstrapPool` (onboarding grants), `DatumFeeShare` (DOT yield via MasterChef pattern), `DatumVesting`. Deployed via `deploy-token.ts`.
 
 ---
 
 ## Critical Path to Mainnet
 
-### ✅ 1. Blake2 Claim Hash — DONE
-Settlement on PolkaVM uses Blake2-256 via `ISystem(0x900).hashBlake256()`. Extension + relay use `@noble/hashes/blake2.js`.
+### ✅ Done
+- Alpha-5 v5 deployment with full advertiser fraud track + interest commitments
+- Settlement EIP-170 compliance via two-Logic split
+- Upgrade ladder Stages 1–6 (~36 contracts upgradable)
+- G-1 / G-3 / G-4 / G-6 / G-7 / G-8 / G-10 gap closures
+- Real Groth16 ZK verifier (impression circuit)
+- ZK identity verifier (single-input circuit)
+- People Chain identity XCM bridge (Phase B oracle posture)
+- Bonded Identity Reporter
+- Interest commitments + Tag curator
+- Hybrid dual-sig settlement
+- Token plane (mint authority / wrapper / bootstrap / fee share / vesting)
+- AssuranceLevel L0–L3 + `userMinAssurance` floor
+- User self-sovereignty controls (`userPaused`, `userBlocksPublisher`, `userBlocksAdvertiser`)
+- Time-locked recovery address
+- Internal security audit pass 5 (4 HIGH + 2 MEDIUM closed)
+- IAB ad format system + per-format creative images
+- Pine RPC smoldot light client
+- IPFS node + upload proxy
+- WordPress plugin
 
-### ✅ 2. Alpha-4 EVM Refactor + Deploy — DONE
-EVM-only 21-contract build (solc, evmVersion `cancun`) deployed 2026-05-06 to Paseo Hub via pallet-revive. 9 alpha-3 satellites merged into 4 parents; eliminating PVM bytecode-size pressure was the unlock. Alpha-3 PVM v9 (resolc 1.1.0) and alpha-3 EVM dual-target benchmarks remain as cost references.
-
-### ✅ 3. Webapp Migration to Alpha-4 — DONE
-41 pages, 0 TS errors, 21-contract addressing. ABIs synced.
-
-### ✅ 4. Internal Security Audit (30 items) — DONE
-All 30 items in `archive/docs/SECURITY-AUDIT-2026-04-20.md` were implemented in alpha-3 and carried forward to alpha-4. External audit pending.
-
-### ✅ 5. Real ZK Verifier — DONE
-Groth16/BN254 verifier live on Paseo. 2-public-input circuit (claimHash, nullifier).
-
-### ✅ 6. Pine RPC Light Client — DONE (alpha)
-smoldot-based EIP-1193 provider; eliminates centralized RPC proxy dependency.
-
-### ✅ 7. Fraud Prevention Suite — DONE
-PublisherStake, ChallengeBonds, PublisherGovernance, NullifierRegistry, ParameterGovernance live in both alpha-3 and alpha-4.
-
-### ✅ 8. Governance Ladder — DONE
-AdminGovernance (Phase 0, active), GovernanceRouter (stable proxy), Council (Phase 1) live.
-
-### ✅ 9. IAB Ad Format System — DONE
-7 IAB sizes, format-priority creative selection, per-format upload, exact-dimension SDK sizing.
-
-### ✅ 10. Hybrid Dual-Sig Settlement — DONE (uncommitted, 2026-05-08)
-`Settlement.settleSignedClaims` permissionless path with publisher + advertiser EIP-712 co-sigs. 8 new tests (D1–D8). Extension/web/relay-bot all updated to the new struct layout.
-
-### ✅ 11. Settlement EIP-170 — DONE (2026-05-19, commits 85b98ba → 5a8b291)
-After 10 carve-outs Settlement was still 9.8 KB over the 24,576 B mainnet cap. Closed via a two-Logic split: `DatumSettlement` keeps the public ABI + storage + setters/getters, `DatumSettlementLogicA` owns the relay-side outer loops (`settleClaims`, `settleClaimsMulti`), and `DatumSettlementLogicB` owns the per-batch pipeline (`processBatch` body). All three inherit `DatumSettlementStorage` (single source of truth for layout) and the Logic contracts run in Settlement's storage via DELEGATECALL.
-
-Sizes after the split (all under EIP-170 with audit headroom):
-- `DatumSettlement` — 11,338 B (was 34,494 B)
-- `DatumSettlementLogicA` — 5,289 B
-- `DatumSettlementLogicB` — 12,507 B
-- `DatumCampaigns` — 20,767 B (already under EIP-170 since the TagSystem carve-out)
-
-The Logic pair is governance-rotatable atomically via `setLogic(logicA, logicB)` to prevent A/B layout drift mid-upgrade. Storage layout enforcement: `test/settlement-layout.test.ts` compiles all three contracts and asserts slot-by-slot identity (catches any future drift before deploy). Deploy script auto-wires.
-
-### 12. E2E Browser Validation
-Full flow on Paseo against alpha-4 EVM addresses: load extension, create impression, settle on-chain, confirm earnings.
-
-### 13. Open Testing
-Publish addresses, document external tester flow, monitor events.
-
-### 14. External Security Audit
-Professional audit before Kusama/Polkadot Hub deployment.
+### Open
+- **MPC ceremonies** for impression circuit + identity circuit (single-party setups are testnet-only)
+- **Production deploy parameters** — EOA → Safe rotation; Timelock window lengthening; SR_V1 3-of-5 threshold; real DATUM ERC-20 to StakeRootV2; treasury rotations
+- **Shim replacements** — Wrapper XCM path (`devnetUnwrapShimEnabled = false`); AssetHubPrecompile → real precompile; PeopleChainIdentity production bridge EOA
+- **E2E browser validation** — full flow on Paseo against alpha-5 v5 addresses
+- **External security audit** — internal pass found 4 HIGH bugs; external specialists non-negotiable. Re-audit obligation from upgrade-ladder retrofit (~36 contracts touched).
+- **EIP-170 revalidation** — confirm post-rename via `npm run size:mainnet`
+- **Kusama / Polkadot Hub deployment planning**
 
 ---
 
 ## Economics Reference
 
-See `alpha-4/ECONOMICS.md` for full break-even analysis by role (publisher, user, advertiser, voter). Constants are unchanged from alpha-3.
+See `alpha-5/ECONOMICS.md` for full break-even analysis by role.
 
 **At recommended 0.500 PAS/1000 CPM ($2.50 @ $5/DOT), 50% publisher take rate:**
 
@@ -294,48 +449,36 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 
 ---
 
-## Backlog Summary
-
-| Category | Items | Status |
-|----------|-------|--------|
-| Targeting redesign (TX-*) | 7 | ✅ Core done (TX-1–TX-4, TX-7) |
-| Bot mitigation (BM-*) | 9 | ✅ BM-2, BM-3, BM-5, BM-7, BM-8, BM-9 done; BM-6 deferred |
-| Fraud prevention (FP-*) | 5 deployed | ✅ FP-1–FP-5, FP-15 deployed; FP-6 ClickRegistry now standalone in alpha-4; FP-8 partial; others deferred |
-| Internal security audit | 30 | ✅ All implemented |
-| Governance ladder | 3 | ✅ AdminGovernance + Router + Council deployed |
-| IAB ad format system | 1 | ✅ Done |
-| Hybrid dual-sig settlement | 1 | ✅ Done (uncommitted) |
-| Pre-mainnet (S12 governance blocklist) | 1 | Open — hybrid admin/governance blocklist contract change |
-| User economics (UX + payout) | 4 | ✅ Token withdrawal, ERC-20 approve flow, auto-sweep done; cross-campaign batching open |
-| Native Asset Hub token sidecar | 1 | ✅ Done |
-| Pine RPC | 3 | Alpha done; subscriptions + production hardening open |
-| Pre-mainnet gate (MG-*) | 7 | External audit, Kusama deploy — not started |
-
----
-
 ## Directory Layout
 
 ```
 datum/
-├── alpha-4/         # Active line — EVM-only, 21 contracts (9 satellites merged)
-│   ├── contracts/   # 21 deployable + 5 mocks
-│   ├── test/        # 532 tests
-│   ├── extension/   # 212 tests, 21-contract ABIs
-│   ├── deployed-addresses.json      # Alpha-4 EVM deploy (2026-05-06)
-│   ├── deployed-addresses-evm.json  # Mirror of alpha-3 EVM dual-target (29 contracts) for webapp routing
-│   └── ECONOMICS.md
-├── alpha-3/         # 29-contract canonical reference; PVM via resolc 1.1.0 + solc EVM dual-target
-│   ├── hardhat.config.ts        # PVM (resolc) — v9 deploy 2026-05-02
-│   └── hardhat.config.evm.ts    # EVM dual-target (solc) — deploy 2026-05-03
-├── web/             # React + Vite, 41 pages, alpha-4 21-contract addressing
-├── sdk/             # Publisher SDK (datum-sdk.js, ~3 KB)
-├── pine/            # Pine RPC: smoldot light-client eth JSON-RPC bridge
-├── docs/            # Demo page + relay template
-├── relay-bot/       # Publisher relay (gitignored) — userSig/publisherSig EIP-712
-├── archive/         # PoC, alpha (9), alpha-2 (13), old extensions, scripts
-│   └── docs/        # Snapshot/superseded docs (alpha-3 backlog, benchmarks,
-│                    # multi-pricing & vickrey reviews, 2026-04-20 audit, etc.)
+├── alpha-5/                         # Active line — EVM-only, 53 prod contracts + 5 token plane
+│   ├── contracts/                   # Production + token plane + mocks
+│   │   └── token/                   # DATUM token plane (5)
+│   ├── test/                        # 1579 tests
+│   ├── extension/                   # 212+ tests, alpha-5 ABIs
+│   ├── scripts/                     # deploy.ts, deploy-token.ts, setup-testnet.ts, exercise-governable-params.ts, ...
+│   ├── narrative-analysis/          # Per-contract narratives + upgrade-ladder design + deploy runbook
+│   ├── deployed-addresses.json      # Alpha-5 v5 (2026-05-23)
+│   ├── deployed-addresses.v{1..4}-*.json  # Archived prior snapshots
+│   ├── SYSTEM-OVERVIEW.md           # Single-document tour
+│   ├── ECONOMICS.md
+│   ├── SECURITY-AUDIT-2026-05-20.md
+│   └── PRE-ALPHA-5-BACKLOG.md
+├── web/                             # React + Vite, 82 page TSX files, alpha-5 addressing
+├── sdk/                             # Publisher SDK (datum-sdk.js v3.4, ~3 KB)
+├── wordpress-plugin/datum-publisher/  # WP plugin wrapping the SDK
+├── pine/                            # Pine RPC: smoldot light-client eth JSON-RPC bridge
+├── ipfs-node/                       # Local Kubo daemon + auth upload proxy (gitignored runtime)
+├── docs/                            # Demo page + relay template
+├── relay-bot/                       # Publisher relay (gitignored) — userSig/publisherSig EIP-712
+├── relay-bot.example/               # Public reference template
+├── archive/                         # PoC, alpha, alpha-2, alpha-3, alpha-4, old extensions, scripts, docs
 ├── PRIVACY-POLICY.md
-├── STATUS.md        # This file
+├── PRE-MAINNET-CHECKLIST.md
+├── PROCESS-FLOW-AUDIT.md
+├── STATUS.md                        # This file
+├── TOKENOMICS.md
 └── README.md
 ```
