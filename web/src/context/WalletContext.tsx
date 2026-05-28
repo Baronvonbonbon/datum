@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from "react";
 import { Signer } from "ethers";
 import {
   ConnectionMethod,
@@ -11,6 +11,30 @@ import {
   waitForDatum,
 } from "../lib/walletProvider";
 import { humanizeError } from "@shared/errorCodes";
+
+// localStorage key for the auto-reconnect hint. We only persist the *method*
+// (datum / injected) -- never any private key. "manual" is intentionally not
+// persisted: the key would have to be re-entered on reload anyway, and we
+// will never write it to disk.
+const STORAGE_METHOD_KEY = "datum_wallet_method";
+type PersistedMethod = "datum" | "injected";
+
+function readPersistedMethod(): PersistedMethod | null {
+  try {
+    const v = localStorage.getItem(STORAGE_METHOD_KEY);
+    return v === "datum" || v === "injected" ? v : null;
+  } catch { return null; }
+}
+
+function writePersistedMethod(method: ConnectionMethod | null): void {
+  try {
+    if (method === "datum" || method === "injected") {
+      localStorage.setItem(STORAGE_METHOD_KEY, method);
+    } else {
+      localStorage.removeItem(STORAGE_METHOD_KEY);
+    }
+  } catch { /* storage disabled */ }
+}
 
 interface WalletContextValue {
   address: string | null;
@@ -30,6 +54,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<WalletConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [datumReady, setDatumReady] = useState(isDatumExtensionAvailable());
+  const autoReconnectTried = useRef(false);
 
   // Wait for window.datum injection (content script can lag page load)
   useEffect(() => {
@@ -37,6 +62,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       waitForDatum().then(setDatumReady);
     }
   }, [datumReady]);
+
+  // Auto-reconnect on mount if the user previously connected via datum or
+  // injected. Manual is never auto-reconnected (we don't keep the key).
+  // The attempt is one-shot per page load -- if it fails (user revoked
+  // access, extension uninstalled, etc.) we clear the hint silently and the
+  // user can reconnect manually. No error toast on cold start.
+  useEffect(() => {
+    if (autoReconnectTried.current) return;
+    if (connection) return; // already connected (e.g. user clicked Connect)
+    const persisted = readPersistedMethod();
+    if (!persisted) return;
+    if (persisted === "datum" && !datumReady) return; // wait for content script
+    autoReconnectTried.current = true;
+    (async () => {
+      try {
+        const conn = persisted === "datum" ? await connectDatum() : await connectInjected();
+        setConnection(conn);
+      } catch {
+        // Silent failure -- user removed extension, locked wallet, revoked
+        // injected permissions, etc. Drop the hint so we don't try again
+        // until they actively click Connect.
+        writePersistedMethod(null);
+      }
+    })();
+  }, [datumReady, connection]);
 
   // Listen for account changes on injected wallets (MetaMask, SubWallet, etc.)
   useEffect(() => {
@@ -47,6 +97,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!accounts || accounts.length === 0) {
         // User disconnected all accounts
         setConnection(null);
+        writePersistedMethod(null);
         return;
       }
       const newAddr = accounts[0];
@@ -83,6 +134,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         conn = connectManual(opts.privateKey, opts.rpcUrl);
       }
       setConnection(conn);
+      writePersistedMethod(method);
     } catch (err) {
       setError(humanizeError(err));
     }
@@ -91,6 +143,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   function disconnect() {
     setConnection(null);
     setError(null);
+    writePersistedMethod(null);
   }
 
   return (
