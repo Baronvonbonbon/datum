@@ -23,6 +23,7 @@ import { SetMetadata } from "./pages/advertiser/SetMetadata";
 import { CampaignAnalytics } from "./pages/advertiser/Analytics";
 import { BulletinManager } from "./pages/advertiser/BulletinManager";
 import { AdvertiserCosign } from "./pages/advertiser/Cosign";
+import { AdvertiserProfile } from "./pages/advertiser/Profile";
 
 // Publisher
 import { PublisherDashboard } from "./pages/publisher/Dashboard";
@@ -135,6 +136,7 @@ export function App() {
 
               {/* Advertiser */}
               <Route path="/advertiser" element={<AdvertiserDashboard />} />
+              <Route path="/advertiser/profile" element={<AdvertiserProfile />} />
               <Route path="/advertiser/create" element={<CreateCampaign />} />
               <Route path="/advertiser/campaign/:id" element={<AdvertiserCampaignDetail />} />
               <Route path="/advertiser/campaign/:id/metadata" element={<SetMetadata />} />

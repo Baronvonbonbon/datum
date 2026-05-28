@@ -106,6 +106,7 @@ const NAV_SECTIONS: NavSection[] = [
     headerExact: true,
     children: [
       { path: "/advertiser", label: "Dashboard", exact: true },
+      { path: "/advertiser/profile", label: "Profile" },
       { path: "/advertiser/create", label: "New Campaign" },
       { path: "/advertiser/analytics", label: "Analytics" },
       { path: "/about/advertiser", label: "About: Advertiser" },
