@@ -17,20 +17,20 @@ ref/
 SECURITY-AUDIT.md
 
 # Private keys / testnet credentials
-alpha-3/TESTNET-KEYS.md
+archive/alpha-3/TESTNET-KEYS.md
 
 # ZK trusted setup — large artifacts (regenerate with `node scripts/setup-zk.mjs`)
-alpha-3/circom
-alpha-3/circuits/ptau12.ptau
-alpha-3/circuits/impression_0000.zkey
-alpha-3/circuits/impression.r1cs
-alpha-3/circuits/impression.sym
-alpha-4/circuits/ptau12.ptau
-alpha-4/circuits/ptau13.ptau
-alpha-4/circuits/impression_0000.zkey
-alpha-4/circuits/impression.r1cs
-alpha-4/circuits/impression.sym
-alpha-4/circom
+archive/alpha-3/circom
+archive/alpha-3/circuits/ptau12.ptau
+archive/alpha-3/circuits/impression_0000.zkey
+archive/alpha-3/circuits/impression.r1cs
+archive/alpha-3/circuits/impression.sym
+archive/alpha-4/circuits/ptau12.ptau
+archive/alpha-4/circuits/ptau13.ptau
+archive/alpha-4/circuits/impression_0000.zkey
+archive/alpha-4/circuits/impression.r1cs
+archive/alpha-4/circuits/impression.sym
+archive/alpha-4/circom
 alpha-5/circuits/ptau12.ptau
 alpha-5/circuits/ptau13.ptau
 alpha-5/circuits/impression_0000.zkey
@@ -43,5 +43,5 @@ alpha-5/circom
 .env
 
 # DATUM token deploy outputs (per-network)
-alpha-4/token-addresses-*.json
+archive/alpha-4/token-addresses-*.json
 alpha-5/token-addresses-*.json

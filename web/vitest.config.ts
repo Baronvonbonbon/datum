@@ -12,12 +12,12 @@ export default mergeConfig(
       environment: "jsdom",
       setupFiles: ["./test/setup.ts"],
       globals: false,
-      // Exclude the alpha-4 extension source from tests — it's only
+      // Exclude the alpha-5 extension source from tests — it's only
       // here for the @ext alias and its own tests live separately.
       exclude: [
         "node_modules",
         "dist",
-        "../alpha-4/**",
+        "../alpha-5/**",
       ],
       // The webapp's modules don't share state across tests; reset
       // the in-memory module cache between test files so singletons
