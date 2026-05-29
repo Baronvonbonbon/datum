@@ -82,12 +82,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/explorer/publishers", label: "Publishers" },
       { path: "/explorer/how-it-works", label: "How It Works" },
       { path: "/explorer/philosophy", label: "Philosophy" },
-      { path: "/about", label: "About Datum" },
     ],
   },
   {
     label: "Me",
-    matchPrefixes: ["/me", "/about/me"],
+    matchPrefixes: ["/me"],
     headerPath: "/me",
     headerExact: true,
     children: [
@@ -96,12 +95,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/me/identity", label: "Identity" },
       { path: "/me/assurance", label: "Assurance" },
       { path: "/me/dust", label: "Dust" },
-      { path: "/about/me", label: "About: Me" },
     ],
   },
   {
     label: "Advertiser",
-    matchPrefixes: ["/advertiser", "/about/advertiser"],
+    matchPrefixes: ["/advertiser"],
     headerPath: "/advertiser",
     headerExact: true,
     children: [
@@ -109,12 +107,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/advertiser/profile", label: "Profile" },
       { path: "/advertiser/create", label: "New Campaign" },
       { path: "/advertiser/analytics", label: "Analytics" },
-      { path: "/about/advertiser", label: "About: Advertiser" },
     ],
   },
   {
     label: "Publisher",
-    matchPrefixes: ["/publisher", "/about/publisher"],
+    matchPrefixes: ["/publisher"],
     headerPath: "/publisher",
     headerExact: true,
     children: [
@@ -126,12 +123,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/publisher/rate", label: "Take Rate" },
       { path: "/publisher/sdk", label: "SDK Setup" },
       { path: "/publisher/profile", label: "Profile" },
-      { path: "/about/publisher", label: "About: Publisher" },
     ],
   },
   {
     label: "Governance",
-    matchPrefixes: ["/governance", "/about/governance"],
+    matchPrefixes: ["/governance"],
     headerPath: "/governance",
     headerExact: true,
     children: [
@@ -143,7 +139,6 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/governance/parameters", label: "Parameters" },
       { path: "/governance/phase-ladder", label: "Phase Ladder" },
       { path: "/governance/my-votes", label: "My Votes" },
-      { path: "/about/governance", label: "About: Governance" },
     ],
   },
   {
@@ -164,12 +159,11 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/protocol/protocol-fees", label: "Protocol Fees" },
       { path: "/protocol/timelock", label: "Timelock" },
       { path: "/protocol/mint-authority", label: "Mint Authority" },
-      { path: "/about/protocol", label: "About: Protocol" },
     ],
   },
   {
     label: "DATUM Token",
-    matchPrefixes: ["/token", "/about/token"],
+    matchPrefixes: ["/token"],
     headerPath: "/token",
     headerExact: true,
     children: [
@@ -179,27 +173,38 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/token/bootstrap", label: "Bootstrap" },
       { path: "/token/vesting", label: "Vesting" },
       { path: "/token/fee-share", label: "Fee Share" },
-      { path: "/about/token", label: "About: DATUM Token" },
     ],
   },
   {
-    // Distinct from the DATUM token plane: this is the advertiser-funded
-    // per-campaign ERC-20 sidecar (TokenRewardVault). Users withdraw on
-    // /me/history; advertisers configure on /advertiser/create.
-    label: "Sidecar Rewards",
-    matchPrefixes: ["/about/rewards"],
-    children: [{ path: "/about/rewards", label: "About: Sidecar Rewards", exact: true }],
-  },
-  {
     label: "Identity",
-    matchPrefixes: ["/identity", "/about/identity"],
+    matchPrefixes: ["/identity"],
     headerPath: "/identity",
     headerExact: true,
     children: [
       { path: "/identity", label: "Dashboard", exact: true },
       { path: "/identity/people-chain", label: "People Chain" },
       { path: "/identity/zk", label: "ZK Tooling" },
-      { path: "/about/identity", label: "About: Identity" },
+    ],
+  },
+  {
+    // All persona deep-dives live under /about/*. Kept consolidated so the
+    // role sidebar sections stay action-focused and the About index is the
+    // single discovery surface for the narrative content.
+    label: "About",
+    matchPrefixes: ["/about"],
+    headerPath: "/about",
+    headerExact: true,
+    children: [
+      { path: "/about", label: "Overview", exact: true },
+      { path: "/about/me", label: "Me" },
+      { path: "/about/advertiser", label: "Advertiser" },
+      { path: "/about/publisher", label: "Publisher" },
+      { path: "/about/governance", label: "Governance" },
+      { path: "/about/token", label: "DATUM Token" },
+      { path: "/about/rewards", label: "Sidecar Rewards" },
+      { path: "/about/identity", label: "Identity" },
+      { path: "/about/protocol", label: "Protocol" },
+      { path: "/about/economics", label: "Economics" },
     ],
   },
   {
