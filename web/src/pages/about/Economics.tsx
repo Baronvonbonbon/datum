@@ -11,7 +11,7 @@
 //      glance, not stuck in a table.
 //   6. Stay honest about what's measured vs projected.
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
@@ -661,18 +661,95 @@ function Segmented<T extends string>(
 }
 
 // ── Slider control ──────────────────────────────────────────────────────────
+// Value is both slider-draggable and directly typeable in the small input on
+// the right. Free typing is allowed while the input is focused; on blur or
+// Enter the value is parsed, clamped to [min, max], and snapped to `step`.
+// `tooltip` renders a small ⓘ next to the label with a native title hover;
+// it defaults to `hint` so each slider gets at least a tooltip for free.
 function Slider({
-  label, value, onChange, min, max, step, fmt, hint,
+  label, value, onChange, min, max, step, fmt, hint, tooltip,
 }: {
   label: string; value: number; onChange: (v: number) => void;
   min: number; max: number; step: number;
-  fmt: (v: number) => string; hint?: string;
+  fmt: (v: number) => string; hint?: string; tooltip?: string;
 }) {
+  // Local text mirror so typing "0." or partials doesn't snap-back to the
+  // committed value mid-keystroke. We commit (clamp + snap) on blur/Enter.
+  const [text, setText] = React.useState<string>(() => formatTyped(value, step));
+  const [focused, setFocused] = React.useState(false);
+  // Re-sync local text whenever the external value changes and we're not
+  // actively editing (e.g. user dragged the slider).
+  React.useEffect(() => {
+    if (!focused) setText(formatTyped(value, step));
+  }, [value, step, focused]);
+
+  const commit = (raw: string) => {
+    const n = Number(raw.trim());
+    if (!Number.isFinite(n)) {
+      setText(formatTyped(value, step));
+      return;
+    }
+    const clamped = Math.min(max, Math.max(min, n));
+    // Snap to step grid, anchored at `min`, to keep slider position consistent.
+    const snapped = Math.round((clamped - min) / step) * step + min;
+    const final = Number(snapped.toFixed(stepDecimals(step)));
+    onChange(final);
+    setText(formatTyped(final, step));
+  };
+
+  const effectiveTooltip = tooltip ?? hint;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 220, flex: 1 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted)" }}>
-        <span>{label}</span>
-        <span style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>{fmt(value)}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-muted)", gap: 8 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {label}
+          {effectiveTooltip && (
+            <span
+              title={effectiveTooltip}
+              aria-label={effectiveTooltip}
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 14, height: 14, borderRadius: "50%",
+                border: "1px solid var(--border)", color: "var(--text-muted)",
+                fontSize: 9, fontWeight: 700, cursor: "help",
+                lineHeight: 1, userSelect: "none",
+              }}
+            >
+              i
+            </span>
+          )}
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onFocus={(e) => { setFocused(true); e.target.select(); }}
+            onBlur={() => { setFocused(false); commit(text); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
+              if (e.key === "Escape") { setText(formatTyped(value, step)); (e.target as HTMLInputElement).blur(); }
+            }}
+            title={effectiveTooltip}
+            style={{
+              width: 72,
+              padding: "1px 4px",
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+              fontWeight: 600,
+              color: "var(--text-strong)",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 3,
+              textAlign: "right",
+            }}
+          />
+          <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 60, textAlign: "right" }}>
+            {fmt(value)}
+          </span>
+        </span>
       </div>
       <input
         type="range"
@@ -686,6 +763,20 @@ function Slider({
       {hint && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{hint}</div>}
     </div>
   );
+}
+
+// Render the raw numeric value at the precision implied by `step` (e.g.
+// step=0.01 → 2 decimals). Keeps the typeable text input compact while still
+// letting users see the underlying precision the slider snaps to.
+function formatTyped(value: number, step: number): string {
+  const d = stepDecimals(step);
+  return d > 0 ? value.toFixed(d) : String(Math.round(value));
+}
+function stepDecimals(step: number): number {
+  if (!Number.isFinite(step) || step >= 1) return 0;
+  const s = String(step);
+  const dot = s.indexOf(".");
+  return dot >= 0 ? s.length - dot - 1 : 0;
 }
 
 // ── Common ops-role section ────────────────────────────────────────────────
@@ -851,9 +942,9 @@ function CouncilSection({ params }: { params: Params }) {
         ]}
       />
       <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
-        <Slider label="Proposes / month" value={proposalsPerMonth} onChange={setProposalsPerMonth} min={0} max={20} step={1} fmt={(v) => `${v}`} />
-        <Slider label="Votes / month"    value={votesPerMonth}     onChange={setVotesPerMonth}     min={0} max={50} step={1} fmt={(v) => `${v}`} />
-        <Slider label="Executes / month" value={executesPerMonth}  onChange={setExecutesPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} />
+        <Slider label="Proposes / month" value={proposalsPerMonth} onChange={setProposalsPerMonth} min={0} max={20} step={1} fmt={(v) => `${v}`} hint="council.propose calls / month" />
+        <Slider label="Votes / month"    value={votesPerMonth}     onChange={setVotesPerMonth}     min={0} max={50} step={1} fmt={(v) => `${v}`} hint="council.vote calls / month" />
+        <Slider label="Executes / month" value={executesPerMonth}  onChange={setExecutesPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} hint="council.execute calls / month — runs the queued proposal" />
       </div>
     </div>
   );
@@ -884,8 +975,8 @@ function CuratorSection({ params }: { params: Params }) {
         ]}
       />
       <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
-        <Slider label="Blocks / month"   value={blocksPerMonth}   onChange={setBlocksPerMonth}   min={0} max={30} step={1} fmt={(v) => `${v}`} />
-        <Slider label="Unblocks / month" value={unblocksPerMonth} onChange={setUnblocksPerMonth} min={0} max={30} step={1} fmt={(v) => `${v}`} />
+        <Slider label="Blocks / month"   value={blocksPerMonth}   onChange={setBlocksPerMonth}   min={0} max={30} step={1} fmt={(v) => `${v}`} hint="curator.blockAddr calls / month" />
+        <Slider label="Unblocks / month" value={unblocksPerMonth} onChange={setUnblocksPerMonth} min={0} max={30} step={1} fmt={(v) => `${v}`} hint="curator.unblockAddr calls / month — cheaper than block" />
       </div>
     </div>
   );
@@ -916,8 +1007,8 @@ function TokenHolderSection({ params }: { params: Params }) {
         ]}
       />
       <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
-        <Slider label="feeShare claims / month"  value={feeShareClaimsPerMonth}  onChange={setFeeShareClaimsPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} />
-        <Slider label="bootstrap claims / month" value={bootstrapClaimsPerMonth} onChange={setBootstrapClaimsPerMonth} min={0} max={5}  step={1} fmt={(v) => `${v}`} />
+        <Slider label="feeShare claims / month"  value={feeShareClaimsPerMonth}  onChange={setFeeShareClaimsPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} hint="feeShare.claim calls / month — pull treasury fee distributions" />
+        <Slider label="bootstrap claims / month" value={bootstrapClaimsPerMonth} onChange={setBootstrapClaimsPerMonth} min={0} max={5}  step={1} fmt={(v) => `${v}`} hint="bootstrap.claim calls / month — one-time pre-launch allocation pull" />
       </div>
     </div>
   );
