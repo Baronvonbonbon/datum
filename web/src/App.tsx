@@ -11,7 +11,7 @@ import { Campaigns } from "./pages/explorer/Campaigns";
 import { CampaignDetail } from "./pages/explorer/CampaignDetail";
 import { Publishers } from "./pages/explorer/Publishers";
 import { PublisherProfile as PublisherProfileExplorer } from "./pages/explorer/PublisherProfile";
-import { AdvertiserProfile } from "./pages/explorer/AdvertiserProfile";
+import { AdvertiserProfile as AdvertiserProfileExplorer } from "./pages/explorer/AdvertiserProfile";
 import { HowItWorks } from "./pages/explorer/HowItWorks";
 import { Philosophy } from "./pages/explorer/Philosophy";
 
@@ -128,8 +128,8 @@ export function App() {
               <Route path="/explorer/publishers" element={<Publishers />} />
               <Route path="/publishers/:address" element={<PublisherProfileExplorer />} />
               <Route path="/explorer/publishers/:address" element={<PublisherProfileExplorer />} />
-              <Route path="/advertisers/:address" element={<AdvertiserProfile />} />
-              <Route path="/explorer/advertisers/:address" element={<AdvertiserProfile />} />
+              <Route path="/advertisers/:address" element={<AdvertiserProfileExplorer />} />
+              <Route path="/explorer/advertisers/:address" element={<AdvertiserProfileExplorer />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
               <Route path="/explorer/how-it-works" element={<HowItWorks />} />
               <Route path="/philosophy" element={<Philosophy />} />
