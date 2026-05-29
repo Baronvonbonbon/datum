@@ -20,20 +20,183 @@ import {
   LineChart, Line,
 } from "recharts";
 
-// ── Measured Paseo gas figures (alpha-5 deploy 2026-05-23) ─────────────────
-// Source: docs/gas-paseo-20260528.md
-const GAS = {
+// ── Two gas sources ────────────────────────────────────────────────────────
+// PASEO = docs/gas-paseo-20260528.md — eth_estimateGas against the live alpha-5
+//   deploy with PoW disabled. Optimistic; reflects what the gateway returns.
+// HARDHAT = docs/gas-by-role.md — actual gas used during full-pipeline runs
+//   with every gate active. Conservative; matches what a real TX consumes.
+//
+// The Hardhat numbers for settle are ~11× the Paseo numbers for the same op.
+// The page exposes a toggle so the reader can pick which model is in force.
+type GasSource = "paseo" | "hardhat";
+type ActionType = "cpm" | "cpc" | "cpa";
+
+interface GasTable {
+  // Campaign lifecycle
+  createCampaign: number;
+  adminActivateCampaign: number;
+  // Settle by action type — first claim in a fresh TX
+  settleCpmCold: number;
+  settleCpmWarm: number;
+  settleCpc: number;
+  settleCpa: number;
+  // Marginal claim cost when batched into the same TX (Hardhat-measured)
+  settleAddedClaimSmall: number;   // claims 2..5 in same TX
+  settleAddedClaimLarge: number;   // claims 6+ in same TX
+  // User-side
+  withdrawUser: number;
+  reportPage: number;
+  reportAd: number;
+  setUserMinAssurance: number;
+  zkStakeDeposit: number;
+  zkStakeWithdraw: number;
+  // Publisher / Relay
+  withdrawPublisher: number;
+  registerPublisher: number;
+  setRelaySigner: number;
+  setProfile: number;
+  publisherStake: number;
+  // Reporter — V1 (single-sig threshold path)
+  reporterV1Commit: number;
+  reporterV1FirstSigner: number;
+  reporterV1Cosign: number;
+  // Reporter — V2 (4-step multi-sig)
+  reporterV2Join: number;
+  reporterV2Propose: number;
+  reporterV2Approve: number;
+  reporterV2Finalize: number;
+  // Governance / Voter
+  governanceVoteAye: number;
+  governanceVoteNay: number;
+  governanceEvaluate: number;
+  // Council
+  councilPropose: number;
+  councilVote: number;
+  councilExecute: number;
+  // Curator
+  curatorBlock: number;
+  curatorUnblock: number;
+  // Admin / Pause
+  pauseFast: number;
+  pauseProposeUnpause: number;
+  pauseApproveUnpause: number;
+  // TokenHolder
+  feeShareClaim: number;
+  bootstrapClaim: number;
+  emissionAdjustRate: number;
+}
+
+// Marginal claim costs (Hardhat-measured from the 1/5/10-claim batch points):
+//   (579,680 − 443,908) / 4 = 33,943 per added claim in small batches (2..5)
+//   (834,851 − 579,680) / 5 = 51,034 per added claim in large batches (6+)
+// Inferred CPC/CPA ratios for Paseo are derived from the Hardhat ratio applied
+// to the measured Paseo cold-CPM figure.
+const PASEO_RATIO_CPC = 179_789 / 443_908;  // ~0.405
+const PASEO_RATIO_CPA = 371_330 / 443_908;  // ~0.836
+const PASEO_TABLE: GasTable = {
   createCampaign: 73_799,
   adminActivateCampaign: 2_356,
-  settleClaimCold: 40_915,        // 1 claim, cold publisher storage slot
-  settleClaimWarm: 32_815,        // 1 claim, warm slot (same block re-touch)
+  settleCpmCold: 40_915,
+  settleCpmWarm: 32_815,
+  settleCpc: Math.round(40_915 * PASEO_RATIO_CPC),  // ≈16,571 (inferred)
+  settleCpa: Math.round(40_915 * PASEO_RATIO_CPA),  // ≈34,205 (inferred)
+  settleAddedClaimSmall: 33_943,
+  settleAddedClaimLarge: 51_034,
+  withdrawUser: 59_661,        // not measured Paseo-side; uses Hardhat value
   reportPage: 8_899,
   reportAd: 8_458,
-  // Not yet measured on the Paseo run; estimated as a typical single-SSTORE
-  // ERC-20-style pull-payment vault clear. Used for the withdraw-amortisation
-  // block under the Publisher section. Conservative estimate.
-  vaultWithdraw: 35_000,
-} as const;
+  setUserMinAssurance: 48_328,
+  zkStakeDeposit: 135_185,
+  zkStakeWithdraw: 77_904,
+  withdrawPublisher: 34_883,
+  registerPublisher: 90_697,
+  setRelaySigner: 80_743,
+  setProfile: 59_536,
+  publisherStake: 47_683,
+  reporterV1Commit: 191_605,
+  reporterV1FirstSigner: 127_764,
+  reporterV1Cosign: 113_566,
+  reporterV2Join: 164_844,
+  reporterV2Propose: 251_088,
+  reporterV2Approve: 103_157,
+  reporterV2Finalize: 106_437,
+  governanceVoteAye: 216_044,
+  governanceVoteNay: 238_263,
+  governanceEvaluate: 74_090,
+  councilPropose: 338_338,
+  councilVote: 79_033,
+  councilExecute: 132_301,
+  curatorBlock: 73_034,
+  curatorUnblock: 30_500,
+  pauseFast: 170_543,
+  pauseProposeUnpause: 142_517,
+  pauseApproveUnpause: 117_012,
+  feeShareClaim: 33_124,
+  bootstrapClaim: 34_866,
+  emissionAdjustRate: 54_083,
+};
+
+const HARDHAT_TABLE: GasTable = {
+  createCampaign: 388_063,
+  adminActivateCampaign: 74_090,  // proxy: governance.evaluateCampaign
+  settleCpmCold: 443_908,
+  settleCpmWarm: 443_908,  // Hardhat doesn't distinguish; use cold for both
+  settleCpc: 179_789,
+  settleCpa: 371_330,
+  settleAddedClaimSmall: 33_943,
+  settleAddedClaimLarge: 51_034,
+  withdrawUser: 59_661,
+  reportPage: 118_412,
+  reportAd: 118_412,  // not separately measured; mirror reportPage
+  setUserMinAssurance: 48_328,
+  zkStakeDeposit: 135_185,
+  zkStakeWithdraw: 77_904,
+  withdrawPublisher: 34_883,
+  registerPublisher: 90_697,
+  setRelaySigner: 80_743,
+  setProfile: 59_536,
+  publisherStake: 47_683,
+  reporterV1Commit: 191_605,
+  reporterV1FirstSigner: 127_764,
+  reporterV1Cosign: 113_566,
+  reporterV2Join: 164_844,
+  reporterV2Propose: 251_088,
+  reporterV2Approve: 103_157,
+  reporterV2Finalize: 106_437,
+  governanceVoteAye: 216_044,
+  governanceVoteNay: 238_263,
+  governanceEvaluate: 74_090,
+  councilPropose: 338_338,
+  councilVote: 79_033,
+  councilExecute: 132_301,
+  curatorBlock: 73_034,
+  curatorUnblock: 30_500,
+  pauseFast: 170_543,
+  pauseProposeUnpause: 142_517,
+  pauseApproveUnpause: 117_012,
+  feeShareClaim: 33_124,
+  bootstrapClaim: 34_866,
+  emissionAdjustRate: 54_083,
+};
+
+function gasTable(source: GasSource): GasTable {
+  return source === "paseo" ? PASEO_TABLE : HARDHAT_TABLE;
+}
+
+// gasForSettle: base settle gas for a TX containing `claims` claim records of
+// the given action type. Uses the Hardhat-measured marginal curve regardless
+// of source — the curve shape is the same; only the base differs.
+function gasForSettle(claimsInTx: number, actionType: ActionType, source: GasSource): number {
+  const t = gasTable(source);
+  const base =
+    actionType === "cpc" ? t.settleCpc :
+    actionType === "cpa" ? t.settleCpa :
+    t.settleCpmCold;
+  if (claimsInTx <= 1) return base;
+  const small = Math.min(claimsInTx - 1, 4);  // claims 2..5
+  const large = Math.max(0, claimsInTx - 5);  // claims 6+
+  return base + small * t.settleAddedClaimSmall + large * t.settleAddedClaimLarge;
+}
 
 // Publisher stake bonding curve (measured by STAKE-1 in the Paseo run).
 const STAKE_BASE_PLANCK = 1;             // baseStakePlanck
@@ -95,7 +258,6 @@ const TIERS = [
   { id: "large",  label: "Large",  impsPerMonth: 1_000_000 },
 ] as const;
 
-type ActionType = "cpm" | "cpc" | "cpa";
 type SettlementPath = "direct" | "dualsig" | "bonded";
 type Horizon = "month" | "year" | "3year";
 
@@ -105,13 +267,20 @@ interface Params {
   cpcPAS: number;            // CPC bid in PAS per click
   cpaPAS: number;            // CPA bid in PAS per action
   pasPriceUSD: number;       // PAS → USD assumption
-  impsPerClaim: number;      // how many events are batched into one settle
+  impsPerClaim: number;      // how many events are batched into one claim
+  claimsPerTx: number;       // how many claim records get bundled into one settle TX
   takeRateBps: number;       // publisher take, in basis points (3000..8000)
   userShareBps: number;      // user's share of remainder (5000..9000)
   actionType: ActionType;
   path: SettlementPath;
   horizon: Horizon;
-  withdrawsPerMonth: number; // publisher withdraw cadence
+  gasSource: GasSource;
+  // Publisher cadence
+  withdrawsPerMonth: number;
+  // User cadence (per-user, per-month)
+  userWithdrawsPerMonth: number;
+  userReportsPerMonth: number;
+  userZkOpsPerMonth: number;
 }
 
 function defaultParams(impsPerMonth: number): Params {
@@ -122,12 +291,17 @@ function defaultParams(impsPerMonth: number): Params {
     cpaPAS: 2.50,
     pasPriceUSD: 1.0,
     impsPerClaim: 1000,
+    claimsPerTx: 1,
     takeRateBps: 5000,
     userShareBps: 7500,
     actionType: "cpm",
     path: "direct",
     horizon: "month",
+    gasSource: "hardhat",    // conservative default
     withdrawsPerMonth: 4,
+    userWithdrawsPerMonth: 1,
+    userReportsPerMonth: 0,
+    userZkOpsPerMonth: 0,
   };
 }
 
@@ -138,15 +312,18 @@ const HORIZON_LABEL: Record<Horizon, string> = { month: "/ month", year: "/ year
 // All figures are monthly first; horizon scaling happens via horizonMult so the
 // callers can choose to apply it (or not) on a per-stat basis.
 function compute(p: Params) {
+  const g = gasTable(p.gasSource);
   const horizonMult = HORIZON_MULT[p.horizon];
   const impsPerDay = p.impsPerMonth / 30;
   const claimsPerMonth = Math.ceil(p.impsPerMonth / Math.max(1, p.impsPerClaim));
+  const txsPerMonth = Math.ceil(claimsPerMonth / Math.max(1, p.claimsPerTx));
+  // Per-TX settle gas, using the measured density curve and action type.
+  const perTxSettleGas = gasForSettle(p.claimsPerTx, p.actionType, p.gasSource);
 
   // ── Revenue per event depends on action type ──
   // CPM (view): bid is per-1000 events.
-  // CPC (click): bid is per-event (flat). Roughly 1 click per ~1000 imps.
-  // CPA (action): bid is per-event (flat, higher rate). Roughly 1 action per ~10k imps.
-  // For consistency we keep "impsPerMonth" as the event count slider regardless.
+  // CPC (click): bid is per-event (flat).
+  // CPA (action): bid is per-event (flat, higher rate).
   const revenuePerEvent =
     p.actionType === "cpm" ? p.cpmPAS / 1000 :
     p.actionType === "cpc" ? p.cpcPAS :
@@ -166,8 +343,8 @@ function compute(p: Params) {
   let protocolPAS  = totalRevenuePAS * (protocolOfWhole / 100);
 
   // ── Gas (recurring per month) ──
-  const oneTimeGasUnits = GAS.createCampaign + GAS.adminActivateCampaign;
-  const monthlySettleGasUnits = claimsPerMonth * GAS.settleClaimCold;
+  const oneTimeGasUnits = g.createCampaign + g.adminActivateCampaign;
+  const monthlySettleGasUnits = txsPerMonth * perTxSettleGas;
   const oneTimeGasPAS = oneTimeGasUnits * PAS_PER_GAS;
   const monthlySettleGasPAS = monthlySettleGasUnits * PAS_PER_GAS;
 
@@ -182,14 +359,20 @@ function compute(p: Params) {
   } else if (p.path === "dualsig") {
     gasOnAdvertiserPAS = monthlySettleGasPAS;
   } else {
-    // Bonded: relay pays gas, earns fee out of publisher's take.
     gasOnRelayPAS = monthlySettleGasPAS;
     bondedRelayFeePAS = totalRevenuePAS * (BONDED_RELAY_FEE_PCT / 100);
     publisherPAS -= bondedRelayFeePAS;
   }
 
   // ── Publisher overhead: vault withdraws ──
-  const withdrawGasPAS = Math.max(0, p.withdrawsPerMonth) * GAS.vaultWithdraw * PAS_PER_GAS;
+  const withdrawGasPAS = Math.max(0, p.withdrawsPerMonth) * g.withdrawPublisher * PAS_PER_GAS;
+
+  // ── User-side gas (cadence-driven) ──
+  const userWithdrawGasPAS = Math.max(0, p.userWithdrawsPerMonth) * g.withdrawUser * PAS_PER_GAS;
+  const userReportGasPAS   = Math.max(0, p.userReportsPerMonth)   * g.reportPage   * PAS_PER_GAS;
+  const userZkGasPAS       = Math.max(0, p.userZkOpsPerMonth)     * g.zkStakeDeposit * PAS_PER_GAS;
+  const userTotalGasPAS    = userWithdrawGasPAS + userReportGasPAS + userZkGasPAS;
+  const userNetMonthlyPAS  = userPAS - userTotalGasPAS;
 
   // ── Publisher stake bonding curve ──
   // requiredStake = base + cumulativeImpressions × perImp (in planck).
@@ -241,11 +424,18 @@ function compute(p: Params) {
     monthlyTCO_AdvertiserPAS,
     firstMonthTCO_AdvertiserPAS,
 
+    // User gas + net
+    userWithdrawGasPAS, userReportGasPAS, userZkGasPAS,
+    userTotalGasPAS, userNetMonthlyPAS,
+
     // Splits as percentages (for chart data)
     publisherSharePct, userOfWhole, protocolOfWhole,
 
     // Per-impression
     costPerImpPAS, gasPerImpPAS,
+
+    // Settle gas detail (for UI explanation)
+    txsPerMonth, perTxSettleGas,
 
     // Horizon helpers
     h: (monthlyValue: number) => monthlyValue * horizonMult,
@@ -483,6 +673,272 @@ function Slider({
   );
 }
 
+// ── Common ops-role section ────────────────────────────────────────────────
+// All the ops/governance roles are cadence-driven (not impression-driven), so
+// they share the same compact shell: cadence slider, total gas, total cost,
+// horizon scaling.
+interface OpsRoleProps {
+  params: Params;
+  roleVar: string;
+  icon: string;
+  title: string;
+  subtitle: string;
+  intro: React.ReactNode;
+  // List of ops with their gas cost and how to project them
+  ops: { label: string; gas: number; cadencePerMonth: number; sub?: string }[];
+}
+function OpsRoleSection({ params, roleVar, icon, title, subtitle, intro, ops }: OpsRoleProps) {
+  const horizonMult = HORIZON_MULT[params.horizon];
+  const monthlyTotal = ops.reduce((s, op) => s + op.gas * op.cadencePerMonth * PAS_PER_GAS, 0);
+  const horizonTotal = monthlyTotal * horizonMult;
+  return (
+    <RoleSection roleVar={roleVar} icon={icon} title={title} subtitle={subtitle}>
+      <NetCard
+        roleVar={roleVar}
+        tone="debit"
+        label={`Ops cost ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
+        value={`${fmtPAS(horizonTotal)} · ${fmtUSD(horizonTotal * params.pasPriceUSD)}`}
+        sub={`= Σ (gas × cadence) over ${ops.length} op${ops.length > 1 ? "s" : ""}`}
+      />
+      <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>{intro}</p>
+      <StatRow>
+        {ops.map((op, i) => {
+          const monthlyCost = op.gas * op.cadencePerMonth * PAS_PER_GAS;
+          return (
+            <Stat
+              key={i}
+              tone={op.cadencePerMonth > 0 ? "debit" : "neutral"}
+              label={op.label}
+              value={fmtPAS(monthlyCost * horizonMult)}
+              sub={op.sub ?? `${op.cadencePerMonth}/mo × ${fmtPAS(op.gas * PAS_PER_GAS)}`}
+            />
+          );
+        })}
+      </StatRow>
+    </RoleSection>
+  );
+}
+
+// ── Reporter ────────────────────────────────────────────────────────────────
+function ReporterSection({ params }: { params: Params }) {
+  const [version, setVersion] = useState<"v1" | "v2">("v2");
+  const [commitsPerMonth, setCommitsPerMonth] = useState(4);  // weekly attestation
+  const g = gasTable(params.gasSource);
+  const ops = version === "v1"
+    ? [
+        { label: "commitStakeRoot (threshold 1)", gas: g.reporterV1Commit, cadencePerMonth: commitsPerMonth },
+        { label: "first-signer (2-of-N)",         gas: g.reporterV1FirstSigner, cadencePerMonth: 0 },
+        { label: "cosigner finalise",             gas: g.reporterV1Cosign, cadencePerMonth: 0 },
+      ]
+    : [
+        { label: "joinReporters (one-time)",  gas: g.reporterV2Join,     cadencePerMonth: 0 },
+        { label: "proposeRoot",               gas: g.reporterV2Propose,  cadencePerMonth: commitsPerMonth },
+        { label: "approveRoot",               gas: g.reporterV2Approve,  cadencePerMonth: commitsPerMonth },
+        { label: "finalizeRoot",              gas: g.reporterV2Finalize, cadencePerMonth: commitsPerMonth },
+      ];
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-relay"
+        icon="📜"
+        title="Reporter"
+        subtitle={`${version === "v1" ? "V1 single-threshold" : "V2 4-step multi-sig"} stake-root attestation`}
+        intro={<>
+          The Reporter role posts periodic stake-root attestations to <code>DatumStakeRoot{version === "v2" ? "V2" : ""}</code>.
+          V2 is the 4-step (join → propose → approve → finalize) multi-sig flow that landed
+          with alpha-5's identity bridge. Cadence depends on the configured attestation window
+          (default ~weekly). Each cycle hits multiple ops; the total is what a reporter operator
+          pays per month.
+        </>}
+        ops={ops}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
+        <Segmented
+          label="Reporter version"
+          value={version}
+          onChange={setVersion}
+          options={[
+            { id: "v2", label: "V2 · 4-step" },
+            { id: "v1", label: "V1 · threshold" },
+          ]}
+        />
+        <Slider
+          label={`${version === "v2" ? "Full cycles" : "Commits"} / month`}
+          value={commitsPerMonth} onChange={setCommitsPerMonth}
+          min={0} max={30} step={1}
+          fmt={(v) => `${v}`}
+          hint="default 4 = ~weekly cadence"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Voter ───────────────────────────────────────────────────────────────────
+function VoterSection({ params }: { params: Params }) {
+  const [votesPerMonth, setVotesPerMonth] = useState(4);
+  const [evalsPerMonth, setEvalsPerMonth] = useState(1);
+  const g = gasTable(params.gasSource);
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-voter"
+        icon="🗳"
+        title="Voter (conviction governance)"
+        subtitle={`vote aye ${(g.governanceVoteAye / 1000).toFixed(0)}k · vote nay ${(g.governanceVoteNay / 1000).toFixed(0)}k gas`}
+        intro={<>
+          DatumGovernanceV2 votes are conviction-weighted with 0–8x multipliers. <strong>Nay
+          votes cost ~10% more gas than aye</strong> (238k vs 216k) — the contract takes a
+          slightly different code path to record dissent. <code>evaluateCampaign</code>
+          finalises tallies and is typically called by the same voter who pushes the proposal
+          over quorum.
+        </>}
+        ops={[
+          { label: "vote (aye)",         gas: g.governanceVoteAye,   cadencePerMonth: votesPerMonth },
+          { label: "vote (nay) +10%",    gas: g.governanceVoteNay,   cadencePerMonth: 0 },
+          { label: "evaluateCampaign",   gas: g.governanceEvaluate,  cadencePerMonth: evalsPerMonth },
+        ]}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
+        <Slider label="Votes / month" value={votesPerMonth} onChange={setVotesPerMonth} min={0} max={50} step={1} fmt={(v) => `${v}`} hint="cast on active proposals" />
+        <Slider label="evaluateCampaign / month" value={evalsPerMonth} onChange={setEvalsPerMonth} min={0} max={20} step={1} fmt={(v) => `${v}`} hint="finalise tallies" />
+      </div>
+    </div>
+  );
+}
+
+// ── Council ─────────────────────────────────────────────────────────────────
+function CouncilSection({ params }: { params: Params }) {
+  const [proposalsPerMonth, setProposalsPerMonth] = useState(1);
+  const [votesPerMonth, setVotesPerMonth] = useState(4);
+  const [executesPerMonth, setExecutesPerMonth] = useState(1);
+  const g = gasTable(params.gasSource);
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-voter"
+        icon="⚖️"
+        title="Council"
+        subtitle={`propose ${(g.councilPropose / 1000).toFixed(0)}k · vote ${(g.councilVote / 1000).toFixed(0)}k · execute ${(g.councilExecute / 1000).toFixed(0)}k`}
+        intro={<>
+          <code>DatumCouncil</code> handles phase-1 governance + multi-sig safety overrides.
+          <strong> Proposing is by far the most expensive op</strong> (338k gas) — it
+          allocates a fresh proposal slot, hashes the payload, and writes initial vote
+          state. Voting and execute are cheap by comparison.
+        </>}
+        ops={[
+          { label: "propose",  gas: g.councilPropose, cadencePerMonth: proposalsPerMonth },
+          { label: "vote",     gas: g.councilVote,    cadencePerMonth: votesPerMonth },
+          { label: "execute",  gas: g.councilExecute, cadencePerMonth: executesPerMonth },
+        ]}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
+        <Slider label="Proposes / month" value={proposalsPerMonth} onChange={setProposalsPerMonth} min={0} max={20} step={1} fmt={(v) => `${v}`} />
+        <Slider label="Votes / month"    value={votesPerMonth}     onChange={setVotesPerMonth}     min={0} max={50} step={1} fmt={(v) => `${v}`} />
+        <Slider label="Executes / month" value={executesPerMonth}  onChange={setExecutesPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} />
+      </div>
+    </div>
+  );
+}
+
+// ── Curator ────────────────────────────────────────────────────────────────
+function CuratorSection({ params }: { params: Params }) {
+  const [blocksPerMonth, setBlocksPerMonth] = useState(2);
+  const [unblocksPerMonth, setUnblocksPerMonth] = useState(0);
+  const g = gasTable(params.gasSource);
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-protocol"
+        icon="🛡"
+        title="Curator (blocklist)"
+        subtitle={`block ${(g.curatorBlock / 1000).toFixed(0)}k · unblock ${(g.curatorUnblock / 1000).toFixed(0)}k gas`}
+        intro={<>
+          <code>DatumCouncilBlocklistCurator</code> is the per-campaign address blocklist
+          managed by elected Council members. <strong>Block is ~2.4× the cost of unblock</strong>
+          (73k vs 31k) — block writes a new entry plus reverse-index, unblock only clears
+          a slot. Asymmetry is by design: easy to forgive, slow to escalate.
+        </>}
+        ops={[
+          { label: "blockAddr",    gas: g.curatorBlock,   cadencePerMonth: blocksPerMonth },
+          { label: "unblockAddr",  gas: g.curatorUnblock, cadencePerMonth: unblocksPerMonth },
+        ]}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
+        <Slider label="Blocks / month"   value={blocksPerMonth}   onChange={setBlocksPerMonth}   min={0} max={30} step={1} fmt={(v) => `${v}`} />
+        <Slider label="Unblocks / month" value={unblocksPerMonth} onChange={setUnblocksPerMonth} min={0} max={30} step={1} fmt={(v) => `${v}`} />
+      </div>
+    </div>
+  );
+}
+
+// ── TokenHolder ─────────────────────────────────────────────────────────────
+function TokenHolderSection({ params }: { params: Params }) {
+  const [feeShareClaimsPerMonth, setFeeShareClaimsPerMonth] = useState(1);
+  const [bootstrapClaimsPerMonth, setBootstrapClaimsPerMonth] = useState(0);
+  const g = gasTable(params.gasSource);
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-protocol"
+        icon="🪙"
+        title="DATUM token holder"
+        subtitle={`feeShare claim ${(g.feeShareClaim / 1000).toFixed(0)}k · bootstrap claim ${(g.bootstrapClaim / 1000).toFixed(0)}k gas`}
+        intro={<>
+          Holders of DATUM access protocol-fee revenue via <code>feeShare.claim</code>,
+          which pulls accumulated treasury distributions into the holder's wallet. The
+          bootstrap pool is a one-time pre-launch allocation reclaimed via <code>bootstrap.claim</code>.
+          Both are cheap (~33–35k gas) — designed for high-frequency holder withdrawals.
+        </>}
+        ops={[
+          { label: "feeShare.claim",   gas: g.feeShareClaim,   cadencePerMonth: feeShareClaimsPerMonth },
+          { label: "bootstrap.claim",  gas: g.bootstrapClaim,  cadencePerMonth: bootstrapClaimsPerMonth },
+        ]}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", display: "flex", flexWrap: "wrap", gap: 24 }}>
+        <Slider label="feeShare claims / month"  value={feeShareClaimsPerMonth}  onChange={setFeeShareClaimsPerMonth}  min={0} max={20} step={1} fmt={(v) => `${v}`} />
+        <Slider label="bootstrap claims / month" value={bootstrapClaimsPerMonth} onChange={setBootstrapClaimsPerMonth} min={0} max={5}  step={1} fmt={(v) => `${v}`} />
+      </div>
+    </div>
+  );
+}
+
+// ── Admin / Pause ───────────────────────────────────────────────────────────
+function AdminSection({ params }: { params: Params }) {
+  const [pausesPerMonth, setPausesPerMonth] = useState(0);
+  const g = gasTable(params.gasSource);
+  return (
+    <div>
+      <OpsRoleSection
+        params={params}
+        roleVar="--role-voter"
+        icon="🛑"
+        title="Admin / Pause"
+        subtitle="Event-driven · ideally never used"
+        intro={<>
+          Pause + unpause are event-driven (incidents, scheduled upgrades). Cost-per-event
+          is what matters here, not monthly cadence. <code>pauseFast</code> is the single-call
+          owner pause; <code>proposeCategoryUnpause</code> + <code>approve</code> is the
+          guardian unpause flow.
+        </>}
+        ops={[
+          { label: "pause (owner)",         gas: g.pauseFast,             cadencePerMonth: pausesPerMonth },
+          { label: "proposeCategoryUnpause", gas: g.pauseProposeUnpause,   cadencePerMonth: pausesPerMonth },
+          { label: "approve (unpause)",     gas: g.pauseApproveUnpause,   cadencePerMonth: pausesPerMonth },
+        ]}
+      />
+      <div style={{ marginTop: -14, padding: "10px 14px 14px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px" }}>
+        <Slider label="Pause/unpause cycles / month" value={pausesPerMonth} onChange={setPausesPerMonth} min={0} max={10} step={1} fmt={(v) => `${v}`} hint="default 0 — assume system stays up" />
+      </div>
+    </div>
+  );
+}
+
 // ── Network aggregate panel ─────────────────────────────────────────────────
 // Multiplies the per-campaign economics by an assumed number of publishers
 // running at the same volume. Drives home that DATUM's treasury sizing is
@@ -671,6 +1127,27 @@ export function AboutEconomics() {
           />
         </div>
 
+        {/* Gas source + claims-per-TX */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+          <Segmented
+            label="Gas source"
+            value={params.gasSource}
+            onChange={(v) => setParams((p) => ({ ...p, gasSource: v }))}
+            options={[
+              { id: "hardhat", label: "Hardhat · actual", hint: "Conservative: actual gas used during the full settlement pipeline" },
+              { id: "paseo",   label: "Paseo · estimate", hint: "Optimistic: eth_estimateGas with PoW disabled" },
+            ]}
+          />
+          <Slider
+            label="Claims batched per settle TX"
+            value={params.claimsPerTx}
+            onChange={(v) => setParams((p) => ({ ...p, claimsPerTx: v }))}
+            min={1} max={10} step={1}
+            fmt={(v) => `${v}`}
+            hint={`${fmtInt(econ.txsPerMonth)} settle TXs / month`}
+          />
+        </div>
+
         {/* Action type + Settlement path + Horizon — modes that flip semantics */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
           <Segmented
@@ -817,27 +1294,57 @@ export function AboutEconomics() {
         roleVar="--role-user"
         icon="👤"
         title="User"
-        subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event — net new revenue stream`}
+        subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event minus user-side gas`}
       >
         <NetCard
           roleVar="--role-user"
-          tone="credit"
-          label={`Net take ${HORIZON_LABEL[params.horizon]}`}
-          value={`${fmtPAS(econ.h(econ.userPAS))} · ${fmtUSD(econ.usd(econ.h(econ.userPAS)))}`}
-          sub={`pure income · 0 gas cost · ${econ.userOfWhole.toFixed(1)}% of every settled event`}
+          tone={econ.userNetMonthlyPAS > 0 ? "credit" : "debit"}
+          label={`Net ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
+          value={`${fmtPAS(Math.abs(econ.h(econ.userNetMonthlyPAS)))} · ${fmtUSD(Math.abs(econ.usd(econ.h(econ.userNetMonthlyPAS))))}`}
+          sub={econ.userTotalGasPAS > 0
+            ? `= ${econ.userOfWhole.toFixed(1)}% take − withdraws (${params.userWithdrawsPerMonth}/mo) − reports (${params.userReportsPerMonth}/mo) − zk-stake (${params.userZkOpsPerMonth}/mo)`
+            : `${econ.userOfWhole.toFixed(1)}% take · no user-side ops this month`}
         />
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The user is the role legacy ad-tech doesn't pay. DATUM routes {econ.userOfWhole.toFixed(1)}% of every
-          settled event to the user wallet that emitted it. The user pays
-          no gas — Settlement credits a pull-payment vault, withdrawn at the user's
-          schedule.
+          settled event to the user wallet that emitted it. Settlement credits a pull-payment vault;
+          user-side gas comes from withdraw cadence, optional reports, and optional ZK stake ops.
         </p>
         <StatRow>
           <Stat tone="credit" label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
-          <Stat tone="credit" label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
-          <Stat tone="credit" label="Per year" value={fmtPAS(econ.userPAS * 12)} sub={fmtUSD(econ.usd(econ.userPAS * 12))} />
-          <Stat tone="neutral" label="Gas to claim" value="0" sub="pull-payment vault" />
+          <Stat tone="credit" label={`Gross take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
+          <Stat tone={econ.userWithdrawGasPAS > 0 ? "debit" : "neutral"} label="Withdraw gas" value={fmtPAS(econ.h(econ.userWithdrawGasPAS))} sub={`${params.userWithdrawsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).withdrawUser * PAS_PER_GAS)}`} />
+          <Stat tone={econ.userReportGasPAS > 0 ? "debit" : "neutral"} label="Report gas" value={fmtPAS(econ.h(econ.userReportGasPAS))} sub={`${params.userReportsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).reportPage * PAS_PER_GAS)}`} />
+          <Stat tone={econ.userZkGasPAS > 0 ? "debit" : "neutral"} label="ZK-stake gas" value={fmtPAS(econ.h(econ.userZkGasPAS))} sub={`${params.userZkOpsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).zkStakeDeposit * PAS_PER_GAS)}`} />
         </StatRow>
+
+        {/* User cadence sliders */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24, padding: "10px 12px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <Slider
+            label="User withdraws / month"
+            value={params.userWithdrawsPerMonth}
+            onChange={(v) => setParams((p) => ({ ...p, userWithdrawsPerMonth: v }))}
+            min={0} max={30} step={1}
+            fmt={(v) => `${v}`}
+            hint="vault.withdrawUser ~60k gas"
+          />
+          <Slider
+            label="Reports filed / month"
+            value={params.userReportsPerMonth}
+            onChange={(v) => setParams((p) => ({ ...p, userReportsPerMonth: v }))}
+            min={0} max={30} step={1}
+            fmt={(v) => `${v}`}
+            hint="reportPage 118k gas (Hardhat) · 9k (Paseo)"
+          />
+          <Slider
+            label="ZK-stake ops / month"
+            value={params.userZkOpsPerMonth}
+            onChange={(v) => setParams((p) => ({ ...p, userZkOpsPerMonth: v }))}
+            min={0} max={10} step={1}
+            fmt={(v) => `${v}`}
+            hint="zkStake.deposit 135k gas"
+          />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-strong)", marginBottom: 6 }}>Revenue capture share</div>
@@ -934,12 +1441,12 @@ export function AboutEconomics() {
             Vault withdraw amortisation
           </summary>
           <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 10 }}>
-            Each withdraw is a ~{GAS.vaultWithdraw.toLocaleString()}-gas TX. At
+            Each withdraw is a ~{gasTable(params.gasSource).withdrawPublisher.toLocaleString()}-gas TX. At
             <strong> {params.withdrawsPerMonth}</strong> withdraws/month, that's a
             recurring cost that amortises against the publisher's take.
           </p>
           <StatRow>
-            <Stat label="Per withdraw" value={fmtPAS(GAS.vaultWithdraw * PAS_PER_GAS)} sub={fmtUSD(econ.usd(GAS.vaultWithdraw * PAS_PER_GAS))} />
+            <Stat label="Per withdraw" value={fmtPAS(gasTable(params.gasSource).withdrawPublisher * PAS_PER_GAS)} sub={fmtUSD(econ.usd(gasTable(params.gasSource).withdrawPublisher * PAS_PER_GAS))} />
             <Stat label="Monthly withdraw cost" value={fmtPAS(econ.withdrawGasPAS)} sub={`${(econ.withdrawGasPAS / Math.max(econ.publisherPAS, 1e-12) * 100).toFixed(4)}% of take`} />
             <Stat label={`${HORIZON_LABEL[params.horizon]} (horizon)`} value={fmtPAS(econ.h(econ.withdrawGasPAS))} sub={fmtUSD(econ.usd(econ.h(econ.withdrawGasPAS)))} />
           </StatRow>
@@ -1061,8 +1568,8 @@ export function AboutEconomics() {
           parameter set.
         </p>
         <StatRow>
-          <Stat tone="neutral" label="Per settle gas" value={fmtPAS(GAS.settleClaimCold * PAS_PER_GAS)} sub="cold publisher slot" />
-          <Stat tone="neutral" label="Warm settle gas" value={fmtPAS(GAS.settleClaimWarm * PAS_PER_GAS)} sub="same-block second touch" />
+          <Stat tone="neutral" label={`Per-TX settle gas (${params.claimsPerTx} claim${params.claimsPerTx > 1 ? "s" : ""})`} value={fmtPAS(econ.perTxSettleGas * PAS_PER_GAS)} sub={`${params.actionType.toUpperCase()} · ${params.gasSource}`} />
+          <Stat tone="neutral" label="Warm settle gas" value={fmtPAS(gasTable(params.gasSource).settleCpmWarm * PAS_PER_GAS)} sub="same-block second touch" />
           <Stat tone="neutral" label="Settles / month" value={fmtInt(econ.claimsPerMonth)} sub={`${params.impsPerClaim} imps/claim`} />
           <Stat tone={econ.gasOnRelayPAS > 0 ? "debit" : "neutral"} label={`Gas float ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.gasOnRelayPAS))} sub={params.path === "bonded" ? "your cost" : `not your cost (paid by ${params.path === "direct" ? "publisher" : "advertiser"})`} />
           {params.path === "bonded" && (
@@ -1130,6 +1637,23 @@ export function AboutEconomics() {
           take responds.
         </div>
       </RoleSection>
+
+      {/* ── Network ops & governance roles ───────────────────────── */}
+      <h2 style={{ margin: "8px 0 0", fontSize: 18, fontWeight: 600, color: "var(--text-strong)" }}>
+        Network ops & governance roles
+      </h2>
+      <p style={{ margin: "0 0 4px", fontSize: 13, color: "var(--text-muted)", maxWidth: 700 }}>
+        These roles don't scale with campaign impressions — their cadence is set by
+        protocol events (votes, proposals, attestation windows, fraud reports). Each
+        section lets you adjust a per-month cadence to project actual cost.
+      </p>
+
+      <ReporterSection params={params} />
+      <VoterSection params={params} />
+      <CouncilSection params={params} />
+      <CuratorSection params={params} />
+      <TokenHolderSection params={params} />
+      <AdminSection params={params} />
 
       {/* Network aggregate ──────────────────────────────────────── */}
       <NetworkAggregate params={params} />
