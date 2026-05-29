@@ -24,6 +24,7 @@ interface SerializedClaim {
   claimHash: string;
   zkProof: string[];
   nullifier: string;
+  stakeRootUsed?: string;
   actionSig: string[];
   powNonce?: string;
   userAddress: string;
@@ -195,6 +196,7 @@ function deserializeClaim(c: SerializedClaim): Claim {
     claimHash: c.claimHash,
     zkProof: Array.isArray(c.zkProof) ? c.zkProof : new Array(8).fill("0x" + "00".repeat(32)),
     nullifier: c.nullifier ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+    stakeRootUsed: c.stakeRootUsed ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
     actionSig: Array.isArray(c.actionSig) ? c.actionSig : ["0x" + "00".repeat(32), "0x" + "00".repeat(32), "0x" + "00".repeat(32)],
     powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
   };

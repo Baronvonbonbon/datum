@@ -1705,6 +1705,7 @@ function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] {
       claimHash: c.claimHash,
       zkProof: c.zkProof,
       nullifier: c.nullifier,
+      stakeRootUsed: c.stakeRootUsed,
       actionSig: c.actionSig,
       powNonce: c.powNonce,
     })),

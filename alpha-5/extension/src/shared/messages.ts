@@ -61,6 +61,7 @@ export type PopupToBackground =
   | { type: "REPORT_AD"; campaignId: string; reason: number }
   | { type: "GET_IMPRESSION_LOG" }
   | { type: "CLEAR_IMPRESSION_LOG" }
+  | { type: "EARNINGS_REFRESH_ONESHOT" }
   // Self-contained wallet (Stage 1c). All popup ↔ background wallet
   // calls flow through this single envelope so we don't bloat the
   // PopupToBackground union with one type per op. The `op` field
