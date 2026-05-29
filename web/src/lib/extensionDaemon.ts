@@ -45,6 +45,14 @@ let _attest: any = null;
 let _auction: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _matcher: any = null;
+// Wallet RPC dispatcher + offscreen wallet handler. The popup talks to the
+// background via WALLET_RPC_REQUEST → dispatcher → walletRpc → offscreen
+// wallet. In the demo there is no offscreen document, but the modules are
+// pure (storage + SubtleCrypto), so we run both layers in-page.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _walletDispatcher: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _walletOffscreen: any = null;
 
 let _mutexHeld = false;
 
@@ -1143,33 +1151,36 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true };
 
     // ── Wallet RPC (Stage 1c popup) ────────────────────────────────────────
-    // The popup's App shell is gated on walletClient.getStatus(); without
-    // a handler here the popup hangs on "Loading…" forever. The demo doesn't
-    // ship the full self-contained wallet (key material, vault, signing),
-    // so we surface a stable "no-vault" status. The popup then renders its
-    // OnboardingFlow, which is the right UX for a "see the extension" demo.
-    // Mutating ops are stubbed to a clear error so the UI shows the message
-    // rather than hanging.
+    // Popup → daemon: same dispatcher as the real background. unlock.ts
+    // forwards crypto ops to "offscreen" via walletRpc(), which sends
+    // WALLET_* messages — those are routed below.
     case "WALLET_RPC_REQUEST": {
-      const op: string = msg.op;
-      const requestId: string = msg.requestId;
-      const reply = (ok: boolean, payload?: unknown, error?: string) => ({
-        type: "WALLET_RPC_RESPONSE", requestId, ok, payload, error,
-      });
-      if (op === "getStatus") {
-        return reply(true, {
-          state: "no-vault",
-          accounts: [],
-          activeIndex: 0,
-          activeAddress: "",
-          msUntilAutoLock: null,
-        });
+      if (!_walletDispatcher) {
+        return { type: "WALLET_RPC_RESPONSE", requestId: msg.requestId, ok: false, error: "daemon-not-ready" };
       }
-      if (op === "getPendingPermission") return reply(true, null);
-      if (op === "listPermissions")      return reply(true, []);
-      // Everything else (createWallet, unlock, sendNative, signTypedData, …)
-      // requires the full wallet backend that the demo daemon doesn't host.
-      return reply(false, undefined, `walletClient(${op}) not available in demo`);
+      return _walletDispatcher.dispatchWalletRpc(msg.requestId, msg.op, msg.args);
+    }
+
+    // ── Offscreen wallet ops ───────────────────────────────────────────────
+    // walletRpc() in background/wallet/transport.ts sends these to the
+    // offscreen document over chrome.runtime.sendMessage. In the demo we
+    // run the offscreen handler in-page — same modules, same SubtleCrypto.
+    case "WALLET_CREATE":
+    case "WALLET_IMPORT":
+    case "WALLET_UNLOCK":
+    case "WALLET_LOCK":
+    case "WALLET_IS_UNLOCKED":
+    case "WALLET_ADD_HD_ACCOUNT":
+    case "WALLET_ADD_IMPORTED":
+    case "WALLET_SET_ACTIVE":
+    case "WALLET_REENCRYPT":
+    case "WALLET_SIGN_TRANSACTION":
+    case "WALLET_SIGN_TYPED_DATA":
+    case "WALLET_PERSONAL_SIGN": {
+      if (!_walletOffscreen) {
+        return { type: "WALLET_RESULT", requestId: msg.requestId, ok: false, error: "daemon-not-ready" };
+      }
+      return _walletOffscreen.handleWalletMessage(msg);
     }
 
     default:
@@ -1224,6 +1235,8 @@ export async function startDaemon(): Promise<void> {
     { requestPublisherAttestation },
     auctionMod,
     matcherMod,
+    walletDispatcherMod,
+    walletOffscreenMod,
   ] = await Promise.all([
     import("@ext/background/campaignPoller"),
     import("@ext/background/claimQueue"),
@@ -1232,6 +1245,8 @@ export async function startDaemon(): Promise<void> {
     import("@ext/background/publisherAttestation"),
     import("@ext/background/auction"),
     import("@ext/background/campaignMatcher"),
+    import("@ext/background/wallet/rpcDispatcher"),
+    import("@ext/offscreen/wallet-dispatch"),
   ]);
 
   _poller    = campaignPoller;
@@ -1241,6 +1256,8 @@ export async function startDaemon(): Promise<void> {
   _attest    = { requestPublisherAttestation };
   _auction   = auctionMod;
   _matcher   = matcherMod;
+  _walletDispatcher = walletDispatcherMod;
+  _walletOffscreen  = walletOffscreenMod;
 
   // Seed settings (network + contract addresses) on first run.
   const stored = await chrome.storage.local.get("settings");

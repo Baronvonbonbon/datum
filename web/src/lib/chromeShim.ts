@@ -181,5 +181,16 @@ export function installChromeShim(): void {
     },
     windows: { create: async () => {} },
     tabs: { create: async () => {}, query: async () => [] },
+    // The popup's wallet path calls ensurePineReady() which probes
+    // chrome.offscreen.hasDocument(). In the demo there is no offscreen
+    // document — wallet ops run in-page. Pretend a doc exists so the
+    // bridge skips creation and proceeds to its first sendMessage, which
+    // our in-page listener handles directly.
+    offscreen: {
+      hasDocument: async () => true,
+      createDocument: async () => {},
+      closeDocument: async () => {},
+      Reason: { WORKERS: "WORKERS", BLOBS: "BLOBS" },
+    },
   };
 }
