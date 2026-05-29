@@ -94,35 +94,47 @@ function summarise(msg: Record<string, unknown>): string {
   return parts.join(" ");
 }
 
-function sendMessage(msg: Record<string, unknown>): Promise<unknown> {
+// chrome.runtime.sendMessage has two calling conventions:
+//   sendMessage(msg)             → returns Promise
+//   sendMessage(msg, callback)   → invokes callback, returns void
+// The popup's walletClient uses the callback form; existing demo daemon
+// consumers use the Promise form. Support both so neither side hangs.
+function sendMessage(
+  msg: Record<string, unknown>,
+  callback?: (response: unknown) => void,
+): Promise<unknown> {
   const msgType = String(msg.type ?? "unknown");
   _msgLogger?.("out", msgType, summarise(msg));
 
-  return new Promise((resolve) => {
+  const promise = new Promise<unknown>((resolve) => {
     let responded = false;
-    const sendResponse = (r: unknown) => {
-      if (!responded) {
-        responded = true;
-        const result = r as Record<string, unknown> | null | undefined;
-        const detail = result
-          ? Object.entries(result)
-              .filter(([k]) => k !== "type")
-              .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`)
-              .join(" ")
-          : "";
-        _msgLogger?.("in", msgType, detail);
-        resolve(r);
+    const deliver = (r: unknown) => {
+      if (responded) return;
+      responded = true;
+      const result = r as Record<string, unknown> | null | undefined;
+      const detail = result
+        ? Object.entries(result)
+            .filter(([k]) => k !== "type")
+            .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`)
+            .join(" ")
+        : "";
+      _msgLogger?.("in", msgType, detail);
+      if (callback) {
+        try { callback(r); } catch (e) { console.warn("[chromeShim] callback threw", e); }
       }
+      resolve(r);
     };
 
     let isAsync = false;
     for (const listener of messageListeners) {
-      const ret = listener(msg, SENDER, sendResponse);
+      const ret = listener(msg, SENDER, deliver);
       if (ret === true) { isAsync = true; break; }
     }
 
-    if (!isAsync && !responded) { responded = true; resolve(undefined); }
+    if (!isAsync && !responded) { deliver(undefined); }
   });
+
+  return promise;
 }
 
 // ── Alarms ────────────────────────────────────────────────────────────────

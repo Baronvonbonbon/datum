@@ -1142,6 +1142,36 @@ async function handleMessage(msg: any): Promise<unknown> {
     case "REVOKE_AUTO_SUBMIT":
       return { ok: true };
 
+    // ── Wallet RPC (Stage 1c popup) ────────────────────────────────────────
+    // The popup's App shell is gated on walletClient.getStatus(); without
+    // a handler here the popup hangs on "Loading…" forever. The demo doesn't
+    // ship the full self-contained wallet (key material, vault, signing),
+    // so we surface a stable "no-vault" status. The popup then renders its
+    // OnboardingFlow, which is the right UX for a "see the extension" demo.
+    // Mutating ops are stubbed to a clear error so the UI shows the message
+    // rather than hanging.
+    case "WALLET_RPC_REQUEST": {
+      const op: string = msg.op;
+      const requestId: string = msg.requestId;
+      const reply = (ok: boolean, payload?: unknown, error?: string) => ({
+        type: "WALLET_RPC_RESPONSE", requestId, ok, payload, error,
+      });
+      if (op === "getStatus") {
+        return reply(true, {
+          state: "no-vault",
+          accounts: [],
+          activeIndex: 0,
+          activeAddress: "",
+          msUntilAutoLock: null,
+        });
+      }
+      if (op === "getPendingPermission") return reply(true, null);
+      if (op === "listPermissions")      return reply(true, []);
+      // Everything else (createWallet, unlock, sendNative, signTypedData, …)
+      // requires the full wallet backend that the demo daemon doesn't host.
+      return reply(false, undefined, `walletClient(${op}) not available in demo`);
+    }
+
     default:
       return undefined;
   }
