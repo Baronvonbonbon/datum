@@ -29,7 +29,21 @@ const GAS = {
   settleClaimWarm: 32_815,        // 1 claim, warm slot (same block re-touch)
   reportPage: 8_899,
   reportAd: 8_458,
+  // Not yet measured on the Paseo run; estimated as a typical single-SSTORE
+  // ERC-20-style pull-payment vault clear. Used for the withdraw-amortisation
+  // block under the Publisher section. Conservative estimate.
+  vaultWithdraw: 35_000,
 } as const;
+
+// Publisher stake bonding curve (measured by STAKE-1 in the Paseo run).
+const STAKE_BASE_PLANCK = 1;             // baseStakePlanck
+const STAKE_PER_IMP_PLANCK = 1_000;      // planckPerImpression
+const PLANCK_PER_PAS = 1e10;             // substrate-native: 1 PAS = 10^10 planck
+// Bonded relay fee (governance-tunable). Modelled as a flat percentage of
+// total settled revenue retained by the relay operator under the Bonded path.
+const BONDED_RELAY_FEE_PCT = 1.0;        // 1% of revenue
+// Opportunity cost of locked stake capital (annualised).
+const STAKE_OPPORTUNITY_APR_PCT = 5.0;
 
 // gasPrice = 10^12 wei/gas at the Paseo eth-rpc layer (18-decimal wei).
 // 1 PAS = 10^18 wei = 10^10 planck. So 1 gas unit = 10^-6 PAS = 1 μPAS.
@@ -46,9 +60,8 @@ const PAS_PER_GAS = 1e-6;
 //   publisher = 50.00 %
 //   user      = 37.50 %
 //   protocol  = 12.50 %
-const DATUM_SPLIT = { publisher: 50, user: 37.5, protocol: 12.5, adTech: 0, opaque: 0 };
-
-// Legacy comparison baselines. Sum to 100 within each row.
+// Legacy comparison baselines. Sum to 100 within each row. The DATUM row at
+// index 0 is replaced at render time with the live slider state.
 const LEGACY_SPLITS = [
   { name: "DATUM",      publisher: 50.0, user: 37.5, protocol: 12.5, adTech: 0,    opaque: 0 },
   { name: "IAB 2024",   publisher: 51.0, user: 0,    protocol: 0,    adTech: 30.0, opaque: 19.0 },
@@ -82,54 +95,160 @@ const TIERS = [
   { id: "large",  label: "Large",  impsPerMonth: 1_000_000 },
 ] as const;
 
+type ActionType = "cpm" | "cpc" | "cpa";
+type SettlementPath = "direct" | "dualsig" | "bonded";
+type Horizon = "month" | "year" | "3year";
+
 interface Params {
   impsPerMonth: number;
-  cpmPAS: number;       // CPM bid in PAS
-  pasPriceUSD: number;  // PAS → USD assumption
-  impsPerClaim: number; // how many impressions are batched into one settle
+  cpmPAS: number;            // CPM bid in PAS (rate per 1000 view events)
+  cpcPAS: number;            // CPC bid in PAS per click
+  cpaPAS: number;            // CPA bid in PAS per action
+  pasPriceUSD: number;       // PAS → USD assumption
+  impsPerClaim: number;      // how many events are batched into one settle
+  takeRateBps: number;       // publisher take, in basis points (3000..8000)
+  userShareBps: number;      // user's share of remainder (5000..9000)
+  actionType: ActionType;
+  path: SettlementPath;
+  horizon: Horizon;
+  withdrawsPerMonth: number; // publisher withdraw cadence
 }
 
 function defaultParams(impsPerMonth: number): Params {
-  return { impsPerMonth, cpmPAS: 0.5, pasPriceUSD: 1.0, impsPerClaim: 1000 };
+  return {
+    impsPerMonth,
+    cpmPAS: 0.5,
+    cpcPAS: 0.20,
+    cpaPAS: 2.50,
+    pasPriceUSD: 1.0,
+    impsPerClaim: 1000,
+    takeRateBps: 5000,
+    userShareBps: 7500,
+    actionType: "cpm",
+    path: "direct",
+    horizon: "month",
+    withdrawsPerMonth: 4,
+  };
 }
 
+const HORIZON_MULT: Record<Horizon, number> = { month: 1, year: 12, "3year": 36 };
+const HORIZON_LABEL: Record<Horizon, string> = { month: "/ month", year: "/ year", "3year": "/ 3 years" };
+
 // ── Core economics computation ──────────────────────────────────────────────
+// All figures are monthly first; horizon scaling happens via horizonMult so the
+// callers can choose to apply it (or not) on a per-stat basis.
 function compute(p: Params) {
+  const horizonMult = HORIZON_MULT[p.horizon];
   const impsPerDay = p.impsPerMonth / 30;
   const claimsPerMonth = Math.ceil(p.impsPerMonth / Math.max(1, p.impsPerClaim));
 
-  // Revenue per impression (in PAS): CPM in PAS / 1000.
-  const revenuePerImp = p.cpmPAS / 1000;
-  const totalRevenuePAS = revenuePerImp * p.impsPerMonth;
-  const publisherPAS = totalRevenuePAS * (DATUM_SPLIT.publisher / 100);
-  const userPAS      = totalRevenuePAS * (DATUM_SPLIT.user / 100);
-  const protocolPAS  = totalRevenuePAS * (DATUM_SPLIT.protocol / 100);
+  // ── Revenue per event depends on action type ──
+  // CPM (view): bid is per-1000 events.
+  // CPC (click): bid is per-event (flat). Roughly 1 click per ~1000 imps.
+  // CPA (action): bid is per-event (flat, higher rate). Roughly 1 action per ~10k imps.
+  // For consistency we keep "impsPerMonth" as the event count slider regardless.
+  const revenuePerEvent =
+    p.actionType === "cpm" ? p.cpmPAS / 1000 :
+    p.actionType === "cpc" ? p.cpcPAS :
+    p.cpaPAS;
 
-  // Advertiser gas costs (one-time + per-claim):
-  // - createCampaign: once per campaign (~73,799 gas)
-  // - adminActivateCampaign: once per campaign (~2,356 gas)
-  //   (production phase-1/2 will be more, but for now this is the measured cost)
-  // - settleClaims: claimsPerMonth × cold settle gas
+  const totalRevenuePAS = revenuePerEvent * p.impsPerMonth;
+
+  // ── Split: publisher / user / protocol ──
+  const takeRatePct  = p.takeRateBps / 100;
+  const userSharePct = p.userShareBps / 100;
+  const publisherSharePct = takeRatePct;
+  const userOfWhole = (100 - takeRatePct) * (userSharePct / 100);
+  const protocolOfWhole = (100 - takeRatePct) * (1 - userSharePct / 100);
+
+  let publisherPAS = totalRevenuePAS * (publisherSharePct / 100);
+  let userPAS      = totalRevenuePAS * (userOfWhole / 100);
+  let protocolPAS  = totalRevenuePAS * (protocolOfWhole / 100);
+
+  // ── Gas (recurring per month) ──
   const oneTimeGasUnits = GAS.createCampaign + GAS.adminActivateCampaign;
   const monthlySettleGasUnits = claimsPerMonth * GAS.settleClaimCold;
   const oneTimeGasPAS = oneTimeGasUnits * PAS_PER_GAS;
   const monthlySettleGasPAS = monthlySettleGasUnits * PAS_PER_GAS;
-  const monthlyGasPAS = monthlySettleGasPAS;          // recurring only
-  const tcoMonthlyPAS = totalRevenuePAS + monthlyGasPAS;
-  const tcoFirstMonthPAS = tcoMonthlyPAS + oneTimeGasPAS;
 
-  // Per-impression cost summary
-  const costPerImpPAS = totalRevenuePAS / p.impsPerMonth;
-  const gasPerImpPAS  = monthlyGasPAS  / p.impsPerMonth;
+  // ── Settlement path: who absorbs the gas, who earns the bonded relay fee ──
+  let gasOnPublisherPAS = 0;
+  let gasOnAdvertiserPAS = 0;
+  let gasOnRelayPAS = 0;
+  let bondedRelayFeePAS = 0;
+
+  if (p.path === "direct") {
+    gasOnPublisherPAS = monthlySettleGasPAS;
+  } else if (p.path === "dualsig") {
+    gasOnAdvertiserPAS = monthlySettleGasPAS;
+  } else {
+    // Bonded: relay pays gas, earns fee out of publisher's take.
+    gasOnRelayPAS = monthlySettleGasPAS;
+    bondedRelayFeePAS = totalRevenuePAS * (BONDED_RELAY_FEE_PCT / 100);
+    publisherPAS -= bondedRelayFeePAS;
+  }
+
+  // ── Publisher overhead: vault withdraws ──
+  const withdrawGasPAS = Math.max(0, p.withdrawsPerMonth) * GAS.vaultWithdraw * PAS_PER_GAS;
+
+  // ── Publisher stake bonding curve ──
+  // requiredStake = base + cumulativeImpressions × perImp (in planck).
+  // The "cumulative" depends on lifetime; for monthly view treat it as a
+  // running floor of p.impsPerMonth × horizonMult (proxy for the horizon's worth
+  // of impressions). Opportunity cost = locked × APR / horizon.
+  const horizonImps = p.impsPerMonth * horizonMult;
+  const requiredStakePlanck = STAKE_BASE_PLANCK + horizonImps * STAKE_PER_IMP_PLANCK;
+  const requiredStakePAS = requiredStakePlanck / PLANCK_PER_PAS;
+  // Annualised opportunity cost prorated to horizon
+  const stakeOpportunityCostPAS =
+    requiredStakePAS * (STAKE_OPPORTUNITY_APR_PCT / 100) * (horizonMult / 12);
+
+  // ── Net take after gas + withdraw + stake opportunity (publisher view) ──
+  const publisherNetMonthlyPAS = publisherPAS - gasOnPublisherPAS - withdrawGasPAS;
+  const publisherNetHorizonPAS = publisherNetMonthlyPAS * horizonMult - stakeOpportunityCostPAS;
+
+  // ── TCO ──
+  const monthlyTCO_AdvertiserPAS = totalRevenuePAS + gasOnAdvertiserPAS;
+  const firstMonthTCO_AdvertiserPAS = monthlyTCO_AdvertiserPAS + oneTimeGasPAS;
+
+  // ── Per-impression cost summary ──
+  const costPerImpPAS = totalRevenuePAS / Math.max(1, p.impsPerMonth);
+  const gasPerImpPAS  = monthlySettleGasPAS / Math.max(1, p.impsPerMonth);
 
   return {
-    impsPerDay,
-    claimsPerMonth,
-    revenuePerImp,
+    // Volume & cadence
+    impsPerDay, claimsPerMonth, horizonMult,
+    revenuePerEvent,
+
+    // Revenue (monthly)
     totalRevenuePAS,
     publisherPAS, userPAS, protocolPAS,
-    oneTimeGasPAS, monthlyGasPAS, tcoMonthlyPAS, tcoFirstMonthPAS,
+    bondedRelayFeePAS,
+
+    // Gas (monthly)
+    oneTimeGasPAS,
+    monthlySettleGasPAS,
+    gasOnPublisherPAS, gasOnAdvertiserPAS, gasOnRelayPAS,
+    withdrawGasPAS,
+
+    // Publisher net + stake
+    publisherNetMonthlyPAS,
+    publisherNetHorizonPAS,
+    requiredStakePAS,
+    stakeOpportunityCostPAS,
+
+    // Advertiser TCO
+    monthlyTCO_AdvertiserPAS,
+    firstMonthTCO_AdvertiserPAS,
+
+    // Splits as percentages (for chart data)
+    publisherSharePct, userOfWhole, protocolOfWhole,
+
+    // Per-impression
     costPerImpPAS, gasPerImpPAS,
+
+    // Horizon helpers
+    h: (monthlyValue: number) => monthlyValue * horizonMult,
     usd: (pas: number) => pas * p.pasPriceUSD,
   };
 }
@@ -235,6 +354,39 @@ function StatRow({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Segmented toggle (radio-style chip group) ───────────────────────────────
+interface SegOption<T extends string> { id: T; label: string; hint?: string }
+function Segmented<T extends string>(
+  { value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: SegOption<T>[]; label?: string }
+) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 220, flex: 1 }}>
+      {label && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</div>}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {options.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => onChange(o.id)}
+            title={o.hint}
+            style={{
+              fontSize: 12,
+              padding: "5px 10px",
+              borderRadius: 4,
+              border: `1px solid ${value === o.id ? "var(--accent)" : "var(--border)"}`,
+              background: value === o.id ? "var(--accent)" : "transparent",
+              color: value === o.id ? "var(--bg)" : "var(--text)",
+              cursor: "pointer",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Slider control ──────────────────────────────────────────────────────────
 function Slider({
   label, value, onChange, min, max, step, fmt, hint,
@@ -263,6 +415,53 @@ function Slider({
   );
 }
 
+// ── Network aggregate panel ─────────────────────────────────────────────────
+// Multiplies the per-campaign economics by an assumed number of publishers
+// running at the same volume. Drives home that DATUM's treasury sizing is
+// a function of network throughput, not per-claim margin.
+function NetworkAggregate({ params }: { params: Params }) {
+  const [N, setN] = useState(1000);
+  const e = compute(params);
+  const scaledPub  = e.publisherPAS * N;
+  const scaledUser = e.userPAS * N;
+  const scaledProt = e.protocolPAS * N;
+  const scaledRev  = e.totalRevenuePAS * N;
+  const scaledGas  = e.monthlySettleGasPAS * N;
+  const horizonMult = e.horizonMult;
+  return (
+    <div className="nano-fade nano-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "var(--text-strong)" }}>
+          Network aggregate
+        </h2>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          if <strong style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}>{N.toLocaleString()}</strong> publishers each ran at this tier
+        </span>
+      </div>
+      <Slider
+        label="Active publishers"
+        value={N}
+        onChange={setN}
+        min={10} max={100_000} step={10}
+        fmt={(v) => v.toLocaleString()}
+        hint="adjust to your network-scale hypothesis"
+      />
+      <StatRow>
+        <Stat label={`Network revenue ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(scaledRev * horizonMult)} sub={fmtUSD(scaledRev * horizonMult * params.pasPriceUSD)} />
+        <Stat label={`Publishers total ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(scaledPub * horizonMult)} sub={fmtUSD(scaledPub * horizonMult * params.pasPriceUSD)} />
+        <Stat label={`Users total ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(scaledUser * horizonMult)} sub={fmtUSD(scaledUser * horizonMult * params.pasPriceUSD)} />
+        <Stat label={`Treasury ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(scaledProt * horizonMult)} sub={fmtUSD(scaledProt * horizonMult * params.pasPriceUSD)} />
+        <Stat label={`Settlement gas ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(scaledGas * horizonMult)} sub={fmtUSD(scaledGas * horizonMult * params.pasPriceUSD)} />
+        <Stat label={`TXs ${HORIZON_LABEL[params.horizon]}`} value={fmtInt(e.claimsPerMonth * N * horizonMult)} sub="settle calls on chain" />
+      </StatRow>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+        At {N.toLocaleString()} publishers × {(params.impsPerMonth / 1e3).toFixed(0)}k events each = {fmtInt(params.impsPerMonth * N)} events per month.
+        Settlement gas stays under <strong>{((scaledGas / Math.max(scaledRev, 1e-12)) * 100).toFixed(3)}%</strong> of total network revenue — testnet pricing.
+      </div>
+    </div>
+  );
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 export function AboutEconomics() {
   const [tier, setTier] = useState<typeof TIERS[number]["id"]>("medium");
@@ -279,10 +478,18 @@ export function AboutEconomics() {
 
   // Build pie data for DATUM revenue split (per-role chart)
   const datumPie = [
-    { name: "Publisher", value: DATUM_SPLIT.publisher, fill: PIE_COLORS.publisher },
-    { name: "User",      value: DATUM_SPLIT.user,      fill: PIE_COLORS.user },
-    { name: "Protocol",  value: DATUM_SPLIT.protocol,  fill: PIE_COLORS.protocol },
+    { name: "Publisher", value: econ.publisherSharePct, fill: PIE_COLORS.publisher },
+    { name: "User",      value: econ.userOfWhole,       fill: PIE_COLORS.user },
+    { name: "Protocol",  value: econ.protocolOfWhole,   fill: PIE_COLORS.protocol },
   ];
+
+  // Dynamic legacy chart rows: DATUM reflects the live slider state, the
+  // legacy rows stay anchored to published baselines so we're comparing
+  // current tuning against the industry rather than against historical defaults.
+  const legacyRows = useMemo(() => ([
+    { name: "DATUM", publisher: econ.publisherSharePct, user: econ.userOfWhole, protocol: econ.protocolOfWhole, adTech: 0, opaque: 0 },
+    ...LEGACY_SPLITS.slice(1),
+  ]), [econ.publisherSharePct, econ.userOfWhole, econ.protocolOfWhole]);
 
   // Monthly trajectory data — vary impressions/mo, hold others
   const trajectoryData = useMemo(() => {
@@ -293,8 +500,8 @@ export function AboutEconomics() {
         imps,
         impsLabel: imps >= 1e6 ? `${imps / 1e6}M` : `${imps / 1e3}k`,
         budget: e.totalRevenuePAS,
-        gas: e.monthlyGasPAS,
-        gasPct: (e.monthlyGasPAS / Math.max(e.totalRevenuePAS, 1e-12)) * 100,
+        gas: e.monthlySettleGasPAS,
+        gasPct: (e.monthlySettleGasPAS / Math.max(e.totalRevenuePAS, 1e-12)) * 100,
       };
     });
   }, [params]);
@@ -302,7 +509,7 @@ export function AboutEconomics() {
   // Per-role earnings data for advertiser cost bar
   const advertiserCostBar = [
     { name: "Budget (revenue paid out)", value: econ.totalRevenuePAS, fill: PIE_COLORS.publisher },
-    { name: "Monthly gas (settles)",     value: econ.monthlyGasPAS,   fill: PIE_COLORS.adTech },
+    { name: params.path === "dualsig" ? "Monthly gas (advertiser-paid)" : "Monthly gas (not advertiser-paid)", value: econ.gasOnAdvertiserPAS, fill: PIE_COLORS.adTech },
     { name: "First-month gas (create + activate)", value: econ.oneTimeGasPAS, fill: PIE_COLORS.opaque },
   ];
 
@@ -395,20 +602,107 @@ export function AboutEconomics() {
             hint={`${fmtInt(econ.claimsPerMonth)} settlement TXs/month`}
           />
         </div>
+
+        {/* Action type + Settlement path + Horizon — modes that flip semantics */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+          <Segmented
+            label="Action type"
+            value={params.actionType}
+            onChange={(v) => setParams((p) => ({ ...p, actionType: v }))}
+            options={[
+              { id: "cpm", label: "CPM · view" },
+              { id: "cpc", label: "CPC · click" },
+              { id: "cpa", label: "CPA · action" },
+            ]}
+          />
+          <Segmented
+            label="Settlement path"
+            value={params.path}
+            onChange={(v) => setParams((p) => ({ ...p, path: v }))}
+            options={[
+              { id: "direct",  label: "Direct" },
+              { id: "dualsig", label: "Dual-sig" },
+              { id: "bonded",  label: "Bonded relay" },
+            ]}
+          />
+          <Segmented
+            label="Time horizon"
+            value={params.horizon}
+            onChange={(v) => setParams((p) => ({ ...p, horizon: v }))}
+            options={[
+              { id: "month",  label: "Monthly" },
+              { id: "year",   label: "Annual" },
+              { id: "3year",  label: "3-year" },
+            ]}
+          />
+        </div>
+
+        {/* Split sliders */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+          <Slider
+            label="Publisher take rate"
+            value={params.takeRateBps}
+            onChange={(v) => setParams((p) => ({ ...p, takeRateBps: v }))}
+            min={3000} max={8000} step={50}
+            fmt={(v) => `${(v / 100).toFixed(1)}%`}
+            hint="governance bounds 30–80%; default 50%"
+          />
+          <Slider
+            label="User share of remainder"
+            value={params.userShareBps}
+            onChange={(v) => setParams((p) => ({ ...p, userShareBps: v }))}
+            min={5000} max={9000} step={50}
+            fmt={(v) => `${(v / 100).toFixed(1)}%`}
+            hint={`= ${econ.userOfWhole.toFixed(1)}% of total · protocol gets ${econ.protocolOfWhole.toFixed(1)}%`}
+          />
+          <Slider
+            label="Publisher withdraws / month"
+            value={params.withdrawsPerMonth}
+            onChange={(v) => setParams((p) => ({ ...p, withdrawsPerMonth: v }))}
+            min={0} max={30} step={1}
+            fmt={(v) => `${v}`}
+            hint="vault withdraw is one TX each (~35k gas)"
+          />
+        </div>
+
+        {/* Action-type specific bid slider */}
+        {params.actionType === "cpc" && (
+          <Slider
+            label="CPC bid"
+            value={params.cpcPAS}
+            onChange={(v) => setParams((p) => ({ ...p, cpcPAS: v }))}
+            min={0.01} max={5} step={0.01}
+            fmt={(v) => `${v.toFixed(2)} PAS / click`}
+            hint={`= ${fmtUSD(params.cpcPAS * params.pasPriceUSD)} at $${params.pasPriceUSD}/PAS`}
+          />
+        )}
+        {params.actionType === "cpa" && (
+          <Slider
+            label="CPA bid"
+            value={params.cpaPAS}
+            onChange={(v) => setParams((p) => ({ ...p, cpaPAS: v }))}
+            min={0.10} max={50} step={0.10}
+            fmt={(v) => `${v.toFixed(2)} PAS / action`}
+            hint={`= ${fmtUSD(params.cpaPAS * params.pasPriceUSD)} at $${params.pasPriceUSD}/PAS`}
+          />
+        )}
       </div>
 
       {/* Above-the-fold summary ─────────────────────────────────── */}
       <div className="nano-fade" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "var(--text-strong)" }}>
-          Monthly snapshot
+          {params.horizon === "month" ? "Monthly" : params.horizon === "year" ? "Annual" : "3-year"} snapshot
         </h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <Stat label="Total revenue" value={fmtPAS(econ.totalRevenuePAS)} sub={fmtUSD(econ.usd(econ.totalRevenuePAS))} />
-          <Stat label="Publisher" value={fmtPAS(econ.publisherPAS)} sub={fmtUSD(econ.usd(econ.publisherPAS))} />
-          <Stat label="User" value={fmtPAS(econ.userPAS)} sub={fmtUSD(econ.usd(econ.userPAS))} />
-          <Stat label="Protocol" value={fmtPAS(econ.protocolPAS)} sub={fmtUSD(econ.usd(econ.protocolPAS))} />
-          <Stat label="Settlement gas" value={fmtPAS(econ.monthlyGasPAS)} sub={`${(econ.monthlyGasPAS / econ.totalRevenuePAS * 100).toFixed(2)}% of revenue`} />
-          <Stat label="Cost per imp" value={fmtPAS(econ.costPerImpPAS)} sub={fmtUSD(econ.usd(econ.costPerImpPAS))} />
+          <Stat label="Total revenue" value={fmtPAS(econ.h(econ.totalRevenuePAS))} sub={fmtUSD(econ.usd(econ.h(econ.totalRevenuePAS)))} />
+          <Stat label={`Publisher (${econ.publisherSharePct.toFixed(1)}%)`} value={fmtPAS(econ.h(econ.publisherPAS))} sub={fmtUSD(econ.usd(econ.h(econ.publisherPAS)))} />
+          <Stat label={`User (${econ.userOfWhole.toFixed(1)}%)`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
+          <Stat label={`Protocol (${econ.protocolOfWhole.toFixed(1)}%)`} value={fmtPAS(econ.h(econ.protocolPAS))} sub={fmtUSD(econ.usd(econ.h(econ.protocolPAS)))} />
+          {params.path === "bonded" && (
+            <Stat label="Bonded relay fee" value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`${BONDED_RELAY_FEE_PCT}% of revenue (from publisher take)`} />
+          )}
+          <Stat label="Settlement gas" value={fmtPAS(econ.h(econ.monthlySettleGasPAS))} sub={`${(econ.monthlySettleGasPAS / Math.max(econ.totalRevenuePAS, 1e-12) * 100).toFixed(2)}% of revenue · paid by ${params.path === "direct" ? "publisher" : params.path === "dualsig" ? "advertiser" : "relay"}`} />
+          <Stat label="Cost per event" value={fmtPAS(econ.costPerImpPAS)} sub={fmtUSD(econ.usd(econ.costPerImpPAS))} />
         </div>
       </div>
 
@@ -425,7 +719,7 @@ export function AboutEconomics() {
         </p>
         <div style={{ width: "100%", height: 260 }}>
           <ResponsiveContainer>
-            <BarChart data={LEGACY_SPLITS} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
+            <BarChart data={legacyRows} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="2 4" horizontal={false} />
               <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} stroke="var(--text-muted)" fontSize={11} />
               <YAxis type="category" dataKey="name" stroke="var(--text-muted)" fontSize={12} width={80} />
@@ -455,17 +749,17 @@ export function AboutEconomics() {
         roleVar="--role-user"
         icon="👤"
         title="User"
-        subtitle="Earns 37.5% of every settled impression — net new revenue stream"
+        subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event — net new revenue stream`}
       >
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
-          The user is the role legacy ad-tech doesn't pay. DATUM routes 37.5% of every
-          settled CPM to the user wallet that emitted the impression. The user pays
+          The user is the role legacy ad-tech doesn't pay. DATUM routes {econ.userOfWhole.toFixed(1)}% of every
+          settled event to the user wallet that emitted it. The user pays
           no gas — Settlement credits a pull-payment vault, withdrawn at the user's
           schedule.
         </p>
         <StatRow>
-          <Stat label="Per impression" value={fmtPAS(econ.revenuePerImp * DATUM_SPLIT.user / 100)} sub={fmtUSD(econ.usd(econ.revenuePerImp * DATUM_SPLIT.user / 100))} />
-          <Stat label="Per month (your tier)" value={fmtPAS(econ.userPAS)} sub={fmtUSD(econ.usd(econ.userPAS))} />
+          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
+          <Stat label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
           <Stat label="Per year" value={fmtPAS(econ.userPAS * 12)} sub={fmtUSD(econ.usd(econ.userPAS * 12))} />
           <Stat label="Gas to claim" value="0" sub="pull-payment vault" />
         </StatRow>
@@ -486,7 +780,7 @@ export function AboutEconomics() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-strong)", marginBottom: 6 }}>Where the money comes from</div>
             <ul style={{ paddingLeft: 18, margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.7 }}>
-              <li><strong>Default share:</strong> 37.5% (= 75% of the 50% remainder after publisher take)</li>
+              <li><strong>Your share:</strong> {econ.userOfWhole.toFixed(1)}% (= {(params.userShareBps / 100).toFixed(1)}% of the {(100 - params.takeRateBps / 100).toFixed(1)}% remainder after publisher take)</li>
               <li><strong>Caps:</strong> per-user-per-campaign window cap (advertiser-set) + global MAX_USER_EVENTS = 100k</li>
               <li><strong>Frequency:</strong> credited every settle; vault withdraw is 1 TX whenever you want</li>
               <li><strong>Sybil floors:</strong> user min-assurance levels (L0 permissive, L3 ZK-only) opt in / out per user</li>
@@ -500,38 +794,73 @@ export function AboutEconomics() {
         roleVar="--role-publisher"
         icon="🌐"
         title="Publisher"
-        subtitle="50% take rate — comparable to AdSense's ~68% but with no platform-side rake on top"
+        subtitle={`${econ.publisherSharePct.toFixed(1)}% take · ${params.path === "direct" ? "self-pays gas" : params.path === "dualsig" ? "advertiser pays gas" : `relay pays gas, takes ${BONDED_RELAY_FEE_PCT}%`}`}
       >
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           Publishers register a take rate (default 50%, negotiable 30–80% within
-          governance bounds). The take rate locks per-campaign at activation. Gas
-          for settlement is paid by whoever submits the batch — the publisher's
-          own relay, a dual-signed advertiser, or a bonded DatumRelay operator.
-          When the publisher operates their own relay (Direct path), they pay
-          ~41 mPAS per settle TX.
+          governance bounds, currently <strong>{econ.publisherSharePct.toFixed(1)}%</strong> per the slider).
+          The take rate locks per-campaign at activation. Gas for settlement is paid by whoever submits
+          the batch — the publisher's own relay, a dual-signed advertiser, or a bonded DatumRelay operator
+          (currently <strong>{params.path === "direct" ? "Direct" : params.path === "dualsig" ? "Dual-sig" : "Bonded"}</strong>).
         </p>
         <StatRow>
-          <Stat label="Per impression" value={fmtPAS(econ.revenuePerImp * DATUM_SPLIT.publisher / 100)} sub={fmtUSD(econ.usd(econ.revenuePerImp * DATUM_SPLIT.publisher / 100))} />
-          <Stat label="Monthly take" value={fmtPAS(econ.publisherPAS)} sub={fmtUSD(econ.usd(econ.publisherPAS))} />
-          <Stat label="Yearly take" value={fmtPAS(econ.publisherPAS * 12)} sub={fmtUSD(econ.usd(econ.publisherPAS * 12))} />
-          <Stat label="Self-relay gas" value={fmtPAS(econ.monthlyGasPAS)} sub={`${(econ.monthlyGasPAS / econ.publisherPAS * 100).toFixed(2)}% of take`} />
-          <Stat label="Net (self-relay)" value={fmtPAS(econ.publisherPAS - econ.monthlyGasPAS)} sub={fmtUSD(econ.usd(econ.publisherPAS - econ.monthlyGasPAS))} />
+          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.publisherSharePct / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.publisherSharePct / 100))} />
+          <Stat label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.publisherPAS))} sub={fmtUSD(econ.usd(econ.h(econ.publisherPAS)))} />
+          <Stat label="Gas absorbed (you)" value={fmtPAS(econ.h(econ.gasOnPublisherPAS))} sub={econ.publisherPAS > 0 ? `${(econ.gasOnPublisherPAS / econ.publisherPAS * 100).toFixed(3)}% of take` : "—"} />
+          <Stat label={`Net ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.publisherNetHorizonPAS)} sub={fmtUSD(econ.usd(econ.publisherNetHorizonPAS))} />
+          {params.path === "bonded" && (
+            <Stat label="Bonded relay fee" value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`-${BONDED_RELAY_FEE_PCT}% off gross take`} />
+          )}
         </StatRow>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           <strong style={{ color: "var(--text-strong)" }}>Three operational postures:</strong>
           <ul style={{ paddingLeft: 18, marginTop: 6 }}>
             <li><strong>Direct (self-relay):</strong> you pay gas, you keep cadence control. ~41 mPAS per settle TX.</li>
             <li><strong>Dual-sig:</strong> advertiser co-signs and submits. Your gas cost is 0; ops overhead is signing.</li>
-            <li><strong>Bonded DatumRelay:</strong> a third-party operator submits on your behalf. They post a relayStake and earn a fee + gas reimbursement out of your take.</li>
+            <li><strong>Bonded DatumRelay:</strong> a third-party operator submits on your behalf. They post a relayStake and earn a fee ({BONDED_RELAY_FEE_PCT}% of revenue, deducted from your gross take) plus gas reimbursement.</li>
           </ul>
         </div>
-        <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 8 }}>
-          <strong style={{ color: "var(--text-strong)" }}>Required stake</strong> (bonding curve): starts at a flat
-          base and grows linearly with cumulative impressions. Stake is slashable
-          if fraud is upheld against you — but it also gates access to higher-value
-          campaigns and to the publisher reputation score (which monotonically
-          increases with every accepted settle).
-        </div>
+
+        {/* Stake TCO subsection */}
+        <details style={{ marginTop: 14, padding: 12, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <summary style={{ fontWeight: 600, fontSize: 13, color: "var(--text-strong)", cursor: "pointer" }}>
+            Bonded stake + opportunity cost
+          </summary>
+          <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 10 }}>
+            From measured params: <code>baseStakePlanck = {STAKE_BASE_PLANCK}</code>, <code>planckPerImpression = {STAKE_PER_IMP_PLANCK}</code>.
+            Required stake = base + cumulativeImpressions × perImp. The locked capital
+            doesn't earn the take share but isn't spent either — it's an opportunity cost
+            at the prevailing yield. The figure below assumes a {STAKE_OPPORTUNITY_APR_PCT}%
+            annualised reference rate (treasury rate proxy).
+          </p>
+          <StatRow>
+            <Stat label="Locked stake (horizon)" value={fmtPAS(econ.requiredStakePAS)} sub={fmtUSD(econ.usd(econ.requiredStakePAS))} />
+            <Stat label="Opportunity cost" value={fmtPAS(econ.stakeOpportunityCostPAS)} sub={`@ ${STAKE_OPPORTUNITY_APR_PCT}% APR`} />
+            <Stat label="% of take" value={`${econ.h(econ.publisherPAS) > 0 ? (econ.stakeOpportunityCostPAS / econ.h(econ.publisherPAS) * 100).toFixed(4) : "—"}%`} sub="negligible at this bonding curve" />
+          </StatRow>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+            At the testnet bonding curve, stake costs are functionally a rounding error —
+            10⁻⁷ PAS per impression. A production curve calibrated for higher capital
+            commitment would move this materially.
+          </p>
+        </details>
+
+        {/* Vault withdraw amortisation */}
+        <details style={{ marginTop: 10, padding: 12, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <summary style={{ fontWeight: 600, fontSize: 13, color: "var(--text-strong)", cursor: "pointer" }}>
+            Vault withdraw amortisation
+          </summary>
+          <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 10 }}>
+            Each withdraw is a ~{GAS.vaultWithdraw.toLocaleString()}-gas TX. At
+            <strong> {params.withdrawsPerMonth}</strong> withdraws/month, that's a
+            recurring cost that amortises against the publisher's take.
+          </p>
+          <StatRow>
+            <Stat label="Per withdraw" value={fmtPAS(GAS.vaultWithdraw * PAS_PER_GAS)} sub={fmtUSD(econ.usd(GAS.vaultWithdraw * PAS_PER_GAS))} />
+            <Stat label="Monthly withdraw cost" value={fmtPAS(econ.withdrawGasPAS)} sub={`${(econ.withdrawGasPAS / Math.max(econ.publisherPAS, 1e-12) * 100).toFixed(4)}% of take`} />
+            <Stat label={`${HORIZON_LABEL[params.horizon]} (horizon)`} value={fmtPAS(econ.h(econ.withdrawGasPAS))} sub={fmtUSD(econ.usd(econ.h(econ.withdrawGasPAS)))} />
+          </StatRow>
+        </details>
       </RoleSection>
 
       {/* Advertiser ───────────────────────────────────────────────── */}
@@ -549,10 +878,10 @@ export function AboutEconomics() {
         </p>
         <StatRow>
           <Stat label="One-time gas (create + activate)" value={fmtPAS(econ.oneTimeGasPAS)} sub={fmtUSD(econ.usd(econ.oneTimeGasPAS))} />
-          <Stat label="Monthly budget (delivered)" value={fmtPAS(econ.totalRevenuePAS)} sub={fmtUSD(econ.usd(econ.totalRevenuePAS))} />
-          <Stat label="Monthly settle gas" value={fmtPAS(econ.monthlyGasPAS)} sub={`${(econ.monthlyGasPAS / econ.totalRevenuePAS * 100).toFixed(3)}%`} />
-          <Stat label="First-month TCO" value={fmtPAS(econ.tcoFirstMonthPAS)} sub={fmtUSD(econ.usd(econ.tcoFirstMonthPAS))} />
-          <Stat label="Subsequent month TCO" value={fmtPAS(econ.tcoMonthlyPAS)} sub={fmtUSD(econ.usd(econ.tcoMonthlyPAS))} />
+          <Stat label={`Budget ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.totalRevenuePAS))} sub={fmtUSD(econ.usd(econ.h(econ.totalRevenuePAS)))} />
+          <Stat label={`Settle gas (${params.path === "dualsig" ? "your cost" : "not your cost"})`} value={fmtPAS(econ.h(econ.gasOnAdvertiserPAS))} sub={params.path === "dualsig" ? `${(econ.gasOnAdvertiserPAS / econ.totalRevenuePAS * 100).toFixed(3)}% of budget` : `paid by ${params.path === "direct" ? "publisher" : "relay"}`} />
+          <Stat label="First-month TCO" value={fmtPAS(econ.firstMonthTCO_AdvertiserPAS)} sub={fmtUSD(econ.usd(econ.firstMonthTCO_AdvertiserPAS))} />
+          <Stat label={`TCO ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.monthlyTCO_AdvertiserPAS))} sub={fmtUSD(econ.usd(econ.h(econ.monthlyTCO_AdvertiserPAS)))} />
         </StatRow>
         <div style={{ width: "100%", height: 220, marginTop: 8 }}>
           <ResponsiveContainer>
@@ -571,8 +900,8 @@ export function AboutEconomics() {
         </div>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
           <strong style={{ color: "var(--text-strong)" }}>What you don't pay:</strong> no DSP fee,
-          no SSP fee, no ad exchange cut, no data broker, no agency markup. The 12.5% protocol
-          fee is the only middle. The user's 37.5% is direct revenue back to your audience,
+          no SSP fee, no ad exchange cut, no data broker, no agency markup. The {econ.protocolOfWhole.toFixed(1)}% protocol
+          fee is the only middle. The user's {econ.userOfWhole.toFixed(1)}% is direct revenue back to your audience,
           which is a marketing channel legacy can't even offer.
         </div>
 
@@ -623,8 +952,11 @@ export function AboutEconomics() {
         <StatRow>
           <Stat label="Per settle gas" value={fmtPAS(GAS.settleClaimCold * PAS_PER_GAS)} sub="cold publisher slot" />
           <Stat label="Warm settle gas" value={fmtPAS(GAS.settleClaimWarm * PAS_PER_GAS)} sub="same-block second touch" />
-          <Stat label="Settles/mo (your tier)" value={fmtInt(econ.claimsPerMonth)} sub={`${params.impsPerClaim} imps/claim`} />
-          <Stat label="Monthly gas float" value={fmtPAS(econ.monthlyGasPAS)} sub={fmtUSD(econ.usd(econ.monthlyGasPAS))} />
+          <Stat label="Settles / month" value={fmtInt(econ.claimsPerMonth)} sub={`${params.impsPerClaim} imps/claim`} />
+          <Stat label={`Gas float ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.monthlySettleGasPAS))} sub={fmtUSD(econ.usd(econ.h(econ.monthlySettleGasPAS)))} />
+          {params.path === "bonded" && (
+            <Stat label={`Relay fee ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`${BONDED_RELAY_FEE_PCT}% of revenue · net of gas ${fmtPAS(econ.h(econ.bondedRelayFeePAS - econ.gasOnRelayPAS))}`} />
+          )}
         </StatRow>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
           <strong style={{ color: "var(--text-strong)" }}>Density beats CPM</strong> for relay
@@ -648,7 +980,7 @@ export function AboutEconomics() {
         roleVar="--role-protocol"
         icon="🏛"
         title="Protocol / Treasury"
-        subtitle="12.5% of every settle accumulates into PaymentVault.protocolBalance, withdrawable by governance"
+        subtitle={`${econ.protocolOfWhole.toFixed(1)}% of every settle accumulates into PaymentVault.protocolBalance`}
       >
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The protocol fee is what funds DAO operations — audits, grants, infra,
@@ -658,8 +990,8 @@ export function AboutEconomics() {
           decides withdraw cadence and target allocation.
         </p>
         <StatRow>
-          <Stat label="Per impression" value={fmtPAS(econ.revenuePerImp * DATUM_SPLIT.protocol / 100)} sub={fmtUSD(econ.usd(econ.revenuePerImp * DATUM_SPLIT.protocol / 100))} />
-          <Stat label="Monthly accrual" value={fmtPAS(econ.protocolPAS)} sub={fmtUSD(econ.usd(econ.protocolPAS))} />
+          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.protocolOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.protocolOfWhole / 100))} />
+          <Stat label={`Accrual ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.protocolPAS))} sub={fmtUSD(econ.usd(econ.h(econ.protocolPAS)))} />
           <Stat label="Yearly accrual" value={fmtPAS(econ.protocolPAS * 12)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12))} />
           <Stat label="At 10× this campaign" value={fmtPAS(econ.protocolPAS * 12 * 10)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12 * 10))} />
         </StatRow>
@@ -674,12 +1006,15 @@ export function AboutEconomics() {
         </div>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 8 }}>
           <strong style={{ color: "var(--text-strong)" }}>Governance levers:</strong> the
-          12.5% protocol fee is governance-tunable via DatumParameterGovernance (bounds enforced
-          on-chain). The 50% publisher take is per-publisher and per-campaign-snapshot. The 75%
-          user-share-of-remainder is a global parameter. All three can move; see the gas-by-role
-          report for the per-role TCO under each adjustment.
+          {econ.protocolOfWhole.toFixed(1)}% protocol fee, the {econ.publisherSharePct.toFixed(1)}% publisher take,
+          and the {(params.userShareBps / 100).toFixed(1)}% user-share-of-remainder are all governance-tunable
+          via DatumParameterGovernance (bounds enforced on-chain). Move the sliders above to see how each role's
+          take responds.
         </div>
       </RoleSection>
+
+      {/* Network aggregate ──────────────────────────────────────── */}
+      <NetworkAggregate params={params} />
 
       {/* Footer ──────────────────────────────────────────────────── */}
       <div className="nano-fade" style={{
