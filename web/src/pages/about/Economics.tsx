@@ -324,23 +324,91 @@ function RoleSection({ roleVar, icon, title, subtitle, defaultOpen, children }: 
 }
 
 // ── Small numeric "stat" block ──────────────────────────────────────────────
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+// tone:
+//   - "credit" (green border + value tint, "+" prefix on value) → money in
+//   - "debit"  (red border + value tint, "−" prefix on value)   → money out
+//   - "neutral" → informational (counts, percentages, gas paid by someone else)
+type StatTone = "credit" | "debit" | "neutral";
+function Stat({ label, value, sub, tone = "neutral" }: {
+  label: string; value: string; sub?: string; tone?: StatTone;
+}) {
+  const isCredit = tone === "credit";
+  const isDebit  = tone === "debit";
+  const accent =
+    isCredit ? "var(--ok)" :
+    isDebit  ? "var(--error)" :
+    "var(--border)";
+  const valueColor =
+    isCredit ? "var(--ok)" :
+    isDebit  ? "var(--error)" :
+    "var(--text-strong)";
+  const prefix =
+    isCredit ? "+" :
+    isDebit  ? "−" :
+    "";
   return (
     <div style={{
       padding: "10px 12px",
       background: "var(--bg-surface)",
       border: "1px solid var(--border)",
+      borderLeft: `3px solid ${accent}`,
       borderRadius: 6,
       minWidth: 130,
     }}>
       <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
         {label}
       </div>
-      <div style={{ fontSize: 18, color: "var(--text-strong)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-        {value}
+      <div style={{ fontSize: 18, color: valueColor, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+        {prefix}{value}
       </div>
       {sub && (
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{sub}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Prominent net card ─────────────────────────────────────────────────────
+// Displayed at the top of each role section. tone defines the chrome (green
+// for net-positive earner, red for net-negative spender, neutral for breakeven).
+function NetCard({
+  label, value, sub, tone, roleVar,
+}: {
+  label: string; value: string; sub?: string;
+  tone: StatTone; roleVar?: string;
+}) {
+  const accent =
+    tone === "credit" ? "var(--ok)" :
+    tone === "debit"  ? "var(--error)" :
+    "var(--border)";
+  const valueColor =
+    tone === "credit" ? "var(--ok)" :
+    tone === "debit"  ? "var(--error)" :
+    "var(--text-strong)";
+  const prefix =
+    tone === "credit" ? "+" :
+    tone === "debit"  ? "−" :
+    "";
+  return (
+    <div style={{
+      padding: "14px 18px",
+      marginTop: 14,
+      background: roleVar ? `var(${roleVar}-dim)` : "var(--bg-surface)",
+      border: `1px solid ${accent}`,
+      borderLeft: `4px solid ${accent}`,
+      borderRadius: 8,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4,
+    }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, color: valueColor, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: "-0.01em" }}>
+        {prefix}{value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{sub}</div>
       )}
     </div>
   );
@@ -751,6 +819,13 @@ export function AboutEconomics() {
         title="User"
         subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event — net new revenue stream`}
       >
+        <NetCard
+          roleVar="--role-user"
+          tone="credit"
+          label={`Net take ${HORIZON_LABEL[params.horizon]}`}
+          value={`${fmtPAS(econ.h(econ.userPAS))} · ${fmtUSD(econ.usd(econ.h(econ.userPAS)))}`}
+          sub={`pure income · 0 gas cost · ${econ.userOfWhole.toFixed(1)}% of every settled event`}
+        />
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The user is the role legacy ad-tech doesn't pay. DATUM routes {econ.userOfWhole.toFixed(1)}% of every
           settled event to the user wallet that emitted it. The user pays
@@ -758,10 +833,10 @@ export function AboutEconomics() {
           schedule.
         </p>
         <StatRow>
-          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
-          <Stat label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
-          <Stat label="Per year" value={fmtPAS(econ.userPAS * 12)} sub={fmtUSD(econ.usd(econ.userPAS * 12))} />
-          <Stat label="Gas to claim" value="0" sub="pull-payment vault" />
+          <Stat tone="credit" label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
+          <Stat tone="credit" label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
+          <Stat tone="credit" label="Per year" value={fmtPAS(econ.userPAS * 12)} sub={fmtUSD(econ.usd(econ.userPAS * 12))} />
+          <Stat tone="neutral" label="Gas to claim" value="0" sub="pull-payment vault" />
         </StatRow>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
           <div>
@@ -796,6 +871,13 @@ export function AboutEconomics() {
         title="Publisher"
         subtitle={`${econ.publisherSharePct.toFixed(1)}% take · ${params.path === "direct" ? "self-pays gas" : params.path === "dualsig" ? "advertiser pays gas" : `relay pays gas, takes ${BONDED_RELAY_FEE_PCT}%`}`}
       >
+        <NetCard
+          roleVar="--role-publisher"
+          tone={econ.publisherNetHorizonPAS > 0 ? "credit" : "debit"}
+          label={`Net ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
+          value={`${fmtPAS(Math.abs(econ.publisherNetHorizonPAS))} · ${fmtUSD(Math.abs(econ.usd(econ.publisherNetHorizonPAS)))}`}
+          sub={`= take − gas absorbed − withdraws − stake opportunity cost (${params.path === "direct" ? "Direct path" : params.path === "dualsig" ? "Dual-sig path" : "Bonded path"})`}
+        />
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           Publishers register a take rate (default 50%, negotiable 30–80% within
           governance bounds, currently <strong>{econ.publisherSharePct.toFixed(1)}%</strong> per the slider).
@@ -804,13 +886,14 @@ export function AboutEconomics() {
           (currently <strong>{params.path === "direct" ? "Direct" : params.path === "dualsig" ? "Dual-sig" : "Bonded"}</strong>).
         </p>
         <StatRow>
-          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.publisherSharePct / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.publisherSharePct / 100))} />
-          <Stat label={`Take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.publisherPAS))} sub={fmtUSD(econ.usd(econ.h(econ.publisherPAS)))} />
-          <Stat label="Gas absorbed (you)" value={fmtPAS(econ.h(econ.gasOnPublisherPAS))} sub={econ.publisherPAS > 0 ? `${(econ.gasOnPublisherPAS / econ.publisherPAS * 100).toFixed(3)}% of take` : "—"} />
-          <Stat label={`Net ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.publisherNetHorizonPAS)} sub={fmtUSD(econ.usd(econ.publisherNetHorizonPAS))} />
+          <Stat tone="credit" label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.publisherSharePct / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.publisherSharePct / 100))} />
+          <Stat tone="credit" label={`Gross take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.publisherPAS))} sub={fmtUSD(econ.usd(econ.h(econ.publisherPAS)))} />
+          <Stat tone={econ.gasOnPublisherPAS > 0 ? "debit" : "neutral"} label="Settlement gas" value={fmtPAS(econ.h(econ.gasOnPublisherPAS))} sub={params.path === "direct" ? `${(econ.gasOnPublisherPAS / Math.max(econ.publisherPAS, 1e-12) * 100).toFixed(3)}% of take` : `paid by ${params.path === "dualsig" ? "advertiser" : "relay"}`} />
+          <Stat tone={econ.withdrawGasPAS > 0 ? "debit" : "neutral"} label={`Withdraws ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.withdrawGasPAS))} sub={`${params.withdrawsPerMonth}/month × ~35k gas`} />
           {params.path === "bonded" && (
-            <Stat label="Bonded relay fee" value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`-${BONDED_RELAY_FEE_PCT}% off gross take`} />
+            <Stat tone="debit" label="Bonded relay fee" value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`${BONDED_RELAY_FEE_PCT}% off gross take`} />
           )}
+          <Stat tone="debit" label="Stake opp. cost" value={fmtPAS(econ.stakeOpportunityCostPAS)} sub={`@ ${STAKE_OPPORTUNITY_APR_PCT}% APR on locked stake`} />
         </StatRow>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           <strong style={{ color: "var(--text-strong)" }}>Three operational postures:</strong>
@@ -876,12 +959,19 @@ export function AboutEconomics() {
           settlement gas comes out of whoever submits batches; in dual-sig posture the
           advertiser pays the settle gas directly.
         </p>
+        <NetCard
+          roleVar="--role-advertiser"
+          tone="debit"
+          label={`Total spend ${HORIZON_LABEL[params.horizon]}`}
+          value={`${fmtPAS(econ.h(econ.monthlyTCO_AdvertiserPAS))} · ${fmtUSD(econ.usd(econ.h(econ.monthlyTCO_AdvertiserPAS)))}`}
+          sub={`= budget delivered + settle gas (${params.path === "dualsig" ? "you pay it" : params.path === "direct" ? "publisher pays it" : "relay pays it"})`}
+        />
         <StatRow>
-          <Stat label="One-time gas (create + activate)" value={fmtPAS(econ.oneTimeGasPAS)} sub={fmtUSD(econ.usd(econ.oneTimeGasPAS))} />
-          <Stat label={`Budget ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.totalRevenuePAS))} sub={fmtUSD(econ.usd(econ.h(econ.totalRevenuePAS)))} />
-          <Stat label={`Settle gas (${params.path === "dualsig" ? "your cost" : "not your cost"})`} value={fmtPAS(econ.h(econ.gasOnAdvertiserPAS))} sub={params.path === "dualsig" ? `${(econ.gasOnAdvertiserPAS / econ.totalRevenuePAS * 100).toFixed(3)}% of budget` : `paid by ${params.path === "direct" ? "publisher" : "relay"}`} />
-          <Stat label="First-month TCO" value={fmtPAS(econ.firstMonthTCO_AdvertiserPAS)} sub={fmtUSD(econ.usd(econ.firstMonthTCO_AdvertiserPAS))} />
-          <Stat label={`TCO ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.monthlyTCO_AdvertiserPAS))} sub={fmtUSD(econ.usd(econ.h(econ.monthlyTCO_AdvertiserPAS)))} />
+          <Stat tone="debit" label="One-time gas (create + activate)" value={fmtPAS(econ.oneTimeGasPAS)} sub={fmtUSD(econ.usd(econ.oneTimeGasPAS))} />
+          <Stat tone="debit" label={`Budget ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.totalRevenuePAS))} sub={fmtUSD(econ.usd(econ.h(econ.totalRevenuePAS)))} />
+          <Stat tone={params.path === "dualsig" ? "debit" : "neutral"} label={`Settle gas (${params.path === "dualsig" ? "your cost" : "not your cost"})`} value={fmtPAS(econ.h(econ.gasOnAdvertiserPAS))} sub={params.path === "dualsig" ? `${(econ.gasOnAdvertiserPAS / econ.totalRevenuePAS * 100).toFixed(3)}% of budget` : `paid by ${params.path === "direct" ? "publisher" : "relay"}`} />
+          <Stat tone="debit" label="First-month TCO" value={fmtPAS(econ.firstMonthTCO_AdvertiserPAS)} sub={fmtUSD(econ.usd(econ.firstMonthTCO_AdvertiserPAS))} />
+          <Stat tone="debit" label={`TCO ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.monthlyTCO_AdvertiserPAS))} sub={fmtUSD(econ.usd(econ.h(econ.monthlyTCO_AdvertiserPAS)))} />
         </StatRow>
         <div style={{ width: "100%", height: 220, marginTop: 8 }}>
           <ResponsiveContainer>
@@ -939,6 +1029,27 @@ export function AboutEconomics() {
         title="Relay / Reporter"
         subtitle="Earns gas-reimbursement + a configurable per-batch fee. Bonded posture; permissionless."
       >
+        {(() => {
+          const relayNet = params.path === "bonded"
+            ? econ.h(econ.bondedRelayFeePAS - econ.gasOnRelayPAS)
+            : 0;
+          const relayTone: StatTone =
+            params.path !== "bonded" ? "neutral" :
+            relayNet > 0 ? "credit" : "debit";
+          return (
+            <NetCard
+              roleVar="--role-relay"
+              tone={relayTone}
+              label={params.path === "bonded" ? `Net ${HORIZON_LABEL[params.horizon].replace("/ ", "")}` : "Inactive on this path"}
+              value={params.path === "bonded"
+                ? `${fmtPAS(Math.abs(relayNet))} · ${fmtUSD(Math.abs(econ.usd(relayNet)))}`
+                : "—"}
+              sub={params.path === "bonded"
+                ? `= ${BONDED_RELAY_FEE_PCT}% fee on revenue − gas float`
+                : `relay only earns on the Bonded path (current path: ${params.path === "direct" ? "Direct" : "Dual-sig"})`}
+            />
+          );
+        })()}
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The bonded DatumRelay role is for off-chain operators who run the
           settlement bot for publishers (or for users with consent) that prefer
@@ -950,12 +1061,12 @@ export function AboutEconomics() {
           parameter set.
         </p>
         <StatRow>
-          <Stat label="Per settle gas" value={fmtPAS(GAS.settleClaimCold * PAS_PER_GAS)} sub="cold publisher slot" />
-          <Stat label="Warm settle gas" value={fmtPAS(GAS.settleClaimWarm * PAS_PER_GAS)} sub="same-block second touch" />
-          <Stat label="Settles / month" value={fmtInt(econ.claimsPerMonth)} sub={`${params.impsPerClaim} imps/claim`} />
-          <Stat label={`Gas float ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.monthlySettleGasPAS))} sub={fmtUSD(econ.usd(econ.h(econ.monthlySettleGasPAS)))} />
+          <Stat tone="neutral" label="Per settle gas" value={fmtPAS(GAS.settleClaimCold * PAS_PER_GAS)} sub="cold publisher slot" />
+          <Stat tone="neutral" label="Warm settle gas" value={fmtPAS(GAS.settleClaimWarm * PAS_PER_GAS)} sub="same-block second touch" />
+          <Stat tone="neutral" label="Settles / month" value={fmtInt(econ.claimsPerMonth)} sub={`${params.impsPerClaim} imps/claim`} />
+          <Stat tone={econ.gasOnRelayPAS > 0 ? "debit" : "neutral"} label={`Gas float ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.gasOnRelayPAS))} sub={params.path === "bonded" ? "your cost" : `not your cost (paid by ${params.path === "direct" ? "publisher" : "advertiser"})`} />
           {params.path === "bonded" && (
-            <Stat label={`Relay fee ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`${BONDED_RELAY_FEE_PCT}% of revenue · net of gas ${fmtPAS(econ.h(econ.bondedRelayFeePAS - econ.gasOnRelayPAS))}`} />
+            <Stat tone="credit" label={`Relay fee ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.bondedRelayFeePAS))} sub={`${BONDED_RELAY_FEE_PCT}% of revenue`} />
           )}
         </StatRow>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
@@ -982,6 +1093,13 @@ export function AboutEconomics() {
         title="Protocol / Treasury"
         subtitle={`${econ.protocolOfWhole.toFixed(1)}% of every settle accumulates into PaymentVault.protocolBalance`}
       >
+        <NetCard
+          roleVar="--role-protocol"
+          tone="credit"
+          label={`Treasury accrual ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
+          value={`${fmtPAS(econ.h(econ.protocolPAS))} · ${fmtUSD(econ.usd(econ.h(econ.protocolPAS)))}`}
+          sub={`pure accrual · ${econ.protocolOfWhole.toFixed(1)}% of every settled event · no protocol-side gas`}
+        />
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The protocol fee is what funds DAO operations — audits, grants, infra,
           the People Chain identity bridge, the Bulletin Chain creative storage,
@@ -990,10 +1108,10 @@ export function AboutEconomics() {
           decides withdraw cadence and target allocation.
         </p>
         <StatRow>
-          <Stat label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.protocolOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.protocolOfWhole / 100))} />
-          <Stat label={`Accrual ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.protocolPAS))} sub={fmtUSD(econ.usd(econ.h(econ.protocolPAS)))} />
-          <Stat label="Yearly accrual" value={fmtPAS(econ.protocolPAS * 12)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12))} />
-          <Stat label="At 10× this campaign" value={fmtPAS(econ.protocolPAS * 12 * 10)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12 * 10))} />
+          <Stat tone="credit" label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.protocolOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.protocolOfWhole / 100))} />
+          <Stat tone="credit" label={`Accrual ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.protocolPAS))} sub={fmtUSD(econ.usd(econ.h(econ.protocolPAS)))} />
+          <Stat tone="credit" label="Yearly accrual" value={fmtPAS(econ.protocolPAS * 12)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12))} />
+          <Stat tone="credit" label="At 10× this campaign" value={fmtPAS(econ.protocolPAS * 12 * 10)} sub={fmtUSD(econ.usd(econ.protocolPAS * 12 * 10))} />
         </StatRow>
         <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>
           <strong style={{ color: "var(--text-strong)" }}>Scaling note:</strong> at 1 M impressions/month
