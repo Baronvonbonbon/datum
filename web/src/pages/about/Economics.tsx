@@ -281,6 +281,8 @@ interface Params {
   userWithdrawsPerMonth: number;
   userReportsPerMonth: number;
   userZkOpsPerMonth: number;
+  // Audience size — how many unique users share the user-pool take
+  uniqueUsersPerMonth: number;
 }
 
 function defaultParams(impsPerMonth: number): Params {
@@ -302,6 +304,7 @@ function defaultParams(impsPerMonth: number): Params {
     userWithdrawsPerMonth: 1,
     userReportsPerMonth: 0,
     userZkOpsPerMonth: 0,
+    uniqueUsersPerMonth: 1000,
   };
 }
 
@@ -367,12 +370,21 @@ function compute(p: Params) {
   // ── Publisher overhead: vault withdraws ──
   const withdrawGasPAS = Math.max(0, p.withdrawsPerMonth) * g.withdrawPublisher * PAS_PER_GAS;
 
-  // ── User-side gas (cadence-driven) ──
+  // ── User-side gas (cadence-driven, per-user, per-month) ──
+  // Cadence sliders are per single user; userPAS aggregates across the whole
+  // audience. To avoid mixing scales we expose both: per-user (what a wallet
+  // actually nets) and pool (what the protocol routes to all users combined).
+  const uniqueUsers = Math.max(1, p.uniqueUsersPerMonth);
   const userWithdrawGasPAS = Math.max(0, p.userWithdrawsPerMonth) * g.withdrawUser * PAS_PER_GAS;
   const userReportGasPAS   = Math.max(0, p.userReportsPerMonth)   * g.reportPage   * PAS_PER_GAS;
   const userZkGasPAS       = Math.max(0, p.userZkOpsPerMonth)     * g.zkStakeDeposit * PAS_PER_GAS;
-  const userTotalGasPAS    = userWithdrawGasPAS + userReportGasPAS + userZkGasPAS;
-  const userNetMonthlyPAS  = userPAS - userTotalGasPAS;
+  const userTotalGasPAS    = userWithdrawGasPAS + userReportGasPAS + userZkGasPAS; // per-user
+  // Per-user (what a single wallet sees)
+  const perUserGrossPAS    = userPAS / uniqueUsers;
+  const perUserNetMonthlyPAS = perUserGrossPAS - userTotalGasPAS;
+  // Pool (aggregate user-side: divide gas inputs not made; multiply gas instead)
+  const userPoolGasPAS     = userTotalGasPAS * uniqueUsers;
+  const userPoolNetPAS     = userPAS - userPoolGasPAS;
 
   // ── Publisher stake bonding curve ──
   // requiredStake = base + cumulativeImpressions × perImp (in planck).
@@ -424,9 +436,12 @@ function compute(p: Params) {
     monthlyTCO_AdvertiserPAS,
     firstMonthTCO_AdvertiserPAS,
 
-    // User gas + net
+    // User gas + net (per-user + pool)
     userWithdrawGasPAS, userReportGasPAS, userZkGasPAS,
-    userTotalGasPAS, userNetMonthlyPAS,
+    userTotalGasPAS,
+    perUserGrossPAS, perUserNetMonthlyPAS,
+    userPoolGasPAS, userPoolNetPAS,
+    uniqueUsers,
 
     // Splits as percentages (for chart data)
     publisherSharePct, userOfWhole, protocolOfWhole,
@@ -1294,32 +1309,54 @@ export function AboutEconomics() {
         roleVar="--role-user"
         icon="👤"
         title="User"
-        subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event minus user-side gas`}
+        subtitle={`Earns ${econ.userOfWhole.toFixed(1)}% of every settled event minus user-side gas · per-wallet view`}
       >
         <NetCard
           roleVar="--role-user"
-          tone={econ.userNetMonthlyPAS > 0 ? "credit" : "debit"}
-          label={`Net ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
-          value={`${fmtPAS(Math.abs(econ.h(econ.userNetMonthlyPAS)))} · ${fmtUSD(Math.abs(econ.usd(econ.h(econ.userNetMonthlyPAS))))}`}
+          tone={econ.perUserNetMonthlyPAS > 0 ? "credit" : "debit"}
+          label={`Per-user net ${HORIZON_LABEL[params.horizon].replace("/ ", "")}`}
+          value={`${fmtPAS(Math.abs(econ.h(econ.perUserNetMonthlyPAS)))} · ${fmtUSD(Math.abs(econ.usd(econ.h(econ.perUserNetMonthlyPAS))))}`}
           sub={econ.userTotalGasPAS > 0
-            ? `= ${econ.userOfWhole.toFixed(1)}% take − withdraws (${params.userWithdrawsPerMonth}/mo) − reports (${params.userReportsPerMonth}/mo) − zk-stake (${params.userZkOpsPerMonth}/mo)`
-            : `${econ.userOfWhole.toFixed(1)}% take · no user-side ops this month`}
+            ? `1 of ${econ.uniqueUsers.toLocaleString()} unique users · gross ${fmtPAS(econ.h(econ.perUserGrossPAS))} − gas ${fmtPAS(econ.h(econ.userTotalGasPAS))}`
+            : `1 of ${econ.uniqueUsers.toLocaleString()} unique users · no user-side ops this month`}
         />
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 14 }}>
           The user is the role legacy ad-tech doesn't pay. DATUM routes {econ.userOfWhole.toFixed(1)}% of every
-          settled event to the user wallet that emitted it. Settlement credits a pull-payment vault;
-          user-side gas comes from withdraw cadence, optional reports, and optional ZK stake ops.
+          settled event to the user wallet that emitted it. The pool fans out across the audience,
+          so what one wallet sees is <strong>pool ÷ unique users</strong>. Gas (withdraws, reports,
+          optional ZK stake) is paid per-wallet — adjust audience size below to see how thin the
+          slice gets when impressions spread across many users.
         </p>
         <StatRow>
-          <Stat tone="credit" label="Per event" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
-          <Stat tone="credit" label={`Gross take ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
+          <Stat tone="credit" label="Per event (any user)" value={fmtPAS(econ.revenuePerEvent * econ.userOfWhole / 100)} sub={fmtUSD(econ.usd(econ.revenuePerEvent * econ.userOfWhole / 100))} />
+          <Stat tone="credit" label={`Per-user gross ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.perUserGrossPAS))} sub={fmtUSD(econ.usd(econ.h(econ.perUserGrossPAS)))} />
           <Stat tone={econ.userWithdrawGasPAS > 0 ? "debit" : "neutral"} label="Withdraw gas" value={fmtPAS(econ.h(econ.userWithdrawGasPAS))} sub={`${params.userWithdrawsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).withdrawUser * PAS_PER_GAS)}`} />
           <Stat tone={econ.userReportGasPAS > 0 ? "debit" : "neutral"} label="Report gas" value={fmtPAS(econ.h(econ.userReportGasPAS))} sub={`${params.userReportsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).reportPage * PAS_PER_GAS)}`} />
           <Stat tone={econ.userZkGasPAS > 0 ? "debit" : "neutral"} label="ZK-stake gas" value={fmtPAS(econ.h(econ.userZkGasPAS))} sub={`${params.userZkOpsPerMonth}/mo × ${fmtPAS(gasTable(params.gasSource).zkStakeDeposit * PAS_PER_GAS)}`} />
         </StatRow>
 
+        {/* User pool — aggregate sanity-check across the whole audience */}
+        <div style={{ marginTop: 8, padding: "10px 12px", background: "var(--bg-surface)", border: "1px dashed var(--border)", borderRadius: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-strong)", marginBottom: 8 }}>
+            User pool — aggregate across all {econ.uniqueUsers.toLocaleString()} users
+          </div>
+          <StatRow>
+            <Stat tone="credit" label={`Pool gross ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPAS)))} />
+            <Stat tone={econ.userPoolGasPAS > 0 ? "debit" : "neutral"} label={`Pool gas ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPoolGasPAS))} sub={`${econ.uniqueUsers.toLocaleString()} × per-user gas`} />
+            <Stat tone={econ.userPoolNetPAS > 0 ? "credit" : "debit"} label={`Pool net ${HORIZON_LABEL[params.horizon]}`} value={fmtPAS(econ.h(econ.userPoolNetPAS))} sub={fmtUSD(econ.usd(econ.h(econ.userPoolNetPAS)))} />
+          </StatRow>
+        </div>
+
         {/* User cadence sliders */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 24, padding: "10px 12px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <Slider
+            label="Unique users / month"
+            value={params.uniqueUsersPerMonth}
+            onChange={(v) => setParams((p) => ({ ...p, uniqueUsersPerMonth: v }))}
+            min={1} max={1_000_000} step={1}
+            fmt={(v) => v.toLocaleString()}
+            hint={`audience size — splits pool ${(params.impsPerMonth / Math.max(1, params.uniqueUsersPerMonth)).toFixed(1)} imps/user/mo`}
+          />
           <Slider
             label="User withdraws / month"
             value={params.userWithdrawsPerMonth}
