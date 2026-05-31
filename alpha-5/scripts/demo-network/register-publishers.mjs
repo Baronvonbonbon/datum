@@ -105,9 +105,9 @@ async function main() {
     if (await stake.isAdequatelyStaked(w.address).catch(() => false)) console.log(`  stake: already adequate`);
     else {
       const req = await stake.requiredStake(w.address);
-      const value = ceilStep(req);
-      console.log(`  staking ${formatUnits(value, 10)} PAS (required ${formatUnits(req, 10)})`);
-      await send(`stake`, w, { to: ADDR.publisherStake, data: stake.interface.encodeFunctionData("stake", []), value });
+      // msg.value just needs to satisfy `>= requiredStake`; send it exactly.
+      console.log(`  staking (requiredStake=${req.toString()})`);
+      await send(`stake`, w, { to: ADDR.publisherStake, data: stake.interface.encodeFunctionData("stake", []), value: req });
     }
    } catch (e) {
     console.warn(`  ⚠ ${p.account} step failed (continuing): ${String(e.message).slice(0, 100)}`);

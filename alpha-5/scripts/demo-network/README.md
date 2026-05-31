@@ -33,22 +33,24 @@ manifest.json ──┬─ generate-creatives.mjs ─► creatives/<brand>/<form
 | **DevForge** (dev tools) | Eve | `0xd633c4…35745` | 40% | computers-electronics, internet-telecom | ✅ registered + staked |
 | **Salt & Ember** (recipes) | Frank | `0x926229…c7620` | 50%* | food-drink, hobbies-leisure | ✅ registered + staked |
 | **PixelPit** (gaming) | Grace | `0xa9e2bd…bc92f` | 50% | gaming, online-communities | ✅ registered + staked |
-| **FinFold** (finance) | Hank | `0x615bcb…b5bbd` | 40% | finance, business-industrial | ⏳ pending (see below) |
-| **Wanderlux** (travel) | Iris | `0xc59101…065af` | 42% | travel, hobbies-leisure | ⏳ pending (see below) |
+| **FinFold** (finance) | Hank | `0x615bcb…b5bbd` | 40% | finance, business-industrial | ✅ registered + staked |
+| **Wanderlux** (travel) | Iris | `0xc59101…065af` | 42% | travel, hobbies-leisure | ✅ registered + staked |
 
 \* Frank was already registered at 50% from an earlier run; the manifest's 45% is
 the intended value (re-run after `setTakeRate` if you want it changed).
 
-> **Hank & Iris are display-ready now** (their pages render and the extension will
-> auction/inject creatives on them) but were **not finishable on-chain** during the
-> build because the public Paseo eth-rpc gateway was degraded (funding transfers
-> didn't land; `eth_call` intermittently returned `0x`). Settlement *on those two
-> publishers* needs them registered + staked. Finish them with one idempotent
-> command once the gateway is healthy:
+> **All 6 publishers are registered + staked.** Two real Paseo gotchas blocked the
+> first attempts and are now handled in `register-publishers.mjs`: the eth-rpc node
+> **caps gasLimit at 16,777,216** (5e8 was silently rejected), and tx **`value` is
+> 18-decimal wei** (not 10-decimal planck). The script is idempotent — re-run it
+> any time; already-done steps are skipped:
 > ```bash
-> node register-publishers.mjs            # funds (from deployer) + registers + tags + relaySigner + stakes Hank & Iris
-> node register-publishers.mjs --dry      # preview first
+> node register-publishers.mjs            # fund + register + tags + relaySigner + stake
+> node register-publishers.mjs --dry      # preview
 > ```
+> Note: the public gateway's **read** path (`eth_call` views like `getPublisher`)
+> is intermittently degraded and may return `0x` — that's a read-flakiness issue,
+> not registration state; the write txs are confirmed on-chain.
 
 ### Advertiser ↔ campaign ↔ brand ↔ creative map
 
