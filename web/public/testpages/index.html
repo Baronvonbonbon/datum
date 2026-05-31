@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DATUM Test Network</title><link rel="stylesheet" href="/testpages/assets/testnet.css"></head>
+<body class="landing">
+<div class="testbar">⚠ DATUM TEST NETWORK — synthetic publishers &amp; ads for end-to-end testing · <a href="/">datum app →</a></div>
+<header class="hero"><div class="wrap">
+<h1>DATUM Test Network</h1>
+<p class="sub">A set of fictional publisher sites wired to the live Paseo deployment. Install the DATUM extension, open any site, and watch real campaigns settle on-chain. These pages exist only to exercise the SDK, the auction, and the settlement flow — they are not real publications.</p>
+</div></header>
+<main class="wrap">
+<h2>Publisher sites (6)</h2>
+<div class="netgrid"><a class="netcard" href="chainsignal/index.html" style="--c:#5b8cff"><span class="nc-kind">Crypto news</span><h3>ChainSignal</h3><p>Polkadot &amp; Web3, decoded daily.</p><code>0xca5668fb…</code></a><a class="netcard" href="devforge/index.html" style="--c:#33d69f"><span class="nc-kind">Developer tools</span><h3>DevForge</h3><p>Tools and notes for builders.</p><code>0xd633c470…</code></a><a class="netcard" href="saltandember/index.html" style="--c:#ff8a4c"><span class="nc-kind">Food &amp; recipes</span><h3>Salt &amp; Ember</h3><p>Slow recipes for fast lives.</p><code>0x92622970…</code></a><a class="netcard" href="pixelpit/index.html" style="--c:#b46bff"><span class="nc-kind">Gaming</span><h3>PixelPit</h3><p>Indie games, reviews &amp; jams.</p><code>0xa9e2bd7b…</code></a><a class="netcard" href="finfold/index.html" style="--c:#e8c46a"><span class="nc-kind">Finance</span><h3>FinFold</h3><p>Markets, money &amp; macro — folded flat.</p><code>0x615bcbe6…</code></a><a class="netcard" href="wanderlux/index.html" style="--c:#3ec8d8"><span class="nc-kind">Travel</span><h3>Wanderlux</h3><p>Go further, pack lighter.</p><code>0xc59101da…</code></a></div>
+<h2>Advertiser brands in rotation</h2>
+<ul class="brandlist"><li><strong>Nimbus Wallet</strong> — Self-custody, simplified.</li><li><strong>Quanta DEX</strong> — Trade on-chain. Settle instantly.</li><li><strong>ForgeCloud</strong> — Ship faster. Scale calmer.</li><li><strong>Aera Travel</strong> — The world, on your terms.</li><li><strong>Lumen Energy</strong> — Invest in tomorrow's grid.</li><li><strong>PixelQuest</strong> — Your next obsession awaits.</li></ul>
+<h2>How to run the manual e2e test</h2>
+<ol class="howto">
+<li>Make sure the local IPFS node is serving creatives (<code>http://127.0.0.1:8090/ipfs/</code>) and, to settle, the lab relay is running (<code>http://127.0.0.1:3400</code>).</li>
+<li>Build + load the DATUM extension (<code>alpha-5/extension</code>) pointed at the alpha-5 v5 addresses.</li>
+<li>Open any site above. The SDK declares its ad slots; the extension classifies the page, runs a second-price auction over the active campaigns, fetches the winning creative from IPFS, and injects it at the exact IAB size.</li>
+<li>Claims auto-submit to the relay, which co-signs and settles on-chain. Watch the indexer (<code>datum-labs/indexer</code>) for <code>ClaimSettled</code>.</li>
+</ol>
+<p class="foot-note">Full details, addresses, and the campaign↔creative map: <code>alpha-5/scripts/demo-network/README.md</code>.</p>
+</main>
+</body></html>

@@ -1,0 +1,731 @@
+{
+  "_comment": "DATUM test-network design + source of truth. Drives generate-creatives.mjs, pin-and-set-metadata.mjs, register-publishers.mjs, and build-testpages.mjs. Contract addresses are read from ../../deployed-addresses.json; account private keys from ../../.env. See README.md.",
+  "network": "polkadotTestnet",
+  "ipfsApi": "http://127.0.0.1:5001",
+  "gateway": "http://127.0.0.1:8090/ipfs/",
+  "gatewayPublicAlt": "https://ipfs-datum.javcon.io/ipfs/",
+  "relayUrl": "http://127.0.0.1:3400",
+  "relayMode": "publisher",
+  "formats": [
+    "leaderboard",
+    "medium-rectangle",
+    "wide-skyscraper",
+    "half-page",
+    "mobile-banner",
+    "square",
+    "large-rectangle"
+  ],
+  "formatSizes": {
+    "leaderboard": {
+      "w": 728,
+      "h": 90
+    },
+    "medium-rectangle": {
+      "w": 300,
+      "h": 250
+    },
+    "wide-skyscraper": {
+      "w": 160,
+      "h": 600
+    },
+    "half-page": {
+      "w": 300,
+      "h": 600
+    },
+    "mobile-banner": {
+      "w": 320,
+      "h": 50
+    },
+    "square": {
+      "w": 250,
+      "h": 250
+    },
+    "large-rectangle": {
+      "w": 336,
+      "h": 280
+    }
+  },
+  "advertisers": [
+    {
+      "name": "bob",
+      "account": "BOB",
+      "address": "0xfe091a42bce57f3f9acd92d21c8f9dbc4e5c7ce6"
+    },
+    {
+      "name": "charlie",
+      "account": "CHARLIE",
+      "address": "0x09ce34740bce52fb3caa4a2d50cc2fbad6f32c5b"
+    }
+  ],
+  "publishers": [
+    {
+      "account": "DIANA",
+      "address": "0xca5668fb864acab0ac7f4cfa73949174720b58d0",
+      "register": false,
+      "takeRateBps": 5000,
+      "relaySigner": "self",
+      "tags": [
+        "topic:crypto-web3",
+        "topic:news",
+        "topic:polkadot",
+        "locale:en"
+      ],
+      "site": {
+        "id": "chainsignal",
+        "name": "ChainSignal",
+        "tagline": "Polkadot & Web3, decoded daily.",
+        "kind": "Crypto news",
+        "accent": "#5b8cff",
+        "bg": "#0b1020",
+        "fg": "#e9eeff"
+      }
+    },
+    {
+      "account": "EVE",
+      "address": "0xd633c470d075af508f4895e21a986183fef35745",
+      "register": false,
+      "takeRateBps": 4000,
+      "relaySigner": "self",
+      "tags": [
+        "topic:computers-electronics",
+        "topic:internet-telecom",
+        "topic:reference",
+        "locale:en"
+      ],
+      "site": {
+        "id": "devforge",
+        "name": "DevForge",
+        "tagline": "Tools and notes for builders.",
+        "kind": "Developer tools",
+        "accent": "#33d69f",
+        "bg": "#0d1512",
+        "fg": "#e7fff6"
+      }
+    },
+    {
+      "account": "FRANK",
+      "address": "0x92622970bd48dd26c53bccd09aa6a0245dbc7620",
+      "register": true,
+      "takeRateBps": 4500,
+      "relaySigner": "self",
+      "tags": [
+        "topic:food-drink",
+        "topic:hobbies-leisure",
+        "topic:home-garden",
+        "locale:en"
+      ],
+      "site": {
+        "id": "saltandember",
+        "name": "Salt & Ember",
+        "tagline": "Slow recipes for fast lives.",
+        "kind": "Food & recipes",
+        "accent": "#ff8a4c",
+        "bg": "#1a1310",
+        "fg": "#fff1e8"
+      }
+    },
+    {
+      "account": "GRACE",
+      "address": "0xa9e2bd7bd5a14e8add0023b4ab56ed27beabc92f",
+      "register": true,
+      "takeRateBps": 5000,
+      "relaySigner": "self",
+      "tags": [
+        "topic:gaming",
+        "topic:online-communities",
+        "topic:arts-entertainment",
+        "locale:en"
+      ],
+      "site": {
+        "id": "pixelpit",
+        "name": "PixelPit",
+        "tagline": "Indie games, reviews & jams.",
+        "kind": "Gaming",
+        "accent": "#b46bff",
+        "bg": "#120b1e",
+        "fg": "#f3e9ff"
+      }
+    },
+    {
+      "account": "HANK",
+      "address": "0x615bcbe62b43bb033e65533bb6fccc8b6fcb5bbd",
+      "register": true,
+      "takeRateBps": 4000,
+      "relaySigner": "self",
+      "tags": [
+        "topic:finance",
+        "topic:business-industrial",
+        "topic:news",
+        "locale:en"
+      ],
+      "site": {
+        "id": "finfold",
+        "name": "FinFold",
+        "tagline": "Markets, money & macro — folded flat.",
+        "kind": "Finance",
+        "accent": "#e8c46a",
+        "bg": "#13130d",
+        "fg": "#fffbe9"
+      }
+    },
+    {
+      "account": "IRIS",
+      "address": "0xc59101dab8d0899f74d19a4f13bb2d9a030065af",
+      "register": true,
+      "takeRateBps": 4200,
+      "relaySigner": "self",
+      "tags": [
+        "topic:travel",
+        "topic:hobbies-leisure",
+        "topic:reference",
+        "locale:en"
+      ],
+      "site": {
+        "id": "wanderlux",
+        "name": "Wanderlux",
+        "tagline": "Go further, pack lighter.",
+        "kind": "Travel",
+        "accent": "#3ec8d8",
+        "bg": "#08161a",
+        "fg": "#e6fbff"
+      }
+    }
+  ],
+  "brands": [
+    {
+      "id": "nimbus",
+      "name": "Nimbus Wallet",
+      "category": "crypto-web3",
+      "tagline": "Self-custody, simplified.",
+      "cta": "Get Nimbus",
+      "ctaUrl": "https://datum.javcon.io/?demo=nimbus",
+      "text": "Nimbus is a self-custody wallet for Polkadot & EVM chains. Your keys, your coins, zero tracking.",
+      "bg": "#0e1b2a",
+      "fg": "#eaf4ff",
+      "accent": "#3aa0ff",
+      "accent2": "#7fd1ff",
+      "glyph": "wallet"
+    },
+    {
+      "id": "quanta",
+      "name": "Quanta DEX",
+      "category": "defi",
+      "tagline": "Trade on-chain. Settle instantly.",
+      "cta": "Open Quanta",
+      "ctaUrl": "https://datum.javcon.io/?demo=quanta",
+      "text": "Quanta is a permissionless DEX with deep liquidity and sub-cent fees. Swap, pool, and earn.",
+      "bg": "#10141f",
+      "fg": "#eef0ff",
+      "accent": "#7b5cff",
+      "accent2": "#b49cff",
+      "glyph": "swap"
+    },
+    {
+      "id": "forgecloud",
+      "name": "ForgeCloud",
+      "category": "computers-electronics",
+      "tagline": "Ship faster. Scale calmer.",
+      "cta": "Start free",
+      "ctaUrl": "https://datum.javcon.io/?demo=forgecloud",
+      "text": "ForgeCloud gives developers instant edge containers, global CDN, and zero-config deploys.",
+      "bg": "#0c1512",
+      "fg": "#e9fff7",
+      "accent": "#2ee6a6",
+      "accent2": "#9bffd9",
+      "glyph": "cloud"
+    },
+    {
+      "id": "aera",
+      "name": "Aera Travel",
+      "category": "travel",
+      "tagline": "The world, on your terms.",
+      "cta": "Plan a trip",
+      "ctaUrl": "https://datum.javcon.io/?demo=aera",
+      "text": "Aera finds flights, stays, and routes that fit your time and budget. No spam, no tracking.",
+      "bg": "#07171b",
+      "fg": "#e8fcff",
+      "accent": "#28c6d8",
+      "accent2": "#8defF6",
+      "glyph": "globe"
+    },
+    {
+      "id": "lumen",
+      "name": "Lumen Energy",
+      "category": "finance",
+      "tagline": "Invest in tomorrow's grid.",
+      "cta": "See returns",
+      "ctaUrl": "https://datum.javcon.io/?demo=lumen",
+      "text": "Lumen lets you back clean-energy projects on-chain and earn yield from real-world output.",
+      "bg": "#15130a",
+      "fg": "#fffbe9",
+      "accent": "#f0c34a",
+      "accent2": "#ffe79c",
+      "glyph": "spark"
+    },
+    {
+      "id": "pixelquest",
+      "name": "PixelQuest",
+      "category": "gaming",
+      "tagline": "Your next obsession awaits.",
+      "cta": "Play now",
+      "ctaUrl": "https://datum.javcon.io/?demo=pixelquest",
+      "text": "PixelQuest is a co-op roguelite with hand-drawn worlds and chaotic 4-player runs.",
+      "bg": "#160b1d",
+      "fg": "#f6ecff",
+      "accent": "#c061ff",
+      "accent2": "#ef9bff",
+      "glyph": "joystick"
+    }
+  ],
+  "_assignmentNote": "Curated campaigns get themed creatives. Odd ids = Bob, even ids = Charlie (matches the seed alternation). 4 campaigns per brand → 24 creatived campaigns competing in auctions. Re-run pin-and-set-metadata.mjs after editing.",
+  "campaignAssignments": [
+    {
+      "campaignId": 1,
+      "advertiser": "bob",
+      "brand": "nimbus"
+    },
+    {
+      "campaignId": 2,
+      "advertiser": "charlie",
+      "brand": "quanta"
+    },
+    {
+      "campaignId": 3,
+      "advertiser": "bob",
+      "brand": "forgecloud"
+    },
+    {
+      "campaignId": 4,
+      "advertiser": "charlie",
+      "brand": "aera"
+    },
+    {
+      "campaignId": 5,
+      "advertiser": "bob",
+      "brand": "lumen"
+    },
+    {
+      "campaignId": 6,
+      "advertiser": "charlie",
+      "brand": "pixelquest"
+    },
+    {
+      "campaignId": 7,
+      "advertiser": "bob",
+      "brand": "nimbus"
+    },
+    {
+      "campaignId": 8,
+      "advertiser": "charlie",
+      "brand": "quanta"
+    },
+    {
+      "campaignId": 9,
+      "advertiser": "bob",
+      "brand": "forgecloud"
+    },
+    {
+      "campaignId": 10,
+      "advertiser": "charlie",
+      "brand": "aera"
+    },
+    {
+      "campaignId": 11,
+      "advertiser": "bob",
+      "brand": "lumen"
+    },
+    {
+      "campaignId": 12,
+      "advertiser": "charlie",
+      "brand": "pixelquest"
+    },
+    {
+      "campaignId": 13,
+      "advertiser": "bob",
+      "brand": "nimbus"
+    },
+    {
+      "campaignId": 14,
+      "advertiser": "charlie",
+      "brand": "quanta"
+    },
+    {
+      "campaignId": 15,
+      "advertiser": "bob",
+      "brand": "forgecloud"
+    },
+    {
+      "campaignId": 16,
+      "advertiser": "charlie",
+      "brand": "aera"
+    },
+    {
+      "campaignId": 17,
+      "advertiser": "bob",
+      "brand": "lumen"
+    },
+    {
+      "campaignId": 18,
+      "advertiser": "charlie",
+      "brand": "pixelquest"
+    },
+    {
+      "campaignId": 19,
+      "advertiser": "bob",
+      "brand": "nimbus"
+    },
+    {
+      "campaignId": 20,
+      "advertiser": "charlie",
+      "brand": "quanta"
+    },
+    {
+      "campaignId": 21,
+      "advertiser": "bob",
+      "brand": "forgecloud"
+    },
+    {
+      "campaignId": 22,
+      "advertiser": "charlie",
+      "brand": "aera"
+    },
+    {
+      "campaignId": 23,
+      "advertiser": "bob",
+      "brand": "lumen"
+    },
+    {
+      "campaignId": 24,
+      "advertiser": "charlie",
+      "brand": "pixelquest"
+    }
+  ],
+  "creatives": {
+    "nimbus": {
+      "leaderboard": {
+        "cid": "QmSNAZqBs1WrHtstQ2MjAKo3yHtHS9ntdTpokpzbC3ACxu",
+        "url": "http://127.0.0.1:8090/ipfs/QmSNAZqBs1WrHtstQ2MjAKo3yHtHS9ntdTpokpzbC3ACxu"
+      },
+      "medium-rectangle": {
+        "cid": "QmTv25EmnGDfW8M8qqpWByMXyQ9sQy8txCw8xSANtwUvS2",
+        "url": "http://127.0.0.1:8090/ipfs/QmTv25EmnGDfW8M8qqpWByMXyQ9sQy8txCw8xSANtwUvS2"
+      },
+      "wide-skyscraper": {
+        "cid": "QmaRvHJxfMst7JFDvRN2fD1XgUAEVuRF6akwpc8qttLm5f",
+        "url": "http://127.0.0.1:8090/ipfs/QmaRvHJxfMst7JFDvRN2fD1XgUAEVuRF6akwpc8qttLm5f"
+      },
+      "half-page": {
+        "cid": "QmT9Th1xbiezM7pEffFcY8nxfwHdt2dfvF2j2W9a3dD5nr",
+        "url": "http://127.0.0.1:8090/ipfs/QmT9Th1xbiezM7pEffFcY8nxfwHdt2dfvF2j2W9a3dD5nr"
+      },
+      "mobile-banner": {
+        "cid": "QmUYqzoPSy4jQMRrofAhD3AoMqKjJE9YKVh5m9ABTVp53X",
+        "url": "http://127.0.0.1:8090/ipfs/QmUYqzoPSy4jQMRrofAhD3AoMqKjJE9YKVh5m9ABTVp53X"
+      },
+      "square": {
+        "cid": "QmU1yhCydMsz67YfNPQk98EkXVzx3Y8Q7Bkaxr8NkhnvXj",
+        "url": "http://127.0.0.1:8090/ipfs/QmU1yhCydMsz67YfNPQk98EkXVzx3Y8Q7Bkaxr8NkhnvXj"
+      },
+      "large-rectangle": {
+        "cid": "QmbHEyZuk4L6nQCBK4iWnLusuRXHXGmGDjQ9yRTFZx8j1v",
+        "url": "http://127.0.0.1:8090/ipfs/QmbHEyZuk4L6nQCBK4iWnLusuRXHXGmGDjQ9yRTFZx8j1v"
+      }
+    },
+    "quanta": {
+      "leaderboard": {
+        "cid": "QmNvbwj9CBTrpCF2hPqCtm8ajuevHc4PncBYAYnUERdNZp",
+        "url": "http://127.0.0.1:8090/ipfs/QmNvbwj9CBTrpCF2hPqCtm8ajuevHc4PncBYAYnUERdNZp"
+      },
+      "medium-rectangle": {
+        "cid": "QmVPbgXZ2JV1GRMxVozi28nduGstUqnabfgJZfxXvTfcET",
+        "url": "http://127.0.0.1:8090/ipfs/QmVPbgXZ2JV1GRMxVozi28nduGstUqnabfgJZfxXvTfcET"
+      },
+      "wide-skyscraper": {
+        "cid": "QmZS9zH4n6bjPxPNw9GdNaSzgx6M3kXfT1x9kvgRv8YFdg",
+        "url": "http://127.0.0.1:8090/ipfs/QmZS9zH4n6bjPxPNw9GdNaSzgx6M3kXfT1x9kvgRv8YFdg"
+      },
+      "half-page": {
+        "cid": "QmeW8QV5Yi6FYVLR8WtEkva1AY5VihDGAm5BZgWDWF9cee",
+        "url": "http://127.0.0.1:8090/ipfs/QmeW8QV5Yi6FYVLR8WtEkva1AY5VihDGAm5BZgWDWF9cee"
+      },
+      "mobile-banner": {
+        "cid": "QmY3P18ZnhrKpTFbPzTnMenUgFroXcjNAFraHbhPdjK3xr",
+        "url": "http://127.0.0.1:8090/ipfs/QmY3P18ZnhrKpTFbPzTnMenUgFroXcjNAFraHbhPdjK3xr"
+      },
+      "square": {
+        "cid": "QmQmnVfvEvWH8CbSK9kBN7rCDj44Z5eWikcwNbBtyDfBan",
+        "url": "http://127.0.0.1:8090/ipfs/QmQmnVfvEvWH8CbSK9kBN7rCDj44Z5eWikcwNbBtyDfBan"
+      },
+      "large-rectangle": {
+        "cid": "QmXNZPeBe8PSubSgEZBiGEnszP558LEw7hDT3zhNLv11Xd",
+        "url": "http://127.0.0.1:8090/ipfs/QmXNZPeBe8PSubSgEZBiGEnszP558LEw7hDT3zhNLv11Xd"
+      }
+    },
+    "forgecloud": {
+      "leaderboard": {
+        "cid": "QmUVZh52b8d4rHjyBoYCdyxcomknp7FALTkcfTzuVGiNHr",
+        "url": "http://127.0.0.1:8090/ipfs/QmUVZh52b8d4rHjyBoYCdyxcomknp7FALTkcfTzuVGiNHr"
+      },
+      "medium-rectangle": {
+        "cid": "QmauhczNZv7jT6AS3eiHX7WHEqtrSWxcLpTDAAT1D2qwSM",
+        "url": "http://127.0.0.1:8090/ipfs/QmauhczNZv7jT6AS3eiHX7WHEqtrSWxcLpTDAAT1D2qwSM"
+      },
+      "wide-skyscraper": {
+        "cid": "QmeQN4cuaw6kRVkjWatKmgi53ExUC2JC8N24RqE4EY3VYA",
+        "url": "http://127.0.0.1:8090/ipfs/QmeQN4cuaw6kRVkjWatKmgi53ExUC2JC8N24RqE4EY3VYA"
+      },
+      "half-page": {
+        "cid": "QmU6QyHaBS1FAJcd6CidZmgy9dMmkdYLSsqB2xDUoDERjc",
+        "url": "http://127.0.0.1:8090/ipfs/QmU6QyHaBS1FAJcd6CidZmgy9dMmkdYLSsqB2xDUoDERjc"
+      },
+      "mobile-banner": {
+        "cid": "QmbS8ULctmvucVWndhUQ8a4pzoUzdw3ttnjUzzX22cCtqS",
+        "url": "http://127.0.0.1:8090/ipfs/QmbS8ULctmvucVWndhUQ8a4pzoUzdw3ttnjUzzX22cCtqS"
+      },
+      "square": {
+        "cid": "QmRyATVBgWEouirJJaz7bfqGYBPhpsU9C8DohA2EgcErQV",
+        "url": "http://127.0.0.1:8090/ipfs/QmRyATVBgWEouirJJaz7bfqGYBPhpsU9C8DohA2EgcErQV"
+      },
+      "large-rectangle": {
+        "cid": "Qmc1p9QAhxwNK1WXmSfkxmqPwmzdGBn8xRUCqz8CbTfUaX",
+        "url": "http://127.0.0.1:8090/ipfs/Qmc1p9QAhxwNK1WXmSfkxmqPwmzdGBn8xRUCqz8CbTfUaX"
+      }
+    },
+    "aera": {
+      "leaderboard": {
+        "cid": "QmYa8MKVS8soCWCr3zg9aL8kbGcFmfT2Pe9fv41PRza6Hd",
+        "url": "http://127.0.0.1:8090/ipfs/QmYa8MKVS8soCWCr3zg9aL8kbGcFmfT2Pe9fv41PRza6Hd"
+      },
+      "medium-rectangle": {
+        "cid": "QmdfU4GBavJmf1hsX8FxhPPGuB5G7kp33ry9J3wJVxGmGN",
+        "url": "http://127.0.0.1:8090/ipfs/QmdfU4GBavJmf1hsX8FxhPPGuB5G7kp33ry9J3wJVxGmGN"
+      },
+      "wide-skyscraper": {
+        "cid": "QmWLATHZk5gD3oY3NCVCn23ckzgtHvURq34r8oXxySpT9c",
+        "url": "http://127.0.0.1:8090/ipfs/QmWLATHZk5gD3oY3NCVCn23ckzgtHvURq34r8oXxySpT9c"
+      },
+      "half-page": {
+        "cid": "QmWbZP9bXAXjAVS5R6FPkksopxeh8SnkSgbZtiXUpzf8Af",
+        "url": "http://127.0.0.1:8090/ipfs/QmWbZP9bXAXjAVS5R6FPkksopxeh8SnkSgbZtiXUpzf8Af"
+      },
+      "mobile-banner": {
+        "cid": "QmPhEg91fqhmwPJyiYXp47guWEcVRpkkmtCpRJCdgj4MVn",
+        "url": "http://127.0.0.1:8090/ipfs/QmPhEg91fqhmwPJyiYXp47guWEcVRpkkmtCpRJCdgj4MVn"
+      },
+      "square": {
+        "cid": "QmeYoZuXUBA7EgdS6ge6doJ2mMGrbJB2JpQxtL6QLtXSnk",
+        "url": "http://127.0.0.1:8090/ipfs/QmeYoZuXUBA7EgdS6ge6doJ2mMGrbJB2JpQxtL6QLtXSnk"
+      },
+      "large-rectangle": {
+        "cid": "QmetBZPEr4CbegJZU8k5YgfWkiqVjQ9A17V7958XCWxfS1",
+        "url": "http://127.0.0.1:8090/ipfs/QmetBZPEr4CbegJZU8k5YgfWkiqVjQ9A17V7958XCWxfS1"
+      }
+    },
+    "lumen": {
+      "leaderboard": {
+        "cid": "QmXyQPxpuzNh2ryDwZZ8TPGTGL2847HQaDFUjbryvJjYKg",
+        "url": "http://127.0.0.1:8090/ipfs/QmXyQPxpuzNh2ryDwZZ8TPGTGL2847HQaDFUjbryvJjYKg"
+      },
+      "medium-rectangle": {
+        "cid": "QmUxxB4qYQNhhWDGidb8WYYwPEbqUhrPnGennkynLLJaY4",
+        "url": "http://127.0.0.1:8090/ipfs/QmUxxB4qYQNhhWDGidb8WYYwPEbqUhrPnGennkynLLJaY4"
+      },
+      "wide-skyscraper": {
+        "cid": "QmP8NvXZWBH4fyyMFxmPuymKCkUPV7vvHPFB9TNFsexjop",
+        "url": "http://127.0.0.1:8090/ipfs/QmP8NvXZWBH4fyyMFxmPuymKCkUPV7vvHPFB9TNFsexjop"
+      },
+      "half-page": {
+        "cid": "QmdaiKi7UoALDADKdtV1NW6QFwiZqSXS6SUa6CWUAsam97",
+        "url": "http://127.0.0.1:8090/ipfs/QmdaiKi7UoALDADKdtV1NW6QFwiZqSXS6SUa6CWUAsam97"
+      },
+      "mobile-banner": {
+        "cid": "QmSRQ3gfa9RL6UVJzGUWGn9q1gnzYWfV1QprB1pMUuivji",
+        "url": "http://127.0.0.1:8090/ipfs/QmSRQ3gfa9RL6UVJzGUWGn9q1gnzYWfV1QprB1pMUuivji"
+      },
+      "square": {
+        "cid": "QmTJEhVTJw8FEmDPVJzHtebDzFt7gTqVoqf2k5kQJVE7SJ",
+        "url": "http://127.0.0.1:8090/ipfs/QmTJEhVTJw8FEmDPVJzHtebDzFt7gTqVoqf2k5kQJVE7SJ"
+      },
+      "large-rectangle": {
+        "cid": "QmZV66VCLVPzBysiasTi4yYPY6299pmqEfc7ysqwfFmiyw",
+        "url": "http://127.0.0.1:8090/ipfs/QmZV66VCLVPzBysiasTi4yYPY6299pmqEfc7ysqwfFmiyw"
+      }
+    },
+    "pixelquest": {
+      "leaderboard": {
+        "cid": "QmVKpVbL4L3BdVYV2z1Dtvi5Uzstz86Tgve3yZ3upkWsHH",
+        "url": "http://127.0.0.1:8090/ipfs/QmVKpVbL4L3BdVYV2z1Dtvi5Uzstz86Tgve3yZ3upkWsHH"
+      },
+      "medium-rectangle": {
+        "cid": "QmdvYbwiZH2cPRx59c7nG7HdKzbbtEMCMgCdYdRoQvSb31",
+        "url": "http://127.0.0.1:8090/ipfs/QmdvYbwiZH2cPRx59c7nG7HdKzbbtEMCMgCdYdRoQvSb31"
+      },
+      "wide-skyscraper": {
+        "cid": "Qmd1M59qmURUnk9h1EAL5d23NyN7UwCe6qtcb1gYgfoJyZ",
+        "url": "http://127.0.0.1:8090/ipfs/Qmd1M59qmURUnk9h1EAL5d23NyN7UwCe6qtcb1gYgfoJyZ"
+      },
+      "half-page": {
+        "cid": "QmVSjqKSeEKnyu7kHEfKgMHCnFzpei76mvMj5JmupgHZct",
+        "url": "http://127.0.0.1:8090/ipfs/QmVSjqKSeEKnyu7kHEfKgMHCnFzpei76mvMj5JmupgHZct"
+      },
+      "mobile-banner": {
+        "cid": "QmazHX9SBZaMmEs8pKFrNefLf6fuavWztvsueyuxf3H3mX",
+        "url": "http://127.0.0.1:8090/ipfs/QmazHX9SBZaMmEs8pKFrNefLf6fuavWztvsueyuxf3H3mX"
+      },
+      "square": {
+        "cid": "Qme8vXyFQLuqumyuf1hutHihHVgAQ4BvG4DvLgQkLrNQ4p",
+        "url": "http://127.0.0.1:8090/ipfs/Qme8vXyFQLuqumyuf1hutHihHVgAQ4BvG4DvLgQkLrNQ4p"
+      },
+      "large-rectangle": {
+        "cid": "QmZ6p65n7WwhRzSyNSqA9WptAUeFivVHVoRpKv8ZKat4Fm",
+        "url": "http://127.0.0.1:8090/ipfs/QmZ6p65n7WwhRzSyNSqA9WptAUeFivVHVoRpKv8ZKat4Fm"
+      }
+    }
+  },
+  "campaignMetadata": {
+    "1": {
+      "brand": "nimbus",
+      "advertiser": "bob",
+      "cid": "QmbCwaTi5CnmGDG4SwVUDozXFZT1doCV58aFT1yJCkaxVu",
+      "hash": "0xbf2e5b42ae7138904ec0ff544e56014d84a554154c201ca552800a515eef4240"
+    },
+    "2": {
+      "brand": "quanta",
+      "advertiser": "charlie",
+      "cid": "QmQArTv2LQAt6XZKfojTEWZT6SLb5he5wGf7xNxLGKCFDa",
+      "hash": "0x1b34db87cc63f55fdcf077b0a3c59208e4c687a829953379b6aa9ddad655a549"
+    },
+    "3": {
+      "brand": "forgecloud",
+      "advertiser": "bob",
+      "cid": "QmWunXaWR9aZvLppFM6jtFLeKaT1eXRhfdjcn2cZwUBBGY",
+      "hash": "0x7f5a80a37e56fe87fdc63d168295ce416a4140d23e804c121101b0ce17ac036d"
+    },
+    "4": {
+      "brand": "aera",
+      "advertiser": "charlie",
+      "cid": "QmeqEXqa4acERxtKgzkq2qHMELrPHsaBJ79Mb5B3w66e2a",
+      "hash": "0xf50d7f4999712b0433c9cf114b90c91012b71b6461805004c9f5ad5c844e37e7"
+    },
+    "5": {
+      "brand": "lumen",
+      "advertiser": "bob",
+      "cid": "QmQniJaRw1nXRMtY5TL7WSBxr6KexVnEtQwKDRVDZZGems",
+      "hash": "0x246489fbd84312b50de03607061517b782b929d1d278f91d8b3f117a281d37b6"
+    },
+    "6": {
+      "brand": "pixelquest",
+      "advertiser": "charlie",
+      "cid": "Qmb1VJitSiwKQGSaGHQ8FzvKsWYXrbaxyvC9E6zhL2gXfV",
+      "hash": "0xbc3f4331a606df4626dc2e5f651d5c33fa92324d93e8c48142d9642d71120678"
+    },
+    "7": {
+      "brand": "nimbus",
+      "advertiser": "bob",
+      "cid": "QmbCwaTi5CnmGDG4SwVUDozXFZT1doCV58aFT1yJCkaxVu",
+      "hash": "0xbf2e5b42ae7138904ec0ff544e56014d84a554154c201ca552800a515eef4240"
+    },
+    "8": {
+      "brand": "quanta",
+      "advertiser": "charlie",
+      "cid": "QmQArTv2LQAt6XZKfojTEWZT6SLb5he5wGf7xNxLGKCFDa",
+      "hash": "0x1b34db87cc63f55fdcf077b0a3c59208e4c687a829953379b6aa9ddad655a549"
+    },
+    "9": {
+      "brand": "forgecloud",
+      "advertiser": "bob",
+      "cid": "QmWunXaWR9aZvLppFM6jtFLeKaT1eXRhfdjcn2cZwUBBGY",
+      "hash": "0x7f5a80a37e56fe87fdc63d168295ce416a4140d23e804c121101b0ce17ac036d"
+    },
+    "10": {
+      "brand": "aera",
+      "advertiser": "charlie",
+      "cid": "QmeqEXqa4acERxtKgzkq2qHMELrPHsaBJ79Mb5B3w66e2a",
+      "hash": "0xf50d7f4999712b0433c9cf114b90c91012b71b6461805004c9f5ad5c844e37e7"
+    },
+    "11": {
+      "brand": "lumen",
+      "advertiser": "bob",
+      "cid": "QmQniJaRw1nXRMtY5TL7WSBxr6KexVnEtQwKDRVDZZGems",
+      "hash": "0x246489fbd84312b50de03607061517b782b929d1d278f91d8b3f117a281d37b6"
+    },
+    "12": {
+      "brand": "pixelquest",
+      "advertiser": "charlie",
+      "cid": "Qmb1VJitSiwKQGSaGHQ8FzvKsWYXrbaxyvC9E6zhL2gXfV",
+      "hash": "0xbc3f4331a606df4626dc2e5f651d5c33fa92324d93e8c48142d9642d71120678"
+    },
+    "13": {
+      "brand": "nimbus",
+      "advertiser": "bob",
+      "cid": "QmbCwaTi5CnmGDG4SwVUDozXFZT1doCV58aFT1yJCkaxVu",
+      "hash": "0xbf2e5b42ae7138904ec0ff544e56014d84a554154c201ca552800a515eef4240"
+    },
+    "14": {
+      "brand": "quanta",
+      "advertiser": "charlie",
+      "cid": "QmQArTv2LQAt6XZKfojTEWZT6SLb5he5wGf7xNxLGKCFDa",
+      "hash": "0x1b34db87cc63f55fdcf077b0a3c59208e4c687a829953379b6aa9ddad655a549"
+    },
+    "15": {
+      "brand": "forgecloud",
+      "advertiser": "bob",
+      "cid": "QmWunXaWR9aZvLppFM6jtFLeKaT1eXRhfdjcn2cZwUBBGY",
+      "hash": "0x7f5a80a37e56fe87fdc63d168295ce416a4140d23e804c121101b0ce17ac036d"
+    },
+    "16": {
+      "brand": "aera",
+      "advertiser": "charlie",
+      "cid": "QmeqEXqa4acERxtKgzkq2qHMELrPHsaBJ79Mb5B3w66e2a",
+      "hash": "0xf50d7f4999712b0433c9cf114b90c91012b71b6461805004c9f5ad5c844e37e7"
+    },
+    "17": {
+      "brand": "lumen",
+      "advertiser": "bob",
+      "cid": "QmQniJaRw1nXRMtY5TL7WSBxr6KexVnEtQwKDRVDZZGems",
+      "hash": "0x246489fbd84312b50de03607061517b782b929d1d278f91d8b3f117a281d37b6"
+    },
+    "18": {
+      "brand": "pixelquest",
+      "advertiser": "charlie",
+      "cid": "Qmb1VJitSiwKQGSaGHQ8FzvKsWYXrbaxyvC9E6zhL2gXfV",
+      "hash": "0xbc3f4331a606df4626dc2e5f651d5c33fa92324d93e8c48142d9642d71120678"
+    },
+    "19": {
+      "brand": "nimbus",
+      "advertiser": "bob",
+      "cid": "QmbCwaTi5CnmGDG4SwVUDozXFZT1doCV58aFT1yJCkaxVu",
+      "hash": "0xbf2e5b42ae7138904ec0ff544e56014d84a554154c201ca552800a515eef4240"
+    },
+    "20": {
+      "brand": "quanta",
+      "advertiser": "charlie",
+      "cid": "QmQArTv2LQAt6XZKfojTEWZT6SLb5he5wGf7xNxLGKCFDa",
+      "hash": "0x1b34db87cc63f55fdcf077b0a3c59208e4c687a829953379b6aa9ddad655a549"
+    },
+    "21": {
+      "brand": "forgecloud",
+      "advertiser": "bob",
+      "cid": "QmWunXaWR9aZvLppFM6jtFLeKaT1eXRhfdjcn2cZwUBBGY",
+      "hash": "0x7f5a80a37e56fe87fdc63d168295ce416a4140d23e804c121101b0ce17ac036d"
+    },
+    "22": {
+      "brand": "aera",
+      "advertiser": "charlie",
+      "cid": "QmeqEXqa4acERxtKgzkq2qHMELrPHsaBJ79Mb5B3w66e2a",
+      "hash": "0xf50d7f4999712b0433c9cf114b90c91012b71b6461805004c9f5ad5c844e37e7"
+    },
+    "23": {
+      "brand": "lumen",
+      "advertiser": "bob",
+      "cid": "QmQniJaRw1nXRMtY5TL7WSBxr6KexVnEtQwKDRVDZZGems",
+      "hash": "0x246489fbd84312b50de03607061517b782b929d1d278f91d8b3f117a281d37b6"
+    },
+    "24": {
+      "brand": "pixelquest",
+      "advertiser": "charlie",
+      "cid": "Qmb1VJitSiwKQGSaGHQ8FzvKsWYXrbaxyvC9E6zhL2gXfV",
+      "hash": "0xbc3f4331a606df4626dc2e5f651d5c33fa92324d93e8c48142d9642d71120678"
+    }
+  }
+}
