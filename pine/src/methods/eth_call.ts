@@ -1,19 +1,33 @@
 // ── eth_call → ReviveApi_call ──
 //
 // This is the most important method — all contract reads go through here.
-// ReviveApi_call(origin: H160, dest: H160, value: U256, input: Vec<u8>,
-//               gas_limit: Option<Weight>, storage_deposit_limit: Option<U256>)
-//   → ContractResult<ExecReturnValue>
+//
+// Signature (from the Paseo Asset Hub runtime metadata, reviveApi.call):
+//   origin: AccountId32           — the eth address mapped via h160 ++ 0xEE×12
+//   dest: H160
+//   value: u128                   — planck (NOT U256)
+//   gas_limit: Option<Weight>
+//   storage_deposit_limit: Option<u128>
+//   input_data: Bytes             — LAST arg, after the two Options
+//   → PalletRevivePrimitivesContractResultExecReturnValue
+//
+// All three of those were wrong in the original implementation (H160 origin,
+// U256 value, input mis-ordered before the Options), which made the runtime
+// reject the call and the result undecodable — surfacing as ethers BAD_DATA
+// (`value="0x"`). The exact layouts below were captured from a live
+// reviveApi.call round-trip (see test/eth_call-decode.test.mjs fixtures).
 
 import type { MethodContext, MethodHandler } from "../types.js";
 import { registerMethod } from "./registry.js";
 import {
   encodeH160,
-  encodeU256,
+  encodeReviveOrigin,
+  encodeU128,
   encodeBytes,
   concatBytes,
   bytesToHex,
   hexToBytes,
+  decodeCompact,
 } from "../codec/scale.js";
 import { weiToPlanck, toBigInt } from "../codec/denomination.js";
 
@@ -48,37 +62,19 @@ function factory(ctx: MethodContext): MethodHandler {
       const cached = ctx.cache.get<string>(cacheKey);
       if (cached !== undefined) return cached;
 
-      // Encode ReviveApi_call arguments:
-      //   origin: H160 (20 bytes)
-      //   dest: H160 (20 bytes)
-      //   value: U256 (32 bytes LE)
-      //   input_data: Vec<u8> (compact length + bytes)
-      //   gas_limit: None (0x00 for Option)
-      //   storage_deposit_limit: None (0x00 for Option)
+      // Encode ReviveApi_call args IN METADATA ORDER:
+      //   origin (AccountId32) · dest (H160) · value (u128) ·
+      //   gas_limit None · storage_deposit_limit None · input_data (Bytes)
       const encoded = concatBytes(
-        encodeH160(from),
+        encodeReviveOrigin(from),
         encodeH160(to),
-        encodeU256(value),
-        encodeBytes(input),
+        encodeU128(value),
         new Uint8Array([0]), // gas_limit = None
         new Uint8Array([0]), // storage_deposit_limit = None
+        encodeBytes(input),
       );
 
-      const resultBytes = await ctx.chainManager.runtimeCall(
-        "ReviveApi_call",
-        encoded,
-      );
-
-      // Parse ContractResult — the output data is nested inside:
-      //   Result<ExecReturnValue, DispatchError>
-      //     ExecReturnValue { flags: u32, data: Vec<u8> }
-      //
-      // For a successful call, the structure is:
-      //   gas_consumed(Weight) + gas_required(Weight) + storage_deposit(i128) +
-      //   debug_message(Vec<u8>) + result(Result<ExecReturnValue, DispatchError>)
-      //
-      // This is complex SCALE — for now, extract the return data heuristically
-      // by looking for the output bytes after the fixed-size preamble.
+      const resultBytes = await ctx.chainManager.runtimeCall("ReviveApi_call", encoded);
       const output = extractCallOutput(resultBytes);
 
       ctx.cache.set(cacheKey, output, ctx.config.cache?.stateTtlMs);
@@ -88,108 +84,68 @@ function factory(ctx: MethodContext): MethodHandler {
 }
 
 /**
- * Extract the EVM return data from a ReviveApi_call result.
+ * Decode the EVM return data from a `PalletRevivePrimitivesContractResultExecReturnValue`.
  *
- * The full ContractResult structure is complex. We parse it step by step:
- *   - gas_consumed: { ref_time: u64, proof_size: u64 } = 16 bytes
- *   - gas_required: { ref_time: u64, proof_size: u64 } = 16 bytes
- *   - storage_deposit: { charge_or_refund: i128, ... } ≈ 17+ bytes
- *   - debug_message: Vec<u8> = compact(0) + ...
- *   - result: Result<ExecReturnValue, DispatchError>
- *     - Ok(0x00) + ExecReturnValue { flags: u32(LE), data: Vec<u8> }
- *     - Err(0x01) + DispatchError
+ * Exact SCALE layout (verified byte-for-byte against a live reviveApi.call):
+ *   weightConsumed    : Weight { refTime: Compact<u64>, proofSize: Compact<u64> }
+ *   weightRequired    : Weight { refTime: Compact<u64>, proofSize: Compact<u64> }
+ *   storageDeposit    : StorageDeposit  (1-byte variant + u128)
+ *   maxStorageDeposit : StorageDeposit  (1-byte variant + u128)
+ *   gasConsumed       : u128            (16 bytes)
+ *   result            : Result<ExecReturnValue, DispatchError>
+ *                         Ok(0x00)  + ExecReturnValue { flags: u32(LE), data: Vec<u8> }
+ *                         Err(0x01) + DispatchError
  *
- * Since the exact offsets depend on the runtime version, we use a
- * more robust approach: scan for the Result variant from a known offset.
+ * This is parsed precisely (no offset guessing). On a runtime layout change it
+ * throws loudly rather than silently returning "0x" with the wrong data.
  */
-function extractCallOutput(data: Uint8Array): string {
+export function extractCallOutput(data: Uint8Array): string {
   if (data.length === 0) return "0x";
+  let o = 0;
+  const skipCompact = () => {
+    o += decodeCompact(data, o)[1];
+  };
 
-  // Skip gas_consumed (16) + gas_required (16) = 32 bytes
-  let offset = 32;
+  // weightConsumed + weightRequired — two compacts each
+  skipCompact();
+  skipCompact();
+  skipCompact();
+  skipCompact();
+  // storageDeposit + maxStorageDeposit — each: 1-byte variant + u128(16)
+  o += 1 + 16;
+  o += 1 + 16;
+  // gasConsumed — u128
+  o += 16;
 
-  // storage_deposit: enum StorageDeposit { Refund(Balance), Charge(Balance) }
-  // = 1 byte variant + 16 bytes (u128)
-  offset += 17;
-
-  // debug_message: Vec<u8> — compact length prefix
-  if (offset >= data.length) return "0x";
-  const mode = data[offset] & 0x03;
-  let compactLen = 1;
-  if (mode === 1) compactLen = 2;
-  else if (mode === 2) compactLen = 4;
-  else if (mode === 3) compactLen = (data[offset] >> 2) + 5;
-  const debugMsgLen = decodeCompactAt(data, offset);
-  offset += compactLen + debugMsgLen;
-
-  // ContractResult has an `events: Option<Vec<EventRecord>>` field between
-  // debug_message and result.  For read-only calls it is always None (0x00,
-  // 1 byte), but older runtime versions may omit it entirely.  Try both:
-  //   skip=1  events=None   (current pallet-revive)
-  //   skip=0  no events field (older runtimes / fallback)
-  //   skip=2  events=Some([]) (empty vec: 0x01 0x00)
-  for (const skip of [1, 0, 2]) {
-    const ro = offset + skip; // result offset
-    if (ro >= data.length) continue;
-    const resultVariant = data[ro];
-    if (resultVariant > 1) continue; // not a valid Result variant byte
-
-    if (resultVariant === 1) {
-      // Err — call reverted or failed
-      throw { code: 3, message: "execution reverted", data: "0x" };
-    }
-
-    // Ok — ExecReturnValue { flags: ReturnFlags(u32), data: Vec<u8> }
-    const fo = ro + 1; // flags offset
-    if (fo + 4 > data.length) continue;
-    const flags = data[fo] | (data[fo + 1] << 8) | (data[fo + 2] << 16) | (data[fo + 3] << 24);
-    // flags must be 0 (success) or 1 (revert) — anything else means we're
-    // reading the wrong offset
-    if (flags > 1) continue;
-
-    const vecOffset = fo + 4;
-    if (flags & 1) {
-      // Revert — data contains revert reason
-      const revertData = decodeVecAt(data, vecOffset);
-      throw { code: 3, message: "execution reverted", data: "0x" + bytesToHex(revertData) };
-    }
-
-    // Success — extract output Vec<u8>
-    const outputData = decodeVecAt(data, vecOffset);
-    return outputData.length > 0 ? "0x" + bytesToHex(outputData) : "0x";
+  if (o >= data.length) {
+    throw { code: -32603, message: "pine: ContractResult parse overran preamble (runtime layout drift?)" };
   }
 
-  // Could not parse a valid result — return empty (safe fallback)
-  return "0x";
-}
-
-function decodeCompactAt(data: Uint8Array, offset: number): number {
-  const mode = data[offset] & 0x03;
-  if (mode === 0) return data[offset] >> 2;
-  if (mode === 1) return (data[offset] | (data[offset + 1] << 8)) >> 2;
-  if (mode === 2) {
-    return ((data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 2);
+  // result: Result<ExecReturnValue, DispatchError>
+  const variant = data[o++];
+  if (variant === 1) {
+    // Err(DispatchError) — surface as an EVM revert.
+    throw { code: 3, message: "execution reverted", data: "0x" + bytesToHex(data.slice(o)) };
   }
-  const numBytes = (data[offset] >> 2) + 4;
-  let value = 0;
-  for (let i = numBytes - 1; i >= 0; i--) {
-    value = value * 256 + data[offset + 1 + i];
+  if (variant !== 0) {
+    throw { code: -32603, message: `pine: unexpected ContractResult variant ${variant}` };
   }
-  return value;
-}
 
-function compactSize(data: Uint8Array, offset: number): number {
-  const mode = data[offset] & 0x03;
-  if (mode === 0) return 1;
-  if (mode === 1) return 2;
-  if (mode === 2) return 4;
-  return (data[offset] >> 2) + 5;
-}
+  // Ok: ExecReturnValue { flags: ReturnFlags(u32 LE), data: Vec<u8> }
+  if (o + 4 > data.length) {
+    throw { code: -32603, message: "pine: ContractResult truncated before flags" };
+  }
+  const flags = data[o] | (data[o + 1] << 8) | (data[o + 2] << 16) | (data[o + 3] << 24);
+  o += 4;
+  const [len, n] = decodeCompact(data, o);
+  o += n;
+  const out = data.slice(o, o + len);
 
-function decodeVecAt(data: Uint8Array, offset: number): Uint8Array {
-  const len = decodeCompactAt(data, offset);
-  const headerSize = compactSize(data, offset);
-  return data.slice(offset + headerSize, offset + headerSize + len);
+  // ReturnFlags bit0 = the contract called `revert` (data holds the reason).
+  if (flags & 1) {
+    throw { code: 3, message: "execution reverted", data: "0x" + bytesToHex(out) };
+  }
+  return out.length > 0 ? "0x" + bytesToHex(out) : "0x";
 }
 
 registerMethod("eth_call", factory);

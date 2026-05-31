@@ -1,14 +1,24 @@
+// ── eth_estimateGas → ReviveApi_call (weightRequired) ──
+//
+// There is NO `ReviveApi_estimate_gas` runtime API on Asset Hub — the original
+// implementation called a non-existent method and always failed. Gas estimation
+// is derived from a dry-run `ReviveApi_call`: its ContractResult carries
+// `weightRequired`, whose `refTime` we convert to gas (+20% margin). Args match
+// eth_call exactly (origin = AccountId32 mapping, value = u128, input last).
 import type { MethodContext, MethodHandler } from "../types.js";
 import { registerMethod } from "./registry.js";
 import {
   encodeH160,
-  encodeU256,
+  encodeReviveOrigin,
+  encodeU128,
   encodeBytes,
   concatBytes,
   hexToBytes,
+  decodeCompact,
 } from "../codec/scale.js";
 import { weiToPlanck, toBigInt, toHex } from "../codec/denomination.js";
 import { weightToGas } from "../codec/gas.js";
+import { extractCallOutput } from "./eth_call.js";
 
 interface TxParams {
   from?: string;
@@ -29,36 +39,30 @@ function factory(ctx: MethodContext): MethodHandler {
       const value = tx.value ? weiToPlanck(toBigInt(tx.value)) : 0n;
       const input = tx.data ? hexToBytes(tx.data) : new Uint8Array(0);
 
+      // Same args + order as eth_call (reviveApi.call).
       const encoded = concatBytes(
-        encodeH160(from),
+        encodeReviveOrigin(from),
         encodeH160(to),
-        encodeU256(value),
-        encodeBytes(input),
+        encodeU128(value),
         new Uint8Array([0]), // gas_limit = None
         new Uint8Array([0]), // storage_deposit_limit = None
+        encodeBytes(input),
       );
 
-      const resultBytes = await ctx.chainManager.runtimeCall(
-        "ReviveApi_estimate_gas",
-        encoded,
-      );
+      const resultBytes = await ctx.chainManager.runtimeCall("ReviveApi_call", encoded);
 
-      // Result contains gas_required as Weight { ref_time: u64, proof_size: u64 }
-      // gas_consumed is at offset 0, gas_required at offset 16
-      if (resultBytes.length < 32) {
-        throw { code: -32000, message: "Failed to estimate gas" };
-      }
+      // Surface a revert (Err / ReturnFlags revert) as a failed estimate.
+      extractCallOutput(resultBytes);
 
-      // Read gas_required.ref_time (u64 LE at offset 16)
-      let refTime = 0n;
-      for (let i = 7; i >= 0; i--) {
-        refTime = (refTime << 8n) | BigInt(resultBytes[16 + i]);
-      }
+      // ContractResult preamble: weightConsumed { refTime: Compact, proofSize: Compact },
+      // then weightRequired { refTime: Compact, ... }. We want weightRequired.refTime.
+      let o = 0;
+      o += decodeCompact(resultBytes, o)[1]; // weightConsumed.refTime
+      o += decodeCompact(resultBytes, o)[1]; // weightConsumed.proofSize
+      const [refTime] = decodeCompact(resultBytes, o); // weightRequired.refTime
 
-      const gas = weightToGas(refTime);
-      // Add 20% margin for safety
-      const gasWithMargin = gas + gas / 5n;
-
+      const gas = weightToGas(BigInt(refTime));
+      const gasWithMargin = gas + gas / 5n; // +20% margin
       return toHex(gasWithMargin);
     },
   };

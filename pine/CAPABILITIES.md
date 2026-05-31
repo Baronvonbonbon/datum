@@ -103,20 +103,27 @@ Pine throws `{ code: 4200, message: "Unsupported method: ..." }` for any unrecog
 - **Block tag is always ignored.** All calls execute against the latest finalized state,
   regardless of the `blockTag` parameter. Historical call replay is not possible.
 - **`to` is required.** Contract-deployment simulation (`to` omitted) throws `-32602`.
-- **`from` defaults to zero address** if not specified.
-- **SCALE response parsing is heuristic.** The `ContractResult` layout includes an optional
-  `events` field whose presence varies by runtime version. Pine tries three skip offsets
-  (`skip=1`, `skip=0`, `skip=2`) to locate the `Result` variant. If none matches, returns
-  `"0x"` (safe but silent failure).
-- **Revert data is decoded** and re-thrown as `{ code: 3, message: "execution reverted",
+- **`from` defaults to zero address** if not specified, and is mapped to the
+  `reviveApi.call` `origin: AccountId32` via pallet-revive's eth-account scheme
+  (`h160 ++ 0xEE×12`). Passing a bare H160 or zero-padded 32 makes the runtime
+  reject the call with a pallet-revive Module error.
+- **Args (metadata order):** `origin: AccountId32`, `dest: H160`, `value: u128`,
+  `gas_limit: Option<Weight>`, `storage_deposit_limit: Option<u128>`,
+  `input_data: Bytes`. (`value` is `u128`, not U256; `input_data` is last.)
+- **Return is decoded precisely** from `PalletRevivePrimitivesContractResultExecReturnValue`
+  = `weightConsumed, weightRequired, storageDeposit, maxStorageDeposit, gasConsumed(u128),
+  result`. No offset guessing; a layout mismatch throws loudly rather than silently
+  returning `"0x"`. (Fixtures + test: `test/unit/eth_call-decode.test.ts`.)
+- **Revert data is decoded** — both an `Err(DispatchError)` result and a
+  `ReturnFlags` revert bit re-throw `{ code: 3, message: "execution reverted",
   data: "0x..." }`.
 
 ### `eth_estimateGas`
 
-- Gas is computed from `ReviveApi_estimate_gas` → `gas_required.ref_time` converted with
-  `weightToGas()`, then padded by **+20%**.
-- `to` defaults to zero address if omitted (deployment estimation works, but CREATE address
-  will be wrong in the receipt).
+- There is **no `ReviveApi_estimate_gas`** runtime API on Asset Hub. Gas is derived
+  from a dry-run `ReviveApi_call` (same args as `eth_call`): its `weightRequired.refTime`
+  is converted with `weightToGas()` and padded **+20%**. A revert surfaces as a failed
+  estimate.
 - Block tag is ignored (always latest finalized).
 
 ### `eth_getLogs`

@@ -83,6 +83,30 @@ export function encodeU256(value: bigint): Uint8Array {
   return bytes;
 }
 
+/** Encode a u128 as 16 little-endian bytes */
+export function encodeU128(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(16);
+  let v = value;
+  for (let i = 0; i < 16; i++) {
+    bytes[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return bytes;
+}
+
+/** pallet-revive maps an Ethereum H160 to a 32-byte AccountId32 by appending
+ *  twelve 0xEE bytes (its "ethereum-derived account" marker). `ReviveApi_call`'s
+ *  `origin` parameter is this AccountId32 — NOT the bare H160. Passing a raw
+ *  20-byte address (or a zero-padded 32) makes the runtime reject the call with
+ *  a pallet-revive Module error (unmapped account). */
+export function encodeReviveOrigin(h160hex: string): Uint8Array {
+  const h = encodeH160(h160hex); // 20 bytes
+  const out = new Uint8Array(32);
+  out.set(h, 0);
+  out.fill(0xee, 20);
+  return out;
+}
+
 /** Decode a U256 from 32 little-endian bytes. Tolerates short buffers (treats
  *  missing trailing bytes as zero) so smaller scalars like `Nonce = u32` or
  *  `Index = u32` returned by runtime APIs decode correctly without a
