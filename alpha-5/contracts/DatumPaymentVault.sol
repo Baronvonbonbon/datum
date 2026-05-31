@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./DatumUpgradable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumPaymentVault.sol";
@@ -15,8 +17,11 @@ import "./interfaces/IDatumPaymentVault.sol";
 ///         Design: DOT is sent directly from BudgetLedger to this Vault via
 ///         deductAndTransfer(). Settlement then calls creditSettlement() (non-payable)
 ///         to record how the DOT should be split among publisher/user/protocol.
-contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradable {
+contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradable, EIP712 {
     function version() public pure override returns (uint256) { return 1; }
+
+    /// @dev EIP-712 domain for gasless (signature-authorized) withdrawals.
+    constructor() EIP712("DatumPaymentVault", "1") {}
 
 
     // -------------------------------------------------------------------------
@@ -32,6 +37,23 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     mapping(address => uint256) public publisherBalance;
     mapping(address => uint256) public userBalance;
     uint256 public protocolBalance;
+
+    // -------------------------------------------------------------------------
+    // Gasless withdrawal (EIP-712 signature-authorized) — staged, see withdrawUserBySig
+    // -------------------------------------------------------------------------
+
+    /// @notice Per-user nonce for signature-authorized withdrawals (replay guard).
+    mapping(address => uint256) public withdrawNonce;
+
+    /// @dev EIP-712 typed-data struct the user signs off-chain to authorize a
+    ///      third party to submit (and pay gas for) a withdrawal on their behalf.
+    bytes32 public constant WITHDRAW_AUTH_TYPEHASH = keccak256(
+        "WithdrawAuth(address user,address recipient,uint256 maxFee,uint256 nonce,uint256 deadline)"
+    );
+
+    event UserWithdrawalBySig(
+        address indexed user, address indexed recipient, address indexed submitter, uint256 net, uint256 fee
+    );
 
     // -------------------------------------------------------------------------
     // G-8 first close (2026-05-20): time-locked recovery-address mechanism
@@ -195,6 +217,56 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
         userBalance[msg.sender] = 0;
         emit UserWithdrawal(msg.sender, amount);
         _send(recipient, amount);
+    }
+
+    /// @notice Gasless user withdrawal. The balance owner signs a `WithdrawAuth`
+    ///         off-chain (no gas needed); any submitter — an off-chain worker /
+    ///         relay — broadcasts it here, pays the gas, and is reimbursed up to
+    ///         the user-authorized `maxFee` out of the withdrawn balance. The rest
+    ///         goes to `recipient` (or the user when `recipient == address(0)`).
+    ///
+    ///         Non-custodial by construction: the submitter cannot take more than
+    ///         `maxFee` (user-signed), cannot redirect the net (user-signed
+    ///         recipient), and cannot replay (per-user nonce + block deadline).
+    ///         The fee always pays `msg.sender`, so submission is permissionless
+    ///         and competitive. Mirrors the permissionless dual-sig settle path.
+    /// @param user      balance owner who signed the authorization
+    /// @param recipient destination for the net amount; address(0) → `user`
+    /// @param maxFee    max fee (planck) the user authorizes for the submitter
+    /// @param deadline  last block number at which the authorization is valid
+    /// @param sig       user's EIP-712 signature over the WithdrawAuth struct
+    function withdrawUserBySig(
+        address user,
+        address recipient,
+        uint256 maxFee,
+        uint256 deadline,
+        bytes calldata sig
+    ) external nonReentrant whenNotFrozen {
+        require(block.number <= deadline, "E81"); // authorization expired
+        uint256 nonce = withdrawNonce[user];
+        bytes32 structHash = keccak256(
+            abi.encode(WITHDRAW_AUTH_TYPEHASH, user, recipient, maxFee, nonce, deadline)
+        );
+        address signer = ECDSA.recover(_hashTypedDataV4(structHash), sig);
+        require(signer == user, "E82"); // signature does not match `user`
+        withdrawNonce[user] = nonce + 1; // consume nonce BEFORE any transfer (replay guard, CEI)
+
+        uint256 amount = userBalance[user];
+        require(amount > 0, "E03");
+        uint256 fee = maxFee < amount ? maxFee : amount; // never exceed the balance
+        uint256 net = amount - fee;
+        address dest = recipient == address(0) ? user : recipient;
+
+        userBalance[user] = 0; // effects before interactions
+        emit UserWithdrawal(user, net); // keep the existing event for indexers
+        emit UserWithdrawalBySig(user, dest, msg.sender, net, fee);
+        if (fee > 0) _send(msg.sender, fee); // reimburse the submitter
+        if (net > 0) _send(dest, net);
+    }
+
+    /// @notice EIP-712 domain separator (for off-chain signers building the digest).
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     /// @inheritdoc IDatumPaymentVault

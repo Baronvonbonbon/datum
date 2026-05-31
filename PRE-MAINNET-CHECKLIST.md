@@ -204,6 +204,30 @@ The minimal viable order for getting `migrate` actually working end-to-end:
 6. **U6** (indexer guards) — last, since it depends on the storage shape
    stabilising.
 
+## Staged contract additions (deploy in the next upgrade)
+
+### Gasless user withdrawal — `DatumPaymentVault.withdrawUserBySig`
+
+Implemented + tested (`alpha-5/test/payment-vault-bysig.test.ts`) but **not yet
+deployed**. Lets a new user withdraw without holding gas: the user signs an
+EIP-712 `WithdrawAuth` off-chain; any submitter (the relay / an off-chain worker)
+broadcasts `withdrawUserBySig`, pays gas, and is reimbursed up to the user-signed
+`maxFee` out of the withdrawn balance. Non-custodial — contract enforces signer +
+per-user nonce + block deadline, and caps the fee at the balance. Mirrors the
+permissionless dual-sig settle path.
+
+- **Adds storage:** `mapping(address => uint256) withdrawNonce` (appended — for an
+  in-place rotation this is new empty state; covered by the U2 `_migrate` override
+  if/when PaymentVault is migrated, but a fresh redeploy needs nothing).
+- **Adds EIP-712 domain** to the vault (`EIP712("DatumPaymentVault","1")`, OZ v5 —
+  immutables only, no storage-layout change).
+- **Relay side:** `datum-labs/relay` `/withdraw` + `/withdraw-info` endpoints and
+  `scripts/sign-withdraw.mjs` are already wired; they report `vault-not-upgraded`
+  until this ships.
+- **Deploy step:** redeploy `DatumPaymentVault` (or rotate it via the router with
+  the U4 coordinated-cluster migration), re-point `BudgetLedger`/`Settlement`
+  references as required, then the relay endpoint goes live with no further change.
+
 ## Token plane sunset (§5.5)
 
 When the DATUM parachain native issuance pallet is live:
@@ -221,3 +245,26 @@ Before enabling `DatumBootstrapPool`:
 - Set the house-ad campaign to AssuranceLevel ≥ 1 (publisher cosig required).
 - Wire `DatumBootstrapPool.setCampaigns(campaignsAddr)` so the L1 floor check has a backing reader.
 - Confirm `bootstrapPool.minHouseAdAssuranceLevel >= 1`.
+
+## Secrets / key hygiene (SCRUB BEFORE ANY PUBLIC RELEASE)
+
+Plaintext private keys are hardcoded in committed scripts — e.g.
+`alpha-5/scripts/activate-pending.ts:19` (`ALICE_KEY = "0x6eda…"`, the deployer),
+plus ~12 other `alpha-5/scripts/*.ts` (setup-demo, setup-testnet, benchmark-paseo,
+e2e-token-rewards, verify-*, gas-costs, diag-*, check-testnet, fill-missing-creatives).
+These are Paseo **testnet** keys (valueless funds), so the immediate risk is low —
+but before open-sourcing or any mainnet work:
+
+- [ ] Move every hardcoded key to a gitignored `.env` (the pattern `alpha-5/.env`
+      already uses) and load via `process.env`. No literals in tracked files.
+- [ ] `git grep -nE '0x[0-9a-fA-F]{64}'` → confirm zero private-key literals remain
+      in tracked sources (filter out legit 32-byte hashes/roots).
+- [ ] **Scrub history**, not just HEAD — a committed key is exposed forever in the
+      git log. Rotate/abandon any address whose key was ever committed; never reuse
+      one on mainnet.
+- [ ] Add a pre-commit secret scanner (gitleaks / trufflehog) to CI.
+- [ ] Lab note: `../datum-labs/` keeps keys only in gitignored `.env`; keep it that
+      way if any of it is published. The lab relay defaults to accepting all
+      campaigns (`CAMPAIGN_ALLOWLIST` empty) and binds localhost with no
+      HMAC/TLS — a public relay would pay gas for arbitrary posted claims (griefing
+      vector); gate it before exposing beyond localhost.
