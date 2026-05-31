@@ -29,6 +29,15 @@ export default defineConfig({
 
     alias: [
       /**
+       * wallet.ts (extension src, OUTSIDE web/) imports "@noble/hashes/argon2.js".
+       * Resolved from its own location it can't see web/node_modules, and on CI the
+       * extension's own node_modules isn't installed → "failed to resolve". We can't
+       * dedupe the whole package (ethers→1.3.2 vs PAPI→2.x, see below), so pin just
+       * this one subpath to web's installed 2.x file (which ships argon2.js).
+       */
+      { find: "@noble/hashes/argon2.js", replacement: path.resolve(__dirname, "node_modules/@noble/hashes/argon2.js") },
+
+      /**
        * "@shared/..." — context-sensitive redirect:
        *
        *   importer inside  extension/src  →  extension/src/shared/…
