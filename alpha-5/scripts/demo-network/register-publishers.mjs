@@ -23,19 +23,23 @@ const DRY = process.argv.includes("--dry");
 const manifest = JSON.parse(readFileSync(resolve(DIR, "manifest.json"), "utf8"));
 const ADDR = JSON.parse(readFileSync(resolve(ALPHA5, "deployed-addresses.json"), "utf8"));
 const RPC = process.env.RPC_URL || "https://eth-rpc-testnet.polkadot.io";
-const TX_OPTS = { gasLimit: 500000000n, type: 0, gasPrice: 1000000000000n };
-const SCALE = 10n ** 8n; // wei (18d getBalance) per planck (10d tx value)
-const STEP = 1_000_000n;
+const GAS_PRICE = 1000000000000n;
+// The Paseo eth-rpc node caps gasLimit at 16,777,216 (2^24); 5e8 is rejected
+// (-32000 "exceeds transaction gas cap"). Stay just under it and let estimateGas
+// size each tx (these calls estimate well below the cap).
+const GAS_CAP = 16_000_000n;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const ceilStep = (p) => (p % STEP === 0n ? p : p + (STEP - (p % STEP)));
 const tagHash = (t) => keccak256(toUtf8Bytes(t));
 const provider = new JsonRpcProvider(RPC);
 
 // Send a tx and wait for confirmation (receipt OR nonce-advance, per Paseo null-receipt).
+// NOTE: tx `value` is 18-decimal WEI (proven empirically) — same unit as getBalance.
 async function send(label, wallet, txReq) {
   if (DRY) { console.log(`  [dry] ${label}`); return; }
+  let gasLimit = GAS_CAP;
+  try { const est = await wallet.estimateGas(txReq); gasLimit = est * 2n < GAS_CAP ? est * 2n : GAS_CAP; } catch {}
   const nonce = await provider.getTransactionCount(wallet.address, "latest");
-  const tx = await wallet.sendTransaction({ ...txReq, ...TX_OPTS });
+  const tx = await wallet.sendTransaction({ ...txReq, gasLimit, type: 0, gasPrice: GAS_PRICE });
   const deadline = Date.now() + 90000;
   while (Date.now() < deadline) {
     const r = await provider.getTransactionReceipt(tx.hash).catch(() => null);
@@ -54,11 +58,10 @@ async function main() {
   const tagAbi = ["function setPublisherTags(bytes32[] tagHashes)"];
   const stakeAbi = ["function requiredStake(address) view returns (uint256)", "function isAdequatelyStaked(address) view returns (bool)", "function stake() payable"];
 
-  // Paseo eth-rpc reserves the MAX fee (gasLimit×gasPrice = 5e8×1e12 = 500 PAS)
-  // at submission, so an account must hold >500 PAS just to broadcast a tx (even
-  // though the fee actually charged is tiny). Fund well above that.
-  const FUND_MIN_WEI = 520n * 10n ** 18n;
-  const FUND_TO_WEI = 700n * 10n ** 18n;
+  // Max-fee reserve = gasLimit×gasPrice = 16e6×1e12 = 16 PAS at submission. Fund
+  // comfortably above that (covers reserve + stake + headroom). Values are WEI.
+  const FUND_MIN_WEI = 25n * 10n ** 18n;
+  const FUND_TO_WEI = 60n * 10n ** 18n;
 
   for (const p of manifest.publishers) {
    try {
@@ -71,13 +74,12 @@ async function main() {
     // 1. Fund from Alice if low.
     const bal = await provider.getBalance(w.address);
     if (bal < FUND_MIN_WEI) {
-      const valuePlanck = ceilStep((FUND_TO_WEI - bal) / SCALE);
-      console.log(`  funding: bal ${Number(formatUnits(bal, 18)).toFixed(2)} PAS → sending ${formatUnits(valuePlanck, 10)} PAS from deployer`);
-      await send(`fund ${p.account}`, alice, { to: w.address, value: valuePlanck });
+      const value = FUND_TO_WEI - bal; // WEI (18-dec) — same unit as getBalance
+      console.log(`  funding: bal ${Number(formatUnits(bal, 18)).toFixed(2)} PAS → sending ${formatUnits(value, 18)} PAS from deployer`);
+      await send(`fund ${p.account}`, alice, { to: w.address, value });
       // Wait for the recipient's balance to actually reflect the funds before it
-      // transacts — otherwise its first tx hits 1010/1012 (can't cover max-fee reserve).
-      const wantWei = FUND_MIN_WEI;
-      for (let i = 0; i < 20; i++) { if ((await provider.getBalance(w.address)) >= wantWei) break; await sleep(3000); }
+      // transacts — otherwise its first tx can't cover the max-fee reserve.
+      for (let i = 0; i < 20; i++) { if ((await provider.getBalance(w.address)) >= FUND_MIN_WEI) break; await sleep(3000); }
       console.log(`  funded balance now ${Number(formatUnits(await provider.getBalance(w.address), 18)).toFixed(2)} PAS`);
     }
 
