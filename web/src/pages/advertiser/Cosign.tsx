@@ -39,6 +39,10 @@ interface Claim {
   stakeRootUsed?: string;
   actionSig?: string[];
   powNonce: string;
+  // C1/C2
+  policyId?: string | number;
+  interestWeightBps?: string | number;
+  auctionRootCommit?: string;
 }
 
 interface SignedClaimBatch {
@@ -205,6 +209,9 @@ export function AdvertiserCosign() {
           stakeRootUsed: c.stakeRootUsed || ethers.ZeroHash,
           actionSig: Array.isArray(c.actionSig) ? c.actionSig : emptyActionSig,
           powNonce: c.powNonce || ethers.ZeroHash,
+          policyId: Number(c.policyId ?? 0),
+          interestWeightBps: Number(c.interestWeightBps ?? 0),
+          auctionRootCommit: c.auctionRootCommit || ethers.ZeroHash,
         })),
         deadlineBlock: BigInt(parsed.deadlineBlock),
         expectedRelaySigner: parsed.expectedRelaySigner || ZERO_ADDRESS,
@@ -277,6 +284,18 @@ export function AdvertiserCosign() {
           <Row label="Expected publisher relay" value={<code>{parsed.expectedRelaySigner || ZERO_ADDRESS}</code>} />
           <Row label="Expected advertiser relay" value={<code>{parsed.expectedAdvertiserRelaySigner || ZERO_ADDRESS}</code>} />
           <Row label="claimsHash (computed)" value={<code style={{ wordBreak: "break-all" }}>{claimsHash ?? "—"}</code>} />
+          {/* C1/C2: surface the policy attestation on the first claim
+              so the advertiser can sanity-check what they're cosigning. */}
+          {parsed.claims[0] && (
+            <>
+              <Row label="claim[0].policyId" value={String(parsed.claims[0].policyId ?? 0)} />
+              <Row label="claim[0].interestWeightBps" value={String(parsed.claims[0].interestWeightBps ?? 0)} />
+              <Row
+                label="claim[0].auctionRootCommit"
+                value={<code style={{ wordBreak: "break-all" }}>{parsed.claims[0].auctionRootCommit ?? "0x" + "0".repeat(64)}</code>}
+              />
+            </>
+          )}
           <Row
             label="Advertiser-of-record"
             value={

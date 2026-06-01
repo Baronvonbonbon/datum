@@ -184,19 +184,6 @@
   },
   {
     "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "registry",
-        "type": "address"
-      }
-    ],
-    "name": "PauseRegistrySet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [],
     "name": "PlumbingLocked",
     "type": "event"
@@ -518,7 +505,7 @@
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
-    "stateMutability": "pure",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -634,19 +621,6 @@
       }
     ],
     "name": "setParameterGovernance",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "addr",
-        "type": "address"
-      }
-    ],
-    "name": "setPauseRegistry",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -873,6 +847,21 @@
           {
             "internalType": "bytes32",
             "name": "powNonce",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint8",
+            "name": "policyId",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "interestWeightBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "auctionRootCommit",
             "type": "bytes32"
           }
         ],
