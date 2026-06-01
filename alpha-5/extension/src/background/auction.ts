@@ -30,7 +30,7 @@ export interface AuctionResult {
   winner: CampaignCandidate;
   clearingCpmPlanck: bigint;
   participants: number;
-  mechanism: "second-price" | "solo" | "floor";
+  mechanism: "cpm" | "second-price" | "solo" | "floor";
   allScored: ScoredBid[];
   /** Ratio of clearingCpmPlanck to winner's viewBid (0–1). Indicates auction efficiency. */
   bidEfficiency: number;
@@ -79,48 +79,22 @@ export function auctionForPage(
     effectiveBidMicro: s.effectiveBid.toString(),
   }));
 
-  if (campaigns.length === 1) {
-    // Solo: 85% of bid (raised from 70% — reduces solo discount)
-    const clearingCpm = (bidCpm * 85n) / 100n;
-    const finalCpm = clearingCpm > 0n ? clearingCpm : 1n;
-    return {
-      winner: winner.campaign,
-      clearingCpmPlanck: finalCpm,
-      participants: 1,
-      mechanism: "solo",
-      allScored,
-      bidEfficiency: bidCpm > 0n ? Number(finalCpm) / Number(bidCpm) : 0,
-    };
-  }
-
-  // 2+ campaigns: second-price
-  const second = scored[1];
-  // clearingCpm = secondEffectiveBid / (winnerInterestWeight * 1000)
-  const clearingRaw = second.effectiveBid / BigInt(Math.round(winner.interestWeight * 1000));
-
-  // Clamp to [bidCpm * 65%, bidCpm] (floor raised from 30% — tighter range)
-  const floor = (bidCpm * 65n) / 100n;
-  let clearingCpm: bigint;
-  let mechanism: "second-price" | "floor";
-
-  if (clearingRaw < floor) {
-    clearingCpm = floor > 0n ? floor : 1n;
-    mechanism = "floor";
-  } else if (clearingRaw > bidCpm) {
-    clearingCpm = bidCpm;
-    mechanism = "second-price";
-  } else {
-    clearingCpm = clearingRaw > 0n ? clearingRaw : 1n;
-    mechanism = "second-price";
-  }
-
+  // No price auction. Second-price clearing is unenforceable on-chain — the contract
+  // never sees competing bids, so any clearing CPM is just an unverifiable client
+  // assertion (see the selection-policy analysis). It also produced an arbitrary,
+  // non-round rate that is the worst case for Paseo's payout rounding. The winner is
+  // still chosen by interest-weighted relevance above (the privacy-preserving part);
+  // the claim simply pays the winner's own CPM — its viewBid / pot ratePlanck — which
+  // is the exact, contract-aligned value the validator checks against (ratePlanck ≤
+  // pot ratePlanck holds with equality). Removed: solo discount, second-price math,
+  // floor clamp.
   return {
     winner: winner.campaign,
-    clearingCpmPlanck: clearingCpm,
+    clearingCpmPlanck: bidCpm,
     participants: campaigns.length,
-    mechanism,
+    mechanism: "cpm",
     allScored,
-    bidEfficiency: bidCpm > 0n ? Number(clearingCpm) / Number(bidCpm) : 0,
+    bidEfficiency: 1,
   };
 }
 
