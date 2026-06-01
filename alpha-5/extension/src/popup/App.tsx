@@ -20,6 +20,7 @@ import { SettingsTab } from "./wallet/SettingsTab";
 import { EarningsTab } from "./wallet/EarningsTab";
 import { TxHistoryTab } from "./wallet/TxHistoryTab";
 import { PollStatusBar } from "./PollStatusBar";
+import { ClaimQueue } from "./ClaimQueue";
 import {
   PermissionRequest,
   usePendingPermission,
@@ -30,6 +31,7 @@ type Tab =
   | "accounts"
   | "send"
   | "receive"
+  | "claims"
   | "history"
   | "earnings"
   | "settings";
@@ -43,6 +45,7 @@ const TAB_LABELS: Record<Tab, string> = {
   accounts: "Accounts",
   send: "Send",
   receive: "Receive",
+  claims: "Claims",
   history: "History",
   earnings: "Earnings",
   settings: "Settings",
@@ -268,6 +271,7 @@ function Dashboard({
         )}
         {tab === "send" && <SendTab status={status} />}
         {tab === "receive" && <ReceiveTab status={status} />}
+        {tab === "claims" && <ClaimQueue address={active?.address ?? ""} onSettled={refresh} />}
         {tab === "history" && <TxHistoryTab status={status} />}
         {tab === "earnings" && <EarningsTab status={status} />}
         {tab === "settings" && (
