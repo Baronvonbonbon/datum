@@ -12,6 +12,7 @@
 // gated app shell.
 
 import { useState } from "react";
+import { KdfProgress } from "./KdfProgress";
 import { walletClient, type WalletStatus } from "./walletClient";
 import {
   screen,
@@ -142,21 +143,20 @@ export function SetPasswordScreen({
 
       {err && <div style={errorText}>{err}</div>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        <button style={button("secondary")} onClick={onBack} disabled={busy}>
-          Back
-        </button>
-        <button
-          style={{
-            ...button("primary"),
-            opacity: busy ? 0.6 : 1,
-            pointerEvents: busy ? "none" : "auto",
-          }}
-          onClick={submit}
-        >
-          {busy ? "Creating..." : "Create wallet"}
-        </button>
-      </div>
+      {busy ? (
+        <div style={{ marginTop: "auto" }}>
+          <KdfProgress label={source === "generate" ? "Encrypting your new wallet" : "Encrypting your imported wallet"} />
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
+          <button style={button("secondary")} onClick={onBack}>
+            Back
+          </button>
+          <button style={button("primary")} onClick={submit}>
+            {source === "generate" ? "Create wallet" : "Import wallet"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { BrandMark } from "../BrandMark";
+import { KdfProgress } from "./KdfProgress";
 import { walletClient, type WalletStatus } from "./walletClient";
 import {
   screen,
@@ -73,16 +74,20 @@ export function UnlockScreen({
 
       {err && <div style={errorText}>{err}</div>}
 
-      <button
-        style={{
-          ...button("primary"),
-          opacity: pw && !busy ? 1 : 0.5,
-          pointerEvents: pw && !busy ? "auto" : "none",
-        }}
-        onClick={submit}
-      >
-        {busy ? "Unlocking..." : "Unlock"}
-      </button>
+      {busy ? (
+        <KdfProgress label="Unlocking your wallet" />
+      ) : (
+        <button
+          style={{
+            ...button("primary"),
+            opacity: pw ? 1 : 0.5,
+            pointerEvents: pw ? "auto" : "none",
+          }}
+          onClick={submit}
+        >
+          Unlock
+        </button>
+      )}
 
       <div style={{ marginTop: "auto", textAlign: "center" }}>
         <button
