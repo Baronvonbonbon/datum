@@ -5,17 +5,33 @@
 
 import { ZeroHash } from "ethers";
 import { Claim, ClaimChainState } from "@shared/types";
-import { generateZKProof } from "./zkProof";
-import { getUserSecret, computeWindowId } from "./poseidon";
 // Canonical claim-hash + helpers live in claimCore (shared with the demo daemon)
 // so the preimage schema can never drift between consumers again.
 import { computeClaimHash, ZK_EMPTY, SIG_EMPTY, nonceToBytes32, parseSigToArray } from "./claimCore";
 
-const WINDOW_BLOCKS = 14400; // 24h at 6s/block
-const LAST_BLOCK_KEY = "pollLastBlock";
-
 const CHAIN_STATE_PREFIX = "chainState:";
 const QUEUE_KEY = "claimQueue";
+
+// ZK proof generation is injected, not imported, so this module stays free of
+// `./zkProof` (→ snarkjs) and `./poseidon` (→ circomlib). That lets the demo
+// daemon import the *real* claimBuilder instead of re-inlining claim-building
+// (the source of three settlement-breaking drifts — see claimCore.ts). The
+// service worker wires the snarkjs-backed prover via setProveZk() at startup;
+// the demo leaves it null, so ZK-required campaigns simply get an empty proof
+// (the demo only serves non-ZK campaigns).
+export interface ProveZkArgs {
+  claimHash: string;
+  eventCount: bigint;
+  nonce: bigint;
+  campaignId: bigint;
+}
+export type ProveZkFn = (args: ProveZkArgs) => Promise<{ proofArray: string[]; nullifier: string }>;
+
+let _proveZk: ProveZkFn | null = null;
+/** Install the snarkjs-backed ZK prover (service worker only). */
+export function setProveZk(fn: ProveZkFn | null): void {
+  _proveZk = fn;
+}
 
 // Per-(user, campaign) mutex to prevent nonce race conditions
 const locks = new Map<string, Promise<void>>();
@@ -105,17 +121,16 @@ export const claimBuilder = {
         eventCount, ratePlanck, actionType: 0, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
       });
 
-      // Generate real Groth16 proof + nullifier if campaign requires it (FP-5)
+      // Generate real Groth16 proof + nullifier if campaign requires it (FP-5).
+      // Delegated to the injected prover so this module stays snarkjs-free.
       let zkProof: string[] = ZK_EMPTY;
       let nullifier = ZeroHash; // bytes32(0) → NullifierRegistry skips check for non-ZK
-      if (campaign.requiresZkProof) {
-        const userSecret = await getUserSecret();
-        const blockStored = await chrome.storage.local.get(LAST_BLOCK_KEY);
-        const lastBlock: number = blockStored[LAST_BLOCK_KEY] ?? 0;
-        const windowId = computeWindowId(lastBlock, WINDOW_BLOCKS);
-        const zk = await generateZKProof(claimHash, eventCount, nonce, userSecret, campaignId, windowId);
+      if (campaign.requiresZkProof && _proveZk) {
+        const zk = await _proveZk({ claimHash, eventCount, nonce, campaignId });
         zkProof = zk.proofArray;
         nullifier = zk.nullifier;
+      } else if (campaign.requiresZkProof && !_proveZk) {
+        console.warn(`[DATUM] Campaign ${msg.campaignId} requires a ZK proof but no prover is installed — submitting empty proof (will be rejected on-chain).`);
       }
 
       const claim: Claim = {

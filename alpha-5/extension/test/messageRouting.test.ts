@@ -8,13 +8,21 @@
 // This test pins the invariant: every protocol message type the real background
 // handler dispatches must ALSO be handled by the demo daemon — unless it's on the
 // curated SW_ONLY allowlist (with a reason). Adding a new background case without a
-// daemon handler (or an allowlist entry) fails the build. It's the regression gate
-// the full router extraction (Phases 1–3) will preserve once both call one routeMessage.
+// daemon handler (or an allowlist entry) fails the build.
+//
+// Phases 1–3 are now landed: the single switch lives in background/router.ts
+// (routeMessage), which BOTH the service worker and the demo daemon call. The
+// daemon keeps a thin pre-router (its own switch) for genuinely demo-only or
+// divergent messages and falls through to routeMessage for the rest. So the
+// "background" case set is the union of router.ts (the shared switch) and the
+// daemon's own switch is the union of its pre-router + everything routeMessage
+// handles. We scan router.ts as the source of truth for background-dispatched
+// types, and the daemon file for what the demo intercepts directly.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const BG = resolve(__dirname, "../src/background/index.ts");
+const BG = resolve(__dirname, "../src/background/router.ts");
 const DAEMON = resolve(__dirname, "../../../web/src/lib/extensionDaemon.ts");
 
 /** Extract `case "FOO":` switch labels from a source file. */
