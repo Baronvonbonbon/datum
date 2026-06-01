@@ -51,17 +51,37 @@ function storageGet(keys?: GetKeys, callback?: (r: StorageResult) => void): Prom
   return Promise.resolve(result);
 }
 
+// chrome.storage.onChanged shim — lets popup UI (e.g. PollStatusBar) subscribe to
+// live storage updates in the demo just like the real extension does.
+type StorageChange = { oldValue?: unknown; newValue?: unknown };
+type StorageChangeListener = (changes: Record<string, StorageChange>, area: string) => void;
+const storageListeners: StorageChangeListener[] = [];
+function notifyStorageChange(changes: Record<string, StorageChange>): void {
+  if (Object.keys(changes).length === 0) return;
+  for (const fn of storageListeners) {
+    try { fn(changes, "local"); } catch { /* a listener error must not break the writer */ }
+  }
+}
+
 function storageSet(items: Record<string, unknown>, callback?: () => void): Promise<void> {
+  const changes: Record<string, StorageChange> = {};
   for (const [k, v] of Object.entries(items)) {
+    changes[k] = { oldValue: readKey(k), newValue: v };
     localStorage.setItem(NS + k, JSON.stringify(v));
   }
+  notifyStorageChange(changes);
   if (callback) Promise.resolve().then(callback);
   return Promise.resolve();
 }
 
 function storageRemove(keys: string | string[], callback?: () => void): Promise<void> {
   const ks = Array.isArray(keys) ? keys : [keys];
-  for (const k of ks) localStorage.removeItem(NS + k);
+  const changes: Record<string, StorageChange> = {};
+  for (const k of ks) {
+    changes[k] = { oldValue: readKey(k), newValue: undefined };
+    localStorage.removeItem(NS + k);
+  }
+  notifyStorageChange(changes);
   if (callback) Promise.resolve().then(callback);
   return Promise.resolve();
 }
@@ -165,6 +185,13 @@ export function installChromeShim(): void {
   (window as any).chrome = {
     storage: {
       local: { get: storageGet, set: storageSet, remove: storageRemove },
+      onChanged: {
+        addListener: (fn: StorageChangeListener) => { storageListeners.push(fn); },
+        removeListener: (fn: StorageChangeListener) => {
+          const i = storageListeners.indexOf(fn);
+          if (i >= 0) storageListeners.splice(i, 1);
+        },
+      },
     },
     runtime: {
       id: "datum-demo",

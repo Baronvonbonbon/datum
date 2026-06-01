@@ -33,15 +33,19 @@ export function PollStatusBar() {
   const [, force] = useState(0);
 
   useEffect(() => {
-    chrome.storage.local.get("pollStatus", (s) => setPs(s.pollStatus ?? null));
+    // Guard every chrome.* access: in the webapp demo (chromeShim) or any
+    // non-extension host, storage/onChanged may be partially implemented.
+    // An unguarded throw here would unmount the whole tree (blank page).
+    const storage = (globalThis as { chrome?: typeof chrome }).chrome?.storage;
+    storage?.local?.get?.("pollStatus", (s) => setPs((s as { pollStatus?: PollStatus }).pollStatus ?? null));
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area === "local" && changes.pollStatus) setPs((changes.pollStatus.newValue as PollStatus) ?? null);
     };
-    chrome.storage.onChanged.addListener(onChange);
+    storage?.onChanged?.addListener?.(onChange);
     // tick so the "Xs ago" label stays fresh while idle
     const t = setInterval(() => force((n) => n + 1), 5000);
     return () => {
-      chrome.storage.onChanged.removeListener(onChange);
+      storage?.onChanged?.removeListener?.(onChange);
       clearInterval(t);
     };
   }, []);
