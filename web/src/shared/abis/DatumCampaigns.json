@@ -237,31 +237,6 @@
         "type": "address"
       },
       {
-        "indexed": false,
-        "internalType": "uint32",
-        "name": "maxEvents",
-        "type": "uint32"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint32",
-        "name": "windowBlocks",
-        "type": "uint32"
-      }
-    ],
-    "name": "AdvertiserPacingSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "advertiser",
-        "type": "address"
-      },
-      {
         "indexed": true,
         "internalType": "address",
         "name": "signer",
@@ -453,43 +428,6 @@
       },
       {
         "indexed": false,
-        "internalType": "uint16",
-        "name": "allowedPolicies",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "priceFloorBps",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "minRelevanceBps",
-        "type": "uint16"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "requirePolicyAttest",
-        "type": "bool"
-      }
-    ],
-    "name": "CampaignPolicyEnvelopeSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "campaignId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
         "internalType": "bytes32",
         "name": "category",
         "type": "bytes32"
@@ -641,6 +579,38 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "finalValue",
+        "type": "uint256"
+      }
+    ],
+    "name": "MinimumCpmFloorLocked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldValue",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newValue",
+        "type": "uint256"
+      }
+    ],
+    "name": "MinimumCpmFloorSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "previousOwner",
@@ -673,6 +643,19 @@
       }
     ],
     "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "pg",
+        "type": "address"
+      }
+    ],
+    "name": "ParameterGovernanceSet",
     "type": "event"
   },
   {
@@ -742,6 +725,38 @@
       }
     ],
     "name": "PendingRefStaged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "finalValue",
+        "type": "uint256"
+      }
+    ],
+    "name": "PendingTimeoutBlocksLocked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldValue",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newValue",
+        "type": "uint256"
+      }
+    ],
+    "name": "PendingTimeoutBlocksSet",
     "type": "event"
   },
   {
@@ -1329,6 +1344,13 @@
   },
   {
     "inputs": [],
+    "name": "forfeitPaseoDust",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "freeze",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -1342,30 +1364,6 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "advertiser",
-        "type": "address"
-      }
-    ],
-    "name": "getAdvertiserPacing",
-    "outputs": [
-      {
-        "internalType": "uint32",
-        "name": "maxEventsPerWindow",
-        "type": "uint32"
-      },
-      {
-        "internalType": "uint32",
-        "name": "windowBlocks",
-        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -1562,40 +1560,6 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "campaignId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getCampaignPolicyEnvelope",
-    "outputs": [
-      {
-        "internalType": "uint16",
-        "name": "allowedPolicies",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "priceFloorBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "minRelevanceBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "bool",
-        "name": "requirePolicyAttest",
-        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -2043,6 +2007,20 @@
   },
   {
     "inputs": [],
+    "name": "lockMinimumCpmFloor",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lockPendingTimeoutBlocks",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "maxAllowedMinStake",
     "outputs": [
       {
@@ -2140,6 +2118,19 @@
   },
   {
     "inputs": [],
+    "name": "minimumCpmFloorLocked",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "nextCampaignId",
     "outputs": [
       {
@@ -2154,6 +2145,19 @@
   {
     "inputs": [],
     "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "parameterGovernance",
     "outputs": [
       {
         "internalType": "address",
@@ -2276,6 +2280,19 @@
   },
   {
     "inputs": [],
+    "name": "pendingTimeoutBlocksLocked",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "publishers",
     "outputs": [
       {
@@ -2291,7 +2308,7 @@
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -2316,24 +2333,6 @@
       }
     ],
     "name": "setActivationBonds",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint32",
-        "name": "maxEventsPerWindow",
-        "type": "uint32"
-      },
-      {
-        "internalType": "uint32",
-        "name": "windowBlocks",
-        "type": "uint32"
-      }
-    ],
-    "name": "setAdvertiserPacing",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -2458,39 +2457,6 @@
       }
     ],
     "name": "setCampaignMinStake",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "campaignId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint16",
-        "name": "allowedPolicies",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "priceFloorBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "uint16",
-        "name": "minRelevanceBps",
-        "type": "uint16"
-      },
-      {
-        "internalType": "bool",
-        "name": "requirePolicyAttest",
-        "type": "bool"
-      }
-    ],
-    "name": "setCampaignPolicyEnvelope",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -2636,6 +2602,32 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "newFloor",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMinimumCpmFloor",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "pg",
+        "type": "address"
+      }
+    ],
+    "name": "setParameterGovernance",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "campaignId",
         "type": "uint256"
       },
@@ -2646,6 +2638,19 @@
       }
     ],
     "name": "setPendingExpiryBlock",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "newTimeout",
+        "type": "uint256"
+      }
+    ],
+    "name": "setPendingTimeoutBlocks",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

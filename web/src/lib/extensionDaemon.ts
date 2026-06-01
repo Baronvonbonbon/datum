@@ -339,8 +339,8 @@ async function handleMessage(msg: any): Promise<unknown> {
           const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
           const stl2 = getSettlementContract(s2?.contractAddresses, p2);
           const [n2, h2] = await Promise.all([
-            stl2.lastNonce(msg.userAddress, msg.campaignId),
-            stl2.lastClaimHash(msg.userAddress, msg.campaignId),
+            stl2.lastNonce(msg.userAddress, msg.campaignId, 0),
+            stl2.lastClaimHash(msg.userAddress, msg.campaignId, 0),
           ]);
           await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId: msg.campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
         } catch {
@@ -362,8 +362,8 @@ async function handleMessage(msg: any): Promise<unknown> {
             const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
             const stl2 = getSettlementContract(s2?.contractAddresses, p2);
             const [n2, h2] = await Promise.all([
-              stl2.lastNonce(msg.userAddress, campaignId),
-              stl2.lastClaimHash(msg.userAddress, campaignId),
+              stl2.lastNonce(msg.userAddress, campaignId, 0),
+              stl2.lastClaimHash(msg.userAddress, campaignId, 0),
             ]);
             await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
           } catch {
@@ -915,14 +915,14 @@ async function handleMessage(msg: any): Promise<unknown> {
         for (const b of splitBatches) {
           const cid = b.campaignId.toString();
           try {
-            const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+            const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId, 0);
             const expectedFirst = onChainNonce + 1n;
             const actualFirst: bigint = b.claims[0].nonce;
             const allNonces = b.claims.map((c: any) => c.nonce.toString()).join(",");
             console.log(`[datum-daemon] Pre-submit campaign ${cid}: on-chain=${onChainNonce}, local nonces=[${allNonces}], expected first=${expectedFirst}`);
             // Also fetch on-chain lastClaimHash to verify the hash chain is intact
             const onChainHash: string = onChainNonce > 0n
-              ? await settlement.lastClaimHash(b.user, b.campaignId)
+              ? await settlement.lastClaimHash(b.user, b.campaignId, 0)
               : "0x0000000000000000000000000000000000000000000000000000000000000000";
             const localPrevHash: string = b.claims[0].previousClaimHash;
 
@@ -977,10 +977,10 @@ async function handleMessage(msg: any): Promise<unknown> {
             const b = validSplitBatches[i];
             const cid = b.campaignId.toString();
             try {
-              const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId);
+              const onChainNonce: bigint = await settlement.lastNonce(b.user, b.campaignId, 0);
               const expectedNonce = onChainNonce + 1n;
               const expectedPrevHash: string = onChainNonce > 0n
-                ? await settlement.lastClaimHash(b.user, b.campaignId)
+                ? await settlement.lastClaimHash(b.user, b.campaignId, 0)
                 : "0x0000000000000000000000000000000000000000000000000000000000000000";
               const firstClaim = b.claims[0];
               const claimStruct = {
@@ -1093,7 +1093,7 @@ async function handleMessage(msg: any): Promise<unknown> {
               // Retry lastNonce check — Paseo state reads can be stale immediately after tx
               let onChainNonce: bigint = 0n;
               for (let attempt = 0; attempt < 3; attempt++) {
-                onChainNonce = await settlement.lastNonce(b.user, b.campaignId);
+                onChainNonce = await settlement.lastNonce(b.user, b.campaignId, 0);
                 if (onChainNonce >= b.claims[0].nonce) break;
                 if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
               }
@@ -1110,7 +1110,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                 anySettled = true;
                 // Sync chain state from on-chain so new impressions start from verified base
                 try {
-                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
+                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId, 0);
                   const chainKey = `chainState:${userAddress}:${cid}`;
                   await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: String(onChainHash) } });
                   console.log(`[datum-daemon] Synced chain state for campaign ${cid}: nonce=${onChainNonce} hash=${String(onChainHash).slice(0, 14)}…`);
@@ -1125,7 +1125,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                 // Seed chain state from on-chain so next impression starts at the right nonce
                 const chainKey = `chainState:${userAddress}:${cid}`;
                 try {
-                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId);
+                  const onChainHash: string = await settlement.lastClaimHash(b.user, b.campaignId, 0);
                   await chrome.storage.local.set({ [chainKey]: { userAddress, campaignId: cid, lastNonce: Number(onChainNonce), lastClaimHash: onChainHash } });
                 } catch {
                   // RPC failure — leave chain state intact; pruneSettledClaims will resync on next cycle.
@@ -1139,7 +1139,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                     const cv = getClaimValidatorContract(s.contractAddresses, provider);
                     const expectedNonce2 = onChainNonce + 1n;
                     const expectedPrevHash2: string = onChainNonce > 0n
-                      ? await settlement.lastClaimHash(b.user, b.campaignId)
+                      ? await settlement.lastClaimHash(b.user, b.campaignId, 0)
                       : "0x0000000000000000000000000000000000000000000000000000000000000000";
                     const fc = b.claims[0];
                     const [vOk, vCode]: [boolean, number] = await cv.validateClaim(

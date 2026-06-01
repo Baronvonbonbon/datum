@@ -1317,21 +1317,6 @@
             "internalType": "bytes32",
             "name": "powNonce",
             "type": "bytes32"
-          },
-          {
-            "internalType": "uint8",
-            "name": "policyId",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint16",
-            "name": "interestWeightBps",
-            "type": "uint16"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "auctionRootCommit",
-            "type": "bytes32"
           }
         ],
         "internalType": "struct IDatumSettlement.Claim[]",
@@ -1423,7 +1408,7 @@
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -1890,21 +1875,6 @@
                 "internalType": "bytes32",
                 "name": "powNonce",
                 "type": "bytes32"
-              },
-              {
-                "internalType": "uint8",
-                "name": "policyId",
-                "type": "uint8"
-              },
-              {
-                "internalType": "uint16",
-                "name": "interestWeightBps",
-                "type": "uint16"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "auctionRootCommit",
-                "type": "bytes32"
               }
             ],
             "internalType": "struct IDatumSettlement.Claim[]",
@@ -2031,21 +2001,6 @@
                   {
                     "internalType": "bytes32",
                     "name": "powNonce",
-                    "type": "bytes32"
-                  },
-                  {
-                    "internalType": "uint8",
-                    "name": "policyId",
-                    "type": "uint8"
-                  },
-                  {
-                    "internalType": "uint16",
-                    "name": "interestWeightBps",
-                    "type": "uint16"
-                  },
-                  {
-                    "internalType": "bytes32",
-                    "name": "auctionRootCommit",
                     "type": "bytes32"
                   }
                 ],
