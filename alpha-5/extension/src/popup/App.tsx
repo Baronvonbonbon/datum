@@ -19,6 +19,7 @@ import { ReceiveTab } from "./wallet/ReceiveTab";
 import { SettingsTab } from "./wallet/SettingsTab";
 import { EarningsTab } from "./wallet/EarningsTab";
 import { TxHistoryTab } from "./wallet/TxHistoryTab";
+import { PollStatusBar } from "./PollStatusBar";
 import {
   PermissionRequest,
   usePendingPermission,
@@ -209,6 +210,9 @@ function Dashboard({
           {truncated}
         </span>
       </div>
+
+      {/* Live campaign-poll progress (Pine or RPC path) */}
+      <PollStatusBar />
 
       {/* Tabs */}
       <div

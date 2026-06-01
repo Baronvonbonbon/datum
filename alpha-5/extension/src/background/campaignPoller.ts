@@ -54,15 +54,53 @@ interface SerializedCampaign {
   requiresZkProof?: boolean;
 }
 
-/** Batch an array of async tasks into groups of `size`, running each group in parallel. */
-async function batchParallel<T>(tasks: (() => Promise<T>)[], size: number): Promise<T[]> {
+/** Batch an array of async tasks into groups of `size`, running each group in
+ *  parallel. `onBatch(done)` fires after each group with the cumulative count —
+ *  used to drive the live poll-status progress bar. */
+async function batchParallel<T>(
+  tasks: (() => Promise<T>)[],
+  size: number,
+  onBatch?: (done: number) => void,
+): Promise<T[]> {
   const results: T[] = [];
   for (let i = 0; i < tasks.length; i += size) {
     const batch = tasks.slice(i, i + size);
     const batchResults = await Promise.all(batch.map(fn => fn()));
     results.push(...batchResults);
+    onBatch?.(results.length);
   }
   return results;
+}
+
+// ── Live poll status (consumed by the popup's PollStatusBar) ────────────────
+export const POLL_STATUS_KEY = "pollStatus";
+
+export interface PollStatus {
+  /** Which chain-access path this poll is using. */
+  path: "pine" | "rpc";
+  phase: "discovery" | "details" | "metadata" | "done" | "error";
+  discovered: number;   // campaigns in the index after discovery
+  detailed: number;     // campaigns whose details have been fetched (Phase 2 progress)
+  detailTotal: number;  // campaigns to detail this poll
+  active: number;       // active campaigns after the poll
+  newThisPoll: number;  // campaigns newly discovered this poll
+  scanProgress: string; // RPC backward-scan position ("first poll" | "back to block N" | "history complete")
+  currentBlock: number;
+  startedAt: number;
+  updatedAt: number;
+  error?: string;
+}
+
+let _ps: PollStatus = {
+  path: "pine", phase: "done", discovered: 0, detailed: 0, detailTotal: 0,
+  active: 0, newThisPoll: 0, scanProgress: "", currentBlock: 0, startedAt: 0, updatedAt: 0,
+};
+
+/** Merge a partial update into the live poll status and publish it to storage.
+ *  Fire-and-forget; the popup subscribes via chrome.storage.onChanged. */
+function writePollStatus(p: Partial<PollStatus>): void {
+  _ps = { ..._ps, ...p, updatedAt: Date.now() };
+  void chrome.storage.local.set({ [POLL_STATUS_KEY]: _ps });
 }
 
 export const campaignPoller = {
@@ -105,6 +143,12 @@ export const campaignPoller = {
       // Pine path: eth_getLogs unsupported — use nextCampaignId enumeration instead.
       const currentBlock = await provider.getBlockNumber();
       const isFirstPoll = lastBlock < 0;
+
+      writePollStatus({
+        path: pineChain ? "pine" : "rpc", phase: "discovery", currentBlock,
+        discovered: Object.keys(index).length, detailed: 0, detailTotal: 0,
+        active: 0, newThisPoll: 0, scanProgress: "", error: undefined, startedAt: Date.now(),
+      });
 
       // Forward window: most recent chunk only on first poll; new blocks only thereafter.
       const forwardFrom = isFirstPoll
@@ -280,6 +324,7 @@ export const campaignPoller = {
       }
 
       // ── Phase 2: Refresh status for all known non-terminal campaigns ───
+      writePollStatus({ phase: "details", discovered: Object.keys(index).length, newThisPoll: newCampaignIds.length });
       // Only refresh campaigns that are Active, Pending, or Paused
       const refreshIds = Object.keys(index).filter(id => {
         const s = Number(index[id].status);
@@ -338,8 +383,10 @@ export const campaignPoller = {
         }
       });
 
-      await batchParallel(statusTasks, BATCH_SIZE);
+      writePollStatus({ detailTotal: refreshIds.length, detailed: 0 });
+      await batchParallel(statusTasks, BATCH_SIZE, (done) => writePollStatus({ detailed: done }));
 
+      writePollStatus({ phase: "metadata" });
       // ── Phase 2b: Fetch tags + metadata for new campaigns + self-heal ────
       // Include new campaigns AND any cached campaigns with empty/missing requiredTags
       // or missing metadataHash, so the index self-heals across polls.
@@ -404,6 +451,7 @@ export const campaignPoller = {
         : nextScanBackBlock === 0 ? "history complete"
         : `back to block ${nextScanBackBlock}`;
       console.log(`[DATUM] Polled ${activeCampaigns.length} campaigns (${newCampaignIds.length} new, fwd ${forwardFrom}→${currentBlock}, ${scanProgress})`);
+      writePollStatus({ phase: "done", active: activeCampaigns.length, scanProgress });
 
       // ── Phase 4: Metadata cleanup ──────────────────────────────────────
       const activeIdSet = new Set(activeCampaigns.map(c => c.id));
@@ -464,6 +512,7 @@ export const campaignPoller = {
 
     } catch (err) {
       console.error("[DATUM] campaignPoller.poll failed:", err);
+      writePollStatus({ phase: "error", error: String(err instanceof Error ? err.message : err).slice(0, 140) });
     } finally {
       _polling = false;
     }
