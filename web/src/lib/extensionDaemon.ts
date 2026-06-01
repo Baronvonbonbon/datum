@@ -10,15 +10,10 @@
  * up on the demo page.
  */
 
-import { Wallet, JsonRpcProvider, AbiCoder, keccak256 as ethersKeccak256, ZeroHash } from "ethers";
-
-// L-2: alpha-4 EVM ClaimValidator hashes the 10-field (alpha-5 +stakeRootUsed) preimage with abi.encode + keccak256.
-// (Switched from Blake2 + solidityPacked which was the alpha-3 PVM behaviour.)
-const _abiCoder = AbiCoder.defaultAbiCoder();
-function computeClaimHash(types: string[], values: unknown[]): string {
-  return ethersKeccak256(_abiCoder.encode(types, values));
-}
-// blake2b was used pre-L-2 (alpha-3 PVM hash). Alpha-4 EVM uses keccak256 — see computeClaimHash above.
+import { Wallet, JsonRpcProvider, ZeroHash } from "ethers";
+// Canonical claim hash lives in claimCore (shared with the extension claimBuilder)
+// — the daemon must NOT keep its own copy of the preimage schema (it drifted 3×).
+import { computeClaimHash } from "@ext/background/claimCore";
 
 // Claim-submission status published to chrome.storage.local so the popup's
 // PollStatusBar can commandeer its slot to show submitting / settled / failed
@@ -637,10 +632,10 @@ async function handleMessage(msg: any): Promise<unknown> {
         // L-2: keccak256(abi.encode(...)) matches alpha-4 DatumClaimValidator 10-field (alpha-5 +stakeRootUsed) preimage:
         // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
         // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
-        const claimHash = computeClaimHash(
-          ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
-        );
+        const claimHash = computeClaimHash({
+          campaignId: campaignIdBig, publisher: msg.publisherAddress, user: userAddress,
+          eventCount: 1n, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+        });
 
         await chrome.storage.local.set({
           [CHAIN_KEY]: { userAddress, campaignId: msg.campaignId, lastNonce: Number(nonce), lastClaimHash: claimHash },
@@ -765,10 +760,10 @@ async function handleMessage(msg: any): Promise<unknown> {
             const campaignIdBig = BigInt(cid);
             const clearingCpm = BigInt(cpm);
             // L-2: keccak256(abi.encode(...)) — 10-field (alpha-5 +stakeRootUsed) preimage, actionType=0, clickSessionHash=ZeroHash
-            const claimHash = computeClaimHash(
-              ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
-            );
+            const claimHash = computeClaimHash({
+              campaignId: campaignIdBig, publisher, user: ua,
+              eventCount: impressionCount, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+            });
             existingQueue.push({
               campaignId: cid, publisher,
               eventCount: impressionCount.toString(), ratePlanck: cpm,
@@ -838,10 +833,10 @@ async function handleMessage(msg: any): Promise<unknown> {
                 // L-2: 10-field (alpha-5 +stakeRootUsed) preimage hashed with keccak256(abi.encode(...)) to match
                 // DatumClaimValidator.sol check 8 on alpha-4 EVM.
                 // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
-                const claimHash = computeClaimHash(
-                  ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
-                );
+                const claimHash = computeClaimHash({
+                  campaignId: campaignIdBig, publisher, user: ua,
+                  eventCount: impressionCount, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+                });
 
                 existingQueue.push({
                   campaignId: cid,

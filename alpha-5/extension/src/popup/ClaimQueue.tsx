@@ -283,10 +283,15 @@ export function ClaimQueue({ address, onSettled }: Props) {
         return;
       }
       if (daemonResp?.error) {
-        // Daemon available but reported an error (e.g. stale nonces, empty queue).
-        // Fall through to user wallet — the daemon couldn't handle it.
-        console.warn("[datum] daemon error, falling through to user wallet:", daemonResp.error);
+        // The daemon IS the demo's submit path — surface its real reason (revert
+        // code, "No pending claims", etc.) instead of falling through to the
+        // in-popup signer, which holds no key in the demo and would mask the real
+        // failure as "Wallet is locked". Real extension: no daemon → daemonResp is
+        // null/undefined → this is skipped and we fall through to the user wallet.
+        console.warn("[datum] daemon submit failed:", daemonResp.error);
+        setError(daemonResp.error);
         await loadState();
+        return;
       }
 
       const signer = getSigner(settings.rpcUrl);

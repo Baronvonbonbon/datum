@@ -214,6 +214,41 @@ as defense‑in‑depth. The Phase‑0 contract test now guards against re‑dri
 
 ---
 
+## Workstream B — claim-building (the higher-impact half, added 2026-06-01)
+
+The router duplication (above) is Workstream A. Live testing surfaced a second, more
+damaging reimplementation: the daemon **inlines its own claim-building** because it
+can't import `@ext/background/claimBuilder.ts` (that pulls in `zkProof.ts` → snarkjs,
+which isn't web-bundled). That inline copy has drifted from the contracts repeatedly:
+
+- `policyId` — daemon/web ABI carried an alpha-4 field the alpha-5 chain dropped (ethers "missing value for component policyId").
+- `lastNonce`/`lastClaimHash` — daemon called the 2-arg alpha-4 signature; alpha-5 added `actionType`.
+- **claim hash** — daemon hashed a **9-field** alpha-4 preimage; alpha-5 `DatumClaimValidator` hashes **10 fields** (adds `stakeRootUsed`) → every claim rejected (code 10), nothing settled.
+
+Each was a silent settlement-breaker found only by reading reverts. The fix so far has
+been to hand-match the schema — exactly the drift the refactor must end.
+
+**Goal:** the daemon must *consume* the canonical claim-building, not re-derive it.
+
+**Approach:** factor the snarkjs-free core out of `claimBuilder.ts` into a shared
+module (e.g. `@ext/background/claimCore`) — the claim-hash preimage (the 10-field
+`AbiCoder.encode` schema), the field layout, and the `settleClaims`/`lastNonce` call
+shapes — with ZK proof generation kept behind an injected, optional `proveZk?(...)`
+hook (null in the demo, snarkjs-backed in the extension/relay). Both the real
+`claimBuilder` and the daemon import `claimCore`; the daemon passes `proveZk: null`.
+Delete the daemon's inline `computeClaimHash` sites + the hardcoded 9/10-field arrays.
+
+**Regression gate:** a unit test that hashes a fixed claim with `claimCore` and asserts
+it equals `DatumClaimValidator`'s `keccak256(abi.encode(...))` for the same inputs
+(derive the field list from one source of truth). This would have caught all three
+drifts above at build time.
+
+**Sequence:** Workstream A (router) and B (claim-building) are independent; do **B
+first** — it's where the real bugs live and it's smaller (one module + the daemon's
+3 hash sites + the submit/validate call shapes), then A.
+
+---
+
 ## Interim state (already shipped — not the refactor)
 
 - Visible fallback `default` case in the daemon (`extensionDaemon.ts`).

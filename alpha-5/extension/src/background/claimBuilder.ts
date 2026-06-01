@@ -3,42 +3,19 @@
 // Hash preimage: (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
 // L-2: claim hash uses abi.encode (32-byte aligned) — must match DatumClaimValidator on-chain.
 
-import { AbiCoder, keccak256 as ethersKeccak256, ZeroHash, zeroPadValue, toBeHex } from "ethers";
+import { ZeroHash } from "ethers";
 import { Claim, ClaimChainState } from "@shared/types";
 import { generateZKProof } from "./zkProof";
 import { getUserSecret, computeWindowId } from "./poseidon";
+// Canonical claim-hash + helpers live in claimCore (shared with the demo daemon)
+// so the preimage schema can never drift between consumers again.
+import { computeClaimHash, ZK_EMPTY, SIG_EMPTY, nonceToBytes32, parseSigToArray } from "./claimCore";
 
 const WINDOW_BLOCKS = 14400; // 24h at 6s/block
 const LAST_BLOCK_KEY = "pollLastBlock";
-const ZK_EMPTY: string[] = new Array(8).fill(ZeroHash);
-const SIG_EMPTY: string[] = [ZeroHash, ZeroHash, ZeroHash];
-
-/** Parse a 65-byte ECDSA signature hex into bytes32[3] = [r, s, v_as_bytes32]. */
-function parseSigToArray(sig: string): string[] {
-  if (Array.isArray(sig)) return sig as string[];
-  if (!sig || sig === "0x" || sig.length < 132) return SIG_EMPTY;
-  const hex = sig.startsWith("0x") ? sig.slice(2) : sig;
-  if (hex.length < 130) return SIG_EMPTY;
-  const r = "0x" + hex.slice(0, 64);
-  const s = "0x" + hex.slice(64, 128);
-  const v = parseInt(hex.slice(128, 130), 16);
-  return [r, s, "0x" + v.toString(16).padStart(64, "0")];
-}
-
-/** keccak256 hash of ABI-encoded values (32-byte aligned).
- *  L-2: must match DatumClaimValidator.validateClaim() on EVM, which uses abi.encode. */
-const _abiCoder = AbiCoder.defaultAbiCoder();
-function computeClaimHash(types: string[], values: unknown[]): string {
-  return ethersKeccak256(_abiCoder.encode(types, values));
-}
 
 const CHAIN_STATE_PREFIX = "chainState:";
 const QUEUE_KEY = "claimQueue";
-
-/** Convert uint256 nonce to bytes32 hex string (for clickSessionHash field in type-1 claims). */
-function nonceToBytes32(nonce: bigint): string {
-  return zeroPadValue(toBeHex(nonce), 32);
-}
 
 // Per-(user, campaign) mutex to prevent nonce race conditions
 const locks = new Map<string, Promise<void>>();
@@ -123,21 +100,10 @@ export const claimBuilder = {
 
       // keccak256; 10-field preimage matches DatumClaimValidator.validateClaim():
       // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash, stakeRootUsed)
-      const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [
-          campaignId,
-          msg.publisherAddress,
-          userAddress,
-          eventCount,
-          ratePlanck,
-          0,               // actionType = 0 (view)
-          clickSessionHash,
-          nonce,
-          previousClaimHash,
-          stakeRootUsed,
-        ]
-      );
+      const claimHash = computeClaimHash({
+        campaignId, publisher: msg.publisherAddress, user: userAddress,
+        eventCount, ratePlanck, actionType: 0, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
+      });
 
       // Generate real Groth16 proof + nullifier if campaign requires it (FP-5)
       let zkProof: string[] = ZK_EMPTY;
@@ -220,10 +186,10 @@ export const claimBuilder = {
       const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
 
       const stakeRootUsed = ZeroHash; // click claims don't use ZK stake gate
-      const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed]
-      );
+      const claimHash = computeClaimHash({
+        campaignId, publisher: msg.publisherAddress, user: userAddress,
+        eventCount, ratePlanck, actionType: 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
+      });
 
       const claim: Claim = {
         campaignId,
@@ -285,10 +251,10 @@ export const claimBuilder = {
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
       const stakeRootUsed = ZeroHash; // remote-action claims don't use ZK stake gate
-      const claimHash = computeClaimHash(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, msg.publisherAddress, userAddress, eventCount, ratePlanck, 2, ZeroHash, nonce, previousClaimHash, stakeRootUsed]
-      );
+      const claimHash = computeClaimHash({
+        campaignId, publisher: msg.publisherAddress, user: userAddress,
+        eventCount, ratePlanck, actionType: 2, clickSessionHash: ZeroHash, nonce, previousClaimHash, stakeRootUsed,
+      });
 
       const claim: Claim = {
         campaignId,
