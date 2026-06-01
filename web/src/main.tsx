@@ -14,6 +14,20 @@ import { getPineProvider } from "./lib/provider";
 // its own.
 void getPineProvider().catch(() => undefined);
 
+// Auto-recover from stale chunk references across deploys. The app code-splits
+// (Pine/smoldot, route chunks), and each deploy rehashes those filenames — an open
+// tab that lazily imports an old hash gets "Failed to fetch dynamically imported
+// module" and the failure is cached until reload. Listen for vite's preloadError and
+// reload once to pick up the new index + chunks (sessionStorage-guarded vs loops).
+window.addEventListener("vite:preloadError", (e: Event) => {
+  const KEY = "datum:preload-reloaded-at";
+  const last = Number(sessionStorage.getItem(KEY) || "0");
+  if (Date.now() - last < 15000) return; // already reloaded recently — avoid a loop
+  sessionStorage.setItem(KEY, String(Date.now()));
+  (e as Event & { preventDefault?: () => void }).preventDefault?.();
+  location.reload();
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
