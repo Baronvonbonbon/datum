@@ -146,10 +146,15 @@ stay free of those.
 
 ## Migration plan (staged, each step independently shippable)
 
-**Phase 0 — pin behavior.** Add a message‑routing contract test: a table of every
-`msg.type` the popup/content can send (derive from `@shared/messages`), asserting
-each is either handled or explicitly classified reply/fire‑and‑forget. This is the
-regression gate; run it in CI. (Cheap; do first.)
+**Phase 0 — pin behavior. ✅ DONE (2026-06-01, `alpha-5/extension/test/messageRouting.test.ts`).**
+Static contract test: extracts the `case` labels from the background router and the
+demo daemon and asserts the daemon handles every background protocol type, except a
+curated `SW_ONLY` allowlist (16 entries, each with a reason: PROVIDER_* page-provider,
+AD_CLICK/REMOTE_ACTION view-only demo, ENGAGEMENT_* telemetry, *_IMPRESSION_LOG debug,
+EARNINGS_REFRESH_ONESHOT, PRUNE_SETTLED_UP_TO_NONCE). A new background case without a
+daemon handler or allowlist entry fails the build. A third assertion keeps the
+allowlist honest (no stale entries). This is the regression gate the extraction below
+must preserve.
 
 **Phase 1 — extract, no behavior change.** Move `background/index.ts`'s
 `handleMessage` switch into `routeMessage(msg, env)` in a new `@ext/background/router`
