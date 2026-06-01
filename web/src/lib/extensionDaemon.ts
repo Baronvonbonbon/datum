@@ -30,7 +30,61 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
 
 import { installChromeShim } from "./chromeShim";
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
-import { getSettlementContract, getClaimValidatorContract } from "@shared/contracts";
+import { getSettlementContract, getClaimValidatorContract, getCampaignsContract } from "@shared/contracts";
+
+// Probe the settlement-level gates the daemon can read, used when a settleClaims
+// tx reverts with NO reason data (bare require) and validateClaim itself passes —
+// converts an opaque revert into a named cause shown in the claim-status indicator.
+// Best-effort: every read is guarded so a missing getter just skips that check.
+async function probeSettlementRevert(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contractAddresses: any,
+  provider: JsonRpcProvider,
+  campaignId: bigint,
+  claim: { publisher: string; ratePlanck: bigint; actionType: number },
+  relayAddr: string,
+): Promise<string | null> {
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const STATUS = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
+  try {
+    const campaigns = getCampaignsContract(contractAddresses, provider);
+
+    // 1. Campaign must be Active (settlement rejects any other status).
+    try {
+      const r = await campaigns.getCampaignForSettlement(campaignId);
+      const st = Number(r[0] ?? r.status);
+      const pub: string = r[1] ?? r.publisher;
+      if (st !== 1) return `campaign #${campaignId} is ${STATUS[st] ?? `status ${st}`}, not Active`;
+      if (pub && pub !== ZERO && pub.toLowerCase() !== claim.publisher.toLowerCase())
+        return `publisher mismatch — campaign #${campaignId} is fixed to ${pub.slice(0, 10)}…, claim served on ${claim.publisher.slice(0, 10)}…`;
+    } catch { /* getter unavailable — skip */ }
+
+    // 2. AssuranceLevel ≥ 2 ⇒ dual-sig required; the gasless relay path is rejected.
+    try {
+      const lvl = Number(await campaigns.getCampaignAssuranceLevel(campaignId));
+      if (lvl >= 2) return `campaign #${campaignId} requires AssuranceLevel L${lvl} (dual-sig) — gasless relay settleClaims not allowed; needs publisher+advertiser cosign`;
+    } catch { /* skip */ }
+
+    // 3. Relay wallet must be the campaign's authorized relaySigner.
+    try {
+      const rs: string = await campaigns.getCampaignRelaySigner(campaignId);
+      if (rs && rs !== ZERO && rs.toLowerCase() !== relayAddr.toLowerCase())
+        return `relay ${relayAddr.slice(0, 10)}… is not campaign #${campaignId}'s relaySigner (${rs.slice(0, 10)}…) — settleClaims sender unauthorized`;
+    } catch { /* skip */ }
+
+    // 4. CPM pot must exist + its rate ceiling must cover the claim rate.
+    try {
+      const pot = await campaigns.getCampaignPot(campaignId, claim.actionType);
+      const potRate = BigInt(pot.ratePlanck ?? pot[3] ?? 0);
+      const budget = BigInt(pot.budgetPlanck ?? pot[1] ?? 0);
+      if (budget === 0n) return `campaign #${campaignId} actionType-${claim.actionType} pot has zero budget`;
+      if (potRate > 0n && claim.ratePlanck > potRate) return `claim rate ${claim.ratePlanck} exceeds pot ceiling ${potRate} (campaign #${campaignId})`;
+    } catch {
+      return `campaign #${campaignId} has no pot for actionType ${claim.actionType} (getCampaignPot reverted)`;
+    }
+  } catch { /* campaigns contract unavailable */ }
+  return null;
+}
 
 // Install shim synchronously at module evaluation time.
 // Must happen before any chrome.* call at runtime.
@@ -1164,6 +1218,17 @@ async function handleMessage(msg: any): Promise<unknown> {
                     );
                     if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;
                   } catch { /* RPC failed — use generic message */ }
+                }
+                // validateClaim passed (or was unavailable) → the revert is settlement-
+                // level (bare require, no reason data). Probe the readable gates to name it.
+                if (rejectReason === "nonce chain invalid or budget exhausted") {
+                  const fc0 = b.claims[0];
+                  const probed = await probeSettlementRevert(
+                    s.contractAddresses, provider, b.campaignId,
+                    { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0) },
+                    relayWallet.address,
+                  );
+                  rejectReason = probed ?? "validator + all readable gates OK; settleClaims reverted with no reason data — inspect the relay tx on Blockscout";
                 }
                 lastTxError = `Settlement reverted for campaign ${cid}: ${rejectReason}`;
               }
