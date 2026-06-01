@@ -21,6 +21,8 @@ import { EarningsTab } from "./wallet/EarningsTab";
 import { TxHistoryTab } from "./wallet/TxHistoryTab";
 import { PollStatusBar } from "./PollStatusBar";
 import { ClaimQueue } from "./ClaimQueue";
+import { FiltersTab } from "./FiltersTab";
+import { ReportsTab } from "./ReportsTab";
 import {
   PermissionRequest,
   usePendingPermission,
@@ -32,6 +34,8 @@ type Tab =
   | "send"
   | "receive"
   | "claims"
+  | "filters"
+  | "reports"
   | "history"
   | "earnings"
   | "settings";
@@ -46,6 +50,8 @@ const TAB_LABELS: Record<Tab, string> = {
   send: "Send",
   receive: "Receive",
   claims: "Claims",
+  filters: "Filters",
+  reports: "Reports",
   history: "History",
   earnings: "Earnings",
   settings: "Settings",
@@ -237,6 +243,7 @@ function Dashboard({
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
           borderBottom: "1px solid var(--border)",
           background: "var(--bg-surface)",
         }}
@@ -246,7 +253,8 @@ function Dashboard({
             key={t}
             onClick={() => setTab(t)}
             style={{
-              flex: 1,
+              flex: "1 0 auto",
+              minWidth: 58,
               background: "transparent",
               border: "none",
               borderBottom:
@@ -272,6 +280,8 @@ function Dashboard({
         {tab === "send" && <SendTab status={status} />}
         {tab === "receive" && <ReceiveTab status={status} />}
         {tab === "claims" && <ClaimQueue address={active?.address ?? ""} onSettled={refresh} />}
+        {tab === "filters" && <FiltersTab />}
+        {tab === "reports" && <ReportsTab />}
         {tab === "history" && <TxHistoryTab status={status} />}
         {tab === "earnings" && <EarningsTab status={status} />}
         {tab === "settings" && (
