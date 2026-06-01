@@ -10,7 +10,18 @@
  * up on the demo page.
  */
 
-import { Wallet, JsonRpcProvider, ZeroHash } from "ethers";
+import { Wallet, JsonRpcProvider, ZeroHash, keccak256 as ethersKeccak256, solidityPacked, toBeHex } from "ethers";
+
+// #5 PoW: grind a powNonce so keccak256(abi.encodePacked(claimHash, nonce)) <= target,
+// exactly matching DatumClaimValidator's PoW check. The alpha-5 PowEngine enforces PoW
+// at trivial (~1-byte) difficulty, so this resolves in a few hundred iterations.
+function solvePowNonce(claimHash: string, target: bigint, maxIters = 2_000_000): string | null {
+  for (let i = 0; i < maxIters; i++) {
+    const nonceHex = toBeHex(i, 32);
+    if (BigInt(ethersKeccak256(solidityPacked(["bytes32", "bytes32"], [claimHash, nonceHex]))) <= target) return nonceHex;
+  }
+  return null;
+}
 // Canonical claim hash lives in claimCore (shared with the extension claimBuilder)
 // — the daemon must NOT keep its own copy of the preimage schema (it drifted 3×).
 import { computeClaimHash } from "@ext/background/claimCore";
@@ -30,7 +41,7 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
 
 import { installChromeShim } from "./chromeShim";
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
-import { getSettlementContract, getClaimValidatorContract, getCampaignsContract } from "@shared/contracts";
+import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract } from "@shared/contracts";
 
 // Probe the settlement-level gates the daemon can read, used when a settleClaims
 // tx reverts with NO reason data (bare require) and validateClaim itself passes —
@@ -1114,6 +1125,27 @@ async function handleMessage(msg: any): Promise<unknown> {
         for (const chunk of validTxChunks) {
           // ClaimBatch for settleClaims: {user, campaignId, claims} — no publisherSig needed.
           // Diana is authorized via isPublisherRelay (publishers.relaySigner(publisher) == Diana).
+          // #5 PoW: the alpha-5 validator fail-closes with code 27 unless each claim's
+          // powNonce satisfies the DatumPowEngine target. enforcePow is on (trivial
+          // difficulty), so solve each claim's nonce inline before submit.
+          try {
+            const powEngine = getPowEngineContract(s.contractAddresses, provider);
+            if (powEngine && (await powEngine.enforcePow())) {
+              let solvedCount = 0;
+              for (const b of chunk) {
+                for (const c of b.claims) {
+                  const target = BigInt((await powEngine.powTargetForUser(b.user, c.eventCount)).toString());
+                  const solved = solvePowNonce(c.claimHash, target);
+                  if (solved) { c.powNonce = solved; solvedCount++; }
+                  else console.warn(`[datum-daemon] PoW unsolved for campaign ${b.campaignId} nonce ${c.nonce}`);
+                }
+              }
+              console.log(`[datum-daemon] PoW solved for ${solvedCount} claim(s)`);
+            }
+          } catch (e) {
+            console.warn("[datum-daemon] PoW solve step failed (submitting as-is):", e);
+          }
+
           const claimBatches = chunk.map((b: any) => ({
             user: b.user,
             campaignId: b.campaignId,
