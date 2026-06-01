@@ -4,7 +4,7 @@ import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerC
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
-import { getSigner, getUnlockedWallet } from "@shared/walletManager";
+import { OffscreenSigner } from "@shared/offscreenSigner";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -294,7 +294,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
         return;
       }
 
-      const signer = getSigner(settings.rpcUrl);
+      const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
       const signerAddr: string = signer.address;
 
       // Get batches from background (serialized — bigints as strings)
@@ -563,7 +563,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
         }
       } catch { /* fall through to user wallet */ }
 
-      const signer = getSigner(settings.rpcUrl);
+      const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
       const signerAddr: string = signer.address;
 
       const batchResponse = await chrome.runtime.sendMessage({
@@ -750,7 +750,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
         throw new Error("Relay contract address not configured. Check Settings.");
       }
 
-      const signer = getSigner(settings.rpcUrl);
+      const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
       const provider = signer.provider!;
       const network = await provider.getNetwork();
       const currentBlock = await provider.getBlockNumber();
@@ -912,7 +912,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
     setError(null);
     try {
       const settings = await getSettings();
-      const signer = getSigner(settings.rpcUrl);
+      const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
       const blob = await exportClaims(signer);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -934,7 +934,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
     setImportResult(null);
     try {
       const settings = await getSettings();
-      const signer = getSigner(settings.rpcUrl);
+      const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
 
       // Build on-chain nonce check function
       const onChainNonceFn = async (userAddr: string, campaignId: string): Promise<number> => {
