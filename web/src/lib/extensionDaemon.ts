@@ -12,7 +12,7 @@
 
 import { Wallet, JsonRpcProvider, AbiCoder, keccak256 as ethersKeccak256, ZeroHash } from "ethers";
 
-// L-2: alpha-4 EVM ClaimValidator hashes the 9-field preimage with abi.encode + keccak256.
+// L-2: alpha-4 EVM ClaimValidator hashes the 10-field (alpha-5 +stakeRootUsed) preimage with abi.encode + keccak256.
 // (Switched from Blake2 + solidityPacked which was the alpha-3 PVM behaviour.)
 const _abiCoder = AbiCoder.defaultAbiCoder();
 function computeClaimHash(types: string[], values: unknown[]): string {
@@ -620,12 +620,12 @@ async function handleMessage(msg: any): Promise<unknown> {
         const nonce = BigInt(chain.lastNonce + 1);
         const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
 
-        // L-2: keccak256(abi.encode(...)) matches alpha-4 DatumClaimValidator 9-field preimage:
+        // L-2: keccak256(abi.encode(...)) matches alpha-4 DatumClaimValidator 10-field (alpha-5 +stakeRootUsed) preimage:
         // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
         // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
         const claimHash = computeClaimHash(
-          ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, 0, ZeroHash, nonce, prevHash]
+          ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+          [campaignIdBig, msg.publisherAddress, userAddress, 1n, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
         );
 
         await chrome.storage.local.set({
@@ -750,10 +750,10 @@ async function handleMessage(msg: any): Promise<unknown> {
             const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
             const campaignIdBig = BigInt(cid);
             const clearingCpm = BigInt(cpm);
-            // L-2: keccak256(abi.encode(...)) — 9-field preimage, actionType=0, clickSessionHash=ZeroHash
+            // L-2: keccak256(abi.encode(...)) — 10-field (alpha-5 +stakeRootUsed) preimage, actionType=0, clickSessionHash=ZeroHash
             const claimHash = computeClaimHash(
-              ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
+              ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+              [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
             );
             existingQueue.push({
               campaignId: cid, publisher,
@@ -821,12 +821,12 @@ async function handleMessage(msg: any): Promise<unknown> {
                 const campaignIdBig = BigInt(cid);
                 const clearingCpm = BigInt(cpm);
 
-                // L-2: 9-field preimage hashed with keccak256(abi.encode(...)) to match
+                // L-2: 10-field (alpha-5 +stakeRootUsed) preimage hashed with keccak256(abi.encode(...)) to match
                 // DatumClaimValidator.sol check 8 on alpha-4 EVM.
                 // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
                 const claimHash = computeClaimHash(
-                  ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"],
-                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash]
+                  ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
+                  [campaignIdBig, publisher, ua, impressionCount, clearingCpm, 0, ZeroHash, nonce, prevHash, ZeroHash]
                 );
 
                 existingQueue.push({
@@ -1143,7 +1143,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                       : "0x0000000000000000000000000000000000000000000000000000000000000000";
                     const fc = b.claims[0];
                     const [vOk, vCode]: [boolean, number] = await cv.validateClaim(
-                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, stakeRootUsed: fc.stakeRootUsed ?? ZeroHash, actionSig: fc.actionSig ?? "0x" },
+                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, stakeRootUsed: fc.stakeRootUsed ?? ZeroHash, actionSig: fc.actionSig ?? "0x", powNonce: fc.powNonce ?? ZeroHash },
                       b.user, expectedNonce2, expectedPrevHash2,
                     );
                     if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;
