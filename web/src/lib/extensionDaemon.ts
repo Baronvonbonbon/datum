@@ -19,6 +19,20 @@ function computeClaimHash(types: string[], values: unknown[]): string {
   return ethersKeccak256(_abiCoder.encode(types, values));
 }
 // blake2b was used pre-L-2 (alpha-3 PVM hash). Alpha-4 EVM uses keccak256 — see computeClaimHash above.
+
+// Claim-submission status published to chrome.storage.local so the popup's
+// PollStatusBar can commandeer its slot to show submitting / settled / failed
+// (with the submit path + campaigns) while a settlement is in flight.
+const CLAIM_STATUS_KEY = "claimStatus";
+async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void> {
+  try {
+    const c = (globalThis as { chrome?: typeof chrome }).chrome;
+    if (!c?.storage?.local) return;
+    if (s === null) await c.storage.local.remove(CLAIM_STATUS_KEY);
+    else await c.storage.local.set({ [CLAIM_STATUS_KEY]: { ...s, updatedAt: Date.now() } });
+  } catch { /* non-fatal */ }
+}
+
 import { installChromeShim } from "./chromeShim";
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
 import { getSettlementContract, getClaimValidatorContract } from "@shared/contracts";
@@ -876,6 +890,13 @@ async function handleMessage(msg: any): Promise<unknown> {
         const settlement = getSettlementContract(s.contractAddresses, signer);
         console.log(`[datum-daemon] relay wallet address: ${relayWallet.address}`);
 
+        await writeClaimStatus({
+          phase: "submitting",
+          path: "relay-gasless",
+          campaigns: batches.map((b: any) => Number(b.campaignId)),
+          claimCount: batches.reduce((n: number, b: any) => n + b.claims.length, 0),
+        });
+
         // Split each batch at 4 claims — pallet-revive eth_call hard limit (~5 external calls/claim,
         // 5 claims always reverts with data=null regardless of gasLimit; 4 is confirmed safe on Paseo)
         const MAX_CLAIMS_PER_BATCH = 4;
@@ -1161,13 +1182,16 @@ async function handleMessage(msg: any): Promise<unknown> {
 
         if (totalSettled === 0 && lastTxError) {
           console.error("[datum-daemon] All tx chunks failed. Last error:", lastTxError);
+          await writeClaimStatus({ phase: "failed", error: lastTxError, settledCount: totalSettled });
           return { ok: false, error: lastTxError };
         }
         if (totalSettled > 0) await _queue.removeSettled(userAddress, settledNonces);
         console.log(`[datum-daemon] DAEMON_SUBMIT_CLAIMS: settleClaims settled ${totalSettled} claims for ${userAddress.slice(0, 10)}…`);
+        await writeClaimStatus({ phase: "settled", settledCount: totalSettled });
         return { ok: true, settledCount: totalSettled };
       } catch (err) {
         console.error("[datum-daemon] DAEMON_SUBMIT_CLAIMS error:", err);
+        await writeClaimStatus({ phase: "failed", error: String(err) });
         return { ok: false, error: String(err) };
       }
     }
