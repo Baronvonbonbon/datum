@@ -193,8 +193,14 @@ export const campaignPoller = {
       };
 
       if (forwardFrom <= currentBlock) {
-        // Pine path: eth_getLogs unsupported — enumerate via nextCampaignId directly
-        if (pineChain) {
+        // Enumerate via nextCampaignId when:
+        //   (a) Pine — eth_getLogs is unsupported on the light client; or
+        //   (b) the index is empty (first poll, or nothing discovered yet) — getLogs
+        //       only scans a recent window and crawls backward one chunk per poll, so
+        //       campaigns created long ago (e.g. at the deploy block) would take many
+        //       cycles to surface. Enumeration finds them all in one shot.
+        // Once the index is populated, RPC polls switch to incremental getLogs (below).
+        if (pineChain || isFirstPoll || Object.keys(index).length === 0) {
           try {
             const nextId = Number(await contract.nextCampaignId());
             for (let id = 1; id < nextId; id++) {
