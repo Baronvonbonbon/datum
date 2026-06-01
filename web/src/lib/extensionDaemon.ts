@@ -1209,8 +1209,36 @@ async function handleMessage(msg: any): Promise<unknown> {
       return _walletOffscreen.handleWalletMessage(msg);
     }
 
-    default:
-      return undefined;
+    // ── Page-provider (window.datum) read proxy ──────────────────────────────
+    // Generic eth_* read proxy from the injected page provider. Routes to the
+    // page's own Pine instance (same path popup reads use). Reply shape mirrors
+    // the content-script provider's expectation ({ result } | { error }).
+    case "PROVIDER_RPC_PROXY": {
+      try {
+        const result = await pineRpc(msg.method, msg.params ?? []);
+        return { result };
+      } catch (err: any) {
+        return { error: String(err?.message ?? err) };
+      }
+    }
+
+    // ── Generalized fallback ─────────────────────────────────────────────────
+    // The demo daemon mirrors the extension's background + offscreen handlers.
+    // Rather than fail silently when one is missing (which surfaced as
+    // "missing or malformed reply" with no clue which message), make gaps loud
+    // and non-fatal:
+    //   • Reply/broadcast shapes (*_RESULT / *_RESPONSE / *_STATUS) flow
+    //     daemon→popup, never the other way — ignore them quietly.
+    //   • Any other unhandled REQUEST is logged to the activity log (so you can
+    //     see exactly which message a feature needs) and returns a structured
+    //     error, so an awaiting caller shows it instead of hanging/blanking.
+    // If a demo feature needs one, add a real case above.
+    default: {
+      const t = String(msg?.type ?? "");
+      if (t === "" || /_(RESULT|RESPONSE|STATUS)$/.test(t)) return undefined;
+      console.warn(`[daemon] unhandled message: ${t} — add a handler in extensionDaemon.ts if a demo feature needs it`);
+      return { ok: false, error: `demo daemon: unhandled message "${t}"` };
+    }
   }
 }
 

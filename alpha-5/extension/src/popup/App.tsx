@@ -75,6 +75,22 @@ export function App() {
     }
   }, []);
 
+  // Mirror the active unlocked account to the background as `connectedAddress`.
+  // The legacy popup emitted WALLET_CONNECTED on unlock/create/switch; the
+  // wallet-shell refactor dropped it, so connectedAddress never updated — which
+  // left anything keyed on it stuck (the demo ad slot's "connect a wallet to
+  // serve ads", the earnings listener, etc.). Restore it here.
+  const activeAddress =
+    status?.state === "unlocked" ? status.accounts[status.activeIndex]?.address ?? null : null;
+  useEffect(() => {
+    const runtime = (globalThis as { chrome?: typeof chrome }).chrome?.runtime;
+    if (activeAddress) {
+      runtime?.sendMessage?.({ type: "WALLET_CONNECTED", address: activeAddress.toLowerCase() });
+    } else if (status?.state === "locked") {
+      runtime?.sendMessage?.({ type: "WALLET_DISCONNECTED" });
+    }
+  }, [activeAddress, status?.state]);
+
   if (bootErr) {
     return (
       <div style={{ padding: 16, color: "var(--error)", fontSize: 12 }}>
