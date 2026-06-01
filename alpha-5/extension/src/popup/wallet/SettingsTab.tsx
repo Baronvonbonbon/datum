@@ -16,6 +16,7 @@ import { useState, useEffect } from "react";
 import { walletClient, type WalletStatus, type OriginPermission } from "./walletClient";
 import { AssuranceSection } from "./AssuranceSection";
 import { RecoverySection } from "./RecoverySection";
+import { getDataPath, setDataPath, type DataPath } from "./dataPath";
 import {
   card,
   button,
@@ -44,8 +45,52 @@ export function SettingsTab({
       <AssuranceSection status={status} />
       <RecoverySection status={status} />
       <PermissionsSection />
+      <NetworkSection />
       <ThemeSection />
       <ResetSection onChange={onChange} />
+    </div>
+  );
+}
+
+function NetworkSection() {
+  const [path, setPath] = useState<DataPath | null>(null);
+  useEffect(() => {
+    getDataPath().then(setPath);
+  }, []);
+
+  async function choose(m: DataPath) {
+    setPath(m);
+    await setDataPath(m);
+  }
+
+  const opt = (m: DataPath, title: string, sub: string) => (
+    <button
+      onClick={() => choose(m)}
+      style={{
+        flex: 1,
+        textAlign: "left",
+        padding: "8px 10px",
+        borderRadius: 8,
+        cursor: "pointer",
+        background: path === m ? "rgba(120,140,255,0.12)" : "transparent",
+        border: `1px solid ${path === m ? "var(--accent)" : "var(--border)"}`,
+      }}
+    >
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: path === m ? "var(--text-strong)" : "var(--text)" }}>{title}</div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.35 }}>{sub}</div>
+    </button>
+  );
+
+  return (
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ color: "var(--text-strong)", fontSize: 12, fontWeight: 500 }}>Network access</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {opt("pine", "Private · light client", "Validate in-browser; no gateway sees your reads. Slower first sync.")}
+        {opt("rpc", "Fast · RPC gateway", "Instant reads via a public gateway that sees your queries.")}
+      </div>
+      <div style={{ ...subText, fontSize: 10 }}>
+        Transactions are always broadcast via RPC — the light client can't broadcast.
+      </div>
     </div>
   );
 }

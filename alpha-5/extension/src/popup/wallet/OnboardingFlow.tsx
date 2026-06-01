@@ -10,13 +10,15 @@ import { OnboardingScreen } from "./OnboardingScreen";
 import { GenerateMnemonic } from "./GenerateMnemonic";
 import { ImportWallet } from "./ImportWallet";
 import { SetPasswordScreen } from "./SetPasswordScreen";
+import { NetworkChoiceScreen } from "./NetworkChoiceScreen";
 import type { WalletStatus } from "./walletClient";
 
 type Step =
   | { kind: "choose" }
   | { kind: "generate" }
   | { kind: "import" }
-  | { kind: "password"; source: "generate" | "import"; phrase: string };
+  | { kind: "password"; source: "generate" | "import"; phrase: string }
+  | { kind: "network"; status: WalletStatus };
 
 export function OnboardingFlow({
   onSuccess,
@@ -56,8 +58,11 @@ export function OnboardingFlow({
           source={step.source}
           phrase={step.phrase}
           onBack={() => setStep({ kind: step.source })}
-          onSuccess={onSuccess}
+          // Wallet is unlocked here; pick the chain-access path before the dashboard.
+          onSuccess={(status) => setStep({ kind: "network", status })}
         />
       );
+    case "network":
+      return <NetworkChoiceScreen onDone={() => onSuccess(step.status)} />;
   }
 }
