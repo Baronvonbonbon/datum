@@ -20,6 +20,7 @@ function computeClaimHash(types: string[], values: unknown[]): string {
 }
 // blake2b was used pre-L-2 (alpha-3 PVM hash). Alpha-4 EVM uses keccak256 — see computeClaimHash above.
 import { installChromeShim } from "./chromeShim";
+import { pineRpc, getPineProvider, getPineStatus } from "./provider";
 import { getSettlementContract, getClaimValidatorContract } from "@shared/contracts";
 
 // Install shim synchronously at module evaluation time.
@@ -266,6 +267,31 @@ function serializeClaimBatches(batches: any[]): any[] {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleMessage(msg: any): Promise<unknown> {
   switch (msg.type) {
+    // ── Pine (offscreen light-client RPC) ────────────────────────────────────
+    // The popup's pineBridge does an "offscreen" round-trip for Pine reads
+    // (AssuranceLevel, recovery, the Pine data-path). The real extension runs
+    // smoldot in an offscreen document; the demo has none — route these to the
+    // page's own Pine provider so the reads resolve instead of erroring with
+    // "missing or malformed reply".
+    case "PINE_INIT": {
+      try {
+        await getPineProvider();
+      } catch {
+        /* connection errors surface through the status object below */
+      }
+      return { type: "PINE_STATUS", status: getPineStatus() };
+    }
+    case "PINE_RPC_REQUEST": {
+      try {
+        const result = await pineRpc(msg.method, msg.params ?? []);
+        return { type: "PINE_RPC_RESULT", requestId: msg.requestId, result };
+      } catch (err: any) {
+        const code = typeof err?.code === "number" ? err.code : -32603;
+        const message = typeof err?.message === "string" ? err.message : String(err);
+        return { type: "PINE_RPC_RESULT", requestId: msg.requestId, error: { code, message, data: err?.data } };
+      }
+    }
+
     // ── Campaigns ──────────────────────────────────────────────────────────
     case "GET_ACTIVE_CAMPAIGNS": {
       const cached = _poller ? await _poller.getCachedSerialized() : [];
