@@ -715,6 +715,41 @@ function pickHouseAdMessage(): string {
   return HOUSE_AD_MESSAGES[Math.floor(Date.now() / 1000) % HOUSE_AD_MESSAGES.length];
 }
 
+// Footer for the house-ad fallback. Starts as "finding campaigns…" and is made
+// poll-aware (see applyPollAwareStatus) so a page mid-poll doesn't read as a
+// permanent no-fill. Class is the hook applyPollAwareStatus updates.
+function fillStatusFooter(): string {
+  return `<div class="datum-fill-status" style="color:${D.textFaint};font-size:10px;margin-top:8px;">Finding campaigns… · DATUM on Polkadot Hub</div>`;
+}
+
+// Reflect the background campaignPoller's live status in the slot footer:
+//   still polling → "Finding campaigns… (N/total)"
+//   poll complete → "No campaigns available"
+// Reads chrome.storage.local.pollStatus (published by campaignPoller) and follows
+// changes. No-ops outside an extension content-script context.
+function applyPollAwareStatus(root: ShadowRoot): void {
+  const el = root.querySelector(".datum-fill-status") as HTMLElement | null;
+  if (!el) return;
+  const update = (ps: any): void => {
+    if (ps && ps.phase === "done") {
+      el.textContent = "No campaigns available · Powered by DATUM on Polkadot Hub";
+    } else if (ps && ps.phase === "error") {
+      el.textContent = "Couldn't reach the network · Powered by DATUM";
+    } else {
+      const prog = ps && ps.detailTotal ? ` (${ps.detailed}/${ps.detailTotal})` : "";
+      el.textContent = `Finding campaigns…${prog} · DATUM on Polkadot Hub`;
+    }
+  };
+  try {
+    chrome.storage.local.get("pollStatus", (s) => update((s as any)?.pollStatus));
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes.pollStatus) update(changes.pollStatus.newValue);
+    });
+  } catch {
+    /* not in an extension context — leave the default footer text */
+  }
+}
+
 export function injectDefaultAd(): HTMLElement | null {
   if (document.getElementById(SLOT_ID)) return null;
 
@@ -742,13 +777,12 @@ export function injectDefaultAd(): HTMLElement | null {
       border:1px solid ${D.border}55;border-radius:${D.radiusSm};
       padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
     ">Learn More →</a>
-    <div style="color:${D.textFaint};font-size:10px;margin-top:8px;">
-      No campaigns available · Powered by DATUM on Polkadot Hub
-    </div>
+    ${fillStatusFooter()}
   `;
 
   shadow.appendChild(wrapper);
   document.body.appendChild(host);
+  applyPollAwareStatus(shadow);
   shadow.querySelector(".datum-close")?.addEventListener("click", () => host.remove());
   return host;
 }
@@ -779,12 +813,11 @@ export function injectDefaultAdInline(target: HTMLElement): HTMLElement | null {
       border:1px solid ${D.border}55;border-radius:${D.radiusSm};
       padding:6px 12px;font-size:12px;text-decoration:none;cursor:pointer;
     ">Learn More →</a>
-    <div style="color:${D.textFaint};font-size:10px;margin-top:8px;">
-      No campaigns available · Powered by DATUM on Polkadot Hub
-    </div>
+    ${fillStatusFooter()}
   `;
 
   shadow.appendChild(wrapper);
+  applyPollAwareStatus(shadow);
   return target;
 }
 
