@@ -41,7 +41,7 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
 
 import { installChromeShim } from "./chromeShim";
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
-import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract } from "@shared/contracts";
+import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract, getBudgetLedgerContract, getPublisherReputationContract } from "@shared/contracts";
 
 // Probe the settlement-level gates the daemon can read, used when a settleClaims
 // tx reverts with NO reason data (bare require) and validateClaim itself passes —
@@ -52,7 +52,7 @@ async function probeSettlementRevert(
   contractAddresses: any,
   provider: JsonRpcProvider,
   campaignId: bigint,
-  claim: { publisher: string; ratePlanck: bigint; actionType: number },
+  claim: { publisher: string; ratePlanck: bigint; actionType: number; eventCount: bigint },
   relayAddr: string,
 ): Promise<string | null> {
   const ZERO = "0x0000000000000000000000000000000000000000";
@@ -94,6 +94,27 @@ async function probeSettlementRevert(
       return `campaign #${campaignId} has no pot for actionType ${claim.actionType} (getCampaignPot reverted)`;
     }
   } catch { /* campaigns contract unavailable */ }
+
+  // 5–7: settlement-execution gates (LogicB processBatch), which the campaign-level
+  // checks above don't cover — budget ledger, reputation, and Paseo's denomination
+  // rule on the deductAndTransfer payout.
+  const ev = claim.eventCount > 0n ? claim.eventCount : 1n;
+  const totalPayment = claim.actionType === 0 ? (claim.ratePlanck * ev) / 1000n : claim.ratePlanck * ev;
+  try {
+    const bl = getBudgetLedgerContract(contractAddresses, provider);
+    if (bl) {
+      const remaining = BigInt((await bl.getRemainingBudget(campaignId, claim.actionType)).toString());
+      if (remaining < totalPayment) return `budget ledger remaining ${remaining} < payout ${totalPayment} (campaign #${campaignId})`;
+    }
+  } catch { /* getter unavailable — skip */ }
+  try {
+    const rep = getPublisherReputationContract(contractAddresses, provider);
+    if (rep && !(await rep.canSettle(claim.publisher))) return `reputation gate blocks publisher ${claim.publisher.slice(0, 10)}…`;
+  } catch { /* skip */ }
+  // Paseo native transfers revert (no data) when value % 1e6 ≥ 500_000. deductAndTransfer
+  // moves exactly `totalPayment` planck to the paymentVault.
+  if (totalPayment % 1_000_000n >= 500_000n)
+    return `payout ${totalPayment} planck violates Paseo rounding (% 1e6 = ${totalPayment % 1_000_000n} ≥ 500000) — deductAndTransfer reverts; CPM ${claim.ratePlanck} needs rounding`;
   return null;
 }
 
@@ -1257,7 +1278,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                   const fc0 = b.claims[0];
                   const probed = await probeSettlementRevert(
                     s.contractAddresses, provider, b.campaignId,
-                    { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0) },
+                    { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0), eventCount: BigInt(fc0.eventCount ?? 1) },
                     relayWallet.address,
                   );
                   rejectReason = probed ?? "validator + all readable gates OK; settleClaims reverted with no reason data — inspect the relay tx on Blockscout";
