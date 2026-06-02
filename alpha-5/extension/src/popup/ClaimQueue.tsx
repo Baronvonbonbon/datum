@@ -1126,7 +1126,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
       {/* PU-3: Attestation warnings */}
       {Object.keys(attestationWarnings).length > 0 && (
         <div style={{ marginTop: 12, padding: 10, background: "rgba(252,211,77,0.07)", borderRadius: "var(--radius-sm)", border: "1px solid rgba(252,211,77,0.2)", fontSize: 12 }}>
-          <div style={{ color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>Attestation warnings:</div>
+          <div style={{ color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>Relay warnings:</div>
           {Object.entries(attestationWarnings).map(([cid, reason]) => (
             <div key={cid} style={{ color: "var(--warn)", marginTop: 2 }}>
               Campaign #{cid}: {reason}

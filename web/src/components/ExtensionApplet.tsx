@@ -47,7 +47,7 @@ export function ExtensionApplet({ onDaemonReady }: ExtensionAppletProps = {}) {
         <span style={frameLabelStyle}>DATUM Extension</span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: "var(--font-mono)" }}>
-          v0.2.0
+          v0.3.0
         </span>
       </div>
 
