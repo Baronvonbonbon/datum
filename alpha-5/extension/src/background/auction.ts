@@ -1,6 +1,10 @@
-// Second-price Vickrey auction for campaign selection (P19)
+// Interest-weighted campaign selection (CPM-based; no price auction).
 // effectiveBid = viewBid * interestWeight  (viewBid = view/CPM pot ratePlanck)
-// Clearing CPM = secondEffectiveBid / winnerInterestWeight, clamped to [viewBid*30%, viewBid]
+// The winner is chosen by interest-weighted relevance; the claim pays the winner's
+// OWN CPM (its pot ratePlanck) — second-price clearing was removed (unenforceable
+// on-chain). The clearing CPM is rounded DOWN to a denomination-clean granularity so
+// the resulting Paseo settlement payout satisfies the eth-rpc `value % 1e6 < 500000`
+// rule (totalPayment = rate*events/1000 stays a multiple of 1e6 through a 50% take split).
 //
 // TX-3: Tag-based interest weighting. Campaigns carry requiredTags (bytes32[]).
 // Interest weight = average tag weight from profile using tag strings.
@@ -30,10 +34,22 @@ export interface AuctionResult {
   winner: CampaignCandidate;
   clearingCpmPlanck: bigint;
   participants: number;
-  mechanism: "cpm" | "second-price" | "solo" | "floor";
+  mechanism: "cpm";
   allScored: ScoredBid[];
-  /** Ratio of clearingCpmPlanck to winner's viewBid (0–1). Indicates auction efficiency. */
+  /** Ratio of clearingCpmPlanck to winner's viewBid (0–1) after clean-rounding. */
   bidEfficiency: number;
+}
+
+// Round the clearing CPM DOWN to this granularity so Paseo settlement payouts stay
+// `value % 1e6 < 500000`. 2e9 planck (0.2 PAS) per 1000 impressions keeps
+// totalPayment = rate*events/1000 a multiple of 2e6 → clean even after a 50% take
+// split, for any eventCount. Campaigns are also SEEDED on clean multiples of this,
+// so for them the rounding is a no-op; it's a safety net for any off-grid CPM.
+const CPM_GRANULARITY = 2_000_000_000n;
+export function roundCpmClean(cpm: bigint): bigint {
+  if (cpm <= 0n) return cpm;
+  if (cpm < CPM_GRANULARITY) return cpm; // below grid — can't round up (would exceed the bid)
+  return cpm - (cpm % CPM_GRANULARITY);
 }
 
 /**
@@ -81,20 +97,20 @@ export function auctionForPage(
 
   // No price auction. Second-price clearing is unenforceable on-chain — the contract
   // never sees competing bids, so any clearing CPM is just an unverifiable client
-  // assertion (see the selection-policy analysis). It also produced an arbitrary,
-  // non-round rate that is the worst case for Paseo's payout rounding. The winner is
-  // still chosen by interest-weighted relevance above (the privacy-preserving part);
-  // the claim simply pays the winner's own CPM — its viewBid / pot ratePlanck — which
-  // is the exact, contract-aligned value the validator checks against (ratePlanck ≤
-  // pot ratePlanck holds with equality). Removed: solo discount, second-price math,
-  // floor clamp.
+  // assertion. The winner is chosen by interest-weighted relevance above (the
+  // privacy-preserving part); the claim pays the winner's own CPM (its pot
+  // ratePlanck), rounded DOWN to a denomination-clean granularity so the Paseo
+  // settlement payout doesn't hit the `value % 1e6 ≥ 500000` revert. Rounding down
+  // keeps clearingCpm ≤ the pot ratePlanck, so the validator's `ratePlanck ≤ pot`
+  // check still holds.
+  const clearingCpm = roundCpmClean(bidCpm);
   return {
     winner: winner.campaign,
-    clearingCpmPlanck: bidCpm,
+    clearingCpmPlanck: clearingCpm,
     participants: campaigns.length,
     mechanism: "cpm",
     allScored,
-    bidEfficiency: 1,
+    bidEfficiency: bidCpm > 0n ? Number((clearingCpm * 1000n) / bidCpm) / 1000 : 1,
   };
 }
 

@@ -24,29 +24,37 @@ describe("auctionForPage", () => {
     expect(auctionForPage([], {}, flatProfile)).toBeNull();
   });
 
-  test("solo campaign: 85% of bid", () => {
+  test("solo campaign: pays its own CPM (rounded clean)", () => {
     const result = auctionForPage(
       [candidate("1", "1000000000")],
       {},
       flatProfile,
     )!;
-    expect(result.mechanism).toBe("solo");
+    expect(result.mechanism).toBe("cpm");
     expect(result.winner.id).toBe("1");
-    expect(result.clearingCpmPlanck).toBe(850000000n); // 85%
+    expect(result.clearingCpmPlanck).toBe(1000000000n); // below the 2e9 grid → unchanged
     expect(result.participants).toBe(1);
-    expect(result.bidEfficiency).toBeCloseTo(0.85);
+    expect(result.bidEfficiency).toBeCloseTo(1);
   });
 
-  test("solo campaign minimum clearing is 1", () => {
+  test("tiny CPM below the rounding grid is left unchanged", () => {
     const result = auctionForPage(
-      [candidate("1", "1")], // 1 planck CPM — 70% rounds to 0
+      [candidate("1", "1")], // 1 planck CPM — below the 2e9 grid, can't round down
       {},
       flatProfile,
     )!;
     expect(result.clearingCpmPlanck).toBe(1n);
   });
 
-  test("two campaigns: second-price — higher bid wins", () => {
+  test("dirty CPM rounds DOWN to a denomination-clean multiple of 2e9", () => {
+    // 3161144617 (the kind of arbitrary CPM that hit Paseo's %1e6 payout revert)
+    // floors to the 2e9 grid → 2000000000, which keeps the settlement payout clean.
+    const result = auctionForPage([candidate("1", "3161144617")], {}, flatProfile)!;
+    expect(result.clearingCpmPlanck).toBe(2000000000n);
+    expect(result.clearingCpmPlanck % 2000000000n).toBe(0n);
+  });
+
+  test("two campaigns: higher effective bid wins", () => {
     const result = auctionForPage(
       [candidate("high", "2000000000"), candidate("low", "1000000000")],
       {},
@@ -56,19 +64,18 @@ describe("auctionForPage", () => {
     expect(result.participants).toBe(2);
   });
 
-  test("two campaigns: clearing CPM clamped to floor (65%)", () => {
-    // high=1000, low=1. With flat profile (interest=0.1 default):
-    // effectiveBid_high = 1000*100 = 100000, effectiveBid_low = 1*100 = 100
-    // clearingRaw = 100 / 100 = 1. Floor = 1000 * 65% = 650.
-    // clearingCpm = floor = 650
+  test("two campaigns: winner pays its own CPM (no second-price clamp)", () => {
+    // high=1000, low=1. Winner = high (higher effective bid); it pays its OWN CPM
+    // (1000), below the 2e9 grid so unchanged. No floor/second-price clamp anymore.
     const result = auctionForPage(
       [candidate("high", "1000"), candidate("low", "1")],
       {},
       flatProfile,
     )!;
-    expect(result.mechanism).toBe("floor");
-    expect(result.clearingCpmPlanck).toBe(650n); // 65% of 1000
-    expect(result.bidEfficiency).toBeCloseTo(0.65);
+    expect(result.mechanism).toBe("cpm");
+    expect(result.winner.id).toBe("high");
+    expect(result.clearingCpmPlanck).toBe(1000n);
+    expect(result.bidEfficiency).toBeCloseTo(1);
   });
 
   test("interest profile affects effective bid and winner", () => {
@@ -90,7 +97,7 @@ describe("auctionForPage", () => {
     expect(result.winner.id).toBe("A");
   });
 
-  test("three campaigns: winner uses second-price", () => {
+  test("three campaigns: highest effective bid wins, pays own CPM (rounded)", () => {
     const result = auctionForPage(
       [
         candidate("top", "3000000000"),
@@ -102,7 +109,8 @@ describe("auctionForPage", () => {
     )!;
     expect(result.winner.id).toBe("top");
     expect(result.participants).toBe(3);
-    expect(result.mechanism).toBe("second-price");
+    expect(result.mechanism).toBe("cpm");
+    expect(result.clearingCpmPlanck).toBe(2000000000n); // 3e9 floored to the 2e9 grid
   });
 
   // AUC-IPFS: Campaigns sourced from IPFS metadata (via campaignPoller) carry
@@ -202,11 +210,9 @@ describe("auctionForPage", () => {
       )!;
 
       expect(result.winner.id).toBe("erc20-sidecar");
-      // Clearing CPM = second effective bid / winner interest weight (clamped to floor)
-      // Both have weight 1.0 (crypto match). Clearing = 1000000000 * 1.0 / 1.0 = 1000000000.
-      // Floor = 3000000000 * 65% = 1950000000. Clearing < floor → floor mechanism.
-      expect(result.mechanism).toBe("floor");
-      expect(result.clearingCpmPlanck).toBe(1950000000n);
+      // Winner pays its own CPM (3e9), floored to the 2e9 denomination grid → 2e9.
+      expect(result.mechanism).toBe("cpm");
+      expect(result.clearingCpmPlanck).toBe(2000000000n);
     });
   });
 });

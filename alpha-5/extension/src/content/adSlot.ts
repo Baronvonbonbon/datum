@@ -29,7 +29,7 @@ export interface AdSlotConfig {
   category: string;
   metadata: CampaignCreative | null;
   metadataHash?: string;  // bytes32 from on-chain CampaignMetadataSet
-  auctionMechanism?: "second-price" | "solo" | "floor";
+  auctionMechanism?: "cpm" | "second-price" | "solo" | "floor";
   clearingCpmPlanck?: string;
   ipfsGateway?: string;
   currencySymbol?: string;
@@ -284,6 +284,8 @@ function ipfsLinkFromHash(hash?: string): string | null {
 }
 
 const MECHANISM_LABELS: Record<string, { label: string; color: string }> = {
+  "cpm":          { label: "CPM",       color: "#60a0ff" },
+  // legacy labels (auction is CPM-only now; kept so old cached results still render)
   "second-price": { label: "2nd Price", color: "#60a0ff" },
   "solo":         { label: "Solo",      color: "#c09060" },
   "floor":        { label: "Floor",     color: "#888"    },
