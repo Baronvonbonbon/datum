@@ -1,0 +1,2 @@
+# Store-upload artifacts produced by `npm run build:release`
+release/
