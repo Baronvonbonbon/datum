@@ -72,7 +72,9 @@ const DEMO_PRE_ROUTER: Record<string, string> = {
   CHECK_PUBLISHER_ALLOWLIST: "override: demo conservatively returns allowlistEnabled=false",
   REPORT_PAGE: "override: demo reports are a no-op (no on-chain report tx)",
   REPORT_AD: "override: demo reports are a no-op (no on-chain report tx)",
-  REQUEST_PUBLISHER_ATTESTATION: "override: demo signs locally with Diana's relay key",
+  // REQUEST_PUBLISHER_ATTESTATION now delegates to the shared router →
+  // demoEnv.requestAttestation (Diana key, correct alpha-5 typehash), so it is no
+  // longer a daemon pre-router case.
 };
 
 describe("message-routing parity (one router, shared by SW + demo)", () => {

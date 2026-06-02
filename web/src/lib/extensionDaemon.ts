@@ -128,6 +128,30 @@ async function probeSettlementRevert(
   return null;
 }
 
+// Human-readable reasons for the Settlement custom errors the staticCall can
+// surface. The live tx usually reverts with no reason data on pallet-revive, but
+// `settleClaims.staticCall` decodes the custom error — turn its name into a cause.
+const SETTLEMENT_ERROR_REASONS: Record<string, (relay: string) => string> = {
+  // DatumSettlementLogicA: msg.sender must be the user, the AttestationVerifier,
+  // or an authorized publisher relay (publishers.relaySigner[publisher] == sender).
+  E32: (relay) =>
+    `relay ${relay.slice(0, 10)}… is not an authorized relaySigner for this campaign's publisher (settleClaims E32). ` +
+    `In the demo only campaigns whose publisher set Diana as their relaySigner can be settled gaslessly — other campaigns require the user's own wallet or the right relay.`,
+  E18: () => "caller is not the owner (settleClaims E18)",
+  E28: () => "settlement precondition failed (E28)",
+  E57: () => "reentrancy guard tripped (E57)",
+};
+
+/** Pull a Settlement custom-error name out of a revert message ("execution
+ *  reverted: E32()") and map it to a human reason. Returns null if unrecognized. */
+function decodeSettlementRevert(message: string, relayAddr: string): string | null {
+  const m = message.match(/\b(E\d{1,3})\s*\(/);
+  if (!m) return null;
+  const code = m[1];
+  const reason = SETTLEMENT_ERROR_REASONS[code];
+  return reason ? reason(relayAddr) : `settleClaims reverted with ${code}`;
+}
+
 // (the chrome.* shim is installed by the first import — see installShim.ts.)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -179,40 +203,8 @@ function loadOrCreateRelayWallet(): Wallet {
   return _relayWallet;
 }
 
-async function signPublisherAttestation(
-  campaignId: string,
-  user: string,
-  firstNonce: string,
-  lastNonce: string,
-  claimCount: number,
-  attestationVerifierAddress: string,
-  signingWallet?: Wallet,
-): Promise<string> {
-  const wallet = signingWallet ?? loadOrCreateRelayWallet();
-  const domain = {
-    name: "DatumAttestationVerifier",
-    version: "1",
-    chainId: PASEO_CHAIN_ID,
-    verifyingContract: attestationVerifierAddress as `0x${string}`,
-  };
-  const types = {
-    PublisherAttestation: [
-      { name: "campaignId", type: "uint256" },
-      { name: "user",       type: "address" },
-      { name: "firstNonce", type: "uint256" },
-      { name: "lastNonce",  type: "uint256" },
-      { name: "claimCount", type: "uint256" },
-    ],
-  };
-  const value = {
-    campaignId: BigInt(campaignId),
-    user,
-    firstNonce: BigInt(firstNonce),
-    lastNonce: BigInt(lastNonce),
-    claimCount: BigInt(claimCount),
-  };
-  return wallet.signTypedData(domain, types, value);
-}
+// Publisher-attestation signing moved to demoEnv.requestAttestation (correct
+// alpha-5 typehash) — the old firstNonce/lastNonce/claimCount signer is gone.
 
 /** Get the relay signer wallet address (creates one if none exists). */
 export function getRelaySignerAddress(): string {
@@ -368,11 +360,44 @@ const demoEnv: EnvContext = {
   async walletProvider(msg) {
     return { type: "WALLET_PROVIDER_RESPONSE", requestId: msg.requestId, ok: false, error: { code: 4100, message: "no injected page provider in the demo" } };
   },
-  // Publisher attestation is handled by the demo pre-router (Diana local key);
-  // routeMessage's REQUEST_PUBLISHER_ATTESTATION never runs here, so this stub
-  // is unreachable but kept to satisfy the interface.
-  async requestAttestation() {
-    return { error: "attestation handled by the demo pre-router" };
+  // Publisher attestation, signed locally with the demo relay key (Diana). Uses
+  // the CURRENT alpha-5 PublisherAttestation typehash —
+  //   PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)
+  // (see DatumAttestationVerifier.sol). The old demo handler signed a stale
+  // firstNonce/lastNonce/claimCount typehash AND read fields the popup no longer
+  // sends, throwing "Cannot convert undefined to a BigInt" on every request.
+  async requestAttestation(args) {
+    try {
+      const stored = await chrome.storage.local.get("settings");
+      const attestationVerifierAddr: string =
+        stored.settings?.contractAddresses?.attestationVerifier
+        ?? "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af"; // Paseo fallback
+      const wallet = loadOrCreateRelayWallet();
+      const domain = {
+        name: "DatumAttestationVerifier",
+        version: "1",
+        chainId: PASEO_CHAIN_ID,
+        verifyingContract: attestationVerifierAddr as `0x${string}`,
+      };
+      const types = {
+        PublisherAttestation: [
+          { name: "campaignId",    type: "uint256" },
+          { name: "user",          type: "address" },
+          { name: "claimsHash",    type: "bytes32" },
+          { name: "deadlineBlock", type: "uint256" },
+        ],
+      };
+      const value = {
+        campaignId: BigInt(args.campaignId),
+        user: args.userAddress,
+        claimsHash: args.claimsHash,
+        deadlineBlock: BigInt(args.deadlineBlock),
+      };
+      const signature = await wallet.signTypedData(domain, types, value);
+      return { signature };
+    } catch (err) {
+      return { error: String(err) };
+    }
   },
 };
 
@@ -412,26 +437,12 @@ async function handleMessage(msg: any): Promise<unknown> {
       }
     }
 
-    // ── Campaigns ──────────────────────────────────────────────────────────
-    case "REQUEST_PUBLISHER_ATTESTATION": {
-      try {
-        const stored = await chrome.storage.local.get("settings");
-        const attestationVerifierAddr: string =
-          stored.settings?.contractAddresses?.attestationVerifier
-          ?? "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af"; // fallback: Paseo deployed address
-        const sig = await signPublisherAttestation(
-          msg.campaignId, msg.userAddress,
-          msg.firstNonce, msg.lastNonce, msg.claimCount,
-          attestationVerifierAddr,
-          loadOrCreateRelayWallet(),
-        );
-        return { signature: sig };
-      } catch (err) {
-        return { signature: undefined, error: String(err) };
-      }
-    }
+    // REQUEST_PUBLISHER_ATTESTATION now delegates to the shared router →
+    // demoEnv.requestAttestation (Diana key, correct alpha-5 typehash). The old
+    // pre-router case signed a stale typehash and read msg.firstNonce/lastNonce/
+    // claimCount — fields the popup no longer sends — crashing on BigInt(undefined).
 
-    // ── Wallet events ──────────────────────────────────────────────────────
+    // ── Settings ───────────────────────────────────────────────────────────
     case "SETTINGS_UPDATED": {
       if (msg.settings) await chrome.storage.local.set({ settings: msg.settings });
       return { ok: true };
@@ -898,12 +909,18 @@ async function handleMessage(msg: any): Promise<unknown> {
           const nonceBefore = await provider.getTransactionCount(relayWallet.address);
           console.log(`[datum-daemon] submitting settleClaims: relayWallet=${relayWallet.address} nonceBefore=${nonceBefore} batches=${claimBatches.length} campaigns=${claimBatches.map((b: any) => b.campaignId.toString()).join(",")}`);
 
-          // Try staticCall first to surface revert reason (best-effort — Paseo may still revert live)
+          // Try staticCall first to surface the revert reason (best-effort — Paseo
+          // may still revert live). Unlike the live tx (which often reverts with no
+          // reason data on pallet-revive), the staticCall usually decodes the custom
+          // error — capture it so the final message names the cause instead of
+          // "no reason data".
+          let staticRevertReason: string | null = null;
           try {
             await settlement.settleClaims.staticCall(claimBatches, { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
             console.log("[datum-daemon] settleClaims staticCall: PASSED");
           } catch (staticErr: any) {
             const staticMsg = staticErr?.message ?? String(staticErr);
+            staticRevertReason = decodeSettlementRevert(staticMsg, relayWallet.address);
             console.warn(`[datum-daemon] settleClaims staticCall: REVERTED — ${staticMsg.slice(0, 200)}`);
           }
 
@@ -989,15 +1006,20 @@ async function handleMessage(msg: any): Promise<unknown> {
                   } catch { /* RPC failed — use generic message */ }
                 }
                 // validateClaim passed (or was unavailable) → the revert is settlement-
-                // level (bare require, no reason data). Probe the readable gates to name it.
+                // level. Prefer the reason the staticCall already decoded (e.g. E32),
+                // then fall back to probing the readable gates.
                 if (rejectReason === "nonce chain invalid or budget exhausted") {
-                  const fc0 = b.claims[0];
-                  const probed = await probeSettlementRevert(
-                    s.contractAddresses, provider, b.campaignId,
-                    { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0), eventCount: BigInt(fc0.eventCount ?? 1) },
-                    relayWallet.address,
-                  );
-                  rejectReason = probed ?? "validator + all readable gates OK; settleClaims reverted with no reason data — inspect the relay tx on Blockscout";
+                  if (staticRevertReason) {
+                    rejectReason = staticRevertReason;
+                  } else {
+                    const fc0 = b.claims[0];
+                    const probed = await probeSettlementRevert(
+                      s.contractAddresses, provider, b.campaignId,
+                      { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0), eventCount: BigInt(fc0.eventCount ?? 1) },
+                      relayWallet.address,
+                    );
+                    rejectReason = probed ?? "validator + all readable gates OK; settleClaims reverted with no reason data — inspect the relay tx on Blockscout";
+                  }
                 }
                 lastTxError = `Settlement reverted for campaign ${cid}: ${rejectReason}`;
               }
