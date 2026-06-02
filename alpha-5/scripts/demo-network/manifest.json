@@ -85,7 +85,7 @@
       "address": "0xd633c470d075af508f4895e21a986183fef35745",
       "register": false,
       "takeRateBps": 4000,
-      "relaySigner": "self",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0",
       "tags": [
         "topic:computers-electronics",
         "topic:internet-telecom",
@@ -107,7 +107,7 @@
       "address": "0x92622970bd48dd26c53bccd09aa6a0245dbc7620",
       "register": true,
       "takeRateBps": 4500,
-      "relaySigner": "self",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0",
       "tags": [
         "topic:food-drink",
         "topic:hobbies-leisure",
@@ -129,7 +129,7 @@
       "address": "0xa9e2bd7bd5a14e8add0023b4ab56ed27beabc92f",
       "register": true,
       "takeRateBps": 5000,
-      "relaySigner": "self",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0",
       "tags": [
         "topic:gaming",
         "topic:online-communities",
@@ -151,7 +151,7 @@
       "address": "0x615bcbe62b43bb033e65533bb6fccc8b6fcb5bbd",
       "register": true,
       "takeRateBps": 4000,
-      "relaySigner": "self",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0",
       "tags": [
         "topic:finance",
         "topic:business-industrial",
@@ -173,7 +173,7 @@
       "address": "0xc59101dab8d0899f74d19a4f13bb2d9a030065af",
       "register": true,
       "takeRateBps": 4200,
-      "relaySigner": "self",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0",
       "tags": [
         "topic:travel",
         "topic:hobbies-leisure",
