@@ -10,6 +10,11 @@
  * up on the demo page.
  */
 
+// MUST be first: installs the chrome.* shim before the statically-imported
+// background-router graph evaluates (some of those modules touch chrome.* at
+// import time — e.g. pineBridge's onMessage listener). See installShim.ts.
+import "./installShim";
+
 import { Wallet, JsonRpcProvider, ZeroHash, keccak256 as ethersKeccak256, solidityPacked, toBeHex } from "ethers";
 
 // #5 PoW: grind a powNonce so keccak256(abi.encodePacked(claimHash, nonce)) <= target,
@@ -45,7 +50,6 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
   } catch { /* non-fatal */ }
 }
 
-import { installChromeShim } from "./chromeShim";
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
 import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract, getBudgetLedgerContract, getPublisherReputationContract } from "@shared/contracts";
 
@@ -124,9 +128,7 @@ async function probeSettlementRevert(
   return null;
 }
 
-// Install shim synchronously at module evaluation time.
-// Must happen before any chrome.* call at runtime.
-installChromeShim();
+// (the chrome.* shim is installed by the first import — see installShim.ts.)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const chrome: any;
