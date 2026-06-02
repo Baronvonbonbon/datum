@@ -403,6 +403,13 @@ export interface StoredSettings {
    *  load after the upgrade so their behavior continues; the absence
    *  of the field in stored settings is the marker. */
   rpcEnabled?: boolean;
+  /** Optional shared secret for the publisher relay's HMAC gate (controlled-
+   *  exposure phase). When set, the "Sign for Publisher" relay POST adds the
+   *  X-Datum-Ts / X-Datum-Sig headers the relay's /claim endpoint expects.
+   *  Leave unset when the relay runs open (the intended public extension path —
+   *  the relay's HMAC gate is for trusted testers, replaced later by impression
+   *  attestation). */
+  relayHmacSecret?: string;
 }
 
 export type NetworkName = "local" | "polkadotTestnet" | "westend" | "kusama" | "polkadotHub";
@@ -413,6 +420,10 @@ export interface ContractAddresses {
   governanceV2: string;
   settlement: string;
   relay: string;
+  /** DatumDualSigSettlement — the contract the gasless relay path settles
+   *  through (settleSignedClaims). EIP-712 verifyingContract for the user's
+   *  ClaimBatch signature in the "Sign for Publisher" flow. */
+  dualSig?: string;
   pauseRegistry: string;
   timelock: string;
   zkVerifier: string;

@@ -127,6 +127,7 @@ async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null
       governanceV2:        addrs.governanceV2 ?? "",
       settlement:          addrs.settlement ?? "",
       relay:               addrs.relay ?? "",
+      dualSig:             addrs.dualSig ?? "",
       pauseRegistry:       addrs.pauseRegistry ?? "",
       timelock:            addrs.timelock ?? "",
       zkVerifier:          addrs.zkVerifier ?? "",

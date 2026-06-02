@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { keccak256, solidityPacked } from "ethers";
+import { keccak256, solidityPacked, ZeroHash, ZeroAddress } from "ethers";
 import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
@@ -29,24 +29,43 @@ async function waitForTxPaseo(
   return null; // timed out — treat as confirmed
 }
 
-// BM-3: Fetch a PoW challenge from the relay and solve it (SHA-256, leading zero bytes).
-async function solvePoWChallenge(relayUrl: string): Promise<{ powChallenge: string; powNonce: string }> {
-  const resp = await fetch(`${relayUrl}/relay/challenge`, { signal: AbortSignal.timeout(5000) });
-  if (!resp.ok) throw new Error(`Challenge fetch failed: ${resp.status}`);
-  const { challenge, difficulty } = await resp.json() as { challenge: string; difficulty: number };
-
-  // Solve: find a nonce where SHA-256(challenge + nonce) starts with `difficulty` zero bytes
-  let nonce = 0;
+// Optional HMAC headers for the relay's controlled-exposure gate. Matches the
+// relay's auth.mjs: X-Datum-Sig = HMAC-SHA256(secret, `${ts}.${body}`). Returns
+// {} when no secret is configured (the relay then runs open — the intended
+// public extension path).
+async function relayHmacHeaders(secret: string | undefined, body: string): Promise<Record<string, string>> {
+  if (!secret) return {};
+  const ts = Math.floor(Date.now() / 1000).toString();
   const enc = new TextEncoder();
-  while (true) {
-    const nonceStr = nonce.toString();
-    const data = enc.encode(challenge + nonceStr);
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-    let ok = true;
-    for (let i = 0; i < difficulty; i++) { if (hash[i] !== 0) { ok = false; break; } }
-    if (ok) return { powChallenge: challenge, powNonce: nonceStr };
-    nonce++;
-  }
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${ts}.${body}`));
+  const sig = Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return { "x-datum-ts": ts, "x-datum-sig": sig };
+}
+
+// Coerce a serialized claim into the on-chain Claim tuple shape the relay's
+// /claim normalizeClaim expects — in particular zkProof must be bytes32[8] and
+// actionSig bytes32[3] (the demo's aggregated builder leaves them as "0x").
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeClaimForRelay(c: any) {
+  const z8 = Array.isArray(c.zkProof) && c.zkProof.length === 8 ? c.zkProof : Array(8).fill(ZeroHash);
+  const sig3 = Array.isArray(c.actionSig) && c.actionSig.length === 3 ? c.actionSig : Array(3).fill(ZeroHash);
+  return {
+    campaignId: String(c.campaignId),
+    publisher: c.publisher,
+    eventCount: String(c.eventCount ?? "1"),
+    ratePlanck: String(c.ratePlanck),
+    actionType: Number(c.actionType ?? 0),
+    clickSessionHash: c.clickSessionHash ?? ZeroHash,
+    nonce: String(c.nonce ?? "0"),
+    previousClaimHash: c.previousClaimHash ?? ZeroHash,
+    claimHash: c.claimHash,
+    zkProof: z8,
+    nullifier: c.nullifier ?? ZeroHash,
+    stakeRootUsed: c.stakeRootUsed ?? ZeroHash,
+    actionSig: sig3,
+    powNonce: c.powNonce ?? ZeroHash,
+  };
 }
 
 function BouncingText({ text }: { text: string }) {
@@ -744,10 +763,14 @@ export function ClaimQueue({ address, onSettled }: Props) {
     setSignedCount(null);
     setAttestationWarnings({});
 
+    // Clear any stale "Unattested" badges from the old relay protocol.
+    await chrome.storage.local.remove("signedBatches").catch(() => {});
+
     try {
       const settings = await getSettings();
-      if (!settings.contractAddresses.relay) {
-        throw new Error("Relay contract address not configured. Check Settings.");
+      const dualSig = settings.contractAddresses.dualSig;
+      if (!dualSig) {
+        throw new Error("DualSig settlement address not configured (deployed-addresses.json needs `dualSig`).");
       }
 
       const signer = new OffscreenSigner(address, getProvider(settings.rpcUrl));
@@ -771,130 +794,122 @@ export function ClaimQueue({ address, onSettled }: Props) {
         return;
       }
 
+      // Dual-sig settlement EIP-712 envelope (DatumDualSigSettlement). The relay
+      // co-signs the publisher (+ advertiser) sides and submits settleSignedClaims;
+      // the extension only produces the user's signature over the ClaimBatch.
       const domain = {
-        name: "DatumRelay",
+        name: "DatumSettlement",
         version: "1",
         chainId: network.chainId,
-        verifyingContract: settings.contractAddresses.relay,
+        verifyingContract: dualSig,
       };
-
       const types = {
         ClaimBatch: [
           { name: "user", type: "address" },
           { name: "campaignId", type: "uint256" },
-          { name: "firstNonce", type: "uint256" },
-          { name: "lastNonce", type: "uint256" },
-          { name: "claimCount", type: "uint256" },
-          { name: "deadline", type: "uint256" },
+          { name: "claimsHash", type: "bytes32" },
+          { name: "deadlineBlock", type: "uint256" },
+          { name: "expectedRelaySigner", type: "address" },
+          { name: "expectedAdvertiserRelaySigner", type: "address" },
         ],
       };
 
-      // Sign each batch and store as SignedClaimBatch in storage
-      const signedBatches = [];
-      const warnings: Record<string, string> = {};
+      // Group batches by their publisher's relay URL.
+      const batchesByRelay = new Map<string, SerializedClaimBatch[]>();
       for (const b of serializedBatches) {
-        const claimsLen = b.claims.length;
-        if (claimsLen === 0) continue;
-
-        const value = {
-          user: b.user,
-          campaignId: BigInt(b.campaignId),
-          firstNonce: BigInt(b.claims[0].nonce),
-          lastNonce: BigInt(b.claims[claimsLen - 1].nonce),
-          claimCount: BigInt(claimsLen),
-          deadline: BigInt(deadline),
-        };
-
-        const signature = await signer.signTypedData(domain, types, value);
-
-        // Attempt publisher attestation (degraded trust if unavailable)
-        // A1-fix: bind to claimsHash + deadlineBlock (shared with the user sig's deadline).
-        const _ch = b.claims.map((c) => c.claimHash);
-        const _csh = keccak256(solidityPacked(new Array(_ch.length).fill("bytes32"), _ch));
-        let publisherSig = "0x";
-        try {
-          const attestResponse = await chrome.runtime.sendMessage({
-            type: "REQUEST_PUBLISHER_ATTESTATION",
-            publisherAddress: b.claims[0]?.publisher ?? "",
-            campaignId: b.campaignId,
-            userAddress: b.user,
-            claimsHash: _csh,
-            deadlineBlock: deadline.toString(),
-          });
-          if (attestResponse?.signature) {
-            publisherSig = attestResponse.signature;
-          }
-          if (attestResponse?.error) warnings[b.campaignId] = attestResponse.error;
-        } catch {
-          // Attestation unavailable — degraded trust mode
-        }
-
-        signedBatches.push({
-          user: b.user,
-          campaignId: b.campaignId,
-          claims: b.claims,
-          deadline,
-          userSig: signature,
-          publisherSig,
-          advertiserSig: "0x",
-        });
-      }
-
-      // Store signed batches locally (for display + backup)
-      await chrome.storage.local.set({
-        signedBatches: {
-          batches: signedBatches,
-          signedAt: Date.now(),
-          deadline,
-        },
-      });
-
-      // POST batches to publisher relay endpoints
-      const relaysByPublisher = new Map<string, typeof signedBatches>();
-      for (const batch of signedBatches) {
-        const publisher = batch.claims[0]?.publisher ?? "";
+        const publisher = b.claims[0]?.publisher ?? "";
         if (!publisher) continue;
         const key = `publisherDomain:${publisher.toLowerCase()}`;
         const relayStorage = await chrome.storage.local.get(key);
-        const domain: string | undefined = relayStorage[key];
-        if (!domain) continue;
-        const relayUrl = `https://${domain}`;
-        const existing = relaysByPublisher.get(relayUrl) ?? [];
-        existing.push(batch);
-        relaysByPublisher.set(relayUrl, existing);
+        const dom: string | undefined = relayStorage[key];
+        if (!dom) continue;
+        const relayUrl = `https://${dom}`;
+        const arr = batchesByRelay.get(relayUrl) ?? [];
+        arr.push(b);
+        batchesByRelay.set(relayUrl, arr);
+      }
+      if (batchesByRelay.size === 0) {
+        setError("No publisher relay is configured for these campaigns.");
+        return;
       }
 
-      for (const [relayUrl, batches] of relaysByPublisher) {
-        try {
-          // BM-3: Solve PoW challenge before submission
-          const pow = await solvePoWChallenge(relayUrl);
-          await fetch(`${relayUrl}/relay/submit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ batches, ...pow }),
-            signal: AbortSignal.timeout(15000),
-          });
-          console.log(`[DATUM] POSTed ${batches.length} batch(es) to ${relayUrl}`);
-        } catch (err) {
-          console.warn(`[DATUM] Relay POST failed for ${relayUrl}:`, err);
-          // Non-fatal — batches are stored locally and can be retried
+      let accepted = 0;
+      const warnings: Record<string, string> = {};
+      const acceptedNonces: Record<string, string[]> = {};
+
+      // ZeroAddress = "publisher/advertiser self-signs" — the relay co-signs with
+      // its registered keys and the contract resolves the on-chain relaySigner /
+      // advertiser. This matches the relay's reference client (lib/claim.mjs); the
+      // userSig is NOT verified against these fields, so leaving them zero is correct.
+      const expectedRelaySigner = ZeroAddress;
+      const expectedAdvertiserRelaySigner = ZeroAddress;
+
+      for (const [relayUrl, batches] of batchesByRelay) {
+        for (const b of batches) {
+          if (b.claims.length === 0) continue;
+          const claimHashes = b.claims.map((c) => c.claimHash);
+          // claimsHash = keccak256(abi.encodePacked(claimHash[])) — matches the
+          // relay's computeClaimsHash + DatumDualSigSettlement._hashClaims.
+          const claimsHash = keccak256(solidityPacked(new Array(claimHashes.length).fill("bytes32"), claimHashes));
+          const value = {
+            user: b.user,
+            campaignId: BigInt(b.campaignId),
+            claimsHash,
+            deadlineBlock: BigInt(deadline),
+            expectedRelaySigner,
+            expectedAdvertiserRelaySigner,
+          };
+
+          let userSig: string;
+          try {
+            userSig = await signer.signTypedData(domain, types, value);
+          } catch (e) {
+            warnings[b.campaignId] = `sign failed: ${String(e instanceof Error ? e.message : e)}`;
+            continue;
+          }
+
+          const envelope = {
+            user: b.user,
+            campaignId: b.campaignId,
+            deadlineBlock: String(deadline),
+            claims: b.claims.map(normalizeClaimForRelay),
+            userSig,
+            expectedRelaySigner,
+            expectedAdvertiserRelaySigner,
+          };
+          const body = JSON.stringify(envelope);
+          const headers = { "Content-Type": "application/json", ...(await relayHmacHeaders(settings.relayHmacSecret, body)) };
+
+          try {
+            const resp = await fetch(`${relayUrl}/claim`, { method: "POST", headers, body, signal: AbortSignal.timeout(15000) });
+            if (resp.ok) {
+              accepted++;
+              acceptedNonces[String(b.campaignId)] = b.claims.map((c) => String(c.nonce));
+              console.log(`[DATUM] /claim accepted campaign ${b.campaignId} by ${relayUrl}`);
+            } else {
+              const txt = await resp.text().catch(() => "");
+              const hint = resp.status === 401
+                ? "relay requires its HMAC secret — set relayHmacSecret in Settings, or run the relay open"
+                : txt.slice(0, 140);
+              warnings[b.campaignId] = `relay ${resp.status}: ${hint}`;
+              console.warn(`[DATUM] /claim ${resp.status} for campaign ${b.campaignId}: ${txt}`);
+            }
+          } catch (e) {
+            warnings[b.campaignId] = `relay POST failed: ${String(e instanceof Error ? e.message : e)}`;
+            console.warn(`[DATUM] /claim POST failed for ${relayUrl}:`, e);
+          }
         }
       }
 
       if (Object.keys(warnings).length > 0) setAttestationWarnings(warnings);
-      setSignedCount(signedBatches.length);
+      setSignedCount(accepted);
 
-      // Remove signed claims from local queue — relay holds them now
-      if (signedBatches.length > 0) {
-        const settledNonces: Record<string, string[]> = {};
-        for (const b of signedBatches) {
-          const cid = String(b.campaignId);
-          settledNonces[cid] = b.claims.map((c: any) => String(c.nonce));
-        }
+      // The relay holds the accepted claims now — remove them from the local queue.
+      if (Object.keys(acceptedNonces).length > 0) {
         await chrome.runtime.sendMessage({
           type: "REMOVE_SETTLED_CLAIMS",
           userAddress: address,
-          settledNonces,
+          settledNonces: acceptedNonces,
         });
         await loadState();
         onSettled?.();
