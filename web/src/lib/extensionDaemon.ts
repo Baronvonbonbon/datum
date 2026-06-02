@@ -25,6 +25,12 @@ function solvePowNonce(claimHash: string, target: bigint, maxIters = 2_000_000):
 // Canonical claim hash lives in claimCore (shared with the extension claimBuilder)
 // — the daemon must NOT keep its own copy of the preimage schema (it drifted 3×).
 import { computeClaimHash } from "@ext/background/claimCore";
+// The ONE shared message router + the real claimBuilder. Workstream A: the demo
+// no longer hand-mirrors the background switch — it builds demoEnv and calls the
+// same routeMessage. Workstream B: claimBuilder is now snarkjs-free (ZK injected
+// via setProveZk, left null here), so the demo imports the canonical builder.
+import { routeMessage, EnvContext } from "@ext/background/router";
+import { claimBuilder } from "@ext/background/claimBuilder";
 
 // Claim-submission status published to chrome.storage.local so the popup's
 // PollStatusBar can commandeer its slot to show submitting / settled / failed
@@ -132,15 +138,7 @@ let _poller: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _queue: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _prefs: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _interest: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _attest: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _auction: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _matcher: any = null;
 // Wallet RPC dispatcher + offscreen wallet handler. The popup talks to the
 // background via WALLET_RPC_REQUEST → dispatcher → walletRpc → offscreen
 // wallet. In the demo there is no offscreen document, but the modules are
@@ -149,8 +147,6 @@ let _matcher: any = null;
 let _walletDispatcher: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _walletOffscreen: any = null;
-
-let _mutexHeld = false;
 
 // Last IMPRESSION_RECORDED result — exposed via getDebugInfo for the demo panel.
 let _lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null = null;
@@ -330,32 +326,59 @@ export async function repollCampaigns(): Promise<number> {
   return cached.length;
 }
 
-// ── Claim batch serialization ──────────────────────────────────────────────
-// claimQueue.buildBatches() returns ClaimBatch[] with BigInt fields.
-// chrome.runtime.sendMessage can't carry BigInt — serialize to strings.
+// Claim-batch serialization (SUBMIT_CLAIMS etc.) is now handled by the shared
+// router's serializeBatches — the daemon no longer keeps its own copy.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function serializeClaimBatches(batches: any[]): any[] {
-  return batches.map((b) => ({
-    user: b.user,
-    campaignId: b.campaignId.toString(),
-    claims: b.claims.map((c: any) => ({
-      campaignId: c.campaignId.toString(),
-      publisher: c.publisher,
-      eventCount: c.eventCount.toString(),
-      ratePlanck: c.ratePlanck.toString(),
-      actionType: c.actionType ?? 0,
-      clickSessionHash: c.clickSessionHash ?? ZeroHash,
-      nonce: c.nonce.toString(),
-      previousClaimHash: c.previousClaimHash,
-      claimHash: c.claimHash,
-      zkProof: c.zkProof,
-      nullifier: c.nullifier ?? ZeroHash,
-      stakeRootUsed: ZeroHash,
-      actionSig: c.actionSig ?? "0x",
-    })),
-  }));
-}
+// ── demoEnv: the seam the shared router reaches env-specific capability through.
+// Everything the demo does differently from the service worker lives here:
+// page-pine reads instead of an offscreen smoldot, no live earnings indexer, no
+// chrome.alarms, no auto-submit session, no EIP-1193 signing (the demo injects
+// no page provider so those never arrive). The genuinely-identical handlers in
+// routeMessage use the same singletons (claimQueue, poller, prefs, interest,
+// contracts) the daemon already imports.
+
+const demoEnv: EnvContext = {
+  // Contract reads run over the configured RPC. (Pine reads go through
+  // pineProvider below; the page provider's PROVIDER_RPC_PROXY uses that.)
+  async readProvider(settings) {
+    return new JsonRpcProvider(settings.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
+  },
+  // The demo has no offscreen smoldot — route pine reads to the page's own
+  // pine instance (the same path the popup's Pine reads use).
+  async pineProvider() {
+    return { send: (method: string, params: unknown[]) => pineRpc(method, params) };
+  },
+  // No History-tab earnings indexer in the demo (the Earnings tab reads balances
+  // via wallet RPC directly).
+  earnings: { start: async () => {}, stop: async () => {} },
+  // No chrome.alarms to re-arm; SETTINGS_UPDATED is handled by the pre-router
+  // (which persists msg.settings), so this is a no-op.
+  onSettingsUpdated: async () => {},
+  // Auto-submit (background session key) is disabled in the demo.
+  autoSubmit: { authorize: async () => {}, revoke: async () => {}, isAuthorized: async () => false },
+  // EIP-1193 signing never reaches the demo (no injected page provider) — stubs.
+  signing: {
+    signTypedData: async () => ({ error: "signing is not available in the demo" }),
+    personalSign: async () => ({ error: "signing is not available in the demo" }),
+    sendTransaction: async () => ({ error: "signing is not available in the demo" }),
+    resolveApproval: async () => ({ ok: false, error: "no pending approval in the demo" }),
+  },
+  async walletProvider(msg) {
+    return { type: "WALLET_PROVIDER_RESPONSE", requestId: msg.requestId, ok: false, error: { code: 4100, message: "no injected page provider in the demo" } };
+  },
+  // Publisher attestation is handled by the demo pre-router (Diana local key);
+  // routeMessage's REQUEST_PUBLISHER_ATTESTATION never runs here, so this stub
+  // is unreachable but kept to satisfy the interface.
+  async requestAttestation() {
+    return { error: "attestation handled by the demo pre-router" };
+  },
+};
+
+// routeMessage requires a chrome.runtime.MessageSender; the demo has no real
+// sender. The routed handlers that read `sender` (SET_PUBLISHER_RELAY's tab-domain
+// guard, the SW-only signing arms) treat an absent sender.tab as "skip the check",
+// which is correct for the in-page demo.
+const DEMO_SENDER = {} as Parameters<typeof routeMessage>[1];
 
 // ── Message handler ────────────────────────────────────────────────────────
 
@@ -388,166 +411,6 @@ async function handleMessage(msg: any): Promise<unknown> {
     }
 
     // ── Campaigns ──────────────────────────────────────────────────────────
-    case "GET_ACTIVE_CAMPAIGNS": {
-      const cached = _poller ? await _poller.getCachedSerialized() : [];
-      console.log(`[daemon] GET_ACTIVE_CAMPAIGNS: ${cached.length} campaigns`,
-        cached.length > 0 ? `(sample: id=${cached[0].id} status=${cached[0].status} publisher=${cached[0].publisher})` : "");
-      return { campaigns: cached };
-    }
-
-    case "POLL_CAMPAIGNS": {
-      if (_poller) {
-        const stored = await chrome.storage.local.get("settings");
-        const s = stored.settings;
-        if (s?.rpcUrl && s?.contractAddresses?.campaigns) {
-          _poller.poll(s.rpcUrl, s.contractAddresses, s.ipfsGateway).catch(console.warn);
-        }
-      }
-      return { ok: true };
-    }
-
-    // ── Claim queue ────────────────────────────────────────────────────────
-    case "GET_QUEUE_STATE": {
-      if (!_queue) return { pendingCount: 0, byUser: {}, lastFlush: null };
-      return _queue.getState();
-    }
-
-    case "SUBMIT_CLAIMS": {
-      if (!_queue) return { batches: [] };
-      const batches = await _queue.buildBatches(msg.userAddress);
-      return { batches: serializeClaimBatches(batches) };
-    }
-
-    case "SUBMIT_CAMPAIGN_CLAIMS": {
-      if (!_queue) return { batch: null };
-      const batch = await _queue.buildBatchForCampaign(msg.userAddress, msg.campaignId);
-      if (!batch) return { batch: null };
-      return { batch: serializeClaimBatches([batch])[0] };
-    }
-
-    case "DISCARD_CAMPAIGN_CLAIMS": {
-      if (_queue) {
-        await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
-        const chainKey = `chainState:${msg.userAddress}:${msg.campaignId}`;
-        try {
-          const s2 = (await chrome.storage.local.get("settings")).settings;
-          const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
-          const stl2 = getSettlementContract(s2?.contractAddresses, p2);
-          const [n2, h2] = await Promise.all([
-            stl2.lastNonce(msg.userAddress, msg.campaignId, 0),
-            stl2.lastClaimHash(msg.userAddress, msg.campaignId, 0),
-          ]);
-          await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId: msg.campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
-        } catch {
-          // RPC failure — leave chain state intact. Do NOT remove the key —
-          // that resets to (0, ZeroHash) and creates an infinite revert loop.
-          console.warn(`[datum-daemon] DISCARD_CAMPAIGN_CLAIMS: RPC failed for chain state resync, preserving existing state`);
-        }
-      }
-      return { ok: true };
-    }
-
-    case "DISCARD_REJECTED_CLAIMS": {
-      if (_queue) {
-        const s2 = (await chrome.storage.local.get("settings")).settings;
-        for (const campaignId of msg.campaignIds ?? []) {
-          await _queue.discardCampaignClaims(msg.userAddress, campaignId);
-          const chainKey = `chainState:${msg.userAddress}:${campaignId}`;
-          try {
-            const p2 = new JsonRpcProvider(s2?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
-            const stl2 = getSettlementContract(s2?.contractAddresses, p2);
-            const [n2, h2] = await Promise.all([
-              stl2.lastNonce(msg.userAddress, campaignId, 0),
-              stl2.lastClaimHash(msg.userAddress, campaignId, 0),
-            ]);
-            await chrome.storage.local.set({ [chainKey]: { userAddress: msg.userAddress, campaignId, lastNonce: Number(n2), lastClaimHash: h2 } });
-          } catch {
-            console.warn(`[datum-daemon] DISCARD_REJECTED_CLAIMS: RPC failed for campaign ${campaignId}, preserving existing chain state`);
-          }
-        }
-      }
-      return { ok: true };
-    }
-
-    case "REMOVE_SETTLED_CLAIMS": {
-      if (_queue) {
-        // msg.settledNonces is Record<string, string[]> from JSON — convert to Map<string, bigint[]>
-        const noncesMap = new Map<string, bigint[]>(
-          Object.entries(msg.settledNonces ?? {}).map(([cid, nonces]) => [
-            cid, (nonces as string[]).map((n) => BigInt(n)),
-          ])
-        );
-        await _queue.removeSettled(msg.userAddress, noncesMap);
-      }
-      return { ok: true };
-    }
-
-    case "CLEAR_QUEUE": {
-      if (_queue) await _queue.clear();
-      return { ok: true };
-    }
-
-    // ── Mutex (single-tab — no real contention) ────────────────────────────
-    case "ACQUIRE_MUTEX": {
-      if (_mutexHeld) return { acquired: false };
-      _mutexHeld = true;
-      return { acquired: true };
-    }
-
-    case "RELEASE_MUTEX": {
-      _mutexHeld = false;
-      return { ok: true };
-    }
-
-    // ── User preferences ───────────────────────────────────────────────────
-    case "GET_USER_PREFERENCES": {
-      const preferences = _prefs ? await _prefs.getPreferences() : defaultPreferences();
-      return { preferences };
-    }
-
-    case "UPDATE_USER_PREFERENCES": {
-      if (_prefs) await _prefs.updatePreferences(msg.preferences);
-      return { preferences: msg.preferences };
-    }
-
-    case "BLOCK_CAMPAIGN": {
-      if (_prefs) await _prefs.blockCampaign(msg.campaignId);
-      const preferences = _prefs ? await _prefs.getPreferences() : defaultPreferences();
-      return { preferences };
-    }
-
-    case "UNBLOCK_CAMPAIGN": {
-      if (_prefs) await _prefs.unblockCampaign(msg.campaignId);
-      const preferences = _prefs ? await _prefs.getPreferences() : defaultPreferences();
-      return { preferences };
-    }
-
-    case "BLOCK_TAG": {
-      if (_prefs) await _prefs.blockTag(msg.tag);
-      return { ok: true };
-    }
-
-    case "UNBLOCK_TAG": {
-      if (_prefs) await _prefs.unblockTag(msg.tag);
-      return { ok: true };
-    }
-
-    // ── Interest profile ───────────────────────────────────────────────────
-    case "GET_INTEREST_PROFILE": {
-      const profile = _interest ? await _interest.getProfile() : {};
-      return { profile };
-    }
-
-    case "RESET_INTEREST_PROFILE": {
-      if (_interest) await _interest.resetProfile();
-      return { ok: true };
-    }
-
-    // ── Publisher attestation ──────────────────────────────────────────────
-    // DatumAttestationVerifier verifies the sig against:
-    //   campaigns.getCampaignRelaySigner(id) if set, else the publisher address.
-    // _relayWallet is seeded with Diana's key, which is the on-chain relaySigner
-    // for all testnet campaigns. Override via SET_RELAY_SIGNER_KEY if needed.
     case "REQUEST_PUBLISHER_ATTESTATION": {
       try {
         const stored = await chrome.storage.local.get("settings");
@@ -567,103 +430,15 @@ async function handleMessage(msg: any): Promise<unknown> {
     }
 
     // ── Wallet events ──────────────────────────────────────────────────────
-    case "WALLET_CONNECTED": {
-      await chrome.storage.local.set({ connectedAddress: msg.address });
-      return { ok: true };
-    }
-
-    case "WALLET_DISCONNECTED": {
-      await chrome.storage.local.remove("connectedAddress");
-      return { ok: true };
-    }
-
-    // ── Settings ───────────────────────────────────────────────────────────
     case "SETTINGS_UPDATED": {
       if (msg.settings) await chrome.storage.local.set({ settings: msg.settings });
       return { ok: true };
     }
 
     // ── Misc ───────────────────────────────────────────────────────────────
-    case "GET_TIMELOCK_PENDING":
-      return { pending: [] };
-
-    case "CHECK_AUTO_SUBMIT":
-      return { authorized: false };
-
-    case "GET_AD_RATE": {
-      const stored = await chrome.storage.local.get("impressionTimestamps");
-      const ts: number[] = stored.impressionTimestamps ?? [];
-      const count = ts.filter((t) => t >= Date.now() - 3_600_000).length;
-      return { count };
-    }
-
-    // ── Auction + campaign selection ───────────────────────────────────────
-    case "SELECT_CAMPAIGN": {
-      const prefs = _prefs ? await _prefs.getPreferences() : defaultPreferences();
-      const allowed = (msg.campaigns ?? []).filter((c: any) =>
-        _prefs ? _prefs.isCampaignAllowed(
-          { id: c.id, categoryId: Number(c.categoryId ?? 0), bidCpmPlanck: c.bidCpmPlanck, requiredTags: c.requiredTags },
-          prefs,
-        ) : true
-      );
-      if (allowed.length === 0) return { selected: null };
-
-      const profile = _interest ? await _interest.getProfile() : { weights: {}, visitCounts: {} };
-
-      if (_auction) {
-        const auctionResult = _auction.auctionForPage(allowed, {}, profile);
-        if (auctionResult) {
-          return {
-            selected: auctionResult.winner,
-            clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
-            mechanism: auctionResult.mechanism,
-            participants: auctionResult.participants,
-            allBids: auctionResult.allScored,
-          };
-        }
-      }
-
-      // Fallback to weighted random matcher
-      const selected = _matcher ? _matcher.selectCampaign(allowed, profile, msg.pageCategory ?? "") : allowed[0] ?? null;
-      return { selected };
-    }
-
     case "CHECK_PUBLISHER_ALLOWLIST":
       // In demo context: no on-chain allowlist check — conservative allow
       return { allowlistEnabled: false };
-
-    case "FETCH_IPFS_METADATA": {
-      const { campaignId: cid, metadataHash: mHash } = msg;
-      if (!cid || !mHash) return { metadata: null };
-
-      const storedSettings = await chrome.storage.local.get("settings");
-      const primaryGateway = storedSettings.settings?.ipfsGateway || "https://dweb.link/ipfs/";
-      const gateways = [primaryGateway, "https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/"];
-
-      try {
-        const [{ metadataUrl }, { validateAndSanitize, passesContentBlocklist }] = await Promise.all([
-          import("@ext/shared/ipfs"),
-          import("@ext/shared/contentSafety"),
-        ]);
-        for (const gw of gateways) {
-          const url = metadataUrl(mHash, gw);
-          if (!url) continue;
-          try {
-            const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (!resp.ok) continue;
-            const body = await resp.text();
-            if (body.length > 512_000) return { metadata: null };
-            const meta = validateAndSanitize(JSON.parse(body));
-            if (!meta || !passesContentBlocklist(meta)) return { metadata: null };
-            await chrome.storage.local.set({ [`metadata:${cid}`]: meta });
-            return { metadata: meta };
-          } catch { continue; }
-        }
-      } catch (e) {
-        console.warn("[daemon] FETCH_IPFS_METADATA error:", e);
-      }
-      return { metadata: null };
-    }
 
     case "IMPRESSION_RECORDED": {
       // claimBuilder.ts is excluded from the daemon because it imports zkProof.ts which
@@ -705,49 +480,28 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: true };
         }
 
-        // ── Per-impression mode: hash immediately and append to claimQueue ──────
-        const CHAIN_KEY = `chainState:${userAddress}:${msg.campaignId}`;
-        const qs = await chrome.storage.local.get([CHAIN_KEY, "claimQueue"]);
-        const chain = qs[CHAIN_KEY] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
-        console.log(`[datum-daemon] IMPRESSION_RECORDED: campaign=${msg.campaignId} chainState.lastNonce=${chain.lastNonce} chainState.lastClaimHash=${String(chain.lastClaimHash).slice(0, 12)}…`);
-
-        const campaignIdBig = BigInt(msg.campaignId);
-        const nonce = BigInt(chain.lastNonce + 1);
-        const prevHash: string = chain.lastNonce === 0 ? ZeroHash : chain.lastClaimHash;
-
-        // L-2: keccak256(abi.encode(...)) matches alpha-4 DatumClaimValidator 10-field (alpha-5 +stakeRootUsed) preimage:
-        // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash)
-        // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
-        const claimHash = computeClaimHash({
-          campaignId: campaignIdBig, publisher: msg.publisherAddress, user: userAddress,
-          eventCount: 1n, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+        // ── Per-impression mode: delegate to the real claimBuilder. It's now
+        // snarkjs-free (ZK proving is injected via setProveZk — null in the
+        // demo), so the daemon imports the canonical claim-builder instead of
+        // re-inlining the claim-hash preimage, which drifted from the contract
+        // three times. clearingCpm is passed explicitly so claimBuilder doesn't
+        // fall back to the campaign's viewBid field (the demo cache uses
+        // bidCpmPlanck).
+        const impressionNonce = await claimBuilder.onImpression({
+          campaignId: String(msg.campaignId),
+          url: msg.url ?? "",
+          category: msg.category ?? "",
+          publisherAddress: msg.publisherAddress,
+          clearingCpmPlanck: clearingCpm.toString(),
         });
-
-        await chrome.storage.local.set({
-          [CHAIN_KEY]: { userAddress, campaignId: msg.campaignId, lastNonce: Number(nonce), lastClaimHash: claimHash },
-        });
-
-        const queue: any[] = qs.claimQueue ?? [];
-        queue.push({
-          campaignId: msg.campaignId,
-          publisher: msg.publisherAddress,
-          eventCount: "1",
-          ratePlanck: clearingCpm.toString(),
-          actionType: "0",
-          clickSessionHash: ZeroHash,
-          nonce: nonce.toString(),
-          previousClaimHash: prevHash,
-          claimHash,
-          zkProof: "0x",
-          nullifier: ZeroHash,
-          stakeRootUsed: ZeroHash,
-          actionSig: "0x",
-          userAddress,
-        });
-        await chrome.storage.local.set({ claimQueue: queue });
-        _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
-        console.log(`[datum-daemon] Claim queued: campaign=${msg.campaignId} nonce=${nonce} prevHash=${prevHash.slice(0, 12)}… claimHash=${claimHash.slice(0, 12)}… user=${userAddress.slice(0, 8)}…`);
-        return { ok: true };
+        if (impressionNonce) {
+          _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
+          return { ok: true, impressionNonce };
+        }
+        // claimBuilder returned null — publisher mismatch / cache miss / no wallet
+        // (it logs the specific reason). Surface a generic drop to the panel.
+        _lastImpressionResult = { ok: false, reason: "claim_dropped (see console)", ts: Date.now() };
+        return { ok: false, reason: "claim_dropped" };
       } catch (err) {
         _lastImpressionResult = { ok: false, reason: String(err), ts: Date.now() };
         console.error("[datum-daemon] IMPRESSION_RECORDED error:", err);
@@ -762,24 +516,6 @@ async function handleMessage(msg: any): Promise<unknown> {
       return { ok: true, mode };
     }
 
-    case "UPDATE_INTEREST": {
-      if (_interest) await _interest.updateProfile(msg.tags ?? []);
-      return { ok: true };
-    }
-
-    case "SET_PUBLISHER_RELAY": {
-      // Store publisher→relay domain mapping so ClaimQueue relay submission can find it.
-      const pub: string = msg.publisher ?? "";
-      const relayRaw: string = msg.relay ?? "";
-      if (pub && relayRaw && /^0x[0-9a-fA-F]{40}$/.test(pub)) {
-        const domain = relayRaw.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-        const key = `publisherDomain:${pub.toLowerCase()}`;
-        await chrome.storage.local.set({ [key]: domain });
-        console.log(`[datum-daemon] Publisher relay set: ${pub.slice(0, 10)}… → ${domain}`);
-      }
-      return { ok: true };
-    }
-
     case "GET_RELAY_SIGNER":
       return { address: getRelaySignerAddress() };
 
@@ -791,28 +527,6 @@ async function handleMessage(msg: any): Promise<unknown> {
     case "REPORT_PAGE":
     case "REPORT_AD":
       return { ok: true };
-
-    case "SYNC_CHAIN_STATE": {
-      // Update local chain state to on-chain values and clear queued claims whose
-      // prevHash chain is now invalid (they were built from a stale/wrong base).
-      const chainKey = `chainState:${msg.userAddress}:${msg.campaignId}`;
-      await chrome.storage.local.set({
-        [chainKey]: {
-          userAddress: msg.userAddress,
-          campaignId: msg.campaignId,
-          lastNonce: msg.onChainNonce,
-          lastClaimHash: msg.onChainHash,
-        },
-      });
-      if (_queue) await _queue.discardCampaignClaims(msg.userAddress, msg.campaignId);
-      return { ok: true };
-    }
-
-    case "RESET_CHAIN_STATE":
-      return { ok: true };
-
-    case "SIGN_FOR_RELAY":
-      return { ok: false, reason: "auto-submit not available in demo" };
 
     case "DRAIN_CLAIMS_ONLY": {
       // Drain rawImpressionQueue → claimQueue (build hashed claims) WITHOUT settling.
@@ -1309,25 +1023,6 @@ async function handleMessage(msg: any): Promise<unknown> {
       }
     }
 
-    case "AUTHORIZE_AUTO_SUBMIT":
-    case "REVOKE_AUTO_SUBMIT":
-      return { ok: true };
-
-    // ── Wallet RPC (Stage 1c popup) ────────────────────────────────────────
-    // Popup → daemon: same dispatcher as the real background. unlock.ts
-    // forwards crypto ops to "offscreen" via walletRpc(), which sends
-    // WALLET_* messages — those are routed below.
-    case "WALLET_RPC_REQUEST": {
-      if (!_walletDispatcher) {
-        return { type: "WALLET_RPC_RESPONSE", requestId: msg.requestId, ok: false, error: "daemon-not-ready" };
-      }
-      return _walletDispatcher.dispatchWalletRpc(msg.requestId, msg.op, msg.args);
-    }
-
-    // ── Offscreen wallet ops ───────────────────────────────────────────────
-    // walletRpc() in background/wallet/transport.ts sends these to the
-    // offscreen document over chrome.runtime.sendMessage. In the demo we
-    // run the offscreen handler in-page — same modules, same SubtleCrypto.
     case "WALLET_CREATE":
     case "WALLET_IMPORT":
     case "WALLET_UNLOCK":
@@ -1346,53 +1041,31 @@ async function handleMessage(msg: any): Promise<unknown> {
       return _walletOffscreen.handleWalletMessage(msg);
     }
 
-    // ── Page-provider (window.datum) read proxy ──────────────────────────────
-    // Generic eth_* read proxy from the injected page provider. Routes to the
-    // page's own Pine instance (same path popup reads use). Reply shape mirrors
-    // the content-script provider's expectation ({ result } | { error }).
-    case "PROVIDER_RPC_PROXY": {
-      try {
-        const result = await pineRpc(msg.method, msg.params ?? []);
-        return { result };
-      } catch (err: any) {
-        return { error: String(err?.message ?? err) };
-      }
-    }
-
-    // ── Generalized fallback ─────────────────────────────────────────────────
-    // The demo daemon mirrors the extension's background + offscreen handlers.
-    // Rather than fail silently when one is missing (which surfaced as
-    // "missing or malformed reply" with no clue which message), make gaps loud
-    // and non-fatal:
+    // ── Everything else → the ONE shared router ──────────────────────────────
+    // The service worker and this daemon call the same routeMessage(msg, sender,
+    // env). The cases above are the demo-only / divergent pre-router: in-page
+    // pine + offscreen-wallet emulation (PINE_*, WALLET_*), the local gasless
+    // relay settle path (DAEMON_SUBMIT_CLAIMS / DRAIN_CLAIMS_ONLY), aggregated
+    // claim-building (IMPRESSION_RECORDED), the demo relay signer, and a few
+    // stubs the demo deliberately overrides (CHECK_PUBLISHER_ALLOWLIST, REPORT_*,
+    // SETTINGS_UPDATED persist, REQUEST_PUBLISHER_ATTESTATION). Every OTHER
+    // background message is handled identically by the shared router via
+    // demoEnv, so the two can no longer drift.
     //   • Reply/broadcast shapes (*_RESULT / *_RESPONSE / *_STATUS) flow
     //     daemon→popup, never the other way — ignore them quietly.
-    //   • Any other unhandled REQUEST is logged to the activity log (so you can
-    //     see exactly which message a feature needs) and returns a structured
-    //     error, so an awaiting caller shows it instead of hanging/blanking.
-    // If a demo feature needs one, add a real case above.
+    //   • A type neither the pre-router nor the shared router knows comes back
+    //     as the router's unknown-type error — keep the visible net and log it.
     default: {
       const t = String(msg?.type ?? "");
       if (t === "" || /_(RESULT|RESPONSE|STATUS)$/.test(t)) return undefined;
-      console.warn(`[daemon] unhandled message: ${t} — add a handler in extensionDaemon.ts if a demo feature needs it`);
-      return { ok: false, error: `demo daemon: unhandled message "${t}"` };
+      const res = await routeMessage(msg, DEMO_SENDER, demoEnv);
+      if (res && typeof res === "object" && (res as { error?: string }).error === "unknown message type") {
+        console.warn(`[daemon] unhandled message: ${t} — not in the demo pre-router or the shared router`);
+        return { ok: false, error: `demo daemon: unhandled message "${t}"` };
+      }
+      return res;
     }
   }
-}
-
-// ── Default preferences ────────────────────────────────────────────────────
-
-function defaultPreferences() {
-  return {
-    blockedCampaigns: [],
-    silencedCategories: [],
-    blockedTags: [],
-    maxAdsPerHour: 12,
-    minBidCpm: "0",
-    filterMode: "all",
-    allowedTopics: [],
-    sweepAddress: "",
-    sweepThresholdPlanck: "0",
-  };
 }
 
 // ── Register the message listener ──────────────────────────────────────────
@@ -1418,35 +1091,28 @@ export async function startDaemon(): Promise<void> {
 
   // Dynamically import background submodules — shim is already installed.
   // Skipping claimBuilder intentionally (needs snarkjs / circuit files).
+  // Only the singletons the daemon still reads directly: the poller + queue (debug
+  // panel, DAEMON_SUBMIT_CLAIMS), the interest profile (browse simulator), and the
+  // in-page offscreen-wallet pair. Prefs / auction / matcher / attestation are now
+  // reached through the shared routeMessage (which imports them itself), so the
+  // daemon no longer holds its own refs to them.
   const [
     { campaignPoller },
     { claimQueue },
-    { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed },
     { interestProfile },
-    { requestPublisherAttestation },
-    auctionMod,
-    matcherMod,
     walletDispatcherMod,
     walletOffscreenMod,
   ] = await Promise.all([
     import("@ext/background/campaignPoller"),
     import("@ext/background/claimQueue"),
-    import("@ext/background/userPreferences"),
     import("@ext/background/interestProfile"),
-    import("@ext/background/publisherAttestation"),
-    import("@ext/background/auction"),
-    import("@ext/background/campaignMatcher"),
     import("@ext/background/wallet/rpcDispatcher"),
     import("@ext/offscreen/wallet-dispatch"),
   ]);
 
   _poller    = campaignPoller;
   _queue     = claimQueue;
-  _prefs     = { getPreferences, updatePreferences, blockCampaign, unblockCampaign, blockTag, unblockTag, isCampaignAllowed };
   _interest  = interestProfile;
-  _attest    = { requestPublisherAttestation };
-  _auction   = auctionMod;
-  _matcher   = matcherMod;
   _walletDispatcher = walletDispatcherMod;
   _walletOffscreen  = walletOffscreenMod;
 
