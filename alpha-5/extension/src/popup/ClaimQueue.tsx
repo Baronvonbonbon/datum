@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { keccak256, solidityPacked, ZeroHash, ZeroAddress } from "ethers";
-import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider } from "@shared/contracts";
+import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider, getPublishersContract } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
@@ -837,16 +837,34 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const warnings: Record<string, string> = {};
       const acceptedNonces: Record<string, string[]> = {};
 
-      // ZeroAddress = "publisher/advertiser self-signs" — the relay co-signs with
-      // its registered keys and the contract resolves the on-chain relaySigner /
-      // advertiser. This matches the relay's reference client (lib/claim.mjs); the
-      // userSig is NOT verified against these fields, so leaving them zero is correct.
-      const expectedRelaySigner = ZeroAddress;
+      // expectedRelaySigner MUST be the publisher's on-chain relaySigner (the relay
+      // that co-signs), NOT ZeroAddress: DatumDualSigSettlement requires the publisher
+      // sig to come from `relaySigner(publisher)` when this field is set, and from the
+      // publisher THEMSELVES when it's zero. Since the relay (Diana) co-signs — not the
+      // publisher — leaving it zero reverts E82 for any delegated-relay campaign.
+      // expectedAdvertiserRelaySigner stays zero: the advertiser self-signs via its own
+      // co-signer (advertiserRelaySigner == 0 ⇒ contract expects the advertiser's key).
+      const publishers = getPublishersContract(settings.contractAddresses, getProvider(settings.rpcUrl));
       const expectedAdvertiserRelaySigner = ZeroAddress;
+      const relaySignerCache = new Map<string, string>();
 
       for (const [relayUrl, batches] of batchesByRelay) {
         for (const b of batches) {
           if (b.claims.length === 0) continue;
+          const publisher = b.claims[0].publisher;
+          let expectedRelaySigner = relaySignerCache.get(publisher.toLowerCase());
+          if (expectedRelaySigner === undefined) {
+            try {
+              expectedRelaySigner = await publishers.relaySigner(publisher);
+            } catch {
+              expectedRelaySigner = ZeroAddress;
+            }
+            relaySignerCache.set(publisher.toLowerCase(), expectedRelaySigner!);
+          }
+          if (!expectedRelaySigner || expectedRelaySigner === ZeroAddress) {
+            warnings[b.campaignId] = `publisher ${publisher.slice(0, 10)}… has no on-chain relaySigner — can't settle via relay (use Submit/gas)`;
+            continue;
+          }
           const claimHashes = b.claims.map((c) => c.claimHash);
           // claimsHash = keccak256(abi.encodePacked(claimHash[])) — matches the
           // relay's computeClaimsHash + DatumDualSigSettlement._hashClaims.
