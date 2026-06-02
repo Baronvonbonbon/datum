@@ -334,32 +334,4 @@ describe("DatumCampaigns", function () {
       expect(await campaigns.MAX_DEFAULT_TAKE_RATE_BPS()).to.equal(8000n);
     });
   });
-
-  // Staged for the next contract upgrade: advertiser profile registry + rotation
-  // cooldown, mirroring DatumPublishers (relaySigner + profileHash + cooldown).
-  describe("advertiser profile registry + cooldown (staged)", function () {
-    const HASH = "0x" + "ab".repeat(32);
-    const HASH2 = "0x" + "cd".repeat(32);
-
-    it("setAdvertiserProfile stores + emits + reads back; rejects zero hash", async function () {
-      await expect(campaigns.connect(advertiser).setAdvertiserProfile(HASH))
-        .to.emit(campaigns, "AdvertiserProfileSet").withArgs(advertiser.address, HASH);
-      expect(await campaigns.getAdvertiserProfileHash(advertiser.address)).to.equal(HASH);
-      await expect(campaigns.connect(advertiser).setAdvertiserProfile(ethers.ZeroHash)).to.be.revertedWith("E00");
-    });
-
-    it("setAdvertiserRelaySigner enforces the anti-sandwich rotation cooldown (E22)", async function () {
-      // distinct rotator (shared `before` fixture) so other tests' rotations don't collide
-      await campaigns.connect(other).setAdvertiserRelaySigner(publisher.address);
-      await expect(campaigns.connect(other).setAdvertiserRelaySigner(advertiser.address)).to.be.revertedWith("E22");
-    });
-
-    it("setAdvertiserRelaySignerAndProfile sets both atomically", async function () {
-      await expect(campaigns.connect(advertiser).setAdvertiserRelaySignerAndProfile(publisher.address, HASH2))
-        .to.emit(campaigns, "AdvertiserRelaySignerSet").withArgs(advertiser.address, publisher.address)
-        .and.to.emit(campaigns, "AdvertiserProfileSet").withArgs(advertiser.address, HASH2);
-      expect(await campaigns.getAdvertiserRelaySigner(advertiser.address)).to.equal(publisher.address);
-      expect(await campaigns.getAdvertiserProfileHash(advertiser.address)).to.equal(HASH2);
-    });
-  });
 });

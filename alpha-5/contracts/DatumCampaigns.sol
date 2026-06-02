@@ -205,22 +205,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     mapping(address => address) public advertiserRelaySigner;
     event AdvertiserRelaySignerSet(address indexed advertiser, address indexed signer);
 
-    /// @notice Off-chain advertiser metadata pointer (IPFS CID as bytes32),
-    ///         mirroring DatumPublishers.profileHash. Resolves to a metadata
-    ///         document that advertises the advertiser's co-signer endpoint, so a
-    ///         relay can discover WHERE to fetch the advertiser cosig
-    ///         (campaign → advertiser → profile → endpoint) the same way it
-    ///         discovers a publisher's relay. Endpoint discovery design: the
-    ///         metadata JSON carries the co-signer base URL (Q1=a).
-    mapping(address => bytes32) public advertiserProfileHash;
-    event AdvertiserProfileSet(address indexed advertiser, bytes32 hash);
-
-    /// @notice Anti-sandwich rotation cooldown for the advertiser relay signer,
-    ///         mirroring DatumPublishers' RELAY_SIGNER_ROTATION_COOLDOWN — a key
-    ///         briefly controlling the old signer can't sandwich a rotation.
-    mapping(address => uint256) public advertiserRelaySignerRotatedBlock;
-    uint256 public constant ADVERTISER_RELAY_SIGNER_ROTATION_COOLDOWN = 600;
-
     /// @notice CB4: optional gate on createCampaign. When set non-zero,
     ///         advertisers must be adequately staked per the bonding curve.
     ///         Lock-once for cypherpunk hardening — a hostile owner can't
@@ -1041,48 +1025,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         // gate on settlement pause so a settlement-pause halts both the
         // batches AND new advertiser hot-key rotations during triage.
         if (!(!pauseRegistry.pausedSettlement())) revert Paused();
-        // Anti-sandwich rotation cooldown (parity with DatumPublishers).
-        uint256 lastRotated = advertiserRelaySignerRotatedBlock[msg.sender];
-        require(
-            lastRotated == 0 || block.number >= lastRotated + ADVERTISER_RELAY_SIGNER_ROTATION_COOLDOWN,
-            "E22"
-        );
         advertiserRelaySigner[msg.sender] = signer;
-        advertiserRelaySignerRotatedBlock[msg.sender] = block.number;
         emit AdvertiserRelaySignerSet(msg.sender, signer);
-    }
-
-    /// @notice Set the off-chain advertiser metadata pointer (IPFS CID as
-    ///         bytes32) — carries the advertiser's co-signer endpoint. Mirror of
-    ///         DatumPublishers.setProfile.
-    function setAdvertiserProfile(bytes32 hash) external whenNotFrozen {
-        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
-        require(hash != bytes32(0), "E00");
-        advertiserProfileHash[msg.sender] = hash;
-        emit AdvertiserProfileSet(msg.sender, hash);
-    }
-
-    /// @notice Atomically rotate the advertiser relay signer and refresh the
-    ///         profile in one tx (mirror of setRelaySignerAndProfile). Same
-    ///         per-field semantics: rotation cooldown on the signer, non-zero hash.
-    function setAdvertiserRelaySignerAndProfile(address signer, bytes32 hash) external whenNotFrozen {
-        if (!(!pauseRegistry.pausedSettlement())) revert Paused();
-        require(hash != bytes32(0), "E00");
-        uint256 lastRotated = advertiserRelaySignerRotatedBlock[msg.sender];
-        require(
-            lastRotated == 0 || block.number >= lastRotated + ADVERTISER_RELAY_SIGNER_ROTATION_COOLDOWN,
-            "E22"
-        );
-        advertiserRelaySigner[msg.sender] = signer;
-        advertiserRelaySignerRotatedBlock[msg.sender] = block.number;
-        emit AdvertiserRelaySignerSet(msg.sender, signer);
-        advertiserProfileHash[msg.sender] = hash;
-        emit AdvertiserProfileSet(msg.sender, hash);
-    }
-
-    /// @notice Settlement/relay-side reader for the advertiser's profile pointer.
-    function getAdvertiserProfileHash(address advertiser) external view returns (bytes32) {
-        return advertiserProfileHash[advertiser];
     }
 
     /// @notice M6-fix: settlement-side reader for the advertiser's current
