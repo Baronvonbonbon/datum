@@ -29,7 +29,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///         intentionally match DatumCampaigns' advertiser API so a settlement
 ///         read can switch sources without an interface change.
 contract DatumAdvertiserRegistry is DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     error E00();   // zero value
     error E22();   // rotation cooldown not elapsed
@@ -51,6 +51,14 @@ contract DatumAdvertiserRegistry is DatumUpgradable {
     mapping(address => bytes32) public advertiserProfileHash;
     event AdvertiserProfileSet(address indexed advertiser, bytes32 hash);
 
+    // ── Enumeration for upgrade migration ──
+    // Mappings can't be iterated on-chain, so track the set of advertisers that
+    // registered any state. A successor's `_migrate` copies the set + each entry
+    // autonomously. For very large sets this loop must be paginated (override
+    // migrate()); the demo/alpha set is small.
+    address[] private _registered;
+    mapping(address => bool) private _isRegistered;
+
     constructor(address _pauseRegistry) {
         if (_pauseRegistry == address(0)) revert E00();
         pauseRegistry = IDatumPauseRegistry(_pauseRegistry);
@@ -70,6 +78,7 @@ contract DatumAdvertiserRegistry is DatumUpgradable {
         if (pauseRegistry.pausedSettlement()) revert Paused();
         if (hash == bytes32(0)) revert E00();
         advertiserProfileHash[msg.sender] = hash;
+        _track(msg.sender);
         emit AdvertiserProfileSet(msg.sender, hash);
     }
 
@@ -88,7 +97,12 @@ contract DatumAdvertiserRegistry is DatumUpgradable {
         if (!(lastRotated == 0 || block.number >= lastRotated + RELAY_SIGNER_ROTATION_COOLDOWN)) revert E22();
         advertiserRelaySigner[msg.sender] = signer;
         advertiserRelaySignerRotatedBlock[msg.sender] = block.number;
+        _track(msg.sender);
         emit AdvertiserRelaySignerSet(msg.sender, signer);
+    }
+
+    function _track(address a) internal {
+        if (!_isRegistered[a]) { _isRegistered[a] = true; _registered.push(a); }
     }
 
     // ── Readers (match the DatumCampaigns advertiser API for drop-in reads) ──
@@ -98,5 +112,25 @@ contract DatumAdvertiserRegistry is DatumUpgradable {
 
     function getAdvertiserProfileHash(address advertiser) external view returns (bytes32) {
         return advertiserProfileHash[advertiser];
+    }
+
+    // ── Enumeration (off-chain indexing + migration) ──
+    function registeredCount() external view returns (uint256) { return _registered.length; }
+    function registeredAt(uint256 i) external view returns (address) { return _registered[i]; }
+
+    /// @dev Copy the full advertiser set + each entry from a frozen predecessor.
+    ///      Called by DatumUpgradable.migrate (governance-gated, old must be frozen,
+    ///      version must increase). Small-set loop; paginate via migrate() override
+    ///      if the registered set ever grows beyond a single-tx gas budget.
+    function _migrate(address oldContract) internal override {
+        DatumAdvertiserRegistry old = DatumAdvertiserRegistry(oldContract);
+        uint256 n = old.registeredCount();
+        for (uint256 i = 0; i < n; i++) {
+            address a = old.registeredAt(i);
+            advertiserRelaySigner[a] = old.advertiserRelaySigner(a);
+            advertiserRelaySignerRotatedBlock[a] = old.advertiserRelaySignerRotatedBlock(a);
+            advertiserProfileHash[a] = old.advertiserProfileHash(a);
+            _track(a);
+        }
     }
 }

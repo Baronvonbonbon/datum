@@ -62,4 +62,54 @@ describe("DatumAdvertiserRegistry", function () {
     await expect(registry.connect(advertiser).setAdvertiserRelaySigner(signerA.address))
       .to.be.revertedWithCustomError(registry, "Paused");
   });
+
+  // Exercises the DatumUpgradable redeploy-migrate-rewire flow against the registry:
+  // freeze v1 → deploy v2 → v2.migrate(v1) copies the enumerable advertiser state.
+  describe("upgrade migration (DatumUpgradable)", function () {
+    let router: any;
+    let governor: HardhatEthersSigner;
+    let v2: any;
+    const HASH_B = "0x" + "11".repeat(32);
+
+    beforeEach(async function () {
+      governor = (await ethers.getSigners())[5];
+      const Router = await ethers.getContractFactory("MockOpenGovRouter");
+      router = await Router.deploy();
+      await router.setGovernor(governor.address);
+
+      // registry (from the outer beforeEach) is v1: wire the router + seed two advertisers.
+      await registry.connect(owner).setRouter(await router.getAddress());
+      await registry.connect(advertiser).setAdvertiserRelaySignerAndProfile(signerA.address, HASH);
+      await registry.connect(other).setAdvertiserProfile(HASH_B);
+
+      const V2 = await ethers.getContractFactory("MockAdvertiserRegistryV2");
+      v2 = await V2.deploy(await pauseReg.getAddress());
+      await v2.connect(owner).setRouter(await router.getAddress());
+    });
+
+    it("freeze(v1) blocks writes but reads still work (so v2 can pull state)", async function () {
+      await registry.connect(governor).freeze();
+      expect(await registry.frozen()).to.equal(true);
+      await expect(registry.connect(advertiser).setAdvertiserProfile(HASH)).to.be.revertedWith("frozen");
+      expect(await registry.getAdvertiserRelaySigner(advertiser.address)).to.equal(signerA.address);
+    });
+
+    it("v2.migrate(v1) copies the full advertiser set from the frozen predecessor", async function () {
+      await registry.connect(governor).freeze();
+      await v2.connect(governor).migrate(await registry.getAddress());
+      expect(await v2.migrated()).to.equal(true);
+      expect(await v2.getAdvertiserRelaySigner(advertiser.address)).to.equal(signerA.address);
+      expect(await v2.getAdvertiserProfileHash(advertiser.address)).to.equal(HASH);
+      expect(await v2.getAdvertiserProfileHash(other.address)).to.equal(HASH_B);
+      expect(await v2.registeredCount()).to.equal(2n);
+    });
+
+    it("migrate guards: old-not-frozen, governance-only, lock-once", async function () {
+      await expect(v2.connect(governor).migrate(await registry.getAddress())).to.be.revertedWith("old-not-frozen");
+      await registry.connect(governor).freeze();
+      await expect(v2.connect(other).migrate(await registry.getAddress())).to.be.revertedWith("E19");
+      await v2.connect(governor).migrate(await registry.getAddress());
+      await expect(v2.connect(governor).migrate(await registry.getAddress())).to.be.revertedWith("already migrated");
+    });
+  });
 });
