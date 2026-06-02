@@ -1,8 +1,22 @@
 # Demo Daemon Refactor — single source of truth for message routing
 
-**Status:** plan (not started). **Owner:** Kasey.
+**Status:** ✅ DONE — Workstream A (phases 0–4) + Workstream B landed 2026-06-01. **Owner:** Kasey.
 **Goal:** stop the in‑browser demo daemon from re‑implementing the extension's
 message router by hand, so the two can't drift.
+
+**Outcome:** the single switch is `alpha-5/extension/src/background/router.ts`
+(`routeMessage(msg, sender, env)`); the service worker (`background/index.ts` →
+`swEnv`) and the demo daemon (`web/src/lib/extensionDaemon.ts` → `demoEnv`) both call
+it. The daemon's ~60-arm mirror is deleted — it keeps only a thin pre-router for
+genuinely demo-only/divergent messages (PINE_*, offscreen WALLET_*, the local relay
+settle path, the demo relay signer, and a few deliberate overrides) and delegates
+everything else. Workstream B: `claimBuilder` is snarkjs-free (ZK injected via
+`setProveZk`/`zkProve.ts`), so the demo imports the real builder instead of
+re-inlining claim-building. The `EnvContext` seam ended up smaller than the sketch
+below (the local relay path stays in the demo pre-router rather than behind a shared
+`submitClaims`). Validated: extension build + 372 tests + Phase-0 gate (rewritten for
+the new architecture) + web build + headless `/`+`/demo` smoke. Commits `4690135`
+(phases 1–2 + B), `42cfd94` (phase 3), `663fb33` (shim-order fix).
 
 ---
 
@@ -156,28 +170,36 @@ daemon handler or allowlist entry fails the build. A third assertion keeps the
 allowlist honest (no stale entries). This is the regression gate the extraction below
 must preserve.
 
-**Phase 1 — extract, no behavior change.** Move `background/index.ts`'s
+**Phase 1 — extract, no behavior change. ✅ DONE.** Move `background/index.ts`'s
 `handleMessage` switch into `routeMessage(msg, env)` in a new `@ext/background/router`
 module with **no top‑level side effects**. `index.ts` keeps `onMessage`/alarms/
 lifecycle and calls `routeMessage(msg, swEnv)` where `swEnv` wraps today's inline
 calls verbatim. Ship; the SW behaves identically.
 
-**Phase 2 — define the seam.** Replace inline `getReadProvider` / `sendToOffscreen`
+**Phase 2 — define the seam. ✅ DONE.** Replace inline `getReadProvider` / `sendToOffscreen`
 / relay / settlement calls inside handlers with `env.*`. Build `swEnv` to satisfy
 `EnvContext`. Still SW‑only; still identical behavior. This is the bulk of the work
 (audit each of the ~56 handlers).
 
-**Phase 3 — demo delegates.** In `extensionDaemon.ts`, build `demoEnv`:
-`readProvider`/`rpc`/`offscreen.pineRpc` → page `pineRpc`; `offscreen.wallet` →
-in‑page `wallet-dispatch`; `submitClaims` → the existing demo relay path;
-`poller`/`claimQueue`/`walletDispatcher` → the instances it already holds. Replace
-the daemon's 60‑arm `handleMessage` with `routeMessage(msg, demoEnv)`, keeping a
-**thin pre‑router** only for genuinely demo‑only messages (`DAEMON_SUBMIT_CLAIMS`,
-`SET_RELAY_SIGNER_KEY`, `SET_PUBLISHER_RELAY`) and the page‑provider mapping
-(`PROVIDER_* → env.rpc` / wallet). Delete the mirror.
+**Phase 3 — demo delegates. ✅ DONE.** In `extensionDaemon.ts`, `demoEnv` provides
+page-`pineRpc` reads (`readProvider`/`pineProvider`), no-op earnings/alarms/auto-submit,
+and signing stubs. The daemon's mirror switch is deleted; `routeMessage(msg, DEMO_SENDER,
+demoEnv)` handles everything except a thin pre-router for demo-only/divergent messages
+(PINE_*, offscreen WALLET_*, `DAEMON_SUBMIT_CLAIMS`/`DRAIN_CLAIMS_ONLY`,
+`GET_RELAY_SIGNER`/`SET_RELAY_SIGNER_KEY`, `SET_CLAIM_BUILDER_MODE`, plus deliberate
+overrides: aggregated `IMPRESSION_RECORDED`, `SETTINGS_UPDATED` persist,
+`CHECK_PUBLISHER_ALLOWLIST`, `REPORT_*`, `REQUEST_PUBLISHER_ATTESTATION`). The
+per-impression path now calls the real `claimBuilder.onImpression`. (`SET_PUBLISHER_RELAY`
+and `PROVIDER_RPC_PROXY` turned out to route fine through the shared router, so they're
+no longer demo-only.) Note: the static router import required moving `installChromeShim()`
+to a first-evaluated side-effect module (`installShim.ts`) so the router graph's
+import-time `chrome.*` use doesn't crash the page (commit `663fb33`).
 
-**Phase 4 — keep the net + lock it.** Keep the visible `default` fallback (shipped)
-as defense‑in‑depth. The Phase‑0 contract test now guards against re‑drift.
+**Phase 4 — keep the net + lock it. ✅ DONE.** The visible `default` fallback is
+preserved (delegates first, then logs truly-unknown types). The Phase-0 contract test
+is rewritten for the new architecture: it asserts the daemon imports + calls
+`routeMessage` and that every remaining pre-router case is a justified demo-only/override
+(`DEMO_PRE_ROUTER` allowlist), so the mirror can't silently grow back.
 
 ---
 
