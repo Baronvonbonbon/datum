@@ -65,7 +65,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
 
     /// v2: minimumCpmFloor + pendingTimeoutBlocks demoted from immutable to
     /// storage, gated by onlyOwnerOrPG with bounded setters + lock-once.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -1142,5 +1142,35 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     function getCampaignUserCapSafe(uint256 campaignId) external view returns (bool ok, uint32 maxEvents, uint32 windowBlocks) {
         if (_campaigns[campaignId].advertiser == address(0)) return (false, 0, 0);
         return (true, userEventCapPerWindow[campaignId], userCapWindowBlocks[campaignId]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration — write hooks for the external DatumCampaignsMigrator
+    // -------------------------------------------------------------------------
+    // Campaigns is EIP-170-bound, so the heavy read/loop logic lives in the
+    // external DatumCampaignsMigrator; this contract only exposes the minimal
+    // governance-gated write surface (struct + scalar gates + nextId). The
+    // migrator reads each field from the frozen predecessor and replays it here.
+
+    function getCampaignStruct(uint256 id) external view returns (Campaign memory) { return _campaigns[id]; }
+
+    /// @dev Set the id counter so post-migration creations get fresh ids.
+    function migrateBumpNextId(uint256 n) external onlyGovernance { nextCampaignId = n; }
+
+    /// @dev Replay one campaign's core struct + scalar gates from a predecessor.
+    ///      Nested/array side-state (pots, per-campaign allowlist snapshot, tags)
+    ///      is replayed separately via migrateImportCampaignGates extensions /
+    ///      the migrator. Governance-gated; intended for the migration window.
+    function migrateImportCampaign(
+        uint256 id,
+        Campaign calldata c,
+        uint8 assuranceLevel,
+        uint256 minStake,
+        uint8 minIdentityLevel
+    ) external onlyGovernance {
+        _campaigns[id] = c;
+        campaignAssuranceLevel[id] = assuranceLevel;
+        campaignMinStake[id] = minStake;
+        campaignMinIdentityLevel[id] = minIdentityLevel;
     }
 }
