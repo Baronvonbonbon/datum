@@ -71,6 +71,21 @@ ZKVerifier, AttestationVerifier, IdentityVerifier, DualSigSettlement, Relay, Tim
 5. Axis-B `_migrate`: NullifierRegistry + ClickRegistry (replay) → Publishers + Campaigns → governances → identity/roots → config-light.
 6. Per batch: MockXV2 + migration test (enumerate → migrate → [sweep] → solvency), full-suite green, commit.
 
+## Migration strategy by state shape (modularity)
+- **Bounded enumerable state** (balances, stakes, bonds, registrations): copy via
+  key enumeration + `_migrate` (the shipped pattern). Paginate if large.
+- **Append-only replay sets with unbounded cardinality** (NullifierRegistry
+  `_used`, ClickRegistry `_sessions`): **DO NOT copy** — use a **predecessor
+  chain**. `migrate()` already records `migrationSource`; the successor's
+  read/consume path returns `local || (migrationSource != 0 &&
+  IPredecessor(migrationSource).isUsed(...))`. O(1) migration, no enumeration,
+  gas-cheap; cost is one staticcall per local miss. Chain depth grows by 1 per
+  upgrade (rare) — acceptable. This is the canonical pattern for replay stores.
+- **Config-only** (rates, curves, windows): copy the scalars in `_migrate`; no
+  enumeration.
+- **In-flight governance** (open votes/proposals): copy active proposals via a
+  proposal-id enumeration; settled history can be left behind (event-sourced).
+
 ## Risk notes
 - Many tests assert `revertedWith("already set")` / `AlreadySet` on converted setters — each conversion breaks + must update those to phase-conditional semantics (second set succeeds; reverts only after lockPlumbing@OpenGov).
 - Converting onto the mixin shifts child storage by one slot — fine for redeploy-migrate-rewire (fresh deploy), NEVER for the Settlement Logic delegatecall stack (keeps its own `_plumbingLocked`).
