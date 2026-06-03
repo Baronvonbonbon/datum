@@ -60,9 +60,15 @@ describe("DatumEmissionEngine (Path H)", function () {
     });
   });
 
-  describe("setSettlement (lock-once)", function () {
-    it("rejects double-set", async function () {
-      await expect(engine.setSettlement(other.address)).to.be.revertedWith("already set");
+  describe("setSettlement (phase-conditional lock-once)", function () {
+    it("is re-pointable until lockPlumbing@OpenGov", async function () {
+      // Cypherpunk posture: governance re-points until OpenGov freezes it.
+      await engine.setSettlement(other.address);
+      expect(await engine.settlement()).to.equal(other.address);
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(engine as any);
+      await engine.lockPlumbing();
+      await expect(engine.setSettlement(other.address)).to.be.revertedWith("locked");
     });
     it("zero addr rejected", async function () {
       const fresh = await (await ethers.getContractFactory("DatumEmissionEngine")).deploy();

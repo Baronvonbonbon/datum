@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
@@ -15,7 +15,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Separated from DatumPaymentVault to keep ETH-native accounting isolated.
 ///         Only supports EVM-native ERC-20 tokens (not native Asset Hub assets).
-contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumUpgradable {
+contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumPlumbingLockable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
     using SafeERC20 for IERC20;
@@ -92,9 +92,8 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
 
     /// @dev Cypherpunk lock-once: settlement is the only address that may
     ///      credit token rewards. Hot-swap = drain advertiser deposits.
-    function setSettlement(address addr) external onlyOwner {
+    function setSettlement(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
         settlement = addr;
     }
 

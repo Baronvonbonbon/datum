@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 
 /// @title  DatumEmissionEngine
 /// @notice Path H emission curve (TOKENOMICS.md §3.3): outer 7-year halvings
@@ -22,7 +22,7 @@ import "./DatumUpgradable.sol";
 ///         receives the effective mint amount (clipped against budgets).
 ///         Anyone can call permissionless `rollEpoch()` after the halving
 ///         interval, and `adjustRate()` after the adjustment period.
-contract DatumEmissionEngine is DatumUpgradable {
+contract DatumEmissionEngine is DatumPlumbingLockable {
     function version() public pure override returns (uint256) { return 1; }
 
 
@@ -106,9 +106,8 @@ contract DatumEmissionEngine is DatumUpgradable {
     }
 
     // ─── Wiring ─────────────────────────────────────────────────────────────
-    function setSettlement(address addr) external onlyOwner {
+    function setSettlement(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
         settlement = addr;
         emit SettlementSet(addr);
     }
