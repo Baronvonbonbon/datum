@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumChallengeBonds.sol";
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution;
 ///                      per-publisher (unchanged).
 ///         claimBonus — called by advertiser per-(campaign, publisher).
-contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumPlumbingLockable {
+contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumFundMigratable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
 
@@ -84,8 +84,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumPlum
     mapping(address => bool) private _bondPublisherTracked;
     address[] private _refundAdvertisers;
     mapping(address => bool) private _refundAdvTracked;
-    bool public fundsMigratedOut;
-    event FundsMigratedOut(address indexed successor, uint256 amount);
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
 
     function _trackBondCampaign(uint256 id) internal {
         if (!_bondCampaignTracked[id]) { _bondCampaignTracked[id] = true; _bondCampaigns.push(id); }
@@ -439,19 +438,4 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumPlum
     /// @notice Sweep native balance to a successor during an upgrade so it can
     ///         honour migrated bonds + pools. Governance-gated, frozen-only,
     ///         one-shot. Uses `acceptMigration` (receive() rejects deposits).
-    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
-        require(frozen, "not frozen");
-        require(!fundsMigratedOut, "already swept");
-        require(successor != address(0), "E00");
-        fundsMigratedOut = true;
-        uint256 bal = address(this).balance;
-        emit FundsMigratedOut(successor, bal);
-        if (bal > 0) DatumChallengeBonds(payable(successor)).acceptMigration{value: bal}();
-    }
-
-    /// @notice Accept the predecessor's native-DOT inflow during migration.
-    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
-    function acceptMigration() external payable {
-        require(msg.sender == migrationSource, "not-source");
-    }
 }

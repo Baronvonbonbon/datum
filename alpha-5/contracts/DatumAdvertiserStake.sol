@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumAdvertiserStake.sol";
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 
 /// @title DatumAdvertiserStake
@@ -26,7 +26,7 @@ import "./PaseoSafeSender.sol";
 ///         resolves aye. The slash mechanism consumes from pendingUnstake first
 ///         so a fraud-anticipating advertiser can't shield funds via
 ///         requestUnstake (same R-H1 pattern as DatumPublisherStake).
-contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumPlumbingLockable {
+contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFundMigratable {
     /// v2: parameter-governance Phase B — adds parameterGovernance field
     /// and routes the three parameter setters (setParams, setMaxRequiredStake,
     /// setMaxSlashBpsPerCall) through onlyOwnerOrPG so PG's bicameral
@@ -79,8 +79,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumPl
     // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
     address[] private _stakers;
     mapping(address => bool) private _isStaker;
-    bool public fundsMigratedOut;
-    event FundsMigratedOut(address indexed successor, uint256 amount);
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
 
     function _track(address a) internal {
         if (a != address(0) && !_isStaker[a]) { _isStaker[a] = true; _stakers.push(a); }
@@ -300,19 +299,4 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumPl
 
     /// @notice Sweep native balance to a successor during an upgrade so it can
     ///         honour migrated stakes. Governance-gated, frozen-only, one-shot.
-    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
-        require(frozen, "not frozen");
-        require(!fundsMigratedOut, "already swept");
-        require(successor != address(0), "E00");
-        fundsMigratedOut = true;
-        uint256 bal = address(this).balance;
-        emit FundsMigratedOut(successor, bal);
-        if (bal > 0) DatumAdvertiserStake(payable(successor)).acceptMigration{value: bal}();
-    }
-
-    /// @notice Accept the predecessor's native-DOT inflow during migration.
-    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
-    function acceptMigration() external payable {
-        require(msg.sender == migrationSource, "not-source");
-    }
 }

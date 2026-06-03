@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 
 interface IDatumCampaignsForMute {
@@ -25,7 +25,7 @@ interface IDatumCampaignsForMute {
 ///         Cypherpunk lock-once: Campaigns and Lifecycle addresses are
 ///         set exactly once and frozen. Treasury and governable parameters
 ///         are owner-mutable (owner is Timelock/Router in the ladder).
-contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumPlumbingLockable {
+contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumFundMigratable {
     /// v2: parameter-governance Phase B — routes the five parameter setters
     /// (setMinBond, setTimelockBlocks, setPunishmentBps, setMuteMinBond,
     /// setMuteMaxBlocks) through `onlyOwnerOrPG`. Wiring setters
@@ -121,8 +121,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumPl
     mapping(uint256 => bool) private _bondCampaignTracked;
     address[] private _pendingHolders;
     mapping(address => bool) private _pendingTracked;
-    bool public fundsMigratedOut;
-    event FundsMigratedOut(address indexed successor, uint256 amount);
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
 
     function _trackBondCampaign(uint256 id) internal {
         if (!_bondCampaignTracked[id]) { _bondCampaignTracked[id] = true; _bondCampaigns.push(id); }
@@ -615,19 +614,4 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumPl
     /// @notice Sweep native balance to a successor during an upgrade so it can
     ///         honour migrated bonds + pending payouts. Governance-gated,
     ///         frozen-only, one-shot.
-    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
-        require(frozen, "not frozen");
-        require(!fundsMigratedOut, "already swept");
-        require(successor != address(0), "E00");
-        fundsMigratedOut = true;
-        uint256 bal = address(this).balance;
-        emit FundsMigratedOut(successor, bal);
-        if (bal > 0) DatumActivationBonds(payable(successor)).acceptMigration{value: bal}();
-    }
-
-    /// @notice Accept the predecessor's native-DOT inflow during migration.
-    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
-    function acceptMigration() external payable {
-        require(msg.sender == migrationSource, "not-source");
-    }
 }

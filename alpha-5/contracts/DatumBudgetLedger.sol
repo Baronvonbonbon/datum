@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -19,7 +19,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
-contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumPlumbingLockable {
+contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigratable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
     // -------------------------------------------------------------------------
@@ -82,10 +82,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumPlumbing
     mapping(uint256 => bool) private _budgetTracked;
     address[] private _refundHolders;
     mapping(address => bool) private _refundTracked;
-
-    /// @notice One-shot: true once native DOT has been swept to a successor.
-    bool public fundsMigratedOut;
-    event FundsMigratedOut(address indexed successor, uint256 amount);
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
 
     function _trackBudgetCampaign(uint256 id) internal {
         if (!_budgetTracked[id]) { _budgetTracked[id] = true; _budgetCampaigns.push(id); }
@@ -392,27 +389,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumPlumbing
         }
     }
 
-    /// @notice Sweep the ledger's entire native balance to a successor during an
-    ///         upgrade, so the successor (which received the budget accounting
-    ///         via `_migrate`) is solvent. Governance-gated + frozen-only (a live
-    ///         ledger can never be drained); one-shot. Uses `acceptMigration`
-    ///         because this contract's `receive()` rejects deposits.
-    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
-        require(frozen, "not frozen");
-        require(!fundsMigratedOut, "already swept");
-        require(successor != address(0), "E00");
-        fundsMigratedOut = true;
-        uint256 bal = address(this).balance;
-        emit FundsMigratedOut(successor, bal);
-        if (bal > 0) DatumBudgetLedger(payable(successor)).acceptMigration{value: bal}();
-    }
-
-    /// @notice Accept a native-DOT inflow from the predecessor being migrated
-    ///         FROM. Gated to `migrationSource` (set by migrate()), so only the
-    ///         contract this one migrated from can fund it — no open deposits.
-    function acceptMigration() external payable {
-        require(msg.sender == migrationSource, "not-source");
-    }
+    // migrateFundsTo + acceptMigration (native sweep) provided by DatumFundMigratable.
 
     // -------------------------------------------------------------------------
     // Internal

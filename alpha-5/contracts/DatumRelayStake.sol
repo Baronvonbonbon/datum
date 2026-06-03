@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumRelayStake.sol";
 
@@ -33,7 +33,7 @@ import "./interfaces/IDatumRelayStake.sol";
 contract DatumRelayStake is
     IDatumRelayStake,
     PaseoSafeSender,
-    DatumPlumbingLockable
+    DatumFundMigratable
 {
     function version() public pure virtual override returns (uint256) { return 1; }
 
@@ -254,8 +254,7 @@ contract DatumRelayStake is
     // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
 
     /// @notice One-shot: true once native DOT has been swept to a successor.
-    bool public fundsMigratedOut;
-    event FundsMigratedOut(address indexed successor, uint256 amount);
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
 
     /// @dev Copy params + every relay's Stake (reusing the existing enumerable
     ///      relayList) + totalStaked from a frozen predecessor. Wiring refs
@@ -280,19 +279,4 @@ contract DatumRelayStake is
 
     /// @notice Sweep native balance to a successor during an upgrade so it can
     ///         honour migrated relay stakes. Governance-gated, frozen-only, one-shot.
-    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
-        require(frozen, "not frozen");
-        require(!fundsMigratedOut, "already swept");
-        if (successor == address(0)) revert E00();
-        fundsMigratedOut = true;
-        uint256 bal = address(this).balance;
-        emit FundsMigratedOut(successor, bal);
-        if (bal > 0) DatumRelayStake(payable(successor)).acceptMigration{value: bal}();
-    }
-
-    /// @notice Accept the predecessor's native-DOT inflow during migration.
-    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
-    function acceptMigration() external payable {
-        require(msg.sender == migrationSource, "not-source");
-    }
 }
