@@ -1,7 +1,7 @@
 {
   "note": "Storage layout snapshot for the Settlement two-Logic split. DatumSettlement, DatumSettlementLogicA, and DatumSettlementLogicB must all share this exact layout (DELEGATECALL invariant). Regenerate via scripts/dump-settlement-layout.ts after any intentional change to DatumSettlementStorage; the file is checked in test/settlement-layout.test.ts (CI) and at the top of scripts/deploy.ts (pre-deploy gate).",
   "contract": "DatumSettlement, DatumSettlementLogicA, DatumSettlementLogicB",
-  "slotCount": 47,
+  "slotCount": 48,
   "storage": [
     {
       "label": "_owner",
@@ -282,6 +282,12 @@
     {
       "label": "_logicLocked",
       "offset": 20,
+      "slot": "91",
+      "type": "t_bool"
+    },
+    {
+      "label": "_plumbingLocked",
+      "offset": 21,
       "slot": "91",
       "type": "t_bool"
     }

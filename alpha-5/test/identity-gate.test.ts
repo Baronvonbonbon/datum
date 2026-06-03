@@ -334,8 +334,19 @@ describe("People Chain identity gate", function () {
       expect(await rejectedReasons(tx)).to.deep.equal([30]);
     });
 
-    it("ID8: setIdentityRegistry is lock-once", async function () {
-      await expect(settlement.connect(owner).setIdentityRegistry(other.address))
+    it("ID8: setIdentityRegistry is phase-conditional lock-once (re-pointable until lockPlumbing)", async function () {
+      // Cypherpunk posture: the structural identity ref stays governance-
+      // re-pointable through Admin/Council, then freezes at OpenGov.
+      // 1. Re-pointable while unlocked.
+      await expect(settlement.connect(owner).setIdentityRegistry(other.address)).to.not.be.reverted;
+      expect(await settlement.identityRegistry()).to.equal(other.address);
+      // 2. Wire an OpenGov router and fire the umbrella lock.
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(settlement as any);
+      await settlement.connect(owner).lockPlumbing();
+      expect(await settlement.plumbingLocked()).to.equal(true);
+      // 3. Frozen: any further structural re-point reverts AlreadySet.
+      await expect(settlement.connect(owner).setIdentityRegistry(oracle.address))
         .to.be.revertedWithCustomError(settlement, "AlreadySet");
     });
   });

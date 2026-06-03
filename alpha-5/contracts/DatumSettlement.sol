@@ -200,18 +200,23 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     // Admin
     // -------------------------------------------------------------------------
 
-    /// @dev B8-fix (2026-05-12): structural references are lock-once. Settlement
-    ///      cannot have its budget ledger, payment vault, _lifecycle, or relay
-    ///      hot-swapped post-bootstrap — every swap point is a rug surface and
-    ///      none of these have a legitimate change reason once wired. Deploy a
-    ///      fresh Settlement if you genuinely need to re-point.
+    /// @dev Cypherpunk posture (roadmap 2026-05-18): structural references are
+    ///      phase-conditional lock-once. While `_plumbingLocked` is false
+    ///      (Admin/Council phases) the phased governor can re-point the budget
+    ///      ledger, payment vault, lifecycle, or relay — calling configure again
+    ///      overwrites all four. `lockPlumbing()` (OpenGov-gated) then freezes
+    ///      the whole plumbing surface permanently. This supersedes the prior
+    ///      B8-fix unconditional set-once guard, which froze the plumbing at
+    ///      deploy and forced a full Settlement redeploy to re-point. The rug
+    ///      surface is bounded by the phase ladder (owner = Timelock/Council in
+    ///      later phases) plus the irreversible OpenGov lock.
     function configure(
         address budgetLedger_,
         address paymentVault_,
         address lifecycle_,
         address relay_
     ) external onlyOwner {
-        if (!(address(_budgetLedger) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         if (!(budgetLedger_ != address(0))) revert E00();
         if (!(paymentVault_ != address(0))) revert E00();
         if (!(lifecycle_ != address(0))) revert E00();
@@ -228,7 +233,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      surface (fake rates → drain budgets). One write, then frozen.
     function setClaimValidator(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(address(_claimValidator) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _claimValidator = IDatumClaimValidator(addr);
     }
 
@@ -236,14 +241,14 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      a swappable attestation verifier lets an owner forge dual-sig.
     function setAttestationVerifier(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(_attestationVerifier == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _attestationVerifier = addr;
     }
 
     /// @notice Wire the carved-out rate limiter module. Lock-once.
     function setRateLimiter(address addr) external onlyOwner {
         if (addr == address(0)) revert E00();
-        if (address(_rateLimiter) != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _rateLimiter = IDatumSettlementRateLimiter(addr);
         emit RateLimiterSet(addr);
     }
@@ -258,7 +263,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      it is frozen for the life of this Settlement.
     function setPublishers(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(address(_publishers) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _publishers = IDatumPublishers(addr);
     }
 
@@ -267,13 +272,13 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      a hostile vault that quietly absorbs rewards. address(0) leaves the
     ///      feature off; once set non-zero it's frozen.
     function setTokenRewardVault(address addr) external onlyOwner {
-        if (!(address(_tokenRewardVault) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _tokenRewardVault = IDatumTokenRewardVault(addr);
     }
 
     function setCampaigns(address addr) external onlyOwner {
-        // B8-fix: structural ref, lock-once.
-        if (!(address(_campaigns) == address(0))) revert AlreadySet();
+        // Phase-conditional structural ref: re-pointable until lockPlumbing().
+        if (_plumbingLocked) revert AlreadySet();
         if (!(addr != address(0))) revert E00();
         _campaigns = IDatumCampaigns(addr);
     }
@@ -281,7 +286,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     /// @dev Cypherpunk lock-once: stake adequacy gate. Hot-swap could neuter it.
     function setPublisherStake(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(address(_publisherStake) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _publisherStake = IDatumPublisherStake(addr);
     }
 
@@ -289,14 +294,14 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///      forge budget-spent on rivals to drive their required-stake up.
     function setAdvertiserStake(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(_advertiserStake == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _advertiserStake = addr;
     }
 
     /// @notice Wire the carved-out nullifier-registry module. Lock-once.
     function setNullifierRegistry(address addr) external onlyOwner {
         if (addr == address(0)) revert E00();
-        if (address(_nullifiers) != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _nullifiers = IDatumNullifierRegistry(addr);
         emit NullifierRegistrySet(addr);
     }
@@ -310,7 +315,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     /// @notice Wire the carved-out reputation module. Lock-once.
     function setReputationContract(address rep) external onlyOwner {
         if (rep == address(0)) revert E00();
-        if (address(_reputation) != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _reputation = IDatumPublisherReputation(rep);
         emit ReputationContractSet(rep);
     }
@@ -343,7 +348,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     ///         gate in flight. Redeploy Settlement if rotation is needed.
     function setIdentityRegistry(address addr) external onlyOwner {
         if (!(addr != address(0))) revert E00();
-        if (!(address(_identityRegistry) == address(0))) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _identityRegistry = IDatumPeopleChainIdentity(addr);
         emit IdentityRegistrySet(addr);
     }
@@ -378,16 +383,17 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     /// @notice Wire the carved-out PoW engine. Lock-once.
     function setPowEngine(address engine) external onlyOwner {
         if (engine == address(0)) revert E00();
-        if (address(_powEngine) != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _powEngine = IDatumPowEngine(engine);
         emit PowEngineSet(engine);
     }
 
     function setClickRegistry(address addr) external onlyOwner {
-        // A13: lock once set. Re-pointing to a fresh registry would create a
-        // replay window for already-claimed click sessions. Deploy a new
-        // Settlement if a registry swap is genuinely required.
-        if (!(address(_clickRegistry) == address(0))) revert AlreadySet();
+        // Phase-conditional structural ref. NOTE: re-pointing to a fresh
+        // registry opens a replay window for already-claimed click sessions,
+        // so governance must drain/settle in-flight click claims before a
+        // swap. Frozen permanently once lockPlumbing() fires at OpenGov.
+        if (_plumbingLocked) revert AlreadySet();
         if (!(addr != address(0))) revert E00();
         _clickRegistry = IDatumClickRegistry(addr);
     }
@@ -400,7 +406,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     /// @notice One-time wiring of the carved-out mint coordinator. Lock-once.
     function setMintCoordinator(address coordinator) external onlyOwner {
         if (coordinator == address(0)) revert E00();
-        if (address(_mintCoordinator) != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _mintCoordinator = IDatumMintCoordinator(coordinator);
         emit MintCoordinatorSet(coordinator);
     }
@@ -491,9 +497,22 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
         emit LogicLocked();
     }
 
+    /// @notice Cypherpunk end-state lock for the structural-reference surface
+    ///         (configure's 4 refs + every set* structural pointer above).
+    ///         Phase-gated on OpenGov: while unfired, the phased governor may
+    ///         re-point any structural ref ("upgradable today"); once fired,
+    ///         every such setter reverts AlreadySet permanently ("locked
+    ///         tomorrow"). Mirrors lockLogic / lockLanes / lockSlashers and
+    ///         DatumClaimValidator.lockPlumbing / DatumPublishers locks.
+    function lockPlumbing() external onlyOwner whenOpenGovPhase {
+        _plumbingLocked = true;
+        emit PlumbingLocked();
+    }
+
     function logicA() external view returns (address) { return _logicA; }
     function logicB() external view returns (address) { return _logicB; }
     function logicLocked() external view returns (bool) { return _logicLocked; }
+    function plumbingLocked() external view returns (bool) { return _plumbingLocked; }
 
     // -------------------------------------------------------------------------
     // Settlement
@@ -554,7 +573,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     /// @notice Wire the carved-out DualSig settlement module. Lock-once.
     function setDualSig(address addr) external onlyOwner {
         if (addr == address(0)) revert E00();
-        if (_dualSig != address(0)) revert AlreadySet();
+        if (_plumbingLocked) revert AlreadySet();
         _dualSig = addr;
         emit DualSigSet(addr);
     }
