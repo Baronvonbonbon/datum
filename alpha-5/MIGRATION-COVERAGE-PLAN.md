@@ -1,5 +1,23 @@
 # Protocol-wide upgrade/migration coverage plan
 
+> ## ⚠️ FOLLOW-UP: DatumCampaigns EIP-170 carve-out (blocks full Campaigns migration)
+> DatumCampaigns is at the EIP-170 ceiling — adding the migration write hooks
+> (`migrateImportCampaign` / `migrateBumpNextId` / `getCampaignStruct`) pushed it
+> to **24442 B / 24576 (only 134 B headroom)**. Consequence: the migrator
+> (`scripts/migrate-campaigns.ts` + the in-contract hooks) carries only the core
+> `Campaign` struct + 3 settlement gates (assurance / minStake / identityLevel);
+> the **full per-campaign side-state does NOT fit and is NOT migrated** — pots
+> array, allowlist snapshot, tags, requiredCategory, userEventCap/window,
+> minUserSettledHistory. Budgets migrate separately via DatumBudgetLedger.
+>
+> **Action:** slim DatumCampaigns via the carve-out remerge (see
+> `[[project_eip170_remerge_plan]]`) so the side-state import code fits, THEN
+> extend `migrateImportCampaign` to cover it and drop the "re-set post-migration"
+> caveat from the script. Until then, advertisers must re-apply those optional
+> per-campaign gates after a Campaigns upgrade. This is on the critical path for
+> a *complete* Campaigns migration and should be sequenced before / alongside the
+> remaining governance + stake-root migrations.
+
 Goal: **seamlessly upgrade any contract and carry over all logic + state**, as
 modularly as possible. Two independent axes per contract:
 
@@ -54,8 +72,10 @@ PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, 
 
 Also shipped: **CampaignAllowlist ✅ (enumeration-copy)**, **PeopleChainXcmBridge ✅ (escrow copy + DatumFundMigratable sweep)**.
 
-### Axis-B — `_migrate` still TODO (the complex tier)
-StakeRoot/StakeRootV2 (funds + reporters + in-flight challenges + payouts), 6 governances (in-flight proposals), TagRegistry/TagSystem (jurors+disputes+funds), CampaignCreative, PeopleChainIdentity/BondedIdentityReporter (identity caches).
+Also shipped: **PeopleChainIdentity ✅**, **CampaignCreative ✅ (escrow sweep)**.
+
+### Axis-B — `_migrate` still TODO (the heaviest tier: funds + in-flight state machines)
+StakeRoot/StakeRootV2 + BondedIdentityReporter (reporter stakes + reporterList + in-flight pending-root/attestation challenges + per-address payouts + commitmentList), 6 governances (in-flight proposals/votes), TagRegistry/TagSystem (jurors + disputes + staked funds).
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
