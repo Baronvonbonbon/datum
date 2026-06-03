@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/XcmTransactEncoder.sol";
 import "./interfaces/IXcm.sol";
@@ -47,7 +47,7 @@ interface IPeopleChainIdentityWrite {
 ///         Per-user cooldown blocks flapping. Per-user lookup, not
 ///         per-(user, requester), since cooldown is anti-grief, not
 ///         anti-Sybil.
-contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
+contract DatumPeopleChainXcmBridge is DatumPlumbingLockable, PaseoSafeSender {
 
     /// @notice Upgrade ladder version. Increment per deployment when the
     ///         storage layout or behavior changes.
@@ -172,8 +172,7 @@ contract DatumPeopleChainXcmBridge is DatumUpgradable, PaseoSafeSender {
     }
 
     /// @notice Lock-once Campaigns wiring for advertiser auth on escrow withdraw.
-    function setCampaignsContract(address c) external onlyOwner {
-        require(campaignsContract == address(0), "already set");
+    function setCampaignsContract(address c) external onlyOwner whenPlumbingUnlocked {
         require(c != address(0), "E00");
         campaignsContract = c;
         emit CampaignsContractSet(c);

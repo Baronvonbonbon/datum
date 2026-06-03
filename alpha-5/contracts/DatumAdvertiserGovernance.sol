@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "./interfaces/IDatumAdvertiserGovernance.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/ParameterRetuneGuard.sol";
 
@@ -31,7 +31,7 @@ import "./lib/ParameterRetuneGuard.sol";
 contract DatumAdvertiserGovernance is
     IDatumAdvertiserGovernance,
     PaseoSafeSender,
-    DatumUpgradable,
+    DatumPlumbingLockable,
     ParameterRetuneGuard
 {
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown.
@@ -55,9 +55,8 @@ contract DatumAdvertiserGovernance is
         _;
     }
 
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -215,9 +214,8 @@ contract DatumAdvertiserGovernance is
 
     /// @dev Lock-once: AdvertiserStake.slash() must come from this contract;
     ///      a hot-swap allows unilateral slashing of any advertiser.
-    function setAdvertiserStake(address addr) external onlyOwner {
+    function setAdvertiserStake(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(address(advertiserStake) == address(0), "already set");
         advertiserStake = IDatumAdvertiserStake(addr);
     }
 
@@ -263,8 +261,7 @@ contract DatumAdvertiserGovernance is
     ///         claims. Cypherpunk lock-once: a hot-swappable arbiter is a
     ///         unilateral slash backdoor. address(0) leaves the Council-
     ///         arbitrated track disabled; once set non-zero it's frozen.
-    function setCouncilArbiter(address arbiter) external onlyOwner {
-        require(councilArbiter == address(0), "already set");
+    function setCouncilArbiter(address arbiter) external onlyOwner whenPlumbingUnlocked {
         require(arbiter != address(0), "E00");
         councilArbiter = arbiter;
         emit CouncilArbiterSet(arbiter);

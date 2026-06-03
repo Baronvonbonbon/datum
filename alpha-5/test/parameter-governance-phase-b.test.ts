@@ -27,12 +27,13 @@ describe("Phase B — DatumAdvertiserStake parameter governance", () => {
     return await Stake.deploy(parseDOT("1"), 10n ** 8n, 14_400n);
   }
 
-  it("setParameterGovernance is lock-once + zero-addr rejected", async () => {
+  it("setParameterGovernance is phase-conditional (re-pointable until lock) + zero-addr rejected", async () => {
     const c = await deploy();
     const [owner, , pgA, pgB] = await ethers.getSigners();
     await expect(c.connect(owner).setParameterGovernance(ethers.ZeroAddress)).to.be.revertedWith("E00");
     await c.connect(owner).setParameterGovernance(pgA.address);
-    await expect(c.connect(owner).setParameterGovernance(pgB.address)).to.be.revertedWith("already set");
+    await c.connect(owner).setParameterGovernance(pgB.address); // re-pointable while unlocked
+    expect(await c.parameterGovernance()).to.equal(pgB.address);
   });
 
   it("owner + PG can both tune setParams; non-owner reverts E18", async () => {

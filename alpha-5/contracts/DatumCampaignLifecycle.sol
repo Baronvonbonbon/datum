@@ -110,7 +110,7 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     ///         DatumClaimValidator + DatumPowEngine.
     function setParameterGovernance(address pg) external onlyOwner {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
+        require(!plumbingLocked, "locked");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }

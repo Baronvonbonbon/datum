@@ -59,7 +59,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
 
     function setParameterGovernance(address pg) external onlyOwner {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
+        if (plumbingLocked) revert LockedAlready();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -159,14 +159,14 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
 
     function setMintAuthority(address authority) external onlyOwner {
         if (authority == address(0)) revert E00();
-        if (mintAuthority != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         mintAuthority = authority;
         emit MintAuthoritySet(authority);
     }
 
     function setEmissionEngine(address engine) external onlyOwner {
         if (engine == address(0)) revert E00();
-        if (emissionEngine != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         emissionEngine = engine;
         emit EmissionEngineSet(engine);
     }

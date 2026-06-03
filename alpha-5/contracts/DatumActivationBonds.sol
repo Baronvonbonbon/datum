@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 
 interface IDatumCampaignsForMute {
@@ -25,7 +25,7 @@ interface IDatumCampaignsForMute {
 ///         Cypherpunk lock-once: Campaigns and Lifecycle addresses are
 ///         set exactly once and frozen. Treasury and governable parameters
 ///         are owner-mutable (owner is Timelock/Router in the ladder).
-contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUpgradable {
+contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumPlumbingLockable {
     /// v2: parameter-governance Phase B — routes the five parameter setters
     /// (setMinBond, setTimelockBlocks, setPunishmentBps, setMuteMinBond,
     /// setMuteMaxBlocks) through `onlyOwnerOrPG`. Wiring setters
@@ -44,9 +44,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @notice Lock-once: PG cannot be rotated post-bootstrap.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -176,9 +175,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
 
     /// @dev Cypherpunk lock-once. The campaigns reference is the only authority
     ///      to mint bonds — hot-swapping it could redirect creator-bond flow.
-    function setCampaignsContract(address addr) external onlyOwner {
+    function setCampaignsContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(campaignsContract == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaignsContract, addr);
         campaignsContract = addr;
     }

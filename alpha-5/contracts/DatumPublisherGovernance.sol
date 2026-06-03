@@ -5,7 +5,7 @@ import "./interfaces/IDatumPublisherGovernance.sol";
 import "./interfaces/IDatumPublisherStake.sol";
 import "./interfaces/IDatumChallengeBonds.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/ParameterRetuneGuard.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -34,7 +34,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 contract DatumPublisherGovernance is
     IDatumPublisherGovernance,
     PaseoSafeSender,
-    DatumUpgradable,
+    DatumPlumbingLockable,
     ParameterRetuneGuard
 {
     function version() public pure override returns (uint256) { return 1; }
@@ -274,24 +274,21 @@ contract DatumPublisherGovernance is
 
     /// @dev Cypherpunk lock-once: PublisherStake is where this contract reads
     ///      stake + calls slash. Hot-swap = unilateral slash of any publisher.
-    function setPublisherStake(address addr) external onlyOwner {
+    function setPublisherStake(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(address(publisherStake) == address(0), "already set");
         publisherStake = IDatumPublisherStake(addr);
     }
 
     /// @dev Cypherpunk lock-once on first non-zero write; address(0) leaves the
     ///      challenge-bonds reward path disabled. Once non-zero, frozen.
-    function setChallengeBonds(address addr) external onlyOwner {
-        require(address(challengeBonds) == address(0), "already set");
+    function setChallengeBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         challengeBonds = IDatumChallengeBonds(addr);
     }
 
     /// @dev Cypherpunk lock-once: pauseRegistry gates vote/resolve. Hot-swap to
     ///      a fake "always-unpaused" registry would bypass emergency pause.
-    function setPauseRegistry(address addr) external onlyOwner {
+    function setPauseRegistry(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(address(pauseRegistry) == address(0), "already set");
         pauseRegistry = IDatumPauseRegistry(addr);
     }
 
@@ -311,8 +308,7 @@ contract DatumPublisherGovernance is
     ///         disabled; once set non-zero it's frozen for the life of the
     ///         contract. To rotate arbiters, the Council itself rotates its
     ///         membership at the Council contract level.
-    function setCouncilArbiter(address arbiter) external onlyOwner {
-        require(councilArbiter == address(0), "already set");
+    function setCouncilArbiter(address arbiter) external onlyOwner whenPlumbingUnlocked {
         councilArbiter = arbiter;
         emit CouncilArbiterSet(arbiter);
     }

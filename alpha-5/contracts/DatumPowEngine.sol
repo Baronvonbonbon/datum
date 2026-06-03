@@ -112,7 +112,7 @@ contract DatumPowEngine is IDatumPowEngine, DatumUpgradable {
     ///         Lock-once.
     function setParameterGovernance(address pg) external onlyOwner {
         if (pg == address(0)) revert E00();
-        if (parameterGovernance != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }

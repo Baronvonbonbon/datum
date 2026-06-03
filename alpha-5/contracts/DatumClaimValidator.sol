@@ -93,9 +93,8 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     address public parameterGovernance;
     event ParameterGovernanceSet(address indexed pg);
 
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }

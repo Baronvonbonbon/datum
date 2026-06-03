@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumChallengeBonds.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         addToPool  — called by DatumPublisherGovernance on fraud resolution;
 ///                      per-publisher (unchanged).
 ///         claimBonus — called by advertiser per-(campaign, publisher).
-contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgradable {
+contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumPlumbingLockable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
 
@@ -104,31 +104,27 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     // ── Admin ──────────────────────────────────────────────────────────────────
 
     /// @dev Cypherpunk lock-once: ChallengeBonds holds advertiser DOT.
-    function setCampaignsContract(address addr) external onlyOwner {
+    function setCampaignsContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(campaignsContract == address(0), "already set");
         campaignsContract = addr;
     }
 
     /// @notice Wire the carved-out allowlist module so it can call lockBond.
     ///         Lock-once; intentionally separate from `campaignsContract` so
     ///         the two writers can be upgraded independently.
-    function setCampaignAllowlist(address addr) external onlyOwner {
+    function setCampaignAllowlist(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(campaignAllowlist == address(0), "already set");
         campaignAllowlist = addr;
         emit CampaignAllowlistSet(addr);
     }
 
-    function setLifecycleContract(address addr) external onlyOwner {
+    function setLifecycleContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(lifecycleContract == address(0), "already set");
         lifecycleContract = addr;
     }
 
-    function setGovernanceContract(address addr) external onlyOwner {
+    function setGovernanceContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(governanceContract == address(0), "already set");
         governanceContract = addr;
     }
 

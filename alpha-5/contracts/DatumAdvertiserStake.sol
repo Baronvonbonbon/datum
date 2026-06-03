@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumAdvertiserStake.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 
 /// @title DatumAdvertiserStake
@@ -26,7 +26,7 @@ import "./PaseoSafeSender.sol";
 ///         resolves aye. The slash mechanism consumes from pendingUnstake first
 ///         so a fraud-anticipating advertiser can't shield funds via
 ///         requestUnstake (same R-H1 pattern as DatumPublisherStake).
-contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUpgradable {
+contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumPlumbingLockable {
     /// v2: parameter-governance Phase B — adds parameterGovernance field
     /// and routes the three parameter setters (setParams, setMaxRequiredStake,
     /// setMaxSlashBpsPerCall) through onlyOwnerOrPG so PG's bicameral
@@ -102,25 +102,22 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     /// @dev Lock-once: only the settlement contract may advance the cumulative
     ///      budget-spent counter. Hot-swap = forge spend to drive required-stake
     ///      up on rivals.
-    function setSettlementContract(address addr) external onlyOwner {
+    function setSettlementContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlementContract == address(0), "already set");
         settlementContract = addr;
     }
 
     /// @dev Lock-once: only the slash contract may burn stake.
-    function setSlashContract(address addr) external onlyOwner {
+    function setSlashContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(slashContract == address(0), "already set");
         slashContract = addr;
     }
 
     /// @notice Lock-once: wire DatumParameterGovernance as the dual-permission
     ///         retune authority. A captured owner cannot rotate PG to a
     ///         malicious target post-bootstrap.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }

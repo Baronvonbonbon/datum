@@ -48,8 +48,11 @@ describe("Stage 2: PowEngine + ClaimValidator PG dual-permission", function () {
       const fresh = await freshPowEngine();
       expect(await fresh.parameterGovernance()).to.equal(ethers.ZeroAddress);
     });
-    it("PowEngine: double-set rejected", async function () {
-      await expect(powEngine.setParameterGovernance(other.address)).to.be.revertedWithCustomError(powEngine, "AlreadySet");
+    it("PowEngine: setParameterGovernance is re-pointable (phase-conditional)", async function () {
+      const fresh = await freshPowEngine();
+      await fresh.setParameterGovernance(pgImpersonator.address);
+      await fresh.setParameterGovernance(other.address); // re-pointable while unlocked
+      expect(await fresh.parameterGovernance()).to.equal(other.address);
     });
     it("PowEngine: zero address rejected", async function () {
       const fresh = await freshPowEngine();
@@ -65,8 +68,10 @@ describe("Stage 2: PowEngine + ClaimValidator PG dual-permission", function () {
         .to.emit(fresh, "ParameterGovernanceSet").withArgs(pgImpersonator.address);
     });
 
-    it("ClaimValidator: double-set rejected", async function () {
-      await expect(validator.setParameterGovernance(other.address)).to.be.revertedWith("already set");
+    it("ClaimValidator: setParameterGovernance is re-pointable (phase-conditional)", async function () {
+      await validator.setParameterGovernance(other.address); // re-pointable while unlocked
+      expect(await validator.parameterGovernance()).to.equal(other.address);
+      await validator.setParameterGovernance(pgImpersonator.address); // restore shared PG for later tests
     });
   });
 

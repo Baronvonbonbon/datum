@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumPublisherStake.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -24,7 +24,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         are rejected with reason code 15.
 ///
 ///         Slash is called by PublisherGovernance when a fraud proposal resolves aye.
-contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgradable {
+contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumPlumbingLockable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
     /// @notice Settlement contract — authorised to call recordImpressions.
@@ -78,17 +78,15 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     /// @dev Cypherpunk lock-once: settlementContract is the only caller allowed
     ///      to advance the publisher's bonding curve (recordImpressions). Swap =
     ///      forge impressions to inflate required-stake on rivals.
-    function setSettlementContract(address addr) external onlyOwner {
+    function setSettlementContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlementContract == address(0), "already set");
         settlementContract = addr;
     }
 
     /// @dev Cypherpunk lock-once: slashContract may forcibly burn staked DOT.
     ///      Hot-swap = unilateral slash of any publisher.
-    function setSlashContract(address addr) external onlyOwner {
+    function setSlashContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(slashContract == address(0), "already set");
         slashContract = addr;
     }
 
