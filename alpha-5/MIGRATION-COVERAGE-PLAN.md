@@ -50,7 +50,7 @@ ClaimValidator ✅conv, RelayStake ✅conv, BudgetLedger ✅conv, Settlement (`_
 | DatumPeopleChainXcmBridge | campaignsContract |
 
 ### Axis B — `_migrate` shipped
-PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅.
+PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅, **NullifierRegistry ✅ (predecessor-chain)**, **ClickRegistry ✅ (predecessor-chain)**. Native sweeps converged onto **`DatumFundMigratable`** ✅.
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
