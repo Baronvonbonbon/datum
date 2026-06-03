@@ -50,7 +50,10 @@ ClaimValidator ✅conv, RelayStake ✅conv, BudgetLedger ✅conv, Settlement (`_
 | DatumPeopleChainXcmBridge | campaignsContract |
 
 ### Axis B — `_migrate` shipped
-PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅, **NullifierRegistry ✅ (predecessor-chain)**, **ClickRegistry ✅ (predecessor-chain)**. Native sweeps converged onto **`DatumFundMigratable`** ✅.
+PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅, NullifierRegistry ✅ (predecessor-chain), ClickRegistry ✅ (predecessor-chain), **PublisherReputation ✅ (predecessor-chain)**, **MintCoordinator ✅ + PowEngine ✅ (config-copy)**, **Publishers ✅ (registry enumeration)**, **Campaigns ✅ (core struct + gates via gated hooks + off-chain `scripts/migrate-campaigns.ts`; EIP-170 ceiling blocks full side-state → needs carve-out remerge first)**. Native sweeps converged onto **`DatumFundMigratable`** ✅.
+
+### Axis-B — `_migrate` still TODO (the complex tier)
+StakeRoot/StakeRootV2 (funds + reporters + in-flight challenges + payouts), 6 governances (in-flight proposals), TagRegistry/TagSystem (jurors+disputes+funds), CampaignAllowlist/CampaignCreative (mutable add/remove → enumeration), PeopleChainIdentity/BondedIdentityReporter (identity caches), PeopleChainXcmBridge (escrow → +sweep).
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
