@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumRelayStake.sol";
 
@@ -33,14 +33,14 @@ import "./interfaces/IDatumRelayStake.sol";
 contract DatumRelayStake is
     IDatumRelayStake,
     PaseoSafeSender,
-    DatumUpgradable
+    DatumPlumbingLockable
 {
     function version() public pure virtual override returns (uint256) { return 1; }
 
     // ── Wiring (lock-once via plumbingLocked) ───────────────────────────
     address public relayContractAddr;           // DatumRelay
     address public governance;                  // DatumRelayGovernance
-    bool public plumbingLocked;
+    // plumbingLocked + PlumbingLocked now provided by DatumPlumbingLockable.
     bool public stakeGateLocked;
 
     // ── Parameters (governable, bounded) ────────────────────────────────
@@ -94,12 +94,10 @@ contract DatumRelayStake is
         emit GovernanceSet(gov);
     }
 
-    function lockPlumbing() external onlyOwner whenOpenGovPhase {
-        if (plumbingLocked) revert LockedAlready();
+    function lockPlumbing() external override onlyOwner whenOpenGovPhase {
         if (relayContractAddr == address(0)) revert E00();
         if (governance == address(0)) revert E00();
-        plumbingLocked = true;
-        emit PlumbingLocked();
+        _lockPlumbing();
     }
 
     // ── Parameter setters ───────────────────────────────────────────────

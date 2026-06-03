@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -19,7 +19,7 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
-contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradable {
+contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumPlumbingLockable {
     function version() public pure virtual override returns (uint256) { return 1; }
 
     // -------------------------------------------------------------------------
@@ -48,8 +48,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     ///         set-once guards (which froze the plumbing at deploy and forced a
     ///         full redeploy to re-point, e.g. after a Settlement upgrade).
     ///         Mirrors DatumSettlement / DatumClaimValidator.
-    bool public plumbingLocked;
-    event PlumbingLocked();
+    ///         (plumbingLocked + PlumbingLocked now provided by DatumPlumbingLockable.)
 
     // -------------------------------------------------------------------------
     // State
@@ -157,14 +156,8 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
         lifecycle = addr;
     }
 
-    /// @notice Cypherpunk end-state lock for the structural-ref surface
-    ///         (campaigns / settlement / lifecycle). OpenGov-gated; once fired,
-    ///         the three setters revert permanently.
-    function lockPlumbing() external onlyOwner whenOpenGovPhase {
-        require(!plumbingLocked, "already-locked");
-        plumbingLocked = true;
-        emit PlumbingLocked();
-    }
+    // lockPlumbing() (OpenGov-gated, freezes campaigns/settlement/lifecycle)
+    // now provided by DatumPlumbingLockable.
 
     // -------------------------------------------------------------------------
     // Budget initialization (Campaigns only — once per pot)

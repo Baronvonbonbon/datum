@@ -37,7 +37,7 @@ interface IDatumRelayStake {
     event RelayContractSet(address indexed relay);
     event GovernanceSet(address indexed governance);
     event StakeGateLocked();
-    event PlumbingLocked();
+    // PlumbingLocked is provided by DatumPlumbingLockable (the contract emits it).
 
     struct Stake {
         uint256 amount;
