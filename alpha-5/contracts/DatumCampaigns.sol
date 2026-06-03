@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
@@ -25,7 +25,7 @@ import "./interfaces/IDatumTagSystem.sol";
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
 ///         in DatumBudgetLedger per (campaignId, actionType).
-contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
+contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSender {
     // ── Custom errors (mainnet-size: replaces require strings) ──
     error E00();
     error E01();
@@ -336,9 +336,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         cannot be rotated (a router upgrade is the only way to
     ///         change it post-bootstrap). Prevents a compromised owner
     ///         from re-pointing PG at a malicious target.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         if (!(pg != address(0))) revert E00();
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -462,9 +461,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///      at deploy); this setter therefore reverts on every call —
     ///      effectively immutable. Kept in the ABI to surface the lock semantics
     ///      to indexers/tooling rather than silently dropping the symbol.
-    function setPublishers(address addr) external onlyOwner {
+    function setPublishers(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
-        if (!(address(publishers) == address(0))) revert AlreadySet();
         emit ContractReferenceChanged("publishers", address(publishers), addr);
         publishers = IDatumPublishers(addr);
     }
@@ -501,8 +499,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         holds advertiser bond DOT; a hot-swap could redirect lockBond
     ///         calls to a hostile contract. address(0) leaves the feature off
     ///         and is the initial state; once set non-zero it's frozen.
-    function setChallengeBonds(address addr) external onlyOwner {
-        if (!(address(challengeBonds) == address(0))) revert AlreadySet();
+    function setChallengeBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         emit ContractReferenceChanged("challengeBonds", address(challengeBonds), addr);
         challengeBonds = IDatumChallengeBonds(addr);
     }
@@ -514,9 +511,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         pending bonds or auto-activate campaigns. address(0) leaves
     ///         optimistic activation disabled and falls back to the legacy
     ///         governance-vote path.
-    function setActivationBonds(address addr) external onlyOwner {
+    function setActivationBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
-        if (!(activationBonds == address(0))) revert AlreadySet();
         emit ContractReferenceChanged("activationBonds", activationBonds, addr);
         activationBonds = addr;
     }
@@ -541,17 +537,15 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // setMaxAllowedPublishers moved to DatumCampaignAllowlist.
 
     /// @notice One-shot wire of the carved-out allowlist module pointer.
-    function setAllowlist(address addr) external onlyOwner {
+    function setAllowlist(address addr) external onlyOwner whenPlumbingUnlocked {
         if (addr == address(0)) revert E00();
-        if (address(allowlist) != address(0)) revert AlreadySet();
         allowlist = IDatumCampaignAllowlist(addr);
         emit AllowlistSet(addr);
     }
 
     /// @notice One-shot wire of the carved-out tag-system module pointer.
-    function setTagSystem(address addr) external onlyOwner {
+    function setTagSystem(address addr) external onlyOwner whenPlumbingUnlocked {
         if (addr == address(0)) revert E00();
-        if (address(tagSystem) != address(0)) revert AlreadySet();
         tagSystem = IDatumTagSystem(addr);
         emit TagSystemSet(addr);
     }
@@ -575,8 +569,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         owner cannot hot-swap to a permissive stake reader. Set to
     ///         address(0) at deploy if not yet ready; first non-zero write
     ///         is final.
-    function setAdvertiserStake(address addr) external onlyOwner {
-        if (!(address(advertiserStake) == address(0))) revert AlreadySet();
+    function setAdvertiserStake(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
         advertiserStake = IDatumAdvertiserStake(addr);
         emit AdvertiserStakeSet(addr);

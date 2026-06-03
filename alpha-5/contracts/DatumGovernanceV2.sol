@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/ParameterRetuneGuard.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
@@ -33,7 +33,7 @@ import "./interfaces/IDatumActivationBondsMinimal.sol";
 ///           6 → 14x weight,  180d lock (2,592,000 blocks) — half year
 ///           7 → 18x weight,  270d lock (3,888,000 blocks) — nine months
 ///           8 → 21x weight,  365d lock (5,256,000 blocks) — full year
-contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneGuard {
+contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterRetuneGuard {
     /// v2: parameter-governance Phase B — routes the seven parameter setters
     /// (setQuorumWeighted, setSlashBps, setTerminationQuorum, setGraceParams,
     /// setConvictionCurve, setConvictionLockups, setCommitRevealPhases)
@@ -57,9 +57,8 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
         _;
     }
 
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -279,9 +278,8 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
     /// @dev Cypherpunk lock-once: lifecycle is the target of terminate/demote
     ///      proposals. Hot-swap could redirect governance actions to a no-op
     ///      lifecycle that swallows them.
-    function setLifecycle(address _lifecycle) external onlyOwner {
+    function setLifecycle(address _lifecycle) external onlyOwner whenPlumbingUnlocked {
         require(_lifecycle != address(0), "E00");
-        require(address(lifecycle) == address(0), "already set");
         emit ContractReferenceChanged("lifecycle", address(lifecycle), _lifecycle);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
     }
@@ -289,9 +287,8 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
     /// @dev Cypherpunk lock-once. In the ladder, this is wired once to the
     ///      Router and frozen — Phase transitions happen at the Router, not by
     ///      re-pointing the governance contracts.
-    function setCampaigns(address _campaigns) external onlyOwner {
+    function setCampaigns(address _campaigns) external onlyOwner whenPlumbingUnlocked {
         require(_campaigns != address(0), "E00");
-        require(campaigns == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaigns, _campaigns);
         campaigns = _campaigns;
     }
@@ -301,9 +298,8 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumUpgradable, ParameterRetuneG
     ///      via the ActivationBonds optimistic path instead. Hot-swap to a
     ///      contract that always reports `isContested=true` would re-open
     ///      the legacy bandwagon-prone vote path.
-    function setActivationBonds(address addr) external onlyOwner {
+    function setActivationBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(address(activationBonds) == address(0), "already set");
         emit ContractReferenceChanged("activationBonds", address(activationBonds), addr);
         activationBonds = IDatumActivationBondsMinimal(addr);
     }

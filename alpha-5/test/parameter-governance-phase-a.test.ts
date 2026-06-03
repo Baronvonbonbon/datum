@@ -163,12 +163,12 @@ describe("Phase A — DatumCampaigns parameter governance", () => {
   });
 
   describe("setParameterGovernance", () => {
-    it("can set once, second call reverts", async () => {
+    it("is re-pointable until lockPlumbing@OpenGov (phase-conditional)", async () => {
       const c = await deployCampaigns();
       const [owner, , pgA, pgB] = await ethers.getSigners();
       await c.connect(owner).setParameterGovernance(pgA.address);
-      await expect(c.connect(owner).setParameterGovernance(pgB.address))
-        .to.be.revertedWith("already set");
+      await c.connect(owner).setParameterGovernance(pgB.address); // re-pointable while unlocked
+      expect(await c.parameterGovernance()).to.equal(pgB.address);
     });
 
     it("rejects zero address", async () => {
