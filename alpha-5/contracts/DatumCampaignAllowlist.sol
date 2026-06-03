@@ -31,7 +31,7 @@ contract DatumCampaignAllowlist is
     DatumUpgradable,
     ReentrancyGuard
 {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -58,6 +58,20 @@ contract DatumCampaignAllowlist is
     mapping(uint256 => mapping(address => bool)) public allowed;
     mapping(uint256 => uint16) public override campaignAllowedPublisherCount;
     mapping(uint256 => mapping(address => uint16)) public takeRateSnapshot;
+
+    // ── Enumeration for upgrade migration (mutable set ⇒ copy, not chain) ──
+    // The allowlist supports add AND remove, so a predecessor-chain read would
+    // wrongly resurrect removed entries. Track campaigns + per-campaign
+    // publishers so a successor's `_migrate` copies the current bool + snapshot.
+    uint256[] private _campaignList;
+    mapping(uint256 => bool) private _campaignTracked;
+    mapping(uint256 => address[]) private _campaignPubList;
+    mapping(uint256 => mapping(address => bool)) private _campaignPubTracked;
+
+    function _trackAllowlist(uint256 cid, address pub) internal {
+        if (!_campaignTracked[cid]) { _campaignTracked[cid] = true; _campaignList.push(cid); }
+        if (!_campaignPubTracked[cid][pub]) { _campaignPubTracked[cid][pub] = true; _campaignPubList[cid].push(pub); }
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Events
@@ -144,6 +158,7 @@ contract DatumCampaignAllowlist is
         allowed[campaignId][publisher] = true;
         takeRateSnapshot[campaignId][publisher] = takeRateBps;
         campaignAllowedPublisherCount[campaignId] = 1;
+        _trackAllowlist(campaignId, publisher);
         emit PublisherAllowed(campaignId, publisher, takeRateBps);
     }
 
@@ -234,6 +249,7 @@ contract DatumCampaignAllowlist is
         allowed[campaignId][publisher] = true;
         takeRateSnapshot[campaignId][publisher] = rate;
         campaignAllowedPublisherCount[campaignId] += 1;
+        _trackAllowlist(campaignId, publisher);
         emit PublisherAllowed(campaignId, publisher, rate);
     }
 
@@ -252,5 +268,34 @@ contract DatumCampaignAllowlist is
     /// @notice 0 = OPEN, 1 = ALLOWLIST. Mirrors the historic DatumCampaigns surface.
     function campaignMode(uint256 campaignId) external view returns (uint8) {
         return campaignAllowedPublisherCount[campaignId] > 0 ? 1 : 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Upgrade migration (enumeration-copy)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function allowlistCampaignCount() external view returns (uint256) { return _campaignList.length; }
+    function allowlistCampaignAt(uint256 i) external view returns (uint256) { return _campaignList[i]; }
+    function allowlistPublisherCount(uint256 cid) external view returns (uint256) { return _campaignPubList[cid].length; }
+    function allowlistPublisherAt(uint256 cid, uint256 i) external view returns (address) { return _campaignPubList[cid][i]; }
+
+    /// @dev Copy maxAllowedPublishers + every (campaign, publisher) allow bool +
+    ///      take-rate snapshot + per-campaign count from a frozen predecessor.
+    ///      Structural refs are re-wired on the fresh contract.
+    function _migrate(address oldContract) internal override {
+        DatumCampaignAllowlist old = DatumCampaignAllowlist(oldContract);
+        maxAllowedPublishers = old.maxAllowedPublishers();
+        uint256 n = old.allowlistCampaignCount();
+        for (uint256 i = 0; i < n; i++) {
+            uint256 cid = old.allowlistCampaignAt(i);
+            campaignAllowedPublisherCount[cid] = old.campaignAllowedPublisherCount(cid);
+            uint256 m = old.allowlistPublisherCount(cid);
+            for (uint256 j = 0; j < m; j++) {
+                address p = old.allowlistPublisherAt(cid, j);
+                allowed[cid][p] = old.allowed(cid, p);
+                takeRateSnapshot[cid][p] = old.takeRateSnapshot(cid, p);
+                _trackAllowlist(cid, p);
+            }
+        }
     }
 }

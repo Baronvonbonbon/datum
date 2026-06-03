@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.24;
 
-import "./DatumPlumbingLockable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/XcmTransactEncoder.sol";
 import "./interfaces/IXcm.sol";
@@ -47,11 +47,11 @@ interface IPeopleChainIdentityWrite {
 ///         Per-user cooldown blocks flapping. Per-user lookup, not
 ///         per-(user, requester), since cooldown is anti-grief, not
 ///         anti-Sybil.
-contract DatumPeopleChainXcmBridge is DatumPlumbingLockable, PaseoSafeSender {
+contract DatumPeopleChainXcmBridge is DatumFundMigratable, PaseoSafeSender {
 
     /// @notice Upgrade ladder version. Increment per deployment when the
     ///         storage layout or behavior changes.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Immutable wiring
@@ -117,6 +117,13 @@ contract DatumPeopleChainXcmBridge is DatumPlumbingLockable, PaseoSafeSender {
     /// @notice Per-campaign refresh budget (mirrors DatumCampaigns'
     ///         BulletinRenewalEscrow pattern).
     mapping(uint256 => uint256) public campaignXcmRefreshEscrow;
+
+    // ── Enumeration for upgrade migration ──
+    // Track campaigns that ever held escrow so a successor's `_migrate` can copy
+    // the per-campaign balances; the native DOT moves via `migrateFundsTo`.
+    // (Per-user lastRefreshBlock is ephemeral cooldown state — NOT migrated.)
+    uint256[] private _escrowCampaigns;
+    mapping(uint256 => bool) private _escrowTracked;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Events
@@ -297,6 +304,7 @@ contract DatumPeopleChainXcmBridge is DatumPlumbingLockable, PaseoSafeSender {
         require(msg.value > 0, "E11");
         uint256 newBal = campaignXcmRefreshEscrow[campaignId] + msg.value;
         campaignXcmRefreshEscrow[campaignId] = newBal;
+        if (!_escrowTracked[campaignId]) { _escrowTracked[campaignId] = true; _escrowCampaigns.push(campaignId); }
         emit XcmRefreshEscrowFunded(campaignId, msg.sender, msg.value, newBal);
     }
 
@@ -324,5 +332,35 @@ contract DatumPeopleChainXcmBridge is DatumPlumbingLockable, PaseoSafeSender {
     ///         Used by web UIs to populate the payable value field.
     function estimatedRefreshFee() external view returns (uint256) {
         return refreshFee;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Upgrade migration (config + per-campaign escrow; native sweep via mixin)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function escrowCampaignCount() external view returns (uint256) { return _escrowCampaigns.length; }
+    function escrowCampaignAt(uint256 i) external view returns (uint256) { return _escrowCampaigns[i]; }
+
+    /// @dev Copy tunable config + sovereign/pallet config + every campaign's
+    ///      refresh escrow from a frozen predecessor. Structural refs
+    ///      (campaignsContract) are re-wired on the fresh contract; immutable
+    ///      refs (xcmPrecompile / cache) are constructor-set. The native DOT
+    ///      backing the escrow moves via `migrateFundsTo` (DatumFundMigratable).
+    function _migrate(address oldContract) internal override {
+        DatumPeopleChainXcmBridge old = DatumPeopleChainXcmBridge(payable(oldContract));
+        peopleChainSovereign = old.peopleChainSovereign();
+        palletIndex = old.palletIndex();
+        callIndex = old.callIndex();
+        refreshCooldownBlocks = old.refreshCooldownBlocks();
+        defaultValidityBlocks = old.defaultValidityBlocks();
+        refreshFee = old.refreshFee();
+        transactRefTime = old.transactRefTime();
+        transactProofSize = old.transactProofSize();
+        uint256 n = old.escrowCampaignCount();
+        for (uint256 i = 0; i < n; i++) {
+            uint256 cid = old.escrowCampaignAt(i);
+            campaignXcmRefreshEscrow[cid] = old.campaignXcmRefreshEscrow(cid);
+            if (!_escrowTracked[cid]) { _escrowTracked[cid] = true; _escrowCampaigns.push(cid); }
+        }
     }
 }
