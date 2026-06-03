@@ -30,7 +30,7 @@ import "./DatumUpgradable.sol";
 ///         once per month per capital pool — and slashing (future work) can
 ///         be applied during the cooldown.
 contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     using SafeERC20 for IERC20;
 
@@ -59,6 +59,19 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
         uint256 readyAt;  // block number
     }
     mapping(address => PendingWithdrawal) public pending;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Track every user that ever set a commitment or deposited, so a successor's
+    // `_migrate` can copy staked / commitment / pending. The custodied DATUM
+    // (an ERC20, not native DOT) moves via `migrateFundsTo` (token.safeTransfer).
+    address[] private _users;
+    mapping(address => bool) private _isUser;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _trackUser(address a) internal {
+        if (a != address(0) && !_isUser[a]) { _isUser[a] = true; _users.push(a); }
+    }
 
     /// @notice Total DATUM held in the contract — sum of all staked + all pending.
     ///         Invariant check helper for off-chain monitoring.
@@ -107,6 +120,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
         require(commitment != bytes32(0), "E11");
         require(staked[msg.sender] == 0 && pending[msg.sender].amount == 0, "locked-by-stake");
         userCommitment[msg.sender] = commitment;
+        _trackUser(msg.sender);
         emit UserCommitmentSet(msg.sender, commitment);
     }
 
@@ -139,6 +153,7 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
         token.safeTransferFrom(user, address(this), amount);
         staked[user] += amount;
         totalLocked += amount;
+        _trackUser(user);
         emit Deposited(user, amount, staked[user]);
     }
 
@@ -277,5 +292,47 @@ contract DatumZKStake is DatumUpgradable, ReentrancyGuard {
         token.safeTransfer(slashRecipient, realized);
 
         emit Slashed(user, fromStaked, fromPending, msg.sender);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+
+    function userCount() external view returns (uint256) { return _users.length; }
+    function userAt(uint256 i) external view returns (address) { return _users[i]; }
+
+    /// @dev Copy per-user staked / commitment / pending + totalLocked +
+    ///      slashRecipient + maxSlashBpsPerCall from a frozen predecessor. The
+    ///      slasher set is re-wired on the fresh contract (governance), not
+    ///      copied. The custodied DATUM moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumZKStake old = DatumZKStake(oldContract);
+        require(old.token() == token, "token-mismatch");
+        slashRecipient = old.slashRecipient();
+        maxSlashBpsPerCall = old.maxSlashBpsPerCall();
+        uint256 n = old.userCount();
+        for (uint256 i = 0; i < n; i++) {
+            address u = old.userAt(i);
+            staked[u] = old.staked(u);
+            userCommitment[u] = old.userCommitment(u);
+            (uint256 amt, uint256 ready) = old.pending(u);
+            pending[u] = PendingWithdrawal({amount: amt, readyAt: ready});
+            _trackUser(u);
+        }
+        totalLocked = old.totalLocked();
+    }
+
+    /// @notice Sweep the custodied DATUM to a successor during an upgrade so it
+    ///         can honour migrated stakes. Governance-gated, frozen-only,
+    ///         one-shot. The successor must custody the SAME token.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        require(DatumZKStake(successor).token() == token, "token-mismatch");
+        fundsMigratedOut = true;
+        uint256 bal = token.balanceOf(address(this));
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) token.safeTransfer(successor, bal);
     }
 }

@@ -35,7 +35,7 @@ contract DatumRelayStake is
     PaseoSafeSender,
     DatumUpgradable
 {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ── Wiring (lock-once via plumbingLocked) ───────────────────────────
     address public relayContractAddr;           // DatumRelay
@@ -251,5 +251,50 @@ contract DatumRelayStake is
 
     function relayListLength() external view returns (uint256) {
         return relayList.length;
+    }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    /// @notice One-shot: true once native DOT has been swept to a successor.
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    /// @dev Copy params + every relay's Stake (reusing the existing enumerable
+    ///      relayList) + totalStaked from a frozen predecessor. Wiring refs
+    ///      (relayContractAddr / governance) are re-wired on the fresh contract.
+    ///      Native DOT moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumRelayStake old = DatumRelayStake(payable(oldContract));
+        relayMinStake = old.relayMinStake();
+        exitDelay = old.exitDelay();
+        uint256 n = old.relayListLength();
+        for (uint256 i = 0; i < n; i++) {
+            address r = old.relayList(i);
+            (uint256 amount, uint64 joined, uint64 exitReq) = old.stakeOf(r);
+            _stake[r] = Stake({amount: amount, joinedAtBlock: joined, exitRequestedBlock: exitReq});
+            if (_relayIndex[r] == 0) {
+                _relayIndex[r] = relayList.length + 1;
+                relayList.push(r);
+            }
+        }
+        totalStaked = old.totalStaked();
+    }
+
+    /// @notice Sweep native balance to a successor during an upgrade so it can
+    ///         honour migrated relay stakes. Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        if (successor == address(0)) revert E00();
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumRelayStake(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    /// @notice Accept the predecessor's native-DOT inflow during migration.
+    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

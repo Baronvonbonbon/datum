@@ -27,7 +27,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///                      per-publisher (unchanged).
 ///         claimBonus — called by advertiser per-(campaign, publisher).
 contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
 
     /// @notice Campaigns contract — authorised to call lockBond.
@@ -73,6 +73,29 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
     /// @dev M-1: Pull-pattern queue for bond returns. returnBond records here
     ///      so a contract advertiser with a reverting fallback cannot DoS Lifecycle.
     mapping(address => uint256) public pendingBondReturn;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Bonds span (campaign, publisher); pools are per-publisher; refunds are
+    // per-advertiser. Track each set so a successor's `_migrate` can copy them.
+    // Native DOT moves via `migrateFundsTo`.
+    uint256[] private _bondCampaigns;
+    mapping(uint256 => bool) private _bondCampaignTracked;
+    address[] private _bondPublishers;
+    mapping(address => bool) private _bondPublisherTracked;
+    address[] private _refundAdvertisers;
+    mapping(address => bool) private _refundAdvTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _trackBondCampaign(uint256 id) internal {
+        if (!_bondCampaignTracked[id]) { _bondCampaignTracked[id] = true; _bondCampaigns.push(id); }
+    }
+    function _trackBondPublisher(address a) internal {
+        if (a != address(0) && !_bondPublisherTracked[a]) { _bondPublisherTracked[a] = true; _bondPublishers.push(a); }
+    }
+    function _trackRefundAdvertiser(address a) internal {
+        if (a != address(0) && !_refundAdvTracked[a]) { _refundAdvTracked[a] = true; _refundAdvertisers.push(a); }
+    }
 
     // ── Constructor ────────────────────────────────────────────────────────────
 
@@ -135,6 +158,8 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
             _isBondedPublisher[campaignId][publisher] = true;
             _bondedPublishers[campaignId].push(publisher);
         }
+        _trackBondCampaign(campaignId);
+        _trackBondPublisher(publisher);
 
         emit BondLocked(campaignId, advertiser, publisher, msg.value);
     }
@@ -165,6 +190,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
             }
 
             pendingBondReturn[advertiser] += amount;
+            _trackRefundAdvertiser(advertiser);
             emit BondReturned(campaignId, advertiser, amount);
         }
     }
@@ -193,6 +219,7 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
         require(msg.sender == governanceContract, "E18");
         require(msg.value > 0, "E11");
         _bonusPool[publisher] += msg.value;
+        _trackBondPublisher(publisher);
         emit BonusAdded(publisher, msg.value, _bonusPool[publisher]);
     }
 
@@ -364,5 +391,71 @@ contract DatumChallengeBonds is IDatumChallengeBonds, PaseoSafeSender, DatumUpgr
             return false;
         }
         return _bonusClaimed[campaignId][publisher];
+    }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    function bondCampaignCount() external view returns (uint256) { return _bondCampaigns.length; }
+    function bondCampaignAt(uint256 i) external view returns (uint256) { return _bondCampaigns[i]; }
+    function bondPublisherCount() external view returns (uint256) { return _bondPublishers.length; }
+    function bondPublisherAt(uint256 i) external view returns (address) { return _bondPublishers[i]; }
+    function refundAdvertiserCount() external view returns (uint256) { return _refundAdvertisers.length; }
+    function refundAdvertiserAt(uint256 i) external view returns (address) { return _refundAdvertisers[i]; }
+
+    /// @dev Copy bonds (per campaign×publisher), per-publisher totals + pools,
+    ///      and per-advertiser pending returns from a frozen predecessor.
+    ///      Structural refs are re-wired on the fresh contract. Native DOT moves
+    ///      via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumChallengeBonds old = DatumChallengeBonds(payable(oldContract));
+        maxBondedPublishers = old.maxBondedPublishers();
+        uint256 nc = old.bondCampaignCount();
+        for (uint256 i = 0; i < nc; i++) {
+            uint256 cid = old.bondCampaignAt(i);
+            address[] memory pubs = old.bondedPublishers(cid);
+            for (uint256 j = 0; j < pubs.length; j++) {
+                address p = pubs[j];
+                _bond[cid][p] = old.bondForPublisher(cid, p);
+                _bondOwner[cid][p] = old.bondOwnerForPublisher(cid, p);
+                _bonusClaimed[cid][p] = old.bonusClaimedForPublisher(cid, p);
+                if (!_isBondedPublisher[cid][p]) {
+                    _isBondedPublisher[cid][p] = true;
+                    _bondedPublishers[cid].push(p);
+                }
+            }
+            _trackBondCampaign(cid);
+        }
+        uint256 np = old.bondPublisherCount();
+        for (uint256 i = 0; i < np; i++) {
+            address p = old.bondPublisherAt(i);
+            _totalBonds[p] = old.totalBonds(p);
+            _bonusPool[p] = old.bonusPool(p);
+            _trackBondPublisher(p);
+        }
+        uint256 na = old.refundAdvertiserCount();
+        for (uint256 i = 0; i < na; i++) {
+            address a = old.refundAdvertiserAt(i);
+            pendingBondReturn[a] = old.pendingBondReturn(a);
+            _trackRefundAdvertiser(a);
+        }
+    }
+
+    /// @notice Sweep native balance to a successor during an upgrade so it can
+    ///         honour migrated bonds + pools. Governance-gated, frozen-only,
+    ///         one-shot. Uses `acceptMigration` (receive() rejects deposits).
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumChallengeBonds(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    /// @notice Accept the predecessor's native-DOT inflow during migration.
+    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

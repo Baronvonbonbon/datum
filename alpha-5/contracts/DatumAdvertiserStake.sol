@@ -31,7 +31,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     /// and routes the three parameter setters (setParams, setMaxRequiredStake,
     /// setMaxSlashBpsPerCall) through onlyOwnerOrPG so PG's bicameral
     /// retune flow can adjust them in addition to the owner/Timelock path.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice Settlement contract — authorised to record cumulative budget spent.
     address public settlementContract;
@@ -75,6 +75,16 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     mapping(address => uint256) private _staked;
     mapping(address => uint256) private _cumulativeBudgetSpentDOT; // measured in DOT units (planck / 10^10)
     mapping(address => UnstakeRequest) private _pendingUnstake;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    address[] private _stakers;
+    mapping(address => bool) private _isStaker;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _track(address a) internal {
+        if (a != address(0) && !_isStaker[a]) { _isStaker[a] = true; _stakers.push(a); }
+    }
 
     constructor(
         uint256 _baseStakePlanck,
@@ -151,6 +161,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     function stake() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         _staked[msg.sender] += msg.value;
+        _track(msg.sender);
         emit Staked(msg.sender, msg.value, _staked[msg.sender]);
     }
 
@@ -192,6 +203,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
         uint256 dotUnits = amountPlanck / 10**10; // 1 DOT = 10^10 planck
         if (dotUnits == 0) return;
         _cumulativeBudgetSpentDOT[advertiser] += dotUnits;
+        _track(advertiser);
         emit BudgetSpentRecorded(advertiser, dotUnits, _cumulativeBudgetSpentDOT[advertiser]);
     }
 
@@ -262,5 +274,48 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
 
     function isAdequatelyStaked(address advertiser) external view returns (bool) {
         return _staked[advertiser] >= requiredStake(advertiser);
+    }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    function stakerCount() external view returns (uint256) { return _stakers.length; }
+    function stakerAt(uint256 i) external view returns (address) { return _stakers[i]; }
+
+    /// @dev Copy bonding-curve params + every staker's stake / cumulative
+    ///      budget-spent / pending-unstake from a frozen predecessor. Structural
+    ///      refs (settlementContract / slashContract / parameterGovernance) are
+    ///      NOT copied — re-wired on the fresh contract. DOT moves via migrateFundsTo.
+    function _migrate(address oldContract) internal override {
+        DatumAdvertiserStake old = DatumAdvertiserStake(payable(oldContract));
+        baseStakePlanck = old.baseStakePlanck();
+        planckPerDOTSpent = old.planckPerDOTSpent();
+        unstakeDelayBlocks = old.unstakeDelayBlocks();
+        maxRequiredStake = old.maxRequiredStake();
+        uint256 n = old.stakerCount();
+        for (uint256 i = 0; i < n; i++) {
+            address adv = old.stakerAt(i);
+            _staked[adv] = old.staked(adv);
+            _cumulativeBudgetSpentDOT[adv] = old.cumulativeBudgetSpent(adv);
+            _pendingUnstake[adv] = old.pendingUnstake(adv);
+            _track(adv);
+        }
+    }
+
+    /// @notice Sweep native balance to a successor during an upgrade so it can
+    ///         honour migrated stakes. Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumAdvertiserStake(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    /// @notice Accept the predecessor's native-DOT inflow during migration.
+    ///         Gated to `migrationSource` (set by migrate()) — no open deposits.
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }
