@@ -39,7 +39,18 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
     /// (setMintRate, setDustMintThreshold, setDatumRewardSplit) through
     /// `onlyOwnerOrPG`. Wiring setters (setSettlement, setMintAuthority,
     /// setEmissionEngine) stay owner-only.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
+
+    /// @dev Config-only contract (refs are re-wired, not migrated): copy the mint
+    ///      rate + reward-split scalars from a frozen predecessor.
+    function _migrate(address oldContract) internal override {
+        DatumMintCoordinator o = DatumMintCoordinator(oldContract);
+        mintRatePerDot = o.mintRatePerDot();
+        dustMintThreshold = o.dustMintThreshold();
+        datumRewardUserBps = o.datumRewardUserBps();
+        datumRewardPublisherBps = o.datumRewardPublisherBps();
+        datumRewardAdvertiserBps = o.datumRewardAdvertiserBps();
+    }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
