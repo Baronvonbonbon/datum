@@ -337,3 +337,97 @@ describe("Upgrade E2E — Governance vote-state (DatumRelayGovernance)", functio
     expect((await v2.getVote(1, voter.address)).direction).to.equal(0n);
   });
 });
+
+// End-to-end validation of a MULTI-CONTRACT rewire: upgrade a dependency
+// (DatumPublishers) underneath a live dependent (DatumCampaigns), migrate the
+// dependency's state, then re-point the dependent's structural ref via the
+// phase-conditional `whenPlumbingUnlocked` setter — proving (a) the ref is
+// re-pointable while plumbing is unlocked, (b) the dependent's cross-calls now
+// route to the NEW dependency, and (c) lockPlumbing() freezes the ref forever
+// (the cypherpunk end-state).
+describe("Upgrade E2E — multi-contract rewire (Campaigns -> Publishers)", function () {
+  let owner: HardhatEthersSigner, gov: HardhatEthersSigner, advertiser: HardhatEthersSigner;
+  let pubA: HardhatEthersSigner, pubB: HardhatEthersSigner, lifecycleMock: HardhatEthersSigner, stranger: HardhatEthersSigner;
+  let router: any, pause: any, pubsV1: any, ledger: any, campaigns: any;
+
+  const MIN_CPM = 0n, PENDING_TIMEOUT = 50n, RATE = 5000;
+  const BUDGET = parseDOT("2"), DAILY_CAP = parseDOT("1"), BID_CPM = parseDOT("0.01");
+  function pot(): any { return { actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }; }
+  function create(who: HardhatEthersSigner, publisher: string) {
+    return campaigns.connect(advertiser).createCampaign(publisher, [pot()], [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET });
+  }
+
+  beforeEach(async function () {
+    await fundSigners();
+    [owner, gov, advertiser, pubA, pubB, lifecycleMock, stranger] = await ethers.getSigners();
+    router = await (await ethers.getContractFactory("MockOpenGovRouter")).deploy(); // phase=2 (OpenGov) by default
+    await router.setGovernor(gov.address);
+    pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, advertiser.address, pubA.address);
+
+    pubsV1 = await (await ethers.getContractFactory("DatumPublishers")).deploy(50n, await pause.getAddress());
+    await pubsV1.setRouter(await router.getAddress());
+    ledger = await (await ethers.getContractFactory("DatumBudgetLedger")).deploy();
+    campaigns = await (await ethers.getContractFactory("DatumCampaigns")).deploy(MIN_CPM, PENDING_TIMEOUT, await pubsV1.getAddress(), await pause.getAddress());
+    await campaigns.setRouter(await router.getAddress());
+    await ledger.setCampaigns(await campaigns.getAddress());
+    await campaigns.setBudgetLedger(await ledger.getAddress());
+    await campaigns.setLifecycleContract(lifecycleMock.address);
+
+    await pubsV1.connect(pubA).registerPublisher(RATE); // pubA known only to v1 so far
+  });
+
+  it("re-points Campaigns to an upgraded Publishers; cross-calls route to the new one; lockPlumbing freezes it", async function () {
+    // baseline: createCampaign routes into Publishers v1
+    await create(advertiser, pubA.address);
+    expect(await campaigns.nextCampaignId()).to.equal(2n);
+
+    // ── upgrade the dependency: freeze v1, deploy v2, migrate registrations ──
+    await pubsV1.connect(gov).freeze();
+    const pubsV2 = await (await ethers.getContractFactory("MockPublishersV2")).deploy(50n, await pause.getAddress());
+    await pubsV2.setRouter(await router.getAddress());
+    await pubsV2.connect(gov).migrate(await pubsV1.getAddress());
+    expect(await pubsV2.version()).to.be.greaterThan(await pubsV1.version());
+    expect((await pubsV2.getPublisher(pubA.address)).registered).to.equal(true); // migrated
+
+    // dependent still points at the OLD dependency until re-pointed
+    expect(await campaigns.publishers()).to.equal(await pubsV1.getAddress());
+
+    // ── REWIRE: re-point the structural ref (whenPlumbingUnlocked, owner) ──
+    await campaigns.connect(owner).setPublishers(await pubsV2.getAddress());
+    expect(await campaigns.publishers()).to.equal(await pubsV2.getAddress());
+
+    // ── routing proof: createCampaign now reads Publishers v2 ──
+    // (a) the migrated publisher still works
+    await create(advertiser, pubA.address);
+    // (b) a publisher registered ONLY on v2 works -> proves the cross-call hits v2
+    await pubsV2.connect(pubB).registerPublisher(RATE);
+    await create(advertiser, pubB.address);
+    expect(await campaigns.nextCampaignId()).to.equal(4n);
+    // (c) the gate still fires through v2: an unregistered publisher is rejected
+    await expect(create(advertiser, stranger.address)).to.be.revertedWithCustomError(campaigns, "E62");
+
+    // predecessor is frozen and out of the loop
+    expect(await pubsV1.frozen()).to.equal(true);
+
+    // ── lockPlumbing freezes the structural ref forever (cypherpunk end-state) ──
+    // router.phase() == 2 (OpenGov) by default, so the OpenGov-gated lock fires.
+    await campaigns.connect(owner).lockPlumbing();
+    expect(await campaigns.plumbingLocked()).to.equal(true);
+    await expect(campaigns.connect(owner).setPublishers(await pubsV1.getAddress())).to.be.revertedWith("locked");
+    // but the ref still works post-lock — it's frozen at v2, not broken
+    await create(advertiser, pubA.address);
+    expect(await campaigns.nextCampaignId()).to.equal(5n);
+  });
+
+  it("re-pointing is owner-gated and rejected once plumbing is locked", async function () {
+    const pubsV2 = await (await ethers.getContractFactory("MockPublishersV2")).deploy(50n, await pause.getAddress());
+    await pubsV2.setRouter(await router.getAddress());
+    // non-owner cannot re-point
+    await expect(campaigns.connect(gov).setPublishers(await pubsV2.getAddress())).to.be.reverted;
+    // owner can, while unlocked
+    await campaigns.connect(owner).setPublishers(await pubsV2.getAddress());
+    // after lock, even owner cannot
+    await campaigns.connect(owner).lockPlumbing();
+    await expect(campaigns.connect(owner).setPublishers(await pubsV1.getAddress())).to.be.revertedWith("locked");
+  });
+});
