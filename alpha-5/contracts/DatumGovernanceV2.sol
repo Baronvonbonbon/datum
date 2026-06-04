@@ -39,7 +39,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
     /// setConvictionCurve, setConvictionLockups, setCommitRevealPhases)
     /// through `onlyOwnerOrPG`. Wiring setters (setLifecycle, setCampaigns,
     /// setActivationBonds) stay owner-only / lock-once.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
@@ -208,6 +208,22 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
     uint256 public pendingOwnerSweep;
     event OwnerSweepQueued(uint256 indexed campaignId, uint256 amount);
     event OwnerSweepClaimed(address indexed recipient, uint256 amount);
+
+    // ── Enumeration for upgrade migration (in-flight conviction votes) ──
+    // Votes lock DOT (long lockups → can't drain), so the full per-campaign +
+    // per-voter state is carried over and the locked DOT swept, fully retiring
+    // the predecessor. Voters withdraw / claim from the successor.
+    uint256[] private _voteCampaigns;
+    mapping(uint256 => bool) private _voteCampaignTracked;
+    mapping(uint256 => address[]) private _campaignVoters;
+    mapping(uint256 => mapping(address => bool)) private _voterTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _trackVote(uint256 cid, address voter) internal {
+        if (!_voteCampaignTracked[cid]) { _voteCampaignTracked[cid] = true; _voteCampaigns.push(cid); }
+        if (!_voterTracked[cid][voter]) { _voterTracked[cid][voter] = true; _campaignVoters[cid].push(voter); }
+    }
 
     // -------------------------------------------------------------------------
     // Events
@@ -393,6 +409,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
         require(msg.value > 0, "E41");
 
         Vote storage v = _votes[campaignId][msg.sender];
+        _trackVote(campaignId, msg.sender);
         // G-L1: AUDIT-001 conviction floor was dead code — withdraw() resets
         //       v.conviction to 0, and re-vote is gated on v.direction == 0,
         //       so v.conviction is always 0 on this path. The direction-zero
@@ -501,6 +518,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
 
         Vote storage v = _votes[campaignId][msg.sender];
         require(v.direction == 0 && v.commitHash == bytes32(0), "E42"); // already committed/voted
+        _trackVote(campaignId, msg.sender);
 
         _openCommitRevealWindow(campaignId);
         CommitRevealWindow storage w = commitRevealWindow[campaignId];
@@ -882,5 +900,79 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
         uint256 pool = slashCollected[campaignId];
         if (winningWeight[campaignId] == 0) return 0;
         return Math.mulDiv(pool, voterWeight, winningWeight[campaignId]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Upgrade migration (full per-campaign + per-voter vote state; native sweep)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function voteCampaignCount() external view returns (uint256) { return _voteCampaigns.length; }
+    function voteCampaignAt(uint256 i) external view returns (uint256) { return _voteCampaigns[i]; }
+    function campaignVoterCount(uint256 cid) external view returns (uint256) { return _campaignVoters[cid].length; }
+    function campaignVoterAt(uint256 cid, uint256 i) external view returns (address) { return _campaignVoters[cid][i]; }
+    function getVoteFull(uint256 cid, address voter) external view returns (Vote memory) { return _votes[cid][voter]; }
+
+    /// @dev Copy governance config + every campaign's tally/commit-reveal/slash
+    ///      state + every voter's Vote + slash-claim flag from a frozen
+    ///      predecessor. In-flight conviction votes lock DOT (can't drain), so
+    ///      the full state is carried and the balance swept. Refs (campaigns /
+    ///      lifecycle / activationBonds / parameterGovernance) are re-wired.
+    function _migrate(address oldContract) internal override {
+        DatumGovernanceV2 old = DatumGovernanceV2(payable(oldContract));
+        quorumWeighted = old.quorumWeighted();
+        slashBps = old.slashBps();
+        terminationQuorum = old.terminationQuorum();
+        baseGraceBlocks = old.baseGraceBlocks();
+        gracePerQuorum = old.gracePerQuorum();
+        maxGraceBlocks = old.maxGraceBlocks();
+        convictionA = old.convictionA();
+        convictionB = old.convictionB();
+        for (uint256 i = 0; i < 9; i++) convictionLockup[i] = old.convictionLockup(i);
+        commitBlocks = old.commitBlocks();
+        revealBlocks = old.revealBlocks();
+        pendingOwnerSweep = old.pendingOwnerSweep();
+
+        uint256 nc = old.voteCampaignCount();
+        for (uint256 i = 0; i < nc; i++) {
+            uint256 cid = old.voteCampaignAt(i);
+            proposalConvictionA[cid] = old.proposalConvictionA(cid);
+            proposalConvictionB[cid] = old.proposalConvictionB(cid);
+            ayeWeighted[cid] = old.ayeWeighted(cid);
+            nayWeighted[cid] = old.nayWeighted(cid);
+            resolved[cid] = old.resolved(cid);
+            slashCollected[cid] = old.slashCollected(cid);
+            firstNayBlock[cid] = old.firstNayBlock(cid);
+            (uint64 cd, uint64 rd, bool op) = old.commitRevealWindow(cid);
+            commitRevealWindow[cid] = CommitRevealWindow({commitDeadline: cd, revealDeadline: rd, opened: op});
+            lastSignificantVoteBlock[cid] = old.lastSignificantVoteBlock(cid);
+            resolvedWinningWeight[cid] = old.resolvedWinningWeight(cid);
+            winningWeight[cid] = old.winningWeight(cid);
+            slashFinalized[cid] = old.slashFinalized(cid);
+            slashFinalizedBlock[cid] = old.slashFinalizedBlock(cid);
+            totalSlashClaimed[cid] = old.totalSlashClaimed(cid);
+            uint256 vn = old.campaignVoterCount(cid);
+            for (uint256 j = 0; j < vn; j++) {
+                address voter = old.campaignVoterAt(cid, j);
+                _votes[cid][voter] = old.getVoteFull(cid, voter);
+                slashClaimed[cid][voter] = old.slashClaimed(cid, voter);
+                _trackVote(cid, voter);
+            }
+        }
+    }
+
+    /// @notice Sweep native DOT (locked vote stakes + slash pools + pending
+    ///         owner sweep) to a successor. Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumGovernanceV2(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

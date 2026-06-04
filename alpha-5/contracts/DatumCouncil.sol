@@ -27,7 +27,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 contract DatumCouncil is DatumUpgradable, ReentrancyGuard {
 
     /// @notice Upgrade ladder version.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
 
     using SafeERC20 for IERC20;
 
@@ -609,4 +611,42 @@ contract DatumCouncil is DatumUpgradable, ReentrancyGuard {
 
     /// @notice Accept ETH so proposals with value can be funded and executed.
     receive() external payable whenNotFrozen {}
+
+    // ── Upgrade migration (config + member set; native sweep) ──────────────
+
+    function memberAt(uint256 i) external view returns (address) { return _memberList[i]; }
+
+    /// @dev Copy council config from a frozen predecessor. The MEMBER SET is
+    ///      reconstructed at DEPLOY time, not here — the constructor mandates
+    ///      >= MIN_COUNCIL_SIZE members, so the off-chain migrator reads
+    ///      memberAt(0..memberCount) from the predecessor and passes them to the
+    ///      successor's constructor. In-flight proposals are short-lived (voting
+    ///      + execution windows) and drained pre-migration. Members vote without
+    ///      locking DOT, so there is no per-voter fund state.
+    function _migrate(address oldContract) internal override {
+        DatumCouncil old = DatumCouncil(payable(oldContract));
+        threshold = old.threshold();
+        votingPeriodBlocks = old.votingPeriodBlocks();
+        executionDelayBlocks = old.executionDelayBlocks();
+        vetoWindowBlocks = old.vetoWindowBlocks();
+        maxExecutionWindowBlocks = old.maxExecutionWindowBlocks();
+        guardian = old.guardian();
+        nextProposalId = old.nextProposalId();
+    }
+
+    /// @notice Sweep native DOT (proposal execution funds) to a successor during
+    ///         an upgrade. Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumCouncil(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
+    }
 }
