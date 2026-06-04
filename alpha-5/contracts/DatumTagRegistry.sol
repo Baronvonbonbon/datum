@@ -48,7 +48,14 @@ import "./interfaces/IDatumTagRegistry.sol";
 ///         disputes but is not miner-resistant — for high-stakes cases the
 ///         right answer is a VRF, deferred to a future upgrade.
 contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
+    /// @dev Tag enumeration for upgrade migration (_tags is keyed by hash).
+    ///      Jurors already enumerate via _jurors. The custodied DATUM (ERC-20)
+    ///      moves via migrateFundsTo. In-flight disputes are drained pre-migration.
+    bytes32[] private _tagList;
+    mapping(bytes32 => bool) private _tagTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
 
     using SafeERC20 for IERC20;
 
@@ -262,6 +269,7 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
 
         t.owner = msg.sender;
         t.bond = amount;
+        if (!_tagTracked[tag]) { _tagTracked[tag] = true; _tagList.push(tag); }
         t.lastUsedBlock = uint64(block.number);
         t.registeredBlock = uint64(block.number);
         t.state = TagState.Bonded;
@@ -612,5 +620,61 @@ contract DatumTagRegistry is IDatumTagRegistry, DatumUpgradable, ReentrancyGuard
     }
     function disputeJurors(uint256 disputeId) external view returns (address[] memory) {
         return _disputes[disputeId].jurors;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Upgrade migration (tags + juror stakes; ERC-20 DATUM sweep)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function tagCount() external view returns (uint256) { return _tagList.length; }
+    function tagAt(uint256 i) external view returns (bytes32) { return _tagList[i]; }
+    function jurorCount() external view returns (uint256) { return _jurors.length; }
+    function getTagInfo(bytes32 tag) external view returns (TagInfo memory) { return _tags[tag]; }
+
+    /// @dev Copy params + the tag registry + the juror set (stake + locked
+    ///      stake) + nextDisputeId from a frozen predecessor. In-flight disputes
+    ///      are NOT migrated — they must be resolved (juror locks released)
+    ///      before migration. The custodied DATUM moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumTagRegistry old = DatumTagRegistry(oldContract);
+        require(old.datum() == datum, "token-mismatch");
+        minTagBond = old.minTagBond();
+        jurorMinStake = old.jurorMinStake();
+        commitWindow = old.commitWindow();
+        revealWindow = old.revealWindow();
+        jurySize = old.jurySize();
+        juryRewardBps = old.juryRewardBps();
+        jurorSlashBps = old.jurorSlashBps();
+        expiryBlocks = old.expiryBlocks();
+        nextDisputeId = old.nextDisputeId();
+
+        uint256 nt = old.tagCount();
+        for (uint256 i = 0; i < nt; i++) {
+            bytes32 tag = old.tagAt(i);
+            _tags[tag] = old.getTagInfo(tag);
+            if (!_tagTracked[tag]) { _tagTracked[tag] = true; _tagList.push(tag); }
+        }
+        uint256 nj = old.jurorCount();
+        for (uint256 i = 0; i < nj; i++) {
+            address j = old.jurorAt(i);
+            jurorStake[j] = old.jurorStake(j);
+            jurorLockedStake[j] = old.jurorLockedStake(j);
+            _jurors.push(j);
+            _jurorIndex[j] = _jurors.length; // 1-based, matches stakeAsJuror
+        }
+    }
+
+    /// @notice Sweep the custodied DATUM to a successor during an upgrade so it
+    ///         can honour migrated juror stakes + tag bonds. Governance-gated,
+    ///         frozen-only, one-shot. Successor must custody the same token.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        require(DatumTagRegistry(successor).datum() == datum, "token-mismatch");
+        fundsMigratedOut = true;
+        uint256 bal = datum.balanceOf(address(this));
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) datum.safeTransfer(successor, bal);
     }
 }

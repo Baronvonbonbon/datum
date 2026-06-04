@@ -30,7 +30,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///           - DatumClaimValidator reads `hasAllRequiredTags` per claim
 ///             in ALLOWLIST/OPEN gate logic.
 contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -92,6 +92,19 @@ contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
     mapping(uint256 => bytes32[]) private _campaignTags;
     mapping(uint256 => bytes32[]) private _campaignPublisherTags;
     mapping(uint256 => uint8) public override campaignTagMode;
+
+    // ── Enumeration for upgrade migration (tags are not iterable mappings) ──
+    address[] private _tagPublishers;
+    mapping(address => bool) private _tagPublisherTracked;
+    uint256[] private _tagCampaigns;
+    mapping(uint256 => bool) private _tagCampaignTracked;
+
+    function _trackTagPublisher(address p) internal {
+        if (!_tagPublisherTracked[p]) { _tagPublisherTracked[p] = true; _tagPublishers.push(p); }
+    }
+    function _trackTagCampaign(uint256 c) internal {
+        if (!_tagCampaignTracked[c]) { _tagCampaignTracked[c] = true; _tagCampaigns.push(c); }
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Events
@@ -334,6 +347,7 @@ contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
             _publisherTags[msg.sender].push(tagHashes[i]);
             _publisherTagSet[msg.sender][tagHashes[i]] = true;
             tagRemovalEffectiveBlock[msg.sender][tagHashes[i]] = 0;
+            _trackTagPublisher(msg.sender);
 
             // Best-effort: refresh usage in the stake-gated registry.
             if (mode == 1 && address(tagRegistry) != address(0)) {
@@ -382,6 +396,7 @@ contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
         // Store required tags + snapshot of publisher's tags at create time.
         for (uint256 i = 0; i < requiredTags.length; i++) {
             _campaignTags[campaignId].push(requiredTags[i]);
+            _trackTagCampaign(campaignId);
         }
         if (publisher != address(0)) {
             bytes32[] storage pubTags = _publisherTags[publisher];
@@ -416,6 +431,7 @@ contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
         }
 
         campaignTagMode[campaignId] = mode;
+        _trackTagCampaign(campaignId);
         emit CampaignTagModeSet(campaignId, mode);
     }
 
@@ -459,6 +475,56 @@ contract DatumTagSystem is IDatumTagSystem, DatumUpgradable {
             return false;
         }
         return true;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Upgrade migration (tag dictionary + per-publisher + per-campaign tags)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function tagPublisherCount() external view returns (uint256) { return _tagPublishers.length; }
+    function tagPublisherAt(uint256 i) external view returns (address) { return _tagPublishers[i]; }
+    function tagCampaignCount() external view returns (uint256) { return _tagCampaigns.length; }
+    function tagCampaignAt(uint256 i) external view returns (uint256) { return _tagCampaigns[i]; }
+
+    /// @dev Copy config + the approved-tag dictionary + every publisher's tag set
+    ///      + every campaign's required/publisher tag snapshot + mode from a
+    ///      frozen predecessor. Structural refs are re-wired. (Removed-but-grace
+    ///      tags no longer in a publisher's active set are not carried — the
+    ///      grace window is short-lived.)
+    function _migrate(address oldContract) internal override {
+        DatumTagSystem old = DatumTagSystem(oldContract);
+        enforceTagRegistry = old.enforceTagRegistry();
+        maxPublisherTags = old.maxPublisherTags();
+        maxCampaignTags = old.maxCampaignTags();
+        bytes32[] memory tags = old.listApprovedTags();
+        for (uint256 i = 0; i < tags.length; i++) {
+            if (!approvedTags[tags[i]]) {
+                approvedTags[tags[i]] = true;
+                _approvedTagList.push(tags[i]);
+                _approvedTagIndex[tags[i]] = _approvedTagList.length;
+            }
+        }
+        uint256 np = old.tagPublisherCount();
+        for (uint256 i = 0; i < np; i++) {
+            address p = old.tagPublisherAt(i);
+            bytes32[] memory pt = old.getPublisherTags(p);
+            for (uint256 j = 0; j < pt.length; j++) {
+                _publisherTags[p].push(pt[j]);
+                _publisherTagSet[p][pt[j]] = true;
+                tagRemovalEffectiveBlock[p][pt[j]] = old.tagRemovalEffectiveBlock(p, pt[j]);
+            }
+            _trackTagPublisher(p);
+        }
+        uint256 nc = old.tagCampaignCount();
+        for (uint256 i = 0; i < nc; i++) {
+            uint256 cid = old.tagCampaignAt(i);
+            bytes32[] memory ct = old.getCampaignTags(cid);
+            for (uint256 j = 0; j < ct.length; j++) _campaignTags[cid].push(ct[j]);
+            bytes32[] memory cpt = old.getCampaignPublisherTags(cid);
+            for (uint256 j = 0; j < cpt.length; j++) _campaignPublisherTags[cid].push(cpt[j]);
+            campaignTagMode[cid] = old.campaignTagMode(cid);
+            _trackTagCampaign(cid);
+        }
     }
 }
 
