@@ -61,4 +61,10 @@ abstract contract DatumCampaignsStorage is IDatumCampaigns, DatumPlumbingLockabl
     mapping(uint256 => uint32) public userCapWindowBlocks;
     mapping(uint256 => uint32) public minUserSettledHistory;
     mapping(uint256 => uint8) public campaignMinIdentityLevel;
+
+    /// @notice DELEGATECALL target holding the heavy upgrade-import code
+    ///         (DatumCampaignsMigrationLogic). Lock-once via setMigrationLogic.
+    ///         MUST be the last storage slot — the logic contract mirrors this
+    ///         exact layout (see DatumCampaignsMigrationLogic + the layout test).
+    address public migrationLogic;
 }

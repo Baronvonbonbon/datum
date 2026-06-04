@@ -1,21 +1,25 @@
 // Off-chain orchestrator for DatumCampaigns migration.
 //
-// Campaigns is EIP-170-bound, so an on-chain migrator contract (which would need
-// governor-delegation code) won't fit. Instead governance — an EOA on Paseo —
-// drives the migration via this script: it reads each campaign's struct + scalar
-// gates from the FROZEN predecessor and replays them into the new Campaigns
-// through the gated write hooks (migrateImportCampaign / migrateBumpNextId).
+// Campaigns is EIP-170-bound, so the heavy full-import loop lives in
+// DatumCampaignsMigrationLogic, reached via DatumCampaigns.migrateDelegate() —
+// a governance-gated DELEGATECALL passthrough. Governance (an EOA on Paseo)
+// drives the migration with this script: it reads each campaign's FULL state
+// from the FROZEN predecessor — core struct + pots + every scalar gate —
+// ABI-encodes an importCampaignFull() call, and replays it into the new
+// Campaigns via migrateDelegate().
 //
 // Sequence (run AFTER deploying the new Campaigns + `new.migrate(old)` and AFTER
 // `old.freeze()`):
-//   OLD_CAMPAIGNS=0x.. NEW_CAMPAIGNS=0x.. npx hardhat run scripts/migrate-campaigns.ts --network polkadotTestnet
+//   OLD_CAMPAIGNS=0x.. NEW_CAMPAIGNS=0x.. \
+//   [MIGRATION_LOGIC=0x..] npx hardhat run scripts/migrate-campaigns.ts --network polkadotTestnet
 //
-// CAVEAT: only the core struct + assurance/minStake/identityLevel gates migrate.
-// Nested/array side-state (pots, per-campaign allowlist snapshot, tags,
-// requiredCategory, userEventCap, minUserSettledHistory) is NOT replayed — there
-// is no EIP-170 headroom for more import code. Until Campaigns is slimmed (the
-// carve-out remerge), those must be re-set post-migration by advertisers or
-// reconstructed off-chain. Budgets live in DatumBudgetLedger (migrated there).
+// If MIGRATION_LOGIC is unset and the new Campaigns has no migrationLogic wired,
+// this script deploys DatumCampaignsMigrationLogic and calls setMigrationLogic
+// (lock-once) before importing.
+//
+// Budgets live in DatumBudgetLedger (migrated there). The legacy nested
+// per-campaign publisher allowlist snapshot is NOT replayed — the canonical
+// allowlist lives in DatumCampaignAllowlist (migrated separately).
 import { ethers } from "hardhat";
 import { JsonRpcProvider, Wallet } from "ethers";
 
@@ -44,39 +48,63 @@ async function main() {
 
   const oldC = await ethers.getContractAt("DatumCampaigns", oldAddr);
   const newC = await ethers.getContractAt("DatumCampaigns", newAddr, gov);
+  const logicIface = (await ethers.getContractFactory("DatumCampaignsMigrationLogic")).interface;
 
   if (!(await oldC.frozen())) throw new Error("predecessor must be frozen first (old.freeze())");
 
+  const send = async (label: string, data: string) => {
+    const nonce = await raw.getTransactionCount(gov.address);
+    const tx = await gov.sendTransaction({ to: newAddr, data, gasLimit: GAS_LIMIT, type: 0, gasPrice: GAS_PRICE });
+    console.log(`  ${label}: tx ${tx.hash}`);
+    await waitForNonce(raw, gov.address, nonce);
+  };
+
+  // 1) Ensure the migration logic is wired (lock-once).
+  let logicAddr = await newC.migrationLogic();
+  if (logicAddr === ethers.ZeroAddress) {
+    logicAddr = process.env.MIGRATION_LOGIC || "";
+    if (!logicAddr) {
+      console.log("Deploying DatumCampaignsMigrationLogic ...");
+      const logic = await (await ethers.getContractFactory("DatumCampaignsMigrationLogic", gov)).deploy({ gasLimit: GAS_LIMIT, gasPrice: GAS_PRICE });
+      await logic.waitForDeployment();
+      logicAddr = await logic.getAddress();
+      console.log(`  logic @ ${logicAddr}`);
+    }
+    await send(`setMigrationLogic(${logicAddr})`, newC.interface.encodeFunctionData("setMigrationLogic", [logicAddr]));
+  } else {
+    console.log(`migrationLogic already wired @ ${logicAddr}`);
+  }
+
+  // 2) Replay every campaign's FULL state.
   const nextId: bigint = await oldC.nextCampaignId();
   console.log(`Migrating campaigns 1..${nextId - 1n}  ${oldAddr} → ${newAddr}`);
 
   let migrated = 0;
   for (let id = 1n; id < nextId; id++) {
-    const c = await oldC.getCampaignStruct(id);
-    if (c.advertiser === ethers.ZeroAddress) continue; // gap / never created
-    const assurance = await oldC.campaignAssuranceLevel(id);
-    const minStake = await oldC.campaignMinStake(id);
-    const idLevel = await oldC.campaignMinIdentityLevel(id);
+    const core = await oldC.getCampaignStruct(id);
+    if (core.advertiser === ethers.ZeroAddress) continue; // gap / never created
 
-    const data = newC.interface.encodeFunctionData("migrateImportCampaign", [id, c, assurance, minStake, idLevel]);
-    const nonce = await raw.getTransactionCount(gov.address);
-    const tx = await gov.sendTransaction({ to: newAddr, data, gasLimit: GAS_LIMIT, type: 0, gasPrice: GAS_PRICE });
-    console.log(`  campaign ${id}: tx ${tx.hash}`);
-    await waitForNonce(raw, gov.address, nonce);
+    const fullImport = {
+      core,
+      pots: await oldC.getCampaignPots(id),
+      allowlistEnabled: await oldC.campaignAllowlistEnabled(id),
+      assuranceLevel: await oldC.campaignAssuranceLevel(id),
+      minStake: await oldC.campaignMinStake(id),
+      requiredCategory: await oldC.campaignRequiredCategory(id),
+      userEventCap: await oldC.userEventCapPerWindow(id),
+      userCapWindow: await oldC.userCapWindowBlocks(id),
+      minHistory: await oldC.minUserSettledHistory(id),
+      minIdentityLevel: await oldC.campaignMinIdentityLevel(id),
+    };
+    const inner = logicIface.encodeFunctionData("importCampaignFull", [id, fullImport]);
+    await send(`campaign ${id}`, newC.interface.encodeFunctionData("migrateDelegate", [inner]));
     migrated++;
   }
 
-  // Bump the id counter so post-migration creations get fresh ids.
-  {
-    const data = newC.interface.encodeFunctionData("migrateBumpNextId", [nextId]);
-    const nonce = await raw.getTransactionCount(gov.address);
-    const tx = await gov.sendTransaction({ to: newAddr, data, gasLimit: GAS_LIMIT, type: 0, gasPrice: GAS_PRICE });
-    console.log(`  migrateBumpNextId(${nextId}): tx ${tx.hash}`);
-    await waitForNonce(raw, gov.address, nonce);
-  }
+  // 3) Bump the id counter so post-migration creations get fresh ids.
+  await send(`migrateBumpNextId(${nextId})`, newC.interface.encodeFunctionData("migrateBumpNextId", [nextId]));
 
-  console.log(`\n✅ Migrated ${migrated} campaigns. nextCampaignId set to ${nextId}.`);
-  console.log(`   Reminder: re-set per-campaign pots/allowlist/tags/caps where used (EIP-170 carve-out pending).`);
+  console.log(`\n✅ Migrated ${migrated} campaigns (full state: struct + pots + all gates). nextCampaignId = ${nextId}.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

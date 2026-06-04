@@ -553,6 +553,20 @@ contract DatumCampaigns is DatumCampaignsStorage {
     /// @inheritdoc IDatumCampaigns
     /// @notice Backwards-compat overload — equivalent to the 8-arg form with
     ///         activationBondAmount = 0 (legacy always-vote activation path).
+    /// @dev Creation params bundled into a single memory struct. The public
+    ///      scalar ABI is unchanged — the wrappers below pack the struct — but
+    ///      `_createCampaign` then carries one memory pointer instead of eight
+    ///      live stack scalars, keeping the function within the viaIR 16-slot
+    ///      stack-depth limit (it sat exactly at the edge).
+    struct CreateParams {
+        address publisher;
+        bool    requireZkProof;
+        address rewardToken;
+        uint256 rewardPerImpression;
+        uint256 bondAmount;
+        uint256 activationBondAmount;
+    }
+
     function createCampaign(
         address publisher,
         ActionPotConfig[] calldata pots,
@@ -562,7 +576,10 @@ contract DatumCampaigns is DatumCampaignsStorage {
         uint256 rewardPerImpression,
         uint256 bondAmount
     ) external payable whenNotFrozen returns (uint256 campaignId) {
-        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0);
+        return _createCampaign(
+            CreateParams(publisher, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0),
+            pots, requiredTags
+        );
     }
 
     function createCampaignWithActivation(
@@ -575,18 +592,16 @@ contract DatumCampaigns is DatumCampaignsStorage {
         uint256 bondAmount,
         uint256 activationBondAmount
     ) external payable whenNotFrozen returns (uint256 campaignId) {
-        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount);
+        return _createCampaign(
+            CreateParams(publisher, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount),
+            pots, requiredTags
+        );
     }
 
     function _createCampaign(
-        address publisher,
+        CreateParams memory p,
         ActionPotConfig[] calldata pots,
-        bytes32[] calldata requiredTags,
-        bool requireZkProof,
-        address rewardToken,
-        uint256 rewardPerImpression,
-        uint256 bondAmount,
-        uint256 activationBondAmount
+        bytes32[] calldata requiredTags
     ) internal nonReentrant returns (uint256 campaignId) {
         if (!(!pauseRegistry.pausedCampaignCreation())) revert Paused();
 
@@ -604,8 +619,8 @@ contract DatumCampaigns is DatumCampaignsStorage {
             if (!(ok)) revert StakeInadequate();
         }
 
-        if (!(msg.value > bondAmount + activationBondAmount)) revert E11();
-        uint256 budgetValue = msg.value - bondAmount - activationBondAmount;
+        if (!(msg.value > p.bondAmount + p.activationBondAmount)) revert E11();
+        uint256 budgetValue = msg.value - p.bondAmount - p.activationBondAmount;
         if (!(budgetValue >= MINIMUM_BUDGET_PLANCK)) revert E11();
         if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget)) revert E80();
         // requiredTags length check moved to DatumTagSystem.initializeCampaignTags.
@@ -613,10 +628,10 @@ contract DatumCampaigns is DatumCampaignsStorage {
         // bondAmount while ChallengeBonds isn't wired, the lockBond branch
         // below is skipped and the bondAmount portion would sit in this
         // contract permanently (no withdrawal path). Fail loudly instead.
-        if (!(bondAmount == 0 || address(challengeBonds) != address(0))) revert E00();
+        if (!(p.bondAmount == 0 || address(challengeBonds) != address(0))) revert E00();
         // Same protection for activation bond: forbid stranded value if the
         // ActivationBonds gateway isn't wired.
-        if (!(activationBondAmount == 0 || activationBonds != address(0))) revert E00();
+        if (!(p.activationBondAmount == 0 || activationBonds != address(0))) revert E00();
 
         // Validate pots
         if (!(pots.length >= 1 && pots.length <= 3)) revert E93();
@@ -646,15 +661,15 @@ contract DatumCampaigns is DatumCampaignsStorage {
             // S12: reject blocked advertisers
             if (!(!publishers.isBlocked(msg.sender))) revert E62();
 
-            if (publisher != address(0)) {
-                if (!(!publishers.isBlocked(publisher))) revert E62();
-                IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
+            if (p.publisher != address(0)) {
+                if (!(!publishers.isBlocked(p.publisher))) revert E62();
+                IDatumPublishers.Publisher memory pub = publishers.getPublisher(p.publisher);
                 if (!(pub.registered)) revert E62();
 
                 // S12: per-publisher allowlist
-                allowlistWasEnabled = publishers.allowlistEnabled(publisher);
+                allowlistWasEnabled = publishers.allowlistEnabled(p.publisher);
                 if (allowlistWasEnabled) {
-                    if (!(publishers.isAllowedAdvertiser(publisher, msg.sender))) revert E62();
+                    if (!(publishers.isAllowedAdvertiser(p.publisher, msg.sender))) revert E62();
                 }
 
                 // TX-1: tag matching delegated to TagSystem (returns false on miss).
@@ -662,7 +677,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
                 // tagSystem.initializeCampaignTags below.
 
                 snapshot = pub.takeRateBps;
-                snapRelaySigner = publishers.relaySigner(publisher);
+                snapRelaySigner = publishers.relaySigner(p.publisher);
             } else {
                 snapshot = defaultTakeRateBps;
             }
@@ -680,12 +695,12 @@ contract DatumCampaigns is DatumCampaignsStorage {
         // The allowlist module owns the seed state; we call its onlyCampaigns
         // entry point. Skipped only when the module isn't wired (test fixtures
         // that don't exercise the allowlist path); production always wires it.
-        if (publisher != address(0) && address(allowlist) != address(0)) {
-            allowlist.initializeFor(campaignId, publisher, snapshot);
+        if (p.publisher != address(0) && address(allowlist) != address(0)) {
+            allowlist.initializeFor(campaignId, p.publisher, snapshot);
         }
 
-        if (rewardToken != address(0)) {
-            if (!(rewardPerImpression > 0)) revert E11();
+        if (p.rewardToken != address(0)) {
+            if (!(p.rewardPerImpression > 0)) revert E11();
         }
 
         // Find view bid for struct
@@ -696,15 +711,15 @@ contract DatumCampaigns is DatumCampaignsStorage {
 
         _campaigns[campaignId] = Campaign({
             advertiser: msg.sender,
-            publisher: publisher,
+            publisher: p.publisher,
             pendingExpiryBlock: block.number + pendingTimeoutBlocks,
             terminationBlock: 0,
             snapshotTakeRateBps: snapshot,
             status: CampaignStatus.Pending,
             relaySigner: snapRelaySigner,
-            requiresZkProof: requireZkProof,
-            rewardToken: rewardToken,
-            rewardPerImpression: rewardPerImpression,
+            requiresZkProof: p.requireZkProof,
+            rewardToken: p.rewardToken,
+            rewardPerImpression: p.rewardPerImpression,
             viewBid: vBid
         });
 
@@ -712,7 +727,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
         //   - Validates publisher's tag set against requiredTags (publisher !=0).
         //   - Records the required tags + snapshot of publisher's current tags.
         if (address(tagSystem) != address(0)) {
-            tagSystem.initializeCampaignTags(campaignId, publisher, requiredTags);
+            tagSystem.initializeCampaignTags(campaignId, p.publisher, requiredTags);
         }
 
         // Store pots and initialize budget per pot
@@ -724,16 +739,16 @@ contract DatumCampaigns is DatumCampaignsStorage {
         }
 
         // FP-2: Lock optional bond in ChallengeBonds
-        if (bondAmount > 0 && address(challengeBonds) != address(0)) {
-            challengeBonds.lockBond{value: bondAmount}(campaignId, msg.sender, publisher);
+        if (p.bondAmount > 0 && address(challengeBonds) != address(0)) {
+            challengeBonds.lockBond{value: p.bondAmount}(campaignId, msg.sender, p.publisher);
         }
 
         // Optimistic activation: open the activation bond if the gateway is
         // wired and the advertiser supplied bond value. Without this, the
         // campaign sits Pending until governance activates it through the
         // legacy vote path.
-        if (activationBondAmount > 0 && activationBonds != address(0)) {
-            IDatumActivationBonds(activationBonds).openBond{value: activationBondAmount}(
+        if (p.activationBondAmount > 0 && activationBonds != address(0)) {
+            IDatumActivationBonds(activationBonds).openBond{value: p.activationBondAmount}(
                 campaignId, msg.sender
             );
         }
@@ -741,7 +756,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
         // A3: AssuranceLevel defaults to Permissive (0) for both open and
         // closed campaigns. The advertiser explicitly opts into higher levels
         // via setCampaignAssuranceLevel — no protocol-imposed paternalism.
-        emit CampaignCreated(campaignId, msg.sender, publisher, budgetValue, snapshot);
+        emit CampaignCreated(campaignId, msg.sender, p.publisher, budgetValue, snapshot);
     }
 
     // Metadata (setMetadata + getCampaignMetadata) moved to
@@ -1111,30 +1126,42 @@ contract DatumCampaigns is DatumCampaignsStorage {
     // -------------------------------------------------------------------------
     // Upgrade migration — write hooks for the external DatumCampaignsMigrator
     // -------------------------------------------------------------------------
-    // Campaigns is EIP-170-bound, so the heavy read/loop logic lives in the
-    // external DatumCampaignsMigrator; this contract only exposes the minimal
-    // governance-gated write surface (struct + scalar gates + nextId). The
-    // migrator reads each field from the frozen predecessor and replays it here.
+    // Upgrade migration import. Campaigns is EIP-170-bound, so the heavy
+    // full-import loop lives in DatumCampaignsMigrationLogic, reached via
+    // DELEGATECALL (it mirrors this contract's storage layout exactly — see the
+    // layout-invariant test). The off-chain migrator reads each campaign from the
+    // frozen predecessor and replays the FULL per-campaign state — core struct +
+    // pots + every scalar gate — through migrateImportCampaignFull.
+    // -------------------------------------------------------------------------
 
     function getCampaignStruct(uint256 id) external view returns (Campaign memory) { return _campaigns[id]; }
 
     /// @dev Set the id counter so post-migration creations get fresh ids.
     function migrateBumpNextId(uint256 n) external onlyGovernance { nextCampaignId = n; }
 
-    /// @dev Replay one campaign's core struct + scalar gates from a predecessor.
-    ///      Nested/array side-state (pots, per-campaign allowlist snapshot, tags)
-    ///      is replayed separately via migrateImportCampaignGates extensions /
-    ///      the migrator. Governance-gated; intended for the migration window.
-    function migrateImportCampaign(
-        uint256 id,
-        Campaign calldata c,
-        uint8 assuranceLevel,
-        uint256 minStake,
-        uint8 minIdentityLevel
-    ) external onlyGovernance {
-        _campaigns[id] = c;
-        campaignAssuranceLevel[id] = assuranceLevel;
-        campaignMinStake[id] = minStake;
-        campaignMinIdentityLevel[id] = minIdentityLevel;
+    event MigrationLogicSet(address indexed logic);
+
+    /// @notice Wire the DELEGATECALL migration-logic target (lock-once). Holds
+    ///         the heavy full-import code off this EIP-170-bound contract.
+    function setMigrationLogic(address logic) external onlyGovernance {
+        if (logic == address(0)) revert E00();
+        if (migrationLogic != address(0)) revert AlreadySet();
+        migrationLogic = logic;
+        emit MigrationLogicSet(logic);
+    }
+
+    /// @notice Governance-gated raw passthrough to the migration logic. The
+    ///         off-chain migrator ABI-encodes the call (e.g.
+    ///         `importCampaignFull(id, CampaignFullImport)`) and this DELEGATECALLs
+    ///         it so the writes land in THIS contract's storage. Passing raw bytes
+    ///         (rather than a typed struct param) keeps the heavy nested-struct
+    ///         calldata decoder OUT of this EIP-170-bound contract — it lives only
+    ///         in DatumCampaignsMigrationLogic. The target is the lock-once,
+    ///         governance-set `migrationLogic`, so the trust boundary is the same
+    ///         as any other governance action.
+    function migrateDelegate(bytes calldata data) external onlyGovernance {
+        if (migrationLogic == address(0)) revert RegistryUnset();
+        (bool ok, ) = migrationLogic.delegatecall(data);
+        if (!ok) revert E00();
     }
 }

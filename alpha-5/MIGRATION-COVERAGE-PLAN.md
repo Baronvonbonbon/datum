@@ -1,22 +1,32 @@
 # Protocol-wide upgrade/migration coverage plan
 
-> ## ⚠️ FOLLOW-UP: DatumCampaigns EIP-170 carve-out (blocks full Campaigns migration)
-> DatumCampaigns is at the EIP-170 ceiling — adding the migration write hooks
-> (`migrateImportCampaign` / `migrateBumpNextId` / `getCampaignStruct`) pushed it
-> to **24442 B / 24576 (only 134 B headroom)**. Consequence: the migrator
-> (`scripts/migrate-campaigns.ts` + the in-contract hooks) carries only the core
-> `Campaign` struct + 3 settlement gates (assurance / minStake / identityLevel);
-> the **full per-campaign side-state does NOT fit and is NOT migrated** — pots
-> array, allowlist snapshot, tags, requiredCategory, userEventCap/window,
-> minUserSettledHistory. Budgets migrate separately via DatumBudgetLedger.
+> ## ✅ RESOLVED: DatumCampaigns full-state migration (EIP-170 carve-out done)
+> DatumCampaigns now migrates the **FULL per-campaign state** — core `Campaign`
+> struct + pots array + every scalar gate (allowlistEnabled, assurance, minStake,
+> requiredCategory, userEventCap/window, minHistory, identityLevel). Two moves
+> unblocked it without breaching EIP-170 (final: **24363 B / 24576, 213 B
+> headroom**) or the createCampaign viaIR stack ceiling:
 >
-> **Action:** slim DatumCampaigns via the carve-out remerge (see
-> `[[project_eip170_remerge_plan]]`) so the side-state import code fits, THEN
-> extend `migrateImportCampaign` to cover it and drop the "re-set post-migration"
-> caveat from the script. Until then, advertisers must re-apply those optional
-> per-campaign gates after a Campaigns upgrade. This is on the critical path for
-> a *complete* Campaigns migration and should be sequenced before / alongside the
-> remaining governance + stake-root migrations.
+> 1. **Slimmed `createCampaign`** — the 8 creation scalars are bundled into a
+>    `CreateParams` memory struct (`_createCampaign(CreateParams memory, …)`). The
+>    public scalar ABI is unchanged (the two wrappers pack the struct), but the
+>    function now carries one memory pointer instead of 8 live stack scalars. This
+>    both cleared the stack-too-deep AND *shrank* Campaigns ~2.9 KB (8 scalar
+>    params generated more code than one pointer + on-demand mloads).
+> 2. **`migrateDelegate(bytes)`** — a governance-gated DELEGATECALL passthrough to
+>    the lock-once `migrationLogic`. The heavy full-import loop + the nested-struct
+>    calldata decoder live in **`DatumCampaignsMigrationLogic`** (6.5 KB, mirrors
+>    Campaigns' storage layout). Passing raw bytes (not a typed struct param) keeps
+>    that decoder OUT of Campaigns (a typed dispatcher re-bloated it +4.5 KB).
+>
+> Layout drift between Campaigns and the Logic is caught by
+> `test/campaigns-migration-layout.test.ts` (slot-by-slot identical). The migrator
+> `scripts/migrate-campaigns.ts` deploys+wires the Logic, reads each campaign's
+> full state from the frozen predecessor, and replays it via `migrateDelegate`.
+> Budgets still migrate separately via DatumBudgetLedger; the legacy nested
+> per-campaign allowlist snapshot lives in the separately-migrated
+> DatumCampaignAllowlist. Caveat: `migrateDelegate` surfaces a generic revert on
+> Logic failure (governance simulates/decodes off-chain). 1650 tests passing.
 
 Goal: **seamlessly upgrade any contract and carry over all logic + state**, as
 modularly as possible. Two independent axes per contract:
@@ -68,7 +78,7 @@ ClaimValidator ✅conv, RelayStake ✅conv, BudgetLedger ✅conv, Settlement (`_
 | DatumPeopleChainXcmBridge | campaignsContract |
 
 ### Axis B — `_migrate` shipped
-PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅, NullifierRegistry ✅ (predecessor-chain), ClickRegistry ✅ (predecessor-chain), **PublisherReputation ✅ (predecessor-chain)**, **MintCoordinator ✅ + PowEngine ✅ (config-copy)**, **Publishers ✅ (registry enumeration)**, **Campaigns ✅ (core struct + gates via gated hooks + off-chain `scripts/migrate-campaigns.ts`; EIP-170 ceiling blocks full side-state → needs carve-out remerge first)**. Native sweeps converged onto **`DatumFundMigratable`** ✅.
+PaymentVault ✅, AdvertiserRegistry ✅, BudgetLedger ✅, PublisherStake ✅, AdvertiserStake ✅, RelayStake ✅, ZKStake ✅, ChallengeBonds ✅, ActivationBonds ✅, TokenRewardVault ✅, NullifierRegistry ✅ (predecessor-chain), ClickRegistry ✅ (predecessor-chain), **PublisherReputation ✅ (predecessor-chain)**, **MintCoordinator ✅ + PowEngine ✅ (config-copy)**, **Publishers ✅ (registry enumeration)**, **Campaigns ✅ (FULL state — struct + pots + every gate — via `migrateDelegate(bytes)` → `DatumCampaignsMigrationLogic` DELEGATECALL + off-chain `scripts/migrate-campaigns.ts`; createCampaign slimmed onto a `CreateParams` memory struct to clear EIP-170 + the viaIR stack ceiling — see resolved banner)**. Native sweeps converged onto **`DatumFundMigratable`** ✅.
 
 Also shipped: **CampaignAllowlist ✅ (enumeration-copy)**, **PeopleChainXcmBridge ✅ (escrow copy + DatumFundMigratable sweep)**.
 
@@ -81,7 +91,7 @@ Also shipped: **all 6 governances ✅** (RelayGov/Publisher/Advertiser + Governa
 Also shipped: **TagSystem ✅ + TagRegistry ✅** (tag dictionary + per-publisher/campaign tags; juror stakes + tag registry + DATUM ERC-20 sweep).
 
 ### Axis-B — `_migrate` COMPLETE ✅
-Every stateful contract now carries its state across a redeploy-migrate-rewire upgrade. The ONLY residual gap is the documented **DatumCampaigns EIP-170 carve-out** (banner at top): the core campaign struct + 3 gates migrate via the off-chain hook script, but full per-campaign side-state needs the carve-out remerge first.
+Every stateful contract now carries its state across a redeploy-migrate-rewire upgrade — **including DatumCampaigns' full per-campaign side-state** (struct + pots + every gate), unblocked by the createCampaign slim + `migrateDelegate` carve-out (resolved banner at top). No residual gaps.
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
