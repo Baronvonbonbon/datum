@@ -143,4 +143,14 @@ describe("DatumCampaigns — full migration via delegatecall logic", function ()
   it("migrateBumpNextId is governance-only", async function () {
     await expect(v2.connect(owner).migrateBumpNextId(99)).to.be.revertedWith("E19");
   });
+
+  it("migrateDelegate rejects any selector other than importCampaignFull", async function () {
+    await v2.connect(gov).setMigrationLogic(await logic.getAddress());
+    // the logic INHERITS DatumUpgradable.transferOwnership — a generic passthrough
+    // would let governance delegatecall it and overwrite THIS contract's owner.
+    const evil = logic.interface.encodeFunctionData("transferOwnership", [owner.address]);
+    await expect(v2.connect(gov).migrateDelegate(evil)).to.be.revertedWithCustomError(v2, "E00");
+    // sanity: the allowed selector still goes through
+    await expect(v2.connect(gov).migrateDelegate(encodeImport(9, fullImport()))).to.not.be.reverted;
+  });
 });

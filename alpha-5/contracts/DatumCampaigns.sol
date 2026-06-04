@@ -14,6 +14,7 @@ import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumCampaignAllowlist.sol";
 import "./interfaces/IDatumTagSystem.sol";
+import "./DatumCampaignsMigrationLogic.sol";
 
 /// @title DatumCampaigns (Core)
 /// @notice Campaign state management — creation, activation, pausing, views.
@@ -1124,14 +1125,13 @@ contract DatumCampaigns is DatumCampaignsStorage {
     }
 
     // -------------------------------------------------------------------------
-    // Upgrade migration — write hooks for the external DatumCampaignsMigrator
-    // -------------------------------------------------------------------------
     // Upgrade migration import. Campaigns is EIP-170-bound, so the heavy
     // full-import loop lives in DatumCampaignsMigrationLogic, reached via
     // DELEGATECALL (it mirrors this contract's storage layout exactly — see the
-    // layout-invariant test). The off-chain migrator reads each campaign from the
-    // frozen predecessor and replays the FULL per-campaign state — core struct +
-    // pots + every scalar gate — through migrateImportCampaignFull.
+    // layout-invariant test). The off-chain migrator (scripts/migrate-campaigns.ts)
+    // reads each campaign from the frozen predecessor and replays the FULL
+    // per-campaign state — core struct + pots + every scalar gate — through
+    // migrateDelegate.
     // -------------------------------------------------------------------------
 
     function getCampaignStruct(uint256 id) external view returns (Campaign memory) { return _campaigns[id]; }
@@ -1150,17 +1150,20 @@ contract DatumCampaigns is DatumCampaignsStorage {
         emit MigrationLogicSet(logic);
     }
 
-    /// @notice Governance-gated raw passthrough to the migration logic. The
-    ///         off-chain migrator ABI-encodes the call (e.g.
-    ///         `importCampaignFull(id, CampaignFullImport)`) and this DELEGATECALLs
-    ///         it so the writes land in THIS contract's storage. Passing raw bytes
-    ///         (rather than a typed struct param) keeps the heavy nested-struct
-    ///         calldata decoder OUT of this EIP-170-bound contract — it lives only
-    ///         in DatumCampaignsMigrationLogic. The target is the lock-once,
-    ///         governance-set `migrationLogic`, so the trust boundary is the same
-    ///         as any other governance action.
+    /// @notice Governance-gated passthrough to the migration logic's
+    ///         `importCampaignFull`. The off-chain migrator ABI-encodes that call
+    ///         and this DELEGATECALLs it so the writes land in THIS contract's
+    ///         storage. Passing raw bytes (rather than a typed struct param) keeps
+    ///         the heavy nested-struct calldata decoder OUT of this EIP-170-bound
+    ///         contract — it lives only in DatumCampaignsMigrationLogic.
+    /// @dev    The leading selector is constrained to `importCampaignFull` so a
+    ///         governance tx can't DELEGATECALL the logic's INHERITED
+    ///         DatumUpgradable surface (setRouter / transferOwnership / migrate),
+    ///         which would otherwise write THIS contract's owner/router slots. The
+    ///         target is the lock-once, governance-set `migrationLogic`.
     function migrateDelegate(bytes calldata data) external onlyGovernance {
         if (migrationLogic == address(0)) revert RegistryUnset();
+        if (bytes4(data[:4]) != DatumCampaignsMigrationLogic.importCampaignFull.selector) revert E00();
         (bool ok, ) = migrationLogic.delegatecall(data);
         if (!ok) revert E00();
     }
