@@ -76,8 +76,10 @@ Also shipped: **PeopleChainIdentity ✅**, **CampaignCreative ✅ (escrow sweep)
 
 Also shipped: **StakeRoot ✅, StakeRootV2 ✅, BondedIdentityReporter ✅** (reporter stakes + payouts + roots/commitments via `_queuePayout` enumeration + native sweep; in-flight proposals/attestations drained pre-migration).
 
-### Axis-B — `_migrate` still TODO
-6 governances (GovernanceV2, Council, ParameterGovernance, RelayGovernance, PublisherGovernance, AdvertiserGovernance — in-flight proposals/votes; copy active proposals, leave settled history), TagRegistry/TagSystem (jurors + disputes + staked funds).
+Also shipped: **all 6 governances ✅** (RelayGov/Publisher/Advertiser + GovernanceV2/ParameterGovernance/Council — full in-flight vote-state migration: per-proposal voter enumeration + Proposal/Vote copy + payouts + native sweep; conviction locks can't drain so the predecessor is fully retired. Council members reconstructed at deploy).
+
+### Axis-B — `_migrate` still TODO (last group)
+TagRegistry / TagSystem (jurors + disputes + staked funds — same reporter-stake + in-flight-challenge shape as the StakeRoot cluster).
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
