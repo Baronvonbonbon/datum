@@ -74,8 +74,10 @@ Also shipped: **CampaignAllowlist ✅ (enumeration-copy)**, **PeopleChainXcmBrid
 
 Also shipped: **PeopleChainIdentity ✅**, **CampaignCreative ✅ (escrow sweep)**.
 
-### Axis-B — `_migrate` still TODO (the heaviest tier: funds + in-flight state machines)
-StakeRoot/StakeRootV2 + BondedIdentityReporter (reporter stakes + reporterList + in-flight pending-root/attestation challenges + per-address payouts + commitmentList), 6 governances (in-flight proposals/votes), TagRegistry/TagSystem (jurors + disputes + staked funds).
+Also shipped: **StakeRoot ✅, StakeRootV2 ✅, BondedIdentityReporter ✅** (reporter stakes + payouts + roots/commitments via `_queuePayout` enumeration + native sweep; in-flight proposals/attestations drained pre-migration).
+
+### Axis-B — `_migrate` still TODO
+6 governances (GovernanceV2, Council, ParameterGovernance, RelayGovernance, PublisherGovernance, AdvertiserGovernance — in-flight proposals/votes; copy active proposals, leave settled history), TagRegistry/TagSystem (jurors + disputes + staked funds).
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
