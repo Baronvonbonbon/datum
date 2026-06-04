@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
-import { fundSigners } from "./helpers/mine";
+import { fundSigners, mineBlocks } from "./helpers/mine";
 
 // End-to-end validation of the redeploy-migrate-rewire upgrade model on a real
 // stateful + fund-holding contract (DatumPublisherStake), with state and native
@@ -264,5 +264,76 @@ describe("Upgrade E2E — Campaigns carve-out, loaded via createCampaign", funct
     );
     expect(await v2.nextCampaignId()).to.equal(nextId + 1n);
     expect(await v2.getCampaignAdvertiser(nextId)).to.equal(advertiser.address);
+  });
+});
+
+// End-to-end validation of the conviction-governance vote-state migration — the
+// densest pattern, where votes lock native DOT for up to a year. The failure
+// mode is stranded funds: if a voter's locked DOT is swept to the successor but
+// the vote record isn't migrated, the voter can never reclaim it. This test
+// loads a real proposal + conviction vote, upgrades, and then proves the voter
+// reclaims their migrated DOT FROM THE SUCCESSOR.
+describe("Upgrade E2E — Governance vote-state (DatumRelayGovernance)", function () {
+  let owner: HardhatEthersSigner, gov: HardhatEthersSigner, proposer: HardhatEthersSigner, voter: HardhatEthersSigner;
+  let router: any, v1: any;
+  const LOCKS: bigint[] = [100n, 1n, 3n, 7n, 21n, 90n, 180n, 270n, 365n];
+  const LOCK_DOT = parseDOT("2");
+
+  beforeEach(async function () {
+    await fundSigners();
+    [owner, gov, proposer, voter] = await ethers.getSigners();
+    router = await (await ethers.getContractFactory("MockOpenGovRouter")).deploy();
+    await router.setGovernor(gov.address);
+    v1 = await (await ethers.getContractFactory("DatumRelayGovernance")).deploy(10, 100, 0, 5000, 2000, 1000);
+    await v1.setRouter(await router.getAddress());
+    await v1.setConvictionLockups(LOCKS);
+  });
+
+  it("migrates in-flight proposal + conviction vote + locked DOT, and the voter reclaims from the successor", async function () {
+    // ── load real vote state: a proposal + a conviction vote locking 2 DOT ──
+    const EVID = "0x" + "ee".repeat(32);
+    await v1.connect(proposer).propose(owner.address, 1, EVID);     // proposalId 1
+    await v1.connect(voter).vote(1, true, 1, { value: LOCK_DOT });  // conviction 1 -> short lock
+
+    expect(await ethers.provider.getBalance(await v1.getAddress())).to.equal(LOCK_DOT);
+    const voteBefore = await v1.getVote(1, voter.address);
+    expect(voteBefore.lockAmount).to.equal(LOCK_DOT);
+    expect(voteBefore.direction).to.equal(1n);
+    const nextPid = await v1.nextProposalId();
+
+    // ── freeze + deploy successor + migrate + sweep locked DOT ──
+    await v1.connect(gov).freeze();
+    const v2 = await (await ethers.getContractFactory("MockRelayGovernanceNext")).deploy(0, 0, 0, 0, 0, 0);
+    await v2.setRouter(await router.getAddress());
+    expect(await v2.version()).to.be.greaterThan(await v1.version());
+    await v2.connect(gov).migrate(await v1.getAddress());
+    await v1.connect(gov).migrateFundsTo(await v2.getAddress());
+
+    // ── carry-over: config + proposal + vote record + locked DOT ──
+    expect(await v2.quorum()).to.equal(10n);
+    expect(await v2.convictionLockup(8)).to.equal(365n);
+    expect(await v2.nextProposalId()).to.equal(nextPid);
+    expect((await v2.getProposal(1)).relay).to.equal(owner.address);
+    expect(await v2.proposalVoterCount(1)).to.equal(1n);
+    const voteAfter = await v2.getVote(1, voter.address);
+    expect(voteAfter.lockAmount).to.equal(LOCK_DOT);
+    expect(voteAfter.direction).to.equal(1n);
+    expect(voteAfter.lockedUntilBlock).to.equal(voteBefore.lockedUntilBlock);
+    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(LOCK_DOT);
+    expect(await ethers.provider.getBalance(await v1.getAddress())).to.equal(0n);
+
+    // ── THE anti-stranding proof: voter reclaims locked DOT FROM THE SUCCESSOR ──
+    await mineBlocks(3); // let the conviction lock elapse
+    const balBefore = await ethers.provider.getBalance(voter.address);
+    const tx = await v2.connect(voter).withdrawVote(1);
+    const rcpt = await tx.wait();
+    const gasCost = rcpt!.gasUsed * rcpt!.gasPrice;
+    const balAfter = await ethers.provider.getBalance(voter.address);
+
+    // voter got exactly their 2 DOT back (net of gas), the successor is drained,
+    // and the vote record is cleared — no funds stranded across the upgrade.
+    expect(balAfter).to.equal(balBefore + LOCK_DOT - gasCost);
+    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(0n);
+    expect((await v2.getVote(1, voter.address)).direction).to.equal(0n);
   });
 });
