@@ -432,6 +432,12 @@
   },
   {
     "anonymous": false,
+    "inputs": [],
+    "name": "PlumbingLocked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
     "inputs": [
       {
         "indexed": true,
@@ -1028,6 +1034,13 @@
   },
   {
     "inputs": [],
+    "name": "lockPlumbing",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "logicA",
     "outputs": [
       {
@@ -1216,6 +1229,19 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "plumbingLocked",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
