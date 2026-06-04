@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumPlumbingLockable.sol";
+import "./DatumCampaignsStorage.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
@@ -25,7 +25,7 @@ import "./interfaces/IDatumTagSystem.sol";
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
 ///         in DatumBudgetLedger per (campaignId, actionType).
-contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSender {
+contract DatumCampaigns is DatumCampaignsStorage {
     // ── Custom errors (mainnet-size: replaces require strings) ──
     error E00();
     error E01();
@@ -77,7 +77,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     /// @notice Take rate snapshotted into open campaigns (publisher = address(0))
     ///         where there is no individual publisher rate. Governable within
     ///         the same 30%–80% range as individual publishers via setDefaultTakeRateBps.
-    uint16 public defaultTakeRateBps = 5000;
     /// @dev Bounds match the per-publisher take rate range enforced by DatumPublishers
     ///      so the default can never escape the protocol's stated economics.
     uint16 public constant MIN_DEFAULT_TAKE_RATE_BPS = 3000;
@@ -85,7 +84,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     // Tag caps + ceilings moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Safe rollout: max campaign budget cap (0 = disabled)
-    uint256 public maxCampaignBudget;
 
     // ─────────────────────────────────────────────────────────────────────
     // Governance-tunable parameters (Phase A of the parameter-governance
@@ -107,25 +105,20 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     /// @notice Minimum CPM (rate per 1,000 events) a campaign pot may
     ///         declare at creation. Snapshot-only; existing campaigns
     ///         are unaffected by changes.
-    uint256 public minimumCpmFloor;
 
     /// @notice Block window between campaign creation and auto-expiry
     ///         if governance hasn't activated it. Snapshot into the
     ///         campaign's `pendingExpiryBlock` at create time.
-    uint256 public pendingTimeoutBlocks;
 
     /// @notice Lock-once flag. Once `lockMinimumCpmFloor()` fires under
     ///         Phase-2 OpenGov, `setMinimumCpmFloor` reverts forever.
-    bool public minimumCpmFloorLocked;
 
     /// @notice Lock-once flag for the pending-timeout parameter.
-    bool public pendingTimeoutBlocksLocked;
 
     /// @notice ParameterGovernance address authorised to retune the
     ///         parameters above through its bicameral flow. Lock-once
     ///         on first set via `setParameterGovernance` to prevent a
     ///         compromised owner from rotating PG mid-flight.
-    address public parameterGovernance;
 
     /// @dev Hard-coded bounds. Wider than any realistic operating range;
     ///      they exist to prevent governance-attack abuse (setting the
@@ -146,11 +139,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     // Cross-contract references
     // -------------------------------------------------------------------------
 
-    address public settlementContract;
-    address public governanceContract;
-    address public lifecycleContract;
-    IDatumPublishers public publishers;
-    IDatumBudgetLedger public budgetLedger;
 
     // A5/B8-fix (2026-05-12): two-step accept handoff for governance-critical refs.
     // Pattern mirrors GovernanceRouter.setGovernor (A10). Once `bootstrapped` is
@@ -158,14 +146,9 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     // becomes stage (setX) + finalize (acceptX from the new address's context).
     // This blocks typo'd / fake-target takeovers post-deployment while keeping
     // the deploy script's one-shot wiring path workable.
-    address public pendingSettlementContract;
-    address public pendingGovernanceContract;
-    address public pendingLifecycleContract;
-    address public pendingBudgetLedger;
     /// @notice One-way switch: when true, direct setters revert; only the
     ///         stage+accept handoff path is permitted. Owner flips after the
     ///         initial wiring is verified.
-    bool public bootstrapped;
     event BootstrapLocked();
     event PendingRefStaged(string indexed name, address indexed pending);
 
@@ -173,28 +156,22 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     // State
     // -------------------------------------------------------------------------
 
-    uint256 public nextCampaignId;
 
-    mapping(uint256 => Campaign) private _campaigns;
     // Per-campaign tag arrays (_campaignTags, _campaignPublisherTags) moved
     // to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Action pots — set at creation, immutable per campaign
-    mapping(uint256 => ActionPotConfig[]) private _campaignPots;
 
     // FP-2: optional challenge bonds contract (address(0) = disabled)
-    IDatumChallengeBonds public challengeBonds;
 
     // Optimistic activation: when wired, createCampaign locks an activation
     // bond and the campaign can be activated permissionlessly after timelock
     // unless challenged. address(0) = disabled (legacy governance-vote path).
-    address public activationBonds;
 
     // Tag dictionary, per-publisher tag sets, lane mode + lock, tag curator,
     // tag-registry pointer, and per-campaign tag mode all moved to
     // DatumTagSystem (alpha-4 EIP-170 carve-out). Campaigns retains a single
     // pointer; ClaimValidator + Allowlist read TagSystem directly.
-    IDatumTagSystem public tagSystem;
     event TagSystemSet(address indexed tagSystem);
 
     /// @notice M6-fix: per-advertiser hot-key delegation. Mirrors the publisher
@@ -202,30 +179,24 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     ///         the advertiser may cosign L2 batches from this hot key instead
     ///         of their cold EOA. The cold key always remains able to sign
     ///         directly (strict path) and to rotate this mapping.
-    mapping(address => address) public advertiserRelaySigner;
     event AdvertiserRelaySignerSet(address indexed advertiser, address indexed signer);
 
     /// @notice CB4: optional gate on createCampaign. When set non-zero,
     ///         advertisers must be adequately staked per the bonding curve.
     ///         Lock-once for cypherpunk hardening — a hostile owner can't
     ///         swap to a permissive stake contract that always returns true.
-    IDatumAdvertiserStake public advertiserStake;
     event AdvertiserStakeSet(address indexed stakeContract);
 
     // ---- Allowlist snapshots (merged from DatumCampaignValidator) ----
     // Per-PUBLISHER's advertiser allowlist (set by the publisher on their inventory).
-    mapping(uint256 => bool) public campaignAllowlistEnabled;
-    mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
 
     // Multi-publisher allowlist state + setters moved to DatumCampaignAllowlist
     // (alpha-4 EIP-170 carve-out). Campaigns retains a write callback at
     // create-time via `allowlist.initializeFor(id, publisher, takeRate)` for
     // the single-publisher seed case.
-    IDatumCampaignAllowlist public allowlist;
     event AllowlistSet(address indexed allowlist);
 
     // A3: AssuranceLevel per campaign. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
-    mapping(uint256 => uint8) public campaignAssuranceLevel;
 
     // Path A (ZK): per-campaign DATUM stake minimum a user must prove to claim.
     //              0 = disabled (any user can claim if `requiresZkProof` is set).
@@ -233,12 +204,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     //              Raise locks at Pending (same rules as AssuranceLevel).
     //              Bounded above by `maxAllowedMinStake` (governance-set) to prevent
     //              hostile advertisers from setting absurd values that strand users.
-    mapping(uint256 => uint256) public campaignMinStake;
     event CampaignMinStakeSet(uint256 indexed campaignId, uint256 minStake);
 
     /// @notice Governance-set upper bound on `campaignMinStake`. 0 = no cap
     ///         (any value allowed). Owner-tunable; subject to `lanesLocked`.
-    uint256 public maxAllowedMinStake;
     event MaxAllowedMinStakeSet(uint256 amount);
 
     // Path A (ZK): per-campaign required interest category id. bytes32(0) = any.
@@ -246,20 +215,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     //              this category is in their published interest tree (Merkle
     //              inclusion) without revealing the rest of the set.
     //              Set/replace permitted only while Pending.
-    mapping(uint256 => bytes32) public campaignRequiredCategory;
     event CampaignRequiredCategorySet(uint256 indexed campaignId, bytes32 category);
 
     // #1 (2026-05-12): per-user per-campaign cap. Both fields default 0 = disabled.
     // Advertiser-settable. Raising locks at Pending (matches AssuranceLevel rules
     // — can't tighten mid-flight and freeze user payouts); lowering allowed any time.
-    mapping(uint256 => uint32) public userEventCapPerWindow;
-    mapping(uint256 => uint32) public userCapWindowBlocks;
     event CampaignUserCapSet(uint256 indexed campaignId, uint32 maxEvents, uint32 windowBlocks);
 
     // #2-extension (2026-05-12): per-campaign minimum cumulative settled events
     // the user must have on-record before participating. Soft proof-of-history
     // sybil bar. 0 = disabled. Advertiser-settable; same Pending-only raise rule.
-    mapping(uint256 => uint32) public minUserSettledHistory;
     event CampaignMinHistorySet(uint256 indexed campaignId, uint32 minHistory);
 
     // People Chain identity gate (2026-05-16): per-campaign required minimum
@@ -269,7 +234,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumPlumbingLockable, PaseoSafeSend
     // mid-flight invalidate users who already started participating); lowering
     // permitted any time. The check itself happens in DatumSettlement, which
     // reads campaignMinIdentityLevel(id) + identity.isVerified(user, level).
-    mapping(uint256 => uint8) public campaignMinIdentityLevel;
     event CampaignMinIdentityLevelSet(uint256 indexed campaignId, uint8 level);
 
     // Metadata (IPFS) + bulletin creative storage moved to
