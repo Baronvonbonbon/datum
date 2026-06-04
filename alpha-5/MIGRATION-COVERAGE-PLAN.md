@@ -78,8 +78,10 @@ Also shipped: **StakeRoot ✅, StakeRootV2 ✅, BondedIdentityReporter ✅** (re
 
 Also shipped: **all 6 governances ✅** (RelayGov/Publisher/Advertiser + GovernanceV2/ParameterGovernance/Council — full in-flight vote-state migration: per-proposal voter enumeration + Proposal/Vote copy + payouts + native sweep; conviction locks can't drain so the predecessor is fully retired. Council members reconstructed at deploy).
 
-### Axis-B — `_migrate` still TODO (last group)
-TagRegistry / TagSystem (jurors + disputes + staked funds — same reporter-stake + in-flight-challenge shape as the StakeRoot cluster).
+Also shipped: **TagSystem ✅ + TagRegistry ✅** (tag dictionary + per-publisher/campaign tags; juror stakes + tag registry + DATUM ERC-20 sweep).
+
+### Axis-B — `_migrate` COMPLETE ✅
+Every stateful contract now carries its state across a redeploy-migrate-rewire upgrade. The ONLY residual gap is the documented **DatumCampaigns EIP-170 carve-out** (banner at top): the core campaign struct + 3 gates migrate via the off-chain hook script, but full per-campaign side-state needs the carve-out remerge first.
 
 ### Axis B — `_migrate` NEEDED (stateful)
 - **Security-critical (replay):** NullifierRegistry (nullifiers), ClickRegistry (sessions).
