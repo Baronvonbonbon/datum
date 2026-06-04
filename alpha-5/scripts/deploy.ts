@@ -176,6 +176,9 @@ const REQUIRED_KEYS = [
   // is deferred to mainnet prep; see
   // narrative-analysis/bonded-reporter-identity.md.
   "peopleChainBondedReporter",
+  // EIP-170 carve-out: DELEGATECALL migration logic for DatumCampaigns
+  // (holds the heavy full-state import loop; wired via setMigrationLogic).
+  "campaignsMigrationLogic",
 ] as const;
 
 // BM-5 rate limiter parameters (inline in Settlement)
@@ -294,7 +297,7 @@ const BIR_SLASH_APPROVER_BPS      = 2500n;               // 25% of approver's st
 // For mainnet, set initial members to Gnosis Safe addresses of council members.
 // Council members and threshold can be changed later via council self-governance proposals.
 
-const TOTAL_STEPS = 27; // 22 deploy + 5 wiring/validation sections
+const TOTAL_STEPS = 28; // 22 deploy + 5 wiring/validation sections
 
 // ── Paseo RPC workaround: receipt polling with nonce-based address derivation ──
 
@@ -587,6 +590,15 @@ async function main() {
     ]);
   } catch (err) {
     throw new Error(`FAILED AT STEP ${step}: DatumCampaigns — ${err}`);
+  }
+
+  try {
+    // EIP-170 carve-out: DELEGATECALL target holding the heavy upgrade-import
+    // loop. Wired into Campaigns via setMigrationLogic (lock-once) in STAGE 2.
+    logStep("Deploying DatumCampaignsMigrationLogic");
+    await deployOrReuse("campaignsMigrationLogic", "DatumCampaignsMigrationLogic");
+  } catch (err) {
+    throw new Error(`FAILED AT STEP ${step}: DatumCampaignsMigrationLogic — ${err}`);
   }
 
   try {
@@ -1158,6 +1170,14 @@ async function main() {
     "DatumCampaigns", addresses.campaigns,
     "settlementContract", "setSettlementContract",
     addresses.settlement,
+  );
+  // EIP-170 carve-out: point Campaigns at the DELEGATECALL migration logic
+  // (lock-once; enables full-state migration on a future upgrade).
+  await wireIfNeeded(
+    "Campaigns.migrationLogic",
+    "DatumCampaigns", addresses.campaigns,
+    "migrationLogic", "setMigrationLogic",
+    addresses.campaignsMigrationLogic,
   );
 
   // (LOCK-ONCE: BudgetLedger.setCampaigns / setSettlement / setLifecycle and

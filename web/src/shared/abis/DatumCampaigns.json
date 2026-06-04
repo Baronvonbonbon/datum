@@ -579,6 +579,19 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "logic",
+        "type": "address"
+      }
+    ],
+    "name": "MigrationLogicSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "uint256",
         "name": "finalValue",
@@ -757,6 +770,12 @@
       }
     ],
     "name": "PendingTimeoutBlocksSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [],
+    "name": "PlumbingLocked",
     "type": "event"
   },
   {
@@ -1890,6 +1909,82 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      }
+    ],
+    "name": "getCampaignStruct",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "advertiser",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "publisher",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pendingExpiryBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "terminationBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint16",
+            "name": "snapshotTakeRateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "enum IDatumCampaigns.CampaignStatus",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "relaySigner",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "requiresZkProof",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "rewardToken",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rewardPerImpression",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "viewBid",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IDatumCampaigns.Campaign",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "campaignId",
         "type": "uint256"
       }
@@ -2021,6 +2116,13 @@
   },
   {
     "inputs": [],
+    "name": "lockPlumbing",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "maxAllowedMinStake",
     "outputs": [
       {
@@ -2059,6 +2161,32 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "n",
+        "type": "uint256"
+      }
+    ],
+    "name": "migrateBumpNextId",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "migrateDelegate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "migrated",
     "outputs": [
@@ -2066,6 +2194,19 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "migrationLogic",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -2281,6 +2422,19 @@
   {
     "inputs": [],
     "name": "pendingTimeoutBlocksLocked",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "plumbingLocked",
     "outputs": [
       {
         "internalType": "bool",
@@ -2594,6 +2748,19 @@
       }
     ],
     "name": "setMaxCampaignBudget",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "logic",
+        "type": "address"
+      }
+    ],
+    "name": "setMigrationLogic",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
