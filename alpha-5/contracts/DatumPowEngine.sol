@@ -32,7 +32,20 @@ import "./interfaces/IDatumPowEngine.sol";
 ///         first, so the drain term resolves to zero and only the
 ///         accumulator advances.
 contract DatumPowEngine is IDatumPowEngine, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
+
+    /// @dev Copy the PoW curve config from a frozen predecessor. The per-user
+    ///      leaky-bucket state (userPowBucket*) is ephemeral rate-limit state and
+    ///      is intentionally NOT migrated — it resets to a fresh allowance, which
+    ///      self-heals within one leak window.
+    function _migrate(address oldContract) internal override {
+        DatumPowEngine o = DatumPowEngine(oldContract);
+        enforcePow = o.enforcePow();
+        powBaseShift = o.powBaseShift();
+        powLinearDivisor = o.powLinearDivisor();
+        powQuadDivisor = o.powQuadDivisor();
+        powBucketLeakPerN = o.powBucketLeakPerN();
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -112,7 +125,7 @@ contract DatumPowEngine is IDatumPowEngine, DatumUpgradable {
     ///         Lock-once.
     function setParameterGovernance(address pg) external onlyOwner {
         if (pg == address(0)) revert E00();
-        if (parameterGovernance != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }

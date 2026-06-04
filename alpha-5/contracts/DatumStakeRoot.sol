@@ -21,7 +21,7 @@ import "./DatumUpgradable.sol";
 contract DatumStakeRoot is DatumUpgradable {
 
     /// @notice Upgrade ladder version.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ── Deprecation flag ─────────────────────────────────────────────────
     /// @notice When true, commitStakeRoot emits a deprecation warning event
@@ -42,6 +42,11 @@ contract DatumStakeRoot is DatumUpgradable {
     mapping(uint256 => bytes32) public rootAt;
     /// @notice The most-recently-committed epoch (max of all keys in rootAt).
     uint256 public latestEpoch;
+
+    /// @dev Committed epochs in finalize order — enumerates the sparse rootAt
+    ///      key set (epoch numbers are reporter-chosen, possibly non-sequential)
+    ///      so a successor's `_migrate` can copy each finalized root.
+    uint256[] private _committedEpochs;
 
     /// @notice Reporter set + threshold. Threshold of distinct reporter sigs
     ///         (off-chain by the reporters submitting separate txs and signing
@@ -168,6 +173,7 @@ contract DatumStakeRoot is DatumUpgradable {
         if (p.approvals >= threshold) {
             p.finalized = true;
             rootAt[epoch] = root;
+            _committedEpochs.push(epoch);
             if (epoch > latestEpoch) latestEpoch = epoch;
             emit StakeRootCommitted(epoch, root);
         }
@@ -187,4 +193,30 @@ contract DatumStakeRoot is DatumUpgradable {
     }
 
     function reporterCount() external view returns (uint256) { return reporters.length; }
+
+    // ── Upgrade migration ────────────────────────────────────────────────
+
+    function committedEpochCount() external view returns (uint256) { return _committedEpochs.length; }
+    function committedEpochAt(uint256 i) external view returns (uint256) { return _committedEpochs[i]; }
+
+    /// @dev Copy reporter set + threshold + deprecation flag + every finalized
+    ///      epoch root from a frozen predecessor. In-flight (unfinalized)
+    ///      proposals are transient and NOT migrated — reporters re-propose.
+    function _migrate(address oldContract) internal override {
+        DatumStakeRoot old = DatumStakeRoot(oldContract);
+        deprecated = old.deprecated();
+        threshold = old.threshold();
+        latestEpoch = old.latestEpoch();
+        uint256 rn = old.reporterCount();
+        for (uint256 i = 0; i < rn; i++) {
+            address r = old.reporters(i);
+            if (!isReporter[r]) { isReporter[r] = true; reporters.push(r); }
+        }
+        uint256 en = old.committedEpochCount();
+        for (uint256 i = 0; i < en; i++) {
+            uint256 e = old.committedEpochAt(i);
+            rootAt[e] = old.rootAt(e);
+            _committedEpochs.push(e);
+        }
+    }
 }

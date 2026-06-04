@@ -27,7 +27,7 @@ import "./interfaces/IDatumPauseRegistry.sol";
 ///           - markClaimed: gated to settlement contract.
 ///           - hasUnclaimed: public view.
 contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // -------------------------------------------------------------------------
     // Authorization
@@ -95,7 +95,7 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
     ) external whenNotFrozen {
         require(msg.sender == relay, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
-        require(_sessions[sh] == 0, "E90"); // E90: click session already recorded
+        require(_effectiveStatus(user, campaignId, impressionNonce, sh) == 0, "E90"); // not recorded anywhere
         _sessions[sh] = 1;
         emit ClickRecorded(sh, user, campaignId);
     }
@@ -108,8 +108,8 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
     ) external whenNotFrozen {
         require(msg.sender == settlement, "E25");
         bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
-        require(_sessions[sh] == 1, "E90"); // E90: session not recorded or already claimed
-        _sessions[sh] = 2;
+        require(_effectiveStatus(user, campaignId, impressionNonce, sh) == 1, "E90"); // recorded + unclaimed (here or in a predecessor)
+        _sessions[sh] = 2; // claim locally; claimed status overrides a predecessor's "1"
         emit ClickClaimed(sh);
     }
 
@@ -119,7 +119,20 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
         uint256 campaignId,
         bytes32 impressionNonce
     ) external view returns (bool) {
-        return _sessions[_sessionHash(user, campaignId, impressionNonce)] == 1;
+        bytes32 sh = _sessionHash(user, campaignId, impressionNonce);
+        return _effectiveStatus(user, campaignId, impressionNonce, sh) == 1;
+    }
+
+    /// @notice Chained raw session status by hash: 0=none, 1=recorded, 2=claimed.
+    ///         Walks the predecessor chain (successors call this when chaining on
+    ///         a fix-carrying predecessor). Hash-only, so it can only chain to
+    ///         predecessors that also expose `sessionStatus`.
+    function sessionStatus(bytes32 sh) public view returns (uint8) {
+        uint8 local = _sessions[sh];
+        if (local != 0) return local;
+        address pred = migrationSource;
+        if (pred == address(0)) return 0;
+        try DatumClickRegistry(pred).sessionStatus(sh) returns (uint8 s) { return s; } catch { return 0; }
     }
 
     /// @inheritdoc IDatumClickRegistry
@@ -141,5 +154,41 @@ contract DatumClickRegistry is IDatumClickRegistry, DatumUpgradable {
         bytes32 impressionNonce
     ) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(user, campaignId, impressionNonce));
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (predecessor-chain — sessions are append-only state)
+    // -------------------------------------------------------------------------
+
+    /// @dev Sessions are not copied; a successor consults the frozen predecessor
+    ///      on a local miss. `migrate()` records `migrationSource`; only the
+    ///      scalar refs are re-wired (relay/settlement) on the fresh contract.
+    function _migrate(address) internal override {}
+
+    /// @dev Effective status across the chain, given the decomposed session
+    ///      args. Prefers the predecessor's chained `sessionStatus(sh)` (a
+    ///      fix-carrying predecessor); for a PRE-FIX deployed predecessor that
+    ///      only exposes `hasUnclaimed(user,campaignId,nonce)`, falls back to it.
+    ///      CAVEAT: a CLAIMED (status 2) session in such a pre-fix predecessor is
+    ///      invisible to this fallback (hasUnclaimed only reports status==1), so
+    ///      it could be re-recorded post-upgrade. Settlement-level replay guards
+    ///      (nullifiers / per-claim checks) bound the impact; every upgrade after
+    ///      the first chains on raw status and is fully precise.
+    function _effectiveStatus(
+        address user,
+        uint256 campaignId,
+        bytes32 impressionNonce,
+        bytes32 sh
+    ) internal view returns (uint8) {
+        uint8 local = _sessions[sh];
+        if (local != 0) return local;
+        address pred = migrationSource;
+        if (pred == address(0)) return 0;
+        try DatumClickRegistry(pred).sessionStatus(sh) returns (uint8 s) {
+            return s;
+        } catch {
+            if (IDatumClickRegistry(pred).hasUnclaimed(user, campaignId, impressionNonce)) return 1;
+            return 0;
+        }
     }
 }

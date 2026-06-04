@@ -173,6 +173,16 @@ abstract contract DatumSettlementStorage is
     // testing; production fires lockLogic via the upgrade ladder.
     bool internal _logicLocked;
 
+    // Cypherpunk posture (roadmap 2026-05-18): structural references stay
+    // GOVERNANCE-re-pointable through the Admin/Council phases ("upgradable
+    // today") and freeze only when OpenGov fires `lockPlumbing()` ("locked
+    // tomorrow"). This `_plumbingLocked` umbrella replaces the prior B8-fix
+    // unconditional set-once guards (revert AlreadySet on first write), which
+    // froze the plumbing at DEPLOY time and contradicted that posture — and
+    // forced a full Settlement redeploy to re-point the vault/validator.
+    // Same pattern as DatumClaimValidator.plumbingLocked / DatumPublishers.
+    bool internal _plumbingLocked;
+
     // ─────────────────────────────────────────────────────────────────────
     // Events
     //
@@ -205,6 +215,7 @@ abstract contract DatumSettlementStorage is
     event DualSigSet(address indexed dualSig);
     event LogicSet(address indexed logicA, address indexed logicB);
     event LogicLocked();
+    event PlumbingLocked();
 
     // ─────────────────────────────────────────────────────────────────────
     // Shared types

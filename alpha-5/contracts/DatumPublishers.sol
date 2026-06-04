@@ -14,7 +14,7 @@ import "./interfaces/IDatumBlocklistCurator.sol";
 ///         S12: Global address blocklist + per-publisher advertiser allowlist.
 ///         Future: blocklist management may be opened to governance control before mainnet.
 contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     uint16 public constant MIN_TAKE_RATE_BPS = 3000;
     uint16 public constant MAX_TAKE_RATE_BPS = 8000;
@@ -46,6 +46,18 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     // S12: Per-publisher advertiser allowlist
     mapping(address => bool) public allowlistEnabled;
     mapping(address => mapping(address => bool)) private _allowedAdvertisers;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Registrations + per-publisher allowed-advertiser sets aren't iterable, so
+    // track them for a successor's `_migrate`. _advertiserList may contain
+    // entries later set false; the migrate copy carries the current bool.
+    address[] private _registered;
+    mapping(address => address[]) private _advertiserList;
+    mapping(address => mapping(address => bool)) private _advTracked;
+
+    function _trackAdv(address pub, address adv) internal {
+        if (!_advTracked[pub][adv]) { _advTracked[pub][adv] = true; _advertiserList[pub].push(adv); }
+    }
 
     // BM-7: Publisher SDK version hash (integrity verification)
     mapping(address => bytes32) public sdkVersionHash;
@@ -223,6 +235,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
             takeRateEffectiveBlock: 0,
             registered: true
         });
+        _registered.push(msg.sender);
 
         emit PublisherRegistered(msg.sender, takeRateBps);
     }
@@ -341,6 +354,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
         require(_publishers[msg.sender].registered, "Not registered");
         require(advertiser != address(0), "E00");
         _allowedAdvertisers[msg.sender][advertiser] = allowed;
+        if (allowed) _trackAdv(msg.sender, advertiser);
         emit AdvertiserAllowlistUpdated(msg.sender, advertiser, allowed);
     }
 
@@ -366,6 +380,7 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
             address adv = advertisers[i];
             require(adv != address(0), "E00");
             _allowedAdvertisers[msg.sender][adv] = allowed[i];
+            if (allowed[i]) _trackAdv(msg.sender, adv);
             emit AdvertiserAllowlistUpdated(msg.sender, adv, allowed[i]);
         }
     }
@@ -459,5 +474,48 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
         require(mode <= 2, "E11");
         publisherTagMode[msg.sender] = mode;
         emit PublisherTagModeSet(msg.sender, mode);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+
+    function registeredCount() external view returns (uint256) { return _registered.length; }
+    function registeredAt(uint256 i) external view returns (address) { return _registered[i]; }
+    function allowedAdvertiserCount(address pub) external view returns (uint256) { return _advertiserList[pub].length; }
+    function allowedAdvertiserAt(address pub, uint256 i) external view returns (address) { return _advertiserList[pub][i]; }
+
+    /// @dev Copy registry config + every registered publisher's record
+    ///      (struct + relaySigner/profileHash/assurance/tagMode/sdkHash/approved/
+    ///      allowlistEnabled + their allowed-advertiser set) from a frozen
+    ///      predecessor. Structural refs (pauseRegistry / blocklistCurator /
+    ///      publisherStake) are re-wired on the fresh contract, not copied.
+    ///      Paginate (override migrate()) if the registry ever outgrows one tx.
+    function _migrate(address oldContract) internal override {
+        DatumPublishers old = DatumPublishers(oldContract);
+        takeRateUpdateDelayBlocks = old.takeRateUpdateDelayBlocks();
+        whitelistMode = old.whitelistMode();
+        stakeGate = old.stakeGate();
+        uint256 n = old.registeredCount();
+        for (uint256 i = 0; i < n; i++) {
+            address p = old.registeredAt(i);
+            _publishers[p] = old.getPublisher(p);
+            allowlistEnabled[p] = old.allowlistEnabled(p);
+            sdkVersionHash[p] = old.sdkVersionHash(p);
+            relaySigner[p] = old.relaySigner(p);
+            profileHash[p] = old.profileHash(p);
+            publisherMaxAssurance[p] = old.publisherMaxAssurance(p);
+            publisherTagMode[p] = old.publisherTagMode(p);
+            relaySignerRotatedBlock[p] = old.relaySignerRotatedBlock(p);
+            approved[p] = old.approved(p);
+            _registered.push(p);
+            uint256 m = old.allowedAdvertiserCount(p);
+            for (uint256 j = 0; j < m; j++) {
+                address adv = old.allowedAdvertiserAt(p, j);
+                bool al = old.isAllowedAdvertiser(p, adv);
+                _allowedAdvertisers[p][adv] = al;
+                if (al) _trackAdv(p, adv);
+            }
+        }
     }
 }

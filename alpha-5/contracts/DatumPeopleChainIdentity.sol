@@ -61,7 +61,7 @@ import "./interfaces/IDatumPeopleChainIdentity.sol";
 contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable {
 
     /// @notice Upgrade ladder version.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // -------------------------------------------------------------------------
     // Storage
@@ -69,6 +69,13 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
 
     /// @dev Per-user cached record.
     mapping(address => IdentityRecord) private _records;
+
+    // ── Enumeration for upgrade migration ──
+    // Track every user that ever received a record so a successor's `_migrate`
+    // can copy them. `forgetMe` clears a record but leaves the address tracked;
+    // the migrate copy carries the (then-empty) record, which is harmless.
+    address[] private _userList;
+    mapping(address => bool) private _userTracked;
 
     /// @notice Off-chain EOA bridge writer. Address(0) disables this path.
     /// @dev    Set by owner; one-way disabled via `lockOracleReporter`.
@@ -233,6 +240,7 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
             expiryBlock: expiry,
             lastUpdatedBlock: uint64(block.number)
         });
+        if (!_userTracked[user]) { _userTracked[user] = true; _userList.push(user); }
         emit IdentityAttested(user, level, expiry, msg.sender);
     }
 
@@ -283,5 +291,26 @@ contract DatumPeopleChainIdentity is IDatumPeopleChainIdentity, DatumUpgradable 
     /// @inheritdoc IDatumPeopleChainIdentity
     function expiryBlock(address user) external view override returns (uint64) {
         return _records[user].expiryBlock;
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration
+    // -------------------------------------------------------------------------
+
+    function identityUserCount() external view returns (uint256) { return _userList.length; }
+    function identityUserAt(uint256 i) external view returns (address) { return _userList[i]; }
+
+    /// @dev Copy the default-validity config + every cached identity record from
+    ///      a frozen predecessor. Writer refs (oracleReporter / xcmDispatcher)
+    ///      are re-wired on the fresh contract, not copied.
+    function _migrate(address oldContract) internal override {
+        DatumPeopleChainIdentity old = DatumPeopleChainIdentity(oldContract);
+        defaultValidityBlocks = old.defaultValidityBlocks();
+        uint256 n = old.identityUserCount();
+        for (uint256 i = 0; i < n; i++) {
+            address u = old.identityUserAt(i);
+            _records[u] = old.getIdentity(u);
+            if (!_userTracked[u]) { _userTracked[u] = true; _userList.push(u); }
+        }
     }
 }

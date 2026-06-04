@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumCampaignsMinimal.sol";
-import "./DatumUpgradable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 
 interface IDatumCampaignsForMute {
@@ -25,12 +25,12 @@ interface IDatumCampaignsForMute {
 ///         Cypherpunk lock-once: Campaigns and Lifecycle addresses are
 ///         set exactly once and frozen. Treasury and governable parameters
 ///         are owner-mutable (owner is Timelock/Router in the ladder).
-contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUpgradable {
+contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumFundMigratable {
     /// v2: parameter-governance Phase B — routes the five parameter setters
     /// (setMinBond, setTimelockBlocks, setPunishmentBps, setMuteMinBond,
     /// setMuteMaxBlocks) through `onlyOwnerOrPG`. Wiring setters
     /// (setCampaignsContract, setTreasury) stay owner-only / lock-once.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice ParameterGovernance address authorised to retune Phase B
     ///         parameters via its bicameral veto-window flow. Lock-once.
@@ -44,9 +44,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
 
     /// @notice Lock-once: PG cannot be rotated post-bootstrap.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -113,6 +112,27 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     uint256 private _muteMinBond;     // floor; default 10× minBond
     uint64  private _muteMaxBlocks;   // auto-resolve timeout
 
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Bond/mute state is per-campaign; refunds + bonuses queue into _pending
+    // per-address (recipients include creator/challenger/treasury/advertiser/
+    // muter). Track both sets so a successor's `_migrate` can copy them. Native
+    // DOT moves via `migrateFundsTo`.
+    uint256[] private _bondCampaigns;
+    mapping(uint256 => bool) private _bondCampaignTracked;
+    address[] private _pendingHolders;
+    mapping(address => bool) private _pendingTracked;
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
+
+    function _trackBondCampaign(uint256 id) internal {
+        if (!_bondCampaignTracked[id]) { _bondCampaignTracked[id] = true; _bondCampaigns.push(id); }
+    }
+    /// @dev All _pending credits route through here so the holder set stays
+    ///      enumerable for migration.
+    function _queuePending(address a, uint256 amt) internal {
+        _pending[a] += amt;
+        if (a != address(0) && !_pendingTracked[a]) { _pendingTracked[a] = true; _pendingHolders.push(a); }
+    }
+
     // ── Events for parameter changes ──────────────────────────────────────────
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
     event MinBondSet(uint256 value);
@@ -154,9 +174,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
 
     /// @dev Cypherpunk lock-once. The campaigns reference is the only authority
     ///      to mint bonds — hot-swapping it could redirect creator-bond flow.
-    function setCampaignsContract(address addr) external onlyOwner {
+    function setCampaignsContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(campaignsContract == address(0), "already set");
         emit ContractReferenceChanged("campaigns", campaignsContract, addr);
         campaignsContract = addr;
     }
@@ -221,6 +240,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         // not the live values, so governance can't move them mid-flight.
         s.winnerBonusBpsSnapshot = _winnerBonusBps;
         s.treasuryBpsSnapshot = _treasuryBps;
+        _trackBondCampaign(campaignId);
 
         emit BondOpened(campaignId, creator, msg.value, s.timelockExpiry);
     }
@@ -257,7 +277,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         s.phase = Phase.Resolved;
         s.creatorBond = 0;
 
-        _pending[creator] += refund;
+        _queuePending(creator, refund);
         IDatumCampaignsMinimal(campaignsContract).activateCampaign(campaignId);
 
         emit Activated(campaignId, msg.sender);
@@ -352,6 +372,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         m.bond = uint128(msg.value);
         m.openedAt = uint64(block.number);
 
+        _trackBondCampaign(campaignId);
         emit Muted(campaignId, msg.sender, msg.value);
     }
 
@@ -373,7 +394,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
             // through the GovernanceV2 slash pool, not this contract.
             upheld = true;
             payoutAmount = bond;
-            _pending[muter] += bond;
+            _queuePending(muter, bond);
         } else if (status == 1) {
             // Still Active — mute rejected only if the timeout has elapsed.
             // Otherwise we're still mid-vote; caller must wait.
@@ -386,7 +407,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
             // a terminal state outside the demote-vote process). Refund.
             upheld = false;
             payoutAmount = bond;
-            _pending[muter] += bond;
+            _queuePending(muter, bond);
         } else {
             // Pending(0) or Paused(2): demote-vote may have moved the
             // campaign out of Active mid-flight; not yet resolvable.
@@ -428,7 +449,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
             recipient = muter;
             emit MuteBondReroutedToMuter(campaignId, muter, bond);
         }
-        _pending[recipient] += bond;
+        _queuePending(recipient, bond);
         // Silence unused-var warning for storage struct (touched by caller).
         m;
     }
@@ -453,9 +474,9 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         s.creatorBond = 0;
         s.challengerBond = 0;
 
-        _pending[s.creator] += creatorAmt + bonus;
-        if (challengerRefund > 0) _pending[s.challenger] += challengerRefund;
-        if (toTreasury > 0) _pending[treasury] += toTreasury;
+        _queuePending(s.creator, creatorAmt + bonus);
+        if (challengerRefund > 0) _queuePending(s.challenger, challengerRefund);
+        if (toTreasury > 0) _queuePending(treasury, toTreasury);
 
         emit Resolved(campaignId, true, creatorAmt, bonus, toTreasury);
     }
@@ -472,9 +493,9 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         s.creatorBond = 0;
         s.challengerBond = 0;
 
-        _pending[s.challenger] += challengerAmt + bonus;
-        if (creatorRefund > 0) _pending[s.creator] += creatorRefund;
-        if (toTreasury > 0) _pending[treasury] += toTreasury;
+        _queuePending(s.challenger, challengerAmt + bonus);
+        if (creatorRefund > 0) _queuePending(s.creator, creatorRefund);
+        if (toTreasury > 0) _queuePending(treasury, toTreasury);
 
         emit Resolved(campaignId, false, challengerAmt, bonus, toTreasury);
     }
@@ -485,8 +506,8 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
         s.phase = Phase.Resolved;
         s.creatorBond = 0;
         s.challengerBond = 0;
-        if (cBond > 0) _pending[s.creator] += cBond;
-        if (chBond > 0) _pending[s.challenger] += chBond;
+        if (cBond > 0) _queuePending(s.creator, cBond);
+        if (chBond > 0) _queuePending(s.challenger, chBond);
         emit Resolved(campaignId, false, 0, 0, 0);
     }
 
@@ -548,4 +569,49 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumUp
     }
     function muteMinBond() external view returns (uint256) { return _muteMinBond; }
     function muteMaxBlocks() external view returns (uint64) { return _muteMaxBlocks; }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    function bondCampaignCount() external view returns (uint256) { return _bondCampaigns.length; }
+    function bondCampaignAt(uint256 i) external view returns (uint256) { return _bondCampaigns[i]; }
+    function pendingHolderCount() external view returns (uint256) { return _pendingHolders.length; }
+    function pendingHolderAt(uint256 i) external view returns (address) { return _pendingHolders[i]; }
+
+    /// @notice Full per-campaign state reads for migration (the field getters
+    ///         above omit the bps snapshots).
+    function getStateRaw(uint256 campaignId) external view returns (State memory) { return _state[campaignId]; }
+    function getMuteRaw(uint256 campaignId) external view returns (MuteState memory) { return _mute[campaignId]; }
+
+    /// @dev Copy params + per-campaign bond/mute state + per-address pending
+    ///      balances from a frozen predecessor. Structural ref (campaignsContract)
+    ///      + parameterGovernance are re-wired on the fresh contract. Native DOT
+    ///      moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumActivationBonds old = DatumActivationBonds(payable(oldContract));
+        _minBond = old.minBond();
+        _timelockBlocks = old.timelockBlocks();
+        _winnerBonusBps = old.winnerBonusBps();
+        _treasuryBps = old.treasuryBps();
+        _muteMinBond = old.muteMinBond();
+        _muteMaxBlocks = old.muteMaxBlocks();
+        treasury = old.treasury();
+        uint256 nc = old.bondCampaignCount();
+        for (uint256 i = 0; i < nc; i++) {
+            uint256 cid = old.bondCampaignAt(i);
+            _state[cid] = old.getStateRaw(cid);
+            _mute[cid] = old.getMuteRaw(cid);
+            _trackBondCampaign(cid);
+        }
+        uint256 nh = old.pendingHolderCount();
+        for (uint256 i = 0; i < nh; i++) {
+            address a = old.pendingHolderAt(i);
+            uint256 amt = old.pending(a);
+            _pending[a] = amt;
+            if (a != address(0) && !_pendingTracked[a]) { _pendingTracked[a] = true; _pendingHolders.push(a); }
+        }
+    }
+
+    /// @notice Sweep native balance to a successor during an upgrade so it can
+    ///         honour migrated bonds + pending payouts. Governance-gated,
+    ///         frozen-only, one-shot.
 }

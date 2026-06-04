@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "./interfaces/IDatumAdvertiserGovernance.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumPauseRegistry.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./PaseoSafeSender.sol";
 import "./lib/ParameterRetuneGuard.sol";
 
@@ -31,7 +31,7 @@ import "./lib/ParameterRetuneGuard.sol";
 contract DatumAdvertiserGovernance is
     IDatumAdvertiserGovernance,
     PaseoSafeSender,
-    DatumUpgradable,
+    DatumPlumbingLockable,
     ParameterRetuneGuard
 {
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown.
@@ -42,7 +42,7 @@ contract DatumAdvertiserGovernance is
     /// (setParams, setConvictionCurve, setConvictionLockups,
     /// setPublisherClaimBond) through `onlyOwnerOrPG`. Wiring setters
     /// (setAdvertiserStake, setCouncilArbiter) remain owner-only.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice ParameterGovernance address authorised to retune Phase B
     ///         parameters via its bicameral veto-window flow. Lock-once.
@@ -55,9 +55,8 @@ contract DatumAdvertiserGovernance is
         _;
     }
 
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -107,6 +106,17 @@ contract DatumAdvertiserGovernance is
     /// @notice Pull-payment queue (G-M3 pattern).
     mapping(address => uint256) public pendingGovPayout;
     uint256 public treasuryBalance;
+
+    // ── Enumeration for upgrade migration (holds locked conviction DOT) ──
+    address[] private _govPayoutHolders;
+    mapping(address => bool) private _govPayoutTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _queueGovPayout(address a, uint256 amt) internal {
+        pendingGovPayout[a] += amt;
+        if (a != address(0) && !_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+    }
 
     event GovPayoutQueued(address indexed recipient, uint256 amount, string reason);
     event GovPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
@@ -181,6 +191,9 @@ contract DatumAdvertiserGovernance is
         bool    withdrawn;
     }
     mapping(uint256 => mapping(address => VoteRecord)) public votes;
+    /// @dev Per-proposal voter enumeration for in-flight conviction-vote migration.
+    mapping(uint256 => address[]) private _proposalVoters;
+    mapping(uint256 => mapping(address => bool)) private _voterTracked;
 
     constructor(
         uint256 _quorum,
@@ -215,9 +228,8 @@ contract DatumAdvertiserGovernance is
 
     /// @dev Lock-once: AdvertiserStake.slash() must come from this contract;
     ///      a hot-swap allows unilateral slashing of any advertiser.
-    function setAdvertiserStake(address addr) external onlyOwner {
+    function setAdvertiserStake(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(address(advertiserStake) == address(0), "already set");
         advertiserStake = IDatumAdvertiserStake(addr);
     }
 
@@ -263,8 +275,7 @@ contract DatumAdvertiserGovernance is
     ///         claims. Cypherpunk lock-once: a hot-swappable arbiter is a
     ///         unilateral slash backdoor. address(0) leaves the Council-
     ///         arbitrated track disabled; once set non-zero it's frozen.
-    function setCouncilArbiter(address arbiter) external onlyOwner {
-        require(councilArbiter == address(0), "already set");
+    function setCouncilArbiter(address arbiter) external onlyOwner whenPlumbingUnlocked {
         require(arbiter != address(0), "E00");
         councilArbiter = arbiter;
         emit CouncilArbiterSet(arbiter);
@@ -351,13 +362,13 @@ contract DatumAdvertiserGovernance is
             }
             // Bond refunded to filer (queue pull).
             if (bond > 0) {
-                pendingGovPayout[c.publisher] += bond;
+                _queueGovPayout(c.publisher, bond);
                 emit GovPayoutQueued(c.publisher, bond, "publisher fraud claim upheld");
             }
         } else {
             // Dismissed: bond → advertiser (compensation for false claim).
             if (bond > 0) {
-                pendingGovPayout[c.advertiser] += bond;
+                _queueGovPayout(c.advertiser, bond);
                 emit GovPayoutQueued(c.advertiser, bond, "publisher fraud claim dismissed");
             }
         }
@@ -396,6 +407,7 @@ contract DatumAdvertiserGovernance is
         require(p.startBlock != 0 && !p.resolved, "E50");
         require(msg.value > 0, "E11");
         require(votes[id][msg.sender].stake == 0, "E42"); // single vote per user per proposal
+        if (!_voterTracked[id][msg.sender]) { _voterTracked[id][msg.sender] = true; _proposalVoters[id].push(msg.sender); }
 
         uint256 w = msg.value * _weight(id, conviction);
         uint256 lockup = block.number + _lockup(conviction);
@@ -433,7 +445,7 @@ contract DatumAdvertiserGovernance is
         bool quorumReached = (p.ayeWeighted + p.nayWeighted) >= quorum;
         if (p.bondLocked > 0) {
             if (quorumReached) {
-                pendingGovPayout[p.proposer] += p.bondLocked;
+                _queueGovPayout(p.proposer, p.bondLocked);
                 emit GovPayoutQueued(p.proposer, p.bondLocked, "propose-bond-refund");
             } else {
                 treasuryBalance += p.bondLocked;
@@ -481,7 +493,7 @@ contract DatumAdvertiserGovernance is
         uint256 amount = treasuryBalance;
         require(amount > 0, "E03");
         treasuryBalance = 0;
-        pendingGovPayout[owner()] += amount;
+        _queueGovPayout(owner(), amount);
         emit TreasurySwept(owner(), amount);
     }
 
@@ -493,5 +505,66 @@ contract DatumAdvertiserGovernance is
         // tracked treasuryBalance, not the contract's actual balance).
         require(msg.sender == address(advertiserStake), "E03");
         treasuryBalance += msg.value;
+    }
+
+    // ── Upgrade migration (config + settled payout queue; native sweep) ──
+
+    function govPayoutHolderCount() external view returns (uint256) { return _govPayoutHolders.length; }
+    function govPayoutHolderAt(uint256 i) external view returns (address) { return _govPayoutHolders[i]; }
+    function getProposal(uint256 id) external view returns (Proposal memory) { return proposals[id]; }
+    function getVoteRecord(uint256 id, address voter) external view returns (VoteRecord memory) { return votes[id][voter]; }
+    function proposalVoterCount(uint256 id) external view returns (uint256) { return _proposalVoters[id].length; }
+    function proposalVoterAt(uint256 id, uint256 i) external view returns (address) { return _proposalVoters[id][i]; }
+
+    /// @dev Copy governance params + treasury accounting + Council-claim config +
+    ///      settled pending payouts from a frozen predecessor. In-flight
+    ///      proposals/votes/claims are drained pre-migration. Refs
+    ///      (advertiserStake / pauseRegistry / parameterGovernance) are re-wired.
+    function _migrate(address oldContract) internal override {
+        DatumAdvertiserGovernance old = DatumAdvertiserGovernance(payable(oldContract));
+        quorum = old.quorum();
+        slashBps = old.slashBps();
+        minGraceBlocks = old.minGraceBlocks();
+        proposeBond = old.proposeBond();
+        convictionA = old.convictionA();
+        convictionB = old.convictionB();
+        for (uint256 i = 0; i < 9; i++) convictionLockup[i] = old.convictionLockup(i);
+        treasuryBalance = old.treasuryBalance();
+        councilArbiter = old.councilArbiter();
+        publisherClaimBond = old.publisherClaimBond();
+        nextPublisherClaimId = old.nextPublisherClaimId();
+        // In-flight proposals + their time-locked conviction votes (ids 1..nextProposalId).
+        nextProposalId = old.nextProposalId();
+        for (uint256 id = 1; id <= nextProposalId; id++) {
+            proposals[id] = old.getProposal(id);
+            proposalConvictionA[id] = old.proposalConvictionA(id);
+            proposalConvictionB[id] = old.proposalConvictionB(id);
+            uint256 vn = old.proposalVoterCount(id);
+            for (uint256 j = 0; j < vn; j++) {
+                address voter = old.proposalVoterAt(id, j);
+                votes[id][voter] = old.getVoteRecord(id, voter);
+                if (!_voterTracked[id][voter]) { _voterTracked[id][voter] = true; _proposalVoters[id].push(voter); }
+            }
+        }
+        uint256 pn = old.govPayoutHolderCount();
+        for (uint256 i = 0; i < pn; i++) {
+            address a = old.govPayoutHolderAt(i);
+            pendingGovPayout[a] = old.pendingGovPayout(a);
+            if (!_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+        }
+    }
+
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumAdvertiserGovernance(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

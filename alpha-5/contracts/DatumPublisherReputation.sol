@@ -24,7 +24,7 @@ import "./interfaces/IDatumPublisherReputation.sol";
 ///         BM-9 anomaly: per-campaign rejection rate > 2× global rejection
 ///         rate with a minimum sample of 10 claims.
 contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -53,10 +53,12 @@ contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable 
     // Counters
     // ─────────────────────────────────────────────────────────────────────
 
-    mapping(address => uint256) public repTotalSettled;
-    mapping(address => uint256) public repTotalRejected;
-    mapping(address => mapping(uint256 => uint256)) public repCampaignSettled;
-    mapping(address => mapping(uint256 => uint256)) public repCampaignRejected;
+    // Private storage; the public getters below chain to a frozen predecessor
+    // (cumulative counters survive an upgrade without copying — see _migrate).
+    mapping(address => uint256) private _repTotalSettled;
+    mapping(address => uint256) private _repTotalRejected;
+    mapping(address => mapping(uint256 => uint256)) private _repCampaignSettled;
+    mapping(address => mapping(uint256 => uint256)) private _repCampaignRejected;
 
     // ─────────────────────────────────────────────────────────────────────
     // Events
@@ -116,10 +118,10 @@ contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable 
         if (msg.sender != settlement) revert OnlySettlement();
         if (publisher == address(0)) return;
         if (settled == 0 && rejected == 0) return;
-        repTotalSettled[publisher] += settled;
-        repTotalRejected[publisher] += rejected;
-        repCampaignSettled[publisher][campaignId] += settled;
-        repCampaignRejected[publisher][campaignId] += rejected;
+        _repTotalSettled[publisher] += settled;
+        _repTotalRejected[publisher] += rejected;
+        _repCampaignSettled[publisher][campaignId] += settled;
+        _repCampaignRejected[publisher][campaignId] += rejected;
         emit SettlementRecorded(publisher, campaignId, settled, rejected);
     }
 
@@ -143,13 +145,13 @@ contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable 
     /// @notice BM-9: true if per-campaign rejection rate exceeds 2× global
     ///         rate with a minimum sample of 10 claims.
     function isAnomaly(address publisher, uint256 campaignId) external view returns (bool) {
-        uint256 cs = repCampaignSettled[publisher][campaignId];
-        uint256 cr = repCampaignRejected[publisher][campaignId];
+        uint256 cs = _campSettledOf(publisher, campaignId);
+        uint256 cr = _campRejectedOf(publisher, campaignId);
         uint256 cTotal = cs + cr;
         if (cTotal < REP_MIN_SAMPLE) return false;
 
-        uint256 gs = repTotalSettled[publisher];
-        uint256 gr = repTotalRejected[publisher];
+        uint256 gs = _settledOf(publisher);
+        uint256 gr = _rejectedOf(publisher);
 
         if (gr == 0) return cr > 0;
         return cr * (gs + gr) > REP_ANOMALY_FACTOR * gr * cTotal;
@@ -160,8 +162,8 @@ contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable 
         view
         returns (uint256 settled, uint256 rejected, uint16 score)
     {
-        settled = repTotalSettled[publisher];
-        rejected = repTotalRejected[publisher];
+        settled = _settledOf(publisher);
+        rejected = _rejectedOf(publisher);
         uint256 total = settled + rejected;
         score = total == 0 ? 10000 : uint16((settled * 10000) / total);
     }
@@ -171,15 +173,52 @@ contract DatumPublisherReputation is IDatumPublisherReputation, DatumUpgradable 
         view
         returns (uint256 settled, uint256 rejected)
     {
-        settled = repCampaignSettled[publisher][campaignId];
-        rejected = repCampaignRejected[publisher][campaignId];
+        settled = _campSettledOf(publisher, campaignId);
+        rejected = _campRejectedOf(publisher, campaignId);
     }
 
     function _score(address publisher) internal view returns (uint16) {
-        uint256 s = repTotalSettled[publisher];
-        uint256 r = repTotalRejected[publisher];
+        uint256 s = _settledOf(publisher);
+        uint256 r = _rejectedOf(publisher);
         uint256 total = s + r;
         if (total == 0) return 10000;
         return uint16((s * 10000) / total);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Public counter getters (chain to a frozen predecessor) + migration
+    // ─────────────────────────────────────────────────────────────────────
+
+    function repTotalSettled(address p) external view returns (uint256) { return _settledOf(p); }
+    function repTotalRejected(address p) external view returns (uint256) { return _rejectedOf(p); }
+    function repCampaignSettled(address p, uint256 c) external view returns (uint256) { return _campSettledOf(p, c); }
+    function repCampaignRejected(address p, uint256 c) external view returns (uint256) { return _campRejectedOf(p, c); }
+
+    function _settledOf(address p) internal view returns (uint256 v) {
+        v = _repTotalSettled[p];
+        address pred = migrationSource;
+        if (pred != address(0)) v += DatumPublisherReputation(pred).repTotalSettled(p);
+    }
+    function _rejectedOf(address p) internal view returns (uint256 v) {
+        v = _repTotalRejected[p];
+        address pred = migrationSource;
+        if (pred != address(0)) v += DatumPublisherReputation(pred).repTotalRejected(p);
+    }
+    function _campSettledOf(address p, uint256 c) internal view returns (uint256 v) {
+        v = _repCampaignSettled[p][c];
+        address pred = migrationSource;
+        if (pred != address(0)) v += DatumPublisherReputation(pred).repCampaignSettled(p, c);
+    }
+    function _campRejectedOf(address p, uint256 c) internal view returns (uint256 v) {
+        v = _repCampaignRejected[p][c];
+        address pred = migrationSource;
+        if (pred != address(0)) v += DatumPublisherReputation(pred).repCampaignRejected(p, c);
+    }
+
+    /// @dev Cumulative counters are append-only, so the successor adds the frozen
+    ///      predecessor's totals on read (via migrationSource) rather than copying
+    ///      them. Only the scalar config is copied here.
+    function _migrate(address oldContract) internal override {
+        minReputationScore = DatumPublisherReputation(oldContract).minReputationScore();
     }
 }

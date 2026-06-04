@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumAdvertiserStake.sol";
-import "./DatumUpgradable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 
 /// @title DatumAdvertiserStake
@@ -26,12 +26,12 @@ import "./PaseoSafeSender.sol";
 ///         resolves aye. The slash mechanism consumes from pendingUnstake first
 ///         so a fraud-anticipating advertiser can't shield funds via
 ///         requestUnstake (same R-H1 pattern as DatumPublisherStake).
-contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUpgradable {
+contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFundMigratable {
     /// v2: parameter-governance Phase B — adds parameterGovernance field
     /// and routes the three parameter setters (setParams, setMaxRequiredStake,
     /// setMaxSlashBpsPerCall) through onlyOwnerOrPG so PG's bicameral
     /// retune flow can adjust them in addition to the owner/Timelock path.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice Settlement contract — authorised to record cumulative budget spent.
     address public settlementContract;
@@ -76,6 +76,15 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     mapping(address => uint256) private _cumulativeBudgetSpentDOT; // measured in DOT units (planck / 10^10)
     mapping(address => UnstakeRequest) private _pendingUnstake;
 
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    address[] private _stakers;
+    mapping(address => bool) private _isStaker;
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
+
+    function _track(address a) internal {
+        if (a != address(0) && !_isStaker[a]) { _isStaker[a] = true; _stakers.push(a); }
+    }
+
     constructor(
         uint256 _baseStakePlanck,
         uint256 _planckPerDOTSpent,
@@ -92,25 +101,22 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     /// @dev Lock-once: only the settlement contract may advance the cumulative
     ///      budget-spent counter. Hot-swap = forge spend to drive required-stake
     ///      up on rivals.
-    function setSettlementContract(address addr) external onlyOwner {
+    function setSettlementContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlementContract == address(0), "already set");
         settlementContract = addr;
     }
 
     /// @dev Lock-once: only the slash contract may burn stake.
-    function setSlashContract(address addr) external onlyOwner {
+    function setSlashContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(slashContract == address(0), "already set");
         slashContract = addr;
     }
 
     /// @notice Lock-once: wire DatumParameterGovernance as the dual-permission
     ///         retune authority. A captured owner cannot rotate PG to a
     ///         malicious target post-bootstrap.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -151,6 +157,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     function stake() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         _staked[msg.sender] += msg.value;
+        _track(msg.sender);
         emit Staked(msg.sender, msg.value, _staked[msg.sender]);
     }
 
@@ -192,6 +199,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
         uint256 dotUnits = amountPlanck / 10**10; // 1 DOT = 10^10 planck
         if (dotUnits == 0) return;
         _cumulativeBudgetSpentDOT[advertiser] += dotUnits;
+        _track(advertiser);
         emit BudgetSpentRecorded(advertiser, dotUnits, _cumulativeBudgetSpentDOT[advertiser]);
     }
 
@@ -263,4 +271,32 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumUp
     function isAdequatelyStaked(address advertiser) external view returns (bool) {
         return _staked[advertiser] >= requiredStake(advertiser);
     }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    function stakerCount() external view returns (uint256) { return _stakers.length; }
+    function stakerAt(uint256 i) external view returns (address) { return _stakers[i]; }
+
+    /// @dev Copy bonding-curve params + every staker's stake / cumulative
+    ///      budget-spent / pending-unstake from a frozen predecessor. Structural
+    ///      refs (settlementContract / slashContract / parameterGovernance) are
+    ///      NOT copied — re-wired on the fresh contract. DOT moves via migrateFundsTo.
+    function _migrate(address oldContract) internal override {
+        DatumAdvertiserStake old = DatumAdvertiserStake(payable(oldContract));
+        baseStakePlanck = old.baseStakePlanck();
+        planckPerDOTSpent = old.planckPerDOTSpent();
+        unstakeDelayBlocks = old.unstakeDelayBlocks();
+        maxRequiredStake = old.maxRequiredStake();
+        uint256 n = old.stakerCount();
+        for (uint256 i = 0; i < n; i++) {
+            address adv = old.stakerAt(i);
+            _staked[adv] = old.staked(adv);
+            _cumulativeBudgetSpentDOT[adv] = old.cumulativeBudgetSpent(adv);
+            _pendingUnstake[adv] = old.pendingUnstake(adv);
+            _track(adv);
+        }
+    }
+
+    /// @notice Sweep native balance to a successor during an upgrade so it can
+    ///         honour migrated stakes. Governance-gated, frozen-only, one-shot.
 }

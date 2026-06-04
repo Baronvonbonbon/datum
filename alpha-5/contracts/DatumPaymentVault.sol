@@ -18,7 +18,7 @@ import "./interfaces/IDatumPaymentVault.sol";
 ///         deductAndTransfer(). Settlement then calls creditSettlement() (non-payable)
 ///         to record how the DOT should be split among publisher/user/protocol.
 contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradable, EIP712 {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     /// @dev EIP-712 domain for gasless (signature-authorized) withdrawals.
     constructor() EIP712("DatumPaymentVault", "1") {}
@@ -30,6 +30,14 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
 
     address public settlement;
 
+    /// @notice Cypherpunk posture: the settlement-crediter reference is
+    ///         phase-conditional lock-once. While false, the phased governor
+    ///         (owner) can re-point `settlement` — needed when a coordinated
+    ///         upgrade deploys a fresh Settlement. `lockSettlementRef()`
+    ///         (OpenGov-gated) freezes it permanently for the end-state.
+    bool public settlementRefLocked;
+    event SettlementRefLocked();
+
     // -------------------------------------------------------------------------
     // Pull-payment balances
     // -------------------------------------------------------------------------
@@ -37,6 +45,35 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     mapping(address => uint256) public publisherBalance;
     mapping(address => uint256) public userBalance;
     uint256 public protocolBalance;
+
+    // -------------------------------------------------------------------------
+    // Enumeration for upgrade migration (DatumUpgradable redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+    //
+    // Balances live in non-iterable mappings, so a successor can't enumerate
+    // who holds funds. Track every address that is ever credited (or registers
+    // a recovery) so `_migrate` can copy each entry from a frozen predecessor.
+    // The native DOT itself is moved separately by `migrateFundsTo` — accounting
+    // and funds are migrated by distinct, governance-gated steps.
+    //
+    // NOTE: a contract deployed BEFORE this machinery existed has no holder set
+    // to read, so it cannot be the `_migrate` SOURCE on-chain — that first
+    // transition is handled operationally (coexist + drain, see migrateFundsTo
+    // doc). From THIS version forward every upgrade is clean.
+    address[] private _holders;
+    mapping(address => bool) private _isHolder;
+
+    function _track(address a) internal {
+        if (a != address(0) && !_isHolder[a]) {
+            _isHolder[a] = true;
+            _holders.push(a);
+        }
+    }
+
+    /// @notice Number of distinct balance/recovery holders (migration enumeration).
+    function holderCount() external view returns (uint256) { return _holders.length; }
+    /// @notice Holder at index `i` (migration enumeration).
+    function holderAt(uint256 i) external view returns (address) { return _holders[i]; }
 
     // -------------------------------------------------------------------------
     // Gasless withdrawal (EIP-712 signature-authorized) — staged, see withdrawUserBySig
@@ -100,13 +137,24 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
     // Admin
     // -------------------------------------------------------------------------
 
-    /// @dev Cypherpunk lock-once: settlement is the only address that may credit
-    ///      this vault. Hot-swap = ability to credit arbitrary balances. Frozen
-    ///      after first non-zero write.
+    /// @dev settlement is the only address that may credit this vault — a
+    ///      hot-swap means the ability to credit arbitrary balances. Per the
+    ///      cypherpunk posture this is phase-conditional: re-pointable by the
+    ///      phased governor (for coordinated upgrades that redeploy Settlement)
+    ///      until lockSettlementRef() fires at OpenGov, after which it's frozen.
     function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
+        require(!settlementRefLocked, "locked");
         settlement = addr;
+    }
+
+    /// @notice Cypherpunk end-state lock for the settlement-crediter ref.
+    ///         OpenGov-gated; once fired, setSettlement reverts permanently.
+    function lockSettlementRef() external onlyOwner whenOpenGovPhase {
+        require(settlement != address(0), "set first");
+        require(!settlementRefLocked, "already locked");
+        settlementRefLocked = true;
+        emit SettlementRefLocked();
     }
 
     // ── §2.1 DatumFeeShare integration ────────────────────────────────────
@@ -167,12 +215,14 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
         address publisher, uint256 pubAmount,
         address user, uint256 userAmount,
         uint256 protocolAmount
-    ) external {
+    ) external whenNotFrozen {
         require(msg.sender == settlement, "E25");
 
         publisherBalance[publisher] += pubAmount;
         userBalance[user] += userAmount;
         protocolBalance += protocolAmount;
+        if (pubAmount > 0) _track(publisher);
+        if (userAmount > 0) _track(user);
 
         emit SettlementCredited(publisher, user, pubAmount + userAmount + protocolAmount);
     }
@@ -299,6 +349,7 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
         recoveryAddress[msg.sender] = recovery;
         uint64 effective = uint64(block.number) + recoveryDelayBlocks;
         recoveryEffectiveBlock[msg.sender] = effective;
+        _track(msg.sender);
         emit RecoveryAddressStaged(msg.sender, recovery, effective);
     }
 
@@ -420,6 +471,62 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
             }
         }
         if (total > 0) _send(treasury, total);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (DatumUpgradable redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+
+    /// @notice One-shot: true once this vault's native DOT has been swept to a
+    ///         successor during an upgrade. Guards against a double sweep.
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    /// @notice Copy balance ACCOUNTING from a frozen predecessor vault.
+    /// @dev    Called by DatumUpgradable.migrate (governance-gated; old must be
+    ///         frozen and a lower version). Copies protocolBalance + every
+    ///         enumerated holder's user/publisher balance, withdraw nonce, and
+    ///         recovery state. The native DOT is moved separately by the
+    ///         predecessor's `migrateFundsTo` so the two steps are independently
+    ///         auditable. `settlement` and `feeShareRecipient` are intentionally
+    ///         NOT copied — they are re-wired post-migrate (the "rewire" leg),
+    ///         pointing the fresh vault at the live Settlement/FeeShare.
+    ///
+    ///         Small-set loop; if the holder set ever outgrows a single tx,
+    ///         paginate by overriding migrate() entirely.
+    function _migrate(address oldContract) internal override {
+        DatumPaymentVault old = DatumPaymentVault(payable(oldContract));
+        protocolBalance = old.protocolBalance();
+        recoveryDelayBlocks = old.recoveryDelayBlocks();
+        uint256 n = old.holderCount();
+        for (uint256 i = 0; i < n; i++) {
+            address a = old.holderAt(i);
+            publisherBalance[a] = old.publisherBalance(a);
+            userBalance[a] = old.userBalance(a);
+            withdrawNonce[a] = old.withdrawNonce(a);
+            recoveryAddress[a] = old.recoveryAddress(a);
+            recoveryEffectiveBlock[a] = old.recoveryEffectiveBlock(a);
+            _track(a);
+        }
+    }
+
+    /// @notice Sweep the vault's entire native balance to a successor vault
+    ///         during an upgrade, so the successor (which received the balance
+    ///         accounting via `_migrate`) is solvent.
+    /// @dev    Governance-gated and callable ONLY while frozen: a live vault
+    ///         can never be drained this way, and freezing first blocks all
+    ///         further credits/withdrawals so the swept total is final. One-shot.
+    ///         The successor must accept native DOT (its `receive()` does, while
+    ///         unfrozen). Routed through `_safeSend`, so any sub-10^6 remainder
+    ///         is queued as claimable Paseo dust rather than reverting.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) _send(successor, bal);
     }
 
     // -------------------------------------------------------------------------

@@ -80,10 +80,10 @@ describe("DatumAdvertiserGovernance G-3 first close", function () {
     expect(await gov.councilArbiter()).to.equal(council.address);
   });
 
-  it("PG3-4: setCouncilArbiter is lock-once", async function () {
+  it("PG3-4: setCouncilArbiter is phase-conditional (re-pointable until lockPlumbing@OpenGov)", async function () {
     await gov.connect(owner).setCouncilArbiter(council.address);
-    await expect(gov.connect(owner).setCouncilArbiter(other.address))
-      .to.be.revertedWith("already set");
+    await gov.connect(owner).setCouncilArbiter(other.address); // re-pointable while unlocked
+    expect(await gov.councilArbiter()).to.equal(other.address);
   });
 
   // ── setPublisherClaimBond ────────────────────────────────────────────

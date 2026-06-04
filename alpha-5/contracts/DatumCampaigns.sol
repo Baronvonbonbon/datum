@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumCampaignsStorage.sol";
 import "./PaseoSafeSender.sol";
 import "./interfaces/IDatumCampaigns.sol";
 import "./interfaces/IDatumPublishers.sol";
@@ -14,6 +14,7 @@ import "./interfaces/IDatumActivationBonds.sol";
 import "./interfaces/IDatumAdvertiserStake.sol";
 import "./interfaces/IDatumCampaignAllowlist.sol";
 import "./interfaces/IDatumTagSystem.sol";
+import "./DatumCampaignsMigrationLogic.sol";
 
 /// @title DatumCampaigns (Core)
 /// @notice Campaign state management — creation, activation, pausing, views.
@@ -25,7 +26,7 @@ import "./interfaces/IDatumTagSystem.sol";
 ///         Multi-pricing: campaigns hold one or more action pots (view/click/
 ///         remote-action). Each pot has its own budget, daily cap, and rate, escrowed
 ///         in DatumBudgetLedger per (campaignId, actionType).
-contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
+contract DatumCampaigns is DatumCampaignsStorage {
     // ── Custom errors (mainnet-size: replaces require strings) ──
     error E00();
     error E01();
@@ -65,7 +66,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
 
     /// v2: minimumCpmFloor + pendingTimeoutBlocks demoted from immutable to
     /// storage, gated by onlyOwnerOrPG with bounded setters + lock-once.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -77,7 +78,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     /// @notice Take rate snapshotted into open campaigns (publisher = address(0))
     ///         where there is no individual publisher rate. Governable within
     ///         the same 30%–80% range as individual publishers via setDefaultTakeRateBps.
-    uint16 public defaultTakeRateBps = 5000;
     /// @dev Bounds match the per-publisher take rate range enforced by DatumPublishers
     ///      so the default can never escape the protocol's stated economics.
     uint16 public constant MIN_DEFAULT_TAKE_RATE_BPS = 3000;
@@ -85,7 +85,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // Tag caps + ceilings moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Safe rollout: max campaign budget cap (0 = disabled)
-    uint256 public maxCampaignBudget;
 
     // ─────────────────────────────────────────────────────────────────────
     // Governance-tunable parameters (Phase A of the parameter-governance
@@ -107,25 +106,20 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     /// @notice Minimum CPM (rate per 1,000 events) a campaign pot may
     ///         declare at creation. Snapshot-only; existing campaigns
     ///         are unaffected by changes.
-    uint256 public minimumCpmFloor;
 
     /// @notice Block window between campaign creation and auto-expiry
     ///         if governance hasn't activated it. Snapshot into the
     ///         campaign's `pendingExpiryBlock` at create time.
-    uint256 public pendingTimeoutBlocks;
 
     /// @notice Lock-once flag. Once `lockMinimumCpmFloor()` fires under
     ///         Phase-2 OpenGov, `setMinimumCpmFloor` reverts forever.
-    bool public minimumCpmFloorLocked;
 
     /// @notice Lock-once flag for the pending-timeout parameter.
-    bool public pendingTimeoutBlocksLocked;
 
     /// @notice ParameterGovernance address authorised to retune the
     ///         parameters above through its bicameral flow. Lock-once
     ///         on first set via `setParameterGovernance` to prevent a
     ///         compromised owner from rotating PG mid-flight.
-    address public parameterGovernance;
 
     /// @dev Hard-coded bounds. Wider than any realistic operating range;
     ///      they exist to prevent governance-attack abuse (setting the
@@ -146,11 +140,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // Cross-contract references
     // -------------------------------------------------------------------------
 
-    address public settlementContract;
-    address public governanceContract;
-    address public lifecycleContract;
-    IDatumPublishers public publishers;
-    IDatumBudgetLedger public budgetLedger;
 
     // A5/B8-fix (2026-05-12): two-step accept handoff for governance-critical refs.
     // Pattern mirrors GovernanceRouter.setGovernor (A10). Once `bootstrapped` is
@@ -158,14 +147,9 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // becomes stage (setX) + finalize (acceptX from the new address's context).
     // This blocks typo'd / fake-target takeovers post-deployment while keeping
     // the deploy script's one-shot wiring path workable.
-    address public pendingSettlementContract;
-    address public pendingGovernanceContract;
-    address public pendingLifecycleContract;
-    address public pendingBudgetLedger;
     /// @notice One-way switch: when true, direct setters revert; only the
     ///         stage+accept handoff path is permitted. Owner flips after the
     ///         initial wiring is verified.
-    bool public bootstrapped;
     event BootstrapLocked();
     event PendingRefStaged(string indexed name, address indexed pending);
 
@@ -173,28 +157,22 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // State
     // -------------------------------------------------------------------------
 
-    uint256 public nextCampaignId;
 
-    mapping(uint256 => Campaign) private _campaigns;
     // Per-campaign tag arrays (_campaignTags, _campaignPublisherTags) moved
     // to DatumTagSystem (alpha-4 EIP-170 carve-out).
 
     // Action pots — set at creation, immutable per campaign
-    mapping(uint256 => ActionPotConfig[]) private _campaignPots;
 
     // FP-2: optional challenge bonds contract (address(0) = disabled)
-    IDatumChallengeBonds public challengeBonds;
 
     // Optimistic activation: when wired, createCampaign locks an activation
     // bond and the campaign can be activated permissionlessly after timelock
     // unless challenged. address(0) = disabled (legacy governance-vote path).
-    address public activationBonds;
 
     // Tag dictionary, per-publisher tag sets, lane mode + lock, tag curator,
     // tag-registry pointer, and per-campaign tag mode all moved to
     // DatumTagSystem (alpha-4 EIP-170 carve-out). Campaigns retains a single
     // pointer; ClaimValidator + Allowlist read TagSystem directly.
-    IDatumTagSystem public tagSystem;
     event TagSystemSet(address indexed tagSystem);
 
     /// @notice M6-fix: per-advertiser hot-key delegation. Mirrors the publisher
@@ -202,30 +180,24 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         the advertiser may cosign L2 batches from this hot key instead
     ///         of their cold EOA. The cold key always remains able to sign
     ///         directly (strict path) and to rotate this mapping.
-    mapping(address => address) public advertiserRelaySigner;
     event AdvertiserRelaySignerSet(address indexed advertiser, address indexed signer);
 
     /// @notice CB4: optional gate on createCampaign. When set non-zero,
     ///         advertisers must be adequately staked per the bonding curve.
     ///         Lock-once for cypherpunk hardening — a hostile owner can't
     ///         swap to a permissive stake contract that always returns true.
-    IDatumAdvertiserStake public advertiserStake;
     event AdvertiserStakeSet(address indexed stakeContract);
 
     // ---- Allowlist snapshots (merged from DatumCampaignValidator) ----
     // Per-PUBLISHER's advertiser allowlist (set by the publisher on their inventory).
-    mapping(uint256 => bool) public campaignAllowlistEnabled;
-    mapping(uint256 => mapping(address => bool)) public campaignAllowlistSnapshot;
 
     // Multi-publisher allowlist state + setters moved to DatumCampaignAllowlist
     // (alpha-4 EIP-170 carve-out). Campaigns retains a write callback at
     // create-time via `allowlist.initializeFor(id, publisher, takeRate)` for
     // the single-publisher seed case.
-    IDatumCampaignAllowlist public allowlist;
     event AllowlistSet(address indexed allowlist);
 
     // A3: AssuranceLevel per campaign. 0=Permissive, 1=PublisherSigned, 2=DualSigned.
-    mapping(uint256 => uint8) public campaignAssuranceLevel;
 
     // Path A (ZK): per-campaign DATUM stake minimum a user must prove to claim.
     //              0 = disabled (any user can claim if `requiresZkProof` is set).
@@ -233,12 +205,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     //              Raise locks at Pending (same rules as AssuranceLevel).
     //              Bounded above by `maxAllowedMinStake` (governance-set) to prevent
     //              hostile advertisers from setting absurd values that strand users.
-    mapping(uint256 => uint256) public campaignMinStake;
     event CampaignMinStakeSet(uint256 indexed campaignId, uint256 minStake);
 
     /// @notice Governance-set upper bound on `campaignMinStake`. 0 = no cap
     ///         (any value allowed). Owner-tunable; subject to `lanesLocked`.
-    uint256 public maxAllowedMinStake;
     event MaxAllowedMinStakeSet(uint256 amount);
 
     // Path A (ZK): per-campaign required interest category id. bytes32(0) = any.
@@ -246,20 +216,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     //              this category is in their published interest tree (Merkle
     //              inclusion) without revealing the rest of the set.
     //              Set/replace permitted only while Pending.
-    mapping(uint256 => bytes32) public campaignRequiredCategory;
     event CampaignRequiredCategorySet(uint256 indexed campaignId, bytes32 category);
 
     // #1 (2026-05-12): per-user per-campaign cap. Both fields default 0 = disabled.
     // Advertiser-settable. Raising locks at Pending (matches AssuranceLevel rules
     // — can't tighten mid-flight and freeze user payouts); lowering allowed any time.
-    mapping(uint256 => uint32) public userEventCapPerWindow;
-    mapping(uint256 => uint32) public userCapWindowBlocks;
     event CampaignUserCapSet(uint256 indexed campaignId, uint32 maxEvents, uint32 windowBlocks);
 
     // #2-extension (2026-05-12): per-campaign minimum cumulative settled events
     // the user must have on-record before participating. Soft proof-of-history
     // sybil bar. 0 = disabled. Advertiser-settable; same Pending-only raise rule.
-    mapping(uint256 => uint32) public minUserSettledHistory;
     event CampaignMinHistorySet(uint256 indexed campaignId, uint32 minHistory);
 
     // People Chain identity gate (2026-05-16): per-campaign required minimum
@@ -269,7 +235,6 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // mid-flight invalidate users who already started participating); lowering
     // permitted any time. The check itself happens in DatumSettlement, which
     // reads campaignMinIdentityLevel(id) + identity.isVerified(user, level).
-    mapping(uint256 => uint8) public campaignMinIdentityLevel;
     event CampaignMinIdentityLevelSet(uint256 indexed campaignId, uint8 level);
 
     // Metadata (IPFS) + bulletin creative storage moved to
@@ -336,9 +301,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         cannot be rotated (a router upgrade is the only way to
     ///         change it post-bootstrap). Prevents a compromised owner
     ///         from re-pointing PG at a malicious target.
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         if (!(pg != address(0))) revert E00();
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -462,9 +426,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///      at deploy); this setter therefore reverts on every call —
     ///      effectively immutable. Kept in the ABI to surface the lock semantics
     ///      to indexers/tooling rather than silently dropping the symbol.
-    function setPublishers(address addr) external onlyOwner {
+    function setPublishers(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
-        if (!(address(publishers) == address(0))) revert AlreadySet();
         emit ContractReferenceChanged("publishers", address(publishers), addr);
         publishers = IDatumPublishers(addr);
     }
@@ -501,8 +464,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         holds advertiser bond DOT; a hot-swap could redirect lockBond
     ///         calls to a hostile contract. address(0) leaves the feature off
     ///         and is the initial state; once set non-zero it's frozen.
-    function setChallengeBonds(address addr) external onlyOwner {
-        if (!(address(challengeBonds) == address(0))) revert AlreadySet();
+    function setChallengeBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         emit ContractReferenceChanged("challengeBonds", address(challengeBonds), addr);
         challengeBonds = IDatumChallengeBonds(addr);
     }
@@ -514,9 +476,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         pending bonds or auto-activate campaigns. address(0) leaves
     ///         optimistic activation disabled and falls back to the legacy
     ///         governance-vote path.
-    function setActivationBonds(address addr) external onlyOwner {
+    function setActivationBonds(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
-        if (!(activationBonds == address(0))) revert AlreadySet();
         emit ContractReferenceChanged("activationBonds", activationBonds, addr);
         activationBonds = addr;
     }
@@ -541,17 +502,15 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     // setMaxAllowedPublishers moved to DatumCampaignAllowlist.
 
     /// @notice One-shot wire of the carved-out allowlist module pointer.
-    function setAllowlist(address addr) external onlyOwner {
+    function setAllowlist(address addr) external onlyOwner whenPlumbingUnlocked {
         if (addr == address(0)) revert E00();
-        if (address(allowlist) != address(0)) revert AlreadySet();
         allowlist = IDatumCampaignAllowlist(addr);
         emit AllowlistSet(addr);
     }
 
     /// @notice One-shot wire of the carved-out tag-system module pointer.
-    function setTagSystem(address addr) external onlyOwner {
+    function setTagSystem(address addr) external onlyOwner whenPlumbingUnlocked {
         if (addr == address(0)) revert E00();
-        if (address(tagSystem) != address(0)) revert AlreadySet();
         tagSystem = IDatumTagSystem(addr);
         emit TagSystemSet(addr);
     }
@@ -575,8 +534,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     ///         owner cannot hot-swap to a permissive stake reader. Set to
     ///         address(0) at deploy if not yet ready; first non-zero write
     ///         is final.
-    function setAdvertiserStake(address addr) external onlyOwner {
-        if (!(address(advertiserStake) == address(0))) revert AlreadySet();
+    function setAdvertiserStake(address addr) external onlyOwner whenPlumbingUnlocked {
         if (!(addr != address(0))) revert E00();
         advertiserStake = IDatumAdvertiserStake(addr);
         emit AdvertiserStakeSet(addr);
@@ -596,6 +554,20 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     /// @inheritdoc IDatumCampaigns
     /// @notice Backwards-compat overload — equivalent to the 8-arg form with
     ///         activationBondAmount = 0 (legacy always-vote activation path).
+    /// @dev Creation params bundled into a single memory struct. The public
+    ///      scalar ABI is unchanged — the wrappers below pack the struct — but
+    ///      `_createCampaign` then carries one memory pointer instead of eight
+    ///      live stack scalars, keeping the function within the viaIR 16-slot
+    ///      stack-depth limit (it sat exactly at the edge).
+    struct CreateParams {
+        address publisher;
+        bool    requireZkProof;
+        address rewardToken;
+        uint256 rewardPerImpression;
+        uint256 bondAmount;
+        uint256 activationBondAmount;
+    }
+
     function createCampaign(
         address publisher,
         ActionPotConfig[] calldata pots,
@@ -605,7 +577,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         uint256 rewardPerImpression,
         uint256 bondAmount
     ) external payable whenNotFrozen returns (uint256 campaignId) {
-        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0);
+        return _createCampaign(
+            CreateParams(publisher, requireZkProof, rewardToken, rewardPerImpression, bondAmount, 0),
+            pots, requiredTags
+        );
     }
 
     function createCampaignWithActivation(
@@ -618,18 +593,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         uint256 bondAmount,
         uint256 activationBondAmount
     ) external payable whenNotFrozen returns (uint256 campaignId) {
-        return _createCampaign(publisher, pots, requiredTags, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount);
+        return _createCampaign(
+            CreateParams(publisher, requireZkProof, rewardToken, rewardPerImpression, bondAmount, activationBondAmount),
+            pots, requiredTags
+        );
     }
 
     function _createCampaign(
-        address publisher,
+        CreateParams memory p,
         ActionPotConfig[] calldata pots,
-        bytes32[] calldata requiredTags,
-        bool requireZkProof,
-        address rewardToken,
-        uint256 rewardPerImpression,
-        uint256 bondAmount,
-        uint256 activationBondAmount
+        bytes32[] calldata requiredTags
     ) internal nonReentrant returns (uint256 campaignId) {
         if (!(!pauseRegistry.pausedCampaignCreation())) revert Paused();
 
@@ -647,8 +620,8 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
             if (!(ok)) revert StakeInadequate();
         }
 
-        if (!(msg.value > bondAmount + activationBondAmount)) revert E11();
-        uint256 budgetValue = msg.value - bondAmount - activationBondAmount;
+        if (!(msg.value > p.bondAmount + p.activationBondAmount)) revert E11();
+        uint256 budgetValue = msg.value - p.bondAmount - p.activationBondAmount;
         if (!(budgetValue >= MINIMUM_BUDGET_PLANCK)) revert E11();
         if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget)) revert E80();
         // requiredTags length check moved to DatumTagSystem.initializeCampaignTags.
@@ -656,10 +629,10 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         // bondAmount while ChallengeBonds isn't wired, the lockBond branch
         // below is skipped and the bondAmount portion would sit in this
         // contract permanently (no withdrawal path). Fail loudly instead.
-        if (!(bondAmount == 0 || address(challengeBonds) != address(0))) revert E00();
+        if (!(p.bondAmount == 0 || address(challengeBonds) != address(0))) revert E00();
         // Same protection for activation bond: forbid stranded value if the
         // ActivationBonds gateway isn't wired.
-        if (!(activationBondAmount == 0 || activationBonds != address(0))) revert E00();
+        if (!(p.activationBondAmount == 0 || activationBonds != address(0))) revert E00();
 
         // Validate pots
         if (!(pots.length >= 1 && pots.length <= 3)) revert E93();
@@ -689,15 +662,15 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
             // S12: reject blocked advertisers
             if (!(!publishers.isBlocked(msg.sender))) revert E62();
 
-            if (publisher != address(0)) {
-                if (!(!publishers.isBlocked(publisher))) revert E62();
-                IDatumPublishers.Publisher memory pub = publishers.getPublisher(publisher);
+            if (p.publisher != address(0)) {
+                if (!(!publishers.isBlocked(p.publisher))) revert E62();
+                IDatumPublishers.Publisher memory pub = publishers.getPublisher(p.publisher);
                 if (!(pub.registered)) revert E62();
 
                 // S12: per-publisher allowlist
-                allowlistWasEnabled = publishers.allowlistEnabled(publisher);
+                allowlistWasEnabled = publishers.allowlistEnabled(p.publisher);
                 if (allowlistWasEnabled) {
-                    if (!(publishers.isAllowedAdvertiser(publisher, msg.sender))) revert E62();
+                    if (!(publishers.isAllowedAdvertiser(p.publisher, msg.sender))) revert E62();
                 }
 
                 // TX-1: tag matching delegated to TagSystem (returns false on miss).
@@ -705,7 +678,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
                 // tagSystem.initializeCampaignTags below.
 
                 snapshot = pub.takeRateBps;
-                snapRelaySigner = publishers.relaySigner(publisher);
+                snapRelaySigner = publishers.relaySigner(p.publisher);
             } else {
                 snapshot = defaultTakeRateBps;
             }
@@ -723,12 +696,12 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         // The allowlist module owns the seed state; we call its onlyCampaigns
         // entry point. Skipped only when the module isn't wired (test fixtures
         // that don't exercise the allowlist path); production always wires it.
-        if (publisher != address(0) && address(allowlist) != address(0)) {
-            allowlist.initializeFor(campaignId, publisher, snapshot);
+        if (p.publisher != address(0) && address(allowlist) != address(0)) {
+            allowlist.initializeFor(campaignId, p.publisher, snapshot);
         }
 
-        if (rewardToken != address(0)) {
-            if (!(rewardPerImpression > 0)) revert E11();
+        if (p.rewardToken != address(0)) {
+            if (!(p.rewardPerImpression > 0)) revert E11();
         }
 
         // Find view bid for struct
@@ -739,15 +712,15 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
 
         _campaigns[campaignId] = Campaign({
             advertiser: msg.sender,
-            publisher: publisher,
+            publisher: p.publisher,
             pendingExpiryBlock: block.number + pendingTimeoutBlocks,
             terminationBlock: 0,
             snapshotTakeRateBps: snapshot,
             status: CampaignStatus.Pending,
             relaySigner: snapRelaySigner,
-            requiresZkProof: requireZkProof,
-            rewardToken: rewardToken,
-            rewardPerImpression: rewardPerImpression,
+            requiresZkProof: p.requireZkProof,
+            rewardToken: p.rewardToken,
+            rewardPerImpression: p.rewardPerImpression,
             viewBid: vBid
         });
 
@@ -755,7 +728,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         //   - Validates publisher's tag set against requiredTags (publisher !=0).
         //   - Records the required tags + snapshot of publisher's current tags.
         if (address(tagSystem) != address(0)) {
-            tagSystem.initializeCampaignTags(campaignId, publisher, requiredTags);
+            tagSystem.initializeCampaignTags(campaignId, p.publisher, requiredTags);
         }
 
         // Store pots and initialize budget per pot
@@ -767,16 +740,16 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         }
 
         // FP-2: Lock optional bond in ChallengeBonds
-        if (bondAmount > 0 && address(challengeBonds) != address(0)) {
-            challengeBonds.lockBond{value: bondAmount}(campaignId, msg.sender, publisher);
+        if (p.bondAmount > 0 && address(challengeBonds) != address(0)) {
+            challengeBonds.lockBond{value: p.bondAmount}(campaignId, msg.sender, p.publisher);
         }
 
         // Optimistic activation: open the activation bond if the gateway is
         // wired and the advertiser supplied bond value. Without this, the
         // campaign sits Pending until governance activates it through the
         // legacy vote path.
-        if (activationBondAmount > 0 && activationBonds != address(0)) {
-            IDatumActivationBonds(activationBonds).openBond{value: activationBondAmount}(
+        if (p.activationBondAmount > 0 && activationBonds != address(0)) {
+            IDatumActivationBonds(activationBonds).openBond{value: p.activationBondAmount}(
                 campaignId, msg.sender
             );
         }
@@ -784,7 +757,7 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
         // A3: AssuranceLevel defaults to Permissive (0) for both open and
         // closed campaigns. The advertiser explicitly opts into higher levels
         // via setCampaignAssuranceLevel — no protocol-imposed paternalism.
-        emit CampaignCreated(campaignId, msg.sender, publisher, budgetValue, snapshot);
+        emit CampaignCreated(campaignId, msg.sender, p.publisher, budgetValue, snapshot);
     }
 
     // Metadata (setMetadata + getCampaignMetadata) moved to
@@ -1149,5 +1122,49 @@ contract DatumCampaigns is IDatumCampaigns, DatumUpgradable, PaseoSafeSender {
     function getCampaignUserCapSafe(uint256 campaignId) external view returns (bool ok, uint32 maxEvents, uint32 windowBlocks) {
         if (_campaigns[campaignId].advertiser == address(0)) return (false, 0, 0);
         return (true, userEventCapPerWindow[campaignId], userCapWindowBlocks[campaignId]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration import. Campaigns is EIP-170-bound, so the heavy
+    // full-import loop lives in DatumCampaignsMigrationLogic, reached via
+    // DELEGATECALL (it mirrors this contract's storage layout exactly — see the
+    // layout-invariant test). The off-chain migrator (scripts/migrate-campaigns.ts)
+    // reads each campaign from the frozen predecessor and replays the FULL
+    // per-campaign state — core struct + pots + every scalar gate — through
+    // migrateDelegate.
+    // -------------------------------------------------------------------------
+
+    function getCampaignStruct(uint256 id) external view returns (Campaign memory) { return _campaigns[id]; }
+
+    /// @dev Set the id counter so post-migration creations get fresh ids.
+    function migrateBumpNextId(uint256 n) external onlyGovernance { nextCampaignId = n; }
+
+    event MigrationLogicSet(address indexed logic);
+
+    /// @notice Wire the DELEGATECALL migration-logic target (lock-once). Holds
+    ///         the heavy full-import code off this EIP-170-bound contract.
+    function setMigrationLogic(address logic) external onlyGovernance {
+        if (logic == address(0)) revert E00();
+        if (migrationLogic != address(0)) revert AlreadySet();
+        migrationLogic = logic;
+        emit MigrationLogicSet(logic);
+    }
+
+    /// @notice Governance-gated passthrough to the migration logic's
+    ///         `importCampaignFull`. The off-chain migrator ABI-encodes that call
+    ///         and this DELEGATECALLs it so the writes land in THIS contract's
+    ///         storage. Passing raw bytes (rather than a typed struct param) keeps
+    ///         the heavy nested-struct calldata decoder OUT of this EIP-170-bound
+    ///         contract — it lives only in DatumCampaignsMigrationLogic.
+    /// @dev    The leading selector is constrained to `importCampaignFull` so a
+    ///         governance tx can't DELEGATECALL the logic's INHERITED
+    ///         DatumUpgradable surface (setRouter / transferOwnership / migrate),
+    ///         which would otherwise write THIS contract's owner/router slots. The
+    ///         target is the lock-once, governance-set `migrationLogic`.
+    function migrateDelegate(bytes calldata data) external onlyGovernance {
+        if (migrationLogic == address(0)) revert RegistryUnset();
+        if (bytes4(data[:4]) != DatumCampaignsMigrationLogic.importCampaignFull.selector) revert E00();
+        (bool ok, ) = migrationLogic.delegatecall(data);
+        if (!ok) revert E00();
     }
 }

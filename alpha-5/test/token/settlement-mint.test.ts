@@ -112,10 +112,10 @@ describe("DatumSettlement → DatumMintAuthority integration", function () {
       expect(await coordinator.mintAuthority()).to.equal(await authority.getAddress());
     });
 
-    it("setting mint authority twice reverts", async function () {
-      await expect(
-        coordinator.setMintAuthority(user.address)
-      ).to.be.revertedWithCustomError(coordinator, "AlreadySet");
+    it("setting mint authority is re-pointable until lockPlumbing (phase-conditional)", async function () {
+      await coordinator.setMintAuthority(user.address); // re-pointable while unlocked
+      expect(await coordinator.mintAuthority()).to.equal(user.address);
+      await coordinator.setMintAuthority(await authority.getAddress()); // restore shared state
     });
 
     it("zero address mint authority reverts", async function () {

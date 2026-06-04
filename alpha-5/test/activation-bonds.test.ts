@@ -295,8 +295,13 @@ describe("DatumActivationBonds", function () {
       await expect(bonds.connect(other).setTimelockBlocks(50)).to.be.revertedWith("E18");
     });
 
-    it("setCampaignsContract is lock-once", async function () {
-      await expect(bonds.setCampaignsContract(other.address)).to.be.revertedWith("already set");
+    it("setCampaignsContract is phase-conditional lock-once (re-pointable until lockPlumbing@OpenGov)", async function () {
+      await bonds.setCampaignsContract(other.address); // re-pointable while unlocked
+      expect(await bonds.campaignsContract()).to.equal(other.address);
+      const { wireOpenGovRouter } = await import("./helpers/openGovRouter");
+      await wireOpenGovRouter(bonds as any);
+      await bonds.lockPlumbing();
+      await expect(bonds.setCampaignsContract(other.address)).to.be.revertedWith("locked");
     });
 
     it("treasury cut routes to treasury account", async function () {

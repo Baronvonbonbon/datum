@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./interfaces/IDatumPublisherStake.sol";
-import "./DatumUpgradable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -24,8 +24,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         are rejected with reason code 15.
 ///
 ///         Slash is called by PublisherGovernance when a fraud proposal resolves aye.
-contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFundMigratable {
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     /// @notice Settlement contract — authorised to call recordImpressions.
     address public settlementContract;
@@ -48,6 +48,19 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     mapping(address => uint256) private _cumulativeImpressions;
     mapping(address => UnstakeRequest) private _pendingUnstake;
 
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Stakes live in non-iterable mappings; track every publisher that ever
+    // staked or had impressions recorded so a successor's `_migrate` can copy
+    // each entry. Native DOT moves via `migrateFundsTo`. Paginate if the set
+    // grows beyond a single-tx gas budget.
+    address[] private _stakers;
+    mapping(address => bool) private _isStaker;
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
+
+    function _track(address a) internal {
+        if (a != address(0) && !_isStaker[a]) { _isStaker[a] = true; _stakers.push(a); }
+    }
+
     constructor(
         uint256 _baseStakePlanck,
         uint256 _planckPerImpression,
@@ -64,17 +77,15 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     /// @dev Cypherpunk lock-once: settlementContract is the only caller allowed
     ///      to advance the publisher's bonding curve (recordImpressions). Swap =
     ///      forge impressions to inflate required-stake on rivals.
-    function setSettlementContract(address addr) external onlyOwner {
+    function setSettlementContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlementContract == address(0), "already set");
         settlementContract = addr;
     }
 
     /// @dev Cypherpunk lock-once: slashContract may forcibly burn staked DOT.
     ///      Hot-swap = unilateral slash of any publisher.
-    function setSlashContract(address addr) external onlyOwner {
+    function setSlashContract(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(slashContract == address(0), "already set");
         slashContract = addr;
     }
 
@@ -112,6 +123,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     function stake() external payable whenNotFrozen {
         require(msg.value > 0, "E11");
         _staked[msg.sender] += msg.value;
+        _track(msg.sender);
         emit Staked(msg.sender, msg.value, _staked[msg.sender]);
     }
 
@@ -149,6 +161,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     function recordImpressions(address publisher, uint256 count) external {
         require(msg.sender == settlementContract, "E18");
         _cumulativeImpressions[publisher] += count;
+        _track(publisher);
         emit ImpressionsRecorded(publisher, count, _cumulativeImpressions[publisher]);
     }
 
@@ -229,4 +242,34 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumUpgr
     function isAdequatelyStaked(address publisher) external view returns (bool) {
         return _staked[publisher] >= requiredStake(publisher);
     }
+
+    // ── Upgrade migration (redeploy-migrate-rewire) ──────────────────────────
+
+    function stakerCount() external view returns (uint256) { return _stakers.length; }
+    function stakerAt(uint256 i) external view returns (address) { return _stakers[i]; }
+
+    /// @dev Copy bonding-curve params + every staker's stake / cumulative
+    ///      impressions / pending-unstake from a frozen predecessor. Structural
+    ///      refs (settlementContract / slashContract) are NOT copied — they are
+    ///      re-wired on the fresh contract. Native DOT moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumPublisherStake old = DatumPublisherStake(payable(oldContract));
+        baseStakePlanck = old.baseStakePlanck();
+        planckPerImpression = old.planckPerImpression();
+        unstakeDelayBlocks = old.unstakeDelayBlocks();
+        maxRequiredStake = old.maxRequiredStake();
+        maxSlashBpsPerCall = old.maxSlashBpsPerCall();
+        uint256 n = old.stakerCount();
+        for (uint256 i = 0; i < n; i++) {
+            address p = old.stakerAt(i);
+            _staked[p] = old.staked(p);
+            _cumulativeImpressions[p] = old.cumulativeImpressions(p);
+            _pendingUnstake[p] = old.pendingUnstake(p);
+            _track(p);
+        }
+    }
+
+    /// @notice Sweep the contract's native balance to a successor during an
+    ///         upgrade so it can honour migrated stakes. Governance-gated,
+    ///         frozen-only, one-shot. Uses `acceptMigration` (receive() rejects).
 }

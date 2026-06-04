@@ -39,7 +39,18 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
     /// (setMintRate, setDustMintThreshold, setDatumRewardSplit) through
     /// `onlyOwnerOrPG`. Wiring setters (setSettlement, setMintAuthority,
     /// setEmissionEngine) stay owner-only.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
+
+    /// @dev Config-only contract (refs are re-wired, not migrated): copy the mint
+    ///      rate + reward-split scalars from a frozen predecessor.
+    function _migrate(address oldContract) internal override {
+        DatumMintCoordinator o = DatumMintCoordinator(oldContract);
+        mintRatePerDot = o.mintRatePerDot();
+        dustMintThreshold = o.dustMintThreshold();
+        datumRewardUserBps = o.datumRewardUserBps();
+        datumRewardPublisherBps = o.datumRewardPublisherBps();
+        datumRewardAdvertiserBps = o.datumRewardAdvertiserBps();
+    }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
     function setRetuneCooldownBlocks(uint256 blocks_) external onlyOwner {
@@ -59,7 +70,7 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
 
     function setParameterGovernance(address pg) external onlyOwner {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
+        if (plumbingLocked) revert LockedAlready();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -159,14 +170,14 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
 
     function setMintAuthority(address authority) external onlyOwner {
         if (authority == address(0)) revert E00();
-        if (mintAuthority != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         mintAuthority = authority;
         emit MintAuthoritySet(authority);
     }
 
     function setEmissionEngine(address engine) external onlyOwner {
         if (engine == address(0)) revert E00();
-        if (emissionEngine != address(0)) revert AlreadySet();
+        if (plumbingLocked) revert LockedAlready();
         emissionEngine = engine;
         emit EmissionEngineSet(engine);
     }

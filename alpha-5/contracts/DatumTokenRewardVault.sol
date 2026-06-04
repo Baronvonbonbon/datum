@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IDatumTokenRewardVault.sol";
@@ -15,8 +15,8 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Separated from DatumPaymentVault to keep ETH-native accounting isolated.
 ///         Only supports EVM-native ERC-20 tokens (not native Asset Hub assets).
-contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumPlumbingLockable {
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     using SafeERC20 for IERC20;
     address public settlement;
@@ -26,6 +26,34 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     mapping(address => mapping(address => uint256)) public userTokenBalance;
     // token => campaignId => remaining budget
     mapping(address => mapping(uint256 => uint256)) public campaignTokenBudget;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Multi-token: track the token set, and per-token the users with a balance
+    // and campaigns with budget, plus recovery registrants. A successor's
+    // `_migrate` copies each; `migrateFundsTo` sweeps every token's balance.
+    address[] private _tokens;
+    mapping(address => bool) private _tokenTracked;
+    mapping(address => address[]) private _tokenUsers;
+    mapping(address => mapping(address => bool)) private _tokenUserTracked;
+    mapping(address => uint256[]) private _tokenCampaigns;
+    mapping(address => mapping(uint256 => bool)) private _tokenCampaignTracked;
+    address[] private _recoveryUsers;
+    mapping(address => bool) private _recoveryTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, address indexed token, uint256 amount);
+
+    function _trackToken(address t) internal {
+        if (t != address(0) && !_tokenTracked[t]) { _tokenTracked[t] = true; _tokens.push(t); }
+    }
+    function _trackTokenUser(address t, address u) internal {
+        if (u != address(0) && !_tokenUserTracked[t][u]) { _tokenUserTracked[t][u] = true; _tokenUsers[t].push(u); }
+    }
+    function _trackTokenCampaign(address t, uint256 c) internal {
+        if (!_tokenCampaignTracked[t][c]) { _tokenCampaignTracked[t][c] = true; _tokenCampaigns[t].push(c); }
+    }
+    function _trackRecoveryUser(address u) internal {
+        if (u != address(0) && !_recoveryTracked[u]) { _recoveryTracked[u] = true; _recoveryUsers.push(u); }
+    }
 
     // -------------------------------------------------------------------------
     // G-8 mirror (2026-05-21): time-locked recovery-address mechanism
@@ -64,9 +92,8 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
 
     /// @dev Cypherpunk lock-once: settlement is the only address that may
     ///      credit token rewards. Hot-swap = drain advertiser deposits.
-    function setSettlement(address addr) external onlyOwner {
+    function setSettlement(address addr) external onlyOwner whenPlumbingUnlocked {
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
         settlement = addr;
     }
 
@@ -88,6 +115,8 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         campaignTokenBudget[token][campaignId] += amount;
+        _trackToken(token);
+        _trackTokenCampaign(token, campaignId);
         emit TokenBudgetDeposited(campaignId, token, amount);
     }
 
@@ -114,6 +143,8 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
 
         campaignTokenBudget[token][campaignId] = budget - credit;
         userTokenBalance[token][user] += credit;
+        _trackToken(token);
+        _trackTokenUser(token, user);
         emit TokenRewardCredited(campaignId, token, user, credit);
     }
 
@@ -179,6 +210,7 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
         recoveryAddress[msg.sender] = recovery;
         uint64 effective = uint64(block.number) + recoveryDelayBlocks;
         recoveryEffectiveBlock[msg.sender] = effective;
+        _trackRecoveryUser(msg.sender);
         emit RecoveryAddressStaged(msg.sender, recovery, effective);
     }
 
@@ -241,6 +273,71 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     function recoveryActive(address user) external view returns (bool) {
         uint64 e = recoveryEffectiveBlock[user];
         return e != 0 && block.number >= uint256(e) && recoveryAddress[user] != address(0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+
+    function tokenCount() external view returns (uint256) { return _tokens.length; }
+    function tokenAt(uint256 i) external view returns (address) { return _tokens[i]; }
+    function tokenUserCount(address token) external view returns (uint256) { return _tokenUsers[token].length; }
+    function tokenUserAt(address token, uint256 i) external view returns (address) { return _tokenUsers[token][i]; }
+    function tokenCampaignCount(address token) external view returns (uint256) { return _tokenCampaigns[token].length; }
+    function tokenCampaignAt(address token, uint256 i) external view returns (uint256) { return _tokenCampaigns[token][i]; }
+    function recoveryUserCount() external view returns (uint256) { return _recoveryUsers.length; }
+    function recoveryUserAt(uint256 i) external view returns (address) { return _recoveryUsers[i]; }
+
+    /// @dev Copy per-(token,user) balances + per-(token,campaign) budgets +
+    ///      recovery state from a frozen predecessor. Structural refs
+    ///      (settlement / campaigns) are re-wired on the fresh contract. The
+    ///      custodied ERC-20s move via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumTokenRewardVault old = DatumTokenRewardVault(payable(oldContract));
+        recoveryDelayBlocks = old.recoveryDelayBlocks();
+        uint256 nt = old.tokenCount();
+        for (uint256 i = 0; i < nt; i++) {
+            address token = old.tokenAt(i);
+            _trackToken(token);
+            uint256 nu = old.tokenUserCount(token);
+            for (uint256 j = 0; j < nu; j++) {
+                address u = old.tokenUserAt(token, j);
+                userTokenBalance[token][u] = old.userTokenBalance(token, u);
+                _trackTokenUser(token, u);
+            }
+            uint256 ncmp = old.tokenCampaignCount(token);
+            for (uint256 j = 0; j < ncmp; j++) {
+                uint256 cid = old.tokenCampaignAt(token, j);
+                campaignTokenBudget[token][cid] = old.campaignTokenBudget(token, cid);
+                _trackTokenCampaign(token, cid);
+            }
+        }
+        uint256 nr = old.recoveryUserCount();
+        for (uint256 i = 0; i < nr; i++) {
+            address ru = old.recoveryUserAt(i);
+            recoveryAddress[ru] = old.recoveryAddress(ru);
+            recoveryEffectiveBlock[ru] = old.recoveryEffectiveBlock(ru);
+            _trackRecoveryUser(ru);
+        }
+    }
+
+    /// @notice Sweep every custodied ERC-20's balance to a successor during an
+    ///         upgrade so it can honour migrated balances + budgets.
+    ///         Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 nt = _tokens.length;
+        for (uint256 i = 0; i < nt; i++) {
+            address token = _tokens[i];
+            uint256 bal = IERC20(token).balanceOf(address(this));
+            if (bal > 0) {
+                emit FundsMigratedOut(successor, token, bal);
+                IERC20(token).safeTransfer(successor, bal);
+            }
+        }
     }
 
     /// @notice Reject accidental ETH deposits

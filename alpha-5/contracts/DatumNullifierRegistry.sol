@@ -23,7 +23,7 @@ import "./interfaces/IDatumNullifierRegistry.sol";
 ///         the existing proofs) or, worse, let a previously-burned
 ///         nullifier re-map to a fresh windowId and re-settle.
 contract DatumNullifierRegistry is IDatumNullifierRegistry, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -99,7 +99,7 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry, DatumUpgradable {
     function tryConsume(uint256 campaignId, bytes32 nullifier) external returns (bool) {
         if (msg.sender != settlement) revert OnlySettlement();
         if (nullifier == bytes32(0)) return true; // skip = bypass (matches caller's "no nullifier" path)
-        if (_used[campaignId][nullifier]) return false;
+        if (_usedAnywhere(campaignId, nullifier)) return false; // local OR any predecessor
         _used[campaignId][nullifier] = true;
         emit NullifierSubmitted(campaignId, nullifier);
         return true;
@@ -110,6 +110,29 @@ contract DatumNullifierRegistry is IDatumNullifierRegistry, DatumUpgradable {
     // ─────────────────────────────────────────────────────────────────────
 
     function isNullifierUsed(uint256 campaignId, bytes32 nullifier) external view returns (bool) {
-        return _used[campaignId][nullifier];
+        return _usedAnywhere(campaignId, nullifier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Upgrade migration (predecessor-chain — no copy of the unbounded set)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// @dev Replay set is append-only + unbounded, so a successor does NOT copy
+    ///      it. Instead `migrate()` records `migrationSource`; reads consult it
+    ///      on a local miss. The predecessor is frozen (migrate requires it), so
+    ///      its set is final. Chains recursively if upgraded again. Here we only
+    ///      copy the scalar window config.
+    function _migrate(address oldContract) internal override {
+        nullifierWindowBlocks = DatumNullifierRegistry(oldContract).nullifierWindowBlocks();
+    }
+
+    /// @dev True iff the nullifier is used locally OR by any frozen predecessor.
+    function _usedAnywhere(uint256 campaignId, bytes32 nullifier) internal view returns (bool) {
+        if (_used[campaignId][nullifier]) return true;
+        address pred = migrationSource;
+        if (pred != address(0)) {
+            return DatumNullifierRegistry(pred).isNullifierUsed(campaignId, nullifier);
+        }
+        return false;
     }
 }

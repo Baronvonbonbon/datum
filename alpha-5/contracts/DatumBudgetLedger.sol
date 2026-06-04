@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./DatumUpgradable.sol";
+import "./DatumFundMigratable.sol";
 import "./PaseoSafeSender.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IDatumBudgetLedger.sol";
@@ -19,8 +19,8 @@ import "./interfaces/IDatumCampaigns.sol";
 ///
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
-contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradable {
-    function version() public pure override returns (uint256) { return 1; }
+contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigratable {
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // -------------------------------------------------------------------------
     // Authorization
@@ -40,6 +40,15 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     bool public treasuryLocked;
     event TreasurySet(address indexed treasury);
     event TreasuryLocked();
+
+    /// @notice Cypherpunk posture: the three structural refs (campaigns /
+    ///         settlement / lifecycle) are PHASE-CONDITIONAL lock-once —
+    ///         governance-re-pointable through Admin/Council, frozen only when
+    ///         OpenGov fires `lockPlumbing()`. Replaces the prior unconditional
+    ///         set-once guards (which froze the plumbing at deploy and forced a
+    ///         full redeploy to re-point, e.g. after a Settlement upgrade).
+    ///         Mirrors DatumSettlement / DatumClaimValidator.
+    ///         (plumbingLocked + PlumbingLocked now provided by DatumPlumbingLockable.)
 
     // -------------------------------------------------------------------------
     // State
@@ -62,6 +71,25 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     ///      instead of pushing native DOT, so a contract advertiser with a reverting
     ///      fallback cannot DoS Lifecycle / Settlement auto-complete.
     mapping(address => uint256) public pendingAdvertiserRefund;
+
+    // ── Enumeration for upgrade migration (redeploy-migrate-rewire) ──
+    // Budgets + refunds live in non-iterable mappings; track the campaign ids
+    // that hold budget and the advertisers that hold a pending refund so a
+    // successor's `_migrate` can copy each. Native DOT is moved separately by
+    // `migrateFundsTo`. Paginate (override migrate()) if the campaign set ever
+    // outgrows a single-tx gas budget; the alpha set is small.
+    uint256[] private _budgetCampaigns;
+    mapping(uint256 => bool) private _budgetTracked;
+    address[] private _refundHolders;
+    mapping(address => bool) private _refundTracked;
+    // fundsMigratedOut + migrateFundsTo + acceptMigration provided by DatumFundMigratable.
+
+    function _trackBudgetCampaign(uint256 id) internal {
+        if (!_budgetTracked[id]) { _budgetTracked[id] = true; _budgetCampaigns.push(id); }
+    }
+    function _trackRefundHolder(address a) internal {
+        if (a != address(0) && !_refundTracked[a]) { _refundTracked[a] = true; _refundHolders.push(a); }
+    }
 
     // -------------------------------------------------------------------------
     // Events
@@ -99,29 +127,34 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     // Admin
     // -------------------------------------------------------------------------
 
-    /// @dev Cypherpunk lock-once: BudgetLedger holds advertiser DOT. Any of
-    ///      these three refs being hot-swappable would let an owner redirect
-    ///      who can deduct/refund/sweep that DOT (rug surface). One write each.
+    /// @dev BudgetLedger holds advertiser DOT, so these three refs gate who can
+    ///      deduct/refund/sweep it (a rug surface). Per the cypherpunk posture
+    ///      they're phase-conditional: re-pointable by the phased governor until
+    ///      lockPlumbing() fires at OpenGov, then frozen. The rug surface is
+    ///      bounded by the phase ladder + the irreversible OpenGov lock.
     function setCampaigns(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        require(address(campaigns) == address(0), "already set");
+        require(!plumbingLocked, "locked");
         emit ContractReferenceChanged("campaigns", address(campaigns), addr);
         campaigns = IDatumCampaigns(addr);
     }
 
     function setSettlement(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        require(settlement == address(0), "already set");
+        require(!plumbingLocked, "locked");
         emit ContractReferenceChanged("settlement", settlement, addr);
         settlement = addr;
     }
 
     function setLifecycle(address addr) external onlyOwner {
         require(addr != address(0), "E00");
-        require(lifecycle == address(0), "already set");
+        require(!plumbingLocked, "locked");
         emit ContractReferenceChanged("lifecycle", lifecycle, addr);
         lifecycle = addr;
     }
+
+    // lockPlumbing() (OpenGov-gated, freezes campaigns/settlement/lifecycle)
+    // now provided by DatumPlumbingLockable.
 
     // -------------------------------------------------------------------------
     // Budget initialization (Campaigns only — once per pot)
@@ -148,6 +181,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
         if (lastSettlementBlock[campaignId] == 0) {
             lastSettlementBlock[campaignId] = block.number;
         }
+        _trackBudgetCampaign(campaignId);
 
         emit BudgetInitialized(campaignId, actionType, budget, dailyCap);
     }
@@ -214,6 +248,7 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
 
         if (drained > 0) {
             pendingAdvertiserRefund[advertiser] += drained;
+            _trackRefundHolder(advertiser);
             emit AdvertiserRefundQueued(campaignId, advertiser, drained);
         }
     }
@@ -308,6 +343,53 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumUpgradab
     function getDailyCap(uint256 campaignId, uint8 actionType) external view returns (uint256) {
         return _budgets[campaignId][actionType].dailyCap;
     }
+
+    // -------------------------------------------------------------------------
+    // Upgrade migration (redeploy-migrate-rewire)
+    // -------------------------------------------------------------------------
+
+    /// @notice Migration enumeration: campaign ids holding budget + advertisers
+    ///         holding a pending refund, plus a full-budget read for `_migrate`.
+    function budgetCampaignCount() external view returns (uint256) { return _budgetCampaigns.length; }
+    function budgetCampaignAt(uint256 i) external view returns (uint256) { return _budgetCampaigns[i]; }
+    function refundHolderCount() external view returns (uint256) { return _refundHolders.length; }
+    function refundHolderAt(uint256 i) external view returns (address) { return _refundHolders[i]; }
+    function getBudgetFull(uint256 campaignId, uint8 actionType)
+        external view returns (uint256 remaining, uint256 dailyCap, uint256 dailySpent, uint256 lastSpendDay)
+    {
+        Budget storage b = _budgets[campaignId][actionType];
+        return (b.remaining, b.dailyCap, b.dailySpent, b.lastSpendDay);
+    }
+
+    /// @dev Copy budget + refund ACCOUNTING from a frozen predecessor. Called by
+    ///      DatumUpgradable.migrate (governance-gated; old frozen, higher version).
+    ///      Copies treasury value + every enumerated campaign's 3 pots +
+    ///      lastSettlementBlock + every advertiser's pending refund. Structural
+    ///      refs (campaigns/settlement/lifecycle) and the lock flags are NOT
+    ///      copied — they are re-wired on the fresh contract (the rewire leg),
+    ///      then re-locked at OpenGov. Native DOT moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumBudgetLedger old = DatumBudgetLedger(payable(oldContract));
+        treasury = old.treasury();
+        uint256 nc = old.budgetCampaignCount();
+        for (uint256 i = 0; i < nc; i++) {
+            uint256 id = old.budgetCampaignAt(i);
+            for (uint8 t = 0; t <= 2; t++) {
+                (uint256 rem, uint256 cap, uint256 spent, uint256 day) = old.getBudgetFull(id, t);
+                _budgets[id][t] = Budget({remaining: rem, dailyCap: cap, dailySpent: spent, lastSpendDay: day});
+            }
+            lastSettlementBlock[id] = old.lastSettlementBlock(id);
+            _trackBudgetCampaign(id);
+        }
+        uint256 nr = old.refundHolderCount();
+        for (uint256 i = 0; i < nr; i++) {
+            address a = old.refundHolderAt(i);
+            pendingAdvertiserRefund[a] = old.pendingAdvertiserRefund(a);
+            _trackRefundHolder(a);
+        }
+    }
+
+    // migrateFundsTo + acceptMigration (native sweep) provided by DatumFundMigratable.
 
     // -------------------------------------------------------------------------
     // Internal

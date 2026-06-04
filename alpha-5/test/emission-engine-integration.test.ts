@@ -51,9 +51,10 @@ describe("MintCoordinator ↔ DatumEmissionEngine integration", function () {
         .to.emit(coordinator, "EmissionEngineSet").withArgs(addr);
       expect(await coordinator.emissionEngine()).to.equal(addr);
     });
-    it("double-set reverts", async function () {
+    it("re-pointable until lockPlumbing (phase-conditional)", async function () {
       await coordinator.setEmissionEngine(await engine.getAddress());
-      await expect(coordinator.setEmissionEngine(await engine.getAddress())).to.be.revertedWithCustomError(coordinator, "AlreadySet");
+      await coordinator.setEmissionEngine(await engine.getAddress()); // re-pointable while unlocked
+      expect(await coordinator.emissionEngine()).to.equal(await engine.getAddress());
     });
   });
 

@@ -29,7 +29,7 @@ contract DatumCampaignCreative is
     DatumUpgradable,
     PaseoSafeSender
 {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
@@ -94,6 +94,21 @@ contract DatumCampaignCreative is
     /// @notice Block of the most recent `setMetadata` call for a campaign.
     ///         Drives the cooldown gate on non-Pending status updates.
     mapping(uint256 => uint256) public campaignMetadataLastSetBlock;
+
+    // ── Enumeration for upgrade migration (holds bulletin-renewal escrow) ──
+    uint256[] private _creativeCampaigns;
+    mapping(uint256 => bool) private _creativeTracked;
+    mapping(uint256 => address[]) private _renewerList;
+    mapping(uint256 => mapping(address => bool)) private _renewerTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _trackCreative(uint256 cid) internal {
+        if (!_creativeTracked[cid]) { _creativeTracked[cid] = true; _creativeCampaigns.push(cid); }
+    }
+    function _trackRenewer(uint256 cid, address r) internal {
+        if (!_renewerTracked[cid][r]) { _renewerTracked[cid][r] = true; _renewerList[cid].push(r); }
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Events
@@ -214,6 +229,7 @@ contract DatumCampaignCreative is
         campaignMetadataLastSetBlock[campaignId] = block.number;
         uint64 v = campaignMetadataVersion[campaignId] + 1;
         campaignMetadataVersion[campaignId] = v;
+        _trackCreative(campaignId);
         emit CampaignMetadataSet(campaignId, metadataHash, v);
     }
 
@@ -260,6 +276,7 @@ contract DatumCampaignCreative is
         br.expiryHubBlock = expiry;
         br.retentionHorizonBlock = retentionHorizonBlock;
         br.version += 1;
+        _trackCreative(campaignId);
 
         emit BulletinCreativeSet(
             campaignId, cidDigest, cidCodec, bulletinBlock, bulletinIndex,
@@ -329,6 +346,7 @@ contract DatumCampaignCreative is
         if (campaigns.getCampaignAdvertiser(campaignId) == address(0)) revert E01();
         if (msg.value == 0) revert E11();
         bulletinRenewalEscrow[campaignId] += msg.value;
+        _trackCreative(campaignId);
         emit BulletinRenewalEscrowFunded(
             campaignId, msg.sender, msg.value, bulletinRenewalEscrow[campaignId]
         );
@@ -364,6 +382,7 @@ contract DatumCampaignCreative is
         if (msg.sender != advertiser) revert E21();
         if (renewer == address(0)) revert E00();
         approvedBulletinRenewer[campaignId][renewer] = approved;
+        if (approved) { _trackCreative(campaignId); _trackRenewer(campaignId, renewer); }
         emit BulletinRenewerAuthorized(campaignId, renewer, approved);
     }
 
@@ -400,5 +419,58 @@ contract DatumCampaignCreative is
     /// @inheritdoc IDatumCampaignCreative
     function getCampaignMetadata(uint256 campaignId) external view returns (bytes32) {
         return campaignMetadata[campaignId];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Upgrade migration (per-campaign creative + escrow; native sweep)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function creativeCampaignCount() external view returns (uint256) { return _creativeCampaigns.length; }
+    function creativeCampaignAt(uint256 i) external view returns (uint256) { return _creativeCampaigns[i]; }
+    function renewerCount(uint256 cid) external view returns (uint256) { return _renewerList[cid].length; }
+    function renewerAt(uint256 cid, uint256 i) external view returns (address) { return _renewerList[cid][i]; }
+
+    /// @dev Copy renewer-reward config + every campaign's bulletin ref + renewal
+    ///      escrow + open/metadata state + approved-renewer set from a frozen
+    ///      predecessor. Structural refs (campaigns / pauseRegistry) are
+    ///      re-wired. The escrow's native DOT moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumCampaignCreative old = DatumCampaignCreative(payable(oldContract));
+        bulletinRenewerReward = old.bulletinRenewerReward();
+        uint256 n = old.creativeCampaignCount();
+        for (uint256 i = 0; i < n; i++) {
+            uint256 cid = old.creativeCampaignAt(i);
+            _ref[cid] = old.getBulletinCreative(cid);
+            bulletinRenewalEscrow[cid] = old.bulletinRenewalEscrow(cid);
+            openBulletinRenewal[cid] = old.openBulletinRenewal(cid);
+            campaignMetadata[cid] = old.campaignMetadata(cid);
+            campaignMetadataVersion[cid] = old.campaignMetadataVersion(cid);
+            campaignMetadataLastSetBlock[cid] = old.campaignMetadataLastSetBlock(cid);
+            _trackCreative(cid);
+            uint256 m = old.renewerCount(cid);
+            for (uint256 j = 0; j < m; j++) {
+                address r = old.renewerAt(cid, j);
+                approvedBulletinRenewer[cid][r] = old.approvedBulletinRenewer(cid, r);
+                _trackRenewer(cid, r);
+            }
+        }
+    }
+
+    /// @notice Sweep the bulletin-renewal escrow (native DOT) to a successor
+    ///         during an upgrade. Governance-gated, frozen-only, one-shot.
+    ///         (Hand-rolled rather than via DatumFundMigratable because this
+    ///         contract keeps its own `plumbingLocked` umbrella.)
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumCampaignCreative(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

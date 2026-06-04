@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-import "./DatumUpgradable.sol";
+import "./DatumPlumbingLockable.sol";
 import "./interfaces/IDatumClaimValidator.sol";
 import "./interfaces/IDatumSettlement.sol";
 import "./interfaces/IDatumCampaigns.sol";
@@ -64,7 +64,7 @@ interface ICampaignsZkKnobs {
 ///           - Type-1 (click): checks clickRegistry.hasUnclaimed for session validity.
 ///           - Type-2 (remote-action): ecrecover checks actionSig against pot.actionVerifier.
 ///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
-contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
+contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     function version() public pure override returns (uint256) { return 1; }
 
     // BM-2: Matches Settlement.MAX_USER_EVENTS — prevents overflow in payment calc
@@ -93,9 +93,8 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     address public parameterGovernance;
     event ParameterGovernanceSet(address indexed pg);
 
-    function setParameterGovernance(address pg) external onlyOwner {
+    function setParameterGovernance(address pg) external onlyOwner whenPlumbingUnlocked {
         require(pg != address(0), "E00");
-        require(parameterGovernance == address(0), "already set");
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
     }
@@ -181,8 +180,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     ///         Post-lock: every setter on this contract reverts forever.
     ///         Deploy scripts should call `lockPlumbing()` once all wiring is
     ///         verified and the protocol is ready to commit.
-    bool public plumbingLocked;
-    event PlumbingLocked();
+    ///         (plumbingLocked + PlumbingLocked now provided by DatumPlumbingLockable.)
 
     constructor(address _campaigns, address _publishers, address _pauseRegistry) {
         require(_campaigns != address(0), "E00");
@@ -285,14 +283,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumUpgradable {
     /// @dev    Requires every ref to be set non-zero first — protects against
     ///         locking with a critical ref still unwired. Optional refs that
     ///         remain zero are *committed to staying zero* by the lock.
-    function lockPlumbing() external onlyOwner whenOpenGovPhase {
-        require(!plumbingLocked, "already locked");
+    function lockPlumbing() external override onlyOwner whenOpenGovPhase {
         require(address(campaigns) != address(0), "campaigns unset");
         require(address(publishers) != address(0), "publishers unset");
         // zkVerifier, clickRegistry, settlement are optional — zero is a valid
         // post-lock state (feature off forever) so we don't require them.
-        plumbingLocked = true;
-        emit PlumbingLocked();
+        _lockPlumbing();
     }
 
     // -------------------------------------------------------------------------
