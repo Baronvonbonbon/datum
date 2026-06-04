@@ -100,6 +100,12 @@ contract DatumRelayGovernance is
     uint256 public nextProposalId;
     mapping(uint256 => Proposal) private _proposals;
     mapping(uint256 => mapping(address => Vote)) private _votes;
+    /// @dev Per-proposal voter enumeration so a successor's `_migrate` can copy
+    ///      the in-flight (time-locked) conviction votes — they can't be drained
+    ///      pre-migration, so the full vote state is carried over and the locked
+    ///      DOT swept, fully retiring the predecessor.
+    mapping(uint256 => address[]) private _proposalVoters;
+    mapping(uint256 => mapping(address => bool)) private _voterTracked;
 
     // ── Errors ──────────────────────────────────────────────────────────
     error E00();    // address(0) / generic
@@ -317,6 +323,10 @@ contract DatumRelayGovernance is
         if (p.resolved) revert E41();
 
         Vote storage v = _votes[proposalId][msg.sender];
+        if (!_voterTracked[proposalId][msg.sender]) {
+            _voterTracked[proposalId][msg.sender] = true;
+            _proposalVoters[proposalId].push(msg.sender);
+        }
 
         if (v.direction != 0) {
             uint256 existingWeight = v.lockAmount * _weight(proposalId, v.conviction);
@@ -475,6 +485,9 @@ contract DatumRelayGovernance is
 
     function govPayoutHolderCount() external view returns (uint256) { return _govPayoutHolders.length; }
     function govPayoutHolderAt(uint256 i) external view returns (address) { return _govPayoutHolders[i]; }
+    function getProposal(uint256 id) external view returns (Proposal memory) { return _proposals[id]; }
+    function proposalVoterCount(uint256 id) external view returns (uint256) { return _proposalVoters[id].length; }
+    function proposalVoterAt(uint256 id, uint256 i) external view returns (address) { return _proposalVoters[id][i]; }
 
     /// @dev Copy governance params + treasury accounting + settled pending
     ///      payouts from a frozen predecessor. In-flight proposals/votes are
@@ -493,6 +506,19 @@ contract DatumRelayGovernance is
         for (uint256 i = 0; i < 9; i++) convictionLockup[i] = old.convictionLockup(i);
         treasury = old.treasury();
         treasuryBalance = old.treasuryBalance();
+        // In-flight proposals + their time-locked conviction votes (can't drain).
+        nextProposalId = old.nextProposalId();
+        for (uint256 id = 1; id < nextProposalId; id++) {
+            _proposals[id] = old.getProposal(id);
+            proposalConvictionA[id] = old.proposalConvictionA(id);
+            proposalConvictionB[id] = old.proposalConvictionB(id);
+            uint256 vn = old.proposalVoterCount(id);
+            for (uint256 j = 0; j < vn; j++) {
+                address voter = old.proposalVoterAt(id, j);
+                _votes[id][voter] = old.getVote(id, voter);
+                if (!_voterTracked[id][voter]) { _voterTracked[id][voter] = true; _proposalVoters[id].push(voter); }
+            }
+        }
         uint256 pn = old.govPayoutHolderCount();
         for (uint256 i = 0; i < pn; i++) {
             address a = old.govPayoutHolderAt(i);

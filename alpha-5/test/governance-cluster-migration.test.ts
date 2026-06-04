@@ -20,11 +20,15 @@ describe("Governance cluster — upgrade migration", function () {
     pause = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, g2.address, g3.address);
   });
 
-  it("DatumRelayGovernance copies config + sweeps DOT", async function () {
-    const v1 = await (await ethers.getContractFactory("DatumRelayGovernance")).deploy(10, 100, parseDOT("1"), 5000, 2000, 1000);
+  it("DatumRelayGovernance migrates config + in-flight vote state + sweeps locked DOT", async function () {
+    const v1 = await (await ethers.getContractFactory("DatumRelayGovernance")).deploy(10, 100, 0, 5000, 2000, 1000); // proposeBond=0
     await v1.setRouter(await router.getAddress());
     await v1.setConvictionLockups(LOCKS);
-    await owner.sendTransaction({ to: await v1.getAddress(), value: parseDOT("4") }); // open receive()
+    const EVID = "0x" + "ee".repeat(32);
+    await v1.connect(g2).propose(owner.address, 1, EVID); // proposer g2, target owner → proposalId 1
+    await v1.connect(g3).vote(1, true, 0, { value: parseDOT("2") }); // locks 2 DOT (conviction 0 → lock 100 blocks)
+
+    expect(await ethers.provider.getBalance(await v1.getAddress())).to.equal(parseDOT("2"));
 
     await v1.connect(gov).freeze();
     const v2 = await (await ethers.getContractFactory("MockRelayGovernanceNext")).deploy(0, 0, 0, 0, 0, 0);
@@ -32,12 +36,18 @@ describe("Governance cluster — upgrade migration", function () {
     await v2.connect(gov).migrate(await v1.getAddress());
     await v1.connect(gov).migrateFundsTo(await v2.getAddress());
 
+    // config
     expect(await v2.quorum()).to.equal(10n);
-    expect(await v2.minGraceBlocks()).to.equal(100n);
-    expect(await v2.slashAmountBps()).to.equal(5000);
-    expect(await v2.convictionLockup(0)).to.equal(100n);
     expect(await v2.convictionLockup(8)).to.equal(365n);
-    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(parseDOT("4"));
+    expect(await v2.nextProposalId()).to.equal(2n);
+    // in-flight proposal + vote record carried over
+    expect((await v2.getProposal(1)).relay).to.equal(owner.address);
+    expect(await v2.proposalVoterCount(1)).to.equal(1n);
+    const vote = await v2.getVote(1, g3.address);
+    expect(vote.lockAmount).to.equal(parseDOT("2"));
+    expect(vote.direction).to.equal(1n); // aye
+    // locked DOT swept so the successor can honour the eventual withdrawVote
+    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(parseDOT("2"));
     expect(await ethers.provider.getBalance(await v1.getAddress())).to.equal(0n);
   });
 

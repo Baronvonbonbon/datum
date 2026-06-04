@@ -191,6 +191,9 @@ contract DatumAdvertiserGovernance is
         bool    withdrawn;
     }
     mapping(uint256 => mapping(address => VoteRecord)) public votes;
+    /// @dev Per-proposal voter enumeration for in-flight conviction-vote migration.
+    mapping(uint256 => address[]) private _proposalVoters;
+    mapping(uint256 => mapping(address => bool)) private _voterTracked;
 
     constructor(
         uint256 _quorum,
@@ -404,6 +407,7 @@ contract DatumAdvertiserGovernance is
         require(p.startBlock != 0 && !p.resolved, "E50");
         require(msg.value > 0, "E11");
         require(votes[id][msg.sender].stake == 0, "E42"); // single vote per user per proposal
+        if (!_voterTracked[id][msg.sender]) { _voterTracked[id][msg.sender] = true; _proposalVoters[id].push(msg.sender); }
 
         uint256 w = msg.value * _weight(id, conviction);
         uint256 lockup = block.number + _lockup(conviction);
@@ -507,6 +511,10 @@ contract DatumAdvertiserGovernance is
 
     function govPayoutHolderCount() external view returns (uint256) { return _govPayoutHolders.length; }
     function govPayoutHolderAt(uint256 i) external view returns (address) { return _govPayoutHolders[i]; }
+    function getProposal(uint256 id) external view returns (Proposal memory) { return proposals[id]; }
+    function getVoteRecord(uint256 id, address voter) external view returns (VoteRecord memory) { return votes[id][voter]; }
+    function proposalVoterCount(uint256 id) external view returns (uint256) { return _proposalVoters[id].length; }
+    function proposalVoterAt(uint256 id, uint256 i) external view returns (address) { return _proposalVoters[id][i]; }
 
     /// @dev Copy governance params + treasury accounting + Council-claim config +
     ///      settled pending payouts from a frozen predecessor. In-flight
@@ -525,6 +533,19 @@ contract DatumAdvertiserGovernance is
         councilArbiter = old.councilArbiter();
         publisherClaimBond = old.publisherClaimBond();
         nextPublisherClaimId = old.nextPublisherClaimId();
+        // In-flight proposals + their time-locked conviction votes (ids 1..nextProposalId).
+        nextProposalId = old.nextProposalId();
+        for (uint256 id = 1; id <= nextProposalId; id++) {
+            proposals[id] = old.getProposal(id);
+            proposalConvictionA[id] = old.proposalConvictionA(id);
+            proposalConvictionB[id] = old.proposalConvictionB(id);
+            uint256 vn = old.proposalVoterCount(id);
+            for (uint256 j = 0; j < vn; j++) {
+                address voter = old.proposalVoterAt(id, j);
+                votes[id][voter] = old.getVoteRecord(id, voter);
+                if (!_voterTracked[id][voter]) { _voterTracked[id][voter] = true; _proposalVoters[id].push(voter); }
+            }
+        }
         uint256 pn = old.govPayoutHolderCount();
         for (uint256 i = 0; i < pn; i++) {
             address a = old.govPayoutHolderAt(i);
