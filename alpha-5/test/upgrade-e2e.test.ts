@@ -1,0 +1,268 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { parseDOT } from "./helpers/dot";
+import { fundSigners } from "./helpers/mine";
+
+// End-to-end validation of the redeploy-migrate-rewire upgrade model on a real
+// stateful + fund-holding contract (DatumPublisherStake), with state and native
+// DOT loaded through the contract's NORMAL entry points — not synthetic hooks.
+//
+// Lifecycle exercised, exactly as a production governance upgrade would run it:
+//   1. deploy v1, wire the governance router
+//   2. load real state + funds (publishers stake())
+//   3. freeze v1  (onlyGovernance)
+//   4. deploy v2 (version bumped), wire the same router
+//   5. v2.migrate(v1)          -> _migrate copies every staker's record
+//   6. v1.migrateFundsTo(v2)   -> sweeps native DOT to v2.acceptMigration
+//   7. assert: identical per-publisher state, identical balance, version bumped,
+//      predecessor frozen, successor live (post-upgrade stake works)
+describe("Upgrade E2E — bump version with loaded data (DatumPublisherStake)", function () {
+  let owner: HardhatEthersSigner, gov: HardhatEthersSigner;
+  let pubA: HardhatEthersSigner, pubB: HardhatEthersSigner, pubC: HardhatEthersSigner;
+  let router: any, v1: any, v2: any;
+
+  const BASE = 1_000_000n;       // baseStakePlanck
+  const PER_IMP = 1_000n;        // planckPerImpression
+  const DELAY = 10n;             // unstakeDelayBlocks
+
+  const STAKE_A = 5_000_000n;
+  const STAKE_B = 3_000_000n;
+  const STAKE_B2 = 2_000_000n;   // pubB stakes twice
+
+  beforeEach(async function () {
+    [owner, gov, pubA, pubB, pubC] = await ethers.getSigners();
+    router = await (await ethers.getContractFactory("MockOpenGovRouter")).deploy();
+    await router.setGovernor(gov.address);
+
+    v1 = await (await ethers.getContractFactory("DatumPublisherStake")).deploy(BASE, PER_IMP, DELAY);
+    await v1.setRouter(await router.getAddress());
+  });
+
+  it("carries every staker's state + the full native balance across a version bump, and stays live", async function () {
+    // ── 2. load real state + funds through the normal stake() path ──
+    await v1.connect(pubA).stake({ value: STAKE_A });
+    await v1.connect(pubB).stake({ value: STAKE_B });
+    await v1.connect(pubB).stake({ value: STAKE_B2 }); // accumulates
+    // pubB also opens a pending unstake so we prove that record migrates too
+    await v1.connect(pubB).requestUnstake(1_000_000n);
+
+    const expectA = STAKE_A;
+    const expectB = STAKE_B + STAKE_B2 - 1_000_000n;
+    const totalOnChain = await ethers.provider.getBalance(await v1.getAddress());
+    expect(await v1.staked(pubA.address)).to.equal(expectA);
+    expect(await v1.staked(pubB.address)).to.equal(expectB);
+    expect(totalOnChain).to.equal(STAKE_A + STAKE_B + STAKE_B2); // unstake is still escrowed until claimed
+    const stakerCount = await v1.stakerCount();
+    const pendingB = await v1.pendingUnstake(pubB.address);
+
+    // ── 3. freeze v1 (onlyGovernance) ──
+    await v1.connect(gov).freeze();
+    expect(await v1.frozen()).to.equal(true);
+    // frozen predecessor rejects new stakes
+    await expect(v1.connect(pubC).stake({ value: 1_000_000n })).to.be.reverted;
+
+    // ── 4. deploy v2 (version bumped) + wire same router ──
+    v2 = await (await ethers.getContractFactory("MockPublisherStakeV2")).deploy(BASE, PER_IMP, DELAY);
+    await v2.setRouter(await router.getAddress());
+    expect(await v2.version()).to.be.greaterThan(await v1.version());
+
+    // ── 5. migrate state (onlyGovernance, requires old frozen + lower version) ──
+    await v2.connect(gov).migrate(await v1.getAddress());
+    expect(await v2.migrated()).to.equal(true);
+    expect(await v2.migrationSource()).to.equal(await v1.getAddress());
+
+    // ── 6. sweep native DOT to the successor ──
+    await v1.connect(gov).migrateFundsTo(await v2.getAddress());
+    expect(await v1.fundsMigratedOut()).to.equal(true);
+
+    // ── 7. assert full carry-over ──
+    // per-publisher state identical
+    expect(await v2.staked(pubA.address)).to.equal(expectA);
+    expect(await v2.staked(pubB.address)).to.equal(expectB);
+    expect(await v2.stakerCount()).to.equal(stakerCount);
+    // config params copied
+    expect(await v2.baseStakePlanck()).to.equal(BASE);
+    expect(await v2.planckPerImpression()).to.equal(PER_IMP);
+    expect(await v2.unstakeDelayBlocks()).to.equal(DELAY);
+    // pending-unstake record copied
+    const pendingB2 = await v2.pendingUnstake(pubB.address);
+    expect(pendingB2.amount).to.equal(pendingB.amount);
+    expect(pendingB2.availableBlock).to.equal(pendingB.availableBlock);
+    // funds fully on the successor; predecessor drained
+    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(totalOnChain);
+    expect(await ethers.provider.getBalance(await v1.getAddress())).to.equal(0n);
+
+    // ── liveness: the successor is the live contract; a NEW stake works ──
+    await v2.connect(pubC).stake({ value: 4_000_000n });
+    expect(await v2.staked(pubC.address)).to.equal(4_000_000n);
+    expect(await ethers.provider.getBalance(await v2.getAddress())).to.equal(totalOnChain + 4_000_000n);
+  });
+
+  it("rejects a downgrade and an unfrozen-predecessor migration", async function () {
+    await v1.connect(pubA).stake({ value: STAKE_A });
+
+    v2 = await (await ethers.getContractFactory("MockPublisherStakeV2")).deploy(BASE, PER_IMP, DELAY);
+    await v2.setRouter(await router.getAddress());
+
+    // predecessor not yet frozen -> migrate must refuse
+    await expect(v2.connect(gov).migrate(await v1.getAddress())).to.be.revertedWith("old-not-frozen");
+
+    await v1.connect(gov).freeze();
+    await v2.connect(gov).migrate(await v1.getAddress());
+
+    // a third contract at the SAME version can't migrate FROM v2 (no downgrade / equal-version)
+    const v2b = await (await ethers.getContractFactory("MockPublisherStakeV2")).deploy(BASE, PER_IMP, DELAY);
+    await v2b.setRouter(await router.getAddress());
+    await v2.connect(gov).freeze();
+    await expect(v2b.connect(gov).migrate(await v2.getAddress())).to.be.revertedWith("downgrade");
+  });
+
+  it("migrate + freeze + fund sweep are governance-only", async function () {
+    await v1.connect(pubA).stake({ value: STAKE_A });
+    await expect(v1.connect(pubA).freeze()).to.be.reverted;          // not governor
+    await v1.connect(gov).freeze();
+    await expect(v1.connect(pubA).migrateFundsTo(owner.address)).to.be.reverted; // not governor
+    v2 = await (await ethers.getContractFactory("MockPublisherStakeV2")).deploy(BASE, PER_IMP, DELAY);
+    await v2.setRouter(await router.getAddress());
+    await expect(v2.connect(pubA).migrate(await v1.getAddress())).to.be.reverted; // not governor
+  });
+});
+
+// End-to-end validation of the DatumCampaigns carve-out upgrade: campaigns are
+// loaded through the REAL createCampaign path (with pots + advertiser gates),
+// then carried into a version-bumped successor exactly as
+// scripts/migrate-campaigns.ts would — setMigrationLogic + a migrateDelegate
+// loop that replays each campaign's FULL state (struct + pots + every gate).
+describe("Upgrade E2E — Campaigns carve-out, loaded via createCampaign", function () {
+  let owner: HardhatEthersSigner, gov: HardhatEthersSigner, advertiser: HardhatEthersSigner, publisher: HardhatEthersSigner, lifecycleMock: HardhatEthersSigner;
+  let router: any, pauseReg: any, publishers: any, ledger: any, v1: any;
+
+  const MIN_CPM = 0n;
+  const PENDING_TIMEOUT = 50n;
+  const BUDGET = parseDOT("2");
+  const DAILY_CAP = parseDOT("1");
+  const BID_CPM = parseDOT("0.01");
+  const TAKE_RATE_BPS = 5000;
+  const CAT = ethers.encodeBytes32String("news");
+
+  function pot(): any {
+    return { actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress };
+  }
+
+  // Read one campaign's FULL state from a contract into the importCampaignFull shape.
+  async function readFull(c: any, id: bigint): Promise<any> {
+    return {
+      core: await c.getCampaignStruct(id),
+      pots: await c.getCampaignPots(id),
+      allowlistEnabled: await c.campaignAllowlistEnabled(id),
+      assuranceLevel: await c.campaignAssuranceLevel(id),
+      minStake: await c.campaignMinStake(id),
+      requiredCategory: await c.campaignRequiredCategory(id),
+      userEventCap: await c.userEventCapPerWindow(id),
+      userCapWindow: await c.userCapWindowBlocks(id),
+      minHistory: await c.minUserSettledHistory(id),
+      minIdentityLevel: await c.campaignMinIdentityLevel(id),
+    };
+  }
+
+  beforeEach(async function () {
+    await fundSigners();
+    [owner, gov, advertiser, publisher, lifecycleMock] = await ethers.getSigners();
+    router = await (await ethers.getContractFactory("MockOpenGovRouter")).deploy();
+    await router.setGovernor(gov.address);
+
+    pauseReg = await (await ethers.getContractFactory("DatumPauseRegistry")).deploy(owner.address, advertiser.address, publisher.address);
+    publishers = await (await ethers.getContractFactory("DatumPublishers")).deploy(50n, await pauseReg.getAddress());
+    ledger = await (await ethers.getContractFactory("DatumBudgetLedger")).deploy();
+    v1 = await (await ethers.getContractFactory("DatumCampaigns")).deploy(MIN_CPM, PENDING_TIMEOUT, await publishers.getAddress(), await pauseReg.getAddress());
+    await ledger.setCampaigns(await v1.getAddress());
+    await v1.setBudgetLedger(await ledger.getAddress());
+    await v1.setLifecycleContract(lifecycleMock.address);
+    await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);
+    await v1.setRouter(await router.getAddress());
+  });
+
+  it("carries every campaign's full state (struct + pots + gates) across a version bump", async function () {
+    // ── load: two real campaigns via createCampaign ──
+    // closed campaign (registered publisher) with a full set of advertiser gates
+    await v1.connect(advertiser).createCampaign(
+      publisher.address, [pot()], [], true, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
+    );
+    await v1.connect(advertiser).setCampaignAssuranceLevel(1, 2);
+    await v1.connect(advertiser).setCampaignMinStake(1, parseDOT("0.5"));
+    await v1.connect(advertiser).setCampaignRequiredCategory(1, CAT);
+    await v1.connect(advertiser).setCampaignUserCap(1, 7, 200);
+    await v1.connect(advertiser).setCampaignMinHistory(1, 4);
+    await v1.connect(advertiser).setCampaignMinIdentityLevel(1, 1);
+    // open campaign (publisher = 0)
+    await v1.connect(advertiser).createCampaign(
+      ethers.ZeroAddress, [pot()], [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
+    );
+
+    const nextId: bigint = await v1.nextCampaignId();
+    const snap = [await readFull(v1, 1n), await readFull(v1, 2n)];
+
+    // ── freeze v1 ──
+    await v1.connect(gov).freeze();
+    expect(await v1.frozen()).to.equal(true);
+
+    // ── deploy successor (version bumped) + the migration logic ──
+    const v2 = await (await ethers.getContractFactory("MockCampaignsV2")).deploy(MIN_CPM, PENDING_TIMEOUT, await publishers.getAddress(), await pauseReg.getAddress());
+    await v2.setRouter(await router.getAddress());
+    expect(await v2.version()).to.be.greaterThan(await v1.version());
+    const logic = await (await ethers.getContractFactory("DatumCampaignsMigrationLogic")).deploy();
+    const logicIface = (await ethers.getContractFactory("DatumCampaignsMigrationLogic")).interface;
+    await v2.connect(gov).setMigrationLogic(await logic.getAddress());
+
+    // ── replay each campaign's full state via migrateDelegate (the script flow) ──
+    for (let id = 1n; id < nextId; id++) {
+      const fi = await readFull(v1, id);
+      const data = logicIface.encodeFunctionData("importCampaignFull", [id, fi]);
+      await v2.connect(gov).migrateDelegate(data);
+    }
+    await v2.connect(gov).migrateBumpNextId(nextId);
+
+    // ── assert full carry-over on the successor ──
+    expect(await v2.nextCampaignId()).to.equal(nextId);
+    for (let id = 1n; id < nextId; id++) {
+      const before = snap[Number(id) - 1];
+      const after = await readFull(v2, id);
+      expect(after.core.advertiser).to.equal(before.core.advertiser);
+      expect(after.core.publisher).to.equal(before.core.publisher);
+      expect(after.core.snapshotTakeRateBps).to.equal(before.core.snapshotTakeRateBps);
+      expect(after.core.status).to.equal(before.core.status);
+      expect(after.core.requiresZkProof).to.equal(before.core.requiresZkProof);
+      expect(after.core.viewBid).to.equal(before.core.viewBid);
+      expect(after.pots.length).to.equal(before.pots.length);
+      expect(after.pots[0].ratePlanck).to.equal(before.pots[0].ratePlanck);
+      expect(after.pots[0].budgetPlanck).to.equal(before.pots[0].budgetPlanck);
+      expect(after.assuranceLevel).to.equal(before.assuranceLevel);
+      expect(after.minStake).to.equal(before.minStake);
+      expect(after.requiredCategory).to.equal(before.requiredCategory);
+      expect(after.userEventCap).to.equal(before.userEventCap);
+      expect(after.userCapWindow).to.equal(before.userCapWindow);
+      expect(after.minHistory).to.equal(before.minHistory);
+      expect(after.minIdentityLevel).to.equal(before.minIdentityLevel);
+    }
+    // gate values specifically (campaign 1)
+    expect(await v2.campaignAssuranceLevel(1)).to.equal(2);
+    expect(await v2.campaignMinStake(1)).to.equal(parseDOT("0.5"));
+    expect(await v2.campaignRequiredCategory(1)).to.equal(CAT);
+    expect(await v2.userEventCapPerWindow(1)).to.equal(7);
+    expect(await v2.userCapWindowBlocks(1)).to.equal(200);
+    expect(await v2.minUserSettledHistory(1)).to.equal(4);
+    expect(await v2.campaignMinIdentityLevel(1)).to.equal(1);
+
+    // ── liveness: rewire successor's budget ledger, new campaign gets a fresh id ──
+    const ledger2 = await (await ethers.getContractFactory("DatumBudgetLedger")).deploy();
+    await ledger2.setCampaigns(await v2.getAddress());
+    await v2.setBudgetLedger(await ledger2.getAddress());
+    await v2.setLifecycleContract(lifecycleMock.address);
+    await v2.connect(advertiser).createCampaign(
+      publisher.address, [pot()], [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
+    );
+    expect(await v2.nextCampaignId()).to.equal(nextId + 1n);
+    expect(await v2.getCampaignAdvertiser(nextId)).to.equal(advertiser.address);
+  });
+});
