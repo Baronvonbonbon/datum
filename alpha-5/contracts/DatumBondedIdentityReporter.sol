@@ -43,7 +43,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
 
     /// @notice Upgrade ladder version. Increment per deployment when storage
     ///         layout or behavior changes.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ── Constants (sanity ceilings — params governable up to these) ───────────
     uint256 public constant MAX_APPROVAL_THRESHOLD_BPS = 9900;
@@ -115,6 +115,22 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
 
     // ── Pull-pattern payouts ──────────────────────────────────────────────────
     mapping(address => uint256) private _pendingPayout;
+
+    // ── Enumeration for upgrade migration (holds reporter stakes + payouts) ──
+    // reporterList already enumerates reporters; add payout-holder enumeration
+    // (recipients: proposers / challengers / treasury). All _pendingPayout
+    // credits route through _queuePayout. In-flight attestations must be drained
+    // (finalized→cache or resolved) BEFORE migration; finalized identity records
+    // live in the migrated DatumPeopleChainIdentity cache, not here.
+    address[] private _payoutHolders;
+    mapping(address => bool) private _payoutTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _queuePayout(address a, uint256 amt) internal {
+        _pendingPayout[a] += amt;
+        if (a != address(0) && !_payoutTracked[a]) { _payoutTracked[a] = true; _payoutHolders.push(a); }
+    }
 
     // ── Events ────────────────────────────────────────────────────────────────
     event CacheSet(address indexed cache);
@@ -286,7 +302,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         delete _reporterIndex[msg.sender];
         delete reporterStake[msg.sender];
 
-        _pendingPayout[msg.sender] += amount;
+        _queuePayout(msg.sender, amount);
         emit ReporterExited(msg.sender, amount);
     }
 
@@ -418,8 +434,8 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         uint256 toTreasury   = totalSlash - toChallenger;
 
         // Challenger gets their bond back plus the challenger share
-        _pendingPayout[a.challenger] += uint256(a.challengerBondPaid) + toChallenger;
-        _pendingPayout[treasury]     += toTreasury;
+        _queuePayout(a.challenger, uint256(a.challengerBondPaid) + toChallenger);
+        _queuePayout(treasury, toTreasury);
 
         a.status = AttestStatus.Slashed;
         emit AttestationSlashed(key, a.challenger, totalSlash);
@@ -441,7 +457,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         a.challengerBondPaid = 0;
         a.status = AttestStatus.Pending;
 
-        _pendingPayout[treasury] += forfeited;
+        _queuePayout(treasury, forfeited);
         emit ChallengeDismissed(key);
     }
 
@@ -463,7 +479,7 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
         a.status = AttestStatus.Finalized;
         // Refund proposer bond. Pull-pattern so a reverting recipient
         // can't block finalization.
-        _pendingPayout[a.proposer] += uint256(a.proposerBondPaid);
+        _queuePayout(a.proposer, uint256(a.proposerBondPaid));
 
         cache.submitAttestation(a.user, a.level, a.validityBlocks);
         emit AttestationFinalized(key);
@@ -504,5 +520,67 @@ contract DatumBondedIdentityReporter is DatumUpgradable, PaseoSafeSender {
 
     function isApproved(bytes32 key, address by) external view returns (bool) {
         return _approvedBy[key][by];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Upgrade migration (reporters + stakes + nonces + payouts; native sweep)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function payoutHolderCount() external view returns (uint256) { return _payoutHolders.length; }
+    function payoutHolderAt(uint256 i) external view returns (address) { return _payoutHolders[i]; }
+
+    /// @dev Copy params + treasury + reporter set (stake + proposer nonce) +
+    ///      pending payouts from a frozen predecessor. In-flight attestations are
+    ///      NOT migrated — they must be drained (finalized to the cache or
+    ///      resolved) before migration; finalized identity records live in the
+    ///      separately-migrated DatumPeopleChainIdentity cache. `cache` is
+    ///      re-wired. Native DOT (stakes + payouts + live bonds) moves via
+    ///      `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumBondedIdentityReporter old = DatumBondedIdentityReporter(payable(oldContract));
+        reporterMinStake = old.reporterMinStake();
+        reporterExitDelay = old.reporterExitDelay();
+        approvalThresholdBps = old.approvalThresholdBps();
+        challengeWindow = old.challengeWindow();
+        proposerBond = old.proposerBond();
+        challengerBond = old.challengerBond();
+        slashedToChallengerBps = old.slashedToChallengerBps();
+        slashApproverBps = old.slashApproverBps();
+        treasury = old.treasury();
+        totalReporterStake = old.totalReporterStake();
+
+        uint256 rn = old.reporterCount();
+        for (uint256 i = 0; i < rn; i++) {
+            address r = old.reporterList(i);
+            (uint256 amt, uint64 joined, uint64 exitProp) = old.reporterStake(r);
+            reporterStake[r] = ReporterStake({ amount: amt, joinedAtBlock: joined, exitProposedBlock: exitProp });
+            proposerNonce[r] = old.proposerNonce(r);
+            // Replicate the predecessor's 0-based index convention (push in order).
+            _reporterIndex[r] = reporterList.length;
+            reporterList.push(r);
+        }
+        uint256 pn = old.payoutHolderCount();
+        for (uint256 i = 0; i < pn; i++) {
+            address a = old.payoutHolderAt(i);
+            _pendingPayout[a] = old.pending(a);
+            if (!_payoutTracked[a]) { _payoutTracked[a] = true; _payoutHolders.push(a); }
+        }
+    }
+
+    /// @notice Sweep native DOT (stakes + payouts + bonds) to a successor during
+    ///         an upgrade. Governance-gated, frozen-only, one-shot. Hand-rolled
+    ///         (this contract keeps its own cache lock-once pattern).
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumBondedIdentityReporter(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

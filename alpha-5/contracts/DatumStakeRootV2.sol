@@ -37,7 +37,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
     /// @notice Upgrade ladder version.
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     // ── Constants (sanity ceilings — params governable up to these) ───────────
     uint256 public constant MAX_APPROVAL_THRESHOLD_BPS = 9900;
@@ -127,6 +127,21 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
     // ── Pull-pattern payouts ──────────────────────────────────────────────────
     mapping(address => uint256) private _pendingPayout;
+
+    // ── Enumeration for upgrade migration (holds reporter stakes + payouts) ──
+    // reporterList + commitmentList already enumerate; add committed epochs
+    // (sparse rootAt keys) + payout holders (reporters/proposers/challengers/
+    // treasury). All _pendingPayout credits route through _queuePayout.
+    uint256[] private _committedEpochs;
+    address[] private _payoutHolders;
+    mapping(address => bool) private _payoutTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _queuePayout(address a, uint256 amt) internal {
+        _pendingPayout[a] += amt;
+        if (a != address(0) && !_payoutTracked[a]) { _payoutTracked[a] = true; _payoutHolders.push(a); }
+    }
 
     // ── G-4 first close (2026-05-20): permissionless inactivity eviction ──
     /// @notice Last block at which a reporter proposed or approved a root
@@ -352,7 +367,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         delete _reporterIndex[msg.sender];
         delete reporterStake[msg.sender];
 
-        _pendingPayout[msg.sender] += amount;
+        _queuePayout(msg.sender, amount);
         emit ReporterExited(msg.sender, amount);
     }
 
@@ -414,7 +429,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         registeredCommitments[commitment] = true;
         commitmentList.push(commitment);
         // Bond is routed to treasury (Sybil-pricing, not refundable).
-        if (msg.value > 0) _pendingPayout[treasury] += msg.value;
+        if (msg.value > 0) _queuePayout(treasury, msg.value);
 
         emit CommitmentRegistered(commitment, msg.sender);
     }
@@ -504,10 +519,11 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
         bytes32 root = p.root;
         rootAt[epoch] = root;
+        _committedEpochs.push(epoch);
         if (epoch > latestEpoch) latestEpoch = epoch;
 
         // Refund proposer bond
-        _pendingPayout[p.proposer] += uint256(p.proposerBond);
+        _queuePayout(p.proposer, uint256(p.proposerBond));
 
         // Clear pending state. We don't iterate _approvedBy[epoch][*] — that
         // mapping persists, which is fine (it's never re-read after finalization
@@ -554,7 +570,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         require(!registeredCommitments[commitment], "E53");
 
         // Refund challenger their bond before slashing accounting
-        _pendingPayout[msg.sender] += msg.value;
+        _queuePayout(msg.sender, msg.value);
 
         _slashProposer(epoch, msg.sender);
     }
@@ -621,7 +637,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         require(actualBalance != claimedBalance, "E53");
 
         // Refund challenger bond, then slash proposer + approvers.
-        _pendingPayout[msg.sender] += msg.value;
+        _queuePayout(msg.sender, msg.value);
         _slashProposer(epoch, msg.sender);
     }
 
@@ -683,8 +699,8 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
         uint256 toChallenger = totalSlash * uint256(slashedToChallengerBps) / 10000;
         uint256 toTreasury = totalSlash - toChallenger;
-        if (toChallenger > 0) _pendingPayout[challenger] += toChallenger;
-        if (toTreasury > 0) _pendingPayout[treasury] += toTreasury;
+        if (toChallenger > 0) _queuePayout(challenger, toChallenger);
+        if (toTreasury > 0) _queuePayout(treasury, toTreasury);
 
         emit RootSlashed(epoch, challenger, totalSlash);
     }
@@ -734,5 +750,84 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
     }
     function hasApproved(uint256 epoch, address who) external view returns (bool) {
         return _approvedBy[epoch][who];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Upgrade migration (reporters + stakes + roots + commitments + payouts)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function committedEpochCount() external view returns (uint256) { return _committedEpochs.length; }
+    function committedEpochAt(uint256 i) external view returns (uint256) { return _committedEpochs[i]; }
+    function commitmentListLength() external view returns (uint256) { return commitmentList.length; }
+    function payoutHolderCount() external view returns (uint256) { return _payoutHolders.length; }
+    function payoutHolderAt(uint256 i) external view returns (address) { return _payoutHolders[i]; }
+
+    /// @dev Copy params + treasury + reporter set (stake + lastActiveBlock) +
+    ///      finalized roots + registered commitments + pending payouts from a
+    ///      frozen predecessor. In-flight (unfinalized) pending roots + their
+    ///      approver state are transient and NOT migrated — reporters re-propose.
+    ///      identityVerifier is re-wired; datumToken is constructor-immutable.
+    ///      Native DOT (stakes + payouts + bonds) moves via `migrateFundsTo`.
+    function _migrate(address oldContract) internal override {
+        DatumStakeRootV2 old = DatumStakeRootV2(payable(oldContract));
+        reporterMinStake = old.reporterMinStake();
+        reporterExitDelay = old.reporterExitDelay();
+        approvalThresholdBps = old.approvalThresholdBps();
+        challengeWindow = old.challengeWindow();
+        proposerBond = old.proposerBond();
+        challengerBond = old.challengerBond();
+        slashedToChallengerBps = old.slashedToChallengerBps();
+        slashApproverBps = old.slashApproverBps();
+        commitmentBond = old.commitmentBond();
+        inactivityThresholdBlocks = old.inactivityThresholdBlocks();
+        treasury = old.treasury();
+        totalReporterStake = old.totalReporterStake();
+        latestEpoch = old.latestEpoch();
+
+        uint256 rn = old.reporterCount();
+        for (uint256 i = 0; i < rn; i++) {
+            address r = old.reporterList(i);
+            (uint256 amt, uint64 joined, uint64 exitProp) = old.reporterStake(r);
+            reporterStake[r] = ReporterStake({ amount: amt, joinedAtBlock: joined, exitProposedBlock: exitProp });
+            lastActiveBlock[r] = old.lastActiveBlock(r);
+            // Replicate the predecessor's 0-based index convention (push in order).
+            _reporterIndex[r] = reporterList.length;
+            reporterList.push(r);
+        }
+        uint256 en = old.committedEpochCount();
+        for (uint256 i = 0; i < en; i++) {
+            uint256 e = old.committedEpochAt(i);
+            rootAt[e] = old.rootAt(e);
+            _committedEpochs.push(e);
+        }
+        uint256 cn = old.commitmentListLength();
+        for (uint256 i = 0; i < cn; i++) {
+            bytes32 c = old.commitmentList(i);
+            registeredCommitments[c] = old.registeredCommitments(c);
+            commitmentList.push(c);
+        }
+        uint256 pn = old.payoutHolderCount();
+        for (uint256 i = 0; i < pn; i++) {
+            address a = old.payoutHolderAt(i);
+            _pendingPayout[a] = old.pending(a);
+            if (!_payoutTracked[a]) { _payoutTracked[a] = true; _payoutHolders.push(a); }
+        }
+    }
+
+    /// @notice Sweep native DOT (reporter stakes + pending payouts + bonds) to a
+    ///         successor during an upgrade. Governance-gated, frozen-only,
+    ///         one-shot. Hand-rolled (this contract keeps its own plumbing lock).
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumStakeRootV2(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }
