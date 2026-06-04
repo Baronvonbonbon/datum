@@ -42,7 +42,7 @@ contract DatumRelayGovernance is
     DatumUpgradable,
     ParameterRetuneGuard
 {
-    function version() public pure override returns (uint256) { return 1; }
+    function version() public pure virtual override returns (uint256) { return 1; }
 
     uint8 public constant MAX_CONVICTION = 8;
     uint256 public constant CONVICTION_SCALE = 100;
@@ -73,6 +73,21 @@ contract DatumRelayGovernance is
 
     /// @notice Pull-pattern payout queue for proposer / treasury / vote refunds.
     mapping(address => uint256) public pendingGovPayout;
+
+    // ── Enumeration for upgrade migration (holds locked conviction DOT) ──
+    // In-flight proposals/votes are drained pre-migration (resolved → refunds
+    // queue into pendingGovPayout); _migrate copies config + the settled payout
+    // queue, and migrateFundsTo sweeps the native DOT. All payout credits route
+    // through _queueGovPayout so the holder set stays enumerable.
+    address[] private _govPayoutHolders;
+    mapping(address => bool) private _govPayoutTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _queueGovPayout(address a, uint256 amt) internal {
+        pendingGovPayout[a] += amt;
+        if (a != address(0) && !_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+    }
     /// @notice Owner-claimable residue (slash remainder after challenger+treasury cuts).
     uint256 public treasuryBalance;
 
@@ -382,12 +397,12 @@ contract DatumRelayGovernance is
                     uint256 tCut   = (slashAmount * uint256(treasuryBps)) / 10000;
 
                     if (cBonus > 0) {
-                        pendingGovPayout[p.proposer] += cBonus;
+                        _queueGovPayout(p.proposer, cBonus);
                         distributed += cBonus;
                         emit GovPayoutQueued(p.proposer, cBonus, "challenger bonus");
                     }
                     if (tCut > 0 && treasury != address(0)) {
-                        pendingGovPayout[treasury] += tCut;
+                        _queueGovPayout(treasury, tCut);
                         distributed += tCut;
                         emit GovPayoutQueued(treasury, tCut, "treasury cut");
                     }
@@ -403,7 +418,7 @@ contract DatumRelayGovernance is
         p.bond = 0;
         if (bond > 0) {
             address recipient = quorumReached ? p.proposer : owner();
-            pendingGovPayout[recipient] += bond;
+            _queueGovPayout(recipient, bond);
             emit ProposeBondQueued(recipient, bond, quorumReached);
         }
 
@@ -414,7 +429,7 @@ contract DatumRelayGovernance is
         uint256 amount = treasuryBalance;
         if (amount == 0) revert E03();
         treasuryBalance = 0;
-        pendingGovPayout[owner()] += amount;
+        _queueGovPayout(owner(), amount);
         emit TreasurySwept(owner(), amount);
         emit GovPayoutQueued(owner(), amount, "treasury sweep");
     }
@@ -454,5 +469,51 @@ contract DatumRelayGovernance is
     function convictionLockupBlocks(uint8 conviction) external view returns (uint256) {
         if (conviction > MAX_CONVICTION) revert E40();
         return _lockup(conviction);
+    }
+
+    // ── Upgrade migration (config + settled payout queue; native sweep) ──
+
+    function govPayoutHolderCount() external view returns (uint256) { return _govPayoutHolders.length; }
+    function govPayoutHolderAt(uint256 i) external view returns (address) { return _govPayoutHolders[i]; }
+
+    /// @dev Copy governance params + treasury accounting + settled pending
+    ///      payouts from a frozen predecessor. In-flight proposals/votes are
+    ///      NOT migrated — they must be resolved (refunds → pendingGovPayout)
+    ///      before migration. Refs (relayStake / pauseRegistry) are re-wired.
+    function _migrate(address oldContract) internal override {
+        DatumRelayGovernance old = DatumRelayGovernance(payable(oldContract));
+        quorum = old.quorum();
+        minGraceBlocks = old.minGraceBlocks();
+        proposeBond = old.proposeBond();
+        slashAmountBps = old.slashAmountBps();
+        challengerBonusBps = old.challengerBonusBps();
+        treasuryBps = old.treasuryBps();
+        convictionA = old.convictionA();
+        convictionB = old.convictionB();
+        for (uint256 i = 0; i < 9; i++) convictionLockup[i] = old.convictionLockup(i);
+        treasury = old.treasury();
+        treasuryBalance = old.treasuryBalance();
+        uint256 pn = old.govPayoutHolderCount();
+        for (uint256 i = 0; i < pn; i++) {
+            address a = old.govPayoutHolderAt(i);
+            pendingGovPayout[a] = old.pendingGovPayout(a);
+            if (!_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+        }
+    }
+
+    /// @notice Sweep native DOT (settled payouts + treasury residue) to a
+    ///         successor during an upgrade. Governance-gated, frozen-only, one-shot.
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumRelayGovernance(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }

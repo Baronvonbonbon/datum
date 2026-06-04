@@ -42,7 +42,7 @@ contract DatumAdvertiserGovernance is
     /// (setParams, setConvictionCurve, setConvictionLockups,
     /// setPublisherClaimBond) through `onlyOwnerOrPG`. Wiring setters
     /// (setAdvertiserStake, setCouncilArbiter) remain owner-only.
-    function version() public pure override returns (uint256) { return 2; }
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     /// @notice ParameterGovernance address authorised to retune Phase B
     ///         parameters via its bicameral veto-window flow. Lock-once.
@@ -106,6 +106,17 @@ contract DatumAdvertiserGovernance is
     /// @notice Pull-payment queue (G-M3 pattern).
     mapping(address => uint256) public pendingGovPayout;
     uint256 public treasuryBalance;
+
+    // ── Enumeration for upgrade migration (holds locked conviction DOT) ──
+    address[] private _govPayoutHolders;
+    mapping(address => bool) private _govPayoutTracked;
+    bool public fundsMigratedOut;
+    event FundsMigratedOut(address indexed successor, uint256 amount);
+
+    function _queueGovPayout(address a, uint256 amt) internal {
+        pendingGovPayout[a] += amt;
+        if (a != address(0) && !_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+    }
 
     event GovPayoutQueued(address indexed recipient, uint256 amount, string reason);
     event GovPayoutClaimed(address indexed recipient, address indexed to, uint256 amount);
@@ -348,13 +359,13 @@ contract DatumAdvertiserGovernance is
             }
             // Bond refunded to filer (queue pull).
             if (bond > 0) {
-                pendingGovPayout[c.publisher] += bond;
+                _queueGovPayout(c.publisher, bond);
                 emit GovPayoutQueued(c.publisher, bond, "publisher fraud claim upheld");
             }
         } else {
             // Dismissed: bond → advertiser (compensation for false claim).
             if (bond > 0) {
-                pendingGovPayout[c.advertiser] += bond;
+                _queueGovPayout(c.advertiser, bond);
                 emit GovPayoutQueued(c.advertiser, bond, "publisher fraud claim dismissed");
             }
         }
@@ -430,7 +441,7 @@ contract DatumAdvertiserGovernance is
         bool quorumReached = (p.ayeWeighted + p.nayWeighted) >= quorum;
         if (p.bondLocked > 0) {
             if (quorumReached) {
-                pendingGovPayout[p.proposer] += p.bondLocked;
+                _queueGovPayout(p.proposer, p.bondLocked);
                 emit GovPayoutQueued(p.proposer, p.bondLocked, "propose-bond-refund");
             } else {
                 treasuryBalance += p.bondLocked;
@@ -478,7 +489,7 @@ contract DatumAdvertiserGovernance is
         uint256 amount = treasuryBalance;
         require(amount > 0, "E03");
         treasuryBalance = 0;
-        pendingGovPayout[owner()] += amount;
+        _queueGovPayout(owner(), amount);
         emit TreasurySwept(owner(), amount);
     }
 
@@ -490,5 +501,49 @@ contract DatumAdvertiserGovernance is
         // tracked treasuryBalance, not the contract's actual balance).
         require(msg.sender == address(advertiserStake), "E03");
         treasuryBalance += msg.value;
+    }
+
+    // ── Upgrade migration (config + settled payout queue; native sweep) ──
+
+    function govPayoutHolderCount() external view returns (uint256) { return _govPayoutHolders.length; }
+    function govPayoutHolderAt(uint256 i) external view returns (address) { return _govPayoutHolders[i]; }
+
+    /// @dev Copy governance params + treasury accounting + Council-claim config +
+    ///      settled pending payouts from a frozen predecessor. In-flight
+    ///      proposals/votes/claims are drained pre-migration. Refs
+    ///      (advertiserStake / pauseRegistry / parameterGovernance) are re-wired.
+    function _migrate(address oldContract) internal override {
+        DatumAdvertiserGovernance old = DatumAdvertiserGovernance(payable(oldContract));
+        quorum = old.quorum();
+        slashBps = old.slashBps();
+        minGraceBlocks = old.minGraceBlocks();
+        proposeBond = old.proposeBond();
+        convictionA = old.convictionA();
+        convictionB = old.convictionB();
+        for (uint256 i = 0; i < 9; i++) convictionLockup[i] = old.convictionLockup(i);
+        treasuryBalance = old.treasuryBalance();
+        councilArbiter = old.councilArbiter();
+        publisherClaimBond = old.publisherClaimBond();
+        nextPublisherClaimId = old.nextPublisherClaimId();
+        uint256 pn = old.govPayoutHolderCount();
+        for (uint256 i = 0; i < pn; i++) {
+            address a = old.govPayoutHolderAt(i);
+            pendingGovPayout[a] = old.pendingGovPayout(a);
+            if (!_govPayoutTracked[a]) { _govPayoutTracked[a] = true; _govPayoutHolders.push(a); }
+        }
+    }
+
+    function migrateFundsTo(address successor) external onlyGovernance nonReentrant {
+        require(frozen, "not frozen");
+        require(!fundsMigratedOut, "already swept");
+        require(successor != address(0), "E00");
+        fundsMigratedOut = true;
+        uint256 bal = address(this).balance;
+        emit FundsMigratedOut(successor, bal);
+        if (bal > 0) DatumAdvertiserGovernance(payable(successor)).acceptMigration{value: bal}();
+    }
+
+    function acceptMigration() external payable {
+        require(msg.sender == migrationSource, "not-source");
     }
 }
