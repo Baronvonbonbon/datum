@@ -8,12 +8,21 @@
 //     the popup doesn't ship the webapp's eventBus layer.
 //
 // Writes:
-//   - PaymentVault.withdrawUser() — pulls pending DOT to the
-//     active account. Signed + broadcast via walletClient.sendContract.
+//   - PaymentVault.withdrawUser() — pulls pending DOT to the active
+//     account. Signed + broadcast via walletClient.sendContract (the
+//     active account pays gas).
+//   - Gasless relay withdrawal — the user signs a DatumPaymentVault
+//     WithdrawAuth (EIP-712, no gas); the relay submits
+//     withdrawUserBySig on-chain, pays the gas, and takes a fee
+//     (feeBps% of the balance) out of the withdrawn earnings. For an
+//     account with no native balance this is the only way to pull.
 
 import { useEffect, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { walletClient, type WalletStatus } from "./walletClient";
+import { getProvider } from "@shared/contracts";
+import { DEFAULT_SETTINGS } from "@shared/networks";
+import type { StoredSettings } from "@shared/types";
 import {
   card,
   button,
@@ -32,6 +41,61 @@ const PAYMENT_VAULT_IFACE = new Interface([
   "function userBalance(address) view returns (uint256)",
   "function withdrawUser()",
 ]);
+
+// EIP-712 WithdrawAuth — must match DatumPaymentVault.WITHDRAW_AUTH_TYPEHASH
+// and the relay's WITHDRAW_AUTH_TYPES byte-for-byte.
+const WITHDRAW_AUTH_TYPES = {
+  WithdrawAuth: [
+    { name: "user", type: "address" },
+    { name: "recipient", type: "address" },
+    { name: "maxFee", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+};
+
+type RelayWithdrawInfo = {
+  ok: boolean;
+  reason?: string;
+  nonce: string;
+  userBalancePlanck: string;
+  feeBps: number;
+  recommendedMaxFeePlanck: string;
+  netPlanck: string;
+  vault: string;
+};
+
+async function loadSettings(): Promise<StoredSettings> {
+  const stored = await chrome.storage.local.get("settings");
+  return stored.settings ?? DEFAULT_SETTINGS;
+}
+
+// The gasless relay is a publisher's relay. Its host is stored per-publisher
+// under `publisherDomain:<addr>` when the user signs-for-publisher; for a
+// withdrawal any configured relay works (they all submit to the same vault).
+// Pick the first. Localhost is reached over http, everything else over https.
+async function resolveRelayUrl(): Promise<string | null> {
+  const all = await chrome.storage.local.get(null);
+  for (const [k, v] of Object.entries(all)) {
+    if (k.startsWith("publisherDomain:") && typeof v === "string" && v) {
+      const scheme = /^(localhost|127\.0\.0\.1)/.test(v) ? "http" : "https";
+      return `${scheme}://${v}`;
+    }
+  }
+  return null;
+}
+
+// HMAC headers for the relay's controlled-exposure gate (matches ClaimQueue +
+// the relay's auth.mjs: X-Datum-Sig = HMAC-SHA256(secret, `${ts}.${body}`)).
+async function relayHmacHeaders(secret: string | undefined, body: string): Promise<Record<string, string>> {
+  if (!secret) return {};
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${ts}.${body}`));
+  const sig = Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return { "x-datum-ts": ts, "x-datum-sig": sig };
+}
 
 const SETTLEMENT_CREDITED_IFACE = new Interface([
   "event SettlementCredited(address indexed publisher, address indexed user, uint256 total)",
@@ -53,6 +117,11 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
   const [withdrawing, setWithdrawing] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Gasless relay state. `relayInfo` is the fee preview from /withdraw-info,
+  // refreshed alongside the balance; null = no relay configured or it's down /
+  // not upgraded (the gasless option then stays hidden).
+  const [relayInfo, setRelayInfo] = useState<RelayWithdrawInfo | null>(null);
+  const [relayWithdrawing, setRelayWithdrawing] = useState(false);
 
   // Pull pending balance + recent settlements when the active
   // address changes (and on a 6s tick while open).
@@ -83,6 +152,24 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
         // (Adding an eventBus equivalent for the extension popup is
         // tracked as part of Stage 8 polish.)
         if (!cancelled) setRecent([]);
+
+        // Best-effort: ask a configured relay what it would charge to submit a
+        // gasless withdrawal. Failures (no relay, relay down, vault not
+        // upgraded) just hide the gasless option — they never surface as errors.
+        try {
+          const relayUrl = await resolveRelayUrl();
+          if (relayUrl && me) {
+            const resp = await fetch(`${relayUrl}/withdraw-info?user=${me}`, {
+              signal: AbortSignal.timeout(8000),
+            });
+            const j = (await resp.json()) as RelayWithdrawInfo;
+            if (!cancelled) setRelayInfo(j?.ok ? j : null);
+          } else if (!cancelled) {
+            setRelayInfo(null);
+          }
+        } catch {
+          if (!cancelled) setRelayInfo(null);
+        }
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message ?? e));
       }
@@ -126,6 +213,83 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
     }
   }
 
+  // Gasless: sign a WithdrawAuth off-chain and let the relay submit it on-chain.
+  // The relay pays gas and takes feeBps% (its recommendedMaxFee) out of the
+  // withdrawn balance; the user receives the net and never needs native funds.
+  async function withdrawViaRelay() {
+    if (!me) return;
+    setErr(null);
+    setTxHash(null);
+    setRelayWithdrawing(true);
+    try {
+      const settings = await loadSettings();
+      const relayUrl = await resolveRelayUrl();
+      if (!relayUrl) {
+        throw new Error(
+          "No relay configured. Sign for a publisher once (Claims tab) to register one, or use the gas-paying withdraw above."
+        );
+      }
+
+      // Re-fetch on-chain bits at submit time: the nonce must be current or the
+      // contract rejects the signature (E82).
+      const infoResp = await fetch(`${relayUrl}/withdraw-info?user=${me}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const info = (await infoResp.json()) as RelayWithdrawInfo;
+      if (!info?.ok) throw new Error(`relay: ${info?.reason ?? "withdraw-info failed"}`);
+      const balance = BigInt(info.userBalancePlanck ?? "0");
+      if (balance === 0n) throw new Error("Nothing to withdraw — your pending balance is 0.");
+      const maxFee = BigInt(info.recommendedMaxFeePlanck ?? "0");
+
+      // deadline is a block number (contract checks block.number <= deadline).
+      const provider = getProvider(settings.rpcUrl);
+      const [block, net] = await Promise.all([provider.getBlockNumber(), provider.getNetwork()]);
+      const deadline = BigInt(block + 100); // ~10 min at 6s blocks
+      const chainId = Number(net.chainId);
+
+      const domain = {
+        name: "DatumPaymentVault",
+        version: "1",
+        chainId,
+        verifyingContract: info.vault,
+      };
+      const value = {
+        user: me,
+        recipient: me, // net lands back in the same account
+        maxFee: maxFee.toString(),
+        nonce: String(info.nonce),
+        deadline: deadline.toString(),
+      };
+      const sig = await walletClient.signTypedData({ domain, types: WITHDRAW_AUTH_TYPES, value });
+
+      const body = JSON.stringify({
+        user: me,
+        recipient: me,
+        maxFee: maxFee.toString(),
+        deadline: deadline.toString(),
+        sig,
+      });
+      const headers = {
+        "Content-Type": "application/json",
+        ...(await relayHmacHeaders(settings.relayHmacSecret, body)),
+      };
+      const resp = await fetch(`${relayUrl}/withdraw`, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(20000),
+      });
+      const out = await resp.json();
+      if (!out?.ok) throw new Error(`relay: ${out?.reason ?? "submit failed"}`);
+      setTxHash(out.hash);
+      setPendingWei(0n); // optimistic — refresh overwrites on the next tick
+    } catch (e: any) {
+      setErr(String(e?.message ?? e));
+    } finally {
+      setRelayWithdrawing(false);
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ ...heading, fontSize: 13 }}>Earnings</div>
@@ -161,6 +325,30 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
       >
         {withdrawing ? "Withdrawing..." : "Withdraw to active account"}
       </button>
+
+      {/* Gasless relay withdrawal — only offered when a relay is configured,
+          reachable, and running an upgraded vault (relayInfo populated). */}
+      {relayInfo && pendingWei !== null && pendingWei > 0n && (
+        <>
+          <div style={{ ...subText, fontSize: 10, marginTop: -2 }}>
+            No gas? The relay can submit for you, charging{" "}
+            {(relayInfo.feeBps / 100).toFixed(relayInfo.feeBps % 100 === 0 ? 0 : 2)}% (
+            {formatDot(BigInt(relayInfo.recommendedMaxFeePlanck))} DOT) from your
+            earnings — you receive {formatDot(BigInt(relayInfo.netPlanck))} DOT and
+            pay nothing.
+          </div>
+          <button
+            style={{
+              ...button("secondary"),
+              opacity: !relayWithdrawing && !withdrawing ? 1 : 0.4,
+              pointerEvents: !relayWithdrawing && !withdrawing ? "auto" : "none",
+            }}
+            onClick={withdrawViaRelay}
+          >
+            {relayWithdrawing ? "Submitting via relay…" : "Withdraw via relay (gasless)"}
+          </button>
+        </>
+      )}
 
       {err && <div style={errorText}>{err}</div>}
       {txHash && (
