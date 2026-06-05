@@ -12,15 +12,15 @@ import {
 // networks.ts and this snapshot at the same time — keeps the source
 // of truth aligned with the addresses the UI ships.
 const ALPHA_5_KEY_ADDRESSES = {
-  campaigns:           "0x34663ec5Dd63A4517eBb4C763FEE6966FfB47a2e",
-  publishers:          "0xBcF1ef361020dC430eb7460aFCa66709BCbcC883",
-  settlement:          "0x4745230354F48610EF905424176A81685C93F62B",
-  pauseRegistry:       "0x7FF4E11716EE89c58DE46F2bA980FF6754Dac8cb",
-  governanceRouter:    "0xfD25A6e7a239Fc37A57Aa99458B7Ecb24BE74d69",
-  council:             "0xad191e330C1cB497844213bf81B1A5305D99F244",
-  identityVerifier:    "0xA993b68f79e3B0bF00c73a12f4C71CEC0AB92E62",
-  mintCoordinator:     "0xb1D9EBEcF960F326b1e521c5E61568bb881ff2CA",
-  peopleChainIdentity: "0x54BDDEd50B553445c3d4b9C35b7278403d0dd7F3",
+  campaigns:           "0x1Fe36fE7A096C6CfF9C9F55f02A1Cce1a44DE3c6",
+  publishers:          "0x357606eB86A75A88Aef257dB161C25fc10714183",
+  settlement:          "0xA81766522Ea4e11bd9374Cd2b0A8a66Ac7b98dB8",
+  pauseRegistry:       "0xac7f7c6B36887a487b63421e4D7A6aD54da40e91",
+  governanceRouter:    "0x44F8e4ceD19c767932F5540229C0454eAf2a695e",
+  council:             "0x4c0981d4b2521903Dcb8dc1B3D4C280DE063546d",
+  identityVerifier:    "0x77850A7490C6CE65AB936d1Bba58baf6f33d8c50",
+  mintCoordinator:     "0xeD00bD4ac8b4f0Fa40710226Bd56a17D60a18350",
+  peopleChainIdentity: "0xCF44b939a03ae511a880020428505a9bc68e76ff",
 };
 
 describe("networks: polkadotTestnet addresses", () => {
