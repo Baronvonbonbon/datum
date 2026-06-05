@@ -60,7 +60,10 @@ async function main() {
   const timelock = await act.timelockBlocks();
   console.log(`  activation minBond=${formatEther(minBond)} PAS, timelock=${timelock} blocks`);
 
-  const budget = parseEther("1"), dailyCap = parseEther("0.5"), cpm = parseEther("0.01");
+  // NOTE: ratePlanck (CPM, per 1000 events) is in PLANCK / 10-decimal (~5e9 = 0.5 PAS),
+  // NOT 18-decimal — same scale as setup-testnet's bidCpm. budget/dailyCap stay
+  // 18-decimal (parseEther). Using parseEther for the CPM yields a ~1e6-PAS payout.
+  const budget = parseEther("1"), dailyCap = parseEther("0.5"), cpm = 5_000_000_000n;
   const pots = [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ZeroAddress }];
 
   const created = [];

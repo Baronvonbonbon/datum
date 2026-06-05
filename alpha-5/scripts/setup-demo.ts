@@ -1,4 +1,4 @@
-// setup-demo.ts — Multi-publisher demo seeding for Alpha-3
+// setup-demo.ts — Multi-publisher demo seeding (alpha-5)
 //
 // Seeds 5 publishers, 3 MockERC20 tokens, and 24 campaigns spanning 7 verticals
 // with competitive CPMs, ERC-20 rewards on 9 campaigns, and an allowlist showcase.
@@ -281,7 +281,11 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
   },
 ];
 
-const TX_OPTS = { gasLimit: 500000000n, type: 0, gasPrice: 1000000000000n };
+// gasLimit 1e9 (not 5e8): closed campaigns with required tags trigger publisher
+// tag VALIDATION in DatumTagSystem (cross-contract) at createCampaign — heavier
+// than open campaigns, so 5e8 runs out of weight on Paseo and the tx
+// silently reverts (nonce advances). 1e9 is still under the per-tx cap.
+const TX_OPTS = { gasLimit: 1000000000n, type: 0, gasPrice: 1000000000000n };
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
 const DEMO_FILE = path.join(__dirname, "../deployed-demo.json");
 
@@ -311,13 +315,16 @@ async function sendCall(
 ): Promise<void> {
   const data = iface.encodeFunctionData(method, args);
   const nonce = await provider.getTransactionCount(signer.address);
-  await signer.sendTransaction({ to, data, value: value ?? 0n, ...(txOpts ?? TX_OPTS) });
+  // Pin the nonce: Paseo's getTransactionCount lags, so letting ethers
+  // auto-fetch it for rapid same-sender txs (the create loop) yields stale/
+  // duplicate nonces → the tx is mined-but-reverted (nonce advances, no effect).
+  await signer.sendTransaction({ to, data, value: value ?? 0n, ...(txOpts ?? TX_OPTS), nonce });
   await waitForNonce(provider, signer.address, nonce);
 }
 
 async function sendTransfer(signer: Wallet, provider: JsonRpcProvider, to: string, value: bigint): Promise<void> {
   const nonce = await provider.getTransactionCount(signer.address);
-  await signer.sendTransaction({ to, value, ...TX_OPTS });
+  await signer.sendTransaction({ to, value, ...TX_OPTS, nonce });
   await waitForNonce(provider, signer.address, nonce);
 }
 
@@ -336,24 +343,25 @@ const publishersAbi = [
   "function setAllowedAdvertiser(address advertiser, bool allowed)",
 ];
 
-const targetingAbi = ["function setTags(bytes32[] tags)"];
+// alpha-4/5: publisher tags live on DatumTagSystem (carved out of Campaigns).
+const tagSystemAbi = ["function setPublisherTags(bytes32[] tagHashes)"];
 
+// alpha-5: multi-pot createCampaign + optimistic activation. setMetadata moved
+// to DatumCampaignCreative. Old single-pot createCampaign + governance-vote
+// activation are gone.
 const campaignsAbi = [
-  "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
-  "function setMetadata(uint256 campaignId, bytes32 metadataHash)",
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
 ];
 
-const govAbi = [
-  "function quorumWeighted() view returns (uint256)",
-  "function vote(uint256 campaignId, bool aye, uint8 conviction) payable",
-  "function evaluateCampaign(uint256 campaignId)",
-];
+const creativeAbi = ["function setMetadata(uint256 campaignId, bytes32 metadataHash)"];
 
-const reputationAbi = [
-  "function setSettlement(address addr)",
-  "function settlement() view returns (address)",
+const activationAbi = [
+  "function activate(uint256 campaignId)",
+  "function minBond() view returns (uint256)",
+  "function timelockBlocks() view returns (uint64)",
+  "function setTimelockBlocks(uint64 v)",
 ];
 
 const erc20Abi = [
@@ -415,13 +423,15 @@ async function main() {
   }
   const addrs = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
 
-  const required21 = [
-    "pauseRegistry", "timelock", "publishers", "campaigns", "budgetLedger", "paymentVault",
-    "campaignLifecycle", "attestationVerifier", "governanceV2", "governanceSlash",
-    "settlement", "relay", "zkVerifier", "targetingRegistry", "campaignValidator",
-    "claimValidator", "governanceHelper", "reports", "rateLimiter", "reputation", "tokenRewardVault",
+  // alpha-5 contract set (merged satellites: targetingRegistry/campaignValidator
+  // → Campaigns; governanceHelper/Slash → GovernanceV2; rateLimiter →
+  // settlementRateLimiter; reputation → publisherReputation; tags → tagSystem).
+  const required = [
+    "pauseRegistry", "publishers", "campaigns", "budgetLedger", "paymentVault",
+    "campaignLifecycle", "settlement", "relay", "zkVerifier", "claimValidator",
+    "tagSystem", "tokenRewardVault", "activationBonds", "campaignCreative",
   ];
-  const missing = required21.filter(k => !addrs[k]);
+  const missing = required.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
     process.exitCode = 1; return;
@@ -429,10 +439,10 @@ async function main() {
 
   // Build interfaces
   const pubIface = new Interface(publishersAbi);
-  const targetIface = new Interface(targetingAbi);
+  const tagIface = new Interface(tagSystemAbi);
   const campIface = new Interface(campaignsAbi);
-  const govIface = new Interface(govAbi);
-  const repIface = new Interface(reputationAbi);
+  const creativeIface = new Interface(creativeAbi);
+  const activationIface = new Interface(activationAbi);
   const erc20Iface = new Interface(erc20Abi);
   const vaultIface = new Interface(vaultAbi);
 
@@ -443,18 +453,20 @@ async function main() {
   const aliceBal = await rawProvider.getBalance(alice.address);
   log("1", `Alice balance: ${formatDOT(aliceBal)} PAS`);
 
+  // alpha-5: optimistic activation (no Frank governance votes), so advertisers
+  // need budget + gas, publishers just gas.
   const toFund: [string, Wallet, bigint][] = [
-    ["bob",     bob,     parseDOT("350")],  // 12 campaigns × ~22 PAS avg + gas
-    ["charlie", charlie, parseDOT("350")],  // 12 campaigns × ~22 PAS avg + gas
+    ["bob",     bob,     parseDOT("350")],  // 12 campaigns × ~22 PAS avg budget + gas
+    ["charlie", charlie, parseDOT("350")],
     ["diana",   diana,   parseDOT("50")],
     ["eve",     eve,     parseDOT("50")],
-    ["frank",   frank,   parseDOT("1500")], // 24 votes × 50 PAS (conviction=1, 2× weight) + buffer
+    ["frank",   frank,   parseDOT("50")],
     ["grace",   grace,   parseDOT("50")],
-    ["heidi",   heidi,   parseDOT("100000000000")], // needs large balance for TX_OPTS fee pre-check
+    ["heidi",   heidi,   parseDOT("50")],
   ];
   for (const [name, wallet, amount] of toFund) {
     const bal = await rawProvider.getBalance(wallet.address);
-    const threshold = name === "frank" ? parseDOT("500") : name === "heidi" ? parseDOT("50000000000") : parseDOT("50");
+    const threshold = parseDOT("40");
     if (bal >= threshold) {
       log("1", `  ${name}: ${formatDOT(bal)} PAS — skipping`);
       continue;
@@ -541,13 +553,13 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // 4. SET PUBLISHER TAGS (correct slugs — not legacy "topic:crypto")
   // ═══════════════════════════════════════════════════════════════════════════
-  log("4", "--- Setting publisher tags (TargetingRegistry) ---");
+  log("4", "--- Setting publisher tags (TagSystem) ---");
 
   for (const [name, cfg] of Object.entries(PUBLISHER_CONFIGS)) {
     const wallet = publisherWallets[name];
     const hashes = cfg.tags.map(tagHash);
     try {
-      await sendCall(wallet, rawProvider, addrs.targetingRegistry, targetIface, "setTags", [hashes]);
+      await sendCall(wallet, rawProvider, addrs.tagSystem, tagIface, "setPublisherTags", [hashes]);
       log("4", `  ${name}: ${cfg.tags.join(", ")}`);
     } catch (err) {
       log("4", `  ${name} tags failed: ${String(err).slice(0, 100)}`);
@@ -600,14 +612,24 @@ async function main() {
     open: ethers.ZeroAddress,
   };
 
-  const quorumRaw = await readCall(rawProvider, addrs.governanceV2, govIface, "quorumWeighted", []);
-  const quorum = BigInt(quorumRaw);
-  // conviction=1 → 2× weight, so stake quorum/2 to meet quorum (halves Frank's balance requirement)
-  const CONVICTION = 1;
-  const VOTE_STAKE = quorum > parseDOT("10") ? quorum / 2n : parseDOT("2");
-  log("7", `  Quorum: ${formatDOT(quorum)} PAS  |  conviction=${CONVICTION}  |  stake per vote: ${formatDOT(VOTE_STAKE)} PAS`);
+  // Optimistic activation: shrink the bond timelock to ~1 min for the seed +
+  // read minBond (each campaign opens a bond at creation, activated below).
+  const TIMELOCK = 10n;
+  const curTl = activationIface.decodeFunctionResult("timelockBlocks",
+    await readCall(rawProvider, addrs.activationBonds, activationIface, "timelockBlocks", []))[0] as bigint;
+  if (BigInt(curTl) !== TIMELOCK) {
+    await sendCall(alice, rawProvider, addrs.activationBonds, activationIface, "setTimelockBlocks", [TIMELOCK]);
+    log("7", `  shrunk ActivationBonds.timelockBlocks ${BigInt(curTl)} → ${TIMELOCK} for seed`);
+  }
+  const minBond = activationIface.decodeFunctionResult("minBond",
+    await readCall(rawProvider, addrs.activationBonds, activationIface, "minBond", []))[0] as bigint;
+  log("7", `  ActivationBonds.minBond: ${formatDOT(BigInt(minBond))} PAS`);
 
   const campaignIds: bigint[] = [];
+  // Compute ids from base + offset — Paseo's eth_call lags state, so re-reading
+  // nextCampaignId() right after a create returns the stale value (would alias
+  // every campaign to the same id). Read the base once.
+  const baseCampaignId = BigInt(await readCall(rawProvider, addrs.campaigns, campIface, "nextCampaignId", []));
 
   for (let i = 0; i < CAMPAIGN_CONFIGS.length; i++) {
     const cfg = CAMPAIGN_CONFIGS[i];
@@ -617,18 +639,19 @@ async function main() {
     const reward = tokenRewards[i];
     const rewardToken = reward?.token ?? ethers.ZeroAddress;
     const rewardPer  = reward?.rewardPerImpression ?? 0n;
+    // ratePlanck (CPM) is 10-decimal planck; the configs use parseDOT (18-decimal)
+    // so divide by 1e8. (budget/dailyCap stay 18-decimal — matches setup-testnet.)
+    const ratePlanck = cfg.bidCpm / (10n ** 8n);
+    const pots = [{ actionType: 0, budgetPlanck: cfg.budget, dailyCapPlanck: cfg.budget, ratePlanck, actionVerifier: ethers.ZeroAddress }];
+    const cid = baseCampaignId + BigInt(campaignIds.length);
 
     try {
-      const nextRaw = await readCall(rawProvider, addrs.campaigns, campIface, "nextCampaignId", []);
-      const cid = BigInt(nextRaw);
-
-      await sendCall(advWallet, rawProvider, addrs.campaigns, campIface, "createCampaign",
-        [pubAddr, cfg.budget, cfg.bidCpm, reqTags, false, rewardToken, rewardPer],
-        cfg.budget,
+      await sendCall(advWallet, rawProvider, addrs.campaigns, campIface, "createCampaignWithActivation",
+        [pubAddr, pots, reqTags, false, rewardToken, rewardPer, 0n, BigInt(minBond)],
+        cfg.budget + BigInt(minBond),
       );
-
       campaignIds.push(cid);
-      log("7", `  ${cfg.label} → ID ${cid}`);
+      log("7", `  ${cfg.label} → ID ${cid} (CPM ${formatDOT(ratePlanck * (10n ** 8n))} PAS)`);
     } catch (err) {
       console.error(`  FAILED to create ${cfg.label}: ${String(err).slice(0, 200)}`);
       process.exitCode = 1; return;
@@ -661,36 +684,27 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 9. VOTE AYE (Frank) + ACTIVATE
+  // 9. ACTIVATE (permissionless, post-timelock — optimistic activation)
   // ═══════════════════════════════════════════════════════════════════════════
-  log("9", "--- Voting + activating all campaigns ---");
+  log("9", "--- Activating campaigns (permissionless, post-timelock) ---");
 
-  const frankBal = await rawProvider.getBalance(frank.address);
-  const neededForVotes = VOTE_STAKE * BigInt(campaignIds.length) + parseDOT("10");
-  if (frankBal < neededForVotes) {
-    log("9", `  WARNING: Frank has ${formatDOT(frankBal)} PAS, needs ${formatDOT(neededForVotes)} — some votes may fail`);
-  }
+  const targetBlock = (await rawProvider.getBlockNumber()) + Number(TIMELOCK) + 1;
+  log("9", `  waiting for activation timelock (block ${targetBlock})...`);
+  while (await rawProvider.getBlockNumber() < targetBlock) await new Promise(r => setTimeout(r, 6000));
 
+  let activated = 0;
   for (let i = 0; i < campaignIds.length; i++) {
     const cid = campaignIds[i];
     const label = `C${i + 1} (id=${cid})`;
     try {
-      await sendCall(frank, rawProvider, addrs.governanceV2, govIface, "vote", [cid, true, CONVICTION], VOTE_STAKE);
-      log("9", `  Frank voted aye on ${label}`);
+      await sendCall(alice, rawProvider, addrs.activationBonds, activationIface, "activate", [cid]);
+      const s = Number(BigInt(await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid])));
+      if (s === 1) activated++; else log("9", `  WARNING: ${label} status ${STATUS_NAMES[s] ?? s}`);
     } catch (err) {
-      log("9", `  vote failed for ${label}: ${String(err).slice(0, 100)}`);
-      continue;
-    }
-    try {
-      await sendCall(alice, rawProvider, addrs.governanceV2, govIface, "evaluateCampaign", [cid]);
-      const sRaw = await readCall(rawProvider, addrs.campaigns, campIface, "getCampaignStatus", [cid]);
-      const s = Number(BigInt(sRaw));
-      log("9", `  ${label}: ${STATUS_NAMES[s] ?? s}`);
-      if (s !== 1) log("9", `  WARNING: ${label} did not activate`);
-    } catch (err) {
-      log("9", `  evaluate failed for ${label}: ${String(err).slice(0, 100)}`);
+      log("9", `  activate failed for ${label}: ${String(err).slice(0, 100)}`);
     }
   }
+  log("9", `  activated ${activated}/${campaignIds.length}`);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 10. SET METADATA
@@ -703,32 +717,18 @@ async function main() {
     const advWallet = wallets[cfg.advertiser];
     const metaHash = keccak256(toUtf8Bytes(`demo-campaign-${cfg.metaSuffix}-${cid}`));
     try {
-      await sendCall(advWallet, rawProvider, addrs.campaigns, campIface, "setMetadata", [cid, metaHash]);
+      await sendCall(advWallet, rawProvider, addrs.campaignCreative, creativeIface, "setMetadata", [cid, metaHash]);
       log("10", `  Campaign ${cid}: ${metaHash.slice(0, 18)}...`);
     } catch (err) {
       log("10", `  setMetadata for campaign ${cid} failed: ${String(err).slice(0, 100)}`);
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 11. WIRE REPUTATION → SETTLEMENT (FP-16)
-  // ═══════════════════════════════════════════════════════════════════════════
-  log("11", "--- Wiring reputation.settlement (FP-16) ---");
-  try {
-    const currentRaw = await readCall(rawProvider, addrs.reputation, repIface, "settlement", []);
-    const current = repIface.decodeFunctionResult("settlement", currentRaw)[0];
-    if (current.toLowerCase() === addrs.settlement.toLowerCase()) {
-      log("11", `  already wired to settlement -- skipping`);
-    } else {
-      await sendCall(alice, rawProvider, addrs.reputation, repIface, "setSettlement", [addrs.settlement]);
-      log("11", `  reputation.settlement set to ${addrs.settlement}`);
-    }
-  } catch (err) {
-    log("11", `  setSettlement failed: ${String(err).slice(0, 100)}`);
-  }
+  // (alpha-5: publisherReputation.setSettlement is wired by deploy.ts — no
+  //  setup-time wiring needed here.)
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 12. SAVE + SUMMARY
+  // 11. SAVE + SUMMARY
   // ═══════════════════════════════════════════════════════════════════════════
   demoData.campaigns = Object.fromEntries(campaignIds.map((id, i) => [i, id.toString()]));
   demoData.tokens = { SWAP: swapToken, DEV: devToken, FIT: fitToken };
