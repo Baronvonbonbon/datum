@@ -116,7 +116,9 @@ export function Overview() {
       } catch { /* settlement not configured */ }
 
       setStats({
-        totalCampaigns: total,
+        // Campaign ids start at 1, so the count is nextCampaignId - 1 (the
+        // loop below still scans the full range; id 0 just never exists).
+        totalCampaigns: Math.max(0, total - 1),
         activeCampaigns: active,
         pendingCampaigns: pending,
         totalImpressions,
@@ -223,11 +225,11 @@ export function Overview() {
               link="/campaigns"
             />
             <StatCard
-              label="Pending votes"
+              label="Pending activation"
               value={stats?.pendingCampaigns ?? "—"}
               color={stats ? "var(--warn)" : undefined}
-              hint="Awaiting governance activation. Conviction voters review the creative before they go live."
-              link="/governance"
+              hint="Created but not yet live. Alpha-5 uses optimistic activation — an activation bond clears after a short timelock (or governance activates)."
+              link="/campaigns"
             />
             <StatCard
               label="Impressions settled"
