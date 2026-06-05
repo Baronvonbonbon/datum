@@ -61,6 +61,9 @@ describe("queryWithFallback routing", () => {
 
   it("Case C: pine short + historyAllowed=true + fallback supplied → splice", async () => {
     setReady({ finalizedHead: 1000, indexedFromBlock: 800 });
+    // RPC fallback is opt-in (7e25c26): without rpcEnabled the route truncates
+    // (Case B') instead of splicing. Enable it to exercise the splice path.
+    localStorage.setItem("datum_web_settings", JSON.stringify({ rpcEnabled: true }));
     const pine = vi.fn(async (from: number, to: number) => ({ blocks: [`pine:${from}-${to}`] }));
     const rpc = vi.fn(async (from: number, to: number) => ({ blocks: [`rpc:${from}-${to}`] }));
     const merge = vi.fn((older: { blocks: string[] }, newer: { blocks: string[] }) => ({
@@ -120,6 +123,7 @@ describe("queryWithFallback routing", () => {
 
   it("propagates RPC fallback errors when splicing", async () => {
     setReady({ finalizedHead: 1000, indexedFromBlock: 800 });
+    localStorage.setItem("datum_web_settings", JSON.stringify({ rpcEnabled: true }));
     await expect(
       queryWithFallback({
         pine: async () => ({ blocks: [] as string[] }),

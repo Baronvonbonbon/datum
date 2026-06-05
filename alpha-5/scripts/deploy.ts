@@ -1171,14 +1171,9 @@ async function main() {
     "settlementContract", "setSettlementContract",
     addresses.settlement,
   );
-  // EIP-170 carve-out: point Campaigns at the DELEGATECALL migration logic
-  // (lock-once; enables full-state migration on a future upgrade).
-  await wireIfNeeded(
-    "Campaigns.migrationLogic",
-    "DatumCampaigns", addresses.campaigns,
-    "migrationLogic", "setMigrationLogic",
-    addresses.campaignsMigrationLogic,
-  );
+  // NOTE: Campaigns.setMigrationLogic is onlyGovernance (reads Campaigns' OWN
+  // DatumUpgradable router → governor), so it must run AFTER the PHASE 2.5
+  // setRouter loop wires campaigns.router. Moved there (search "migrationLogic").
 
   // (LOCK-ONCE: BudgetLedger.setCampaigns / setSettlement / setLifecycle and
   //  PaymentVault.setSettlement moved to STAGE 3 below.)
@@ -2483,6 +2478,26 @@ async function main() {
   }
 
   console.log("\n  Upgrade-ladder wiring complete. router.contractAddr(name) returns live addresses; setRouter activates whenOpenGovPhase guards on lock* functions.");
+
+  // EIP-170 carve-out: point Campaigns at the DELEGATECALL migration logic
+  // (lock-once; enables full-state migration on a future upgrade). MUST run
+  // here — setMigrationLogic is onlyGovernance, which reads Campaigns' own
+  // router (set by the setRouter loop just above). The deployer is still the
+  // Phase-0 governor (ownership transfers to Timelock in PHASE 3 below).
+  // verifyWrite re-reads the getter so a Paseo silent-revert can't pass unseen.
+  await wireIfNeeded(
+    "Campaigns.migrationLogic",
+    "DatumCampaigns", addresses.campaigns,
+    "migrationLogic", "setMigrationLogic",
+    addresses.campaignsMigrationLogic,
+  );
+  {
+    const ml = await readAddr(addresses.campaigns, "migrationLogic");
+    if (ml !== addresses.campaignsMigrationLogic.toLowerCase()) {
+      throw new Error(`Campaigns.migrationLogic wiring failed: got ${ml}, expected ${addresses.campaignsMigrationLogic}`);
+    }
+    console.log("  VERIFIED: Campaigns.migrationLogic =", addresses.campaignsMigrationLogic);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 3: Ownership transfer to Timelock
