@@ -75,3 +75,25 @@ The old contracts remain live on Paseo (nothing is destroyed by a fresh deploy).
 | web `public/deployed-addresses.json` | runtime fetch | `repoint-addresses.mjs` |
 | web `src/shared/networks.ts` | build-time map | `repoint-addresses.mjs` + rebuild |
 | SDK (`sdk/datum-sdk.js`) | addresses passed in by caller | none |
+
+## Demo gasless-relay seeding (2026-06-05 addendum)
+`setup-testnet` creates 100 **open** campaigns (publisher = 0x0, relaySigner = 0x0)
+— settleable only via the user's own wallet. The **gasless relay** (Diana, whose
+publisher address == the relay key) can only settle campaigns whose publisher set
+her as relaySigner, i.e. **closed campaigns under Diana**. Their relaySigner is
+snapshotted immutably at creation, so it can't be retrofitted onto the open ones.
+
+`setup-demo.ts` is **stale** (alpha-3 — expects merged satellites
+targetingRegistry/reputation/etc. and bails). Until it's ported, seed the Diana
+campaigns with:
+
+```bash
+node scripts/seed-diana-campaigns.mjs 5     # Bob → Diana, optimistic-activated
+```
+
+Verify with the relay preflight (reads the canonical addresses + on-chain state):
+```bash
+cd ../../datum-labs/relay
+node scripts/preflight.mjs --campaign <id> --publisher 0xcA5668fB864Acab0aC7f4CFa73949174720b58D0
+# expect "GO — no blockers" + publisherSig path relaySigner == relay key
+```
