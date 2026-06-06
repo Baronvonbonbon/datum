@@ -122,6 +122,9 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
   // not upgraded (the gasless option then stays hidden).
   const [relayInfo, setRelayInfo] = useState<RelayWithdrawInfo | null>(null);
   const [relayWithdrawing, setRelayWithdrawing] = useState(false);
+  // Native PAS balance of the active account (spendable holdings, separate from
+  // the protocol-credited pending earnings below).
+  const [walletWei, setWalletWei] = useState<bigint | null>(null);
 
   // Pull pending balance + recent settlements when the active
   // address changes (and on a 6s tick while open).
@@ -141,6 +144,12 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
           balHex
         );
         if (!cancelled) setPendingWei(bal as bigint);
+
+        // Native PAS holdings of the active account.
+        try {
+          const natHex = await walletClient.getNativeBalance(me);
+          if (!cancelled) setWalletWei(BigInt(natHex));
+        } catch { /* keep prior value on transient RPC error */ }
 
         // Recent settlements: query pine for the last ~24h of
         // SettlementCredited logs where topic2 == this user. The
@@ -297,6 +306,24 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
         Protocol-credited DOT for {shorten(me)}. Pending balances
         accumulate as Settlement processes your claims; pull them
         whenever you'd like.
+      </div>
+
+      <div style={card}>
+        <div style={fieldLabel}>Wallet balance</div>
+        <div
+          style={{
+            ...mono,
+            fontSize: 18,
+            color: "var(--text-strong)",
+            fontWeight: 600,
+            marginTop: 2,
+          }}
+        >
+          {walletWei === null ? "—" : `${formatDot(walletWei)} PAS`}
+        </div>
+        <div style={{ ...subText, fontSize: 10, marginTop: 2 }}>
+          Spendable native balance of {shorten(me)}. Withdrawn earnings land here.
+        </div>
       </div>
 
       <div style={card}>
