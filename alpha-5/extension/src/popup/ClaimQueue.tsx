@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { keccak256, solidityPacked, ZeroHash, ZeroAddress } from "ethers";
-import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider, getPublishersContract } from "@shared/contracts";
+import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider, getPublishersContract, getPowEngineContract } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
 import { formatDOT } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
@@ -41,6 +41,19 @@ async function relayHmacHeaders(secret: string | undefined, body: string): Promi
   const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${ts}.${body}`));
   const sig = Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, "0")).join("");
   return { "x-datum-ts": ts, "x-datum-sig": sig };
+}
+
+// #5: mine powNonce s.t. keccak256(abi.encodePacked(claimHash, powNonce)) <= target
+// (the on-chain DatumPowEngine gate). Fresh/low-bucket users solve in a few
+// hundred hashes; yields to the event loop periodically so the popup stays
+// responsive. Returns ZeroHash if the budget is exhausted (claim will reject).
+async function minePowNonce(claimHash: string, target: bigint, budget = 8_000_000): Promise<string> {
+  for (let i = 0; i < budget; i++) {
+    const nonce = "0x" + i.toString(16).padStart(64, "0");
+    if (BigInt(keccak256(solidityPacked(["bytes32", "bytes32"], [claimHash, nonce]))) <= target) return nonce;
+    if ((i & 2047) === 0) await new Promise((r) => setTimeout(r, 0));
+  }
+  return ZeroHash;
 }
 
 // Coerce a serialized claim into the on-chain Claim tuple shape the relay's
@@ -848,6 +861,16 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const expectedAdvertiserRelaySigner = ZeroAddress;
       const relaySignerCache = new Map<string, string>();
 
+      // #5: per-impression PoW lives in the carved-out DatumPowEngine. The relay
+      // submits claims as-is, so if PoW is enforced and powNonce is unsolved the
+      // settlement rejects every claim (reason 27). Resolve enforcement once,
+      // then mine each claim's powNonce below before signing + posting.
+      const powEngine = getPowEngineContract(settings.contractAddresses, getProvider(settings.rpcUrl));
+      let powEnforced = false;
+      if (settings.contractAddresses.powEngine) {
+        try { powEnforced = await powEngine.enforcePow(); } catch { powEnforced = false; }
+      }
+
       for (const [relayUrl, batches] of batchesByRelay) {
         for (const b of batches) {
           if (b.claims.length === 0) continue;
@@ -864,6 +887,16 @@ export function ClaimQueue({ address, onSettled }: Props) {
           if (!expectedRelaySigner || expectedRelaySigner === ZeroAddress) {
             warnings[b.campaignId] = `publisher ${publisher.slice(0, 10)}… has no on-chain relaySigner — can't settle via relay (use Submit/gas)`;
             continue;
+          }
+          // #5: solve PoW per claim (powNonce ∉ claimHash, so this doesn't disturb
+          // claimsHash or the co-sigs). Skipped when PoW isn't enforced.
+          if (powEnforced) {
+            for (const c of b.claims) {
+              try {
+                const target = BigInt((await powEngine.powTargetForUser(b.user, BigInt(c.eventCount ?? 1))).toString());
+                c.powNonce = await minePowNonce(c.claimHash, target);
+              } catch { /* leave existing powNonce — claim will reject if truly needed */ }
+            }
           }
           const claimHashes = b.claims.map((c) => c.claimHash);
           // claimsHash = keccak256(abi.encodePacked(claimHash[])) — matches the

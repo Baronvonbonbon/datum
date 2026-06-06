@@ -432,6 +432,7 @@ export interface ContractAddresses {
   lifecycle: string;
   attestationVerifier: string;
   claimValidator: string;       // SE-1: claim validation satellite
+  powEngine?: string;           // #5: carved-out DatumPowEngine — per-impression PoW (enforcePow / powTargetForUser). Empty/undefined ⇒ treat PoW as off.
   tokenRewardVault: string;     // multi-token reward vault for per-campaign rewards
   publisherStake: string;       // FP-1+FP-4: publisher staking + bonding curve
   challengeBonds: string;       // FP-2: advertiser challenge bonds

@@ -19,7 +19,7 @@ import { NETWORK_CONFIGS } from "@shared/networks";
 import DatumAttestationVerifierAbi from "@shared/abis/DatumAttestationVerifier.json";
 import { encryptPrivateKey, decryptPrivateKey, EncryptedWalletData, installIdleLockListener } from "@shared/walletManager";
 import { solvePow } from "./powSolver";
-import { getPaymentVaultContract, getSettlementContract, getPineProvider, getReadProvider } from "@shared/contracts";
+import { getPaymentVaultContract, getSettlementContract, getPowEngineContract, getPineProvider, getReadProvider } from "@shared/contracts";
 import { refreshPhishingList } from "@shared/phishingList";
 // The ONE message router — both the service worker (here) and the demo daemon
 // call routeMessage(msg, sender, env). getSettings + chainIdForNetwork are shared
@@ -139,6 +139,7 @@ async function tryLoadDeployedAddresses(): Promise<Record<string, string> | null
       claimValidator:      addrs.claimValidator ?? "",
       tokenRewardVault:    addrs.tokenRewardVault ?? "",
       publisherStake:      addrs.publisherStake ?? "",
+      powEngine:           addrs.powEngine ?? "",
       challengeBonds:      addrs.challengeBonds ?? "",
       publisherGovernance: addrs.publisherGovernance ?? "",
       parameterGovernance: addrs.parameterGovernance ?? "",
@@ -715,12 +716,17 @@ async function autoFlushDirect() {
     const deadlineBlock = currentBlock + ATTEST_DEADLINE_BLOCKS;
 
     // Build AttestedBatch[] — request publisher co-signature for each batch
-    // #5: Resolve PoW enforcement status and per-claim difficulty before solving.
-    //     Settlement view returns max_uint when enforcePow=false, so any
-    //     ZeroHash powNonce passes — no PoW work needed.
+    // #5: Resolve PoW enforcement status + per-claim difficulty before solving.
+    //     PoW lives in the carved-out DatumPowEngine (NOT Settlement — that
+    //     reverts). When powEngine isn't wired, treat PoW as off.
     const settlement = getSettlementContract(settings.contractAddresses, provider);
+    const powEngine = getPowEngineContract(settings.contractAddresses, provider);
+    const powEngineWired = !!settings.contractAddresses.powEngine;
     let powEnforced = false;
-    try { powEnforced = await settlement.enforcePow(); } catch { /* old deploy */ }
+    if (powEngineWired) {
+      try { powEnforced = await powEngine.enforcePow(); }
+      catch { powEnforced = false; /* unreadable engine ⇒ skip (relay/validator will reject if truly enforced) */ }
+    }
 
     const attestedBatches = await Promise.all(batches.map(async (b) => {
       const publisher = b.claims[0]?.publisher ?? "";
@@ -751,7 +757,7 @@ async function autoFlushDirect() {
         let powNonce = c.powNonce;
         if (powEnforced) {
           try {
-            const target = BigInt((await settlement.powTargetForUser(b.user, c.eventCount)).toString());
+            const target = BigInt((await powEngine.powTargetForUser(b.user, c.eventCount)).toString());
             const solved = await solvePow(c.claimHash, target);
             if (solved) powNonce = solved;
             else console.warn(`[DATUM] Auto-flush: PoW search budget exhausted for campaign ${b.campaignId} nonce ${c.nonce}`);

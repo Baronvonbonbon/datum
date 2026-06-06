@@ -192,6 +192,17 @@ export function getSettlementContract(addresses: ContractAddresses, provider: Pr
   return new Contract(addresses.settlement, abi(DatumSettlementAbi), provider);
 }
 
+// #5: per-impression PoW lives in the carved-out DatumPowEngine (EIP-170), NOT
+// on Settlement — reading enforcePow()/powTargetForUser() off Settlement reverts.
+// Minimal interface; address from deployed-addresses.json (`powEngine`).
+const POW_ENGINE_ABI = [
+  "function enforcePow() view returns (bool)",
+  "function powTargetForUser(address user, uint256 eventCount) view returns (uint256)",
+];
+export function getPowEngineContract(addresses: ContractAddresses, provider: Provider | Signer) {
+  return new Contract(addresses.powEngine ?? "", POW_ENGINE_ABI, provider);
+}
+
 export function getRelayContract(addresses: ContractAddresses, provider: Provider | Signer) {
   return new Contract(addresses.relay, abi(DatumRelayAbi), provider);
 }

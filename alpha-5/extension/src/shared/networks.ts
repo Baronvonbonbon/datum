@@ -28,6 +28,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   lifecycle: "",
   attestationVerifier: "",
   claimValidator: "",
+  powEngine: "",
   tokenRewardVault: "",
   publisherStake: "",
   challengeBonds: "",
