@@ -1539,6 +1539,220 @@ async function main() {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // RELAY + GASLESS — the real demo paths the contract-direct groups above don't
+  // cover, looped BENCH_ROUNDS times against the running relay:
+  //   1. relay dual-sig settlement  (POST /claim  → DualSig.settleSignedClaims)
+  //   2. gasless withdrawal         (POST /withdraw → PaymentVault.withdrawUserBySig)
+  // The relay co-signs the publisher (Diana, whose relay-signer key it holds) and
+  // submits + pays gas. The benchmark stands in for the advertiser co-signer (Bob,
+  // whose key it holds — settleSignedClaims verifies only publisher+advertiser
+  // sigs, never userSig) and for the gasless end-user: a fresh keyed wallet that
+  // never holds PAS, is credited by the settle, then signs a WithdrawAuth so the
+  // relay pulls its balance for a feeBps% fee.
+  //
+  // PoW stays ENFORCED here (unlike the direct-settle groups above, which disable
+  // it because Paseo's eth-rpc rejects fresh senders and the funded pool users have
+  // accumulated huge buckets). The relay path has neither problem: every round uses
+  // a fresh address that never sends a tx, so its DatumPowEngine bucket is ~0 and
+  // the claim mines in a few hundred hashes. A guard shuffles to yet another fresh
+  // address if a user's PoW difficulty ever implies more than BENCH_POW_BUDGET work.
+  // ══════════════════════════════════════════════════════════════════════════
+  const RELAY_URL = (process.env.BENCH_RELAY || "http://127.0.0.1:3400").replace(/\/+$/, "");
+  const RELAY_ROUNDS = Math.max(1, Number(process.env.BENCH_ROUNDS || 3));
+  // Active Diana-published, Bob-advertised campaigns (relaySigner = Diana). Reused
+  // across rounds with a fresh user each time. Override via BENCH_CAMPAIGNS.
+  const RELAY_CAMPAIGNS = (process.env.BENCH_CAMPAIGNS || "106,107,108,109,110")
+    .split(",").map(s => BigInt(s.trim()));
+  // Shuffle to a fresh address if a user's PoW target implies more than this many
+  // hashes (bucket too high). Fresh users sit at ~256·eventCount, well under.
+  const POW_BUDGET = BigInt(process.env.BENCH_POW_BUDGET || 2_000_000);
+  const POW_MAX = (1n << 256n) - 1n;
+  // Expected hashes to satisfy keccak256(claimHash‖nonce) <= target ≈ 2^256 / (target+1).
+  const expectedTries = (target: bigint): bigint => target <= 0n ? POW_MAX : POW_MAX / target;
+  // Mine powNonce s.t. keccak256(claimHash ‖ powNonce) <= target (the on-chain gate).
+  // powNonce is independent of claimHash, so mining it doesn't disturb the co-sigs.
+  const mineNonce = (claimHash: string, target: bigint, budget: bigint): { nonce: string; tries: bigint } => {
+    const base = claimHash.slice(2);
+    for (let i = 0n; i < budget; i++) {
+      const nh = i.toString(16).padStart(64, "0");
+      if (BigInt(keccak256("0x" + base + nh)) <= target) return { nonce: "0x" + nh, tries: i + 1n };
+    }
+    return { nonce: ZeroHash, tries: budget };
+  };
+  const potIface = new Interface([
+    "function getCampaignPots(uint256) view returns (tuple(uint8 actionType,uint256 budgetPlanck,uint256 dailyCapPlanck,uint256 ratePlanck,address actionVerifier)[])",
+  ]);
+  const CLAIM_BATCH_TYPES = {
+    ClaimBatch: [
+      { name: "user", type: "address" },
+      { name: "campaignId", type: "uint256" },
+      { name: "claimsHash", type: "bytes32" },
+      { name: "deadlineBlock", type: "uint256" },
+      { name: "expectedRelaySigner", type: "address" },
+      { name: "expectedAdvertiserRelaySigner", type: "address" },
+    ],
+  };
+  const WITHDRAW_AUTH_TYPES = {
+    WithdrawAuth: [
+      { name: "user", type: "address" },
+      { name: "recipient", type: "address" },
+      { name: "maxFee", type: "uint256" },
+      { name: "nonce", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+    ],
+  };
+  const dualSigDomain = { name: "DatumSettlement", version: "1", chainId: 420420417, verifyingContract: A.dualSig };
+  const sleepMs = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const serializeClaim = (c: any) => ({
+    campaignId: c.campaignId.toString(), publisher: c.publisher,
+    eventCount: c.eventCount.toString(), ratePlanck: c.ratePlanck.toString(),
+    actionType: c.actionType, clickSessionHash: c.clickSessionHash,
+    nonce: c.nonce.toString(), previousClaimHash: c.previousClaimHash,
+    claimHash: c.claimHash, zkProof: c.zkProof, nullifier: c.nullifier,
+    stakeRootUsed: c.stakeRootUsed, actionSig: c.actionSig, powNonce: c.powNonce,
+  });
+
+  interface RelayRound {
+    round: number; cid: string;
+    settleMs: number; creditedPlanck: bigint; settleOk: boolean;
+    withdrawMs: number; feePlanck: bigint; netPlanck: bigint; withdrawOk: boolean;
+    powTries: number; shuffles: number; hash?: string;
+  }
+  const relayRounds: RelayRound[] = [];
+
+  console.log(`\n── RELAY + GASLESS: relay dual-sig settle + gasless withdraw (×${RELAY_ROUNDS}, PoW enforced) ──`);
+  let relayUp = false;
+  try { relayUp = (await fetch(`${RELAY_URL}/health`, { signal: AbortSignal.timeout(5000) })).ok; } catch {}
+  if (!relayUp) {
+    fail("RELAY-0", `relay reachable at ${RELAY_URL}`, 0, "relay not reachable — start datum-relay@diana");
+  } else {
+    pass("RELAY-0", "relay reachable", 0, RELAY_URL);
+    // Keep PoW enforced for this section (the global block above disabled it for
+    // the pool-based direct settles). Restore the section's entry state on exit.
+    let relaySectionEnforce = false;
+    try {
+      relaySectionEnforce = Boolean((await readCall(rawProvider, A.powEngine, powIface, "enforcePow", []))[0]);
+      if (!relaySectionEnforce) {
+        await sendCall(alice, rawProvider, A.powEngine, powIface, "setEnforcePow", [true]);
+        console.log("  [INFO] PoW re-enabled for the relay section");
+      }
+    } catch (e: any) { console.log("  [WARN] couldn't ensure PoW enforced:", String(e).slice(0, 80)); }
+    for (let r = 1; r <= RELAY_ROUNDS; r++) {
+      const cid  = RELAY_CAMPAIGNS[(r - 1) % RELAY_CAMPAIGNS.length];
+      let   user = Wallet.createRandom();            // fresh, gasless end-user
+      const ev   = 10n;
+      let   powTries = 0, shuffles = 0;
+
+      // ── 1. relay dual-sig settle ──────────────────────────────────────────
+      const t0 = Date.now();
+      let credited = 0n, settleOk = false, note = "";
+      try {
+        const potsRaw = await readCall(rawProvider, A.campaigns, potIface, "getCampaignPots", [cid]);
+        const rate = BigInt(potsRaw[0][0][3]);       // pots[0].ratePlanck
+        const head = await rawProvider.getBlockNumber();
+        // Keep PoW enforced: shuffle to a fresh address until this user's bucket is
+        // low enough that mining is feasible (expectedTries <= POW_BUDGET).
+        let target = await readPowTarget(rawProvider, A.powEngine, user.address, ev);
+        while (expectedTries(target) > POW_BUDGET) {
+          user = Wallet.createRandom(); shuffles++;
+          target = await readPowTarget(rawProvider, A.powEngine, user.address, ev);
+        }
+        const claims = await buildClaims(rawProvider, cid, diana.address, user.address, 1, rate, ev, new Array(8).fill(ZeroHash), 0, 0n, ZeroHash, undefined);
+        const mined = mineNonce(claims[0].claimHash, target, POW_BUDGET);
+        claims[0].powNonce = mined.nonce;            // inject the PoW solution
+        powTries = Number(mined.tries);
+        const claimsHash = keccak256(claims[0].claimHash); // 1-claim batch: encodePacked([h]) == h
+        const deadlineBlock = BigInt(head + 1000);
+        const batchVal = { user: user.address, campaignId: cid, claimsHash, deadlineBlock, expectedRelaySigner: diana.address, expectedAdvertiserRelaySigner: ZeroAddress };
+        const advertiserSig = await bob.signTypedData(dualSigDomain, CLAIM_BATCH_TYPES, batchVal);
+        const envelope = {
+          user: user.address, campaignId: cid.toString(), deadlineBlock: deadlineBlock.toString(),
+          userSig: "0x00", advertiserSig,                 // userSig ignored by the contract
+          expectedRelaySigner: diana.address, expectedAdvertiserRelaySigner: ZeroAddress,
+          claims: claims.map(serializeClaim),
+        };
+        const resp = await fetch(`${RELAY_URL}/claim`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(envelope), signal: AbortSignal.timeout(20000) });
+        const body: any = await resp.json().catch(() => ({}));
+        if (resp.status !== 202 || !body.ok) {
+          note = `relay /claim ${resp.status}: ${JSON.stringify(body).slice(0, 60)}`;
+        } else {
+          for (let i = 0; i < 40; i++) {
+            credited = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [user.address]))[0]);
+            if (credited > 0n) { settleOk = true; break; }
+            await sleepMs(2000);
+          }
+          if (!settleOk) note = "co-signed + submitted but no on-chain credit (claim rejected?)";
+        }
+      } catch (e: any) { note = `settle err: ${String(e?.message ?? e).slice(0, 60)}`; }
+      const settleMs = Date.now() - t0;
+      if (settleOk) pass(`RELAY-${r}`, `relay dual-sig settle (camp ${cid})`, settleMs, `credited=${credited} planck, PoW ${powTries} tries${shuffles ? `, ${shuffles} shuffle(s)` : ""}`);
+      else          fail(`RELAY-${r}`, `relay dual-sig settle (camp ${cid})`, settleMs, note);
+
+      // ── 2. gasless withdraw ───────────────────────────────────────────────
+      const t1 = Date.now();
+      let feeP = 0n, netP = 0n, withdrawOk = false, hash: string | undefined, wnote = "";
+      if (settleOk) {
+        try {
+          const info: any = await (await fetch(`${RELAY_URL}/withdraw-info?user=${user.address}`, { signal: AbortSignal.timeout(10000) })).json();
+          if (!info.ok) { wnote = `withdraw-info: ${info.reason}`; }
+          else {
+            const maxFee = BigInt(info.recommendedMaxFeePlanck ?? "0");
+            const deadline = BigInt((await rawProvider.getBlockNumber()) + 100);
+            const value = { user: user.address, recipient: user.address, maxFee, nonce: BigInt(info.nonce), deadline };
+            const sig = await user.signTypedData({ name: "DatumPaymentVault", version: "1", chainId: 420420417, verifyingContract: info.vault }, WITHDRAW_AUTH_TYPES, value);
+            const wresp = await fetch(`${RELAY_URL}/withdraw`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: user.address, recipient: user.address, maxFee: maxFee.toString(), deadline: deadline.toString(), sig }), signal: AbortSignal.timeout(25000) });
+            const wbody: any = await wresp.json().catch(() => ({}));
+            if (wresp.status !== 202 || !wbody.ok) { wnote = `relay /withdraw ${wresp.status}: ${JSON.stringify(wbody).slice(0, 60)}`; }
+            else {
+              hash = wbody.hash;
+              for (let i = 0; i < 40; i++) {
+                const b = BigInt((await readCall(rawProvider, A.paymentVault, vaultIface, "userBalance", [user.address]))[0]);
+                if (b === 0n) { withdrawOk = true; break; }
+                await sleepMs(2000);
+              }
+              feeP = maxFee; netP = credited - maxFee;
+              if (!withdrawOk) wnote = "submitted but balance not drained";
+            }
+          }
+        } catch (e: any) { wnote = `withdraw err: ${String(e?.message ?? e).slice(0, 60)}`; }
+      } else { wnote = "skipped (settle failed)"; }
+      const withdrawMs = Date.now() - t1;
+      if (withdrawOk) pass(`GASLESS-${r}`, `gasless withdraw (${100}bps fee, relay pays gas)`, withdrawMs, `net=${netP} fee=${feeP} tx=${hash?.slice(0, 10)}`);
+      else            fail(`GASLESS-${r}`, `gasless withdraw`, withdrawMs, wnote);
+
+      relayRounds.push({ round: r, cid: cid.toString(), settleMs, creditedPlanck: credited, settleOk, withdrawMs, feePlanck: feeP, netPlanck: netP, withdrawOk, powTries, shuffles, hash });
+    }
+
+    // Restore the section's PoW entry state (it was already enforced live, so this
+    // is typically a no-op; the global restorePoW() also re-enforces at exit).
+    if (!relaySectionEnforce) {
+      try { await sendCall(alice, rawProvider, A.powEngine, powIface, "setEnforcePow", [false]); } catch {}
+    }
+
+    // ── per-round aggregate table ───────────────────────────────────────────
+    const okS = relayRounds.filter(r => r.settleOk).length;
+    const okW = relayRounds.filter(r => r.withdrawOk).length;
+    const avg = (xs: number[]) => xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0;
+    console.log("\n  ── RELAY + GASLESS per-round (PoW enforced, fresh address each round) ──");
+    console.log("  rnd camp  pow(tries/shuf)  settle    credited(planck)   withdraw  fee      net          tx");
+    console.log("  " + "─".repeat(98));
+    for (const r of relayRounds) {
+      const pow = `${r.powTries}${r.shuffles ? `/${r.shuffles}` : ""}`;
+      console.log(
+        `  ${String(r.round).padStart(3)} ${r.cid.padStart(4)}  ${pow.padStart(14)}  ${(r.settleMs + "ms").padStart(7)}  ${r.creditedPlanck.toString().padStart(15)}  ${(r.withdrawMs + "ms").padStart(8)}  ${r.feePlanck.toString().padStart(7)} ${r.netPlanck.toString().padStart(12)}  ${r.hash?.slice(0, 12) ?? (r.settleOk ? "—" : "(no settle)")}`
+      );
+    }
+    const totNet = relayRounds.reduce((a, r) => a + r.netPlanck, 0n);
+    const totFee = relayRounds.reduce((a, r) => a + r.feePlanck, 0n);
+    const totShuf = relayRounds.reduce((a, r) => a + r.shuffles, 0);
+    const totTries = relayRounds.reduce((a, r) => a + r.powTries, 0);
+    console.log("  " + "─".repeat(98));
+    console.log(`  settle ${okS}/${relayRounds.length} ok (avg ${avg(relayRounds.filter(r => r.settleOk).map(r => r.settleMs))}ms)  |  gasless withdraw ${okW}/${relayRounds.length} ok (avg ${avg(relayRounds.filter(r => r.withdrawOk).map(r => r.withdrawMs))}ms)`);
+    console.log(`  PoW: ${totTries} total hashes across ${relayRounds.length} rounds, ${totShuf} address shuffle(s) (enforced throughout)`);
+    console.log(`  total net withdrawn ${totNet} planck  |  total relay fees ${totFee} planck`);
+  }
+
   // ── PAUSE: 2-of-3 guardian pause/unpause flow (C-4) ─────────────────────
   // Run last — pauses the whole system, then unpauses. Any mid-test failure
   // leaves the system paused; re-run or manually unpause via guardian approve().
