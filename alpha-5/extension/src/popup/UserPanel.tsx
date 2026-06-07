@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Contract, ZeroAddress, isAddress } from "ethers";
 import { getPaymentVaultContract, getTokenRewardVaultContract, getCampaignsContract, getProvider } from "@shared/contracts";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { getSigner } from "@shared/walletManager";
 import { BehaviorChainState } from "@shared/types";
@@ -289,7 +289,7 @@ export function UserPanel({ address, refreshTrigger }: Props) {
           <div style={cardStyle}>
             <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>Withdrawable balance</div>
             <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 600 }}>
-              {balance !== null ? formatDOT(balance) : "--"} {sym}
+              {balance !== null ? formatDotWei(balance) : "--"} {sym}
             </div>
             <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 11, marginTop: 4 }}>
               75% of settled impressions
@@ -327,8 +327,8 @@ export function UserPanel({ address, refreshTrigger }: Props) {
                 {withdrawing
                   ? "Withdrawing..."
                   : sweepAddress && isAddress(sweepAddress)
-                    ? `Sweep ${formatDOT(balance)} ${sym} → cold wallet`
-                    : `Withdraw ${formatDOT(balance)} ${sym}`}
+                    ? `Sweep ${formatDotWei(balance)} ${sym} → cold wallet`
+                    : `Withdraw ${formatDotWei(balance)} ${sym}`}
               </button>
             </>
           )}

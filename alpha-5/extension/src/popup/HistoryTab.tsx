@@ -2,7 +2,7 @@
 // Reads from chrome.storage.local; updates live via storage.onChanged.
 
 import { useEffect, useMemo, useState } from "react";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import {
   earningsKey,
   emptyIndex,
@@ -178,7 +178,7 @@ export function HistoryTab({ address }: Props) {
                   </span>
                 </span>
                 <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  +{formatDOT(BigInt(r.userPaymentPlanck))}
+                  +{formatDotWei(BigInt(r.userPaymentPlanck))}
                 </span>
               </div>
             ))}
@@ -227,7 +227,7 @@ export function HistoryTab({ address }: Props) {
                   </span>
                 </span>
                 <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  {formatDOT(BigInt(row.totals.totalUserPlanck))}
+                  {formatDotWei(BigInt(row.totals.totalUserPlanck))}
                 </span>
               </div>
             ))}

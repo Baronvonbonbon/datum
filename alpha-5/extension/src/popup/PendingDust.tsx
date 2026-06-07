@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { Contract } from "ethers";
 import { getProvider } from "@shared/contracts";
 import { getSigner } from "@shared/walletManager";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { ContractAddresses } from "@shared/types";
 import { humanizeError } from "@shared/errorCodes";
 
@@ -94,14 +94,14 @@ export function PendingDust({ address, rpcUrl, contractAddresses, refreshTrigger
     <div style={{ marginTop: 12, padding: 10, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.02)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>Pending Paseo dust</span>
-        {total > 0n && <span style={{ color: "var(--text-strong)", fontSize: 12, fontWeight: 600 }}>{formatDOT(total)} DOT</span>}
+        {total > 0n && <span style={{ color: "var(--text-strong)", fontSize: 12, fontWeight: 600 }}>{formatDotWei(total)} DOT</span>}
       </div>
       {err && <div style={{ color: "var(--warn)", fontSize: 11 }}>{err}</div>}
       {rows.map((r) => (
         <div key={r.addr} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "2px 0", fontSize: 11 }}>
           <span style={{ color: "var(--text)" }}>{r.label}</span>
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <span style={{ color: "var(--text-muted)" }}>{formatDOT(r.pending)} DOT</span>
+            <span style={{ color: "var(--text-muted)" }}>{formatDotWei(r.pending)} DOT</span>
             <button
               onClick={() => claim(r.addr)}
               disabled={busy !== null}

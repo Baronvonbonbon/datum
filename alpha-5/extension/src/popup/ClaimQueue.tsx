@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { keccak256, solidityPacked, ZeroHash, ZeroAddress } from "ethers";
 import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider, getPublishersContract, getPowEngineContract } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { OffscreenSigner } from "@shared/offscreenSigner";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
@@ -1065,7 +1065,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
                 </div>
                 {estPlanck !== null && (
                   <div style={{ color: "var(--ok)", fontSize: 11, marginTop: 2 }}>
-                    ~{formatDOT(estPlanck)} {sym} est. earnings
+                    ~{formatDotWei(estPlanck)} {sym} est. earnings
                   </div>
                 )}
                 {address && (
@@ -1149,7 +1149,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           </div>
           {result.totalPaid > 0n && (
             <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>
-              Total paid: {formatDOT(result.totalPaid)} {sym}
+              Total paid: {formatDotWei(result.totalPaid)} {sym}
             </div>
           )}
         </div>
