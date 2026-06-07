@@ -109,9 +109,10 @@ const config = (
           { from: "manifest.json", to: "manifest.json" },
           { from: "icons", to: "icons", noErrorOnMissing: true },
           { from: "deployed-addresses.json", to: "deployed-addresses.json", noErrorOnMissing: true },
-          // Circuit files for real Groth16 proof generation (impression.circom)
-          { from: "../../circuits/impression_js/impression.wasm", to: "circuits/impression.wasm", noErrorOnMissing: true },
-          { from: "../../circuits/impression.zkey", to: "circuits/impression.zkey", noErrorOnMissing: true },
+          // Circuit files for real Groth16 proof generation (impression.circom).
+          // They live in alpha-5/circuits (one level up from this extension dir).
+          { from: "../circuits/impression_js/impression.wasm", to: "circuits/impression.wasm" },
+          { from: "../circuits/impression.zkey", to: "circuits/impression.zkey" },
         ],
       }),
 
@@ -132,7 +133,10 @@ const config = (
     performance: {
       hints: isDev ? false : "warning",
       maxEntrypointSize: 3_000_000,
-      maxAssetSize: 3_000_000,
+      // The Groth16 proving key (circuits/impression.zkey, ~3.2 MiB) is a
+      // bundled static asset, not JS — keep the headroom above it so the
+      // warning stays meaningful for actual code bloat.
+      maxAssetSize: 4_000_000,
     },
   };
 };

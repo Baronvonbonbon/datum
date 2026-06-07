@@ -141,7 +141,7 @@ export function Settings({ address }: { address: string | null }) {
             setContractWarning("Campaigns contract not found at configured address. Check network and contract addresses match.");
           } else {
             // Try calling nextCampaignId to verify it's the right contract
-            const contract = new Contract(settings.contractAddresses.campaigns, DatumCampaignsAbi.abi, provider);
+            const contract = new Contract(settings.contractAddresses.campaigns, DatumCampaignsAbi, provider);
             await contract.nextCampaignId();
             setContractWarning(null);
           }
