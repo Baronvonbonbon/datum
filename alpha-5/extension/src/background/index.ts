@@ -700,7 +700,7 @@ async function autoFlushDirect() {
     const wallet = new Wallet(privateKey, provider);
     const attestationVerifier = new Contract(
       settings.contractAddresses.attestationVerifier,
-      DatumAttestationVerifierAbi.abi,
+      DatumAttestationVerifierAbi,
       wallet
     );
 

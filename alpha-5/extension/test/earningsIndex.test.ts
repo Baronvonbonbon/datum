@@ -9,7 +9,7 @@ import {
   RECENT_BUFFER_SIZE,
 } from "../src/shared/earningsIndex";
 
-const iface = new Interface(settlementAbi.abi);
+const iface = new Interface(settlementAbi);
 
 function fakeLog(opts: {
   campaignId: bigint;

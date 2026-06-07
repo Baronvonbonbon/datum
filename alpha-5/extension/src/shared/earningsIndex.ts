@@ -181,7 +181,7 @@ export async function scanRange(opts: {
   onProgress?: (scanned: number, total: number) => void;
 }): Promise<number> {
   const { provider, settlementAddress, user, fromBlock, toBlock, index } = opts;
-  const settlement = new Contract(settlementAddress, settlementAbi.abi, provider);
+  const settlement = new Contract(settlementAddress, settlementAbi, provider);
   const iface = settlement.interface;
 
   // topic2 = keccak256-abi-encoded address (left-padded to 32 bytes)

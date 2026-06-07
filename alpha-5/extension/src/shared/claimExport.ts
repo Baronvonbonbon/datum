@@ -2,8 +2,16 @@
 // Uses AES-256-GCM with key derived from wallet signature of a fixed message.
 // This allows users to migrate claim state between browsers/devices securely.
 
-import { Wallet, getBytes } from "ethers";
+import { getBytes } from "ethers";
 import { ClaimChainState } from "./types";
+
+// Minimal signer surface used for export/import: just address + message signing.
+// Satisfied by both ethers `Wallet` and the popup's `OffscreenSigner` (which
+// signs via the offscreen wallet rather than holding a key in this context).
+export interface ClaimSigner {
+  getAddress(): Promise<string>;
+  signMessage(message: string | Uint8Array): Promise<string>;
+}
 
 // Queue-stored claim shape (includes userAddress, bigints as strings)
 interface QueuedClaim {
@@ -44,7 +52,7 @@ export interface ImportResult {
  * Export all claim state for the current user as an encrypted Blob.
  * Encryption key derived from wallet signature of fixed message.
  */
-export async function exportClaims(signer: Wallet): Promise<Blob> {
+export async function exportClaims(signer: ClaimSigner): Promise<Blob> {
   const userAddress = await signer.getAddress();
 
   // Collect all chain states for this user
@@ -86,7 +94,7 @@ export async function exportClaims(signer: Wallet): Promise<Blob> {
  */
 export async function importClaims(
   file: File,
-  signer: Wallet,
+  signer: ClaimSigner,
   onChainNonceFn?: (userAddress: string, campaignId: string) => Promise<number>
 ): Promise<ImportResult> {
   const userAddress = await signer.getAddress();
