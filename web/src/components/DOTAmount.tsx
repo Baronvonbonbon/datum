@@ -1,4 +1,4 @@
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { useSettings } from "../context/SettingsContext";
 import { getCurrencySymbol } from "@shared/networks";
 
@@ -12,7 +12,7 @@ export function DOTAmount({ planck, showSymbol = true, style }: Props) {
   const { settings } = useSettings();
   const sym = getCurrencySymbol(settings.network);
   const value = typeof planck === "string" ? BigInt(planck) : planck;
-  const formatted = formatDOT(value);
+  const formatted = formatDotWei(value);
 
   return (
     <span style={style}>

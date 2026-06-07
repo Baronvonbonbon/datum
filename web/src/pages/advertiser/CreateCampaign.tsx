@@ -5,7 +5,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
-import { parseDOTSafe } from "@shared/dot";
+import { parseDotWeiSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
@@ -41,9 +41,10 @@ export function CreateCampaign() {
   const [publisher, setPublisher] = useState("");
 
   // View pot (CPM) — always required
-  const [viewBudget, setViewBudget] = useState("1");
-  const [viewDailyCap, setViewDailyCap] = useState("0.1");
-  const [viewBidCpm, setViewBidCpm] = useState("0.001");
+  // Amounts are in PAS (18-dec wei). Default CPM = 1 PAS → ~0.001 PAS/impression.
+  const [viewBudget, setViewBudget] = useState("10");
+  const [viewDailyCap, setViewDailyCap] = useState("2");
+  const [viewBidCpm, setViewBidCpm] = useState("1");
 
   // Click pot (CPC) — optional
   const [enableClick, setEnableClick] = useState(false);
@@ -234,22 +235,22 @@ export function CreateCampaign() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const bondPlanck = bondAmount.trim() ? parseDOTSafe(bondAmount) : 0n;
+      const bondPlanck = bondAmount.trim() ? parseDotWeiSafe(bondAmount) : 0n;
 
       // Build action pot array
       const pots: { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string }[] = [];
-      const viewBudgetPlanck = parseDOTSafe(viewBudget);
-      const viewDailyCapPlanck = parseDOTSafe(viewDailyCap);
-      const viewBidCpmPlanck = parseDOTSafe(viewBidCpm);
+      const viewBudgetPlanck = parseDotWeiSafe(viewBudget);
+      const viewDailyCapPlanck = parseDotWeiSafe(viewDailyCap);
+      const viewBidCpmPlanck = parseDotWeiSafe(viewBidCpm);
       pots.push({ actionType: 0, budgetPlanck: viewBudgetPlanck, dailyCapPlanck: viewDailyCapPlanck, ratePlanck: viewBidCpmPlanck, actionVerifier: ethers.ZeroAddress });
 
       if (enableClick) {
-        pots.push({ actionType: 1, budgetPlanck: parseDOTSafe(clickBudget), dailyCapPlanck: parseDOTSafe(clickDailyCap), ratePlanck: parseDOTSafe(clickRate), actionVerifier: ethers.ZeroAddress });
+        pots.push({ actionType: 1, budgetPlanck: parseDotWeiSafe(clickBudget), dailyCapPlanck: parseDotWeiSafe(clickDailyCap), ratePlanck: parseDotWeiSafe(clickRate), actionVerifier: ethers.ZeroAddress });
       }
       if (enableAction) {
         const verifier = actionVerifier.trim();
         if (!ethers.isAddress(verifier)) { setTxMsg("Action verifier address is invalid."); setTxState("error"); return; }
-        pots.push({ actionType: 2, budgetPlanck: parseDOTSafe(actionBudget), dailyCapPlanck: parseDOTSafe(actionDailyCap), ratePlanck: parseDOTSafe(actionRate), actionVerifier: verifier });
+        pots.push({ actionType: 2, budgetPlanck: parseDotWeiSafe(actionBudget), dailyCapPlanck: parseDotWeiSafe(actionDailyCap), ratePlanck: parseDotWeiSafe(actionRate), actionVerifier: verifier });
       }
 
       const totalBudgetPlanck = pots.reduce((s, p) => s + p.budgetPlanck, 0n);

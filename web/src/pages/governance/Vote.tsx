@@ -12,7 +12,7 @@ import { IPFSPreview } from "../../components/IPFSPreview";
 import { StatusBadge } from "../../components/StatusBadge";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { CONVICTION_WEIGHTS } from "@shared/conviction";
-import { parseDOT, parseDOTSafe } from "@shared/dot";
+import { parseDotWeiSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
@@ -110,7 +110,7 @@ export function Vote() {
     if (!signer) return;
     setTxState("pending");
     try {
-      const planck = parseDOTSafe(amount);
+      const planck = parseDotWeiSafe(amount);
       const c = contracts.governanceV2.connect(signer);
       const tx = await c.vote(BigInt(id!), isAye, conviction, { value: planck });
       await confirmTx(tx);
@@ -129,7 +129,7 @@ export function Vote() {
 
   const total = gov ? gov.ayeWeighted + gov.nayWeighted : 0n;
   const ayePct = total > 0n ? Number(gov!.ayeWeighted * 100n / total) : 0;
-  const amountPlanck = (() => { try { return parseDOT(amount); } catch { return 0n; } })();
+  const amountPlanck = (() => { try { return parseDotWeiSafe(amount); } catch { return 0n; } })();
 
   return (
     <div style={{ maxWidth: 640 }}>

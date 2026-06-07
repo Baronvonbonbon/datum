@@ -27,7 +27,7 @@ import {
   renewOnBulletin,
   getAuthorization,
 } from "@shared/bulletinChainClient";
-import { formatDOT, parseDOT } from "@shared/dot";
+import { formatDotWei, parseDotWeiSafe } from "@shared/dot";
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 
@@ -104,7 +104,7 @@ export function BulletinManager() {
     if (!signer || !id) return;
     try {
       setBusy("Funding escrow...");
-      const v = parseDOT(fundAmount);
+      const v = parseDotWeiSafe(fundAmount);
       const c = contracts.campaignCreative!.connect(signer);
       const tx = await c.fundBulletinRenewalEscrow(BigInt(id), { value: v });
       await confirmTx(tx);
@@ -119,7 +119,7 @@ export function BulletinManager() {
     if (!signer || !id) return;
     try {
       setBusy("Withdrawing escrow...");
-      const v = parseDOT(withdrawAmount);
+      const v = parseDotWeiSafe(withdrawAmount);
       const recipient = (withdrawRecipient.trim() || address) as string;
       if (!ethers.isAddress(recipient)) throw new Error("Invalid recipient address");
       const c = contracts.campaignCreative!.connect(signer);
@@ -282,8 +282,8 @@ export function BulletinManager() {
           </Section>
 
           <Section title="Renewal escrow">
-            <Row label="Current balance" value={`${formatDOT(escrow)} DOT`} />
-            <Row label="Reward per renewal" value={`${formatDOT(reward)} DOT`} />
+            <Row label="Current balance" value={`${formatDotWei(escrow)} DOT`} />
+            <Row label="Reward per renewal" value={`${formatDotWei(reward)} DOT`} />
             <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
               <Field label="Fund (DOT)">
                 <input className="nano-input" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} style={{ width: 100 }} />

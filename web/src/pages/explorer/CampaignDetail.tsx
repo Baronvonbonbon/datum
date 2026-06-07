@@ -19,7 +19,7 @@ import { ethers, Contract } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { getAssetMetadata } from "@shared/assetRegistry";
 import { StepTooltip } from "../../components/StepTooltip";
 import { BrandChip } from "../../components/BrandChip";
@@ -1306,9 +1306,9 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                   User: s.user,
                   Publisher: s.publisher,
                   Events: s.impressionCount.toString(),
-                  Rate: formatDOT(s.ratePlanck),
-                  "User Earned": formatDOT(s.userPayment),
-                  "Publisher Earned": formatDOT(s.publisherPayment),
+                  Rate: formatDotWei(s.ratePlanck),
+                  "User Earned": formatDotWei(s.userPayment),
+                  "Publisher Earned": formatDotWei(s.publisherPayment),
                   Tx: s.txHash,
                 }));
                 downloadCSV(`campaign-${id}-settlements.csv`, toCSV(["Block", "Type", "User", "Publisher", "Events", "Rate", "User Earned", "Publisher Earned", "Tx"], rows));

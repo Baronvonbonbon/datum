@@ -457,7 +457,7 @@ export interface UserPreferences {
   silencedCategories: string[];   // category names user doesn't want
   blockedTags: string[];          // tag strings user doesn't want (e.g., "topic:gambling")
   maxAdsPerHour: number;          // rate limit (default 12)
-  minBidCpm: string;              // minimum CPM in planck (default "0")
+  minBidCpm: string;              // minimum CPM as a human PAS string (default "0" = off)
   filterMode: "all" | "selected"; // "all" = opt-out (default), "selected" = opt-in
   allowedTopics: string[];        // used when filterMode === "selected"
   sweepAddress: string;           // cold wallet address to sweep earnings to (empty = disabled)

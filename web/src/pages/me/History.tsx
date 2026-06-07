@@ -11,7 +11,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { DOTAmount } from "../../components/DOTAmount";
 import { TokenRewards } from "../../components/TokenRewards";
 import { PageExplainer } from "../../components/PageExplainer";
@@ -366,7 +366,7 @@ export function History() {
                     </div>
                   </div>
                   <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                    +{formatDOT(BigInt(r.userPaymentPlanck))}
+                    +{formatDotWei(BigInt(r.userPaymentPlanck))}
                   </span>
                   <span style={{ color: "var(--text-muted)" }}>
                     {r.actionType === 0 ? "view" : r.actionType === 1 ? "click" : "action"}
@@ -424,7 +424,7 @@ export function History() {
                     <CampaignChip campaignId={row.campaignId} size="sm" />
                   </div>
                   <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                    {formatDOT(BigInt(row.totals.totalUserPlanck))}
+                    {formatDotWei(BigInt(row.totals.totalUserPlanck))}
                   </span>
                   <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
                     {row.totals.claimCount} claims

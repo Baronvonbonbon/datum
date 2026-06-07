@@ -5,7 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { MiniBarChart } from "../../components/MiniBarChart";
 import { StatusBadge } from "../../components/StatusBadge";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 
@@ -154,12 +154,12 @@ export function CampaignAnalytics() {
                 Impressions: c.totalImpressions.toString(),
                 "Unique Users": c.uniqueUsers,
                 Settlements: c.settlementCount,
-                "Original Budget": c.originalBudget > 0n ? formatDOT(c.originalBudget) : "",
-                Remaining: formatDOT(c.remaining),
-                Spent: c.originalBudget > 0n ? formatDOT(c.originalBudget - c.remaining) : "",
-                "User Payments": formatDOT(c.totalUserPaid),
-                "Publisher Payments": formatDOT(c.totalPublisherPaid),
-                "Bid CPM": formatDOT(c.bidCpmPlanck),
+                "Original Budget": c.originalBudget > 0n ? formatDotWei(c.originalBudget) : "",
+                Remaining: formatDotWei(c.remaining),
+                Spent: c.originalBudget > 0n ? formatDotWei(c.originalBudget - c.remaining) : "",
+                "User Payments": formatDotWei(c.totalUserPaid),
+                "Publisher Payments": formatDotWei(c.totalPublisherPaid),
+                "Bid CPM": formatDotWei(c.bidCpmPlanck),
               }));
               downloadCSV("campaign-analytics.csv", toCSV(["Campaign","Status","Impressions","Unique Users","Settlements","Original Budget","Remaining","Spent","User Payments","Publisher Payments","Bid CPM"], rows));
             }} className="nano-btn" style={{ fontSize: 12 }}>Export CSV</button>

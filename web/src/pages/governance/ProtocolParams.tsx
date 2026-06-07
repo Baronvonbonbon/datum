@@ -9,7 +9,7 @@ import { ConvictionSlider } from "../../components/ConvictionSlider";
 import { AddressDisplay } from "../../components/AddressDisplay";
 import { BrandChip } from "../../components/BrandChip";
 import { humanizeError } from "@shared/errorCodes";
-import { parseDOTSafe, parseDOT, formatDOT } from "@shared/dot";
+import { parseDotWeiSafe, formatDotWei } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { CONVICTION_WEIGHTS, formatBlockDelta } from "@shared/conviction";
 import { useTx } from "../../hooks/useTx";
@@ -267,7 +267,7 @@ export function ProtocolParams() {
     try {
       const aye = voteIsAye[proposalId] ?? true;
       const conviction = voteConviction[proposalId] ?? 1;
-      const planck = parseDOTSafe(voteAmount[proposalId] ?? "0.1");
+      const planck = parseDotWeiSafe(voteAmount[proposalId] ?? "0.1");
       const c = contracts.parameterGovernance.connect(signer);
       const tx = await c.vote(BigInt(proposalId), aye, conviction, { value: planck });
       await confirmTx(tx);
@@ -603,7 +603,7 @@ export function ProtocolParams() {
         const ayePct = total > 0n ? Number(p.ayeWeight * 100n / total) : 0;
         const myVote = myVotes.find((v) => v.proposalId === p.id);
         const amountStr = voteAmount[p.id] ?? "0.1";
-        const amountPlanck = (() => { try { return parseDOT(amountStr); } catch { return 0n; } })();
+        const amountPlanck = (() => { try { return parseDotWeiSafe(amountStr); } catch { return 0n; } })();
         const txState = voteTxState[p.id] ?? "idle";
         const txMsg = voteTxMsg[p.id] ?? "";
         const isActive = p.state === 0;

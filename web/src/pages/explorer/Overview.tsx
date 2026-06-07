@@ -6,7 +6,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { StatCardSkeleton } from "../../components/Skeleton";
 import { PageExplainer } from "../../components/PageExplainer";
 import { useToast } from "../../context/ToastContext";
@@ -239,7 +239,7 @@ export function Overview() {
             />
             <StatCard
               label={`${sym} settled`}
-              value={stats ? formatDOT(stats.totalSettledPlanck) : "—"}
+              value={stats ? formatDotWei(stats.totalSettledPlanck) : "—"}
               hint="Total DOT/PAS paid out by Settlement across all campaigns. Split between publisher take-rate and user share."
             />
             <StatCard

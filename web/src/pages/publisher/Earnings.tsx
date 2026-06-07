@@ -11,7 +11,7 @@ import { queryFilterAll } from "@shared/eventQuery";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { toCSV, downloadCSV } from "@shared/csvExport";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { MiniBarChart } from "../../components/MiniBarChart";
 
 interface CampaignEarnings {
@@ -109,7 +109,7 @@ export function Earnings() {
               onClick={() => {
                 const rows = campaignBreakdown.map((c) => ({
                   Campaign: `#${c.campaignId}`,
-                  "Total Paid": formatDOT(c.totalPublisherPayment),
+                  "Total Paid": formatDotWei(c.totalPublisherPayment),
                   Impressions: c.totalImpressions.toString(),
                   Settlements: c.settlementCount,
                 }));

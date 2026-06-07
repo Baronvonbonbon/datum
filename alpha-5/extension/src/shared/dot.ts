@@ -90,6 +90,17 @@ const WEI_PER_DOT = 10n ** 18n;
  *   formatDotWei(22_275_000n)                 → "0.00000000002227"  (dust)
  *   formatDotWei(0n)                          → "0"
  */
+/**
+ * Parse a human-readable PAS amount (decimal string) to 18-decimal wei.
+ * Lenient: empty / invalid → 0n. Use for comparison thresholds and inputs.
+ */
+export function parseDotWei(pas: string): bigint {
+  const [whole = "0", frac = ""] = (pas?.trim() || "0").split(".");
+  if (!/^\d*$/.test(whole) || !/^\d*$/.test(frac)) return 0n;
+  const fracPadded = frac.padEnd(18, "0").slice(0, 18);
+  return BigInt(whole || "0") * WEI_PER_DOT + BigInt(fracPadded || "0");
+}
+
 export function formatDotWei(wei: bigint, sigFigs = 4): string {
   if (wei === 0n) return "0";
   const neg = wei < 0n;

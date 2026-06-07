@@ -9,7 +9,7 @@ import { DOTAmount } from "../../components/DOTAmount";
 import { TransactionStatus } from "../../components/TransactionStatus";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { humanizeError } from "@shared/errorCodes";
-import { parseDOTSafe } from "@shared/dot";
+import { parseDotWeiSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
@@ -78,7 +78,7 @@ export function PublisherStake() {
     setStakeTxState("pending");
     setStakeTxMsg("");
     try {
-      const planck = parseDOTSafe(stakeAmount);
+      const planck = parseDotWeiSafe(stakeAmount);
       const c = contracts.publisherStake.connect(signer);
       const tx = await c.stake({ value: planck });
       await confirmTx(tx);
@@ -99,7 +99,7 @@ export function PublisherStake() {
     setUnstakeTxState("pending");
     setUnstakeTxMsg("");
     try {
-      const planck = parseDOTSafe(unstakeAmount);
+      const planck = parseDotWeiSafe(unstakeAmount);
       const c = contracts.publisherStake.connect(signer);
       const tx = await c.requestUnstake(planck);
       await confirmTx(tx);
