@@ -1,5 +1,5 @@
 import "./chromeMock";
-import { parseDOT, formatDOT } from "@shared/dot";
+import { parseDOT, formatDOT, formatDotWei } from "@shared/dot";
 
 describe("parseDOT", () => {
   test("1 DOT = 10^10 planck", () => {
@@ -62,5 +62,47 @@ describe("formatDOT", () => {
 
   test("trailing zeros stripped", () => {
     expect(formatDOT(100_000_000n)).toBe("0.01");
+  });
+});
+
+describe("formatDotWei", () => {
+  const DOT = 10n ** 18n; // 1 DOT in wei
+
+  test("zero", () => {
+    expect(formatDotWei(0n)).toBe("0");
+  });
+
+  test("whole DOT", () => {
+    expect(formatDotWei(DOT)).toBe("1");
+    expect(formatDotWei(42n * DOT)).toBe("42");
+  });
+
+  test("normal fractions show up to 4 decimals, trimmed", () => {
+    expect(formatDotWei(DOT / 2n)).toBe("0.5");
+    expect(formatDotWei(DOT / 100n)).toBe("0.01");
+    expect(formatDotWei(123_456n * (DOT / 1_000_000n))).toBe("0.1234"); // 0.123456 → 4dp
+  });
+
+  test("dust below 0.0001 falls back to significant figures, not 0", () => {
+    // 22_275_000 wei = 0.000000000022275 DOT → 4 sig figs from first non-zero
+    expect(formatDotWei(22_275_000n)).toBe("0.00000000002227");
+    // single planck-scale dust still visible
+    expect(formatDotWei(1n)).toBe("0.000000000000000001");
+  });
+
+  test("sigFigs is configurable", () => {
+    expect(formatDotWei(22_275_000n, 3)).toBe("0.0000000000222");
+    expect(formatDotWei(22_275_000n, 5)).toBe("0.000000000022275");
+  });
+
+  test("a non-zero balance never renders as 0", () => {
+    for (const w of [1n, 7n, 999n, 22_275_000n, 5n * 10n ** 13n]) {
+      expect(formatDotWei(w)).not.toBe("0");
+      expect(formatDotWei(w)).not.toBe("0.0");
+    }
+  });
+
+  test("negative", () => {
+    expect(formatDotWei(-DOT)).toBe("-1");
   });
 });

@@ -72,3 +72,47 @@ export function formatDOT(planck: bigint): string {
   const fracStr = frac.toString().padStart(10, "0").replace(/0+$/, "");
   return `${whole}.${fracStr}`;
 }
+
+// 18-decimal scaling: pallet-revive eth_getBalance and EVM contract balances
+// (e.g. PaymentVault.userBalance) are denominated in wei (10^18 per DOT).
+const WEI_PER_DOT = 10n ** 18n;
+
+/**
+ * Format an 18-decimal wei amount as a human-readable DOT string with adaptive
+ * precision. Amounts ≥ 0.0001 DOT show up to four decimals; smaller non-zero
+ * "dust" amounts (which are sub-planck and would otherwise collapse to "0.0")
+ * fall back to `sigFigs` significant figures so a non-zero balance is never
+ * displayed as zero.
+ *
+ *   formatDotWei(1_500_000_000_000_000_000n)  → "1.5"
+ *   formatDotWei(12_345_600_000_000_000_000n) → "12.3456"
+ *   formatDotWei(10_000_000_000_000_000n)     → "0.01"
+ *   formatDotWei(22_275_000n)                 → "0.00000000002227"  (dust)
+ *   formatDotWei(0n)                          → "0"
+ */
+export function formatDotWei(wei: bigint, sigFigs = 4): string {
+  if (wei === 0n) return "0";
+  const neg = wei < 0n;
+  const v = neg ? -wei : wei;
+  const whole = v / WEI_PER_DOT;
+  const fracDigits = (v % WEI_PER_DOT).toString().padStart(18, "0");
+
+  let out: string;
+  if (whole > 0n) {
+    const f = fracDigits.slice(0, 4).replace(/0+$/, "");
+    out = f ? `${whole}.${f}` : whole.toString();
+  } else {
+    const four = fracDigits.slice(0, 4).replace(/0+$/, "");
+    if (four) {
+      out = `0.${four}`;
+    } else {
+      // Sub-0.0001 dust: show `sigFigs` digits starting at the first non-zero.
+      const firstSig = fracDigits.search(/[1-9]/);
+      const slice = fracDigits
+        .slice(0, Math.min(18, firstSig + sigFigs))
+        .replace(/0+$/, "");
+      out = `0.${slice}`;
+    }
+  }
+  return neg ? `-${out}` : out;
+}

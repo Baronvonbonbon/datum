@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { walletClient, type WalletStatus } from "./walletClient";
+import { formatDotWei } from "@shared/dot";
 import { getProvider } from "@shared/contracts";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import type { StoredSettings } from "@shared/types";
@@ -396,18 +397,10 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
   );
 }
 
-function formatDot(wei: bigint): string {
-  if (wei === 0n) return "0";
-  const whole = wei / 10n ** 18n;
-  const frac = wei % 10n ** 18n;
-  if (whole === 0n) {
-    const padded = frac.toString().padStart(18, "0");
-    const trimmed = padded.slice(0, 6).replace(/0+$/, "") || "0";
-    return `0.${trimmed}`;
-  }
-  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
-  return fracStr ? `${whole}.${fracStr}` : whole.toString();
-}
+// Adaptive-precision DOT formatter (18-decimal wei in). Reveals sub-0.0001
+// dust as significant figures instead of collapsing it to "0.0" — see
+// formatDotWei in @shared/dot.
+const formatDot = (wei: bigint): string => formatDotWei(wei);
 
 function shorten(addr: string): string {
   if (!addr || addr.length < 10) return addr || "—";
